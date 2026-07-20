@@ -1751,7 +1751,11 @@ def test_head_chain_and_request_ids(
 
 
 def main() -> int:
-    tmpdir = tempfile.mkdtemp(prefix="authority-store-self-test-")
+    # Darwin limits AF_UNIX pathnames to 104 bytes.  The default per-user
+    # temporary directory is already long enough that descriptive fixture
+    # socket names exceed that limit, so keep this process-private tree under
+    # the stable short POSIX temporary root.
+    tmpdir = tempfile.mkdtemp(prefix="pf-as-", dir="/tmp")
     try:
         module = load_store_module()
         assert_public_api(module)

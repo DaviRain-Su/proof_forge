@@ -40,8 +40,16 @@ non-elaborating loader 共用同一个 syntax decoder，以 AST 等价测试防�
 ## 公共类型
 
 ```lean
+structure SourceNameComponentV1 where
+  private mk ::
+  raw : String
+  deriving DecidableEq, Repr
+
+structure SourceQualifiedNameV1 where
+  components : NonEmptyArray SourceNameComponentV1
+
 structure SourceProgramIdentity where
-  qualifiedName : QualifiedName
+  qualifiedName : SourceQualifiedNameV1
   sourceHash    : Digest
 
 structure SemanticProgramBinding where
@@ -67,6 +75,10 @@ class Materializer (target : TargetId) where
   emit             : TargetIR → EmitContext → IO (CompileResult OutputSet)
 ```
 
+`SourceQualifiedNameV1` 是 ProgramV1 规范类型；其实现由后续独立 slice 落地。当前 alpha
+`Source.Program` 的 rendered `String` 与使用 common `QualifiedName` 的 development helper 都是过渡面，
+不得替代该 raw carrier。
+
 `RequirementRef`、`RequirementKey` 与 `SupportPredicate` 的唯一 type/wire authority 是
 [`SPEC-CAP-001`](specs/capabilities-extensions.md)；本集成页直接使用该类型，不重新声明字段。
 
@@ -83,7 +95,7 @@ policy；deploy/verify 必须对三者做 exact compatibility join，不匹配�
 |---|---|---|
 | Common types/resources | [`specs/common-types.md`](specs/common-types.md) | NFR-002/006/008 |
 | DSL | [`specs/language.md`](specs/language.md) | FR-001/002/010 |
-| Source.ProgramV1 wire | [`specs/source-program-wire.md`](specs/source-program-wire.md) | FR-001/002/010 |
+| Source.ProgramV1 wire | [`specs/source-program-wire.md`](specs/source-program-wire.md)（Ident = raw `SourceNameComponentV1`；source identity 数组 source-specific；不削弱 SPEC-COMMON） | FR-001/002/010 |
 | Type/effect | [`specs/type-effect-system.md`](specs/type-effect-system.md) | FR-003/012 |
 | Semantics | [`specs/semantic-core.md`](specs/semantic-core.md) | FR-004/005 |
 | SemanticProgram wire/provenance | [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md) | FR-004/005 |

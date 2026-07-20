@@ -3,7 +3,7 @@ id: SPEC-SOURCE-WIRE-001
 title: Source.ProgramV1 Canonical AST 与 Wire 规格
 status: proposed
 owner: frontend
-updated: 2026-07-16
+updated: 2026-07-19
 normative: true
 ---
 
@@ -13,7 +13,8 @@ normative: true
 
 本规格冻结 `Source.ProgramV1` 的目标中立 canonical AST、binary wire、`sourceHash` 输入和
 NodeId 分配测试接口。`SPEC-LANG-001` 继续唯一拥有 surface grammar、默认值和 source
-elaboration；`SPEC-COMMON-001` 继续拥有 `QualifiedName`、`NodeId`、`Digest`、NFC 和资源 primitive。
+elaboration；`SPEC-COMMON-001` 继续拥有 common `QualifiedName`、`NodeId`、`Digest`、NFC 和资源
+primitive，**不**把 common `QualifiedName` 当作 source wire Ident 或 source identity 数组权威。
 本规格只把已经由 Phase 1 parser 接受并完成 declaration-shape validation 的 source AST 编码为
 唯一 bytes，不定义 type/effect/termination/disclosure 结论，也不包含 `TargetId`、profile、VM、ABI、
 storage、account、Wasm、circuit 或 deploy 语义。
@@ -26,25 +27,45 @@ schema/domain，不能在 v1 中宽松读取。
 当前 `ProofForgeV2.Core.Source` 是 alpha 子集，不是本规格的字段或 tag authority。完整 D1
 实现必须迁移到本规格；不得为了兼容 alpha 的内存 constructor 而改变 v1 wire。
 
+## Source name carrier（Ident）
+
+Source wire 的 `Ident` 是 **raw Lean `Name.str` payload carrier**（`SourceNameComponentV1`），与
+`Name.toString` rendered spelling（可含 `«…»`）以及 `SPEC-COMMON-001` `QualifiedName` component
+三者互不等价。
+
+- **Wire 身份字节**只编码 raw UTF-8；不得写入 guillemet render、pretty-printer 或 `Name.toString`。
+- raw 必须已是 pinned NFC；UTF-8 长度 `1..240`；拒绝 Unicode Cc 与 closing guillemet `U+00BB`。
+  这是 deliberate wire-local fail-closed narrowing：Lean 把 `»` 视为 identifier 字符，但
+  `Name.toString` 无法为含 `»` 的 component 生成可恢复 escape；禁掉 closing guillemet 后，plain render
+  或外围 `«raw»` 都能唯一回到同一 raw。opening `U+00AB` 本身不破坏该注入性。
+- raw **允许** exact `_`、opening guillemet `U+00AB`、digit-leading、hyphen、embedded dot、space、
+  NFC Unicode letter-like 与 language reserved word **bodies**（语法层仍可按 `SPEC-LANG-001` 保留词
+  拒绝；本 wire carrier 不实现 keyword deny-list）。
+- raw **不**要求 `Lean.isIdFirst`/`isIdRest`；common `QualifiedName` 的 isId\* 规则保持不变，
+  不得被本规格削弱。
+- 从 `Lean.Name` 投影时只接受最终 constructor 为 `.str` 的 component；`.num`/anonymous 失败。
+- render helper 仅供 Lean 侧诊断/导出对照：`(Name.str .anonymous raw).toString`；render **永不**进入
+  sourceHash / canonical bytes。非 Lean 实现不得重写该 renderer 后把结果当身份；跨实现只实现并比较
+  raw validation 与 raw wire bytes。
+
+Source identity 数组（`moduleName`、`programIdentity` 与其他 source-only qualified paths）是
+`Array<SourceNameComponentV1>`（实现名可称 source-qualified array），**不是** common
+`QualifiedName`。count 规则：`moduleName` ≥1；`programIdentity` ≥2 且为 module∥namespace∥decl
+join；上限 256 components。common `QualifiedName` 继续服务 non-source JCS/export 场景。
+
 ## Canonical root
 
 canonical root 是以下三段的无间隔串接：
 
 ```text
 canonicalSourceAstBytesV1 =
-  encodeQualifiedName(moduleName) ||
-  encodeQualifiedName(programIdentity) ||
+  encodeSourceNameArray(moduleName) ||
+  encodeSourceNameArray(programIdentity) ||
   encodeTagged(program)
 ```
 
-- `moduleName` 是 Lean module 的 `QualifiedName` component array。
-- `programIdentity` 是包含 namespace 与 declaration name 的 fully-qualified program name。
-- `moduleName` 至少一个 component；`programIdentity` 必须是 module identity components、active namespace
-  components 与 declaration name 的串接，因而至少两个 component，且不得靠 root/anonymous component
-  缩短。
-- `program.name` 必须等于 `programIdentity` 的最后一个 component。
-- `programIdentity`、`moduleName` 均 nonempty；component 规则与 256-component 上限来自
-  `SPEC-COMMON-001`/`SPEC-LANG-001`。
+- `moduleName` / `programIdentity` 为 source-specific raw component arrays（见上节）。
+- `program.name` 必须等于 `programIdentity` 最后一个 **raw** component（非 rendered）。
 - root 没有 outer tag、field count、magic、source path 或 trailing bytes。调用者必须已经选择
   `proof-forge.source-program.v1`。
 
@@ -69,15 +90,15 @@ unbounded recursion 读取攻击输入。
 | `Bool` | `0x00=false`, `0x01=true`; other byte rejected |
 | `Option<T>` | `0x00` for none, or `0x01 || encode(T)`; other marker rejected |
 | `Array<T>` | `u32le count || encode(element[0]) ...`; order preserved |
-| `Ident` | `u32le UTF8-byte-length || NFC UTF-8` |
+| `Ident` / `SourceNameComponentV1` | `u32le UTF8-byte-length || raw NFC UTF-8`（raw Lean `Name.str` payload；见上节） |
 | `String` | `u32le UTF8-byte-length || NFC Unicode-scalar UTF-8` |
-| `QualifiedName` | `Array<Ident>`；context-specific count，common carrier 至少 1 |
-| `QualifiedId` | `Array<Ident>`；count `2..256` |
+| `SourceNameArray` | `Array<Ident>`；source identity/path 专用；count 依上下文（module ≥1；programIdentity ≥2；≤256） |
+| `QualifiedName`（common only） | 仍由 `SPEC-COMMON-001` 定义；**不得**用作 source wire Ident 或 source identity 数组 |
+| `QualifiedId` | source 上为 `SourceNameArray` 且 count `2..256`；common QN 规则不自动适用 |
 | Phase 1 length/bound | `u32le`, value restricted to `0..4096` |
 
-`Ident` 还必须通过 `SPEC-LANG-001` 的 Lean identifier validation；qualified components 使用
-`SPEC-COMMON-001` 的 component 限制。`ProofDecl.theorem`、constructor/pattern `QualifiedId` 与
-`ExternalCallExpr.callee` 都必须有至少两个 component；root `programIdentity` 使用上节更强 join。
+`ProofDecl.theorem`、constructor/pattern callee paths 与 `ExternalCallExpr.callee` 在 source wire 上
+使用 source `QualifiedId`（≥2 raw components）；root `programIdentity` 使用上节 join。
 String escape spelling 不进入 AST，decoded Unicode scalar
 sequence 才编码。Integer literal 的 decimal/hex spelling 不进入 AST；magnitude 必须在
 `0..2^256-1`，编码为固定 `u256le`。源码负号是 `Expr.Unary(UnaryOp.Neg, ...)`，不是 signed literal。
@@ -120,7 +141,7 @@ wire tag、NodeId `parentTag` 与 golden inventory 必须逐 byte 使用同一 A
 | `FnDecl` | 4 | `name : Ident`, `params : Array<Param>`, `result : Type`, `body : Block` |
 | `InvariantDecl` | 2 | `name : Ident`, `predicate : Expr` |
 | `ExtensionReq` | 3 | `id : QualifiedId`, `version : String`, `digest : String` |
-| `ProofDecl` | 2 | `invariant : Ident`, `theorem : QualifiedName` |
+| `ProofDecl` | 2 | `invariant : Ident`, `theorem : QualifiedId` |
 
 `Program.items`、`StructDecl.fields`、`EnumDecl.variants` 和 every `Block.statements` 必须 nonempty。
 `ExtensionReq.version` 必须是 canonical exact SemVer string；`digest` 必须是
@@ -329,13 +350,13 @@ iteration order 和非语义括号；operator precedence 形成的 AST 结构仍
 
 ```text
 canonicalSourceAstBytesV1(
-  moduleName : QualifiedName,
-  programIdentity : QualifiedName,
+  moduleName : SourceQualifiedNameV1,
+  programIdentity : SourceQualifiedNameV1,
   program : ProgramV1
 ) -> Except Diagnostic ByteArray
 
 decodeCanonicalSourceAstBytesV1(bytes)
-  -> Except Diagnostic (QualifiedName × QualifiedName × ProgramV1)
+  -> Except Diagnostic (SourceQualifiedNameV1 × SourceQualifiedNameV1 × ProgramV1)
 
 sourceHashV1(moduleName, programIdentity, program)
   -> Except Diagnostic Digest

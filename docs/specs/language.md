@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-18
+updated: 2026-07-19
 normative: true
 ---
 
@@ -670,6 +670,601 @@ independent review 全绿后只可记录 existing-carrier spelling；按冻结�
 runtime semantics、完整 type grammar 或正式 D1 完成。post-PA-72 bounded arbitration 因本 spelling 只有
 单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
 `Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+
+D1-PA-74 冻结的 pre-acceptance alpha 子集只为已有
+`option(option(option(bytes(length))))` carrier 开放 exact same-line spelling
+`Option Option Option Bytes N`。`N` 精确复用 Bytes 的 canonical ASCII decimal `0..4096` discipline，
+tag 固定 `16→16→16→17→N`，requirements 经三层 Option 精确透传为空。本冻结只对这一 exact
+spelling supersede D1-PA-63 的 third-layer deferred、D1-PA-70 的 Bytes-element fail-closed 项与 D1-PA-73
+明示保留的 Bytes leaf；PA63 已完成的两层 Option Bytes 与 PA73 已完成的三层 Option Field 保持不变，
+Array/Option/Map/Named leaf、第四层 Option 与任意 recursive Option grammar 继续 fail closed。post-PA-73
+bounded arbitration 因本候选只有单一 length 轴、无需 15-atom/dual-length matrix，选择它而非更大的
+`Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+
+frontend 只能新增 exact contextual named `optionOptionOptionBytesType` 与 struct-field 对应 parser；不得
+放宽既有 `optionOptionOptionType`、`optionOptionBytesType`、`optionOptionType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须复用 closed `decodeNestedOptionBytesValueTypeFromAtoms` 的完整 Bytes
+lexical/bound policy，再只包一层 Option；专用 type 与 aggregate dispatch 必须先于 generic
+`optionOptionOptionType`/aggregate parser。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target；
+Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`("Bytes Triple Option element", "Option Option Option Bytes 8")` parser-negative 迁移为 positive，
+migration count 精确为一；incomplete `Option Option Option Bytes` 继续保留为 unsupported，其他测试不得
+迁移。positive 覆盖 length `0`、`8`、`4096`、所有 declaration positions（含 event/error）与双入口 parity。
+Source/Semantic canonical tests 各固定三组 length vectors；`N=8` candidate 必须在两侧分别与 bare Bytes、
+一层/两层 Option Bytes、同深度 UInt64 与同深度 Field 做 canonical bytes/hash non-alias，三组 lengths 也必须
+pairwise non-alias，证明第三 wrapper、Bytes leaf 与完整 length payload 都进入 preimage。requirements 必须
+精确为空；四个 Phase 1 target 必须通过 `Targets.checkSupport`，随后 state/result/parameter 三个 dedicated
+fixtures 必须分别由 `Targets.materializeResult` 的既有 non-UInt64 Plan invariant 拒绝，且不得产生
+`OutputSet` 或 artifact。
+
+pre-freeze minimal parser probe 已固定 error channel：incomplete spelling、`4097`/leading-zero/hex/underscore
+length、full/bare Map 与 unknown leaf 必须 exact `unsupported portable type`；negative/identifier length、extra
+payload、任一 Option/Bytes-length seam 换行、三个 Option constructor 或 Bytes constructor 的 escaped/
+qualified form、full Array leaf 与第四层 Option 必须 parser-rejected。Field triple spelling 保持 PA73 positive，
+只作为 canonical non-alias control，不得迁回 negative。其他 Array/Option/Map/Named compound cases只保持既有
+fail-closed 边界，不新增完成条件。
+
+本切片不实现 bytes value/index/slice/length、none/some/unwrap、任意 recursive type grammar、recursive
+legality、runtime representation、ABI 或 target triple-Option-Bytes support。production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录
+existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
+正式 D1 完成。
+
+D1-PA-75 冻结的 pre-acceptance alpha 子集只为已有
+`option(option(array(field,length)))` carrier 开放 exact same-line spelling
+`Option Option Array Field bn254_fr N`。Field identifier 必须是 raw exact `bn254_fr`；`N` 精确复用
+Array 的 canonical ASCII decimal `0..4096` discipline，tag 固定 `16→16→18→2→N`，requirements 经两层
+Option 与 Array 精确透传为单个 `fieldBn254`。本冻结只对这一 exact spelling supersede D1-PA-64 的
+`optionOptionArray` Field-leaf fail-closed residual，并在 D1-PA-65 已完成的
+`Option Array Field bn254_fr N` carrier spelling 外再包一层 Option；PA64 的
+`Option Option Array PrimitiveAtom N`、PA65 的直接前驱 spelling 与 PA73/74 的三层 Option spelling
+保持不变。Bytes/Option/Array/Map/Named leaf 于该 compound 之下、更深 unanchored Option 与任意
+recursive grammar 继续 fail closed。
+
+post-PA-74 bounded residual audit 与 challenge correction 明确记录：expression 侧当前没有可合法冻结的
+parser-only residual candidate；type 侧固定 Field leaf + 单 length 的
+`Option Option Array Field bn254_fr N` 客观小于 `Option Option Option Array PrimitiveAtom N`（后者需要
+15-atom matrix 与 Bool/UInt64 混合 support/Plan 控制）。该选择不是 checkpoint 自动递增，也不是为凑 PA
+序号。
+
+frontend 只能新增 exact contextual named `optionOptionArrayFieldType` 与 struct-field 对应 parser；不得
+放宽既有 `optionOptionArrayType`、`optionArrayFieldType`、`optionOptionType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须复用 closed `decodeOptionArrayFieldValueTypeFromAtoms` 的 raw
+`bn254_fr` 与完整 Array length lexical/bound policy，再只包一层 Option；专用 type 与 aggregate dispatch
+必须先于 generic `optionOptionArrayType`/aggregate parser。不得新增 ctor/tag、修改 Source/Semantic
+encoder、Typed 或 target；Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+`("full Field nested Array element", "Option Option Array Field bn254_fr 4")` parser-negative 迁移为
+positive，migration count 精确为一；incomplete `Option Option Array Field 4` 继续保留为 exact
+unsupported，其他测试不得迁移。positive 覆盖 length `0`、`4`、`4096`、所有 declaration positions（含
+event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 length vectors；`N=4`
+candidate 必须在两侧分别与 `Option Array Field bn254_fr 4`、`Option Option Array UInt64 4`、
+`Option Option Field bn254_fr`、以及 twin 构造的 `Array Option Option Field bn254_fr 4`
+（`.array (.option (.option .field)) 4`）做 canonical bytes/hash non-alias，三组 lengths 也必须 pairwise
+non-alias。requirements 必须恰为单个 `fieldBn254`；四个 Phase 1 target 的 `Targets.checkSupport` 与
+`Targets.materializeResult` 必须都返回 exact `.unsupportedRequirement .fieldBn254 actualTarget` 且
+`actualTarget == target`，证明不能进入 Plan、`OutputSet` 或产出 artifact。
+
+empirical GREEN 后 error channel 固定如下：incomplete spelling、alternate/escaped/qualified Field id、
+length `4097`/leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与 `Widget 4` Named/unknown leaf
+必须 exact `unsupported portable type`；missing/negative/identifier length、extra payload、五个
+Option/Array/Field/id/length same-line seam 换行、四个 constructor（两层 Option、Array、Field）的
+escaped/qualified form、full Bytes/Option/Array/Map compounds 必须 parser-rejected。不得使用虚假
+Named constructor 作为 unsupported 主控（`Widget 4` 仅作 unknown/Named-like control）；不得把更深
+unanchored Option 或 triple Option Array 迁入本切片。
+
+本切片不实现 field arithmetic、array/option value operations、none/some/unwrap、任意 recursive type
+grammar、recursive legality、runtime representation、ABI 或 target nested-Option-Array-Field support。
+production 仅限 `Language/Syntax.lean` 一文件，最多 30 行新增、2 行移除，并在同一 GREEN 刷新 Lean
+package file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后
+只可记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
+grammar 或正式 D1 完成。
+
+D1-PA-76 冻结的 pre-acceptance alpha 子集只为已有
+`array(option(option(field)),length)` carrier 开放 exact same-line spelling
+`Array Option Option Field bn254_fr N`。Field identifier 必须是 raw exact `bn254_fr`；`N` 精确复用
+Array 的 canonical ASCII decimal `0..4096` discipline，tag 固定 `18→16→16→2→N`，requirements 经
+Array 与两层 Option 精确透传为单个 `fieldBn254`。本冻结只对 D1-PA-71 明示保留的 exact Field leaf
+residual supersede fail-closed boundary；PA60 的 `Array Field`、PA71 的 `Array Option Option PrimitiveAtom`、
+PA75 的 wrapper-order twin 均保持不变。Bytes/Option/Array/Map/Named leaf、更深 Option、dual-length 与任意
+recursive grammar 继续 fail closed。
+
+post-PA-75 residual audit 的四路 challenge 以总验收面而非 production 行数仲裁：本候选只有 fixed Field
+与 single length，且在 support resolver 提前拒绝；`Option Option Array Bytes N M` 需要 dual-length
+canonical 轴并在 support-pass 后覆盖 state/result/parameter target-owned Plan rejection，
+`Option Option Option Array PrimitiveAtom N` 增加 PrimitiveAtom element 轴与 zero/`boolValues`
+requirement/support 分支。因此选择本候选不是 checkpoint 自动递增，也不是按 type family 补齐。
+
+frontend 只能新增 exact contextual named `arrayOptionOptionFieldType` 与 struct-field 对应 parser；不得
+放宽既有 `arrayOptionOptionType`、`arrayFieldType`、`arrayOptionType` 或 `portableType`，不得引入 recursive
+parser。新增 decoder 必须复用 closed `decodeArrayFieldValueTypeFromAtoms` 的 raw `bn254_fr` 与完整 Array
+length lexical/bound policy，再只把 element 包两层 Option；专用 type 与 aggregate dispatch 必须先于
+generic `arrayOptionOptionType`/aggregate parser。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed
+或 target；Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+`("full Field Array Option Option element", "Array Option Option Field bn254_fr 4")` parser-negative
+迁移为 positive，migration count 精确为一；incomplete `Array Option Option Field 4` 继续保留为 exact
+unsupported，其他测试不得迁移。positive 覆盖 length `0`、`4`、`4096`、所有 declaration positions
+（含 event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 length vectors；`N=4`
+candidate 必须在两侧分别与 `Array Option Field bn254_fr 4`、`Array Option Option UInt64 4`、
+`Option Option Array Field bn254_fr 4`、`Option Option Field bn254_fr` 做 canonical bytes/hash non-alias，
+三组 lengths 也必须 pairwise non-alias。非 surface-positive control 用既有 carrier 手工构造，不得借测试
+开放额外 spelling。requirements 必须恰为单个 `fieldBn254`；四个 Phase 1 target 的
+`Targets.checkSupport` 与 `Targets.materializeResult` 必须都返回 exact
+`.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，证明不能进入 Plan、
+`OutputSet` 或产出 artifact。
+
+冻结 error channel 如下：incomplete spelling、alternate/escaped/qualified Field id、length `4097`/
+leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与 `Widget 4` unknown/Named-like leaf 必须 exact
+`unsupported portable type`；missing/negative/identifier length、extra payload、五个 Array/Option/Field/id/
+length same-line seam 换行、四个 constructor（Array、两层 Option、Field）的 escaped/qualified form、
+full Bytes/Option/Array/Map compounds 必须 parser-rejected。若 GREEN empirical probe 与冻结 channel
+不一致，必须在 GREEN 前以独立规格修正提交闭合，不得静默改断言或扩大 positive。
+
+本切片不实现 field arithmetic、array/option value operations、none/some/unwrap、任意 recursive type
+grammar、recursive legality、runtime representation、ABI 或 target Array-Option-Option-Field support。
+tests-only RED 仅限 `Tests/Language/ArrayTypes.lean`，最多 320 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 30 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录
+existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
+正式 D1 完成。
+
+D1-PA-77 冻结的 pre-acceptance alpha 子集只为已有
+`array(array(field,innerLength),outerLength)` carrier 开放 exact same-line spelling
+`Array Array Field bn254_fr N M`。Field identifier 必须是 raw exact `bn254_fr`；`N`/`M` 分别表示 inner/
+outer Array length，并各自精确复用 canonical ASCII decimal `0..4096` discipline；tag 固定
+`18→18→2→N→M`，requirements 经两层 Array 精确透传为单个 `fieldBn254`。本冻结只对 D1-PA-66
+明示保留的 exact Field leaf residual supersede fail-closed boundary；PA60 的 `Array Field`、PA66 的
+`Array Array PrimitiveAtom` 与 PA76 的 Array/Option/Option wrapper 均保持不变。Bytes/Option/Array/Map/
+Named leaf、第三层 Array 与任意 recursive grammar 继续 fail closed。
+
+post-PA-76 三路独立 residual audit 均按总验收面选择本候选：它与
+`Option Option Array Bytes N M` 同为 fixed leaf + dual length，但 Field 在 support resolver 前置拒绝，
+不需要 zero-requirement 候选的 state/result/parameter target-owned Plan fixtures；PrimitiveAtom 候选还
+增加 element 轴与 zero/`boolValues` requirement 分支。该选择不是 checkpoint 自动递增或 type family
+补齐。
+
+frontend 只能新增 exact contextual named `arrayArrayFieldType` 与 struct-field 对应 parser；不得放宽
+既有 `arrayArrayType`、`arrayFieldType`、`arrayType` 或 `portableType`，不得引入 recursive parser。
+新增 decoder 必须对 inner `[fieldId,N]` 复用 closed `decodeArrayFieldValueTypeFromAtoms` 的 raw
+`bn254_fr`/length policy，对 outer `M` 复用 `decodeBytesLengthAtom` 与既有 Array `0..4096` bound，再只包
+一层 outer Array；专用 type 与 aggregate dispatch 必须先于 generic `arrayArrayType`/aggregate parser。
+不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target；Lean command 与 ParserSession 必须
+得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+`("full Field Array Array element", "Array Array Field bn254_fr 4 4")` parser-negative 迁移为 positive，
+migration count 精确为一；incomplete `Array Array Field 4 4` 继续保留为 exact unsupported，其他测试
+不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(4,4)/(4096,1)`、所有 declaration positions（含 event/
+error）与双入口 parity。Source/Semantic canonical tests 各固定三组 vectors；ordinary candidate 必须在
+两侧分别与 `Array Array UInt64 4 4`、`Array Field bn254_fr 4`、`Option Array Field bn254_fr 4` 做
+canonical bytes/hash non-alias，并用手工 carrier controls 在 Source/Semantic 两侧固定 `8/4` 对 `0/4`
+（inner-only）、`8/4` 对 `8/0`（outer-only）与 `8/4` 对 `4/8`（swapped-order）non-alias；
+非 surface-positive control 不得借测试开放额外 spelling。requirements 必须
+恰为单个 `fieldBn254`；四个 Phase 1 target 的 `Targets.checkSupport` 与
+`Targets.materializeResult` 必须都返回 exact `.unsupportedRequirement .fieldBn254 actualTarget` 且
+`actualTarget == target`，证明不能进入 Plan、`OutputSet` 或产出 artifact。
+
+冻结 error channel 如下：incomplete spelling、alternate/escaped/qualified Field id、inner/outer 任一
+length 的 `4097`/leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与 `Widget 4 4`
+unknown/Named-like leaf 必须 exact `unsupported portable type`；missing/negative/identifier inner/outer
+length、extra payload、五个 Array/Array/Field/id/length same-line seam 换行、三个 constructor（两层
+Array、Field）的 escaped/qualified form、full Bytes/Option/Array/Map compounds 必须 parser-rejected。
+若 GREEN empirical probe 与冻结 channel 不一致，必须在 GREEN 前以独立规格修正提交闭合，不得静默
+改断言或扩大 positive。
+
+本切片不实现 field arithmetic、array value operations、任意 recursive type grammar/legality、runtime
+representation、ABI 或 target nested-Array-Field support。tests-only RED 仅限
+`Tests/Language/ArrayTypes.lean`，最多 330 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 36 行新增、2 行移除，并在同一 GREEN 刷新 Lean package file-set。
+focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可记录
+existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type grammar 或
+正式 D1 完成。
+
+D1-PA-78 冻结的 pre-acceptance alpha 子集只为已有
+`option(array(array(field,innerLength),outerLength))` carrier 开放 exact same-line spelling
+`Option Array Array Field bn254_fr N M`。Field identifier 必须是 raw exact `bn254_fr`；`N`/`M`
+分别表示 inner/outer Array length，并各自精确复用 canonical ASCII decimal `0..4096` discipline；
+tag 固定 `16→18→18→2→N→M`，requirements 经 Option 与两层 Array 精确透传为单个
+`fieldBn254`。本冻结只 supersede D1-PA-69 明示保留的 exact Field leaf boundary；PA65 的
+`Option Array Field`、PA69 的 `Option Array Array PrimitiveAtom`、PA75 的
+`Option Option Array Field` 与 PA77 的 `Array Array Field` 均保持不变。Bytes/Option/Array/Map/
+Named leaf、第三层 Array 与任意 recursive grammar 继续 fail closed。
+
+post-PA-77 初始 audit 曾分别按 production helper 行数与总验收面把
+`Option Option Array Bytes N M` 和本候选排在第一；随后 bounded challenge 把完整测试/target 调用计入
+同一分母。本候选的 `fieldBn254` 在 support resolver 前置拒绝，只需四 target 各一次
+`checkSupport` 与 `materializeResult`，而 zero-requirement Bytes 候选还需 state/result/parameter 三类
+target-owned Plan rejection fixtures，因此本候选是唯一最小 slice。该选择不是 checkpoint 自动递增或
+type family 补齐。
+
+frontend 只能新增 exact contextual named `optionArrayArrayFieldType` 与 struct-field 对应 parser；不得
+放宽既有 `optionArrayArrayType`、`arrayArrayFieldType`、`optionArrayType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须完整复用 closed `decodeArrayArrayFieldValueTypeFromAtoms` 的 raw
+`bn254_fr`、双 length lexical/bound policy与 inner/outer 顺序，随后只包一层 outer Option；专用 type
+与 aggregate dispatch 必须先于 generic `optionArrayArrayType`/aggregate parser。不得新增 ctor/tag、
+修改 Source/Semantic encoder、Typed 或 target；Lean command 与 ParserSession 必须得到同一 Source
+tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("full Field Option Array Array element", "Option Array Array Field bn254_fr 4 4")`
+parser-negative 迁移为 positive，migration count 精确为一。当前没有既存 incomplete pin，因此 RED
+必须新增 `Option Array Array Field 4 4` 的 exact unsupported control；该新增不是第二条 migration。
+其他测试不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(4,4)/(4096,1)`、所有 declaration
+positions（含 event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 vectors；
+ordinary candidate 必须在两侧分别与 `Array Array Field bn254_fr 4 4`、
+`Option Array Field bn254_fr 4`、`Option Option Array Field bn254_fr 4`、
+`Option Array Array UInt64 4 4` 做 canonical bytes/hash non-alias，并用手工 carrier controls 在
+Source/Semantic 两侧固定 `8/4` 对 `0/4`（inner-only）、`8/4` 对 `8/0`（outer-only）与
+`8/4` 对 `4/8`（swapped-length-order）non-alias；非 surface-positive control 不得借测试开放额外
+spelling。requirements 必须恰为单个 `fieldBn254`；四个 Phase 1 target 的
+`Targets.checkSupport` 与 `Targets.materializeResult` 必须都返回 exact
+`.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，证明不能进入 Plan、
+`OutputSet` 或产出 artifact。
+
+冻结 error channel 如下：新增 incomplete spelling、alternate/escaped/qualified Field id、inner/outer
+任一 length 的 `4097`/leading-zero/`0x10`/`4_096`、bare Bytes/Option/Array/Map 与
+`Widget 4 4` unknown/Named-like leaf 必须 exact `unsupported portable type`；missing outer/both
+lengths、negative/identifier inner/outer length、extra payload、六个 Option/Array/Array/Field/id/
+inner-length same-line seam 换行、四个 constructor（Option、两层 Array、Field）的 escaped/qualified
+form、full Bytes/Option/Array/Map compounds 必须 parser-rejected。若 GREEN empirical probe 与冻结
+channel 不一致，必须在 GREEN 前以独立规格修正提交闭合，不得静默改断言或扩大 positive。
+
+本切片不实现 field arithmetic、array/option value operations、none/some/unwrap、任意 recursive type
+grammar/legality、runtime representation、ABI 或 target Option-nested-Array-Field support。tests-only
+RED 仅限 `Tests/Language/OptionDeclarations.lean`，最多 330 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package
+file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可
+记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
+grammar 或正式 D1 完成。
+
+D1-PA-79 冻结的 pre-acceptance alpha 子集只为已有
+`option(option(array(bytes(innerLength),outerLength)))` carrier 开放 exact same-line spelling
+`Option Option Array Bytes N M`。`N`/`M` 分别表示 Bytes 长度与 outer Array length，并各自精确复用
+canonical ASCII decimal `0..4096` discipline；tag 固定 `16→16→18→17→N→M`，requirements 经两层 Option
+与 Array 精确透传为空集。本冻结只 supersede D1-PA-64/PA-68 明示保留的 nested Option Array Bytes
+fail-closed residual；PA64 的 `Option Option Array PrimitiveAtom`、PA68 的 `Option Array Bytes`、
+PA74 的 triple Option Bytes 与 PA78 的 Option Array Array Field 均保持不变。Field/Option/Array/Map/
+Named leaf、第三层 Option 与任意 recursive grammar 继续 fail closed。
+
+post-PA-78 residual 在 PA77 challenge 之后把 dual-length Field reject 与 dual-length Bytes Plan 重新排序：
+PA78 已关闭 Option Array Array Field；剩余候选 `Option Option Array Bytes N M` 是当前最小 dual-length
+zero-requirement Plan-class residual——固定 Bytes leaf + dual length，decoder 复用 closed
+`decodeOptionArrayBytesValueTypeFromAtoms` 后再包一层 Option，无需 Field-id 矩阵，但仍需
+state/result/parameter 三类 Plan fixture。该选择不是 checkpoint 自动递增或 type family 补齐。
+
+frontend 只能新增 exact contextual named `optionOptionArrayBytesType` 与 struct-field 对应 parser；不得
+放宽既有 `optionOptionArrayType`、`optionArrayBytesType`、`optionOptionType` 或 `portableType`，不得引入
+recursive parser。新增 decoder 必须完整复用 closed `decodeOptionArrayBytesValueTypeFromAtoms` 的
+Bytes/dual-length lexical/bound policy 与 inner/outer 顺序，随后只包一层 outer Option（fail-closed
+shape match）；专用 type 与 aggregate dispatch 必须先于 generic `optionOptionArrayType`/aggregate
+parser。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed 或 target；Lean command 与
+ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+`("nested Bytes nested Array element", "Option Option Array Bytes 8 4")` parser-negative 迁移为
+positive，migration count 精确为一。既有 incomplete bare
+`("bare Bytes nested Option Array Field prefix", "Option Option Array Bytes 4")` 必须继续保留为 exact
+unsupported，其他测试不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(8,4)/(4096,1)`、所有 declaration
+positions（含 event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 deliberately
+UNBOUND golden vectors；ordinary candidate 必须在两侧分别与 `Option Option Array UInt64 4`、
+`Option Array Bytes 8 4`、`Option Option Bytes 8`、`Array Bytes 8 4` 做 canonical bytes/hash
+non-alias，并用手工 carrier controls 在 Source/Semantic 两侧固定 `8/4` 对 `0/4`（inner-only）、
+`8/4` 对 `8/0`（outer-only）与 `8/4` 对 `4/8`（swapped-length-order）non-alias；非 surface-positive
+control 不得借测试开放额外 spelling。requirements 必须为空；四个 Phase 1 target 的
+`Targets.checkSupport` 必须全部 `.ok`；callable boundary 之外，state/result/parameter 三类 fixture 的
+`Targets.materializeResult` 必须 exact `.planInvariant` 且 detail 分别包含 `is not UInt64` /
+`does not return UInt64` / `is not UInt64`，证明不能进入 Plan/`OutputSet` 或产出 artifact。
+
+冻结 error channel 经 GREEN 前 empirical probe 修正如下：incomplete bare spelling、inner/outer
+任一 length 的 `4097`/leading-zero/`0x10`/`4_096`，以及仅缺 outer length 的
+`Option Option Array Bytes 8` 必须 exact `unsupported portable type`；bare Field/Option/Array/Map 与
+`Widget 8 4` unknown/Named-like dual-length leaf、missing both lengths、negative/identifier
+inner/outer length、extra payload、
+五个 outer-Option/middle-Option/Array/Bytes/inner-length 后的 same-line seam 换行、四个 constructor
+（两层 Option、Array、Bytes）的 escaped/qualified form、full Field/Option/Array/Map compounds 必须
+parser-rejected。该修正只校准既有负例的实际拒绝层，不迁移或扩大 positive。
+
+本切片不实现 bytes/array/option value operations、none/some/unwrap、任意 recursive type grammar/
+legality、runtime representation、ABI 或 target nested-Option-Array-Bytes support。tests-only RED 仅限
+`Tests/Language/OptionDeclarations.lean`，最多 330 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package
+file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可
+记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
+grammar 或正式 D1 完成。
+
+D1-PA-80 冻结的 pre-acceptance alpha 子集只为已有
+`array(option(option(bytes(innerLength))),outerLength)` carrier 开放 exact same-line spelling
+`Array Option Option Bytes N M`。`N`/`M` 分别表示 Bytes 长度与 outer Array length，并各自精确复用
+canonical ASCII decimal `0..4096` discipline；tag 固定 `18→16→16→17→N→M`，requirements 经 Array
+与两层 Option 精确透传为空集。本冻结只 supersede D1-PA-71 明示保留的 Array Option Option Bytes
+fail-closed residual；PA71 的 PrimitiveAtom、PA72 的 Array Option Bytes、PA76 的 Field 与 PA79 的
+Option Option Array Bytes positive 均保持不变。该选择补齐 `Array→Option→Option` 下 fixed portable
+leaf 的 PrimitiveAtom/Field/Bytes 三元组；Array/Option/Map/Named compounds 与任意 recursive grammar
+继续 fail closed。它来自 post-PA79 双路 bounded arbitration，不是 checkpoint 自动递增。
+
+frontend 只能新增 exact contextual named `arrayOptionOptionBytesType` 与 struct-field 对应 parser；不得
+放宽既有 `arrayOptionOptionType`、`arrayOptionOptionFieldType`、`arrayOptionBytesType` 或
+`portableType`，不得引入 recursive parser。新增 decoder 必须完整复用 closed
+`decodeArrayOptionBytesValueTypeFromAtoms` 的 Bytes/dual-length lexical/bound policy 与 inner/outer
+顺序，只在既有 Array element 的 Option 外再包一层 Option（fail-closed shape match）；专用 type 与
+aggregate dispatch 必须位于 `arrayOptionOptionFieldType` 之后、generic
+`arrayOptionOptionType`/aggregate parser 之前。不得新增 ctor/tag、修改 Source/Semantic encoder、Typed
+或 target；Lean command 与 ParserSession 必须得到同一 Source tree/hash。
+
+tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有唯一
+`("full Bytes Array Option Option element", "Array Option Option Bytes 8 4")` parser-negative 迁移为
+positive，migration count 精确为一。既有 incomplete
+`("bare Bytes Array Option Option element", "Array Option Option Bytes 4")` 必须继续 exact
+unsupported，其他测试不得迁移。positive 覆盖 `(inner,outer)=(0,0)/(8,4)/(4096,1)`、所有 declaration
+positions（含 event/error）与双入口 parity。Source/Semantic canonical tests 各固定三组 deliberately
+UNBOUND golden vectors；ordinary candidate 必须在两侧分别与 `Array Option Bytes 8 4`、
+`Array Option Option UInt64 4`、`Array Option Option Field bn254_fr 4`、`Option Option Bytes 8`、
+`Array Bytes 8 4` 做 canonical bytes/hash non-alias，并用手工 carrier controls 固定 `8/4` 对 `0/4`
+（inner-only）、`8/4` 对 `8/0`（outer-only）与 `8/4` 对 `4/8`（swapped-length-order）non-alias。
+requirements 必须为空；四个 Phase 1 target 的 `Targets.checkSupport` 必须全部 `.ok`；
+state/result/parameter 三类 fixture 的 `Targets.materializeResult` 必须 exact `.planInvariant` 且 detail
+分别包含 `is not UInt64` / `does not return UInt64` / `is not UInt64`，证明不能进入 Plan/`OutputSet`
+或产出 artifact。
+
+冻结 error channel 如下：incomplete bare spelling、inner/outer 任一 length 的 `4097`/leading-zero/
+`0x10`/`4_096`，以及仅缺 outer length 的 `Array Option Option Bytes 8` 必须 exact
+`unsupported portable type`；bare Field/Option/Array/Map 与 `Widget 8 4` dual-length leaf、missing both
+lengths、negative/identifier inner/outer length、extra payload、五个 same-line seams、Array/两层 Option/
+Bytes constructors 的 escaped/qualified form、full Field/Option/Array/Map compounds 必须
+parser-rejected。若 GREEN empirical probe 与冻结 channel 不一致，必须在 GREEN 前以独立规格修正
+提交闭合，不得静默改断言或扩大 positive。
+
+本切片不实现 Bytes/Array/Option value operations、none/some/unwrap、任意 recursive type grammar、
+runtime representation、ABI 或 target Array-Option-Option-Bytes support。tests-only RED 仅限
+`Tests/Language/ArrayTypes.lean`，最多 320 行新增、2 行移除；production 仅限
+`Language/Syntax.lean` 一文件，最多 32 行新增、2 行移除，并在同一 GREEN 刷新 Lean package
+file-set。focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后只可
+记录 existing-carrier spelling；按冻结不重复完整 `just ci`，不得声明 runtime semantics、完整 type
+grammar 或正式 D1 完成。
+
+D1-PA-81 冻结的 pre-acceptance alpha 子集把当前 no-op `proof_forge_program` attribute 收紧为
+persistent environment export registry。该选择来自 post-PA80 declaration residual audit 与
+`TASK-D1-04` external-call carrier audit：前者已进入无界 wrapper 组合，后者需要 Source/Semantic wire
+演进；因此本切片转向 `TASK-D1-05` 已有的独立 export seam，不是 checkpoint 自动递增。正式
+`TASK-D1-05` 及 `TST-SRC-006/007` 仍为 pending。
+
+environment entry 固定为 `ProgramExportV1{schema,declaration}`，其中 `schema` exact 为
+`proof-forge.program-export.v1`，`declaration` 是 attributed constant 的 fully-qualified Lean `Name`；
+extension 只持久化这两个字段，不持久化或复制 `Source.Program` payload。公开 query
+`programExports : Environment → Except String (Array ProgramExportV1)` 必须合并 imported 与 local entries，
+按 `declaration.toString` 的 valid-Unicode lexicographic order（等价于 UTF-8 byte order）唯一排序，并在
+返回任何部分结果前以 `PF-EXPORT-001` 拒绝 unknown schema、重复 structural `Name` 或同名冲突。
+
+`proof_forge_program` 只接受无参数、global、当前 module declaration；application time 固定在 type
+checking 之后，并要求 declaration type exact 为 `ProofForgeV2.Source.Program`。现有 `program ... where`
+elaborator 仍生成 `@[proof_forge_program] def ... : Source.Program`，不得新增第二套 raw-Syntax AST、改变
+program identity/sourceHash，或让 import order 进入 export order。测试 helper 可调用与 query 相同的
+closed normalization 验证 schema-mismatch/duplicate negatives；不得仅靠 set 静默去重。
+
+tests-only RED 固定新增 Shared/A/B diamond fixture、A→B 与 B→A 两个 snapshot module 及单一
+`Tests.Language.ProgramExports` suite：两种 import order 必须得到完全相同的三项 schema/FQN table，
+diamond 中 Shared 只出现一次，未加 attribute 的 manual `Source.Program` alias 不得出现；wrong schema、
+duplicate declaration 与 reordered raw entries 必须分别证明 fail-closed 或 canonical normalization。
+RED 只允许这些 test fixture、`Tests.lean` 与 `lakefile.lean` 的单行注册，总新增不超过 240 行。
+
+GREEN 只允许新增 `ProofForgeV2/Language/ProgramExport.lean`（最多 150 行）、在
+`ProofForgeV2/Language/Syntax.lean` 增加 import 并删除旧 no-op attribute（最多 3 行新增、8 行移除），
+以及刷新 `supply-chain/lean-package-files.v1.json`。focused `lake build
+Tests.Language.ProgramExports`、aggregate test build/binary、`git diff --check`、单次 `just sbom` 与独立
+review 全绿后才能收口；按冻结不重复完整 `just ci`。
+
+本切片明确不实现 constant evaluation、跨 module payload identity duplicate 判定、NodeId/source-origin
+export、`PF-EXPORT-002`、CLI/Loader `--program` selection、wire/JSON publication、target/materializer 或
+contained frontend worker；不得据此宣称正式 D1、完整 `TST-SRC-006/007` 或可部署能力完成。
+
+D1-PA-82 冻结的 pre-acceptance alpha 子集只关闭 PA81 schema/FQN registry 到 exported
+`Source.Program` value 的安全重建缝隙。该选择来自两路 post-PA81 security audit，不是 checkpoint
+自动递增：Lean 4.31 的 `Environment.evalConst`、`evalConstCheck` 与 `Meta.evalExpr` 都会编译或执行
+constant-reachable IR，不能用于未 contained 的产品路径；本切片因此把上文笼统的“常量求值”收紧为
+读取 `ConstantInfo.value` 后的 closed structural reconstruction，禁止执行 attributed declaration。
+正式 `TASK-D1-05` 与 `TST-SRC-006/007` 仍为 pending。
+
+新增模块 `ProofForgeV2.Language.ProgramPayload`。公开 API 固定为：
+
+```lean
+decodeQuotedProgramV1 : Lean.Expr → Except String ProofForgeV2.Source.Program
+programPayload : Lean.Environment → Lean.Name → Except String ProofForgeV2.Source.Program
+programPayloads : Lean.Environment →
+  Except String (Array (ProgramExportV1 × ProofForgeV2.Source.Program))
+```
+
+`programPayload` 必须先取得 `programExports env` 的完整 normalized table，并要求 exact structural `Name`
+存在；禁止把未 attributed declaration 当作候选。`programPayloads` 只遍历该 table，并在全部 row 成功后
+一次返回；任一 row 失败不得返回 partial prefix。两者只接受 `ConstantInfo.defnInfo`、definition safety
+为 safe、type exact 为 `ProofForgeV2.Source.Program`、没有 top-level `implemented_by`/extern 替代且
+`Environment.hasUnsafe value = false` 的 declaration；opaque/axiom/theorem、unsafe、missing value、
+type mismatch、constant alias 与最终呈现 non-direct value 的 partial alias 全部以 `PF-EXPORT-004` fail closed。
+Lean 4.31 对非递归 direct-value `partial def` 不保留可由 `Environment` 或其 closed value `Expr` 观察的
+source-modifier provenance；若其最终为 safe direct `Program.mk`，decoder 按结构与普通 safe def 等同处理。
+不得为了区分该不可观察修饰符而执行 declaration；若未来必须保留 provenance，应由 registry schema
+显式承载并另行冻结，不得回填本切片。
+
+`decodeQuotedProgramV1` 是纯 `Expr → Except` decoder，不查文件、网络、环境变量或 plugin，不调用
+`whnf`/simp/reduce、compiler、`evalConst`/`evalExpr`、`unsafe` API 或 `IO`。root 必须是 exact
+`ProofForgeV2.Source.Program.mk` 的 14-field application。递归 payload 只接受当前 `quoteProgram` 产生的
+exact constructor vocabulary：`ProofForgeV2.Source.*` constructors、string/Nat literals、
+`List.toArray` 的 `List.nil`/`List.cons` spine、`Option.none/some`、Bool，以及 literal/length wrapper 中的
+`UInt64.ofNat`、`UInt32.ofNat`、`OfNat.ofNat`/`Fin.instOfNat` 形状。type/proof implicit arguments只能在
+这些 exact wrapper position 被忽略；任何其他 data-position constant、lambda/let/projection/free/meta
+variable 或 wrapper/arity drift 均拒绝。UInt32/UInt64 与 `Fin 4097` 在构造 host value 前按 raw Nat literal
+检查范围，禁止 wrap/truncate 或相信 proof term。
+
+decoder 先用显式工作栈对 raw `Expr` 做最多 100000 nodes 的总量预检；Source Expr/Statement/ValueType
+的逻辑递归深度最多 256，list spine 不计作业务递归深度。node/depth 恰等于上限可进入结构判定，超过
+上限固定为 `PF-EXPORT-004: program payload structural bound exceeded`。`programExports env`
+成功返回 normalized table 后，其他 payload 失败固定以前缀 `PF-EXPORT-004` 返回 `not registered`、
+`declaration unavailable or unsafe` 或 `unsupported quoted Source.Program form`，不得抛出 raw Lean
+exception；若上游 registry normalization 因 schema/identity 冲突失败，则保留 PA81 已冻结的
+`PF-EXPORT-001`，不得误标为 payload failure。
+
+tests-only RED 固定新增 single rich DSL payload fixture、alias/opaque/unsafe/implemented-by negative
+fixtures、snapshot helper 与单一 `Tests.Language.ProgramPayloads` suite，并只修改 `Tests.lean`/
+`lakefile.lean` 注册，总新增不超过 360 行。positive rich fixture 必须比较 reconstructed Program 的全部
+BEq value、qualified name 与 sourceHash；rich 与 test-owned exact direct quoted control 联合覆盖完整
+constructor family。当前 DSL 的 bare state read 产生 `Expr.variable`，所以 `Expr.state` 由 direct quoted
+control 覆盖，禁止为了 fixture 改 grammar。negative 必须证明 unregistered、constant alias、opaque、unsafe、可观察的
+partial alias、
+`implemented_by` replacement 均不执行且以 `PF-EXPORT-004` 拒绝，valid+invalid table 不返回 partial。
+test-owned synthetic raw Expr 另固定 100000/100001 node 与 256/257 logical-depth boundary channel。
+
+GREEN 只允许新增 `ProofForgeV2/Language/ProgramPayload.lean`（最多 520 行）并刷新
+`supply-chain/lean-package-files.v1.json`；不得修改 Syntax、ProgramExport registry、Core Source、Loader、
+CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、`git diff --check`、单次
+`just sbom` 与 independent review 全绿后只能记录 development evidence；不得声明运行了用户代码、
+identity-level duplicate 已闭合、正式 constant-evaluation sandbox、CLI selection 或 D1 完成。
+
+本切片明确不实现 cross-row `qualifiedName`/sourceHash identity duplicate、NodeId/origin、
+`PF-EXPORT-002/003` selection、CLI/Loader、wire publication、target/materializer、frontend containment 或
+任意 Lean term evaluator。若 closed structural decoder 无法覆盖 `quoteProgram` 当前完整 constructor
+surface，必须 blocked/split，禁止回退到 `evalConst`/`evalExpr`。
+
+D1-PA-83 冻结的 pre-acceptance alpha 子集只关闭 PA82 成功重建全部 registry row 之后的
+cross-row exported Source identity duplicate/split-brain 缝隙。该选择来自两路 post-PA82
+residual/authority audit，因 PA81 只保证 declaration `Name` 唯一，PA82 明确未检查 payload
+identity，且该缝隙可在不引入 CLI/Loader、wire、NodeId/origin、target 或 contained worker 的情况下
+独立测试；不是 checkpoint 自动递增。正式 `TASK-D1-05` 与 `TST-SRC-006/007` 仍为
+pending。
+
+本切片不新增公开 API，只收紧既有 `programPayloads`。算法顺序固定为：
+
+1. 先取得 PA81 normalized/sorted `programExports env`；registry schema/identity 失败保留
+   `PF-EXPORT-001`。
+2. 按该 row order 调用 PA82 closed structural decoder 重建**全部** payload；任一 row 失败保留
+   `PF-EXPORT-004`，不执行 identity scan，不暴露 partial prefix。
+3. 全部重建成功后，仍按 PA81 declaration FQN order 扫描 rows。唯一主键是 payload
+   `Source.Program.qualifiedName` 的 exact `String` equality，不做 casefold、path normalization 或重排序。
+   第一次出现记录 `qualifiedName → Source.Program.sourceHash`。
+4. 后续 row 使用相同 qualifiedName 时，若 sourceHash 与已记录值相同，稳定失败为
+   `PF-EXPORT-001: duplicate exported program identity`；若 sourceHash 不同，稳定失败为
+   `PF-EXPORT-001: conflicting exported program identity`。首个 collision 决定诊断，不返回 partial table。
+5. qualifiedName 不同的 rows 通过本检查。`sourceHash` 不是可独立碰撞的第二主键：当前
+   `Source.Program.canonicalBytes` 已把 qualifiedName 放入 hash preimage，因此本切片不伪造
+   different-qualifiedName/same-hash 负例，也不以不可构造的 SHA-256 碰撞作为验收前置。
+
+tests-only RED 固定新增 isolated ProgramIdentity fixtures/snapshot 与单一
+`Tests.Language.ProgramIdentities` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过
+220 行。positive 用两个 distinct qualifiedName、相同业务 shape 的 attributed direct
+`Program.mk` 值固定 table/order 与不同 hash；duplicate fixture 用不同 declaration FQN 承载同
+qualifiedName+同 payload；split-brain fixture 承载同 qualifiedName+不同 payload/hash。另一 isolated
+priority fixture 同时含 identity collision 与后续 PA82-invalid payload，必须稳定返回 `PF-EXPORT-004`，证明
+全量 decode 先于 identity scan。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、
+`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development evidence，按冻结
+不重复完整 `just ci`。
+
+本切片明确不实现 single-row `ProgramExportV1.declaration.toString` 与 payload qualifiedName 绑定、
+independent sourceHash collision oracle、NodeId/origin、`PF-EXPORT-002/003` selection、CLI/Loader、wire
+publication、target/materializer、frontend containment 或正式 `TST-SRC-006/007` closure。这些新缺口
+只能经新的 bounded audit/freeze 处理，不得回填本切片。
+
+D1-PA-84 冻结的 pre-acceptance alpha 子集只关闭 PA81 export declaration 与 PA82 reconstructed
+payload 之间的 single-row identity binding。两路 post-PA83 audit 与 Lean 4.31 nested/escaped
+`Name.toString` probe 证明 DSL elaborator 在同一 namespace 中以相同
+`currentNamespace ++ name.getId` 同时形成 attributed constant `Name` 和 payload qualifiedName；因此合法
+DSL output 必须满足以下 exact invariant：
+
+```text
+ProgramExportV1.declaration.toString == Source.Program.qualifiedName
+```
+
+比较只使用 exact `String` equality，不做 casefold、NFC 重算、path normalization 或 wire component
+重编码。失败固定为 `PF-EXPORT-001: exported program identity does not match declaration`；它属于 identity
+conflict，不得误归为 `PF-EXPORT-004` structural form/safety failure。
+
+两个既有 public API 都必须收紧且不新增 public API：
+
+1. `programPayload env name` 先取得 PA81 normalized registry 并要求 exact registered Name，再执行 PA82
+   closed structural decode；decode 成功后检查对应 declaration/payload binding，再返回 payload。
+2. `programPayloads env` 先按 PA81 FQN order 完成**全部** PA82 decode；任一 row invalid 仍以
+   `PF-EXPORT-004` 失败且不返回 partial prefix。全部 decode 成功后先运行 PA83 cross-row qualifiedName/hash
+   scan，保留既有 duplicate/conflict exact diagnostic；随后仍按 row order 检查每个 declaration/payload
+   binding。第一个 binding mismatch 决定本切片 exact diagnostic，成功时才返回完整 table。
+3. PA83 scan-before-binding 是显式兼容/defense-in-depth 顺序：它保留已冻结的手工攻击 fixture 与错误
+   优先级；对单个 lying direct payload，或没有 cross-row collision 的 table，新 binding 仍必然 fail closed。
+
+tests-only RED 固定新增 isolated ProgramBinding fixtures 与单一
+`Tests.Language.ProgramBindings` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过 220 行。
+positive 必须同时覆盖 DSL nested namespace、escaped identifier 与 exact-aligned hand direct `Program.mk`，
+并通过 single/table API 固定 declaration rendering 与 payload qualifiedName 相等。negative 必须分别固定
+single/table mismatch exact message；PA82-invalid form 继续优先 `PF-EXPORT-004`；PA83 existing duplicate/
+conflict fixtures继续保持原 exact messages，不允许为新 slice 降级或删除旧攻击覆盖。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、aggregate test build/binary、
+`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development evidence，按冻结
+不重复完整 `just ci`。
+
+本切片明确不实现 payload short-name/last-component binding、source-program wire 的 moduleName/
+QualifiedName component identity、independent hash collision oracle、NodeId/origin、`PF-EXPORT-002/003`、
+CLI/Loader selection、target/materializer、frontend containment 或正式 `TST-SRC-006/007` closure。
+`PF-EXPORT-003` 的零候选分类由 `docs/specs/cli.md` selection rule 拥有；低层 `programPayloads` 的 empty
+registry query 继续返回 empty table，禁止在本切片跨层改义。
+
+D1-PA-85 冻结的 pre-acceptance alpha 子集只关闭 PA84 full-FQN binding 之后仍可由 hand-authored
+direct `Program.mk` 伪造的 payload short name。DSL elaborator 的 `Source.Program.name` 来自
+`program` identifier 的 `stx.getId.toString`；export declaration 的最后一个结构 component 则保存为
+`Name.str prefix rawComponent`。Lean 4.31 probe 证明 escaped program identifier 的两者不能用 raw
+component 直接比较：hyphen/dot 等 component 在 payload name 中由 `Name.toString` 加上 guillemets。
+
+因此 expected short name 只能按 declaration `Name` 结构计算：
+
+```text
+match declaration with
+| Name.str _ rawComponent => (Name.str Name.anonymous rawComponent).toString
+| _ => fail closed
+```
+
+随后要求 expected short name 与 `Source.Program.name` exact `String` equality。禁止对 full FQN 做
+`.` split、suffix/substring comparison，禁止 raw-component equality、casefold、NFC 重算或 wire component
+重编码。失败固定为 `PF-EXPORT-001: exported program short name does not match declaration`；它属于
+identity conflict，不得误归为 `PF-EXPORT-004` form/safety failure。
+
+两个既有 public API 都必须收紧且不新增 public API：
+
+1. `programPayload env name` 固定按 registered membership → PA82 closed decode → PA84 FQN binding →
+   PA85 rendered short-name binding 的顺序执行。
+2. `programPayloads env` 先完成全部 PA82 decode，再运行 PA83 cross-row identity scan；随后仍按 row
+   order 对每 row 先运行 PA84 FQN binding，再运行 PA85 rendered short-name binding。PA84 失败优先于
+   同 row 的 short-name failure，第一个 failing row 决定 diagnostic，完整成功后才返回 table。
+3. 非 `Name.str` final declaration 必须以同一个
+   `PF-EXPORT-001: exported program short name does not match declaration` fail closed；不得使用
+   panic-prone `Name.getString!` 或把 hygienic `Name.num` 静默映射为 portable source name。empty
+   registry 的 loops 仍为空操作并返回 empty table。
+
+tests-only RED 固定新增 isolated ProgramShortName fixtures 与单一
+`Tests.Language.ProgramShortNames` suite，并只修改 `Tests.lean`/`lakefile.lean` 注册，总新增不超过
+180 行。positive 必须固定 simple hand-aligned direct row、escaped program identifier with hyphen 与
+escaped program identifier containing dot，并通过 single/table API 比较 isolated-component rendering 与
+payload name。negative 必须以 qualifiedName 已通过 PA84、只有 short name lying 的 direct row 分别固定
+single/table exact diagnostic；priority fixture 同时含 lying short name 与 later PA82-invalid row，必须仍返回
+`PF-EXPORT-004`。PA83/PA84 existing suites 不得修改或降级。
+
+GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+480，并刷新 `supply-chain/lean-package-files.v1.json`。禁止修改 ProgramExport registry、Core Source、
+Syntax、Loader、CLI、Typed/Semantic 或 target。focused suite、PA83/PA84 regressions、aggregate test
+build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只能记录 development
+evidence，按冻结不重复完整 `just ci`。
+
+本切片明确不实现 source-program wire 的 moduleName/programIdentity component carrier、NodeId/origin、
+schema-v2 evolution、`PF-EXPORT-002/003`、CLI/Loader selection、target/materializer、frontend containment
+或正式 `TST-SRC-006/007` closure。D1-PA-85 收口后，Lean attribute export/schema 代码侧
+pre-acceptance micro-seam 视为饱和；下一步只能另行冻结正式 `TST-SRC-006/007` evidence packaging，或按
+task authority 选择其他 dependency-safe 工作，不得继续从 checkpoint 自动生成 identity 微检查。
 
 D1-PA-20 冻结的 pre-acceptance alpha `let` 子集只接受 existing initializer/callable body 内同一行的
 `let name := Expr` 与 `let name : Type := Expr`。Source carrier 固定为

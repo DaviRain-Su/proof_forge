@@ -890,9 +890,9 @@ def valid_d0_07_attest(freeze_digest: str) -> dict[str, Any]:
         "genesisReplayReportSha256": "f" * 64,
         "darwinLiveReobservation": (
             "darwin-arm64-25E253-xcode17C529-development re-observation pending"),
-        "d003DeferredClearance": "EV-20260719-0084",
-        "fixtureEvidenceEvidence": "EV-20260719-0080",
-        "cleanRoomEvidence": "EV-20260719-0082",
+        "d003DeferredClearance": "EV-20260719-0117",
+        "fixtureEvidenceEvidence": "EV-20260719-0113",
+        "cleanRoomEvidence": "EV-20260719-0115",
         "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
         "notes": "Closes D0-07 fixture acceptance; not formal or hermetic evidence.",
     }

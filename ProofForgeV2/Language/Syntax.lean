@@ -1,6 +1,7 @@
 import Lean
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Source
+import ProofForgeV2.Language.ProgramExport
 import Std.Data.HashSet
 
 open Lean Parser Command
@@ -22,6 +23,18 @@ prevents the following program item from becoming part of the type. -/
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def arrayOptionOptionFieldType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit)
+@[pfType_parser default+1] def arrayOptionOptionBytesType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
+    checkLineEq >> numLit)
 @[pfType_parser default+1] def arrayOptionOptionType := leading_parser
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
@@ -36,6 +49,11 @@ prevents the following program item from becoming part of the type. -/
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def arrayArrayFieldType := leading_parser
+  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit >> checkLineEq >> numLit)
 @[pfType_parser default+1] def arrayArrayType := leading_parser
   withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit)
@@ -53,6 +71,18 @@ prevents the following program item from becoming part of the type. -/
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit)
+@[pfType_parser default+1] def optionOptionArrayFieldType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit)
+@[pfType_parser default+1] def optionOptionArrayBytesType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
+    checkLineEq >> numLit)
 @[pfType_parser default+1] def optionOptionArrayType := leading_parser
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
@@ -63,6 +93,11 @@ prevents the following program item from becoming part of the type. -/
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
+@[pfType_parser default+1] def optionOptionOptionBytesType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit)
 @[pfType_parser default+1] def optionOptionOptionType := leading_parser
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
@@ -92,6 +127,12 @@ prevents the following program item from becoming part of the type. -/
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
     checkLineEq >> numLit)
+@[pfType_parser default+1] def optionArrayArrayFieldType := leading_parser
+  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
+    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
+    checkLineEq >> numLit >> checkLineEq >> numLit)
 @[pfType_parser default+1] def optionArrayArrayType := leading_parser
   withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
@@ -192,6 +233,18 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
     checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def arrayOptionOptionFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def arrayOptionOptionBytesAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
+    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayOptionOptionAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
@@ -206,6 +259,11 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def arrayArrayFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
@@ -226,6 +284,18 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
     checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionOptionArrayFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionOptionArrayBytesAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
+    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def optionOptionArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
@@ -237,6 +307,12 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
     checkLineEq >> ident >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionOptionOptionBytesAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
+    checkLineEq >> numLit >> checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def optionOptionOptionAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
@@ -269,6 +345,13 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
     checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+@[pfAggregateMember_parser default+1] def optionArrayArrayFieldAggregateField := leading_parser
+  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
+    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
+    checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def optionArrayArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
@@ -530,6 +613,12 @@ private def decodeArrayFieldValueTypeFromAtoms :
       else throw "unsupported portable type"
   | _ => throw "unsupported portable type"
 
+private def decodeArrayOptionOptionFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match ← decodeArrayFieldValueTypeFromAtoms atoms with
+  | .array .field length => pure (.array (.option (.option .field)) length)
+  | _ => throw "unsupported portable type"
+
 private def decodeArrayBytesValueTypeFromAtoms :
     Array Syntax → Except String ProofForgeV2.Source.ValueType
   | #[innerSyntax, outerSyntax] => do
@@ -537,6 +626,19 @@ private def decodeArrayBytesValueTypeFromAtoms :
       let outer := (← decodeBytesLengthAtom outerSyntax).toNat
       if h : outer < 4097 then pure (.array (.bytes inner) ⟨outer, h⟩)
       else throw "unsupported portable type"
+  | _ => throw "unsupported portable type"
+
+private def decodeArrayArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match atoms with
+  | #[fieldId, innerSyntax, outerSyntax] => do
+      match ← decodeArrayFieldValueTypeFromAtoms #[fieldId, innerSyntax] with
+      | .array .field innerLength =>
+          let outer := (← decodeBytesLengthAtom outerSyntax).toNat
+          if h : outer < 4097 then
+            pure (.array (.array .field innerLength) ⟨outer, h⟩)
+          else throw "unsupported portable type"
+      | _ => throw "unsupported portable type"
   | _ => throw "unsupported portable type"
 
 private def decodeArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
@@ -571,6 +673,13 @@ private def decodeArrayOptionBytesValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   match ← decodeArrayBytesValueTypeFromAtoms atoms with
   | .array element length => pure (.array (.option element) length)
+  | _ => throw "unsupported portable type"
+
+private def decodeArrayOptionOptionBytesValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match ← decodeArrayOptionBytesValueTypeFromAtoms atoms with
+  | .array (.option (.bytes inner)) outer =>
+      pure (.array (.option (.option (.bytes inner))) outer)
   | _ => throw "unsupported portable type"
 
 private def decodeOptionFieldValueTypeFromAtoms (atoms : Array Syntax) :
@@ -621,6 +730,10 @@ private def decodeNestedOptionBytesValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeOptionBytesValueTypeFromAtoms atoms))
 
+private def decodeTripleOptionBytesValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  pure (.option (← decodeNestedOptionBytesValueTypeFromAtoms atoms))
+
 private def decodeNestedOptionArrayValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   match ← decodeArrayValueTypeFromAtoms atoms with
@@ -638,6 +751,10 @@ private def decodeOptionArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
   | .array .field length => pure (.option (.array .field length))
   | _ => throw "unsupported portable type"
 
+private def decodeNestedOptionArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  pure (.option (← decodeOptionArrayFieldValueTypeFromAtoms atoms))
+
 private def decodeOptionArrayOptionValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeArrayOptionValueTypeFromAtoms atoms))
@@ -645,6 +762,17 @@ private def decodeOptionArrayOptionValueTypeFromAtoms (atoms : Array Syntax) :
 private def decodeOptionArrayBytesValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
   pure (.option (← decodeArrayBytesValueTypeFromAtoms atoms))
+
+private def decodeOptionOptionArrayBytesValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  pure (.option (← decodeOptionArrayBytesValueTypeFromAtoms atoms))
+
+private def decodeOptionArrayArrayFieldValueTypeFromAtoms (atoms : Array Syntax) :
+    Except String ProofForgeV2.Source.ValueType := do
+  match ← decodeArrayArrayFieldValueTypeFromAtoms atoms with
+  | .array (.array .field innerLength) outerLength =>
+      pure (.option (.array (.array .field innerLength) outerLength))
+  | _ => throw "unsupported portable type"
 
 private def decodeOptionArrayArrayValueTypeFromAtoms (atoms : Array Syntax) :
     Except String ProofForgeV2.Source.ValueType := do
@@ -675,17 +803,25 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayBytesType then
     decodeArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayOptionOptionFieldType then
+    decodeArrayOptionOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayOptionOptionBytesType then
+    decodeArrayOptionOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayOptionOptionType then
     decodeArrayOptionOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayOptionBytesType then
     decodeArrayOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayOptionType then
     decodeArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``arrayArrayFieldType then
+    decodeArrayArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``arrayArrayType then decodeArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayOptionType then
     decodeOptionArrayOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayBytesType then
     decodeOptionArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionArrayArrayFieldType then
+    decodeOptionArrayArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayArrayType then
     decodeOptionArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayType then
@@ -698,10 +834,16 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeNestedOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionBytesType then
     decodeNestedOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionOptionArrayFieldType then
+    decodeNestedOptionArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionOptionArrayBytesType then
+    decodeOptionOptionArrayBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionArrayType then
     decodeNestedOptionArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionOptionFieldType then
     decodeTripleOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
+  else if stx.isOfKind ``optionOptionOptionBytesType then
+    decodeTripleOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionOptionType then
     decodeTripleOptionValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionType then
@@ -891,6 +1033,15 @@ private def decodeStatementsUnchecked (statements : Array Syntax) :
 
 private def decodeStructFieldUnchecked (stx : Syntax) :
     Except String ProofForgeV2.Source.FieldDecl := do
+  if stx.isOfKind ``arrayArrayFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayArrayFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``arrayArrayAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with
@@ -917,6 +1068,24 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
     return {
       name := ← decodeIdentifier nameStx
       type := ← decodeArrayBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``arrayOptionOptionFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayOptionOptionFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``arrayOptionOptionBytesAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeArrayOptionOptionBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
   if stx.isOfKind ``arrayOptionOptionAggregateField then
     let atoms := collectTypeAtomSyntax stx
@@ -981,6 +1150,15 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
       name := ← decodeIdentifier nameStx
       type := ← decodeOptionArrayBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
+  if stx.isOfKind ``optionArrayArrayFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionArrayArrayFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``optionArrayArrayAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with
@@ -1008,6 +1186,24 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
       name := ← decodeIdentifier nameStx
       type := ← decodeNestedOptionBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
+  if stx.isOfKind ``optionOptionArrayFieldAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeNestedOptionArrayFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionOptionArrayBytesAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeOptionOptionArrayBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
   if stx.isOfKind ``optionOptionArrayAggregateField then
     let atoms := collectTypeAtomSyntax stx
     let nameStx ← match atoms[0]? with
@@ -1025,6 +1221,15 @@ private def decodeStructFieldUnchecked (stx : Syntax) :
     return {
       name := ← decodeIdentifier nameStx
       type := ← decodeTripleOptionFieldValueTypeFromAtoms (atoms.extract 1 atoms.size)
+    }
+  if stx.isOfKind ``optionOptionOptionBytesAggregateField then
+    let atoms := collectTypeAtomSyntax stx
+    let nameStx ← match atoms[0]? with
+      | some name => pure name
+      | none => throw "unsupported portable struct field"
+    return {
+      name := ← decodeIdentifier nameStx
+      type := ← decodeTripleOptionBytesValueTypeFromAtoms (atoms.extract 1 atoms.size)
     }
   if stx.isOfKind ``optionOptionOptionAggregateField then
     let atoms := collectTypeAtomSyntax stx
@@ -1764,11 +1969,5 @@ elab_rules : command
       let expanded ← `(@[proof_forge_program] def $name : ProofForgeV2.Source.Program :=
           $programExpr)
       Lean.Elab.Command.elabCommand expanded
-
-initialize Lean.registerBuiltinAttribute {
-  name := `proof_forge_program
-  descr := "marks a declaration generated by the ProofForge V2 program DSL"
-  add := fun _ _ _ => pure ()
-}
 
 end ProofForgeV2.Language

@@ -678,19 +678,26 @@ def run_rehearsal_child() -> int:
 def main() -> int:
     if len(sys.argv) == 3 and sys.argv[1] == "--rehearsal-child":
         return run_rehearsal_child()
-    tmpdir = tempfile.mkdtemp(prefix="bootstrap-acceptance-self-test-")
+    # Keep nested AF_UNIX fixtures below Darwin's 104-byte pathname limit.
+    tmpdir = tempfile.mkdtemp(prefix="pf-ba-", dir="/tmp")
     started = time.monotonic()
+    rehearsal_elapsed = None
     try:
         module = load_module()
         assert_public_api(module)
         base = build_base(module)
-        shared = build_shared_run(module, base, tmpdir)
-        try:
-            positive = test_positive_rehearsal(module, base, tmpdir)
-            test_pre_activation_negatives(module, base, shared, tmpdir)
-            test_state_independence(module, base, shared, tmpdir)
-        finally:
-            close_run_fds(shared["handoff"])
+        # The positive rehearsal is a Linux-owned bubblewrap namespace
+        # boundary.  Darwin can validate the dependency-free object/API
+        # baseline above, but cannot honestly execute that runtime proof.
+        if sys.platform.startswith("linux"):
+            shared = build_shared_run(module, base, tmpdir)
+            try:
+                positive = test_positive_rehearsal(module, base, tmpdir)
+                rehearsal_elapsed = positive["elapsed"]
+                test_pre_activation_negatives(module, base, shared, tmpdir)
+                test_state_independence(module, base, shared, tmpdir)
+            finally:
+                close_run_fds(shared["handoff"])
     except (AssertionError, AttributeError, OSError, ImportError, SyntaxError) as error:
         print(
             f"bootstrap-acceptance-self-test: FAIL: {error}", file=sys.stderr
@@ -699,10 +706,16 @@ def main() -> int:
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
     elapsed = time.monotonic() - started
-    print(
-        f"bootstrap-acceptance-self-test: ok "
-        f"(rehearsal {positive['elapsed']:.1f}s, total {elapsed:.1f}s)"
-    )
+    if rehearsal_elapsed is None:
+        print(
+            "bootstrap-acceptance-self-test: ok "
+            f"(linux runtime rehearsal skipped, total {elapsed:.1f}s)"
+        )
+    else:
+        print(
+            f"bootstrap-acceptance-self-test: ok "
+            f"(rehearsal {rehearsal_elapsed:.1f}s, total {elapsed:.1f}s)"
+        )
     return 0
 
 

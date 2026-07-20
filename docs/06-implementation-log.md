@@ -4394,7 +4394,7 @@ normative: false
 - Verification：`/usr/bin/python3 -I -S scripts/formal_evidence_producer_self_test.py`
   ok；全部既有自测 ok；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
   `git diff --check` clean；justfile `docs-check` recipe 已接入。development
-  evidence 为 `EV-20260719-0070`。
+  evidence 为 `EV-20260719-0071`。
 - Limitations：binding 路径 development 约定、requirement registry resolve 归 D3、
   freshness 窗口求值未实现（spec 只钉 nonzero 与正向窗口）；D0-07 保持
   pending、依赖未闭合，不得据本条关闭；D0 formal milestone 仍为 7/9。
@@ -4511,7 +4511,7 @@ normative: false
   `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
   `just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为
   89794 bytes、SHA-256 `09cc60143e0041893abb25acef37db62c098e55840ff11442702a8ed6513670d`；
-  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0071`。按冻结
+  两路独立 final review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0070`。按冻结
   未重复完整 `just ci`。
 - Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
   requirement 与 support-rejection/no-artifact boundary；不包括 Option/Field value operations、任意
@@ -4548,7 +4548,7 @@ normative: false
   `eligibleForHermetic:true`（profile `linux-x86_64-mint223-eligible`、secureBoot enabled）；
   `just host-stage0-negative` 四负例（mutated host lock/trailing record/LD_PRELOAD/
   tampered-ineligible）全 fail closed；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
-  `git diff --check` clean。development evidence 见台账 `EV-20260719-0072`。
+  `git diff --check` clean。development evidence 见台账 `EV-20260719-0105`。
 - Limitations：local point-in-time observation；linux 信任根为 Secure Boot + distro 包完整性
   + pinned digests，弱于 Apple SSV 且无 codesign 等价（ADR-0016 §2 声明），无 remote
   attestation；eligible profile 只解除 `TASK-D0-04` 的 host 前置——genesis root 离线签发首个
@@ -4578,7 +4578,7 @@ normative: false
   ok（init→sign-policy→stage→sign-required-set 全链 + 两条新断言）；consumer
   实算 contentDigest `sha256:14568de52f339dc9c15920a3bb48caa261ddfa36f35f655a696c73662754080f`、
   分母 77；`just docs-check` 全绿；`git diff --check` clean。development
-  evidence 见台账 `EV-20260719-0073`。
+  evidence 见台账 `EV-20260719-0106`。
 - Limitations：R1 实现修复，不改变任何完成面或 Tests 集合；六个 task approval、
   六个 receipt、approval set 与 activation receipt 的签发 spec 仍需仪式时按
   `bootstrap_sign_tool_self_test.py` 模板生成；`TASK-D0-04` 保持 blocked；
@@ -4635,7 +4635,7 @@ normative: false
   `stage0_activate.py` 产物）验证 17 例：正例 True，16 个单点变异
   （approval/receipt/manifest/descriptor/handoff 篡改、缺/多 bundle 文件、
   四类 TCB 漂移、PHASE-5 漂移、candidate/activation id 错）全部 False。
-  development evidence 见台账 `EV-20260719-0074`。
+  development evidence 见台账 `EV-20260719-0107`。
 - Limitations：gate 已落地但 closeout 未完成——真实 bundle 与 attest 仍缺，
   validator 当前对任何 `TASK-D0-04` bootstrap EV 恒返回 False（与此前行为
   一致，docs_check 保持全绿）；`TASK-D0-04` 保持 blocked，任务表与
@@ -4654,15 +4654,15 @@ normative: false
 ## 2026-07-19 — TASK-D0-04 真实 six-item activation 与关闭（cutover）
 
 - Context：GOV-GENESIS-001 §7.3 第二变更集（closeout）。eligible host 登记
-  （`EV-20260719-0072`）、ceremony prep 修复（`EV-20260719-0073`）、关闭门禁
-  （`EV-20260719-0074`）依次落地后，以用户生成的六个 seed（`~/pf-d0-04-seeds`，
+  （`EV-20260719-0105`）、ceremony prep 修复（`EV-20260719-0106`）、关闭门禁
+  （`EV-20260719-0107`）依次落地后，以用户生成的六个 seed（`~/pf-d0-04-seeds`，
   mode 0400，全程未入库未回显）在 eligible linux host 上完成真实 ceremony 并关闭
   `TASK-D0-04`。
 - Changed：`docs/governance/bootstrap-closure/TASK-D0-04/`（21 文件 bundle：
   17 文件 activation 产物 + handoff/candidate/host-observation/service-descriptor）、
   `TASK-D0-04-reviews/`（13 份 independent review report）、
   `TASK-D0-04.attest.json`；任务表 D0-04 行 `blocked → done`（Evidence
-  `EV-20260719-0075`）并新增关闭注记段；台账 bootstrap 级 `EV-20260719-0075`；
+  `EV-20260719-0108`）并新增关闭注记段；台账 bootstrap 级 `EV-20260719-0108`；
   AGENTS.md checkpoint（D0 8/9、Next=`TASK-D0-07`、blocker 更新）。
 - Ceremony facts：candidate `ecd5b5a9f21b5d4642be52283cd832dbc45d8b81`（tree
   `f0cf1c71…`，product-tree archive 2,211,840 bytes ≤ 4 MiB channel cap）；policy
@@ -4710,7 +4710,7 @@ normative: false
 
 ## 2026-07-19 — TASK-D0-07 冻结完成包与 in_progress
 
-- Context：D0-04 真实 activation 关闭（`EV-20260719-0075`）后，`TASK-D0-07` 的全部
+- Context：D0-04 真实 activation 关闭（`EV-20260719-0108`）后，`TASK-D0-07` 的全部
   完成依赖闭合。按 GOV-TASK-FREEZE-001 §3.2 在同一变更集写入冻结完成包并置
   `in_progress`（当前无其他 in_progress 任务）。
 - Changed：新增 [`governance/task-freeze-packages/TASK-D0-07.json`](governance/task-freeze-packages/TASK-D0-07.json)
@@ -4795,7 +4795,7 @@ normative: false
   unknown record schema/RVK↔revokedUtc 日期错/自 replacement/多余字段/乱序
   链）；`just docs-check` 全绿（14 个自测）；`/usr/bin/python3 -I -S
   scripts/docs_check.py` ok；`git diff --check` clean。development evidence
-  见台账 `EV-20260719-0076`。
+  见台账 `EV-20260719-0109`。
 - Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
   evidence；record 的 `authorityRef` 只按调用方给定的 authority 集合判定
   （治理层 authority registry 尚不存在）；EV store resolve（record→真实 EV
@@ -4852,7 +4852,7 @@ normative: false
   below-quorum/tampered member digest/非空 findings/stale bytes/wrong
   signature domain）；`just docs-check` 全绿（15 个自测）；
   `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
-  clean。development evidence 见台账 `EV-20260719-0077`。
+  clean。development evidence 见台账 `EV-20260719-0110`。
 - Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
   evidence；marker 匹配语义为切片级 development 约定（spec 未定文，后续
   finalization 落地时应入 spec）；validator 对 marker 仅要求唯一——已提交
@@ -4917,7 +4917,7 @@ normative: false
   expiresAt mismatch/stale finalization/wrong signature domain/stale
   bytes；identity 坏 digest 语法/带 signatures 字段）；`just docs-check`
   全绿（16 个自测）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
-  `git diff --check` clean。development evidence 见台账 `EV-20260719-0078`。
+  `git diff --check` clean。development evidence 见台账 `EV-20260719-0111`。
 - Limitations：fixture RFC 8032 公测种子与 fixture policy，非 formal/hermetic
   evidence；containment receipt 的观察值由调用方供给（真实 supervising
   observer、escape probe 执行与 rootSessionId 实证归 TST-ISO-002）；
@@ -4979,7 +4979,7 @@ normative: false
   篡改、缺 receipt、错 candidate、finalizer exe 漂移、freshness 过期）；
   `just docs-check` 全绿（17 个自测）；`/usr/bin/python3 -I -S
   scripts/docs_check.py` ok；`git diff --check` clean。development
-  evidence 见台账 `EV-20260719-0079`。
+  evidence 见台账 `EV-20260719-0112`。
 - Limitations / spec gaps（报告不裁决）：(1) D0 gate 的「EV 必须是对应
   signed TaskApproval 与 verifier receipt 覆盖的 exact ref」与「每个 ref
   必须 safe-read bundle EV bytes 并重算 digest」对 commitment 型
@@ -5037,7 +5037,7 @@ normative: false
   catalog-approval、required-set 篡改、freshness 过期、EV digest 不符，
   树级负例均断言零新增输出）；`just docs-check` 全绿（18 个自测）；
   `/usr/bin/python3 -I -S scripts/docs_check.py` ok；`git diff --check`
-  clean。development evidence 见台账 `EV-20260719-0080`。
+  clean。development evidence 见台账 `EV-20260719-0113`。
 - Limitations：store allowlist 为封闭六 schema（无
   `proof-forge.gate-catalog.v1`），catalog 文档本体不发布——catalog
   authority 由 approval 的 catalogDigest 绑定 + 全 consumer 复验确立（与
@@ -5104,7 +5104,7 @@ normative: false
   0/1/2、缺 payload、read-file 正例）；`just docs-check` 全绿（19 个
   自测）；`/usr/bin/python3 -I -S scripts/docs_check.py` ok；
   `git diff --check` clean。development evidence 见台账
-  `EV-20260719-0081`。
+  `EV-20260719-0114`。
 - Limitations：deny-all 的 loopback 在本 kernel 默认 UP（仅本 netns 内
   无对端），外网/非 loopback 一律 ENETUNREACH fail closed；若未来 kernel
   改变默认行为，evm-runtime 的 loopback 存活性由 payload 实测保证、
@@ -5168,7 +5168,7 @@ normative: false
   errno 映射/escape probe 不可签发）；`just v2-clean-room` 端到端通过；
   `just docs-check` 全绿（20 个自测）；`git diff --check` clean；
   `/usr/bin/python3 -I -S scripts/docs_check.py` ok。development evidence
-  见台账 `EV-20260719-0082`。
+  见台账 `EV-20260719-0115`。
 - Limitations：fixture RFC 8032 公测种子与 fixture authority，非
   formal/hermetic evidence；权威 Stage-0 的 300s watchdog 竞态属钉住
   TCB 脚本既有行为（不得修改）；core payload 为结构重审（docs_check 因
@@ -5225,7 +5225,7 @@ normative: false
   group-writable 源，已对 repo 文件与目录做 `go-w` 规范化（字节不变、
   git 只跟踪 x 位）。`just docs-check` 全绿（21 个自测）；
   `git diff --check` clean；`/usr/bin/python3 -I -S scripts/docs_check.py`
-  ok。development evidence 见台账 `EV-20260719-0083`。
+  ok。development evidence 见台账 `EV-20260719-0116`。
 - Limitations：重放报告为 development 级证据（非 formal/hermetic）；
   `just v2-isolation` 的全绿需 post-commit 重跑（设计使然，非缺陷）；
   TST-HOST-001/002 的 darwin legs 属 P2 darwin 重观察债务（owner=quality，
@@ -5279,7 +5279,7 @@ normative: false
   stage0_activate.py / stage0_store_service.py / host-bootstrap.lock /
   host-bootstrap-linux.lock / host-profiles.lock.json /
   toolchains.lock.json / toolchains-linux-x86_64.lock.json 均未触碰）。
-  development evidence 见台账 `EV-20260719-0084`。
+  development evidence 见台账 `EV-20260719-0117`。
 - Limitations：darwin TST-HOST-001 语义不变；P2 darwin live 重观察债务
   （GOV-PRECUTOVER-001 §2.1，owner=quality，截止 D0-07 关闭前）不受影响；
   timeout 腿覆盖的是 `bounded_host_command` 的纪律本身，不等于对每个
@@ -5307,9 +5307,9 @@ normative: false
   freezePackage 固定路径 + freezePackageSha256 重算（d0_08 同款）、
   genesisReplayReport 固定路径 + genesisReplayReportSha256 重算、
   darwinLiveReobservation 非空且含 "darwin-arm64-"、
-  d003DeferredClearance=="EV-20260719-0084"、
-  fixtureEvidenceEvidence=="EV-20260719-0080"、
-  cleanRoomEvidence=="EV-20260719-0082"、docsCheckCommand 精确值、notes
+  d003DeferredClearance=="EV-20260719-0117"、
+  fixtureEvidenceEvidence=="EV-20260719-0113"、
+  cleanRoomEvidence=="EV-20260719-0115"、docsCheckCommand 精确值、notes
   含 "not formal or hermetic evidence"；replay report 经
   `read_repository_regular_bytes` 读取、sha256 对 attest 重算、解析后要求
   schema==proof-forge.genesis-replay-report.v1、overallStatus=="passed"、
@@ -5326,7 +5326,7 @@ normative: false
   mutations，较此前 +7）；`just docs-check` 全绿；`git diff --check`
   clean。全绿 replay 证据来自已提交树上的 `just genesis-replay`
   （overallStatus=passed，21 command legs）。development evidence 见台账
-  `EV-20260719-0085`。
+  `EV-20260719-0118`。
 - Limitations：gate 已落地但 closeout 未完成——attest、committed replay
   report（`docs/governance/bootstrap-closure/TASK-D0-07-genesis-replay-report.json`）、
   darwin live 重观察证据与 bootstrap 级 EV 行尚未提供，validator 当前对
@@ -5337,3 +5337,1267 @@ normative: false
 - Next：closure change set（GOV-D0CLOSE-001 §3.2/§3.3 余项 +
   TASK-D0-07.attest.json + committed replay report + darwin-arm64 重观察
   + bootstrap EV + 任务表 blocked→done + checkpoint 更新）。
+## 2026-07-19 — D1 exact triple Option Bytes spelling pre-acceptance slice
+
+- Commits：freeze `e5810700`；tests-only RED `cf018c96`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `836169a8`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-74 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-73 bounded
+  arbitration 因本候选只有单一 length 轴、无需 15-atom/dual-length matrix，选择 exact
+  `Option Option Option Bytes N`，不是 checkpoint 自动递增；其他 compound type 与任意
+  recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.option (.bytes length)))` 开放
+  exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder 精确复用既有
+  closed Bytes length decoder 后只包三层 Option，两个专用 dispatch 均位于 generic triple-Option
+  parser/decoder 前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 26 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Option Bytes 8` negative 一条；覆盖 length
+  `0/8/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。incomplete、
+  `4097`/leading-zero/hex/underscore length、bare/full Map 与 unknown leaf 保持 exact
+  `unsupported portable type`；negative/identifier length、extra payload、四个换行 seam、三个
+  Option 或 Bytes constructor 的 escaped/qualified form、full Array leaf 与第四层 Option 保持
+  parser rejection。requirements 精确为空；四个 Phase 1 target 的 `checkSupport` 均通过，随后
+  state/result/parameter 三个 fixture 分别在 target-owned Plan invariant 返回既有 `is not UInt64`/
+  `does not return UInt64` rejection，所有路径均无 `OutputSet` 或 artifact。
+- Canonical：tag 固定 `16→16→16→17→length`。Source length `0/8/4096` 均为 261 bytes，hash
+  依次为 `1d72684412b3f2105d651777f624ca116739787c9cd8ce344fedaddfa0bfdc85`、
+  `efb75c6ef16e8c71b8cefd07085406c0060441ba1ea0dd8d52e5a7df0108bf99`、
+  `9d1e4ee905f7b5f70ea9ddbd57c8aee77e3b4c6d24533113a4c6023805ac095d`；Semantic 三组
+  均为 210 bytes，hash 依次为
+  `b11f3d1923eb30e0b331d6653eaad1060f619142ec3776026e033a194de92292`、
+  `e140c3f196bf6125cd680df6b518475d2156d6e56473f0dd47f0bf136217e553`、
+  `e0f99b2cf713c93928915ac2df2cf16df2873becd9b115f75a28851114594864`。Source/Semantic
+  两侧三组 length pairwise non-alias；`N=8` 也与 bare Bytes、一层/两层 Option Bytes、同深度
+  UInt64 与同深度 Field 的 bytes/hash non-alias。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 91361 bytes、SHA-256
+  `61edd905bfa77dc84deb01f3ca7479324d0e210d1b8bfbb9c5515dbaa6c1e94d`；两路独立 final review
+  均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0072`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan/no-artifact boundary；不包括 Bytes/Option value operations、none/some/unwrap、任意
+  recursive grammar、runtime/ABI、target triple-Option-Bytes implementation 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；正在做 post-PA-74 expression/type residual audit 与
+  bounded arbitration，尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact nested Option Array Field spelling pre-acceptance slice
+
+- Commits：freeze `b1873f6a`；tests-only RED `f87109b1`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `557cace2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-75 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-74 residual
+  arbitration 在 expression 侧无安全 parser-only 候选后，选择只有 single Field leaf 与 single length
+  轴的 exact `Option Option Array Field bn254_fr N`；不是 checkpoint 自动递增，其他 compound type
+  与任意 recursive grammar 继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.array .field length))` 开放 exact
+  same-line spelling。新增 named type/aggregate-field parser；专用 decoder 复用 closed
+  `decodeOptionArrayFieldValueTypeFromAtoms` 后只包一层 Option，两个专用 dispatch 均位于 generic
+  `Option Option Array` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 27 行新增/0 行移除。
+- Migration/Coverage：只迁移既有 `Option Option Array Field bn254_fr 4` negative 一条；覆盖
+  length `0/4/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity。
+  incomplete/alternate/escaped/qualified Field identifier、非 canonical length、extra payload、换行 seam、
+  escaped/qualified constructors、Bytes/Option/Array/Map/Named residual 均按冻结 channel fail closed。
+  requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `16→16→18→2→length`。Source length `0/4/4096` 均为 261 bytes，hash
+  依次为 `6d63aac74ce61f061de11288097f18de7f7043623ceb0ed3596cd13a938676aa`、
+  `bef51596dc72dc5e0d39730297278d4d7839b872d16bf269f5783f471234765f`、
+  `ee225041fce0de31bc20b8bb53c1d137ec05f3a7826fc2d20cba4f79b167ce98`；Semantic 三组
+  均为 211 bytes，hash 依次为
+  `a7ed080b84e6e5906e8a13c30e57a30a07f06a0993ba2cc6567a6a56b80f29f8`、
+  `6151f2d68d43876455fa3f08a300c6b5f552e52178d984d2a5d4346ae6cf0ebd`、
+  `a065a9cd0fa0201ffde3576f5939a31717fc9a3a2adac6ee218a42c4149ef6d5`；三组 length
+  pairwise non-alias，`N=4` 对 wrapper depth/order 与 Field/compound controls 也 bytes/hash non-alias。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 92988 bytes、SHA-256
+  `32ce411f91e9bd999d486d38b53a51d7f259b2c369003e69f8ce87d3c856c3f4`；Grok implementation
+  audit 与 Kimi independent final review 均 P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260719-0073`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Option/Array/Field operations、任意
+  recursive grammar、runtime/ABI、target nested-Option-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；先做 post-PA-75 residual audit 与 bounded arbitration，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact Array nested Option Field spelling pre-acceptance slice
+
+- Commits：freeze `e1b26295`；arbitration rationale C0 correction `e8d9477a`；tests-only RED
+  `0ebf6555`；Syntax/GREEN、canonical binding 与 Lean package-file re-pin `d1b76abe`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-76 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-75 四路 residual
+  arbitration 按 fixed Field/single length、support-resolver early rejection 与现有唯一 migration anchor
+  选择 exact `Array Option Option Field bn254_fr N`，不是 checkpoint 自动递增；Bytes dual-length/Plan
+  fixture、PrimitiveAtom element/requirement 分支与其他 compound type继续 fail closed。
+- Changed：为既有 `Source/Semantic.ValueType.array (.option (.option .field)) length` 开放 exact
+  same-line spelling。新增 named type/aggregate-field parser；专用 decoder 复用 closed
+  `decodeArrayFieldValueTypeFromAtoms` 后只把 element 包两层 Option，两个专用 dispatch 均位于 generic
+  `arrayOptionOption` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 29 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Array Option Option Field bn254_fr 4` negative 一条；RED 单文件
+  `ArrayTypes.lean` 为 271 additions/1 removal，6 个 golden 保持 UNBOUND。审查发现四个缺 outer length
+  compound 被误放 unsupported 组，提交前删除；带 outer length 的既有 controls 已完整覆盖冻结边界。
+  focused RED 最终只在两处 missing grammar 报错，并有两处 fixture cascade。
+- Coverage：覆盖 length `0/4/4096`、state/struct/enum/const/init/entry/view/fn/event/error 与双入口 parity；
+  incomplete/Field-id/length/unknown/bare compound 与 parser-only seam/constructor/full compound channels
+  全部按冻结通过。requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `18→16→16→2→length`。两路相互独立的 `/tmp` Lean probe 得到相同结果：
+  Source length `0/4/4096` 均为 251 bytes，hash 依次为
+  `908528b873654efaf9dd45b6223fb646ea47fc773844541d0ef46956a24d8ca4`、
+  `de7bdfa60b9ba9599b1a52cede5552f3733d7333dfcc0b65f7caa9c2fde2e457`、
+  `f7e01b5656e2cc833e72fb4a2ab8095e80a968b1573b2cdac50d6a8fa19f17b2`；Semantic 三组
+  均为 201 bytes，hash 依次为
+  `30be1cfa0c542a100b25b9bd43efc5d29be152b88b7a7b02f186f64567694b7b`、
+  `58e6e067f5a77d667aab1dbefb8188fa3448a97455f24a014bcab4b8f42895fb`、
+  `84685c8432ef274b8ab3a7243369a861c549c0278edd8b87d53c68f8924f8af3`；三组 length
+  pairwise non-alias，`N=4` 对 wrapper depth/order、Field leaf 与 Array presence controls 也
+  bytes/hash non-alias。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；`lake build proof_forge_next_tests`
+  192 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  （self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package pin 为 94722 bytes、
+  SHA-256 `4fd12db3b200e3f3fa526b355ac4790138b5100f3fbe46598623467ac8dcc061`；Grok
+  implementation audit P0/P1=0，independent final review P0/P1/P2=0；development evidence 为
+  `EV-20260719-0074`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Field/Array/Option operations、任意
+  recursive grammar、runtime/ABI、target Array-Option-Option-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；先做 post-PA-76 residual audit 与 bounded arbitration，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact dual Array Field spelling pre-acceptance slice
+
+- Commits：freeze `a032d4a2`；tests-only RED `fac3e2f7`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `0afddb53`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-77 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-76 residual
+  arbitration 按 fixed Field、dual length、support-resolver early rejection 与现有唯一 migration
+  anchor 选择 exact `Array Array Field bn254_fr N M`，不是 checkpoint 自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.array (.array .field innerLength) outerLength`
+  开放 exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder 对
+  `[fieldId, innerLength]` 复用 closed `decodeArrayFieldValueTypeFromAtoms`，对 outer length 复用
+  canonical decimal decoder并施加 `0..4096` bound，随后只包一层 outer Array；两个专用 dispatch
+  均位于 generic `arrayArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；
+  production `Syntax.lean` 为 34 additions/0 removals。
+- RED/Migration：只迁移既有 `Array Array Field bn254_fr 4 4` negative 一条；RED 单文件
+  `ArrayTypes.lean` 为 287 additions/1 removal，6 个 golden 保持 UNBOUND。incomplete
+  `Array Array Field 4 4` 与 Option/Bytes/Array/Map full compounds 保持 fail closed；focused RED
+  只因两处 missing grammar 及其 fixture cascade 失败。三路 independent RED review 均
+  P0=0/P1=0/P2=0。
+- Coverage：覆盖 `(inner, outer)=(0,0)/(4,4)/(4096,1)`、state/struct/enum/const/init/
+  entry/view/fn/event/error 与双入口 parity；Field id、两条 length 轴、same-line seams、constructor
+  与 compound error channels 全部按冻结通过。requirements 精确为单个 `fieldBn254`；四个
+  Phase 1 target 的 `checkSupport` 与 `materializeResult` 均在 Plan dispatch 前返回 exact named
+  rejection，因此无 Plan、OutputSet 或 artifact。
+- Canonical：tag 固定 `18→18→2→innerLength→outerLength`。Source 三组均为 265 bytes，hash
+  依次为 `891c549138882df1fdb4da2b494f72dbdbcb508d7e234dbc6290385246fa3cba`、
+  `7540d6061a85b4a08e95ee63d6d78f946fcdc7a3e498038c3057072db4e70ec8`、
+  `6b3ba12ac632e0faa5dbf3865bf7586389d12157f5b3bf18bce1816edb2882ea`；Semantic 三组
+  均为 215 bytes，hash 依次为
+  `992b1055cefeb34dcd044cec714ed6d9019db98dac7c43d7c814705544cce82f`、
+  `ff74d64876fa3f5949e998d72299740637b0bd82e1347ff3dca1ec6b3e1d02db`、
+  `a203fe6bf6462eeefea8b0c61297be5b74116230c21d89903f802a44d6e4c8aa`。两层均固定
+  candidate pairwise、三项 structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8`
+  bytes/hash non-alias controls。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；`just sbom`（self-test/generate/verify/closure）与 `git diff --check` 通过。Syntax package
+  pin 为 96627 bytes、SHA-256
+  `ec0e4e3ee21555b85ae4a74af39fc7ed93effbb3c4d82a3f94e384ec4955b278`；三路
+  independent GREEN review 均 P0=0/P1=0/P2=0；development evidence 为
+  `EV-20260719-0075`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Field/Array operations、任意
+  recursive grammar、runtime/ABI、target dual-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA-77 两路 audit 对 `Option Array Array Field
+  bn254_fr N M` 与 `Option Option Array Bytes N M` 的总验收面排序不同，先做 bounded challenge，
+  尚未冻结下一 slice，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact Option dual Array Field spelling pre-acceptance slice
+
+- Commits：freeze `4b2da645`；tests-only RED `26690dc9`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `175e8a1b`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-78 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA-77 bounded
+  challenge 按 fixed Field、dual length、outer Option wrapper、support-resolver early rejection 与
+  现有唯一 migration anchor 选择 exact `Option Array Array Field bn254_fr N M`，不是 checkpoint
+  自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.option (.array (.array .field innerLength)
+  outerLength)` 开放 exact same-line spelling。新增 named type/aggregate-field parser；专用 decoder
+  完整复用 closed dual-Array-Field decoder 后只包一层 outer Option，两个专用 dispatch 均位于
+  generic `optionArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 31 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Option Array Array Field bn254_fr 4 4` negative 一条；相对 freeze
+  测试为 330 additions/1 removal。覆盖 `(inner, outer)=(0,0)/(4,4)/(4096,1)`、全部 declaration
+  positions 与双入口 parity；Field id、两条 length 轴、same-line seams、constructor 与
+  Field/Bytes/Option/Array/Map/Named compound error channels 均按冻结 fail closed。
+- Canonical：tag 固定 `16→18→18→2→innerLength→outerLength`。Source 三组均为 277 bytes，hash
+  依次为 `72e73f1e50d0eb5b1f9b195c83fbff5efb248e4979378abc3bf548a70407ddea`、
+  `5237900a70d339d06f26bb07f42cd117e87c3a5b0d7e64485e109a84db322f86`、
+  `189b11f305136cbf1f144ee9d9cbc1e1f1c3839d8845beeb4e498ebfaa448b91`；Semantic 三组均为
+  227 bytes，hash 依次为
+  `ecb6a7cfaf339831ba4c1a7583c2672a1719d10f92f150c1abb86b9d8658e067`、
+  `8c81c0404d1c85fce18c7e6fd10bbaee70815eddbe75413d24c7c51e8cbf234f`、
+  `bb28c7a4f217666b560d39a40dcbd86cf2f7307447e1c467b0dd7569e43dab75`。两层均固定 candidate
+  pairwise、wrapper/leaf structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8` bytes/hash
+  non-alias controls。
+- Boundary：requirements 精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 均在 Plan dispatch 前返回 exact named rejection，因此无 Plan、OutputSet 或
+  artifact。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；在 clean detached `175e8a1b` 上运行 `just sbom`，self-test/generate/verify/closure 全绿；
+  `git diff --check` 通过。Syntax package pin 为 98459 bytes、SHA-256
+  `130b64a605dcec045a5e4933c099586040bc66a61656011b9a12f762f0a167d2`；两路 independent final
+  review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0076`。按冻结未重复完整
+  `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、single `fieldBn254`
+  requirement 与 support-rejection/no-artifact boundary；不包括 Option/Array/Field operations、任意
+  recursive grammar、runtime/ABI、target Option-dual-Array-Field support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；residual audit 的首选候选为 exact
+  `Option Option Array Bytes N M`，须先冻结完成包，禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 exact nested Option Array Bytes spelling pre-acceptance slice
+
+- Commits：freeze `36673098`；same-line seam denominator correction `2f115c74`；tests-only RED
+  `529d2699`；empirical error-channel corrections `a4752ae0`、`bbab5013`；Syntax/GREEN、canonical
+  binding 与 Lean package-file re-pin `37102754`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-79 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA78 residual audit
+  选择 fixed Bytes leaf、dual length、double Option wrapper、zero requirements 与现有唯一 migration
+  anchor；不是 checkpoint 自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.option (.option (.array (.bytes innerLength)
+  outerLength))` 开放 exact same-line `Option Option Array Bytes N M`。新增 named
+  type/aggregate-field parser；专用 decoder 完整复用 closed
+  `decodeOptionArrayBytesValueTypeFromAtoms` 后只包一层 outer Option，两个专用 dispatch 均位于
+  generic `optionOptionArray` 分支前。Source/Semantic ctor、encoder、Typed 与 target 未改；production
+  `Syntax.lean` 恰好 27 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Option Option Array Bytes 8 4` negative 一条；既有 incomplete
+  `Option Option Array Bytes 4` 继续 exact unsupported。RED 相对冻结基线为 313 additions/1 removal，
+  覆盖 `(inner, outer)=(0,0)/(8,4)/(4096,1)`、全部 declaration positions、双入口 parity、
+  canonical non-alias、zero requirements、四 target support 与三类 Plan-invariant/no-artifact fixture。
+- Corrections：`2f115c74` 将六个 token 的 same-line seam 分母纠正为五个 gaps；GREEN 前完整
+  ParserSession probe 后，`a4752ae0`、`bbab5013` 只校准冻结负例的实际拒绝层。incomplete、两个
+  length 轴的 `4097`/leading-zero/hex/underscore 与仅缺 outer length 的
+  `Option Option Array Bytes 8` 为 exact unsupported；bare Field/Option/Array/Map、`Widget 8 4`、
+  missing both、negative/identifier lengths、extra payload、五个 seams、escaped/qualified constructors
+  与 full compounds 为 parser rejection。原 labels/spellings、positive、migration 与 Tests 集合均未扩大。
+- Canonical：tag 固定 `16→16→18→17→innerLength→outerLength`。Source `(0,0)/(8,4)/(4096,1)`
+  均为 277 bytes，hash 依次为
+  `25dd9358bb3c78228b24deb534e5f96cc9ae214be0935bdd706a1aca98c40b39`、
+  `9f8c4101906597285f27c442669f7384855d59adbb8aa7271537d4b698e8cac9`、
+  `5ee7a18e815711f0797ffa96c2ba8de632afd9ba18238fc065df872d34f5f297`；Semantic 三组均为
+  226 bytes，hash 依次为
+  `f1e4569f4a9e96cd1697e33365f014d9debb05467ba6953265ddd7820b5760d9`、
+  `9be486502ab327e4fb421528427181b721eba4e6202a67b2a9ef688e167a0637`、
+  `1177f7abaa51844b19b4693daf4853248ff3d4afc0015ca4ca99ea0abaa87240`。两层均固定 candidate
+  pairwise、wrapper/leaf structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8` bytes/hash
+  non-alias controls。
+- Boundary：requirements 精确为空；四个 Phase 1 target 的 `checkSupport` 全部通过；
+  state/result/parameter 的 `materializeResult` 分别以 `is not UInt64` / `does not return UInt64` /
+  `is not UInt64` exact Plan invariant 拒绝，因此无 Plan、OutputSet 或 artifact。
+- Verification：`lake build Tests.Language.OptionDeclarations` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；在 clean detached `37102754` 上运行 `just sbom`，self-test/generate/verify/closure 全绿；
+  `git diff --check` 通过。Syntax package pin 为 100088 bytes、SHA-256
+  `f91c18d7208097f926630eff251f1c067a5e2ee1840d035e718c2d7ab59f0cce`；independent final review
+  P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0077`。按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements 与
+  support-vs-Plan/no-artifact boundary；不包括 Bytes/Array/Option operations、none/some/unwrap、任意
+  recursive grammar、runtime/ABI、target nested-Option-Array-Bytes support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，先完成 post-PA79 residual audit，
+  禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 Array nested Option Bytes spelling pre-acceptance slice
+
+- Commits：freeze `d9bdb762`；tests-only RED `363fb7c0`；Syntax/GREEN、canonical binding 与
+  Lean package-file re-pin `ebd3eed2`。
+- Spec/Test：`SPEC-LANG-001`、`TST-SRC-004`。本切片只追加 D1-PA-80 development evidence，
+  不改变 `TASK-D1-03` 的 pending 状态、依赖、Tests 集合或 Done 语义。post-PA79 bounded
+  arbitration 选择 fixed Bytes leaf、dual length、double Option element wrapper、zero requirements 与
+  现有唯一 migration anchor，并关闭 `Array → Option → Option` 的 Primitive/Field/Bytes fixed-leaf
+  family；不是 checkpoint 自动递增。
+- Changed：为既有 `Source/Semantic.ValueType.array (.option (.option (.bytes innerLength)))
+  outerLength` 开放 exact same-line `Array Option Option Bytes N M`。新增 named
+  type/aggregate-field parser；专用 decoder 完整复用 closed
+  `decodeArrayOptionBytesValueTypeFromAtoms`，经 fail-closed shape match 后只为 element 再包一层
+  Option；两个专用 dispatch 均位于 `arrayOptionOptionField` 后、generic `arrayOptionOption` 前。
+  Source/Semantic ctor、encoder、Typed 与 target 未改；production `Syntax.lean` 恰好 30 行新增/0 行移除。
+- RED/Migration：只迁移既有 `Array Option Option Bytes 8 4` negative 一条；既有 incomplete
+  `Array Option Option Bytes 4` 继续 exact unsupported。RED 相对冻结基线为 313 additions/1 removal，
+  覆盖 `(inner, outer)=(0,0)/(8,4)/(4096,1)`、全部 declaration positions、双入口 parity、
+  canonical non-alias、zero requirements、四 target support 与三类 Plan-invariant/no-artifact fixture；
+  GREEN 相对 RED 只绑定六个 canonical golden，冻结负例及其 error channel 未改。
+- Canonical：tag 固定 `18→16→16→17→innerLength→outerLength`。Source 三组均为 267 bytes，hash
+  依次为 `630625a53708a089ae2b27a0ed68b755a6d85c8c486dc514a12c4f5b07cef702`、
+  `ff9404258d2b06b25e45f9dbd60114a930acc80bd48bfccc95637a4b77cdf603`、
+  `88879a1bc391c1ce53bd674a05ea10b87f0f7bf57f7adf8767e9353f9b34acd7`；Semantic 三组均为
+  216 bytes，hash 依次为
+  `a2f9037cbce3e824b9e0ccae9410a56378d55d98e2a76467e99103f43257234c`、
+  `4f7690c3ac3aa52a1f69f91c6523ac22f5fd408eee2a84c2e11312459c327f6f`、
+  `df59c86ac811fc098e364a0d56b4f5139b640e2f39ac8f9a6b7ff9d48d521b16`。两层均固定 candidate
+  pairwise、wrapper/leaf structural 与 `8/4↔0/4`、`8/4↔8/0`、`8/4↔4/8` bytes/hash
+  non-alias controls；独立 probe 与 GREEN bindings 一致。
+- Boundary：requirements 精确为空；四个 Phase 1 target 的 `checkSupport` 全部通过；
+  state/result/parameter 的 `materializeResult` 在 target-owned Plan invariant 拒绝，因此无 Plan、
+  OutputSet 或 artifact。
+- Verification：`lake build Tests.Language.ArrayTypes` 23 jobs；
+  `lake build proof_forge_next_tests` 192 jobs；`lake env .lake/build/bin/proof-forge-next-tests`
+  exit 0；在 clean detached `ebd3eed2` 上运行 `just sbom`，self-test/generate/verify/closure 全绿；
+  `git diff --check` 通过。Syntax package pin 为 101860 bytes、SHA-256
+  `8f6ac428905aa013e11bd22bc08c5d20abee05ae6069e2d6660546da9ceac516`；independent RED、canonical
+  probe 与 final GREEN review 均 P0=0/P1=0/P2=0；development evidence 为 `EV-20260719-0078`。
+  按冻结未重复完整 `just ci`。
+- Scope claim：只完成 exact existing-carrier spelling、canonical identity、zero requirements、
+  fixed-leaf family closure 与 support-vs-Plan/no-artifact boundary；不包括 Bytes/Array/Option
+  operations、none/some/unwrap、任意 recursive grammar、runtime/ABI、target
+  Array-nested-Option-Bytes support 或正式 D1 完成。
+- Limitations：不得关闭 pending `TASK-D1-03`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice；下一 slice 未冻结，须先完成 bounded residual audit，
+  禁止由 checkpoint 自动递增。
+
+## 2026-07-19 — D1 persistent program export registry pre-acceptance slice
+
+- Commits：freeze `6b482876`；tests-only RED `e67c4c30`；persistent registry/GREEN 与
+  Lean package-file re-pin `7326e1bc`；live package-count limit probe maintenance fix
+  `6fe9bea0`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-81 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。选择来自 post-PA-80 declaration residual 与 D1-04 external-call audits：前者已进入无界
+  wrapper 组合，后者需要 Source/Semantic carrier 演进；不是 checkpoint 自动递增。
+- Changed：新增 84 行 `ProofForgeV2.Language.ProgramExport`，以
+  `ProgramExportV1{schema,declaration}` 和 `SimplePersistentEnvExtension` 持久化 schema/FQN-only
+  entries；公开 query 合并 imported/local rows，先以 `PF-EXPORT-001` closed-check unknown schema、
+  structural `Name` duplicate 与 equal-toString conflict，再按 `Name.toString` 排序。attribute 固定
+  no-args/global/current-module/public/after-type-checking/exact `Source.Program`，且在加入 extension 前
+  fail closed；不评估或持久化 payload。`Syntax.lean` +1/-6，只 import 新模块并删除旧 no-op attribute。
+- RED/Fixtures：Shared/A/B diamond、AB/BA 两种 import order 与 snapshot 固定相同三行
+  schema/FQN table；Shared 精确一次，未 attributed manual alias 缺席。raw reverse canonicalize，wrong
+  schema、structural duplicate 与同名冲突均拒绝且不返回 partial table。GREEN 只对 RED suite 做两行
+  Lean 语法校正（`do` block 与保留字 binder rename），未改变 assertion 集合或期望。
+- Verification：`lake build Tests.Language.ProgramExports` 17 jobs；`lake build
+  proof_forge_next_tests` 208 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；
+  `git diff --check` 通过。ProgramExport pin 为 3277 bytes、SHA-256
+  `5636f3054f5c67546955a30a5ad0a41db8a1d188bb6e631cd6e21eec11570a66`；Syntax pin 为
+  101720 bytes、SHA-256 `9821f92d0a66dfea00418609e2a18e36c62644de98a4b5761e4226a30e9dc468`；
+  package manifest 覆盖当前 31 个 product Lean files。
+- SBOM integration：第一次 `just sbom` 的 legacy `SB2-031` equal-limit probe 仍把 D0-08
+  acceptance-time denominator 30 当作 live fixture cardinality，因第 31 个 product module 而正确暴露
+  integration failure。`6fe9bea0` 保留 frozen 30 与 attested freeze-package SHA-256 不变，仅让 generic
+  equal/over probe 从 test-owned current-tree oracle 取 cardinality，禁止读取 production output/sidecar；
+  修复后 self-test/generate/verify/closure 全绿，独立审查 P0/P1=0。
+- Review/Evidence：GREEN independent review P0=0/P1=0/P2=0；SBOM limit repair 两路独立审查
+  P0=0/P1=0；development evidence 为 `EV-20260719-0079`。按冻结未运行完整 `just ci`。
+- Scope claim：只完成 stable schema/FQN environment registry、import-order-independent listing 与
+  structural/schema duplicate rejection；不包括 constant evaluation、payload identity duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target/materializer 或正式
+  `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA-81 residual audit 只保留 payload constant
+  evaluation 作为可能的下一 bounded slice；必须先独立冻结再提交 RED，禁止自动编号。
+
+## 2026-07-19 — D1 structural program payload pre-acceptance slice
+
+- Commits：freeze `0470c41a`；Lean 4.31 partial observability 修正 `834ecce9`；direct quoted
+  coverage 澄清 `4ce3dc9b`；tests-only RED `c6aa1b8e`；sentinel/error ownership 澄清
+  `39f91676`；RED fixture 可执行性修复 `779f7ffb`；structural decoder/GREEN 与 Lean
+  package-file re-pin `951efdd6`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-82 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。实现面固定为 PA81 normalized registry 到 exported `Source.Program` 的无执行结构重建，
+  不是 checkpoint 自动递增。
+- Changed：新增 429 行 `ProofForgeV2.Language.ProgramPayload`，只暴露冻结的三个 API。decoder
+  从 exact `Source.Program.mk` 14 fields 开始，closed-walk Source constructor、List/Option/Bool、
+  UInt32/UInt64/Nat/Fin wrapper；宿主构造前校验范围。raw Expr 以显式 stack 预检 100000
+  nodes，Source Expr/Statement/ValueType 共享 256-depth fuel，list spine 迭代解码。路径不使用
+  `evalConst`/`evalExpr`/reduction/Meta/IO/FS/network。
+- Declaration/diagnostics：`programPayload` 必须命中 PA81 exact registered `Name`；declaration
+  依次通过 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、raw-node
+  preflight 与 `Environment.hasUnsafe = false`。registry schema/identity normalization 继续保留 PA81
+  `PF-EXPORT-001`；normalized table 之后的 payload 失败固定 `PF-EXPORT-004`。`programPayloads`
+  仅在全部 row 重建成功后返回，不暴露 partial prefix。
+- RED/Fixtures：初始 RED 为 349 additions；为解决 DSL keyword/import hygiene、command atom、生成标识符与
+  exact universe-level 语法问题，不改 assertion set 地修复为最终 358/360。rich fixture 与
+  elaborator constant 做全值 BEq/name/qualifiedName/sourceHash 比较；direct quoted control 覆盖 DSL
+  尚不可达的 `Expr.state`；unregistered/alias/opaque/unsafe/observable partial/implemented-by 六类
+  隔离负例全部 `PF-EXPORT-004`。implemented-by 使用可成功解码的 direct sentinel，若误跟随
+  replacement 测试即失败，且模块初始化无 panic。mixed table、100000/100001 raw nodes 与
+  256/257 logical depth 边界均为非真空对照。
+- Verification：`lake build Tests.Language.ProgramPayloads` 21 jobs；`lake build
+  proof_forge_next_tests` 230 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0 且无
+  panic/backtrace；`just sbom` 的 self-test/generate/verify/closure 全绿；`just docs-check` 与
+  `git diff --check` 通过。ProgramPayload pin 为 19601 bytes、SHA-256
+  `6c344b6fd2a0f95f07ff3e1424943f8813c9335e84ec6dc148013d809a2701ab`；package manifest
+  覆盖当前 32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok security review 无 P0，其四项 hardening/consistency 意见经冻结规格与
+  diagnostics ownership 逐项裁定，未放宽代码；Kimi final freeze audit P0=0/P1=0/P2=0。
+  development evidence 为 `EV-20260719-0080`。
+- Scope claim：只完成 closed structural payload reconstruction、registry membership、declaration safety gates、
+  exact constructor vocabulary、resource bounds 与 all-or-nothing table；不包括 identity-level duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target/materializer、contained
+  frontend worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA82 residual audit 只把 identity-level duplicate 等剩余
+  D1-05 seam 作为候选；必须先独立冻结再提交 RED，禁止自动编号。
+
+## 2026-07-19 — D1 cross-row exported Source identity pre-acceptance slice
+
+- Commits：freeze `d740b724`；tests-only RED `7d016287`；identity scan/GREEN 与 Lean
+  package-file re-pin `e266f3ed`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-83 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。两路 post-PA82 audit 选择 PA81 declaration-only uniqueness 与 PA82 reconstructed payload 之间的
+  cross-row identity seam，不是 checkpoint 自动递增。
+- Changed：只在既有 `programPayloads` 完成全部 row 的 PA82 structural decode 后调用 private
+  `checkProgramIdentities`。scan 继承 PA81 declaration FQN order，以 exact payload `qualifiedName`
+  为唯一 `Std.HashMap` key，记录首个 sourceHash；同 qualifiedName+同 hash 稳定失败为
+  `PF-EXPORT-001: duplicate exported program identity`，同 qualifiedName+不同 hash 稳定失败为
+  `PF-EXPORT-001: conflicting exported program identity`。不迭代 map，因此首个 collision 仍由
+  row order 决定；不新增 public API。
+- Priority/Boundary：全部 decode 先于 identity scan，任一 invalid payload 继续以
+  `PF-EXPORT-004` 失败，不暴露 partial table。当前 sourceHash preimage 已包含 qualifiedName，因此
+  different-qname/same-hash 不是可构造的业务 fixture；hash 只分类同 qname 的 duplicate 与
+  split-brain，不作为独立主键。
+- RED/Fixtures：195/220 additions，只新增 isolated ProgramIdentity snapshot/fixtures/suite 与
+  Tests/lake 注册。positive 两个 direct `Program.mk` 在相同业务 shape 下保持 distinct
+  qname/hash 和 PA81 FQN order；duplicate 与 split-brain 分别固定同 qname+同/异 hash；priority
+  fixture 在 collision 之后放置排序更后的 invalid constant alias，固定 `PF-EXPORT-004`
+  优先级。RED 时 Positive/Priority 绿，Duplicate/Conflict 唯一失败为 `expected identity failure`。
+- Verification：`lake build Tests.Language.ProgramIdentities` 12 jobs；`lake build
+  proof_forge_next_tests` 242 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  的 self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。
+  ProgramPayload 从 429 行增加到 449/480，为 20351 bytes、SHA-256
+  `8ffe45aea5e8c8dad88bc52c183343194a47167a874c4be7f3030a159e08086f`；manifest 仍 exact
+  覆盖 32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok GREEN security review 无 P0/P1 blocker；Kimi final freeze review
+  P0=0/P1=0/P2=0。development evidence 为 `EV-20260719-0081`。
+- Scope claim：只完成 post-decode cross-row qualifiedName duplicate/split-brain rejection、稳定诊断与
+  decode-before-identity priority；不包括 single-row declaration/payload identity binding、independent
+  sourceHash collision oracle、NodeId/origin、`PF-EXPORT-002/003`、CLI/Loader、wire publication、target/
+  materializer、contained frontend worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA83 residual audit 只把 single-row declaration/payload
+  identity binding 等剩余 D1-05 seam 作为候选；必须先独立冻结再提交 RED。
+
+## 2026-07-19 — D1 export declaration/payload binding pre-acceptance slice
+
+- Commits：freeze `de9ab20c`；tests-only RED `f60390bf`；binding/GREEN 与 Lean package-file
+  re-pin `ed669820`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-84 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。两路 post-PA83 audit 与 Lean 4.31 nested/escaped `Name.toString` probe 证明 DSL declaration
+  与 payload qualifiedName 源于同一个 `currentNamespace ++ name.getId`；`PF-EXPORT-003` 仍由
+  CLI/Loader zero-candidate selection 拥有，不改低层 empty-table query。
+- Changed：新增 private `checkProgramBinding`，以 exact
+  `ProgramExportV1.declaration.toString == Source.Program.qualifiedName` 检查单 row；mismatch 稳定返回
+  `PF-EXPORT-001: exported program identity does not match declaration`。`programPayload` 顺序为
+  registered → closed decode → binding；`programPayloads` 顺序为全部 closed decode → PA83 identity scan →
+  declaration/payload binding，成功后才返回完整 table。没有 casefold/NFC 重算、short-name 或 wire
+  component 归一化，也没有新增 public API。
+- Priority/compatibility：table 明确保留 PA83 scan-before-binding，因此既有 hand-crafted duplicate/
+  conflict fixtures 与 exact diagnostics 继续可达；任一 PA82-invalid row 仍在所有 identity/binding 检查前
+  以 `PF-EXPORT-004` 失败。单个 lying direct `Program.mk` 在 single/table API 都以新 binding diagnostic
+  fail closed；empty normalized registry 继续返回 empty table。
+- RED/Fixtures：208/220 additions，只新增 isolated ProgramBinding snapshot/fixtures/suite 与 Tests/lake
+  注册。positive 同时固定 nested escaped namespace DSL row 与 exact-aligned hand direct row，并由
+  single/table API 比较 declaration rendering/qualifiedName；MismatchSingle/MismatchTable 在 RED 时唯一
+  失败为 `expected binding failure`；Priority004 以排序更后的 constant alias 固定 decode-all 的
+  `PF-EXPORT-004` 优先级。PA83 fixtures 零修改。
+- Verification：pre-GREEN Positive/Priority004 14 jobs 通过，两个 mismatch targets 分别只以冻结的
+  expected-failure 红；GREEN 后 `lake build Tests.Language.ProgramBindings
+  Tests.Language.ProgramIdentities` 23 jobs；`lake build proof_forge_next_tests` 254 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom` 的 self-test/generate/verify/closure
+  全绿；`just docs-check` 与 `git diff --check` 通过。ProgramPayload 为 458/480 行、20739 bytes、
+  SHA-256 `264eb2bf4970a3391e841049a1151389b7d9fb910b1f0024e2c9a4d419b3f33a`；manifest exact 覆盖
+  32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：corrected scan-before-binding freeze 经 Grok/Kimi 复核 P0=0/P1=0；Kimi GREEN
+  design P0=0/P1=0；Grok final GREEN review P0=0/P1=0、commit-ready。development evidence 为
+  `EV-20260719-0082`。
+- Scope claim：只完成 Lean export declaration FQN 与 reconstructed payload qualifiedName 的 exact
+  single-row binding、两个 API 的 fail-closed enforcement，以及 PA82/PA83 诊断优先级兼容；不包括
+  payload short-name/last-component、source-program wire component identity、NodeId/origin、
+  `PF-EXPORT-002/003`、CLI/Loader、target/materializer、contained worker 或正式 `TST-SRC-006/007`
+  closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。
+- Next：当前无 active development slice。post-PA84 residual/authority audit 必须先判断 D1-05 是否仍有
+  dependency-safe 必需 seam，再冻结单一下一切片；禁止自动递增。
+
+## 2026-07-19 — D1 export payload short-name binding pre-acceptance slice
+
+- Commits：freeze `bce351f4`；non-`Name.str` exact diagnostic pin `bc180f56`；tests-only RED
+  `2f7f916b`；aggregate-only test command collision correction `3f435a67`；short-name binding/GREEN 与
+  Lean package-file re-pin `91d31880`。
+- Spec/Test：`SPEC-LANG-001`、development coverage adjacent to `TST-SRC-006/007`。本切片只追加
+  D1-PA-85 development evidence，不改变 `TASK-D1-05` 的 pending 状态、依赖、Tests 集合或 Done
+  语义。post-PA84 audit 证明 full FQN 已绑定时 hand direct `Program.mk` 仍可独立伪造 `program.name`；
+  因此留在 D1-05 关闭该真实字段完整性缺口，不越过 formal dependency 提前进入 D1-06。
+- Name rendering：DSL short name 来自 identifier `getId.toString`；declaration final `Name.str` 保存 raw
+  component。Lean 4.31 probe 固定 expected short name 为
+  `(Name.str .anonymous rawComponent).toString`，而不是 raw component 或 full FQN dot split，因此
+  `«hyphen-prog»` 与 `«dot.prog»` 合法通过。非 `Name.str` final declaration 与 value mismatch 均稳定返回
+  `PF-EXPORT-001: exported program short name does not match declaration`；不使用 `Name.getString!`。
+- Changed/Priority：新增 private `checkProgramShortName`。single API 顺序为 registered→PA82 decode→
+  PA84 FQN binding→PA85 short-name binding；table 为全部 PA82 decode→PA83 collision scan→逐 row PA84→
+  PA85。invalid form 继续优先 `PF-EXPORT-004`，PA83 collision 与 PA84 qname mismatch 继续优先于
+  short-name mismatch；empty registry 仍返回 empty table，不新增 public API。
+- RED/Fixtures：178/180 additions。positive 固定 simple、escaped hyphen、escaped dot DSL program 与
+  exact-aligned hand direct row；isolated one-liar `Mismatch` 的 combined command 在判定前同时求值
+  `programPayload`/`programPayloads`，RED 输出逐行证明两者均仍为 `ok`，GREEN 后捕获两个 exact
+  diagnostic；Priority004 以 later constant alias 固定 decode-all 004。PA83/PA84 fixtures 零修改。
+- Integration correction：首次 aggregate build 揭示 PA85 Snapshot helper command
+  `#expect_payloads_prefix` 与 PA84 helper 同名；`3f435a67` 只将 PA85 helper/call site 改为唯一
+  `#expect_short_payloads_prefix`，不改变 assertion set、生产面或冻结完成条件。修正后 aggregate 全绿。
+- Verification：pre-GREEN Positive/Priority004 14 jobs 通过，Mismatch 唯一 RED 同时输出 single/table
+  两行 expected short-name failure；GREEN 后 `lake build Tests.Language.ProgramShortNames
+  Tests.Language.ProgramBindings Tests.Language.ProgramIdentities` 28 jobs；`lake build
+  proof_forge_next_tests` 264 jobs；`lake env .lake/build/bin/proof-forge-next-tests` exit 0；`just sbom`
+  self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。ProgramPayload 为
+  468/480 行、21248 bytes、SHA-256
+  `956b25ca159f0c1ba31b6e57dff00d062602819803cff81d582eb4fc6df74a9d`；manifest exact 覆盖
+  32 个 product Lean files。按冻结未重复完整 `just ci`。
+- Review/Evidence：Grok name-rendering probe 与 freeze review P0=0；Kimi authority challenge 接受该
+  D1-05 seam，non-`Name.str` P1 已由 `bc180f56` 在 RED 前钉死；Grok product-only final re-review
+  P0=0/P1=0、commit-ready。development evidence 为 `EV-20260719-0083`。
+- Scope claim：只完成 payload short name 与 rendered final declaration component 的 exact binding、
+  escaped-name correctness 及 PA82/83/84 error priority compatibility；不包括 source-program wire
+  moduleName/programIdentity carrier、NodeId/origin、schema-v2、`PF-EXPORT-002/003`、CLI/Loader、target/
+  worker 或正式 `TST-SRC-006/007` closure。
+- Limitations：不得关闭 pending `TASK-D1-05`；D0 formal milestone 仍为 7/9。PA81–PA85 已使 Lean
+  attribute export/schema 代码侧 pre-acceptance micro-seam 饱和，禁止继续发明 identity 微检查。
+- Next：当前无 active development slice。下一步只允许审计正式 `TST-SRC-006/007` evidence packaging
+  需要的既有多模块 acceptance/golden 与 close/split/block 条件；D1-06 仍服从 formal task dependency。
+
+## 2026-07-19 — D1 export acceptance packaging pre-acceptance slice
+
+- Commits：pending freeze package `af6de6c9`；formal-grade doneWhen hardening `b43bf1e8`；D1-PA-86
+  tests-only freeze `00d77c8c`；acceptance harness `685243d1`。
+- Authority：`TASK-D1-05` 继续 `pending`。新完成包逐字绑定既有 Output、dependency `TASK-D1-03`、
+  empty prerequisites 与 `TST-SRC-006/007`，并把两者分别冻结为 schema/payload integrity 与
+  import/cross-row identity ordering。doneWhen 要求 named acceptance/aggregate commands、`TASK-D1-03`
+  done、candidate-bound `qualification=formal` evidence 和零 P0/P1；`EV-0079`…`0084` development
+  evidence 被明确排除为 formal close 依据。
+- Changed：只新增 `ProgramExportAcceptanceEmpty.lean`、`ProgramExportAcceptance.lean` 及 Tests/lake
+  注册，共 124/150 additions；production、package file-set、CLI/Loader、wire、target 与 worker 零修改。
+  empty snapshot 在只 import ProgramPayload/export 的独立 module 编译期同时观察 `programExports` 与
+  `programPayloads` 为 empty；aggregate suite 只消费快照和既有 isolated fixture constants，不在合并
+  hostile fixtures 的 environment 上重新 query table。
+- Acceptance：固定 exact v1 schema、unknown schema、structural duplicate 与 rendered-name conflict
+  三条完整 diagnostic。collision 使用 `Name.str .anonymous "foo.bar"` 与
+  `Name.str .anonymous "«foo.bar»"`，先证明 non-BEq/same-`toString`，再精确触发
+  `PF-EXPORT-001: conflicting program export name`；Kimi 复现实验纠正了此前错误的 injectivity 假设。
+  AB/BA snapshot 固定相同三行表、Shared 一次、manual alias 缺席；PA83 duplicate/conflict、PA82
+  `PF-EXPORT-004` before identity/binding/short-name、PA84 qname before PA85 short-name 均由 exact/prefix
+  fixture constants 重新绑定。
+- Verification：Grok focused `lake build Tests.Language.ProgramExportAcceptanceEmpty
+  Tests.Language.ProgramExportAcceptance` 29 jobs；coordinator `lake build proof_forge_next_tests` 268 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：coordinator 主审、Kimi final review 与独立 subagent final review 均
+  P0/P1/P2=0、无需补丁；development evidence 为 `EV-20260719-0084`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-03` 仍 pending，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-05` 标为 in_progress/done，
+  不能开始 D1-06，也不能声明 wire identity、contained worker、target/runtime/proof 完成。
+- Next：D1-05 代码与 development acceptance surface 已饱和。按 task authority 选择下一个
+  dependency-safe executable slice；禁止继续增加 export identity micro-check。
+
+## 2026-07-19 — D1 declaration acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-03` pending-prep freeze package `0d4b5d31`；D1-PA-87 tests-only freeze
+  `0eafc92d`；`DeclarationAcceptance` harness `926df351`。
+- Authority：正式 `TASK-D1-03` 继续 `pending`。完成包逐字绑定 output `declaration grammar/elaboration`、
+  dependency `TASK-D1-02`、empty prerequisites 与唯一 `TST-SRC-004`；doneWhen 要求 named acceptance/
+  aggregate commands、`TASK-D1-02` done、candidate-bound `qualification=formal` evidence 和零 P0/P1，
+  task row 上全部 development EV 均被明确排除为 formal close 依据。
+- Changed：新增 39-line `Tests.Language.DeclarationAcceptance`，按既有 aggregate 相对顺序精确一次
+  调用 `AggregateDeclarations`、`ArrayTypes`、`BytesTypes`、`ConstDeclarations`、
+  `EventErrorDeclarations`、`ExtensionRequirements`、`FieldDeclarations`、`FnDeclarations`、
+  `IntegerWidthDeclarations`、`OptionDeclarations`、`PrincipalDeclarations`、`UnitReturnTypes`、
+  `InvariantDeclarations`、`ProofReferences`、`PrimitiveDeclarations`、`StateVisibility`。`Tests.lean`
+  保留 16 个 imports 与独立 `FrontendParity`，以一个 wrapper call 替换 16 个分散 calls；Lake 只增加
+  一个 root。总计 42/50 additions、16 deletions；既有 suite assertions、production、package file-set
+  与其他 tests 零修改。
+- Verification：Grok focused `lake build Tests.Language.DeclarationAcceptance` 41 jobs；coordinator
+  `lake build Tests.Language.DeclarationAcceptance proof_forge_next_tests` 270 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok/Kimi freeze reviews 均 P0/P1=0；Kimi final live-diff review P0/P1=0、仅 import
+  placement cosmetic P2 且无需修改。development evidence 为 `EV-20260719-0085`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-02` 未 done，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-03` 标为 in_progress/done，
+  不能据此关闭 statement/expression `TST-SRC-005`、D2 type/effect tests、D1-05 或开始 D1-06。
+- Next：当前无 active development slice。按正式依赖顺序优先审计 `TASK-D1-02`/`TST-SRC-003` 的
+  pending-prep freeze 与 bounded executable acceptance packaging；冻结前不得开工或自动递增。
+
+## 2026-07-19 — D1 program-command acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-02` pending-prep freeze package `a55f26ac`；D1-PA-88 tests-only freeze
+  `efa7a935`；`ProgramCommandAcceptance` harness `867cba14`。
+- Authority：正式 `TASK-D1-02` 继续 `pending`。完成包逐字绑定 output
+  `` `program ... where` command parser ``、dependency `TASK-D1-01`、empty prerequisites 与唯一
+  `TST-SRC-003`；doneWhen 要求 named acceptance/aggregate commands、`TASK-D1-01` done、candidate-bound
+  `qualification=formal` evidence 和零 P0/P1，任何 development evidence 均被排除为 formal close 依据。
+- Changed：新增 71-line `Tests.Language.ProgramCommandAcceptance`。test-local Fixture 通过唯一用户入口
+  `program Counter where` 定义单 view program；同 namespace source 经共享 ParserSession 的
+  `parsePrograms` 返回 exact-one program，并固定 full `Source.Program` BEq、short name、FQN 与
+  `sourceHash` parity。显式 `: contract` kind suffix 精确返回
+  `PF-SRC-INVALID: Lean parser rejected source: failed to parse file`；非白名单 `run_cmd IO.println`
+  精确返回 `PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL`，isolated
+  stdout 不含 marker，证明未执行。总计 74/80 additions，只增加 Tests/lake 注册；不调用
+  `selectProgram`、`programExports`/`programPayloads` 或混合 suite `run`，production 与 package file-set
+  零修改。
+- Verification：Grok focused `lake build Tests.Language.ProgramCommandAcceptance` 通过；coordinator
+  `lake build Tests.Language.ProgramCommandAcceptance proof_forge_next_tests` 272 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just docs-check` 与
+  `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok freeze review P0/P1=0；Kimi final live-diff review P0/P1=0，仅 unused
+  `open System` cosmetic P2 且无需修改。development evidence 为 `EV-20260719-0086`。
+- Limitations：本条只证明 development executable packaging，不是 candidate-bound formal record；
+  `TASK-D1-01` 未 done，D0 formal milestone 仍 7/9，因此不能把 `TASK-D1-02` 标为 in_progress/done，
+  不能据此关闭 token/span/NodeId/bounds、declaration/statement、export/selection、Diagnostic v1、worker、
+  D2 或 target task。
+- Next：当前无 active development slice。按正式依赖顺序审计 `TASK-D1-01` 的 pending-prep package；
+  首个 bounded candidate 只包装 `TST-SRC-001` 的 `SourceIdentity`/`SourceSpan`，`TST-SRC-002` 另行窄化，
+  禁止用混合 `ProgramSyntax`/`Loader` wrapper 吞入 SRC-003/008/compile 断言。
+
+## 2026-07-19 — D1 source-wire acceptance packaging pre-acceptance slice
+
+- Commits：`TASK-D1-01` pending-prep freeze package `ee1cbc8d`；D1-PA-89 tests-only freeze
+  `2df076fe`；`SourceWireAcceptance` harness `510f1fad`。
+- Authority：正式 `TASK-D1-01` 继续 `pending`。完成包逐字绑定 output `source token、span、NodeId`、
+  五个 D0 dependencies、empty prerequisites 与 `TST-SRC-001`/`TST-SRC-002`；doneWhen 要求两项完整
+  acceptance、`just dsl-negative`、全部 dependency done、candidate-bound `qualification=formal` evidence 和
+  零 P0/P1。`EV-20260717-0036` 与本条 development evidence 均被明确排除为 formal close 依据。
+- Changed：新增 11-line `Tests.Language.SourceWireAcceptance`，按 aggregate 原相对顺序精确一次调用
+  `SourceIdentity.run` 后 `SourceSpan.run`。`Tests.lean` 保留两个既有 imports，以一个 wrapper call 替换
+  两个 individual calls；`lakefile.lean` 保留两个 roots 并只增加 wrapper root。总计 14/30 additions、
+  aggregate -2 calls；既有 suite assertions、production 与 package file-set 零修改。
+- Verification：Grok `lake build Tests.Language.SourceWireAcceptance proof_forge_next_tests` 274 jobs；
+  coordinator 重跑 `lake env .lake/build/bin/proof-forge-next-tests`，输出 `proof-forge-next-tests: ok`；
+  `just docs-check` 与 `git diff --check` 通过。按冻结不运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok implementation report P0/P1=0；独立 final review P0/P1/P2=0。development evidence
+  为 `EV-20260719-0087`。
+- Limitations：本条只包装既有 NodeId/span development assertions；仓库仍缺完整 ProgramV1 independent
+  encoder/golden corpus 与正式 injectable truncated-ID collision staging，且没有覆盖 `TST-SRC-002`。
+  它不是 candidate-bound formal record，不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task；
+  D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。复核 `TST-SRC-002` 的直接 `SourceBoundsAcceptance` 与既有
+  generated `dsl-negative` 入口，优先复用已经执行的 256/257、100000/100001、namespace unwind 和
+  16 MiB 边界，禁止包装混合 `ProgramSyntax`/`Loader` 或重复制造重资源路径。
+
+## 2026-07-19 — D1 source-bound acceptance pre-acceptance slice
+
+- Commits：D1-PA-90 baseline `605b139a`；tests-only freeze `8422bcc1`；
+  `SourceBoundsAcceptance` harness `7f53c324`。TASK-D1-01 pending-prep package 继续为 `ee1cbc8d`。
+- Authority：正式 `TASK-D1-01` 继续 `pending`，两项 frozen Tests 都未改变。本切片只承载
+  `TST-SRC-002` development evidence；五个 D0 dependencies 与 candidate-bound `qualification=formal`
+  要求不变，不能由本条绕过。
+- Changed：新增 81-line direct `Tests.Language.SourceBoundsAcceptance` 与 Tests/lake 最小注册，总计
+  84/110 additions。test-owned iterative helpers 精确固定 linear Syntax 256/257、wide Syntax
+  100000/100001、六个 public decoder 的 shared nesting walker、program-command node walker、qualified
+  identity 总 components 256/257 与 identifier 256/257；四类 `PF-BOUND-001` 使用完整 render 比较。
+  suite 不 import 或包装 mixed `ProgramSyntax`/`Loader`，production/generator/justfile/package file-set 零修改。
+- Integration：单次 `just dsl-negative` exit 0，复用既有 generated fixtures 验证 namespace 255/256、
+  peak 257 unwind、300-term、20,000-state、Lean command/CLI 双入口 exact diagnostic parity、CLI exactly
+  16 MiB accept、16 MiB+1 pre-parse `PF-SRC-INVALID` 与 zero output；这些重路径没有进入 resident binary。
+- Verification：`lake build Tests.Language.SourceBoundsAcceptance proof_forge_next_tests` 276 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；`just dsl-negative`、
+  `just docs-check` 与 `git diff --check` 通过。未运行完整 `just ci` 或 `just sbom`。
+- Review/Evidence：Grok implementation P0/P1=0；Kimi probe 与 final live-diff review P0/P1/P2=0；
+  independent final review P0/P1/P2=0。development evidence 为 `EV-20260719-0088`。
+- Limitations：结果不是 candidate-bound formal record；D0 dependencies 未齐，且 `TST-SRC-001` 的完整
+  ProgramV1 independent encoder/golden inventory 与 injectable collision staging 仍未闭合，故不能关闭
+  pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。对 `TST-SRC-001` 剩余 wire/collision surface 做 bounded audit，
+  先确认 accepted/proposed spec authority、现有 production encoder/decoder API 与可安全冻结的最小 RED；
+  未冻结前不得新增 public API 或自动递增。
+
+## 2026-07-19 — D1 canonical wire primitive codec pre-acceptance slice
+
+- Commits：D1-PA-91 freeze `cec96db2`；RED `b59dadfd`；GREEN `aa54102f`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 primitive/tagged encode foundation，仍属于
+  `TST-SRC-001` development evidence。冻结边界禁止 partial/full `ProgramV1`、alpha projection/sourceHash
+  改写、decoder、NodeId assigner/collision seam 与完整 public wire/hash API。
+- Changed：新增 109-line `ProofForgeV2.Source.WireCodecV1`：u8/u16/u32/u256 little-endian、Bool、带首个
+  child-error 传播的 Option/Array、pinned-NFC String、经 public Common validator 的 Ident/QualifiedName/
+  QualifiedId，以及 generic ASCII tag/u16 field-count encoder。新增 92-line Lean suite、100-line 不 import
+  Lean/ProofForge 的 Python reference 与最小 product/test registration；authored additions 305/380，机械
+  manifest refresh 后 product Lean file-set 为 33 files。`WireCodecV1.lean` 为 3755 bytes、SHA-256
+  `003a9e072583ff9be1903243c980259224c81b27c81f3c83d954fd124322bb56`。
+- Cross implementation：Lean 与 Python 固定 20 个 positive exact-hex vectors，覆盖 scalar endian、u256
+  zero/max、Bool、Option/Array order、ASCII/Unicode NFC Ident/String、一/二组件 qualified carriers、nullary
+  visibility 与 two-field Program tag；11 个 negatives 覆盖 u256 overflow、NFD、invalid/empty/1/257 component、
+  child encoder failure、empty/non-ASCII tag 与 65536 fields。Python identifier oracle 按锁定 Lean 4.31
+  `isIdFirst`/`isIdRest` 的 ASCII、letter-like、subscript 范围和 Common 1..240 UTF-8 bytes 精确实现，不使用
+  host Unicode alpha 类别。
+- Verification：focused `lake build ProofForgeV2.Source.WireCodecV1
+  Tests.Language.SourceWireCodecV1` 8 jobs；focused `lean --run` 与 Python `--self-check` 均输出 `ok`；临时
+  Lean probes 固定 u256 `0x0102` LSB-first、Option/Array first-child error、String symbols 与 QualifiedId 256
+  boundary；`lake build proof_forge_next_tests` 280 jobs，测试二进制输出 `proof-forge-next-tests: ok`；最终态
+  `just sbom` 的 self-test/generate/verify/closure 全绿；`git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok cross-codec review 的两项 P1（error-path vacuity、Python identifier drift）均在 GREEN
+  内修复，rereview P0/P1=0；Kimi actual production security audit P0/P1=0。development evidence 为
+  `EV-20260719-0089`。
+- Limitations：没有 canonical `ProgramV1` model、closed constructor inventory、decoder、root identity join、
+  `canonicalSourceAstBytesV1`、`sourceHashV1`、escaped-source identifier projection、NodeId traversal/collision
+  staging 或 full cross-tag corpus；spec 仍 proposed，且 D0 dependencies/candidate-bound formal evidence 未齐，
+  因而不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。冻结下一 slice 前先裁决 escaped identifier carrier、
+  `ProofDecl.theorem` QualifiedId 约束、visibility 映射与 NodeId JCS key；之后只能在 canonical model cutover
+  或 decoder 中选择一个 bounded RED，禁止重新接入 alpha hash/model。
+
+## 2026-07-19 — D1 canonical wire primitive decoder pre-acceptance slice
+
+- Commits：D1-PA-92 freeze `9d935dc9`；RED `52011dbb`；GREEN `a4cbedfa`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 cursor-based primitive decode
+  foundation，仍属于 `TST-SRC-001` development evidence。冻结边界禁止 Ident/QualifiedName/
+  QualifiedId/tagged constructor、ProgramV1/model/root/hash、alpha projection/sourceHash 与 NodeId。
+- Changed：新增 113-line `ProofForgeV2.Source.WireDecodeV1`：private-field `CursorV1`、
+  `DecoderV1 α := CursorV1 → Except String (α × CursorV1)`、`start`/`remaining`/`finish`、
+  LE `decodeU8/U16le/U32le/U256le`、Bool/Option 0/1 marker、`decodeArray maxCount` 在 child 调用与
+  分配前 exact `array count exceeds caller limit`、strict UTF-8 + pinned `requireNfc` String。
+  新增 108-line Lean suite、87-line 不 import Lean/ProofForge 的 Python oracle 与最小 product/test
+  registration；authored additions 312/370；机械 manifest refresh 后 product Lean file-set 为 34 files。
+- Cross implementation：checked-in LE/NFC positives 与 exact-consume；PA91 allowlist
+  `encodeU8/U16le/U32le/U256le/Bool/Option/Array/String` encode→decode round-trip only；negatives 覆盖
+  truncated scalars、marker 2、array cap before distinct child error、first child error、truncated child、
+  string over remaining、invalid UTF-8、NFD 与 trailing。
+- Verification：`lake build ProofForgeV2.Source.WireDecodeV1 Tests.Language.SourceWireDecodeV1
+  proof_forge_next_tests` 284 jobs；`lake env .lake/build/bin/proof-forge-next-tests` 输出
+  `proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S scripts/reference_source_wire_decode_v1.py
+  --self-check` 输出 `ok`；`just sbom-package-files-refresh` → 34 files；`just sbom` self-test/
+  generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok implementation；Kimi final review P0/P1/P2=0。development evidence 为
+  `EV-20260719-0090`。
+- Limitations：没有 Ident/QN/QID/tag decode、ProgramV1 model、root identity join、
+  `canonicalSourceAstBytesV1`/`sourceHashV1`、NodeId assigner/collision、global 16 MiB/node/nesting
+  budgets 或 stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，
+  不能关闭 pending `TASK-D1-01`、任何下游 D1/D2 或 target task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。下一未冻结候选优先 raw escaped component carrier audit，
+  再处理 `ProofDecl.theorem` QualifiedId 与 visibility model；NodeId slice 另需固定 exact JCS keys；
+  禁止 alpha hash/model 回填与 formal task 假关闭。
+
+## 2026-07-19 — D1 raw source-name carrier pre-acceptance slice
+
+- Commits：D1-PA-93 freeze `139036b7`；spec alignment `cbecfacc`；RED `93c63390`；
+  RED fixture syntax repair `e982fdee`；GREEN `08e7e7de`。TASK-D1-01 pending-prep package 继续为
+  `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 的 raw Lean `Name.str` component carrier，
+  仍属于 `TST-SRC-001` development evidence。冻结边界禁止 ProgramV1、完整 SourceQualifiedName/root join、
+  model cutover、sourceHash、NodeId 与 Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。
+- Changed：新增 41-line private-constructor `SourceNameComponentV1`，公开只读 raw projection；校验顺序为
+  UTF-8 `1..240`、pinned NFC、Unicode Cc、closing guillemet `U+00BB`，显式允许 exact `_`、opening
+  `U+00AB`、digit-leading、hyphen、embedded dot、space、NFC Unicode 与 keyword body。从 `Lean.Name`
+  只接受 final `.str`；renderer exact 为 `(Name.str .anonymous raw).toString` 且不进入 wire/hash。
+  `WireCodecV1`/`WireDecodeV1` 增加 typed raw encode/decode，既有 `encodeIdent` 迁移到 raw carrier；
+  Common QualifiedName/QualifiedId validation 不变。
+- Cross implementation：新增 118-line Lean suite与 Python raw reference 增量；真实顶层
+  `program «_» where` 完成 elaboration。固定 raw/render non-alias、`1bad` exact wire
+  `0400000031626164`、direct checked-in decode、encode→decode、240/241 与 NFC/Cc/guillemet negatives；
+  Python 不实现 `Name.toString`，并保留独立 Common validator。new production 41、new suite 118、
+  existing/registration additions 49，总 authored additions 208/255；机械 manifest 为 35 files。
+- Verification：`lake build ProofForgeV2.Source.NameComponentV1 Tests.Language.SourceNameComponentV1
+  Tests.Language.SourceWireCodecV1 proof_forge_next_tests` 288 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 scripts/reference_source_wire_codec_v1.py --self-check` 输出 `ok`；
+  `just sbom-package-files-refresh` → 35 files；最终单次 `just sbom` 的 self-test/generate/verify/closure
+  全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi RED 与 GREEN independent audit 最终 P0/P1/P2=0；manifest stale 的唯一 P1 已由
+  35-file refresh 消除。development evidence 为 `EV-20260719-0091`。
+- Limitations：没有 SourceQualifiedName 数组、ProgramV1 model/root、`ProofDecl.theorem` source QualifiedId
+  materialization、visibility defaulting、canonical source bytes/hash、NodeId JCS/collision/global budgets/stable
+  Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending
+  `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在双路审计 model/theorem/visibility 与 NodeId keys
+  的真实依赖顺序；只冻结其中一个最小后继 slice，禁止自动递增或回接 alpha model/hash。
+
+## 2026-07-19 — D1 source-qualified-name array pre-acceptance slice
+
+- Commits：D1-PA-94 freeze `500d6271`；RED `39118134`；frozen-test hardening `3e2c4896`；GREEN
+  `3db2528e`。TASK-D1-01 pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 已定义的 source-only qualified-name array，
+  仍属于 `TST-SRC-001` development evidence。冻结边界禁止 ProgramV1、theorem/visibility model、root/hash、
+  NodeId、alpha projection/sourceHash 与 Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。
+- Changed：新增 81-line private-constructor `SourceQualifiedNameV1`，内部只复用 Common generic
+  `NonEmptyArray` container，不调用 Common QN validator/render/isId*。QN construction 固定 1..256；专用
+  QualifiedId validation 固定 2..256；Lean Name 只接受以 anonymous 终止的 pure `.str` chain，保持
+  root-to-leaf raw 顺序并以 256 fuel 在第 257 component 前精确失败；module/program join 先做 QID，再要求
+  program strictly longer 且 raw prefix exact。WireCodec/WireDecode 增加 source QN/QID raw-array entrypoint；
+  decoder 手动判 u32 count，0/1/257 在任何 child 前返回锁定 QN/QID error。
+- Cross implementation：新增 137-line Lean suite与 Python source-QN/QID raw-array oracle 增量。fixed bytes
+  覆盖 Demo、Demo/Counter、raw hyphen与 opening guillemet；正向 decoder 直接消费 checked-in bytes；
+  QID-256 完整 encode/decode/finish roundtrip；component empty/NFD/Cc/closing、anonymous/final-num/prefix-num、
+  equal/non-prefix join 与 hostile count-before-child negatives 全部闭合。初始 equal join 的 one-component
+  fixture 会先命中 QID count，`3e2c4896` 在同一冻结负例内改为 valid-QID pair/pair；Python pair 也改为
+  实际调用 QID positive。new production 81、new suite 137、existing/Python/registration additions 80，
+  总 authored additions 298/330；机械 manifest 为 36 files。
+- Verification：`lake build ProofForgeV2.Source.QualifiedNameV1 Tests.Language.SourceQualifiedNameV1
+  proof_forge_next_tests` 292 jobs；`lake env .lake/build/bin/proof-forge-next-tests` 输出
+  `proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S scripts/reference_source_wire_codec_v1.py
+  --self-check` 输出 `ok`；transient 257-component Lean Name probe exact 返回
+  `source qualified name must contain 1..256 components`；`just sbom-package-files-refresh` → 36 files；
+  最终单次 `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。
+  按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze audit P0/P1=0；Kimi GREEN 的唯一 P1（manifest stale）已由 36-file refresh
+  消除；Grok 对最终 256-fuel/current diff review P0/P1=0。development evidence 为 `EV-20260719-0092`。
+- Limitations：没有 ProgramV1 constructor inventory、`ProofDecl.theorem` materialization、visibility/defaulting、
+  last-component/program.name binding、canonical root/hash、NodeId/global budgets/stable Diagnostic；spec 仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在对 theorem QualifiedId、visibility 与完整递归
+  ProgramV1 model 做双路裁决；只能冻结一个最小后继 slice，禁止自动扩成 root/hash/NodeId。
+
+## 2026-07-19 — D1 ProgramV1 leaf AST pre-acceptance slice
+
+- Commits：D1-PA-95 freeze `d79d6a17`；RED `8a818415`；GREEN `087ee953`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 五张 leaf table 的完整 closed layer，仍属于
+  `TST-SRC-001` development evidence。冻结边界禁止 current-grammar subset、alpha projection/mapping、
+  Program/items/Stmt/Expr/Place/Pattern recursive spine、decoder、root/hash、NodeId 与 target 改写。
+- Changed：新增 65-line `AstV1`，精确包含 Visibility 3、Type 11（含 Named/Map）、Literal 3、UnaryOp 3、
+  BinaryOp 18，共 38 个 unique constructors；新增 102-line `AstCodecV1`，所有 38 arms 显式映射到
+  table-verbatim ASCII tag/field order。UInt/Int width、Array/Bytes length 与 `bn254_fr` Field 在 encoder
+  exact fail closed；Named/Field 复用 raw `SourceNameComponentV1`；Integer/String 复用 u256le/pinned-NFC。
+  `encodeTypeV1` 最终为 kernel-reducible total structural `def`，没有留下 `partial`/unsafe canonical path。
+- Cross implementation：144-line Lean suite与 129-line 不 import Lean/ProofForge 的 Python oracle持有
+  independent checked-in hex。55 vectors覆盖 38 unique tags、六种 UInt/Int width、Named raw `foo-bar`、Map、
+  nested Array(Option(Bytes))、Array/Bytes 0/4096、Field、Bool、NFC String、Integer 0/`2^64`/u256 max；
+  negatives覆盖 width 0/24、length 4097、wrong Field、u256 overflow、NFD。Python raw Ident 同步拒绝 Cc 与
+  closing guillemet，并以实际负例执行；logicalOr/bitOr bytes 显式 non-alias。总 authored additions
+  445/615；机械 manifest 为 38 files。
+- Verification：`lake build ProofForgeV2.Source.AstV1 ProofForgeV2.Source.AstCodecV1
+  Tests.Language.SourceAstLeafV1 proof_forge_next_tests` 298 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_leaf_v1.py --self-check` 输出
+  `reference_source_ast_leaf_v1: ok 55`；`just sbom-package-files-refresh` → 38 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结
+  未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze/Python audit P0/P1=0；Kimi GREEN 找到的唯一 P1 `partial def` 已改为 total
+  `def` 并重建；Grok 对最终 inventory/current diff review P0/P1=0。development evidence 为
+  `EV-20260719-0093`。
+- Limitations：没有 ProgramV1 supporting records/items 或 recursive Stmt/Expr/Place/Pattern spine，没有
+  leaf decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、theorem/visibility alpha adapter、root/hash、
+  NodeId 或 stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能
+  关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在绘制 recursive spine dependency graph，只能在
+  无 placeholder/类型擦除的完整边界上冻结 PA96；model/encoder 若需分批，必须保持同一闭集 inventory。
+
+## 2026-07-19 — D1 ProgramV1 supporting-record pre-acceptance slice
+
+- Commits：D1-PA-96 freeze `1f5377a7`；RED `f957f59a`；GREEN `b3b90cb7`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 中不依赖递归 spine 的三个 supporting
+  record 与其 table-verbatim encoder，仍属于 `TST-SRC-001` development evidence。冻结边界明确排除
+  Pattern、Place/Expr/Stmt/Block/arms/ExternalCall mutual spine、partial ProgramItem/root、alpha、decoder、
+  hash、NodeId 与 target 层。
+- Changed：新增 28-line `AstSupportV1`，精确包含 `ParamV1`、`FieldDeclV1`、`EnumVariantV1`；新增
+  32-line `AstSupportCodecV1`，以 total `def` 编码 `Param`/3、`FieldDecl`/2、`EnumVariant`/2，字段顺序
+  分别为 visibility/raw Ident/Type、raw Ident/Type、raw Ident/Array Type。空 variant payload 在此层合法，
+  future `EnumDecl.variants` 的 nonempty 规则没有错误下沉；所有 raw name 与 Type 子错误原样 fail closed。
+- Cross implementation：97-line Lean suite与 74-line 不 import Lean/ProofForge 的 Python oracle持有 10 组
+  checked-in fixed bytes，覆盖三 visibility、raw `foo-bar`、nested Array(Option(Bytes 0),0)、Map、empty
+  payload、ordered Bool/Principal pair、nested Option；UInt width 24 与 Bytes 4097 子错误逐字传播，Python
+  另执行 closing-guillemet/Cc raw-name negatives。model 28、codec 32、suite 97、Python 74、registrations 5，
+  总 authored additions 236/390；机械 manifest 为 40 files。
+- Verification：`lake build ProofForgeV2.Source.AstSupportV1 ProofForgeV2.Source.AstSupportCodecV1
+  Tests.Language.SourceAstSupportV1 proof_forge_next_tests` 304 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_support_v1.py --self-check` 输出
+  `reference_source_ast_support_v1: ok 10`；`just sbom-package-files-refresh` → 40 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi freeze、RED 与 GREEN reviews 均 P0/P1=0，最终 GREEN 为 P0/P1/P2=0；Grok
+  final review P0/P1=0，唯一 P2 stale RED comment 已改为 phase-neutral 描述并聚焦重建。development
+  evidence 为 `EV-20260719-0094`。
+- Limitations：没有 Pattern 或 recursive Place/Expr/Stmt/Block spine，没有 supporting-record decoder、
+  full-tree 256 nesting/100000 nodes/16 MiB validator、theorem/visibility alpha adapter、root/hash、NodeId 或
+  stable Diagnostic；spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭
+  pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok 正在验证完整 Pattern table 是否形成 PA93-96 之上的
+  自包含闭集；只有依赖图、完整 constructor/tag inventory 与 RED 预算冻结后才能启动 D1-PA-97。
+
+## 2026-07-19 — D1 ProgramV1 Pattern pre-acceptance slice
+
+- Commits：D1-PA-97 freeze `79133bff`；RED `f1d25734`；GREEN `9c4166d4`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片实现 proposed `SPEC-SOURCE-WIRE-001` Pattern table 的完整四个 tag，仍属于
+  `TST-SRC-001` development evidence。Pattern 只依赖 PA93 raw Ident、PA94 source QualifiedId、PA95
+  Literal 与自身 nested recursion；冻结明确排除 Place/Expr/Stmt/Block/arms/ExternalCall mutual spine、
+  ProgramItem/root、alpha、decoder、global validator、sourceHash、NodeId 与 target。
+- Changed：新增 65-line `AstPatternV1`，包含 Wildcard、Bind、Literal、Constructor。pinned Lean 4.31
+  对 `Array PatternV1` 不支持自动 deriving DecidableEq，因此以 Pattern/Array/List 三路 structural recursion
+  直接构造 `Decidable (a = b)`；16 个 constructor pair、array length/order/shape 均由证明型 instance 覆盖，
+  不退化为未证明 BEq。新增 40-line `AstPatternCodecV1`，同样以三路 total recursion 先产生 ordered child
+  chunks，再复用 `encodeArray pure`；Constructor 先验证 QID，再访问 args，没有 `partial`/`unsafe`/fuel
+  或复制 array wire。
+- Cross implementation：115-line Lean suite与 81-line 不 import Lean/ProofForge 的 Python oracle持有 12 组
+  checked-in fixed bytes，覆盖四 tag、raw `x`/`foo-bar`、Bool true/false、`2^64` Integer、NFC `café`、
+  empty/single/ordered/reversed/depth-2 Constructor；nested equality覆盖 equal/order/shape。one-component QID、
+  `2^256` overflow、NFD 与 invalid-QID-before-hostile-child errors逐字 fail closed，Python另执行 closing-
+  guillemet/Cc raw negatives。model 65、codec 40、suite 115、Python 81、registrations 5，总 authored
+  additions 306/430；机械 manifest 为 42 files。
+- Verification：`lake build ProofForgeV2.Source.AstPatternV1 ProofForgeV2.Source.AstPatternCodecV1
+  Tests.Language.SourceAstPatternV1 proof_forge_next_tests` 310 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_pattern_v1.py --self-check` 输出
+  `reference_source_ast_pattern_v1: ok 12`；`just sbom-package-files-refresh` → 42 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`git diff --check` 通过。按冻结未运行完整 `just ci`。
+- Review/Evidence：Kimi RED 与最终 proof/equality review 均 P0/P1/P2=0；其早期关于 proved instance 超预算
+  的 P1 被 65/85-line direct decision procedure 实证关闭。Grok GREEN/final wire+manifest reviews 均
+  P0/P1/P2=0；coordinator 第二份临时 Python oracle 与全部 Constructor bytes一致。development evidence 为
+  `EV-20260719-0095`。
+- Limitations：没有 recursive Place/Expr/Stmt/Block spine或 match arms，没有 Pattern decoder、full-tree
+  256 nesting/100000 nodes/16 MiB validator、binding uniqueness/constructor resolution/arity/exhaustiveness、
+  theorem/visibility alpha adapter、root/hash、NodeId 或 stable Diagnostic；spec 仍 proposed，D0 dependencies/
+  candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone
+  仍 7/9。
+- Next：当前无 active development slice。Grok 正在裁决全部 spine-independent declaration records 与
+  full Place/Expr/Stmt/Block SCC 的最小完整后继边界；必须先冻结 exact inventory、validation ownership 与 RED。
+
+## 2026-07-19 — D1 ProgramV1 spine-independent declaration-record pre-acceptance slice
+
+- Commits：D1-PA-98 freeze `3d79f9ba`；RED `d348c074`；GREEN `d4624e20`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片实现 proposed `SPEC-SOURCE-WIRE-001` 中字段依赖已由 PA91–96 闭合的全部七个
+  spine-independent ProgramItem records，但不提前发布残缺 `ProgramItemV1` sum。冻结明确排除
+  Const/Invariant/body-bearing items、Place/Expr/Stmt/Block/arms/ExternalCall mutual spine、Program root、
+  alpha、decoder、global validator、sourceHash、NodeId 与 target。
+- Changed：新增 50-line `AstDeclV1`，精确定义 State/Struct/Enum/Event/Error/ExtensionReq/Proof 七个
+  named records；新增 90-line `AstDeclCodecV1`，七个 encoder 均为 total `def`。Struct fields 与 Enum
+  variants 在访问 name/child 前执行 exact nonempty error；Event/Error 允许 empty params。Extension 严格先
+  source QID，再用 Common `parseSemVer`/`renderSemVer` exact round-trip，最后用 `parseDigest`/`renderDigest`
+  exact round-trip，所有 Common 细分错误映射到冻结的两个统一错误；Proof theorem 复用 source QID。
+- Cross implementation：154-line Lean suite与 157-line 不 import Lean/ProofForge 的 Python oracle持有 14 组
+  byte-exact fixed vectors，覆盖 State 三 visibility与 nested Type、Struct single/multi/reversed FieldDecl、Enum
+  empty-payload/multi-payload、Event/Error empty与 ordered Param、两个 canonical Extension（含
+  prerelease/build）及 Proof。负例逐字覆盖 Struct/Enum empty、State/Struct width 24 child、QID-before-hostile、
+  version-before-digest、bad digest 与 Proof one-component theorem；Python另执行 closing-guillemet/Cc raw
+  negatives。model 50、codec 90、suite 154、Python 157、registrations 5，总 authored additions 456/560；
+  机械 manifest 为 44 files。
+- Verification：`lake build ProofForgeV2.Source.AstDeclV1 ProofForgeV2.Source.AstDeclCodecV1
+  Tests.Language.SourceAstDeclV1 proof_forge_next_tests` 316 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_decl_v1.py --self-check` 输出
+  `reference_source_ast_decl_v1: ok 14`；`just sbom-package-files-refresh` → 44 files；最终单次 `just sbom`
+  self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行完整
+  `just ci`。
+- Review/Evidence：缺失 production import 的初始 RED 只暴露两个目标模块；production 落盘后 Grok 发现
+  suite 局部 binder `from` 为 Lean 保留字，GREEN 内仅重命名为 `from_`，逻辑值与 golden bytes 未变。
+  Kimi 最终 semantic review P0/P1/P2=0；Grok 在 `d4624e20` 上最终 integration review P0/P1=0、无残留；
+  development evidence 为 `EV-20260719-0096`。
+- Limitations：没有 remaining body-bearing declarations 或 recursive Place/Expr/Stmt/Block spine，没有
+  ProgramItem sum/root、declaration decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、binding/
+  duplicate/global semantics、theorem/visibility alpha adapter、root/hash、NodeId 或 stable Diagnostic；spec 仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。下一步只做 full Place/Expr/Stmt/Block/arms/ExternalCall SCC 的
+  dependency/constructor/validation/budget 裁决；完成面冻结前不得开始 RED，也不得顺手并入 body-bearing
+  ProgramItem 或完整 root。
+
+## 2026-07-19 — D1 ProgramV1 mutual-spine model/equality pre-acceptance slice
+
+- Commits：D1-PA-99 freeze `76705eea`；RED `10677145`；GREEN `a4abc415`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 proposed `SPEC-SOURCE-WIRE-001` 中不可再拆的 Place/Expr/Stmt/Block/
+  StmtMatchArm/ExprMatchArm/ExternalCallExpr 七类型 SCC model 与证明型 equality。25-constructor table 在
+  model 层完整，但 codec、wire validation、body-bearing ProgramItem 与 root 均明确排除并等待独立冻结。
+- Changed：新增 65-line `AstSpineV1`，一个 Lean mutual block 精确定义 Place 3、Expr 7、Stmt 11 与
+  Block/两种 arm/ExternalCall 四种 record，共 25 constructors；keyword constructor 使用
+  `let_`/`if_`/`match_`/`for_`/`assert_`/`return_`，不改变 future wire tag。新增 392-line
+  `AstSpineEqV1`，以 17 个 private mutual structural decision procedures覆盖七种 carrier、四种 Array/List
+  与两种 SCC Option，公开七个 `DecidableEq` instance；每条路径返回 `Decidable (a = b)`，无 BEq-only、
+  Classical/noncomputable、partial、unsafe、fuel 或 codec-bytes equality。
+- Tests：149-line phase-neutral Lean suite实例化 25/25 constructors，并对七个 instance 各执行 equality
+  true 与 inequality true。覆盖 Expr/Stmt array order与length、Constructor/LocalCall/ExternalCall args、
+  四个 Option site none/some、两种 match arm、Call/Schedule nonalias、For bound value inequality、raw
+  `foo-bar`、two-component QID 与 depth-3 Block→Stmt.If→Block deep equal/mismatch。registrations 5，
+  总 authored additions 611/748；model 层仍允许 empty arrays 与任意 UInt32，未提前实现 codec validation。
+- Verification：`lake build ProofForgeV2.Source.AstSpineV1 ProofForgeV2.Source.AstSpineEqV1
+  Tests.Language.SourceAstSpineV1 proof_forge_next_tests` 322 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `just sbom-package-files-refresh` → 46 files；最终单次 `just sbom` self-test/generate/verify/closure 全绿；
+  `just docs-check` 与 `git diff --check` 通过。一次 coordinator/Grok 并发运行同一 test binary 争用
+  `build/v2/existing-output` 产生 transient `important.txt` 缺失；agent 停止后单进程复测全绿，未改生产
+  语义。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok RED/final integration review P0/P1=0；Kimi 对 equality 每个 same-constructor field、
+  6/42/110 个 Place/Expr/Stmt ordered cross-constructor cases及 Array/List/Option 正反证明逐项复核通过。
+  Kimi 在 `/tmp` draft 发现 namespace 前 docstring P1，Grok production 从未带入该两行并已实编译，故
+  production residual 为零。development evidence 为 `EV-20260719-0097`。
+- Limitations：没有 25-tag codec、Block/Match nonempty、For 0..4096 或 QID-before-args wire validation；
+  没有 Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/root、alpha、decoder、global validator、sourceHash、
+  NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal evidence 未齐，
+  不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。候选 PA100 仅为同一 shipped SCC 的完整 25-tag total codec；
+  必须先冻结 exact errors/priority、manual SCC Option/Array totality、golden/Python matrix与预算，禁止并入
+  body-bearing ProgramItem 或 root。
+
+## 2026-07-19 — D1 ProgramV1 mutual-spine codec pre-acceptance slice
+
+- Commits：D1-PA-100 freeze `fdcf9bfe`；RED `3abb82ee`；GREEN `ae5b2bb1`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只为 PA99 已发布的七类型 SCC 实现 proposed `SPEC-SOURCE-WIRE-001` 的完整
+  25-tag canonical codec；不修改 model/equality，也不引入 Const/Invariant/Init/Entry/View/Fn、
+  ProgramItem sum/root、alpha、decoder、global validator、sourceHash、NodeId 或 target。
+- Changed：新增 217-line `AstSpineCodecV1`；七个 public encoder 与八个 private Array/List helper 位于
+  同一 kernel-total mutual family。Place 3、Expr 7、Stmt 11 及 Block/两种 arm/ExternalCall 四个 record
+  的 25/25 tags、field count 与左到右 field order逐字匹配 wire table。recursive Array 先产生 ordered
+  chunks，再唯一复用 `encodeArray pure`；If/Return 的 SCC Option 手工编码 `0x00`/`0x01 || child`，Let/
+  Assert 的非 SCC Option 复用 `encodeOption`。Block/两种 Match/For 四个 local check 先于任意 child；
+  Constructor/ExternalCall 均先 QID 后 args，child errors 原样传播。无 partial、unsafe 或 fuel。
+- Cross implementation：232-line Lean suite持有 37 个 fixed expected-byte assertions，覆盖七个 public API、
+  25 tags、四个 Option site、Constructor/Block order nonalias 与 10 个 exact negative/priority cases；181-line
+  不 import Lean/ProofForge 的 Python oracle持有 36 个 unique goldens、13 个 negatives与两组 nonalias。
+  coordinator 对 37 个 Lean assertions 与 Python logical-label mapping 做逐字节对照，零 missing/extra/
+  mismatch。codec 217、suite 232、Python 181、registrations 4，总 authored additions 634/818；机械
+  manifest 为 47 files。
+- Verification：RED `lake build Tests.Language.SourceAstSpineCodecV1` 只因 production module缺失失败；
+  GREEN focused build 16 jobs，`lake build proof_forge_next_tests` 326 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 -B scripts/reference_source_ast_spine_v1.py --self-check` 输出
+  `reference_source_ast_spine_v1: ok 36`；`just sbom-package-files-refresh` → 47 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。一次未带
+  `lake env` 的直接二进制运行按预期因缺 Lean search path 返回 `unknown module prefix 'ProofForgeV2'`，
+  使用规定入口后通过。GREEN 内删除一个未使用 `foo-bar` local binding以消除 linter warning，未改变
+  fixture、assertion 或 golden 集合。按冻结未运行完整 `just ci`。
+- Review/Evidence：Grok 实现与 focused build通过；Kimi 对单一 mutual family、25 tags/order、Array/
+  Option totality、四个 local error priority、两条 QID-first path、child propagation与 scope逐行独立审查，
+  P0/P1/P2=0。development evidence 为 `EV-20260719-0098`。
+- Limitations：没有 body-bearing declarations、ProgramItem sum/root、theorem/visibility alpha adapter、
+  decoder、full-tree 256 nesting/100000 nodes/16 MiB validator、binding/duplicate/global semantics、
+  sourceHash、NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal
+  evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在只读裁决 remaining body-bearing declaration
+  records 的最小闭合面；完成面冻结前不得开始下一份 RED，ProgramItem/root 与其他边界不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 spine-dependent declarations pre-acceptance slice
+
+- Commits：D1-PA-101 freeze `0bf6d9a3`；RED `07c1842e`；GREEN `0c7bba46`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 `SPEC-SOURCE-WIRE-001` 中 ordered fields依赖已发布 Expr/Block spine 的全部六个
+  named records：Const/Invariant/Init/Entry/View/Fn。该 closed class 与 PA98 的七个 spine-independent
+  records 合计 13/13 item alternatives，但明确不定义 `ProgramItemV1` sum 或 `Program` root。
+- Changed：新增 51-line `AstSpineDeclV1`，六个 structure 精确持有 raw name、Type/Param/Expr/Block fields，
+  并全部由 Lean 4.31 派生 `DecidableEq`/`Repr`；新增 54-line `AstSpineDeclCodecV1`，六个 total encoder按
+  Const `[name,type,value]`、Invariant `[name,predicate]`、Init `[params,body]`、Entry/View/Fn
+  `[name,params,result,body]` 左到右组合既有 codec。Param arrays 复用 `encodeArray encodeParamV1`，没有
+  新 local validation/error string，empty params允许，所有 child errors原样传播。
+- Cross implementation：151-line Lean suite与 132-line、不 import Lean/ProofForge 的 Python oracle持有
+  同名七个 fixed expected-byte goldens，覆盖六个 tags、三 visibility、nested Type/Expr/Stmt/Block、View
+  empty params与 Entry first-two-param swap；coordinator 逐 label/byte对照为 7/7、零 missing/extra/mismatch。
+  六种 record各有 derived equality true/false；Entry param-order同时 Eq/byte nonalias，字段相同的 Entry/View
+  tag nonalias。Lean 7 个与 Python 9 个 constructible negatives覆盖 Type-before-Expr、Param-before-result/body、
+  result-before-body、u256、Field id与 empty Block；私有 name carrier未被 unsafe伪造。Python 的 Param与
+  Init body priority fixture在 RED 前改为 lazy whole-child evaluation，错误值与 seven-golden集合不变。
+  model 51、codec 54、suite 151、Python 132、registrations 5，总 authored additions 393/520；机械 manifest
+  为 49 files。
+- Verification：RED `lake build Tests.Language.SourceAstSpineDeclV1` 只因两个 production modules缺失失败；
+  GREEN focused build 21 jobs，`lake build proof_forge_next_tests` 332 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `python3 -B scripts/reference_source_ast_spine_decl_v1.py --self-check` 输出
+  `reference_source_ast_spine_decl_v1: ok 7`；`just sbom-package-files-refresh` → 49 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结
+  未运行完整 `just ci`。
+- Review/Evidence：Grok 的两个 production files与事前 `/tmp` Lean 4.31 feasibility candidates逐字一致；
+  Kimi 对六个 fields/derive、six tags/order、required Eq import、Array reuse、zero-new-validation、两条产品
+  registration与排除面逐行独立审查，P0/P1/P2=0。development evidence 为 `EV-20260719-0099`。
+- Limitations：没有 `ProgramItemV1` sum/codec、Program root/identity/items nonempty、set-level duplicate/
+  zero-entry-view/multiple-init/proof-invariant validation、alpha adapter、decoder、full-tree global budgets、
+  sourceHash、NodeId、stable Diagnostic 或 target。spec 仍 proposed，D0 dependencies/candidate-bound formal
+  evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone 仍 7/9。
+- Next：当前无 active development slice。Grok/Kimi 正在只读裁决 complete 13-alternative
+  `ProgramItemV1` sum/codec 的最小闭合面；完成面冻结前不得开始下一份 RED，Program root/global boundaries
+  不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 complete ProgramItem dispatch pre-acceptance slice
+
+- Commits：D1-PA-102 freeze `9ff62f4b`；RED `173baa7e`；GREEN `d1a4a0f5`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-SOURCE-WIRE-001` 已列出的全部 13 种 ProgramItem alternatives及
+  no-wrapper dispatch boundary。`ProgramItemV1` 的 constructor order精确为 State/Struct/Enum/Const/Event/
+  Error/Init/Entry/View/Fn/Invariant/ExtensionReq/Proof；item wire bytes就是对应 record bytes，不存在额外
+  `ProgramItem` tag、field replay或 validation。
+- Changed：新增 25-line `AstProgramItemV1`，13 constructors全部持有 PA98/PA101 已发布的 typed record并派生
+  `DecidableEq`/`Repr`；新增 26-line `AstProgramItemCodecV1`，单一 total `encodeProgramItemV1` 的 13 arms
+  各自只调用一个现有 record encoder。因此 dispatch不能改变 child field order、错误字符串或优先级，也没有
+  引入 Program root、items array或 set-level语义。
+- Cross implementation：210-line Lean suite与 152-line、不 import Lean/ProofForge/前序 oracle 的 standalone
+  Python oracle持有同名 13 个 fixed expected-byte goldens；coordinator 逐 label/byte对照为 13/13、零
+  missing/extra/mismatch。每个 Lean case同时证明 item bytes等于 direct record encoder；13 constructors各有
+  self-equality，字段同形的 Event/Error与 Entry/View/Fn 同时做 value/byte nonalias。Struct empty fields、Const
+  UInt24 + hostile value、Init empty body、Extension one-component QID + hostile version/digest 四个 negatives
+  精确证明既有 child error及优先级未经 remap传播。model 25、codec 26、suite 210、Python 152、registrations
+  5，总 authored additions 418/515；机械 manifest 为 51 files。
+- Verification：RED `lake build Tests.Language.SourceAstProgramItemV1` 只因两个 production modules缺失失败；
+  GREEN focused build 25 jobs，`lake build proof_forge_next_tests` 338 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_program_item_v1.py --self-check` 输出
+  `reference_source_ast_program_item_v1: ok 13`；`just sbom-package-files-refresh` → 51 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行
+  完整 `just ci`。
+- Review/Evidence：Grok 的 RED audit逐项复核 13 fixture/hex、direct identity、equality/alias groups、四个
+  negatives与唯一 RED 原因，P0/P1=0；Kimi 对 production constructor/order/types、single 13-arm dispatch、
+  import cycle、child error order、budget与 scope逐行独立审查，P0/P1/P2=0。development evidence 为
+  `EV-20260719-0100`。
+- Limitations：没有 Program root/identity/items nonempty、duplicate/zero-entry-view/multiple-init/
+  proof-invariant set validation、theorem/visibility alpha adapter、decoder、full-tree global budgets、sourceHash、
+  NodeId、stable Diagnostic、Common/ProgramPayload 或 target。spec 仍 proposed，D0 dependencies/
+  candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。D0 formal milestone
+  仍 7/9。
+- Next：当前无 active development slice。Grok 正在只读裁决 Program root model/codec与 set-level validation
+  的最小边界；完成面冻结前不得开始下一份 RED，alpha/decoder/hash/NodeId/target不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 tagged value pre-acceptance slice
+
+- Commits：D1-PA-103 freeze `c89de341`；RED `f527b8ab`；GREEN `678996d6`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只实现 canonical root 第三段的 `Program` tagged value，不实现 root triple。本地结构规则
+  仅为 wire 明定的 items nonempty；moduleName/programIdentity、raw last-component identity join与
+  `SPEC-LANG-001` declaration-set validation全部留在后续独立边界。
+- Changed：新增 14-line `AstProgramV1`，精确持有 raw `name` 与 source-order `items` 并派生
+  `DecidableEq`/`Repr`；新增 25-line `AstProgramCodecV1`。单一 total encoder首先 exact 拒绝 empty items为
+  `program items must be nonempty`，随后按 name → `encodeArray encodeProgramItemV1` →
+  `encodeTagged "Program"`/fieldCount 2组合。items继续使用 PA102 no-wrapper bytes，无 field replay、error
+  remap、identity或 set walk。
+- Cross implementation：127-line Lean suite与 84-line standalone Python oracle各自持有三个 checked-in
+  literal goldens：state-only、state→const与 const→state。coordinator逐 label/byte对照为 3/3、零 mismatch；
+  三例固定首段 `0700000050726f6772616d` Program tag，Lean另逐例证明 Program/2 primitive composition。
+  ordered/reversed同时 byte/Eq nonalias，Program self Eq成立。empty items、single empty Struct、single UInt24
+  Const + hostile value、valid state后 second empty Struct四个 exact negatives证明 local-first、child field与
+  array source-order priority。state-only成功只证明 mechanical serializer未混入 zero-entry/view rule，不声明
+  该 value已通过完整 invariant validator。model 14、codec 25、suite 127、Python 84、registrations 5，
+  总 authored additions 255/345；机械 manifest 为 53 files。
+- Verification：RED `lake build Tests.Language.SourceAstProgramV1` 只因两个 production modules缺失失败；
+  GREEN focused build 27 jobs，`lake build proof_forge_next_tests` 344 jobs；
+  `lake env .lake/build/bin/proof-forge-next-tests` 输出 `proof-forge-next-tests: ok`；
+  `/usr/bin/python3 -I -S scripts/reference_source_ast_program_v1.py --self-check` 输出
+  `reference_source_ast_program_v1: ok 3`；`just sbom-package-files-refresh` → 53 files；最终单次
+  `just sbom` self-test/generate/verify/closure 全绿；`just docs-check` 与 `git diff --check` 通过。按冻结未运行
+  完整 `just ci`。
+- Review/Evidence：Grok 的 Lean probe与 production实现分别通过；coordinator在 RED 提交前修复 test prefix
+  固定截取长度错误，并拒绝一份 shortened Python literal后完成 3/3 cross-check。GREEN 验证期间旧并行
+  dispatch产生的 Python语法残片由 independent reviewer捕获；coordinator恢复 exact committed RED oracle并
+  重跑 Python/cross-oracle/test binary/SBOM，最终 GREEN diff不含 Python。independent final audit复核 API、
+  3 goldens、composition、四 negatives、manifest与排除面，P0/P1/P2=0。development evidence 为
+  `EV-20260719-0101`。
+- Limitations：没有 canonical root triple、module/program identity count/prefix/name join、duplicate/
+  zero-entry-view/multiple-init/proof-invariant set validation、theorem/visibility alpha adapter、decoder、global
+  depth/node/16-MiB validator、sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload或 target。spec仍
+  proposed，D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何
+  下游 task。D0 formal milestone仍 7/9。
+- Next：当前无 active development slice。Grok 正在只读裁决 canonical root triple与 raw identity join 的
+  最小闭合面；完成面冻结前不得开始下一份 RED，LANG set validation/alpha/decoder/hash/NodeId/target不得并入。
+
+## 2026-07-19 — D1 canonical Source.ProgramV1 root encoder pre-acceptance slice
+
+- Commits：D1-PA-104 freeze `a790e7d1`；RED `17600b97`；GREEN `9539ad94`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-SOURCE-WIRE-001` canonical root 的三段无间隔串接：source-only
+  `moduleName`、source-only `programIdentity`、PA103 `Program` bytes。冻结变更同时把规格 API 中误写的
+  common `QualifiedName` 对齐为 `SourceQualifiedNameV1`，最终 `Except Diagnostic` contract 保持不变；当前
+  `Except String` 仍只是 TASK-D1-07 前的 development seam。
+- Changed：新增 35-line `AstCanonicalRootV1`。single public total `canonicalSourceAstBytesV1` 先复用 PA94
+  `validateSourceProgramIdentityV1`，再用 `NonEmptyArray.tail.back?.getD head` total 取得最后 raw component并
+  exact 校验 `program.name`；成功后依次编码 module QN、identity QN与 Program并直接 concat。唯一新错误为
+  `program name must equal the last program identity component`；没有 outer tag、magic、separator、rendered
+  name、Common identity、set walk、decoder或 hash。production 35、Lean suite 139、Python 92、registrations
+  4，总 authored additions 270/415；机械 manifest 为 54 files。
+- Cross implementation：Lean与 standalone Python各自持有同样三个 checked-in full-root literal：
+  `Root`/`Root.Demo` state-only、同 identity state→const、`A.B`/`A.B.Main` state-only；三者分别为
+  242/462/250 个 lowercase hex chars且逐字节一致。Lean逐例证明
+  `encodeQN(module) ‖ encodeQN(identity) ‖ encodeProgram(program)` direct composition，并固定 module-array
+  prefix与 no-Program-outer-prefix。八条 exact negatives闭合 QID count → strict extension → exact prefix →
+  name mismatch → items/Struct/Const child priority。state-only成功只证明 mechanical root没有混入 LANG set
+  validator，不声明业务 program有效或 pipeline-ready。
+- Verification：RED focused build只因 `AstCanonicalRootV1` production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstCanonicalRootV1` 28 jobs、`lake build proof_forge_next_tests` 348 jobs；
+  test binary输出 `proof-forge-next-tests: ok`；Python输出
+  `reference_source_ast_canonical_root_v1: ok 3`；package refresh → 54 files；最终单次 `just sbom`
+  self-test/generate/verify/closure全绿；`just docs-check`与 `git diff --check`通过。按冻结未运行完整
+  `just ci`。
+- Review/Evidence：Grok逐行审查 single total def、last-component totality、join/name/encode顺序、import cycle、
+  预算与排除面，P0/P1/P2=0；Kimi程序化比较三组 Lean/Python literal并审查 composition、八条 negatives、
+  standalone oracle、changed-file set与 scope，P0/P1/P2=0。development evidence 为 `EV-20260719-0102`。
+- Limitations：没有 duplicate/zero-entry-view/multiple-init/proof-invariant reference等 LANG declaration-set
+  validation、theorem/visibility alpha adapter、decoder/exact consume、global depth/node/16-MiB validator、
+  sourceHash、NodeId、stable Diagnostic implementation、Common/ProgramPayload或 target。spec仍 proposed，
+  D0 dependencies/candidate-bound formal evidence 未齐，不能关闭 pending `TASK-D1-01` 或任何下游 task。
+  D0 formal milestone仍 7/9。
+- Next：当前无 active development slice。下一步只读裁决 `SPEC-LANG-001` declaration-set validation 的单一
+  闭合面；冻结前不得开始 RED，alpha/decoder/global validator/hash/NodeId/target不得顺手并入。
+
+## 2026-07-19 — D1 ProgramV1 declaration-set validator pre-acceptance slice
+
+- Commits：D1-PA-105 freeze `95f40d05`；RED `37ea4665`；GREEN `982c15c9`。TASK-D1-01
+  pending-prep package 继续为 `ee1cbc8d`，正式 task 状态未改变。
+- Authority：本切片只闭合 `SPEC-LANG-001` 已冻结的 residual declaration-set规则，不复用 alpha
+  bucket validator，不修改 codec/root，也不引入 D2 name/type/theorem resolution。public development API为
+  single total `validateProgramDeclSetV1 (program : ProgramV1) : Except String Unit`；最终 stable Diagnostic
+  仍属于 TASK-D1-07。
+- Changed：新增 168-line `AstProgramValidateV1`。validator以 `Std.HashSet` 按冻结的 22 类固定顺序执行，
+  类别内保留 source-order first offender；raw name、combined entry/view、combined entry/view/fn、raw component-array
+  extension identity、proof cardinality-before-full-set membership与六类 record-local duplicate检查全部 fail closed。
+  proof先建立完整 invariant set，允许 forward reference；同 target duplicate proof先于 unknown binding。没有
+  partial/unsafe/bang、quadratic scan、codec-local nonempty重检、serializer修复或 target分支。
+- Cross implementation：179-line Lean suite与 164-line standalone Python oracle覆盖同一 3 positives、23 exact
+  String negatives和 7 cross-rule priorities。extension同 id但 version/digest均不同仍重复；两个同 unknown target
+  proofs固定 cardinality优先级；duplicate-state且合法 entry的 Program继续可编码而 validator拒绝，证明
+  serializer/validator正交。registrations 4，总 authored additions 515/650；机械 manifest为55 files。
+- Verification：RED focused build只因 production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstProgramValidateV1` 28 jobs、`lake build proof_forge_next_tests` 352 jobs；
+  test binary输出 `proof-forge-next-tests: ok`；Python输出
+  `reference_source_ast_program_validate_v1: ok 3 23 7`；package refresh → 55 files；最终单次 `just sbom`
+  self-test/generate/verify/closure全绿；`just docs-check`与`git diff --check`通过。按冻结未运行完整`just ci`。
+- Review/Evidence：Grok逐行复核fixed category order、source-order、totality、O(n)、extension key与排除面，
+  P0/P1=0；Kimi逐项交叉核对3/23/7、forward proof、duplicate-proof-before-unknown、extension metadata差异、
+  exact errors与serializer neutrality，P0/P1/P2=0。development evidence为`EV-20260719-0103`。
+- Limitations：没有 theorem/visibility alpha mapping、decoder/exact-consume、global depth/node/16-MiB resource
+  validator、sourceHash、NodeId、stable Diagnostic implementation、Common/ProgramPayload或 target。spec仍proposed，
+  D0 dependencies/candidate-bound formal evidence未齐，不能关闭 pending `TASK-D1-01`或任何下游task。
+  D0 formal milestone仍7/9。
+- Next：当前无 active development slice。下一步先只读裁决 theorem/visibility alpha mapping、decoder与full-tree
+  resource validator中的单一最小闭合面；冻结前不得开始下一份RED，sourceHash/NodeId/target不得并入。
+
+## 2026-07-19 — D1 nonrecursive scalar decoder pre-acceptance slice
+
+- Commits：D1-PA-106 freeze `ee7e9c2b`；boundary tally clarification `435ddbcf`；RED `6dd410da`；
+  GREEN `f134d1c3`。TASK-D1-01 pending-prep package继续为`ee1cbc8d`，正式task状态未改变。
+- Authority：本切片只闭合 v1 bounded tag/field-count primitive与全部非递归 scalar families：
+  `VisibilityV1` 3、`LiteralV1` 3、`UnaryOpV1` 3、`BinaryOpV1` 18，共27个tag。递归
+  `TypeV1`及其depth/node budget必须由后续显式budget-threaded decoder实现，禁止在bare `CursorV1`
+  上先构造再事后验证。
+- Changed：`WireDecodeV1`新增29行，`decodeTagV1`在读取/复制前把UTF-8 byte length限制为1..21并检查
+  remaining，随后执行UTF-8与ASCII验证；`decodeFieldCountV1`读取u16并精确比较。新增74-line
+  `AstScalarDecodeV1`，四个public decoder均先完成closed-family tag dispatch，unknown tag在读取
+  fieldCount前拒绝，known tag在读取任何child前校验fieldCount；Literal child复用既有Bool/u256/String
+  decoder并保留原始错误。production 103、suite 193、Python 187、registrations 4，总authored
+  additions 487/625；机械manifest为56 files。
+- Cross implementation：Lean与standalone Python oracle闭合27个checked-in decode/value/encode/exact-consume
+  positives、30个全constructor field-count negatives与14个tag/child/trailing boundaries；其中4个
+  wrong-family probes故意省略fieldCount，证明unknown-before-count。NFD fixture精确为3 bytes
+  `65 cc 81`并命中pinned Unicode 17 NFC error；LogicalOr/BitOr同时做value与wire nonalias。
+- Verification：RED focused build只因`AstScalarDecodeV1` production module缺失失败；GREEN
+  `lake build Tests.Language.SourceAstScalarDecodeV1` 14 jobs、`lake build proof_forge_next_tests` 356 jobs；
+  test binary输出`proof-forge-next-tests: ok`；`/usr/bin/python3 -I -S
+  scripts/reference_source_ast_scalar_decode_v1.py --self-check`输出
+  `reference_source_ast_scalar_decode_v1: ok 27 30 14`；package refresh → 56 files；最终单次
+  `just sbom` self-test/generate/verify/closure全绿；`just docs-check`与`git diff --check`通过。按冻结
+  未运行完整`just ci`。
+- Review/Evidence：coordinator在RED前修正empty-tag与NFD declared-length两个fixture缺陷，并在一次陈旧
+  并行dispatch覆盖Python oracle后停止冲突任务、恢复已验证的187-line版本并重跑self-check。Grok最终
+  security audit、Kimi cross-oracle audit及independent matrix review均为P0/P1/P2=0。development evidence为
+  `EV-20260719-0104`。
+- Limitations：没有recursive `TypeV1` decoder、budget state、完整AST/Program/root decoder、alpha mapping、
+  sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload或target。spec仍proposed，D0 dependencies/
+  candidate-bound formal evidence未齐，不能关闭pending `TASK-D1-01`或任何下游task。D0 formal milestone
+  仍7/9。
+- Next：当前无active development slice。Grok/Kimi正在只读裁决budget-threaded recursive `TypeV1`
+  decoder的最小闭合面；冻结前不得开始RED，Program/full-tree decoder、alpha/hash/NodeId/target不得并入。

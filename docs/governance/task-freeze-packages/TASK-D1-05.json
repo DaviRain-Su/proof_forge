@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "taskId": "TASK-D1-05",
+  "frozenAt": "2026-07-19",
+  "freezeCommit": "af6de6c944f42eb086727fe388060767bb7f090d",
+  "output": "`Source.Program` stable attribute export/schema",
+  "dependencies": [
+    "TASK-D1-03"
+  ],
+  "prerequisites": [],
+  "tests": [
+    "TST-SRC-006",
+    "TST-SRC-007"
+  ],
+  "inScope": [
+    "TST-SRC-006: schema-bound persistent attribute export registry with the exact version-1 schema and fail-closed schema validation",
+    "TST-SRC-006: closed structural reconstruction of attributed Source.Program payloads with exact qualified-name and rendered short-name binding to each export declaration",
+    "TST-SRC-007: cross-module export merge with import-order-stable qualified identity ordering and no duplicate or conflicting exported Source.Program identity",
+    "TST-SRC-007: deterministic decode, cross-row identity, qualified-name binding, and short-name binding failure priority before any table is returned"
+  ],
+  "outOfScope": [
+    "multi-program CLI or Loader selection and PF-EXPORT-002/PF-EXPORT-003, owned by TASK-D1-06",
+    "portable source-program wire moduleName or programIdentity components and NodeId/origin publication",
+    "export schema version 2 or any migration path",
+    "target selection, semantic lowering, Plan/TargetIR, materialization, deployment, runtime, proof, or verification",
+    "contained frontend worker or ResourceProfileV1 supervision, owned by TASK-D1-08",
+    "formal source diagnostic schema and redaction, owned by TASK-D1-07"
+  ],
+  "doneWhen": [
+    "lake build Tests.Language.ProgramExportAcceptance proof_forge_next_tests exits zero and lake env .lake/build/bin/proof-forge-next-tests exits zero with the frozen TST-SRC-006 and TST-SRC-007 assertions enabled",
+    "TASK-D1-03 is done and candidate-bound passed evidence for both TST-SRC-006 and TST-SRC-007 has qualification=formal under the existing formal finalization rules; EV-20260719-0079 through EV-20260719-0083 and any other development evidence are insufficient",
+    "traceability and review are closed with no P0/P1 findings, just docs-check passes, and package-to-task-row consistency passes"
+  ],
+  "overflowPolicy": "Any additional export, selection, wire, diagnostic, worker, target, or evidence requirement goes to a separately approved TASK; it must not be added to this package after activation.",
+  "maxCalendarDays": 3,
+  "maxCommits": 20,
+  "notes": "Pending preparation only, permitted by the task-freeze checker. The inScope labels resolve the existing TST-SRC-006/TST-SRC-007 catalog overlap for this task without adding a Test ID. D1-PA-81 through D1-PA-85 development evidence does not activate TASK-D1-05 or close formal TST-SRC-006/TST-SRC-007."
+}

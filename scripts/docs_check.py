@@ -2846,9 +2846,9 @@ def d0_07_fixture_acceptance_attested(root: Path) -> bool:
         "ruling": "GOV-D0CLOSE-001",
         "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-07.json",
         "genesisReplayReport": D0_07_GENESIS_REPLAY_REPORT_RELATIVE,
-        "d003DeferredClearance": "EV-20260719-0084",
-        "fixtureEvidenceEvidence": "EV-20260719-0080",
-        "cleanRoomEvidence": "EV-20260719-0082",
+        "d003DeferredClearance": "EV-20260719-0117",
+        "fixtureEvidenceEvidence": "EV-20260719-0113",
+        "cleanRoomEvidence": "EV-20260719-0115",
         "docsCheckCommand": (
             "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
     }

@@ -1137,6 +1137,1439 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   triple-Option-Field support、完整 recursive grammar 或正式 D1 完成。post-PA-72 bounded arbitration
   因本 spelling 只有单一 Field leaf/golden、无双长度与 15-atom matrix，选择它而非更大的
   `Array Option Array PrimitiveAtom N M`；该选择不是 checkpoint 自动递增。
+- D1-PA-74 的 alpha tests 只开放 exact same-line `Option Option Option Bytes N`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.option (.bytes length)))`，tag 固定
+  `16→16→16→17→N`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对 exact spelling
+  supersede PA63 的 third-layer deferred、PA70 的 Bytes leaf rejection 与 PA73 明示保留的 Bytes leaf；
+  PA63 的两层 Option Bytes、PA73 的三层 Option Field 保持 positive，Array/Option/Map/Named leaf、第四层
+  Option 与任意 recursive grammar 仍不开放。post-PA73 bounded arbitration 选择本单长度候选而非
+  `Array Option Array PrimitiveAtom N M`，不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+  `("Bytes Triple Option element", "Option Option Option Bytes 8")` negative 迁移为 positive，migration
+  count 精确为一；incomplete `Option Option Option Bytes` 必须继续 exact unsupported，其他测试不得迁移。
+  positive 覆盖 length `0/8/4096`、state、struct field、enum payload、const、event/error parameter、
+  initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。Source/Semantic 各固定三组
+  golden vectors；`N=8` candidate 必须在两侧分别与 bare Bytes、`Option Bytes 8`、
+  `Option Option Bytes 8`、`Option Option Option UInt64`、`Option Option Option Field bn254_fr` 的 canonical
+  bytes/hash non-alias，三组 lengths 必须 pairwise non-alias；RED 中新 golden 显式未绑定，GREEN 前由
+  独立 probe 计算。requirements 必须精确为空；四个 Phase 1 target 必须通过 `checkSupport`，state/result/
+  parameter dedicated fixtures 随后必须在 `materializeResult` 分别触发既有 `is not UInt64`/
+  `does not return UInt64` Plan invariant，且所有路径均不得产出 `OutputSet` 或 artifact。
+  pre-freeze minimal parser probe 已固定 exact channels：incomplete、`4097`/leading-zero/hex/underscore length、
+  full/bare Map 与 unknown leaf 为 `unsupported portable type`；negative/identifier length、extra payload、任一
+  Option/Bytes-length seam 换行、三个 Option 或 Bytes constructor 的 escaped/qualified form、full Array leaf
+  与第四层 Option 为 parser rejection。Field triple 保持 PA73 positive，只用于 non-alias。本切片不实现
+  bytes operations、none/some/unwrap、runtime/ABI、target triple-Option-Bytes support、完整 recursive grammar
+  或正式 D1 完成。production 仅限 Syntax 一文件 ≤32 additions/2 removals，刷新 package file-set；focused
+  23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
+  `just ci`。
+- D1-PA-75 的 alpha tests 只开放 exact same-line `Option Option Array Field bn254_fr N`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.array .field length))`，tag 固定 `16→16→18→2→N`，
+  Field id 必须 raw exact `bn254_fr`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对 exact
+  spelling supersede PA64 nested Option Array 的 Field residual，并在 PA65 已完成的
+  `Option Array Field bn254_fr N` spelling 外再包一层 Option；PA64/65/73/74 既有 positive 保持不变。
+  post-PA-74 residual challenge 记录 expression 侧无安全 parser-only 候选，并选择本固定 Field + 单
+  length 候选而非更大的 `Option Option Option Array PrimitiveAtom N`（15-atom + 混合 support/Plan）；
+  不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有一条
+  `("full Field nested Array element", "Option Option Array Field bn254_fr 4")` negative
+  迁移为 positive，migration count 精确为一；incomplete `Option Option Array Field 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 length `0/4/4096`、state、struct field、enum payload、
+  const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession
+  parity。Source/Semantic 各固定三组 golden vectors；`N=4` candidate 必须在两侧分别与
+  `Option Array Field bn254_fr 4`、`Option Option Array UInt64 4`、`Option Option Field bn254_fr`、
+  twin 构造的 `Array Option Option Field bn254_fr 4` 做 canonical bytes/hash non-alias，三组 lengths 必须
+  pairwise non-alias；RED 中新 golden 显式未绑定，GREEN 前由独立 probe 计算。requirements 必须精确为
+  单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与 `materializeResult` 必须都返回 exact
+  `.unsupportedRequirement .fieldBn254 actualTarget` 且 `actualTarget == target`，不得进入 Plan、
+  `OutputSet` 或产出 artifact。
+  empirical GREEN channels：incomplete、alternate/escaped/qualified Field id、`4097`/leading-zero/hex/
+  underscore length、bare Bytes/Option/Array/Map、`Widget 4` Named/unknown leaf 为
+  `unsupported portable type`；missing/negative/identifier length、extra payload、五个 same-line seam
+  换行、四个 constructor 的 escaped/qualified form、full Bytes/Option/Array/Map compounds 为 parser
+  rejection。不得用虚假 Named constructor 作为主 unsupported 路径。production 仅限 Syntax 一文件
+  ≤30 additions/2 removals，刷新 package file-set；focused 23-job、192-job aggregate/test binary、
+  `just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 field/array/option
+  value operations、none/some/unwrap、runtime/ABI、target nested-Option-Array-Field support、完整
+  recursive grammar 或正式 D1 完成。
+- D1-PA-76 的 alpha tests 只开放 exact same-line `Array Option Option Field bn254_fr N`，物化为既有
+  `Source/Semantic.ValueType.array (.option (.option .field)) length`，tag 固定 `18→16→16→2→N`，
+  Field id 必须 raw exact `bn254_fr`，length 精确复用 canonical ASCII decimal `0..4096`。本条只对
+  PA71 明示保留的 exact Field leaf residual supersede fail-closed boundary；PA60/71/75 既有 positive
+  保持不变。post-PA-75 四路 audit 按总验收面选择 fixed Field + single length：
+  `Option Option Array Bytes N M` 需要 dual length 与三类 Plan fixture，
+  `Option Option Option Array PrimitiveAtom N` 增加 element 轴与 zero/`boolValues` requirement/support
+  分支；不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+  `("full Field Array Option Option element", "Array Option Option Field bn254_fr 4")` negative
+  迁移为 positive，migration count 精确为一；incomplete `Array Option Option Field 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 length `0/4/4096`、state、struct field、enum payload、
+  const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession
+  parity。Source/Semantic 各固定三组 golden vectors；`N=4` candidate 必须在两侧分别与
+  `Array Option Field bn254_fr 4`、`Array Option Option UInt64 4`、
+  `Option Option Array Field bn254_fr 4`、`Option Option Field bn254_fr` 做 canonical bytes/hash
+  non-alias，三组 lengths 必须 pairwise non-alias；非 surface-positive control 只可手工构造。
+  requirements 必须精确为单个 `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与
+  `materializeResult` 必须都 exact named rejection、actual target identity 正确且无 Plan/OutputSet/artifact。
+  frozen channels：incomplete、alternate/escaped/qualified Field id、`4097`/leading-zero/hex/underscore
+  length、bare Bytes/Option/Array/Map、`Widget 4` 为 exact unsupported；missing/negative/identifier length、
+  extra payload、五个 same-line seam、四个 constructor 的 escaped/qualified form、full Bytes/Option/Array/
+  Map compounds为 parser rejection。empirical channel 不符时必须 GREEN 前先修规格，禁止改胖 positive。
+  RED 仅 `ArrayTypes.lean` ≤320 additions/2 removals；production 仅 Syntax ≤30 additions/2 removals并刷新
+  package file-set；focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent review 全绿后
+  收口。按冻结不重复完整 `just ci`；不得声明 field/array/option value operations、none/some/unwrap、
+  runtime/ABI、target Array-Option-Option-Field support、完整 recursive grammar 或正式 D1 完成。
+- D1-PA-77 的 alpha tests 只开放 exact same-line `Array Array Field bn254_fr N M`，物化为既有
+  `Source/Semantic.ValueType.array (.array .field innerLength) outerLength`，tag 固定
+  `18→18→2→N→M`；Field id 必须 raw exact `bn254_fr`，两个 length 各自精确复用 canonical ASCII
+  decimal `0..4096`。本条只对 PA66 明示保留的 exact Field leaf residual supersede fail-closed
+  boundary；PA60/66/76 既有 positive 保持不变。post-PA-76 三路 audit 按总验收面选择 fixed Field +
+  dual length：同轴 Bytes 候选还需要三类 Plan fixture，PrimitiveAtom 候选增加 element 与 requirement
+  分支；不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.ArrayTypes`，将既有一条
+  `("full Field Array Array element", "Array Array Field bn254_fr 4 4")` negative 迁移为 positive，
+  migration count 精确为一；incomplete `Array Array Field 4 4` 必须继续 exact unsupported，其他测试
+  不得迁移。positive 覆盖 `(0,0)/(4,4)/(4096,1)`、state、struct field、enum payload、const、event/error
+  parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。
+  Source/Semantic 各固定三组 golden vectors；ordinary candidate 必须在两侧对 `Array Array UInt64 4 4`、
+  `Array Field bn254_fr 4`、`Option Array Field bn254_fr 4` non-alias，并用手工 carrier 在 Source/Semantic
+  两侧固定 `8/4` 对 `0/4`（inner-only）、`8/4` 对 `8/0`（outer-only）、`8/4` 对 `4/8`
+  （swapped-order）non-alias。requirements 必须精确为单个 `fieldBn254`；四个 Phase 1 target
+  的 `checkSupport` 与 `materializeResult` 必须都 exact named rejection、actual target identity 正确且无
+  Plan/OutputSet/artifact。
+  frozen channels：incomplete、alternate/escaped/qualified Field id、两个 length 各自的 `4097`/
+  leading-zero/hex/underscore、bare Bytes/Option/Array/Map、`Widget 4 4` 为 exact unsupported；missing/
+  negative/identifier inner/outer length、extra payload、五个 same-line seam、三个 constructor 的 escaped/
+  qualified form、full Bytes/Option/Array/Map compounds为 parser rejection。empirical channel 不符时必须
+  GREEN 前先修规格，禁止改胖 positive。RED 仅 `ArrayTypes.lean` ≤330 additions/2 removals；production
+  仅 Syntax ≤36 additions/2 removals并刷新 package file-set；focused 23-job、192-job aggregate/test binary、
+  `just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 field/array
+  operations、runtime/ABI、target nested-Array-Field support、完整 recursive grammar 或正式 D1 完成。
+- D1-PA-78 的 alpha tests 只开放 exact same-line `Option Array Array Field bn254_fr N M`，物化为
+  既有 `Source/Semantic.ValueType.option (.array (.array .field innerLength) outerLength)`，tag 固定
+  `16→18→18→2→N→M`；Field id 必须 raw exact `bn254_fr`，两个 length 各自精确复用 canonical
+  ASCII decimal `0..4096`。本条只 supersede PA69 明示保留的 exact Field leaf boundary；PA65/69/75/77
+  既有 positive 保持不变。post-PA-77 bounded challenge 把 production delta 与完整 acceptance/target
+  调用放入同一分母后选择 fixed Field + dual length：`Option Option Array Bytes N M` 虽有相近 helper，
+  但 zero-requirement 路径还需 state/result/parameter 三类 Plan fixtures；不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+  `("full Field Option Array Array element", "Option Array Array Field bn254_fr 4 4")`
+  negative 迁移为 positive，migration count 精确为一；RED 必须新增当前缺失的
+  `Option Array Array Field 4 4` exact unsupported control，该新增不计作 migration，其他测试不得迁移。
+  positive 覆盖 `(0,0)/(4,4)/(4096,1)`、state、struct field、enum payload、const、event/error
+  parameter、initializer/entry/view/fn parameter/result 与 Lean command/ParserSession parity。
+  Source/Semantic 各固定三组 deliberately UNBOUND golden vectors；ordinary candidate 必须在两侧对
+  `Array Array Field bn254_fr 4 4`、`Option Array Field bn254_fr 4`、
+  `Option Option Array Field bn254_fr 4`、`Option Array Array UInt64 4 4` non-alias，并用手工 carrier
+  在 Source/Semantic 两侧固定 `8/4` 对 `0/4`（inner-only）、`8/4` 对 `8/0`（outer-only）、
+  `8/4` 对 `4/8`（swapped-length-order）non-alias。requirements 必须精确为单个
+  `fieldBn254`；四个 Phase 1 target 的 `checkSupport` 与 `materializeResult` 必须都 exact named
+  rejection、actual target identity 正确且无 Plan/OutputSet/artifact。
+  frozen channels：新增 incomplete、alternate/escaped/qualified Field id、两个 length 各自的 `4097`/
+  leading-zero/hex/underscore、bare Bytes/Option/Array/Map、`Widget 4 4` 为 exact unsupported；missing
+  outer/both lengths、negative/identifier inner/outer length、extra payload、六个 same-line seam、四个
+  constructor 的 escaped/qualified form、full Bytes/Option/Array/Map compounds 为 parser rejection。
+  empirical channel 不符时必须 GREEN 前先修规格，禁止改胖 positive。RED 仅
+  `OptionDeclarations.lean` ≤330 additions/2 removals；production 仅 Syntax ≤32 additions/2 removals并
+  刷新 package file-set；focused 23-job、192-job aggregate/test binary、`just sbom` 与 independent
+  review 全绿后收口。按冻结不重复完整 `just ci`；不得声明 field/array/option operations、none/some/
+  unwrap、runtime/ABI、target Option-nested-Array-Field support、完整 recursive grammar 或正式 D1 完成。
+- D1-PA-79 的 alpha tests 只开放 exact same-line `Option Option Array Bytes N M`，物化为既有
+  `Source/Semantic.ValueType.option (.option (.array (.bytes innerLength) outerLength))`，tag 固定
+  `16→16→18→17→N→M`；两个 length 各自精确复用 canonical ASCII decimal `0..4096`。本条只 supersede
+  nested Option Array Bytes residual；PA64/68/74/78 既有 positive 保持不变。post-PA-78 residual 在
+  Field dual-length reject 关闭后选择 dual-length Bytes Plan-class residual：fixed Bytes leaf + dual
+  length + zero requirements + state/result/parameter Plan fixtures；不是 checkpoint 自动递增。
+  tests-only RED 只修改 `Tests.Language.OptionDeclarations`，将既有唯一
+  `("nested Bytes nested Array element", "Option Option Array Bytes 8 4")` negative 迁移为 positive，
+  migration count 精确为一；既有 incomplete bare `Option Option Array Bytes 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 `(0,0)/(8,4)/(4096,1)`、state、struct field、enum
+  payload、const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean
+  command/ParserSession parity。Source/Semantic 各固定三组 deliberately UNBOUND golden vectors；
+  ordinary candidate 必须在两侧对 `Option Option Array UInt64 4`、`Option Array Bytes 8 4`、
+  `Option Option Bytes 8`、`Array Bytes 8 4` non-alias，并用手工 carrier 在 Source/Semantic 两侧固定
+  `8/4` 对 `0/4`（inner-only）、`8/4` 对 `8/0`（outer-only）、`8/4` 对 `4/8`
+  （swapped-length-order）non-alias。requirements 必须为空；四个 Phase 1 target 的 `checkSupport`
+  必须全部通过；state/result/parameter 三类 fixture 的 `materializeResult` 必须 exact planInvariant
+  （`is not UInt64` / `does not return UInt64` / `is not UInt64`）且无 Plan/OutputSet/artifact。
+  frozen channels 经 GREEN 前 empirical probe 修正：incomplete bare、两个 length 各自的
+  `4097`/leading-zero/hex/underscore，以及仅缺 outer length 的 `Option Option Array Bytes 8` 为
+  exact unsupported；bare Field/Option/Array/Map、`Widget 8 4` dual-length leaf、missing both
+  lengths、negative/identifier inner/outer length、
+  extra payload、五个 same-line seam、四个 constructor 的 escaped/qualified form、full
+  Field/Option/Array/Map compounds 为 parser rejection。该修正只校准既有负例的实际拒绝层，禁止
+  迁移或改胖 positive。RED 仅 `OptionDeclarations.lean` ≤330 additions/2
+  removals；production 仅 Syntax ≤32 additions/2 removals并刷新 package file-set；focused 23-job、
+  192-job aggregate/test binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整
+  `just ci`；不得声明 bytes/array/option operations、none/some/unwrap、runtime/ABI、target
+  nested-Option-Array-Bytes support、完整 recursive grammar 或正式 D1 完成。
+- D1-PA-80 的 alpha tests 只开放 exact same-line `Array Option Option Bytes N M`，物化为既有
+  `Source/Semantic.ValueType.array (.option (.option (.bytes innerLength))) outerLength`，tag 固定
+  `18→16→16→17→N→M`；两个 length 各自精确复用 canonical ASCII decimal `0..4096`。该选择补齐
+  PA71 PrimitiveAtom、PA76 Field 后 `Array→Option→Option` fixed-leaf 三元组的 Bytes 轴；不是
+  checkpoint 自动递增，compound residual 继续 fail closed。tests-only RED 只修改
+  `Tests.Language.ArrayTypes`，将既有唯一
+  `("full Bytes Array Option Option element", "Array Option Option Bytes 8 4")` negative 迁移为 positive，
+  migration count 精确为一；既有 incomplete `Array Option Option Bytes 4` 必须继续 exact
+  unsupported，其他测试不得迁移。positive 覆盖 `(0,0)/(8,4)/(4096,1)`、state、struct field、enum
+  payload、const、event/error parameter、initializer/entry/view/fn parameter/result 与 Lean
+  command/ParserSession parity。Source/Semantic 各固定三组 deliberately UNBOUND golden vectors；
+  ordinary candidate 必须在两侧对 `Array Option Bytes 8 4`、`Array Option Option UInt64 4`、
+  `Array Option Option Field bn254_fr 4`、`Option Option Bytes 8`、`Array Bytes 8 4` non-alias，并用
+  手工 carrier 固定 `8/4` 对 `0/4`、`8/0`、`4/8` non-alias。requirements 必须为空；四个 Phase 1
+  target 的 `checkSupport` 必须全部通过；state/result/parameter 三类 fixture 的
+  `materializeResult` 必须 exact planInvariant（`is not UInt64` / `does not return UInt64` /
+  `is not UInt64`）且无 Plan/OutputSet/artifact。frozen channels：incomplete、两个 length 各自的
+  `4097`/leading-zero/hex/underscore 与仅缺 outer length 为 exact unsupported；bare
+  Field/Option/Array/Map、`Widget 8 4`、missing both、negative/identifier lengths、extra payload、五个
+  seams、四个 constructor 的 escaped/qualified form、full compounds 为 parser rejection；empirical
+  不符时 GREEN 前独立修规格。RED 仅 `ArrayTypes.lean` ≤320 additions/2 removals；production 仅
+  Syntax ≤32 additions/2 removals并刷新 package file-set；focused 23-job、192-job aggregate/test
+  binary、`just sbom` 与 independent review 全绿后收口。按冻结不重复完整 `just ci`；不得声明
+  Bytes/Array/Option operations、none/some/unwrap、runtime/ABI、target support、完整 recursive grammar
+  或正式 D1 完成。
+- D1-PA-81 的 alpha tests 只关闭 `proof_forge_program` no-op 到 persistent environment export registry
+  的结构缝隙。schema exact 为 `proof-forge.program-export.v1`；entry 只含 fully-qualified declaration
+  `Name` 与 schema，不含 `Source.Program` payload。Shared/A/B diamond fixture 与 AB/BA 两个 import-order
+  snapshot 必须产生相同的三项 UTF-8 FQN-sorted table，Shared 精确出现一次，未 attributed 的 manual
+  `Source.Program` alias 精确缺席。raw entries 的 reversed order 必须 canonicalize 到同一 table；wrong
+  schema、重复 structural Name 与同名冲突必须在返回任何 table 前以 `PF-EXPORT-001` 拒绝，禁止 set
+  静默去重。attribute 本身必须无参数、global、local-only 且 attributed declaration type exact 为
+  `Source.Program`。RED 仅新增 ProgramExport fixture/suite 与 Tests/lake 注册，总新增 ≤240 行；GREEN
+  仅新增 `Language/ProgramExport.lean` ≤150 行、Syntax import/no-op removal ≤+3/-8 与 package file-set refresh。
+  focused suite、aggregate test build/binary、`git diff --check`、单次 `just sbom`、independent review 全绿后
+  只可记录 development evidence；不执行 payload constant evaluation，不覆盖 identity-level duplicate、
+  NodeId/origin、`PF-EXPORT-002`、CLI/Loader selection、wire publication、target 或正式
+  `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
+- D1-PA-82 的 alpha tests 只关闭 PA81 registry FQN 到 exported `Source.Program` 的无执行 structural
+  reconstruction。`decodeQuotedProgramV1` 必须从 exact 14-field `Source.Program.mk` 开始，完整覆盖当前
+  `quoteProgram` 可产生的 Source constructor surface、literal、`List.toArray` list spine、Option/Bool、
+  UInt32/UInt64/Fin length wrapper，并在 host conversion 前验证 raw Nat range。它必须在任何 shape decode
+  前以 test-owned explicit stack 固定 raw Expr nodes `100000` 通过/`100001`=`PF-EXPORT-004`，并固定
+  logical Source recursion depth `256` 通过/`257`=`PF-EXPORT-004`；list spine 不计作业务递归 depth。
+  `programPayload env name` 只接受 `programExports env` 中 exact registered Name；
+  `programPayloads env` 必须 all-or-nothing 返回 sorted rows 与 reconstructed payload pair。
+  declaration 仅可为 safe `defnInfo`、exact `Source.Program` type、无 `implemented_by`/extern、
+  `Environment.hasUnsafe value = false`；unregistered、missing/opaque、constant alias、unsafe、可观察为
+  non-direct value 的 partial alias 与 implemented-by direct sentinel replacement 必须在不跟随 replacement、无 FS/network/IO/ambient access 的情况下
+  以 `PF-EXPORT-004` 拒绝，禁止 raw exception 或 partial table。positive rich fixture 必须用 BEq、
+  qualifiedName 与 sourceHash 证明 reconstructed payload 等于 DSL elaborator constant；rich fixture 与
+  test-owned exact direct quoted control 联合覆盖当前全部 ValueType/Expr/Statement/declaration constructor
+  family。当前 DSL 把 bare state read 解码为 `Expr.variable`，因此 `Expr.state` 用 direct quoted control
+  覆盖，禁止为测试反向扩大 DSL grammar。
+  Lean 4.31 对非递归、direct-value `partial def` 不保留可由 `Environment`/closed `Expr` 观察的 modifier
+  provenance；若其最终是 safe direct `Program.mk`，本切片按结构与普通 safe def 同等处理，不伪称拒绝
+  不可观察的源码修饰符。需要 source-modifier provenance 时必须另行修改 registry schema，属于本切片外。
+  RED 只新增 ProgramPayload fixtures/snapshot/suite 与 Tests/lake 注册，总新增 ≤360 行；GREEN 只新增
+  `Language/ProgramPayload.lean` ≤520 行并刷新 package file-set。focused/aggregate/test binary、
+  `git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录 development evidence；
+  严禁 `evalConst`/`evalExpr`/whnf/simp/reduction/compiler/unsafe/IO 回退，不实现 payload identity duplicate、
+  `PF-EXPORT-002/003`、CLI/Loader、wire、target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结
+  不重复完整 `just ci`。
+- D1-PA-83 的 alpha tests 只关闭 PA82 `programPayloads` 全量重建成功后的 cross-row
+  exported Source identity duplicate/split-brain seam。输入顺序继承 PA81 `programExports` 的 declaration
+  FQN 排序；必须先解码全部 row，任一 payload 失败保留 `PF-EXPORT-004` 且不进入
+  identity scan。scan 以 exact `Source.Program.qualifiedName : String` 为唯一主键，记录首个
+  `qualifiedName → sourceHash`；后续同 qualifiedName 且 hash 相同固定拒绝为
+  `PF-EXPORT-001: duplicate exported program identity`，同 qualifiedName 但 hash 不同固定拒绝为
+  `PF-EXPORT-001: conflicting exported program identity`。首个 collision 按 PA81 row order 决定；不返回
+  partial table。
+  positive 必须用两个 distinct qualifiedName、相同业务 shape 的 attributed direct payload 证明 table
+  通过、qualifiedName/hash 均不同且 declaration FQN order 不变；负例必须分别以两个不同
+  declaration FQN 承载同 qualifiedName+同 payload 和同 qualifiedName+不同 payload，并以第三个
+  invalid payload 固定 decode-before-identity error priority。因 alpha `sourceHash` canonical preimage 已包含
+  qualifiedName，不构造“different qualifiedName + same hash”的伪负例，不将 SHA-256 碰撞 oracle
+  塞入本切片。single-row `ProgramExportV1.declaration.toString` 与 payload qualifiedName 的渲染/绑定也
+  属于后续独立 residual，本切片不静默加入。
+  RED 只新增 ProgramIdentity fixtures/snapshot/suite 并修改 `Tests.lean`/`lakefile.lean` 注册，总新增
+  ≤220 行。GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`；不新增 public API。focused suite、
+  aggregate test build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录
+  development evidence；不实现 declaration/payload binding、`PF-EXPORT-002/003`、CLI/Loader、wire、
+  target、contained worker 或正式 `TST-SRC-006/007` closure，按冻结不重复完整 `just ci`。
+- D1-PA-84 的 alpha tests 只关闭 PA81 export declaration FQN 与 PA82 reconstructed
+  `Source.Program.qualifiedName` 的 single-row exact binding。两者必须以
+  `ProgramExportV1.declaration.toString == Source.Program.qualifiedName` 的 exact String equality 比较；
+  不做 NFC/casefold/路径归一化。mismatch 固定为
+  `PF-EXPORT-001: exported program identity does not match declaration`，不得归类为 payload form 的
+  `PF-EXPORT-004`。
+  `programPayload env name` 必须在 successful closed decode 后检查该 name 对应 row；
+  `programPayloads env` 必须先完成全部 PA82 decode，任一 invalid row 保留 `PF-EXPORT-004`，再运行
+  PA83 cross-row identity scan，最后按原 declaration FQN order 检查每个 row 的 binding。该顺序保留
+  PA83 duplicate/conflict exact diagnostics 与攻击测试；只含一个 lying direct payload 的 table 才以本切片
+  binding diagnostic 失败，且任何失败均不得返回 partial table。
+  positive 必须覆盖 DSL elaborator 产生的 nested namespace 与 escaped identifier，并同时证明 single/table
+  API 返回的 declaration rendering 与 payload qualifiedName 相等；hand-authored exact-aligned direct
+  `Program.mk` 作为 control。negative 必须在 isolated module 中覆盖 single 与 table mismatch exact message；
+  PA82-invalid direct/alias form 必须继续先得到 `PF-EXPORT-004`，既有 PA83 duplicate/conflict fixtures 必须
+  保持原 exact message，证明新检查没有吞掉旧优先级。
+  RED 只新增 ProgramBinding fixtures/suite 并修改 `Tests.lean`/`lakefile.lean` 注册，总新增 ≤220 行；
+  GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`。focused suite、aggregate test build/binary、
+  `git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录 development evidence；
+  不实现 payload short-name/last-component、wire QualifiedName component binding、NodeId/origin、
+  `PF-EXPORT-002/003`、CLI/Loader selection、target、contained worker 或正式 `TST-SRC-006/007` closure，
+  按冻结不重复完整 `just ci`。`PF-EXPORT-003` 的零候选分类仍由 CLI/Loader selection rule 拥有，
+  不改变低层 `programPayloads` 对 empty normalized registry 返回 empty table 的语义。
+- D1-PA-85 的 alpha tests 只关闭 reconstructed `Source.Program.name` 与 export declaration 最后一个
+  portable Lean identifier component 的 exact binding。对 `declaration = Name.str prefix rawComponent`，
+  expected short name 必须是 `(Name.str .anonymous rawComponent).toString`；不得直接比较 raw component，
+  不得对 full declaration string 使用 dot split/substring/`endsWith`。这样 simple name 保持原文，同时
+  `program «hyphen-prog»` 与 `program «dot.prog»` 的 payload name 精确保留 Lean 4.31 guillemet rendering。
+  final declaration 不是 `Name.str` 时也必须以同一个 short-name mismatch diagnostic fail closed。mismatch 固定为
+  `PF-EXPORT-001: exported program short name does not match declaration`，不得归类为 `PF-EXPORT-004`。
+  `programPayload` 的检查顺序固定为 registered → PA82 decode → PA84 FQN binding → short-name binding；
+  `programPayloads` 固定为全部 PA82 decode → PA83 cross-row scan → 对每 row 先 PA84 FQN binding、再
+  short-name binding。由此 invalid form 仍优先 `PF-EXPORT-004`，PA83 collision diagnostics 仍优先于
+  binding，qname+short-name 同时 lying 时仍先返回 PA84 exact message，任何失败均不得返回 partial table。
+  positive 必须同时覆盖 simple hand-aligned direct `Program.mk`、escaped program identifier with hyphen、
+  escaped program identifier containing dot，并由 single/table API 固定 declaration component rendering 与
+  payload name。negative 必须以 qname 已 exact 对齐、仅 name lying 的 isolated direct payload 分别覆盖
+  single/table exact message；另一 fixture 固定 PA82-invalid later row 的 `PF-EXPORT-004` priority。既有
+  PA83/PA84 suites 必须保持原 exact diagnostics，empty table 语义不变。
+  RED 只新增 ProgramShortName fixtures/suite 与 `Tests.lean`/`lakefile.lean` 最小注册，总新增 ≤180 行；
+  GREEN 只允许修改 `ProofForgeV2/Language/ProgramPayload.lean`，不新增 public API，文件总行数不超过
+  480，并刷新 `supply-chain/lean-package-files.v1.json`。focused suite、PA83/PA84 regression、aggregate
+  test build/binary、`git diff --check`、单次 `just sbom` 与 independent review 全绿后只可记录
+  development evidence，按冻结不重复完整 `just ci`。
+  本切片不实现 portable source-program wire 的 `moduleName`/`programIdentity` component carrier、
+  NodeId/origin、schema-v2 migration、`PF-EXPORT-002/003`、CLI/Loader selection、target/worker 或正式
+  `TST-SRC-006/007` closure。收口后 Lean attribute export/schema 代码路径的 pre-acceptance micro-seam
+  视为饱和；下一步只能冻结正式 evidence packaging 或书面选择其他依赖合法任务，禁止继续发明 identity
+  micro-check。
+- D1-PA-86 只把已冻结的 `TASK-D1-05`/`TST-SRC-006/007` surface 收敛为单一 tests-only
+  `Tests.Language.ProgramExportAcceptance` 可执行入口；它是现有行为的 characterization/golden
+  packaging，不修改 production Lean，也不制造虚假的缺文件 RED。`TST-SRC-006` 必须固定 exact
+  `proof-forge.program-export.v1`、unknown-schema/structural-duplicate/rendered-name-conflict 三条完整
+  `PF-EXPORT-001` diagnostic、isolated empty environment 的 `programExports` 与 `programPayloads` 都为
+  empty，以及 PA84/PA85 qualified-name/short-name exact mismatch。rendered-name conflict 必须由结构不同但
+  `toString` 相同的 `Name.str .anonymous "foo.bar"` 与
+  `Name.str .anonymous "«foo.bar»"` 构造，并先断言 non-BEq/same-rendering，禁止伪造同一 Name。
+  `TST-SRC-007` 必须固定 Shared/A/B diamond 的 AB/BA exact 三行 schema/FQN table、Shared 精确一次且
+  unattributed alias 缺席，cross-row duplicate/conflicting Source identity 的完整 diagnostic，以及
+  `PF-EXPORT-004` decode-before-identity/binding、PA84 qualified-name-before-PA85 short-name 的优先级。
+  empty-registry 观察必须位于只 import `ProgramPayload` 的独立 module，并在被污染的 aggregate module
+  import 之前 snapshot；acceptance `run` 只消费该 snapshot 与既有 isolated fixture constants，不在合并了
+  hostile fixtures 的 environment 上重新 query table。
+  变更只允许新增 empty snapshot 与 acceptance suite，并在 `Tests.lean`/`lakefile.lean` 最小注册，总新增
+  ≤150 行；既有 PA81–PA85 fixtures、production、package file-set、CLI/Loader、wire、target 与 worker
+  均不得修改。验证只运行 focused suite、aggregate test build/binary、`just docs-check`、
+  `git diff --check` 与 independent review；纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。
+  结果只可记录 development evidence，不能满足冻结包要求的 candidate-bound
+  `qualification=formal`，不能关闭 pending `TASK-D1-05` 或开始 D1-06。
+- D1-PA-87 只把已冻结的 `TASK-D1-03`/`TST-SRC-004` declaration surface 收敛为单一 tests-only
+  `Tests.Language.DeclarationAcceptance.run` executable harness；它是对既有 declaration suites 的
+  characterization packaging，不修改 production、既有 suite assertion，也不制造缺文件或删除实现的
+  虚假 RED。wrapper 必须按当前 aggregate runner 的相对顺序各调用一次既有 `run`：
+  `AggregateDeclarations`、`ArrayTypes`、`BytesTypes`、`ConstDeclarations`、
+  `EventErrorDeclarations`、`ExtensionRequirements`、`FieldDeclarations`、`FnDeclarations`、
+  `IntegerWidthDeclarations`、`OptionDeclarations`、`PrincipalDeclarations`、`UnitReturnTypes`、
+  `InvariantDeclarations`、`ProofReferences`、`PrimitiveDeclarations`、`StateVisibility`。
+  `Tests.lean` 必须保留上述 16 个 module import，但把对应 16 个 individual `run` 调用替换为一个
+  `DeclarationAcceptance.run`，使 aggregate binary 内每个 suite 精确执行一次；`lakefile.lean` 保留
+  16 个既有 root 并只增加 `DeclarationAcceptance` root。`FrontendParity` 是跨切片基础设施而不是
+  declaration-kind suite，必须保留其独立 import/root/run，不得被 wrapper 吸收或据此声明
+  `TST-SRC-005` statement/expression coverage。16 个调用在 wrapper 中变为连续执行会改变它们与其他
+  suite 的交错位置；既有 `run` 均为 self-contained IO checks、无跨 suite 共享状态，该变化不得被写成
+  production 或业务语义变化。
+  变更只允许新增 `Tests/Language/DeclarationAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤50 行，不得修改上述 16 个 suite、其他 tests、`ProofForgeV2/` production 或 package file-set。
+  验证只运行 `lake build Tests.Language.DeclarationAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-02` 未 done 时不得关闭 pending
+  `TASK-D1-03`，也不得由本切片关闭 D1-04、D1-05 或开始 D1-06。
+- D1-PA-88 只把已冻结的 `TASK-D1-02`/`TST-SRC-003` command surface 收敛为单一 tests-only
+  `Tests.Language.ProgramCommandAcceptance` executable harness；它是既有 parser 行为的 characterization
+  packaging，不包装混合的 `ProgramSyntax.run`、`FrontendParity.run` 或 `Loader.run`，不修改 production，
+  也不制造缺文件或删除实现的虚假 RED。
+  positive 必须在 acceptance module 的 test-only namespace 中以唯一用户入口
+  `program Counter where` 定义一个只含单一 `view` 的 direct fixture，再用
+  `ParserSession.parsePrograms` 解析相同 namespace/source；结果必须精确为一个 program，并与 direct
+  fixture 的完整 `Source.Program`、short name、qualified name 与 `sourceHash` 相等。不得调用
+  `selectProgram`，不得断言 requirements、compile/Typed/Semantic、declaration 或 statement 语义。
+  illegal-top-level negative 固定两条独立源码并捕获 parser streams：显式
+  `program Invalid : contract where` 必须精确返回
+  `PF-SRC-INVALID: Lean parser rejected source: failed to parse file`；非白名单
+  `run_cmd IO.println "PF-PA88-MUST-NOT-EXECUTE"` 必须精确返回
+  `PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL`，且 captured output 不得
+  包含 marker。这里固定的是 parser behavior，不是 `TST-DIAG-001` Diagnostic v1 schema/redaction 验收。
+  direct fixture 可产生一个 test-local program attribute export，但 suite 不得调用 `programExports`/
+  `programPayloads` 或修改 PA81–PA86 fixtures；PA86 empty snapshot 继续由其独立 import closure 隔离，
+  本切片不得据该 test-local export 声明 `TST-SRC-006/007` coverage。
+  变更只允许新增 `Tests/Language/ProgramCommandAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤80 行，不得修改其他 tests、`ProofForgeV2/` production 或 package file-set。验证只运行
+  `lake build Tests.Language.ProgramCommandAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  冻结包要求的 candidate-bound `qualification=formal`；`TASK-D1-01` 未 done 时不得关闭 pending
+  `TASK-D1-02`，也不得由本切片关闭 SRC-001/002/004/005/006/007/008、D1-07/08 或任何 D2/target task。
+- D1-PA-89 只把 `TASK-D1-01`/`TST-SRC-001` 已有的 NodeId/span development assertions 收敛为单一
+  tests-only `Tests.Language.SourceWireAcceptance.run` executable harness；它是
+  `SourceIdentity.run` 与 `SourceSpan.run` 的 characterization packaging，不补写缺失的完整
+  ProgramV1 cross-encoder/golden corpus，不修改 production、既有 suite assertion，也不制造缺文件或
+  删除实现的虚假 RED。wrapper 必须按当前 aggregate runner 的相对顺序先调用
+  `Tests.Language.SourceIdentity.run`，再调用 `Tests.Language.SourceSpan.run`，两者各精确一次。
+  `Tests.lean` 必须保留两个既有 module import，但把两个 individual `run` 调用替换为一个
+  `SourceWireAcceptance.run`；`lakefile.lean` 保留两个既有 root 并只增加
+  `SourceWireAcceptance` root。不得包装 `ProgramSyntax.run`、`Loader.run` 或任何其他 suite，也不得据
+  wrapper 名称声称 TST-SRC-001 的完整 wire inventory、independent encoder、collision staging，或
+  TST-SRC-002 的 Syntax/identity/CLI resource bounds 已关闭。
+  变更只允许新增 `Tests/Language/SourceWireAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤30 行，不得修改 `SourceIdentity.lean`、`SourceSpan.lean`、其他 tests、`ProofForgeV2/`
+  production 或 package file-set。验证只运行
+  `lake build Tests.Language.SourceWireAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
+  纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
+  TASK-D1-01 冻结包要求的两项完整 TST 与 candidate-bound `qualification=formal`；五个 D0 dependency
+  未全部 done 时不得关闭 pending `TASK-D1-01`。`TST-SRC-002` 必须由后续单独冻结的窄
+  `SourceBoundsAcceptance` slice 承载，禁止用混合 `ProgramSyntax`/`Loader` wrapper 代替边界验收。
+- D1-PA-90 把 `TASK-D1-01`/`TST-SRC-002` 的 unit boundary 收敛为独立 tests-only
+  `Tests.Language.SourceBoundsAcceptance.run`，并把既有 `just dsl-negative` 作为重资源 integration
+  入口；它是当前 production bounds 的 direct characterization，不包装混合的 `ProgramSyntax.run` 或
+  `Loader.run`，不修改 production、generator、justfile、testdata 或既有 suite assertion，也不制造缺文件
+  或删除实现的虚假 RED。
+  direct suite 必须以 test-owned iterative helpers 构造 root-inclusive linear/wide Syntax 与 repeated Name，
+  并固定：`maxSyntaxNesting = 256`、`maxSyntaxNodes = 100000` 与 `PF-BOUND-001` code；linear Syntax
+  256 接受/257 精确拒绝；wide Syntax 100000 接受/100001 精确拒绝；type、parameter、expression、
+  statement、item、program-command 六个 public decoder 对同一 257-deep Syntax 都先返回 exact nesting
+  `PF-BOUND-001`，program-command 对 100001 nodes 返回 exact node-bound diagnostic；namespace 255
+  components + one-part program identity（总计 256）接受、namespace 256 + program（总计 257）精确拒绝；
+  identifier Name 256 components 接受、257 精确拒绝。错误断言必须固定完整 render，不只检查 prefix。
+  重资源 integration 不得进入 resident `proof-forge-next-tests`：现有
+  `scripts/generate_syntax_bound_fixtures.py`/`just dsl-negative` 已分别执行 namespace 255/256、peak 257
+  unwind 到 255、300-term expression、20,000-state wide source、Lean command/CLI 双入口 diagnostic parity、
+  CLI exactly 16 MiB accept 与 16 MiB+1 pre-parse `PF-SRC-INVALID`/zero-output；本切片只要求该既有入口
+  单次通过，不复制这些向量。
+  变更只允许新增 `Tests/Language/SourceBoundsAcceptance.lean` 并最小修改 `Tests.lean`、`lakefile.lean`；
+  总新增 ≤110 行，不得修改 `ProgramSyntax.lean`、`Loader.lean`、其他 tests、`ProofForgeV2/` production、
+  generator、justfile 或 package file-set。验证只运行
+  `lake build Tests.Language.SourceBoundsAcceptance proof_forge_next_tests`、
+  `lake env .lake/build/bin/proof-forge-next-tests`、单次 `just dsl-negative`、`just docs-check`、
+  `git diff --check` 与 independent review；不运行 `just sbom` 或完整 `just ci`。结果只可记录 development
+  evidence，不能满足 candidate-bound `qualification=formal`；五个 D0 dependencies 未全部 done，且
+  `TST-SRC-001` 完整 wire/collision residual 未闭合时，不得关闭 pending `TASK-D1-01` 或任何下游 task。
+- D1-PA-91 是 `TASK-D1-01`/`TST-SRC-001` 的首个真实 canonical binary primitive coding slice：新增
+  `ProofForgeV2.Source.WireCodecV1` primitive/tagged encoder 与不 import Lean/ProofForge 的 Python
+  reference self-check。它不定义 partial/full `ProgramV1` business AST，不从当前 bucketed alpha
+  `Source.Program` 投影有损 source-order items，不修改 `Source.Program.canonicalBytes`/`sourceHash`，也不
+  提前发布完整 `canonicalSourceAstBytesV1`、`decodeCanonicalSourceAstBytesV1` 或 `sourceHashV1`。
+  production public API 精确限于 `encodeU8`、`encodeU16le`、`encodeU32le`、`encodeU256le`、
+  `encodeBool`、higher-order `encodeOption`/`encodeArray`、`encodeIdent`/`encodeString`、
+  `encodeQualifiedName`/`encodeQualifiedId` 与 `encodeTagged`。`u16/u32` 必须 little-endian；u256 是
+  exact 32-byte little-endian unsigned magnitude，`2^256` 起 fail closed；Option 使用 `0/1` marker；Array
+  使用 u32 count 并保持输入顺序；Ident/String 使用 u32 UTF-8 byte length 且拒绝 non-NFC，Ident 额外执行
+  exact Lean/common identifier validation；QualifiedId 必须 2..256 components；generic tag 必须 nonempty
+  ASCII、field count 可由 u16 exact 表示，并编码 `u32le tagByteLength || tag || u16le fields.size || fields`。
+  generic primitive codec 不判断 closed constructor inventory，后者只能由未来完整 ProgramV1 encoder 拥有。
+  `Tests.Language.SourceWireCodecV1` 必须固定 checked-in hex goldens：u8 zero/max、u16/u32 endianness、u256 zero/max 与
+  overflow、Bool、Option none/some、Array empty/multi-order、ASCII/Unicode NFC Ident/String、one-component
+  QualifiedName/two-component QualifiedId、
+  nullary tag 与 hand-composed two-field `Program` tag；negative 固定 non-NFC、invalid ident、由
+  `parseQualifiedName #[]` 拒绝的 zero-component carrier、one-component/257-component QualifiedId、
+  empty/non-ASCII tag 与 unrepresentable field count。
+  Escaped source identifier 到 qualified component 的投影仍有独立规格裁决，本切片不得加入 escaped-identifier
+  source fixture 或据 primitive bytes 决定该投影。`scripts/reference_source_wire_codec_v1.py
+  --self-check` 必须由独立实现命中同一 logical vectors/expected hex；只比较两个实现彼此相等而没有固定
+  bytes 不算通过。本切片只证明 primitive cross-implementation foundation，不声称 ProgramV1 full golden。
+  变更只允许新增 `ProofForgeV2/Source/WireCodecV1.lean`、
+  `Tests/Language/SourceWireCodecV1.lean`、`scripts/reference_source_wire_codec_v1.py`，最小修改
+  `ProofForgeV2.lean`、`Tests.lean`、`lakefile.lean`，并机械刷新
+  `supply-chain/lean-package-files.v1.json`；authored additions 总计 ≤380 行（机械 manifest refresh 不计），
+  codec ≤140、Lean suite ≤130、Python ≤100，其余 registration additions ≤10。
+  禁止修改 `Core/Source.lean`、Language/Loader/Syntax、WireV1 NodeId、PA89/90 suites、justfile 或其他
+  production。验证只运行 focused codec/test/aggregate build、test binary、Python `--self-check`、
+  `git diff --check`、`just docs-check`、机械 package refresh 后单次 `just sbom` 与 independent review；
+  不运行完整 `just ci`。`SPEC-SOURCE-WIRE-001` 保持 proposed；`ProofDecl.theorem` carrier、visibility 映射、
+  forward-grammar constructor 与 NodeId JCS key 等未触及的完整-model问题不得混入本切片。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01、任何下游 task，也不能把 `pf.source.v1` alpha payload 与未来 ProgramV1 payload 混为一谈。
+- D1-PA-92 是 `TASK-D1-01`/`TST-SRC-001` 的 cursor-based primitive decoder slice。新增
+  `ProofForgeV2.Source.WireDecodeV1`，生产 public surface 精确限于 private-constructor/private-field
+  `CursorV1`、
+  `DecoderV1`、`start`、`remaining`、`finish`、`decodeU8`、`decodeU16le`、`decodeU32le`、
+  `decodeU256le`、`decodeBool`、higher-order `decodeOption`、`decodeArray maxCount` 与 `decodeString`，签名冻结为：
+
+  ```lean
+  structure CursorV1 where
+    private mk ::
+    private input : ByteArray
+    private offset : Nat
+  abbrev DecoderV1 (α : Type) := CursorV1 → Except String (α × CursorV1)
+  start : ByteArray → CursorV1
+  remaining : CursorV1 → Nat
+  finish : CursorV1 → Except String Unit
+  decodeU8 : DecoderV1 UInt8
+  decodeU16le : DecoderV1 UInt16
+  decodeU32le : DecoderV1 UInt32
+  decodeU256le : DecoderV1 Nat
+  decodeBool : DecoderV1 Bool
+  decodeOption (decode : DecoderV1 α) : DecoderV1 (Option α)
+  decodeArray (maxCount : Nat) (decode : DecoderV1 α) : DecoderV1 (Array α)
+  decodeString : DecoderV1 String
+  ```
+
+  decoder 返回 value 与推进后的 cursor；所有 read 必须在 slice/allocation 前检查 remaining bytes，失败不返回
+  partial value/cursor。u16/u32/u256 必须 inverse PA91 little-endian，其中 u256 exact 消费 32 bytes 并保持
+  full Nat；Bool/Option 只接受 0/1 marker；Array 必须先解码 u32 count，再在调用任何 child decoder 或分配
+  result 前以 exact `array count exceeds caller limit` 拒绝 `count > maxCount`，随后保持 wire order并传播第一个
+  child error。`maxCount` 是调用方在未来 closed constructor/profile 中提供的 allocation policy，不代表本切片已
+  实现 global 100000-node/16-MiB budget；String 必须先验证 u32
+  declared byte length 不超过 remaining，再 strict UTF-8 decode 并使用 pinned Unicode `requireNfc` 拒绝 NFD。
+  `finish` 只接受 zero remaining，拒绝 trailing bytes；本切片不冻结各类 malformed input 的诊断文本，唯一例外是上述用于证明
+  array cap 优先级的 exact `array count exceeds caller limit`。
+  `Tests.Language.SourceWireDecodeV1` 必须以 checked-in bytes 固定 u8、非对称 u16/u32/u256、Bool、
+  Option none/some、Array empty/multi-order、ASCII/Unicode NFC String 与 exact-consume positive；negative 固定
+  truncated u8/u16/u32/u256、Bool/Option marker 2、array count over caller cap 且 child decoder 未被调用、
+  first child error、truncated child、string length over remaining、invalid UTF-8、NFD 与 trailing byte。
+  positive 还必须只对 PA91 `encodeU8`/`encodeU16le`/`encodeU32le`/`encodeU256le`/`encodeBool`/
+  `encodeOption`/`encodeArray`/`encodeString` 执行 encode→decode logical round-trip；禁止调用 PA91
+  `encodeIdent`/`encodeQualifiedName`/`encodeQualifiedId`/`encodeTagged`，也不允许只让 decoder 与自身生成的 bytes
+  比较。array-over-cap negative 必须比较上述 exact limit error，并给 child decoder 一个不同 exact error，证明
+  limit failure 先于 child call/allocation。`scripts/reference_source_wire_decode_v1.py --self-check` 必须不 import Lean/ProofForge，以独立 cursor
+  命中同一 fixed vectors/negative classes；只比较 Lean/Python 彼此相等而没有 checked-in bytes 不算通过。
+  变更只允许新增 `ProofForgeV2/Source/WireDecodeV1.lean`、
+  `Tests/Language/SourceWireDecodeV1.lean`、`scripts/reference_source_wire_decode_v1.py`，最小修改
+  `ProofForgeV2.lean`、`Tests.lean`、`lakefile.lean`，并机械刷新
+  `supply-chain/lean-package-files.v1.json`；authored additions 总计 ≤370 行（机械 manifest refresh 不计），
+  decoder ≤145、Lean suite ≤125、Python ≤90、其余 registration additions ≤10。禁止修改 PA91 encoder/
+  suites/reference、Common、Core Source、Language/Loader/Syntax、WireV1、justfile 或其他 production。
+  验证只运行 focused decoder/test/aggregate build、test binary、Python `--self-check`、package refresh 后最终
+  单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。
+  本切片明确不解码 Ident、QualifiedName/QualifiedId 或 tagged constructor：escaped raw component carrier 是
+  model 与 component decoder 的前置，`ProofDecl.theorem`/visibility 是 model 前置，NodeId exact JCS keys 是
+  NodeId slice 前置。结果只能记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
+  或任何下游 task，也不能声明 16 MiB/global node/nesting budget、full Program exact consume 或 stable Diagnostic。
+- D1-PA-93 是 `TASK-D1-01`/`TST-SRC-001` 的 raw Lean `Name.str` source-name carrier slice。决策：
+  `SourceNameComponentV1` 是 typed private-constructor carrier，**distinct** from
+  `Core.Common.QualifiedName` 与 `Name.toString` rendered spelling；wire 身份永远是 **raw**，永不写入
+  rendered guillemets。生产 public API 精确冻结为：
+
+  ```lean
+  structure SourceNameComponentV1 where
+    private mk ::
+    raw : String
+    deriving DecidableEq, Repr
+  parseSourceNameComponentV1 : String → Except String SourceNameComponentV1
+  sourceNameComponentV1FromLeanName : Lean.Name → Except String SourceNameComponentV1
+  renderSourceNameComponentV1 : SourceNameComponentV1 → String
+  WireCodecV1.encodeSourceNameComponentV1 :
+    SourceNameComponentV1 → Except String ByteArray
+  WireDecodeV1.decodeSourceNameComponentV1 :
+    WireDecodeV1.DecoderV1 SourceNameComponentV1
+  ```
+
+  `sourceNameComponentV1FromLeanName` 只接受最终 constructor 为 `.str` 的 `Name`（reject `.num` /
+  non-str）。`renderSourceNameComponentV1 c` exact 为 `(Name.str .anonymous c.raw).toString`。
+  `parseSourceNameComponentV1` 验证：raw UTF-8 长度 `1..240`；pinned NFC；拒绝 Unicode Cc 与 closing
+  guillemet `U+00BB`；**显式允许** exact `_`、opening `U+00AB`、digit-leading、hyphen、embedded dot、
+  space、NFC Unicode letter-like 与 language keyword **bodies**（language owner 仍可在 Syntax 层保留词；
+  本 carrier 不做 keyword deny-list）。不调用 `Lean.isIdFirst`/`isIdRest`，也不复用
+  `parseQualifiedName` 作为 accept oracle。
+  Wire：`WireCodecV1.encodeSourceNameComponentV1` / `WireDecodeV1.decodeSourceNameComponentV1` 对 raw
+  使用既有 String primitive layout（`u32le` length ‖ UTF-8）；既有 `encodeIdent : String → …` 的
+  validation **迁移**为先 `parseSourceNameComponentV1` 再 encode raw（因而 PA91 的 `1bad` 负例必须改为
+  exact **positive**，并同步更新 `scripts/reference_source_wire_codec_v1.py` 的 raw validation 与
+  goldens）。独立 Python oracle 必须对同一 raw 规则与 fixed vectors 做 `--self-check`，不 import Lean。
+  变更文件集：新增 `ProofForgeV2/Source/NameComponentV1.lean`、`Tests/Language/SourceNameComponentV1.lean`；
+  修改 `ProofForgeV2/Source/WireCodecV1.lean`、`ProofForgeV2/Source/WireDecodeV1.lean`、
+  `Tests/Language/SourceWireCodecV1.lean`、`scripts/reference_source_wire_codec_v1.py`；最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` 注册与机械
+  `supply-chain/lean-package-files.v1.json` refresh。authored budgets：new production ≤65、new Lean suite
+  ≤125、既有文件 authored deltas + registrations ≤65；总计 ≤255（机械 manifest 不计）。
+  RED 必须固定：raw vs rendered 字节/字符串不等价（hyphen/dot/space）；同一 suite 顶层必须含真实
+  Lean command `program «_» where ...`，以模块成功 elaboration 而非仅 ParserSession probe 证明 explicit
+  underscore 仍是 `.str` source name。positives：simple、`α`、`_`、
+  digit-leading `1bad`、hyphen、embedded-dot、space、opening-guillemet body、raw exact `«`（render
+  exact `««»`）、keyword body `struct`、
+  exact 240-byte NFC；negatives：empty、241、NFD、Unicode Cc、closing-guillemet `U+00BB`、anonymous
+  `Name`、`Name.num`；decoder exact bytes + encode→decode；injectivity pair：raw `foo.bar` **accept**
+  vs raw containing closing guillemet **reject**。Python reference 只实现 raw validation/wire，不复制
+  `Name.toString` renderer；render 不得进入跨实现 identity assertion。
+  明确排除：root ProgramV1、`SourceQualifiedName` 完整类型/root join、model cutover、`sourceHashV1`、
+  NodeId、Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。验证只运行 focused
+  NameComponent+WireCodec+WireDecode/test aggregate build、test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只可记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01
+  或任何下游 task。
+- D1-PA-94 是 `TASK-D1-01`/`TST-SRC-001` 的 source-only qualified-name array slice。它只消费
+  PA93 的 raw `SourceNameComponentV1`，不复用或削弱 Common `QualifiedName`；生产 public API 精确冻结为：
+
+  ```lean
+  structure SourceQualifiedNameV1 where
+    private mk ::
+    components : NonEmptyArray SourceNameComponentV1
+    deriving DecidableEq, Repr
+  sourceQualifiedNameV1OfComponents :
+    Array SourceNameComponentV1 → Except String SourceQualifiedNameV1
+  parseSourceQualifiedNameV1 : Array String → Except String SourceQualifiedNameV1
+  sourceQualifiedNameV1FromLeanName : Lean.Name → Except String SourceQualifiedNameV1
+  validateSourceQualifiedIdV1 : SourceQualifiedNameV1 → Except String Unit
+  validateSourceProgramIdentityV1 :
+    SourceQualifiedNameV1 → SourceQualifiedNameV1 → Except String Unit
+  WireCodecV1.encodeSourceQualifiedNameV1 :
+    SourceQualifiedNameV1 → Except String ByteArray
+  WireCodecV1.encodeSourceQualifiedIdV1 :
+    SourceQualifiedNameV1 → Except String ByteArray
+  WireDecodeV1.decodeSourceQualifiedNameV1 :
+    WireDecodeV1.DecoderV1 SourceQualifiedNameV1
+  WireDecodeV1.decodeSourceQualifiedIdV1 :
+    WireDecodeV1.DecoderV1 SourceQualifiedNameV1
+  ```
+
+  `SourceQualifiedNameV1` 构造时固定 `1..256` components；`validateSourceQualifiedIdV1` 与 QID
+  encode/decode 固定 `2..256`。禁止公开 caller-selected `minCount`，避免用错误上下文构造弱 carrier。
+  `sourceQualifiedNameV1FromLeanName` 只接受以 `.anonymous` 终止的纯 `.str` chain，保持 root-to-leaf raw
+  顺序；anonymous、final `.num` 或任意 prefix `.num` 均失败。`validateSourceProgramIdentityV1 module
+  programIdentity` 先要求 programIdentity 为 QualifiedId，再要求它比 module **严格更长**且 raw component
+  prefix 与 module exact 相同；本切片没有 Program name 参数，因而不声称完成 last-component/program.name
+  binding。实现允许复用 Common 的 generic `NonEmptyArray` container，但不得调用 Common
+  `parseQualifiedName`、`renderQualifiedNameComponents`、isId* 或 rendered spelling。
+  Wire exact 为 `u32le count ‖ encodeSourceNameComponentV1(component[0]) ...`；QN decoder 对 count 0/257、
+  QID decoder 对 count 0/1/257 必须在任何 child decode 前 fail closed。固定 count errors 分别为
+  `source qualified name must contain 1..256 components` 与
+  `source qualified id must contain 2..256 components`。
+  RED positives：single module `Demo`、two-component `Demo/Counter`、raw hyphen 与 opening-guillemet component、
+  QID 2/256、Lean `Demo.Counter` `.str` chain、fixed raw wire与 encode→decode exact consume；negatives：empty、
+  257、QID one、empty/NFD/Cc/closing-guillemet component、anonymous/final-num/prefix-num、equal join、non-prefix
+  join，并用 count-invalid + hostile child bytes固定 count-before-child priority。独立 Python oracle只实现 raw
+  component-array validation/bytes，不实现 Lean renderer。
+  变更文件集：新增 `ProofForgeV2/Source/QualifiedNameV1.lean`、
+  `Tests/Language/SourceQualifiedNameV1.lean`；修改 WireCodec/WireDecode、现有 Python reference 与最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` 注册；机械 refresh package manifest。budgets：new production
+  ≤100、new suite≤150、既有/Python/registrations additions≤80、总 authored additions≤330（manifest 不计）。
+  明确排除：`ProofDecl.theorem`/visibility 或任何 ProgramV1 constructor、canonical root/hash、NodeId、alpha
+  projection/sourceHash、Common/Syntax/Loader/Core.Source/ProgramPayload/target 改写。验证只运行 focused+
+  aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、
+  `git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭
+  完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-95 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 leaf AST closed-layer slice。边界必须是
+  `SPEC-SOURCE-WIRE-001` 五张完整表的 **38 个唯一 tag**：Visibility 3、Type 11（包含 Named/Map）、
+  Literal 3、UnaryOp 3、BinaryOp 18；不得写成“current grammar subset”后静默删 constructor。模型与
+  encoder 分模块，生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstV1
+  inductive VisibilityV1
+    | public_ | private_ | commitment
+  inductive TypeV1
+    | bool | uint (width : UInt16) | int (width : UInt16)
+    | principal | unit | named (name : SourceNameComponentV1)
+    | array (element : TypeV1) (length : UInt32)
+    | map (key value : TypeV1) | option (element : TypeV1)
+    | bytes (length : UInt32) | field (id : SourceNameComponentV1)
+  inductive LiteralV1
+    | bool (value : Bool) | integer (magnitude : Nat) | string (value : String)
+  inductive UnaryOpV1
+    | neg | not | bitNot
+  inductive BinaryOpV1
+    | add | sub | mul | div | mod | eq | ne | lt | le | gt | ge
+    | logicalAnd | logicalOr | bitAnd | bitOr | bitXor | shl | shr
+  -- each derives DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstCodecV1
+  encodeVisibilityV1 : VisibilityV1 → Except String ByteArray
+  encodeTypeV1 : TypeV1 → Except String ByteArray
+  encodeLiteralV1 : LiteralV1 → Except String ByteArray
+  encodeUnaryOpV1 : UnaryOpV1 → Except String ByteArray
+  encodeBinaryOpV1 : BinaryOpV1 → Except String ByteArray
+  ```
+
+  每个 encoder 只组合 PA91/PA93 已验证的 primitive/raw-name/`encodeTagged`，tag 与 field count 必须逐字
+  匹配 wire 表。`Type.UInt/Int.width` 只接受 UInt16 值 8/16/32/64/128/256；Array/Bytes UInt32 length
+  只接受 0..4096；Field raw id 只接受 `bn254_fr`；Named 与 Field 都编码 raw
+  `SourceNameComponentV1`，不得 rendered/Common 化。Literal.Integer 复用 u256le 并拒绝 `≥2^256`；
+  Literal.String 复用 pinned-NFC String。invalid width/length/field 必须在 `encodeTypeV1` 内 fail closed，
+  exact new errors 分别为 `integer width must be one of 8,16,32,64,128,256`、
+  `array length must be 0..4096`、`bytes length must be 0..4096`、`field id must be bn254_fr`。
+  本切片不加入局部 Type depth 上限；root-inclusive 256 nesting、100000 nodes 与 16 MiB 是后续完整
+  ProgramV1 validator/decoder 的全树规则，不能在 leaf encoder 上冒充完成。
+  RED/independent Python 必须固定 38 个 table-verbatim tag 的 exact bytes，且每个 constructor 至少一个
+  checked-in vector；Type.UInt/Int 六种 width 各通过，0/24 拒绝；Named raw `foo-bar`、Map、nested
+  `Array(Option(Bytes))`；Array/Bytes 0 与4096通过、4097拒绝；Field `bn254_fr` 通过且其他 raw id 拒绝；
+  Literal Integer 0、`>UInt64`、`2^256-1` 通过且 `2^256` 拒绝；Bool 0/1、NFC String通过、NFD拒绝。
+  Binary inventory exact 为 Add/Sub/Mul/Div/Mod/Eq/Ne/Lt/Le/Gt/Ge/And/Or/BitAnd/BitOr/BitXor/Shl/Shr；
+  logicalOr 与 bitOr 必须生成不同 tag。Lean suite与不 import Lean/ProofForge 的 Python oracle各自持有
+  expected hex，禁止以 production encoder 生成 decoder/expected oracle。
+  变更文件集：新增 `ProofForgeV2/Source/AstV1.lean`、`ProofForgeV2/Source/AstCodecV1.lean`、
+  `Tests/Language/SourceAstLeafV1.lean`、`scripts/reference_source_ast_leaf_v1.py`；最小
+  `ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` registration 与机械 package manifest refresh。budgets：
+  AstV1≤75、AstCodecV1≤180、suite≤220、Python≤130、registrations≤8、总 authored additions≤615
+  （manifest 不计）。明确排除：alpha Source/Syntax/visibility/theorem projection、Program/items/supporting records、
+  recursive Stmt/Expr/Place/Pattern spine、decoder、root/sourceHash、NodeId、global resource validator、Common/
+  Loader/ProgramPayload/target 改写。验证只运行 focused+aggregate build/test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
+  `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-96 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 self-contained supporting-record slice。它只实现
+  `SPEC-SOURCE-WIRE-001` supporting table 中不依赖 Expr/Stmt/Pattern 的三个完整 tag，不定义残缺
+  `ProgramItem` sum 或 mutual spine。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSupportV1
+  structure ParamV1 where
+    visibility : AstV1.VisibilityV1
+    name : SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure FieldDeclV1 where
+    name : SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure EnumVariantV1 where
+    name : SourceNameComponentV1
+    payloadTypes : Array AstV1.TypeV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstSupportCodecV1
+  encodeParamV1 : ParamV1 → Except String ByteArray
+  encodeFieldDeclV1 : FieldDeclV1 → Except String ByteArray
+  encodeEnumVariantV1 : EnumVariantV1 → Except String ByteArray
+  ```
+
+  encoders 必须逐字组合：`Param`/3 fields = Visibility、raw Ident、Type；`FieldDecl`/2 = raw Ident、Type；
+  `EnumVariant`/2 = raw Ident、`encodeArray encodeTypeV1 payloadTypes`。不得调用 Common/render，不增加
+  supporting-record local identifier/array cap；typed Ident 复用 PA93，Type invariants/errors 原样由 PA95
+  child encoder 传播。EnumVariant payloadTypes **允许 empty**；`EnumDecl.variants` nonempty 是未来 declaration/
+  Program validator 规则，不得错误下沉。本切片所有 encoder 必须为 total `def`。
+  RED 与独立 Python必须持有 table-verbatim checked-in hex：Param 覆盖 Public/Private/Commitment、raw names、
+  Bool/Unit/UInt64 与 nested `Array(Option(Bytes 0),0)`；FieldDecl 覆盖 UInt256 与 Map(Bool,Unit)；
+  EnumVariant 覆盖 empty payload、Bool/Principal ordered pair 与 nested Option。负例精确复用 PA95 child errors：
+  Param/Field width 24、EnumVariant Bytes 4097；golden expected 不得由 production encoder 生成。Python 不 import
+  Lean/ProofForge，并保持 raw name Cc/closing-guillemet规则。
+  变更文件集：新增 `ProofForgeV2/Source/AstSupportV1.lean`、
+  `ProofForgeV2/Source/AstSupportCodecV1.lean`、`Tests/Language/SourceAstSupportV1.lean`、
+  `scripts/reference_source_ast_support_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤45、codec≤90、suite≤140、Python≤100、registrations≤8、总 authored additions≤390
+  （manifest 不计）。明确排除：Block/StmtMatchArm/ExprMatchArm/ExternalCallExpr、Pattern、Place/Expr/Stmt/Block
+  mutual spine、任何 partial ProgramItem/Program root、alpha Source/Syntax/Loader/projection、decoder、global validator、
+  sourceHash/NodeId/Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、
+  package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-97 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete Pattern closed-layer slice。它实现
+  `SPEC-SOURCE-WIRE-001` Pattern table 的全部四个 tag；Pattern 只依赖 PA93 raw Ident、PA94 source QID、
+  PA95 Literal 与自身递归，不依赖 Place/Expr/Stmt mutual spine。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstPatternV1
+  inductive PatternV1 where
+    | wildcard
+    | bind (name : NameComponentV1.SourceNameComponentV1)
+    | literal (value : AstV1.LiteralV1)
+    | constructor (ctor : QualifiedNameV1.SourceQualifiedNameV1) (args : Array PatternV1)
+    deriving Repr
+  instance : DecidableEq PatternV1
+
+  namespace ProofForgeV2.Source.AstPatternCodecV1
+  encodePatternV1 : PatternV1 → Except String ByteArray
+  ```
+
+  wire mapping 必须逐字为：`Pattern.Wildcard`/0；`Pattern.Bind`/1 raw Ident；`Pattern.Literal`/1 full
+  tagged Literal；`Pattern.Constructor`/2 source QualifiedId 后 `Array<Pattern>`。Constructor 必须先调用
+  `encodeSourceQualifiedIdV1`，再编码 args；one-component QID 与同时存在的 hostile child 必须先返回
+  `source qualified id must contain 2..256 components`。args **允许 empty**，binding uniqueness、constructor
+  resolution/arity/exhaustiveness 和 256-depth/100000-node/16-MiB budgets 属于未来 D2/global validator，
+  不得在本 encoder 增加 local cap。
+
+  pinned Lean 4.31 对 `Array PatternV1` nested inductive 不支持自动 `deriving DecidableEq`，直接把
+  `encodePatternV1` 作为 higher-order 参数传给 `encodeArray` 也不能证明终止。本切片必须以 Pattern/Array/
+  List 三路 structural recursion 实现可执行 `DecidableEq` 与 encoder；encoder 可先 total 地得到 ordered child
+  byte chunks，再调用既有 `encodeArray pure`。所有生产定义必须是 kernel-total `def`；禁止 `partial`、
+  `unsafe`、fuel、深度截断、JSON/String/Unit placeholder 或复制另一份 array wire layout。
+
+  RED 与 independent Python 必须持有 table-verbatim checked-in hex，至少覆盖：Wildcard；Bind raw `x` 与
+  `foo-bar`；Pattern.Literal 的 Bool `true`/`false`、`2^64` Integer 和 NFC String；Constructor 两组件 QID + empty args、
+  single Wildcard、ordered Bind/Literal pair、反序 non-alias 与 depth≥2 nested Constructor。Lean 另验证 nested
+  Pattern equality的 equal/order/shape cases。负例逐字覆盖 one-component QID、Literal `2^256` overflow、
+  Literal NFD，并覆盖 invalid QID 优先于 invalid nested Literal；Python 不 import Lean/ProofForge，保持 raw
+  name Cc/closing-guillemet negatives，golden expected 不得由 production encoder 生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstPatternV1.lean`、
+  `ProofForgeV2/Source/AstPatternCodecV1.lean`、`Tests/Language/SourceAstPatternV1.lean`、
+  `scripts/reference_source_ast_pattern_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤85、codec≤75、suite≤150、Python≤110、registrations≤8、总 authored additions≤430
+  （manifest 不计）。明确排除：Place/Expr/Stmt/Block、StmtMatchArm/ExprMatchArm/ExternalCallExpr、任何
+  ProgramItem/Program root、alpha Source/Syntax/Loader/projection、decoder、global validator、sourceHash/NodeId、
+  Common/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、package
+  refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
+  `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-98 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete spine-independent declaration-record
+  slice。它一次实现 `SPEC-SOURCE-WIRE-001` 中字段依赖已由 PA91–96 闭合的全部七个 item tag；只定义
+  named records，不提前定义只含 7/13 alternatives 的残缺 `ProgramItemV1` sum。该 closed-class rule 精确是
+  **all ProgramItem records whose ordered field types depend only on already shipped carriers**；不是按当前 parser
+  能力或实现方便任意选七个。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstDeclV1
+  structure StateDeclV1 where
+    visibility : AstV1.VisibilityV1
+    name : NameComponentV1.SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    deriving DecidableEq, Repr
+  structure StructDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    fields : Array AstSupportV1.FieldDeclV1
+    deriving DecidableEq, Repr
+  structure EnumDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    variants : Array AstSupportV1.EnumVariantV1
+    deriving DecidableEq, Repr
+  structure EventDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    deriving DecidableEq, Repr
+  structure ErrorDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    deriving DecidableEq, Repr
+  structure ExtensionReqV1 where
+    id : QualifiedNameV1.SourceQualifiedNameV1
+    version : String
+    digest : String
+    deriving DecidableEq, Repr
+  structure ProofDeclV1 where
+    invariant : NameComponentV1.SourceNameComponentV1
+    theorem_ : QualifiedNameV1.SourceQualifiedNameV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstDeclCodecV1
+  encodeStateDeclV1 : StateDeclV1 → Except String ByteArray
+  encodeStructDeclV1 : StructDeclV1 → Except String ByteArray
+  encodeEnumDeclV1 : EnumDeclV1 → Except String ByteArray
+  encodeEventDeclV1 : EventDeclV1 → Except String ByteArray
+  encodeErrorDeclV1 : ErrorDeclV1 → Except String ByteArray
+  encodeExtensionReqV1 : ExtensionReqV1 → Except String ByteArray
+  encodeProofDeclV1 : ProofDeclV1 → Except String ByteArray
+  ```
+
+  wire mapping 与字段顺序必须逐字为：`StateDecl`/3 = Visibility、raw Ident、Type；`StructDecl`/2 = raw
+  Ident、Array FieldDecl；`EnumDecl`/2 = raw Ident、Array EnumVariant；`EventDecl`/2 与 `ErrorDecl`/2 = raw
+  Ident、Array Param；`ExtensionReq`/3 = source QualifiedId、String version、String digest；`ProofDecl`/2 =
+  raw invariant Ident、source theorem QualifiedId。所有 encoder 为 total `def`，只组合既有 PA91–96 codecs。
+
+  `StructDecl.fields` 与 `EnumDecl.variants` 必须在 encoder 中先以 exact `struct fields must be nonempty` /
+  `enum variants must be nonempty` fail closed；Event/Error params **允许 empty**。ExtensionReq 必须按 exact
+  priority 先 `encodeSourceQualifiedIdV1 id`，再以 Common `parseSemVer`+`renderSemVer` exact equality 验证
+  version，最后以 `parseDigest`+`renderDigest` exact equality验证 digest；任一 version parse/render/equality
+  失败统一为 `extension version must use canonical exact SemVer`，任一 digest failure 统一为
+  `extension digest must use canonical sha256 spelling`，不得泄漏 Common parser 的细分错误。验证成功后两者
+  仍调用 `encodeString` 写 wire。canonical prerelease/build 只要 parse/render exact round-trip 即允许，禁止改用
+  `parseSemVerCore`。valid QID + invalid version + invalid digest 必须先返回 version error；invalid
+  QID + hostile version/digest 必须先返回 QID error。Proof theorem 使用同一 source QID 2..256 validation。
+  不增加 declaration-local array/string/global cap；Program.items nonempty、duplicates、multiple init、proof-
+  invariant binding 与 256-depth/100000-node/16-MiB 属于 future Program/global validator。
+
+  RED 与 independent Python 必须持有 table-verbatim checked-in hex，至少覆盖：State 三 visibility 与 nested
+  Type；Struct single/multi FieldDecl及顺序；Enum empty-payload variant、multi variants及顺序；Event empty params
+  与 ordered multi Param；Error empty与single Param；Extension canonical `1.0.0`、canonical prerelease/build、
+  two-component QID 与 lowercase sha256 digest；Proof raw invariant + two-component theorem QID。负例逐字覆盖
+  Struct/Enum empty、State/Struct child width 24、Extension one-component QID、QID-before-hostile strings、
+  noncanonical version、version-before-bad-digest、bad digest、Proof one-component theorem；Python 不 import
+  Lean/ProofForge，保持 raw name Cc/closing-guillemet negatives，golden expected 不得由 production encoder生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstDeclV1.lean`、
+  `ProofForgeV2/Source/AstDeclCodecV1.lean`、`Tests/Language/SourceAstDeclV1.lean`、
+  `scripts/reference_source_ast_decl_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest refresh。
+  budgets：model≤55、codec≤110、suite≤220、Python≤160、registrations≤8、总 authored additions≤560
+  （manifest 不计）。明确排除：Const/Invariant/Init/Entry/View/Fn、任何 `ProgramItem` sum/Program root、
+  Place/Expr/Stmt/Block/arms/ExternalCallExpr、alpha Source/Syntax/Loader/projection、decoder、global validator、
+  sourceHash/NodeId/Common edits/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python
+  self-check、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent
+  review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01 或下游 task。
+- D1-PA-99 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 mutual spine **model/equality-only** slice。
+  `SPEC-SOURCE-WIRE-001` 的依赖图证明 Place、Expr、Stmt、Block、StmtMatchArm、ExprMatchArm、
+  ExternalCallExpr 七种类型构成不可再拆的最小 SCC：删掉任一类型都会缺失 Place.Index、两种 Match、
+  If/For body 或 Call/Schedule 的表内 constructor。PA99 一次定义完整 25-constructor model；codec 与
+  encoder-owned nonempty/bound/QID validation 留给 PA99 收口后另行冻结的后续 slice，不允许以 placeholder、
+  partial constructor table 或提前 ProgramItem sum 绕开 SCC。生产 public model API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineV1
+  mutual
+    inductive PlaceV1 where
+      | name (name : SourceNameComponentV1)
+      | field (base : PlaceV1) (field : SourceNameComponentV1)
+      | index (base : PlaceV1) (index : ExprV1)
+      deriving Repr
+    inductive ExprV1 where
+      | literal (value : LiteralV1)
+      | place (place : PlaceV1)
+      | constructor (ctor : SourceQualifiedNameV1) (args : Array ExprV1)
+      | unary (op : UnaryOpV1) (operand : ExprV1)
+      | binary (op : BinaryOpV1) (lhs rhs : ExprV1)
+      | localCall (callee : SourceNameComponentV1) (args : Array ExprV1)
+      | match_ (scrutinee : ExprV1) (arms : Array ExprMatchArmV1)
+      deriving Repr
+    structure ExprMatchArmV1 where
+      pattern : PatternV1
+      value : ExprV1
+      deriving Repr
+    structure ExternalCallExprV1 where
+      callee : SourceQualifiedNameV1
+      args : Array ExprV1
+      deriving Repr
+    inductive StmtV1 where
+      | let_ (name : SourceNameComponentV1) (typeAnn : Option TypeV1) (value : ExprV1)
+      | assign (target : PlaceV1) (value : ExprV1)
+      | if_ (condition : ExprV1) (thenBlock : BlockV1) (elseBlock : Option BlockV1)
+      | match_ (scrutinee : ExprV1) (arms : Array StmtMatchArmV1)
+      | for_ (binder : SourceNameComponentV1) (start endExclusive : ExprV1)
+          (bound : UInt32) (body : BlockV1)
+      | assert_ (condition : ExprV1) (error : Option SourceNameComponentV1)
+      | revert (error : SourceNameComponentV1) (args : Array ExprV1)
+      | emit (event : SourceNameComponentV1) (args : Array ExprV1)
+      | return_ (value : Option ExprV1)
+      | call (call : ExternalCallExprV1)
+      | schedule (call : ExternalCallExprV1)
+      deriving Repr
+    structure StmtMatchArmV1 where
+      pattern : PatternV1
+      body : BlockV1
+      deriving Repr
+    structure BlockV1 where
+      statements : Array StmtV1
+      deriving Repr
+  end
+  ```
+
+  `AstSpineEqV1.lean` 仍在 `ProofForgeV2.Source.AstSpineV1` namespace 内公开精确七个
+  `DecidableEq` instance：PlaceV1、ExprV1、ExprMatchArmV1、ExternalCallExprV1、StmtV1、
+  StmtMatchArmV1、BlockV1。实现必须以 private mutual structural decision procedures 递归到
+  SCC child、Array/List 与 Option；必须返回 `Decidable (a = b)` 并由 kernel 接受 totality。禁止只 deriving
+  `BEq`、以 Bool 冒充 equality、`Classical.decEq`/`noncomputable`、`partial`、`unsafe`、fuel 或 codec bytes
+  equality。pinned Lean 4.31 `/tmp` full probe 已实证 model 约 58 行、proof/instances 约 379 行并编译通过。
+
+  RED 只 import model/equality 与既有 PA93–97 carriers，不 import codec/WireCodec。必须实例化完整 inventory：
+  Place 3、Expr 7、Stmt 11、Block、StmtMatchArm、ExprMatchArm、ExternalCallExpr，共 25 constructors；并对
+  七种类型各执行至少一个 `decide (a = b)` true 与一个 `decide (a ≠ b)` true。矩阵必须覆盖 Expr/Stmt
+  array order与length不等、Let.typeAnn/If.elseBlock/Assert.error/Return.value 的 none/some、Constructor/
+  LocalCall/ExternalCall args、两种 match arms、Call/Schedule nonalias、For bound value inequality，以及至少
+  depth-3 Block→Stmt.If→Block deep equal/deep mismatch。raw `foo-bar` 与 two-component QID 必须通过既有
+  typed parser构造；不得用 string cast 或 rendered name。该 model layer 故意允许 empty arrays 与任意
+  UInt32 bound；对应 `Block`/Match nonempty、For 0..4096、QID-before-args wire错误属于后续 codec RED，
+  本 slice 不得提前测试或实现。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineV1.lean`、
+  `ProofForgeV2/Source/AstSpineEqV1.lean`、`Tests/Language/SourceAstSpineV1.lean`；最小
+  ProofForgeV2/Tests/lake registration 与机械 manifest refresh。budgets：model≤80、Eq≤400、suite≤260、
+  registrations≤8、总 authored additions≤748（manifest 不计）。明确排除：任何 codec/wire/Python oracle、
+  nonempty/bound/QID validation、Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/Program root、alpha、
+  decoder、global validator、sourceHash/NodeId/Common/ProgramPayload/target。验证只运行 focused+aggregate
+  build/test binary、package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与
+  independent review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整
+  TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-100 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 mutual spine **codec-only** slice。它只消费
+  PA99 已发布的 PlaceV1/ExprV1/StmtV1/BlockV1/StmtMatchArmV1/ExprMatchArmV1/ExternalCallExprV1，
+  一次实现 `SPEC-SOURCE-WIRE-001` 对应完整 25-tag table，不修改 model/equality，也不引入 body-bearing
+  ProgramItem。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineCodecV1
+  encodePlaceV1 : PlaceV1 → Except String ByteArray
+  encodeExprV1 : ExprV1 → Except String ByteArray
+  encodeExprMatchArmV1 : ExprMatchArmV1 → Except String ByteArray
+  encodeExternalCallExprV1 : ExternalCallExprV1 → Except String ByteArray
+  encodeBlockV1 : BlockV1 → Except String ByteArray
+  encodeStmtMatchArmV1 : StmtMatchArmV1 → Except String ByteArray
+  encodeStmtV1 : StmtV1 → Except String ByteArray
+  ```
+
+  七个 public encoder 与其 private helpers 必须位于一个 kernel-total mutual family；Array recursive child
+  必须先产生 ordered `ByteArray` chunks，再唯一调用 `encodeArray pure`，不得把 mutual encoder 作为
+  higher-order 参数传给 `encodeArray`。`Stmt.If.elseBlock : Option BlockV1` 与
+  `Stmt.Return.value : Option ExprV1` 必须手工写 `0x00`/`0x01 || child`；非 SCC 的 Let Type option 与
+  Assert Ident option 可复用既有 `encodeOption`。Block/arms/ExternalCall structure 必须用 structural pattern
+  使 termination checker 看见 child。禁止 `partial`、`unsafe`、fuel、model/Eq 修改或复制 Array wire。
+
+  所有 tag、fieldCount 与 ordered fields 逐字复用 `SPEC-SOURCE-WIRE-001`：Place 3、Expr 7、Stmt 11、
+  `Block`/`StmtMatchArm`/`ExprMatchArm`/`ExternalCallExpr` 4，共 25 tags。encoder-owned exact errors 固定为：
+
+  - empty `Block.statements` → `block statements must be nonempty`
+  - empty `Stmt.Match.arms` → `stmt match arms must be nonempty`
+  - empty `Expr.Match.arms` → `expr match arms must be nonempty`
+  - `Stmt.For.bound > 4096` → `for bound must be 0..4096`
+
+  priority 精确冻结为：当前 constructor 的 local nonempty/bound check **先于所有 child**；local check成功后
+  按 wire field order 左到右编码并原样传播 PA93–97 child error。故 empty Stmt/Expr Match 必须在 hostile
+  scrutinee 前返回各自 arms error，For 4097 必须在 hostile binder/start/end/body 前返回 bound error。
+  `Expr.Constructor` 先 `encodeSourceQualifiedIdV1 ctor` 再 args；`ExternalCallExpr` 先 QID callee 再 args，
+  one-component QID + hostile `Literal.integer (2^256)` args 必须返回 PA94 QID error。不得 remap child error，
+  不在本 slice 加 256-depth/100000-node/16-MiB global validator。
+
+  Lean RED 与不 import Lean/ProofForge 的 Python oracle必须持有 checked-in expected hex；两者使用同一组
+  typed logical fixtures但独立实现编码。至少 34 个 fixed expected-byte assertions，必须直接调用七个 public
+  encoder，且完整覆盖 25 tags：Place Name/Field/nested Index；Expr Literal(含 `2^64`)/Place/Constructor
+  some-one-arg与none-empty/Unary/Binary/LocalCall/Match-two-arms；Stmt Let type none/some、Assign、If else
+  none/some、Match、For bound 0/4096、Assert error none/some、Revert empty/one-arg、Emit、Return none/some、
+  Call、Schedule；direct Block single/multi、direct StmtMatchArm/ExprMatchArm/ExternalCallExpr。必须比较
+  Constructor args `[a,b]`/`[b,a]` 与 Block statements normal/reversed exact byte nonalias，并覆盖四个 Option
+  wire marker的 none/some。负例逐字包含 empty Block、empty Stmt Match、empty Expr Match、For 4097、
+  Constructor one-component QID、ExternalCall one-component QID、两条 QID-before-hostile-args、arms/bound-
+  before-hostile-child，以及至少一个既有 Literal/Pattern/Ident child error原样传播。Python另保持 raw closing-
+  guillemet/Cc negatives；expected bytes不得由 production encoder生成。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineCodecV1.lean`、
+  `Tests/Language/SourceAstSpineCodecV1.lean`、`scripts/reference_source_ast_spine_v1.py`；最小
+  ProofForgeV2/Tests/lake registration 与机械 manifest refresh。budgets：codec≤250、suite≤300、Python≤260、
+  registrations≤8、总 authored additions≤818（manifest 不计）。明确排除：model/Eq/Common 修改、
+  Const/Invariant/Init/Entry/View/Fn、ProgramItem sum/Program root、alpha、decoder、global validator、
+  sourceHash/NodeId/ProgramPayload/target。验证只运行 focused+aggregate build/test binary、Python self-check、
+  package refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行
+  完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或
+  下游 task。
+- D1-PA-101 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete spine-dependent declaration-record
+  slice。closed-class rule 精确为 **all ProgramItem records whose ordered field types depend on the shipped
+  Place/Expr/Stmt/Block spine**：`ConstDecl`、`InvariantDecl`、`InitDecl`、`EntryDecl`、`ViewDecl`、`FnDecl`
+  六种；它们与 PA98 的七种 spine-independent records 合计 13/13 item alternatives。该 slice 只定义
+  named records与各自 codec，不定义 `ProgramItemV1` sum 或 `Program` root。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineDeclV1
+  structure ConstDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    type_ : AstV1.TypeV1
+    value : AstSpineV1.ExprV1
+    deriving DecidableEq, Repr
+  structure InvariantDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    predicate : AstSpineV1.ExprV1
+    deriving DecidableEq, Repr
+  structure InitDeclV1 where
+    params : Array AstSupportV1.ParamV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure EntryDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure ViewDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+  structure FnDeclV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    params : Array AstSupportV1.ParamV1
+    result : AstV1.TypeV1
+    body : AstSpineV1.BlockV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstSpineDeclCodecV1
+  encodeConstDeclV1 : ConstDeclV1 → Except String ByteArray
+  encodeInvariantDeclV1 : InvariantDeclV1 → Except String ByteArray
+  encodeInitDeclV1 : InitDeclV1 → Except String ByteArray
+  encodeEntryDeclV1 : EntryDeclV1 → Except String ByteArray
+  encodeViewDeclV1 : ViewDeclV1 → Except String ByteArray
+  encodeFnDeclV1 : FnDeclV1 → Except String ByteArray
+  ```
+
+  wire tag、field count 与顺序必须逐字为：`ConstDecl`/3 = raw Ident、Type、Expr；
+  `InvariantDecl`/2 = raw Ident、Expr；`InitDecl`/2 = Array Param、Block；`EntryDecl`/4、`ViewDecl`/4、
+  `FnDecl`/4 = raw Ident、Array Param、Type result、Block。六个 encoder 均为 total `def`，只组合 PA93–100
+  已发布 codec；Param arrays 唯一复用 `encodeArray encodeParamV1`。该 slice **不新增任何 local validation
+  或 error string**：所有 params（包括 Init/Entry/View/Fn）允许 empty，View 的 empty-params fixture必须成功；
+  empty body 只由 `encodeBlockV1` 返回 `block statements must be nonempty`。Type/Expr/Param/Block child error
+  必须按上述 wire field order原样传播。duplicate declarations、zero entry/view、multiple init、proof-invariant
+  binding 与 256-depth/100000-node/16-MiB 限制属于 future Program/set-level validator，不得下沉到 record codec。
+
+  Lean RED 与不 import Lean/ProofForge 的 Python oracle必须使用同一组 hand-built typed logical fixtures并
+  持有 checked-in expected hex，golden 不得由 production encoder生成。exact 七个 positive goldens 为：
+  `Const max : UInt256 = Integer 4096`；`Invariant bounded = Binary Lt (Place.Name count) (Integer 4096)`；
+  `Init` params `[Public start UInt64, Private secret Field bn254_fr]` + `Block[Assign count 1]`；
+  `Entry run` params `[Public to Principal, Private amount UInt64, Commitment note Bytes0]`、result UInt64、
+  `Block[Return some (Place.Name count)]`；同一 Entry 的 first-two-param swap
+  `[Private amount UInt64, Public to Principal, Commitment note Bytes0]`；`View get` empty params、result UInt64、
+  `Block[Return some Integer 0]`；`Fn helper2` param `[Public x UInt64]`、result Unit、
+  `Block[If true then Block[Return none] else none]`。必须直接调用六个 public encoder；对六种 record各执行
+  derived equality true/false；Entry normal/swapped params须同时 byte 与 DecidableEq nonalias；另构造字段完全
+  相同的 Entry/View并证明 tag bytes nonalias。
+
+  Lean exact negatives只允许既有 child errors：Const 的 UInt24 + hostile Integer `2^256` 必须先返回
+  `integer width must be one of 8,16,32,64,128,256`；valid UInt256 + hostile value与 Invariant hostile predicate
+  均返回 `u256 magnitude exceeds 2^256-1`；Init empty body返回 PA100 block error；Entry 的首个 Param 使用
+  `Type.Field bad_fr`，同时 result UInt24、body empty，必须先返回 `field id must be bn254_fr`；View empty
+  params + UInt24 result + empty body必须先返回 width error；Fn valid fields + empty body返回 block error。
+  私有构造的 SourceNameComponent carrier已在 PA93 validation boundary保证合法，本 slice禁止用 unsafe/伪造
+  carrier制造不可达 name-error priority。Python另在其独立 raw encoder边界保留 closing-guillemet/Cc negatives。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstSpineDeclV1.lean`、
+  `ProofForgeV2/Source/AstSpineDeclCodecV1.lean`、`Tests/Language/SourceAstSpineDeclV1.lean`、
+  `scripts/reference_source_ast_spine_decl_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械 manifest
+  refresh。budgets：model≤60、codec≤90、suite≤200、Python≤160、registrations≤8、总 authored
+  additions≤520（manifest 不计）。明确排除：`ProgramItemV1` sum/Program root、alpha Source/Syntax/Loader/
+  projection、decoder、global/set validator、sourceHash/NodeId、Common/ProgramPayload/target edits。验证只运行
+  focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
+  `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
+  evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-102 是 `TASK-D1-01`/`TST-SRC-001` 的 complete `ProgramItemV1` sum/codec slice。closed class
+  精确为 PA98+PA101 已发布的全部 13 种 item-record types，constructor 顺序逐字对齐 wire table与
+  `WireV1.isProgramItemTag`：State、Struct、Enum、Const、Event、Error、Init、Entry、View、Fn、Invariant、
+  ExtensionReq、Proof。禁止定义只含子集的 incomplete sum。`SPEC-SOURCE-WIRE-001` 冻结
+  **ProgramItem 没有额外 wrapper tag**；item encoder只按 constructor dispatch到已发布 record encoder，
+  输出必须逐 byte等于 direct record encoding，不得调用 `encodeTagged "ProgramItem"`、重编码字段或加入
+  validation。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramItemV1
+  inductive ProgramItemV1 where
+    | state : AstDeclV1.StateDeclV1 → ProgramItemV1
+    | struct : AstDeclV1.StructDeclV1 → ProgramItemV1
+    | enum : AstDeclV1.EnumDeclV1 → ProgramItemV1
+    | const : AstSpineDeclV1.ConstDeclV1 → ProgramItemV1
+    | event : AstDeclV1.EventDeclV1 → ProgramItemV1
+    | error : AstDeclV1.ErrorDeclV1 → ProgramItemV1
+    | init : AstSpineDeclV1.InitDeclV1 → ProgramItemV1
+    | entry : AstSpineDeclV1.EntryDeclV1 → ProgramItemV1
+    | view : AstSpineDeclV1.ViewDeclV1 → ProgramItemV1
+    | fn : AstSpineDeclV1.FnDeclV1 → ProgramItemV1
+    | invariant : AstSpineDeclV1.InvariantDeclV1 → ProgramItemV1
+    | extensionReq : AstDeclV1.ExtensionReqV1 → ProgramItemV1
+    | proof : AstDeclV1.ProofDeclV1 → ProgramItemV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstProgramItemCodecV1
+  encodeProgramItemV1 : AstProgramItemV1.ProgramItemV1 → Except String ByteArray
+  ```
+
+  `encodeProgramItemV1` 必须为 single total `def`，13 arms精确调用对应
+  `encodeStateDeclV1`/`encodeStructDeclV1`/`encodeEnumDeclV1`/`encodeConstDeclV1`/
+  `encodeEventDeclV1`/`encodeErrorDeclV1`/`encodeInitDeclV1`/`encodeEntryDeclV1`/
+  `encodeViewDeclV1`/`encodeFnDeclV1`/`encodeInvariantDeclV1`/`encodeExtensionReqV1`/
+  `encodeProofDeclV1`。constructor names固定为上表短名，包括可由 Lean 4.31 实编译的 `struct`、`enum`、
+  `const`、`error`、`init`、`fn`；RED/GREEN不得自行加下划线或改变 order。该 slice没有 local error、
+  tag或 field encoder；所有 PA98/PA101 child errors未经 remap传播。
+
+  Lean RED 与不 import Lean/ProofForge 的 standalone Python oracle必须持有 13 个 checked-in expected hex，
+  expected不得由 production encoder或运行时读取其他 reference scripts生成。logical fixtures精确复用：
+  `item_state` = PA98 `state_enabled_public_bool`；`item_struct` = `struct_store_single`；`item_enum` =
+  `enum_choice`；`item_const` = PA101 `const_max`；`item_event` = `event_ping_empty`；`item_error` =
+  `error_empty`；`item_init` = `init_two_params`；`item_entry` = `entry_run`；`item_view` =
+  `view_get_empty`；`item_fn` = `fn_helper2`；`item_invariant` = `invariant_bounded`；`item_extension_req` =
+  PA98 `ext_feature`；`item_proof` = `proof_safe`。每个 Lean case必须同时断言 fixed hex与
+  `encodeProgramItemV1 (.ctor payload) = encodeXxxDeclV1 payload`，以直接证明 no-wrapper byte identity；
+  Python对同一 13 labels实现独立 no-wrapper dispatch并固定同一 hex。
+
+  equality必须对 13 constructors各执行 self-equal，并至少对 same payload shape的两组 alternative执行
+  cross-constructor inequality。alias groups精确为：Event/Error使用完全相同 name/params时 item bytes不相等；
+  Entry/View/Fn使用完全相同 name/params/result/body时三者 pairwise不相等，且相应 ProgramItem values由
+  `DecidableEq` 判定不同。负例只通过 pure dispatch传播既有 exact errors：Struct empty fields →
+  `struct fields must be nonempty`；Const UInt24 + hostile value → width error优先；Init empty body →
+  `block statements must be nonempty`；Extension one-component QID + hostile version/digest → PA94 QID count
+  error优先。禁止新增 ProgramItem-local error。Python不必重复 PA93 raw-name negatives，因为本 slice没有新
+  Ident boundary。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramItemV1.lean`、
+  `ProofForgeV2/Source/AstProgramItemCodecV1.lean`、`Tests/Language/SourceAstProgramItemV1.lean`、
+  `scripts/reference_source_ast_program_item_v1.py`；最小 ProofForgeV2/Tests/lake registration 与机械
+  manifest refresh。budgets：model≤45、codec≤60、suite≤230、Python≤170、registrations≤8、总 authored
+  additions≤515（manifest 不计）。明确排除：Program root/items Array与 items-nonempty、program identity
+  join、duplicate/zero-entry-view/multiple-init/proof-invariant set validation、alpha Source/Syntax/Loader/
+  projection、decoder、global validator、sourceHash/NodeId、Common/ProgramPayload/target edits。验证只运行
+  focused+aggregate build/test binary、Python self-check、package refresh 后最终单次 `just sbom`、
+  `just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。结果只记录 development
+  evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-103 是 `TASK-D1-01`/`TST-SRC-001` 的 `Program` tagged-value slice，而不是完整 canonical root
+  slice。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramV1
+  structure ProgramV1 where
+    name : NameComponentV1.SourceNameComponentV1
+    items : Array AstProgramItemV1.ProgramItemV1
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstProgramCodecV1
+  encodeProgramV1 : AstProgramV1.ProgramV1 → Except String ByteArray
+  ```
+
+  `encodeProgramV1` 必须为 single total `def`。它首先检查 `items.size ≥ 1`，失败 exact 返回
+  `program items must be nonempty`；该 local shape check 必须位于 name/item child encoding 之前。成功路径
+  精确为 `nameB ← encodeSourceNameComponentV1 p.name`、
+  `itemsB ← encodeArray encodeProgramItemV1 p.items`、
+  `encodeTagged "Program" #[nameB, itemsB]`。tag 为 ASCII `Program`、fieldCount 为 2、items保持 source
+  order且每个 item继续使用 PA102 no-wrapper bytes；不得重编码 alternative、remap child error或加入
+  declaration-set walk。
+
+  Lean RED 与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts 的 standalone Python
+  oracle必须各自持有相同的三个 checked-in lowercase expected hex literal，expected不得由 production或
+  oracle自身在 self-check 时生成：`prog_state_only` = name `Demo` + `[item_state]`；
+  `prog_two_order` = `Demo` + `[item_state,item_const]`；`prog_two_reversed` = `Demo` +
+  `[item_const,item_state]`。`item_state` 精确复用 PA102 `state_enabled_public_bool` payload，`item_const`
+  精确复用 `const_max` payload。三例均断言 fixed hex；ordered/reversed必须 byte nonalias，Program derived
+  equality必须覆盖 self true与 order-swapped false。Lean另以现有 primitive/item encoders断言 Program/2
+  composition，防止偷偷前置 module/identity bytes或 outer wrapper。
+
+  负例精确冻结为：empty items → `program items must be nonempty`；single Struct empty fields →
+  `struct fields must be nonempty`；single Const UInt24 + hostile `2^256` value → width error优先；valid state
+  first + empty Struct second →第二 item 的 struct error，证明 array source order与 child propagation。
+  `prog_state_only` 虽没有 Entry/View仍必须在该 mechanical codec boundary成功，以证明 serializer没有混入
+  `SPEC-LANG-001` set validator；这不声明该 value 已通过完整 invariant validator或可进入编译管线。
+
+  明确排除 canonical root `encodeSourceNameArray(moduleName) ‖ encodeSourceNameArray(programIdentity) ‖
+  encodeProgramV1(program)`、module/program identity count/prefix join、`program.name` 与 identity 最后 raw
+  component equality、duplicate/zero-entry-view/multiple-init/proof-invariant set validation、alpha Source/Syntax/
+  Loader/projection、decoder、global depth/node/16-MiB validator、sourceHash/NodeId、Common/ProgramPayload/target。
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramV1.lean`、
+  `ProofForgeV2/Source/AstProgramCodecV1.lean`、`Tests/Language/SourceAstProgramV1.lean`、
+  `scripts/reference_source_ast_program_v1.py`；最小 ProofForgeV2/Tests/lake registration与机械 manifest。
+  budgets：model≤30、codec≤35、suite≤160、Python≤110、registrations≤6、总 authored additions≤345
+  （manifest不计）。验证只运行 focused+aggregate build/test binary、Python self-check、package refresh 后最终
+  单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整 `just ci`。
+  结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
+- D1-PA-104 是 `TASK-D1-01`/`TST-SRC-001` 的 canonical-root encoder slice，只闭合 v1 root 的
+  source-only identity join 与三段串接。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstCanonicalRootV1
+  canonicalSourceAstBytesV1
+    (moduleName programIdentity : QualifiedNameV1.SourceQualifiedNameV1)
+    (program : AstProgramV1.ProgramV1) : Except String ByteArray
+  ```
+
+  该 API 必须为 single total `def`，且顺序不可交换：先调用
+  `validateSourceProgramIdentityV1 moduleName programIdentity`；再以 total、无 `partial`/`unsafe`/bang index
+  的方式取 `programIdentity` 最后一个 raw `SourceNameComponentV1`；若它与 `program.name` 不等，exact
+  返回 `program name must equal the last program identity component`；之后依次调用
+  `encodeSourceQualifiedNameV1 moduleName`、`encodeSourceQualifiedNameV1 programIdentity`、
+  `encodeProgramV1 program`，最后无间隔串接三段。root 不得增加 outer tag、field count、magic、schema、
+  source path 或 trailing bytes，也不得把 source carrier改成 common `QualifiedName`。
+
+  Lean RED 与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts 的 standalone Python
+  oracle必须各自持有相同的三个 checked-in lowercase full-root expected hex literal；expected不得由
+  production或 oracle自身在 self-check 时生成：`root_state_ok` = module `Root`、identity `Root.Demo`、
+  Program name `Demo` + `[item_state]`；`root_two_order` = 同 identity + `[item_state,item_const]`；
+  `root_deep_mod` = module `A.B`、identity `A.B.Main`、Program name `Main` + `[item_state]`。
+  `item_state`/`item_const`精确复用 PA103 payload。三例均断言 full fixed hex及
+  `encodeSourceQualifiedNameV1(moduleName) ‖ encodeSourceQualifiedNameV1(programIdentity) ‖
+  encodeProgramV1(program)` direct composition；至少一例断言 root 以 module array bytes 开始且不以
+  `Program` tag prefix开始。shallow order与 deep component order不可被排序或 rendered spelling替换。
+
+  负例与 exact priority冻结为：一 component identity首先返回
+  `source qualified id must contain 2..256 components`；二 component module与 identity相等返回
+  `program identity must strictly extend the module name`；non-prefix返回
+  `program identity must begin with the exact module name components`；bad join + wrong name + empty items仍由
+  join error优先；good join + wrong name + empty items由新的 name mismatch优先；good join/name + empty items
+  传播 `program items must be nonempty`；good join/name + empty Struct item传播
+  `struct fields must be nonempty`；good join/name + single Const UInt24 + hostile `2^256` value仍由 width error
+  优先。`root_state_ok`没有 Entry/View仍必须成功，只证明 mechanical root
+  boundary没有混入 `SPEC-LANG-001` set validator，不声明该 root业务有效或可进入编译管线。
+
+  `SPEC-SOURCE-WIRE-001` production boundary继续规定最终 API返回 `Except Diagnostic`；本 pre-acceptance
+  slice 的 `Except String` 只是尚未完成 `TASK-D1-07` 的 development seam。上述 exact String只冻结本切片
+  的错误优先级和 fail-closed行为，不得声明为最终 stable diagnostic schema。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstCanonicalRootV1.lean`、
+  `Tests/Language/SourceAstCanonicalRootV1.lean`、`scripts/reference_source_ast_canonical_root_v1.py`；最小
+  ProofForgeV2/Tests/lake registration与机械 manifest。budgets：codec≤60、suite≤200、Python≤150、
+  registrations≤5、总 authored additions≤415（manifest不计）。明确排除 duplicate identifiers、
+  zero Entry/View、multiple Init、proof/invariant reference等 declaration-set validation；alpha Source/Syntax/
+  Loader/projection；decoder、exact-consume、global depth/node/16-MiB resource validator；sourceHash、NodeId、
+  stable Diagnostic implementation、Common/ProgramPayload与 target edits。验证只运行 focused+aggregate
+  build/test binary、Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、
+  `git diff --check`与 independent review；不运行完整 `just ci`。结果只记录 development evidence，不能
+  关闭完整 TST-SRC-001、pending TASK-D1-01或下游 task。
+- D1-PA-105 是 `TASK-D1-01`/`TST-SRC-001` 的 complete residual `ProgramV1` declaration-set validator
+  slice。它实现 `SPEC-LANG-001` 已固定顺序的 count/uniqueness/proof-name binding 与 per-record duplicate
+  规则，但不重复 PA98/PA100/PA101 codec 已拥有的 struct fields、enum variants、Block/fn body nonempty等
+  local shape checks。生产 public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramValidateV1
+  validateProgramDeclSetV1
+    (program : AstProgramV1.ProgramV1) : Except String Unit
+  ```
+
+  该 API 必须为 single public total `def`，禁止 `partial`/`unsafe`/bang index与 quadratic duplicate scan；
+  duplicate/membership使用 `Std.HashSet`或等价 O(n) expected-time closed implementation。raw Ident key精确为
+  `SourceNameComponentV1.raw`；extension identity key精确比较完整 ordered raw component array，不比较 rendered
+  spelling，也不把 version/digest并入 uniqueness key。所有 rules先在完整 `program.items` 上按下列**规则类别
+  固定顺序**执行；类别内第一个 source-order offender获胜，禁止按 alpha bucket实现顺序或跨类别最早 item
+  改写优先级：
+
+  1. 第二个 `init`；
+  2. zero `entry`/`view`；
+  3. state names；
+  4. entry/view names的 combined namespace；
+  5. event；6. error；7. struct；8. enum；9. const；10. fn names；
+  11. entry/view/fn callable combined namespace；
+  12. invariant names；13. extension identities；14. proof target cardinality；
+  15. proof target exact membership in the full invariant-name set；
+  16. initializer params；17. per-struct fields；18. per-enum variants；19. per-event params；
+  20. per-error params；21. entry/view params（combined source-order walk，variant-specific error）；
+  22. fn params。
+
+  proof membership必须先建立全 program invariant set，允许 `proof` 位于其 `invariant` 之前；duplicate proof
+  target必须先于 unknown binding。这里只做 raw invariant-name membership，不做 invariant Bool typing、theorem
+  lookup/signature、qualified theorem resolution或 proof environment load。exact pre-acceptance String inventory为
+  23 slots（第 21 类有 entry/view 两个 variant-specific slots）：
+
+  ```text
+  program must declare at most one init
+  program must declare at least one entry or view
+  program contains duplicate state declarations
+  program contains duplicate entry/view declarations
+  program contains duplicate event declarations
+  program contains duplicate error declarations
+  program contains duplicate struct declarations
+  program contains duplicate enum declarations
+  program contains duplicate const declarations
+  program contains duplicate fn declarations
+  program contains duplicate callable declarations
+  program contains duplicate invariant declarations
+  program contains duplicate extension requirements
+  program contains duplicate proof references
+  proof reference names unknown invariant '<raw>'
+  initializer contains duplicate parameters
+  struct '<raw>' contains duplicate fields
+  enum '<raw>' contains duplicate variants
+  event '<raw>' contains duplicate parameters
+  error '<raw>' contains duplicate parameters
+  entry '<raw>' contains duplicate parameters
+  view '<raw>' contains duplicate parameters
+  fn '<raw>' contains duplicate parameters
+  ```
+
+  `<raw>`逐字替换为对应 raw component，不用 `Name.toString`/guillemet renderer。最终 production boundary仍由
+  `TASK-D1-07`迁移为 stable `Diagnostic`；这些 String只冻结 development seam的 first-error行为，不声明最终
+  diagnostic schema。
+
+  Lean RED与不 import Lean/ProofForge、也不在运行时读取前序 reference scripts的 standalone Python oracle
+  必须使用同一 case inventory：至少三个 positives——all-category unique program、proof-before-invariant forward
+  binding、view-only callable；23 个 per-slot negatives逐项固定上述 exact String；七个 cross-rule priorities至少
+  覆盖 init duplicate→zero callable、zero callable→state duplicate、state→entry/view duplicate、event→struct、
+  fn duplicate→callable collision、state duplicate→unknown proof、duplicate proof→unknown proof。最后一例必须用
+  **同一 invariant target的两个 proofs**，不得用两个不同 unknown targets伪装 cardinality。entry↔view同名必须
+  在第 4 类失败，entry/view↔fn同名必须在第 11 类失败；same extension id即使 version/digest不同仍在第 13 类
+  失败。
+
+  encoder/validator必须保持正交：至少一个含 duplicate state且含合法 entry的 Program必须继续由
+  `encodeProgramV1`成功产生 bytes，同时 `validateProgramDeclSetV1`返回第 3 类错误；禁止把本 validator塞入
+  `encodeProgramV1`或 `canonicalSourceAstBytesV1`，也禁止 serializer修复、排序或丢弃 invalid set。
+
+  变更文件集：新增 `ProofForgeV2/Source/AstProgramValidateV1.lean`、
+  `Tests/Language/SourceAstProgramValidateV1.lean`、`scripts/reference_source_ast_program_validate_v1.py`；最小
+  ProofForgeV2/Tests/lake registration与机械 manifest。budgets：validator≤180、suite≤280、Python≤185、
+  registrations≤5、总 authored additions≤650（manifest不计）。明确排除 alpha `Source.Program` adapter/
+  `validateDecodedProgram` reuse、codec/root改写、local nonempty重检、decoder/exact-consume、global
+  depth/node/16-MiB validator、sourceHash、NodeId、D2 type/effect/name/theorem resolution、stable Diagnostic
+  implementation、Common/ProgramPayload与 target edits。验证只运行 focused+aggregate build/test binary、
+  Python self-check、package refresh后最终单次 `just sbom`、`just docs-check`、`git diff --check`与 independent
+  review；不运行完整 `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending
+  TASK-D1-01或下游 task。
+- D1-PA-106 是 `TASK-D1-01`/`TST-SRC-001` 的 complete nonrecursive tagged-scalar decoder slice。它只闭合
+  PA95 中不递归、非 NodeId-node 的 `VisibilityV1`、`LiteralV1`、`UnaryOpV1`、`BinaryOpV1` 共27个tag，
+  不解码递归 `TypeV1`。生产 public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.WireDecodeV1
+  decodeTagV1 : DecoderV1 String
+  decodeFieldCountV1 (tag : String) (expected : Nat) : DecoderV1 Unit
+
+  namespace ProofForgeV2.Source.AstScalarDecodeV1
+  decodeVisibilityV1 : DecoderV1 AstV1.VisibilityV1
+  decodeLiteralV1 : DecoderV1 AstV1.LiteralV1
+  decodeUnaryOpV1 : DecoderV1 AstV1.UnaryOpV1
+  decodeBinaryOpV1 : DecoderV1 AstV1.BinaryOpV1
+  ```
+
+  `decodeTagV1`先读u32 length，并在读取、复制或构造tag前 exact要求`1..21`；21是v1 closed constructor
+  inventory的最大ASCII tag长度。length在范围内还必须先检查remaining，随后strict UTF-8并拒绝任一非ASCII
+  scalar。exact errors为`tag length must be 1..21 bytes`、`truncated`、`invalid UTF-8 tag`、
+  `tag must be ASCII`。禁止bang index、unbounded copy、partial/unsafe。
+
+  四个family decoder先调用`decodeTagV1`并立即按各自closed tag set dispatch；unknown tag必须在读取
+  fieldCount前返回`unknown <family> tag '<tag>'`，其中family逐字为`visibility`、`literal`、`unary-op`、
+  `binary-op`。known tag才由`decodeFieldCountV1`读取u16并exact校验；失败逐字为
+  `tag '<tag>' must declare <expected> fields`，且必须先于任何child decoder。Visibility/Unary/Binary均为
+  0 fields；Literal.Bool/Integer/String均为1 field并分别复用`decodeBool`、`decodeU256le`、`decodeString`，
+  child错误原样传播。component decoder保留推进后的cursor；只有测试/未来root调用`finish`执行exact consume。
+
+  Lean RED与不import Lean/ProofForge或前序reference脚本的standalone Python oracle使用同一固定inventory：
+  27个PA95 checked-in wire literals逐一decode为exact value、重新encode回同一bytes并`finish`；每个nullary tag
+  有fieldCount=1 negative，每个Literal tag各有fieldCount=0/2 negatives，共30；四个canonical sibling tag
+  分别送入错误family且故意省略fieldCount，证明unknown-before-count；这四例同时就是14个boundary中的
+  four-family nonalias，不另增加测试数。其余10个boundary为empty/22-byte/truncated/invalid-UTF-8/non-ASCII
+  tag，Bool marker 2、truncated u256、String length over remaining/NFD与trailing byte。LogicalOr与BitOr必须
+  保持value/bytes nonalias。Python self-check成功输出
+  `reference_source_ast_scalar_decode_v1: ok 27 30 14`。
+
+  变更文件集：新增`ProofForgeV2/Source/AstScalarDecodeV1.lean`、
+  `Tests/Language/SourceAstScalarDecodeV1.lean`、`scripts/reference_source_ast_scalar_decode_v1.py`；只允许为
+  reusable tag API最小修改`WireDecodeV1.lean`，再做ProofForgeV2/Tests/lake registration与机械manifest。
+  budgets：production additions≤170、suite≤260、Python≤190、registrations≤5、总authored additions≤625
+  （manifest不计）。明确排除Type/Pattern/spine/support/declaration/Program/root decoder、recursive
+  `DecodeBudgetV1`、16MiB/256-depth/100000-node完成声明、alpha projection/sourceHash、set validator重检、
+  stable Diagnostic、Common/ProgramPayload、hash/NodeId与target。验证只运行focused+aggregate build/test binary、
+  Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、`git diff --check`与independent
+  review；不运行完整`just ci`。结果只记录development evidence，不能关闭完整TST-SRC-001、pending
+  TASK-D1-01或下游task。
+- D1-PA-107 是 `TASK-D1-01`/`TST-SRC-001` 的 complete recursive `TypeV1` decoder slice。它新增可由
+  后续完整AST decoder组合的node-budget carrier，但不创建完整Program session，也不声明全树资源限制已完成。
+  生产public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.DecodeBudgetV1
+  structure DecodeBudgetV1 where
+    remainingNodes : Nat
+    deriving DecidableEq, Repr
+
+  namespace ProofForgeV2.Source.AstTypeDecodeV1
+  decodeTypeV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstV1.TypeV1 × DecodeBudgetV1)
+  ```
+
+  production不得提供hardcode/fresh `{remainingDepth := 256, remainingNodes := 100000}` 的Type-root
+  convenience或默认参数；standalone测试直接构造literal budget。未来完整Program decoder必须只在Program根
+  创建一次全局额度，再把同一`remainingNodes`跨全部node-bearing values按canonical preorder线程。
+  `DecodeBudgetV1`只是trusted internal caller-threaded residual，不是authority或user-configurable profile；
+  source/CLI/extension/target不得提供或放宽它，完整root接入前也不得据此声明100000-node限制已闭合。
+  `remainingDepth`是当前node可使用的root-inclusive path slots，属于caller参数而非返回state：进入任一Type
+  需要`remainingDepth ≥ 1`，recursive child取得`remainingDepth - 1`；siblings取得同一个child depth。
+  `remainingNodes`是session-wide residual，进入每个Type constructor恰好消耗1并在返回值中永久保留；scalar
+  width/length/Ident不消耗depth或node。成功返回的budget只改变`remainingNodes`，从结构上避免恢复depth时
+  污染Map sibling；失败经`Except`不返回partial value/cursor/budget。
+
+  decoder必须是以`remainingDepth : Nat`作structural fuel的kernel-total `def`，不得使用`partial`、`unsafe`、
+  无界递归或构造完整Type后事后walk。每个node的exact validation priority为：`decodeTagV1`的bounded read →
+  closed 11-tag dispatch（unknown为`unknown type tag '<tag>'`，先于fieldCount）→
+  `decodeFieldCountV1` exact → depth entry check → node charge → ordered fields/children → constructor。
+  exact budget errors为`depth budget exhausted`与`node budget exhausted`；depth与node同时为0时depth优先。
+  Array必须完整解码element后再读/校验length；Map按key再value，两个child共享相同depth但value接收key消费后的
+  node residual。width、Array/Bytes length与Field id继续原样使用PA95 exact errors；Ident复用
+  `decodeSourceNameComponentV1`，所有primitive/truncation errors不remap。PA107同时修复该既有Ident helper的
+  allocation order：先读u32 declared length，立即以`source name component must contain 1..240 UTF-8 bytes`
+  拒绝0/241+，再检查remaining并复制最多240 bytes，随后才做UTF-8、pinned NFC、Cc/closing-guillemet与
+  typed carrier构造；不得先调用unbounded `decodeString`复制后再由`parseSourceNameComponentV1`事后拒绝。
+
+  11 tags精确为Bool/UInt/Int/Principal/Unit/Named/Array/Map/Option/Bytes/Field；field counts分别是
+  3个nullary、6个one-field、2个two-field。Lean RED与不import Lean/ProofForge或前序reference脚本的standalone
+  Python oracle必须共同固定：
+
+  - 24个PA95 checked-in Type wire literals逐一decode为exact value、重新encode为同一bytes、`finish`，并核对
+    每例精确node消耗（leaf=1、Map(Bool,Unit)=3、Array(Bool)=2、Array(Option(Bytes))=3等）；
+  - 19个exhaustive field-count negatives：3个nullary各用1，6个one-field各用0/2，Array/Map各用1/3；
+  - 24个boundary：wrong-family tag无fieldCount且在zero budgets下仍先unknown；known wrong fieldCount先于
+    budgets；correct fieldCount后的depth-before-node与两者各自before-payload；UInt24、Int0、Array4097、
+    Bytes4097、wrong Field；missing fieldCount、truncated width、truncated Array child、trailing；Bool exact
+    `(depth=1,nodes=1)`、Option(Bool) exact/pass与depth-short fail、Map(Bool,Unit) nodes2 fail/nodes3 pass、
+    Array bad-element优先于hostile length、Map bad-key优先于hostile value；`Option^255(Bool)`恰为256个
+    Type nodes并在`depth=256,nodes=256`通过，`Option^256(Bool)`在`depth=256,nodes=257`返回depth error；
+    Type.Named declared Ident length 241且不附payload时必须在remaining/copy前返回exact 1..240 error。
+
+  Python成功输出`reference_source_ast_type_decode_v1: ok 24 19 24`。变更文件集：新增
+  `ProofForgeV2/Source/DecodeBudgetV1.lean`、`ProofForgeV2/Source/AstTypeDecodeV1.lean`、
+  `Tests/Language/SourceAstTypeDecodeV1.lean`、`scripts/reference_source_ast_type_decode_v1.py`；仅允许为上述
+  Ident pre-copy bound最小修改`WireDecodeV1.decodeSourceNameComponentV1`，再做`ProofForgeV2.lean`/
+  `Tests.lean`/`lakefile.lean` registration与机械manifest refresh；不修改PA95 encoder、PA106 scalar/tag
+  decoder或其他AST modules。budgets：production additions≤190、suite≤340、Python≤260、
+  registrations≤5、总authored additions≤800（manifest不计）。明确排除Pattern/spine/support/declaration/
+  Program/root decoder、fresh root budget API、16MiB/完整100000-node/256-depth session完成声明、alpha、set
+  validator重检、sourceHash、NodeId、stable Diagnostic、Common/ProgramPayload与target。验证只运行focused+
+  aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、`just docs-check`、
+  `git diff --check`与independent review；不运行完整`just ci`。结果只记录development evidence，不能关闭
+  完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

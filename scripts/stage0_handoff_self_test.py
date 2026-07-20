@@ -77,7 +77,13 @@ def close_quietly(fds) -> None:
 
 
 def fd_set() -> set:
-    return {int(entry) for entry in os.listdir("/proc/self/fd") if entry.isdigit()}
+    for directory in ("/proc/self/fd", "/dev/fd"):
+        try:
+            entries = os.listdir(directory)
+        except FileNotFoundError:
+            continue
+        return {int(entry) for entry in entries if entry.isdigit()}
+    raise AssertionError("the host exposes neither /proc/self/fd nor /dev/fd")
 
 
 def expect_handoff_error(
@@ -863,8 +869,13 @@ def main() -> int:
         fixture = build_fixture(handoff_module, tmpdir)
         test_handoff_producer_positive(handoff_module, fixture)
         test_handoff_producer_negatives(handoff_module, fixture)
-        test_verify_inherited_channels(handoff_module, fixture)
-        test_containment(containment_module, fixture, tmpdir)
+        # The inherited-fd verifier and bubblewrap containment profile are
+        # deliberately Linux-owned runtime boundaries.  Darwin still runs the
+        # complete producer/negative suite above, but cannot honestly execute
+        # Linux /proc, SO_PEERCRED, namespace, or bubblewrap assertions.
+        if sys.platform.startswith("linux"):
+            test_verify_inherited_channels(handoff_module, fixture)
+            test_containment(containment_module, fixture, tmpdir)
     except (AssertionError, AttributeError, OSError, ImportError, SyntaxError) as error:
         print(f"stage0-handoff-self-test: FAIL: {error}", file=sys.stderr)
         return 1

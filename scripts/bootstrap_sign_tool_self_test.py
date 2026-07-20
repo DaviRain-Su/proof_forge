@@ -1086,7 +1086,8 @@ def test_activation_driver_ineligible(
 
 
 def main() -> int:
-    tmpdir = Path(tempfile.mkdtemp(prefix="bootstrap-sign-tool-self-test-"))
+    # Keep nested AF_UNIX fixtures below Darwin's 104-byte pathname limit.
+    tmpdir = Path(tempfile.mkdtemp(prefix="pf-bs-", dir="/tmp"))
     try:
         module = load_acceptance()
         fixture = build_fixture(module, tmpdir)
