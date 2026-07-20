@@ -88,6 +88,7 @@ import Tests.Language.SourceAstSupportDecodeV1
 import Tests.Language.SourceAstDeclDecodeV1
 import Tests.Language.SourceAstSpinePlaceExprDecodeV1
 import Tests.Language.SourceAstSpineStmtDecodeV1
+import Tests.Language.SourceAstSpineDeclDecodeV1
 import Tests.Language.FrontendParity
 import Tests.Language.Grouping
 import Tests.Language.Loader
@@ -170,6 +171,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceAstDeclDecodeV1.run
   Tests.Language.SourceAstSpinePlaceExprDecodeV1.run
   Tests.Language.SourceAstSpineStmtDecodeV1.run
+  Tests.Language.SourceAstSpineDeclDecodeV1.run
   Tests.Language.FrontendParity.run
   Tests.Language.Grouping.run
   Tests.Language.Loader.run
