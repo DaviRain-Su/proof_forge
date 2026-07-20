@@ -6926,3 +6926,14 @@ normative: false
   semantic/full file-set重构歧义；最终结论 `COMMIT BASELINE`，P0/P1=0。
 - Limits：该复审只覆盖 authority/graph；无 Python、freeze package、task activation、EV、receipt 或
   closeout，D0-10 保持 pending，implementation 后仍须独立复审。
+
+## 2026-07-20 — TASK-D0-10 activation
+
+- Freeze：authority baseline `60568e6` 后创建
+  `docs/governance/task-freeze-packages/TASK-D0-10.json`，冻结 output/dependency/prerequisites/
+  `TST-DOC-001/task-qualification-v1` subprofile、五项 in-scope、四项 out-of-scope 与四条 doneWhen；
+  预算 5 calendar days / 20 commits。
+- State：PHASE-4 `TASK-D0-10 pending→in_progress`；AGENTS Active 指向 D0-10，Next D1-01 保持
+  pending 且 dependency-blocked。未创建 verifier、RED tests、EV、approval、receipt 或 closeout。
+- Boundary：不改变 six-item activation/RequiredTestSet/raw EV vocabulary/D8 aggregate，不激活 D1，
+  gate implementation 与 one-time bootstrap closeout 必须分提交。
