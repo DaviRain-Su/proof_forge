@@ -7,8 +7,8 @@ updated: 2026-07-20
 normative: true
 approvers: architecture-owner, language-semantics-owner, quality-owner
 approvedAt: 2026-07-20
-reviewCommit: 44cfae2e30dcf9998de193ad588418c6b041e407
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/44cfae2e30dcf9998de193ad588418c6b041e407
+reviewCommit: fd1620ca6d7874139183e86d1b3a8c35fbc17539
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/fd1620ca6d7874139183e86d1b3a8c35fbc17539
 openFindings: none
 ---
 

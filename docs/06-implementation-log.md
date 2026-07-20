@@ -6741,8 +6741,8 @@ normative: false
 
 ## 2026-07-20 — D1 complete recursive `PatternV1` decoder prerequisite slice
 
-- Commits：D1-PA-110 freeze `6c02b75`；RED `fa21a39`；GREEN `cd3a757`；test hardening
-  `29f163e`。`ADR-0019`已按五字段书面批准为accepted；正式TASK状态未改变。
+- Commits（rebase后）：D1-PA-110 freeze `ff2bb4e`；RED `d72a6ee`；GREEN `38b1d06`；test hardening
+  `0e6e821`。`ADR-0019`已按五字段书面批准为accepted；正式TASK状态未改变。
 - Authority：本切片只实现accepted ADR step-3完整root decoder prerequisite中的4-tag recursive
   `PatternV1` family。public API精确为`decodePatternV1 remainingDepth budget`，返回Pattern与线程化后的
   `DecodeBudgetV1`；不提前实现mutual spine、Program/root或frontend/export cutover。
@@ -6760,7 +6760,7 @@ normative: false
   `git diff --check`全绿。锁定Lean 4.31.0资产因正式materializer的host-profile readelf不匹配，开发验证仅
   从已校验cache手动提取后执行，临时目录已删除。按冻结未运行完整`just ci`。
 - Review/Evidence：复审发现malformed Bind node-priority、positive node-spend exactness与Python String/Ident
-  conflation三项false-green风险；`29f163e`修复并重跑后independent review Approve，P0/P1=0。
+  conflation三项false-green风险；`0e6e821`修复并重跑后independent review Approve，P0/P1=0。
   development evidence经rebase顺延为`EV-20260720-0004`。
 - Limitations：原候选的`docs_check.py`因当时D0-04 activation PHASE-5 live-document join漂移报
   `PF-DOC-EVIDENCE-BOOTSTRAP-UNVERIFIED`；上游`ee38173`已改为候选时快照绑定并随D0 9/9 closeout闭合，
@@ -6772,8 +6772,8 @@ normative: false
 
 ## 2026-07-20 — D1 supporting-record decoder prerequisite slice
 
-- Commits：D1-PA-111 freeze `a32f19d`；RED `c04150e`；GREEN `a794d46`；test hardening
-  `d9cf70a`。正式TASK状态未改变。
+- Commits（rebase后）：D1-PA-111 freeze `26211c5`；RED `19370c5`；GREEN `41f9b54`；test hardening
+  `e137f44`。正式TASK状态未改变。
 - Authority：本切片只实现accepted ADR-0019 step-3 root decoder prerequisite中的node-bearing
   `ParamV1`、`FieldDeclV1`、`EnumVariantV1`；三个public API均接受caller的remainingDepth与
   `DecodeBudgetV1`，不创建fresh root session，也不合并declaration或mutual-spine decoder。
