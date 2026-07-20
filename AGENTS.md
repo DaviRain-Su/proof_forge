@@ -18,7 +18,7 @@
 | Active task | 无；当前没有可合法置为 `in_progress` 的正式任务（下一任务须先确认其冻结完成包后开工） |
 | Next task | **TASK-D1-01**（pending；Dependencies 已随 D0-07 关闭全部 done，开工前须确认其冻结完成包） |
 | Active development slice | 无；D1-PA-109 已完成 development GREEN，当前没有已冻结的后续切片 |
-| Next development slice | **blocked pending ADR acceptance**：shared DSL/Loader/Lean-command/export atomic cutover属于C3 breaking change，`ADR-0019`仍为proposed；必须先按Architecture+Language/Semantics+Quality五字段书面批准转accepted，再冻结cutover。不得用development evidence或本checkpoint绕过批准，不得建立legacy→ProgramV1 fallback |
+| Next development slice | **pending freeze**：`ADR-0019` 已获 Architecture+Language/Semantics+Quality 五字段批准；先冻结并完成 `decodeCanonicalSourceAstBytesV1` prerequisite，再冻结 shared DSL/Loader/Lean-command/export v2 atomic cutover。不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无 blocked 任务；darwin live 重观察已在本机清偿（`EV-20260720-0002`，GOV-PRECUTOVER-001 §2.1 递延 P2 关闭）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

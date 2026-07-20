@@ -1,10 +1,15 @@
 ---
 id: ADR-0019
 title: ProgramV1 单一 source authority 与 alpha cutover
-status: proposed
+status: accepted
 owner: architecture
-updated: 2026-07-19
+updated: 2026-07-20
 normative: true
+approvers: architecture-owner, language-semantics-owner, quality-owner
+approvedAt: 2026-07-20
+reviewCommit: 44cfae2e30dcf9998de193ad588418c6b041e407
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/44cfae2e30dcf9998de193ad588418c6b041e407
+openFindings: none
 ---
 
 # ADR-0019：ProgramV1 单一 source authority 与 alpha cutover
@@ -21,7 +26,7 @@ parser projection、validator 和 source hash 会让相同源码拥有两个互�
 pre-acceptance。因此本决定按 alpha reset 收敛实现，不承诺生产 reader 双轨兼容；已保存的 alpha
 hash 不是 ProgramV1 hash，也不得作为新 schema golden。
 
-在本 ADR 转为 `accepted` 前，下述决定只作为可撤销的 pre-acceptance development hypothesis；
+在本 ADR 于 2026-07-20 转为 `accepted` 前，下述决定只作为可撤销的 pre-acceptance development hypothesis；
 accepted 文档中的 `Source.Program` compiler path仍是现行 authority。PA109 不修改frontend/call sites/
 export，不构成source-authority cutover、正式TASK关闭或release API承诺。
 
