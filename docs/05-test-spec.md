@@ -2692,6 +2692,60 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused+aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、
   `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
   evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-111 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 supporting-record slice，
+  只实现完整`ParamV1`、`FieldDeclV1`、`EnumVariantV1` decoder；不合并后续declaration或mutual-spine
+  decoder。production public API精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSupportDecodeV1
+  decodeParamV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSupportV1.ParamV1 × DecodeBudgetV1)
+  decodeFieldDeclV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSupportV1.FieldDeclV1 × DecodeBudgetV1)
+  decodeEnumVariantV1 (remainingDepth : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSupportV1.EnumVariantV1 × DecodeBudgetV1)
+  ```
+
+  三个records均为node-bearing。每次调用必须按bounded tag read → singleton closed dispatch（unknown exact为
+  `unknown param tag '<tag>'`、`unknown field-decl tag '<tag>'`、
+  `unknown enum-variant tag '<tag>'`）→ exact fieldCount → depth → node → ordered fields执行；fieldCounts
+  分别为3/2/2。进入record消耗一个session-wide node，所有Type child使用`remainingDepth - 1`，并取得前一
+  child消费后的node residual；visibility/name/scalar count本身不消耗node/depth。`Param`严格按
+  Visibility→Ident→Type，`FieldDecl`按Ident→Type，`EnumVariant`按Ident→payload count→source-order Type
+  children。depth/node exact errors与priority继续为`depth budget exhausted`/`node budget exhausted`，同时为
+  0时depth优先，primitive/Type child错误不得remap。
+
+  `EnumVariant.payloadTypes`允许empty。其u32 count必须在allocation或child decode前不大于record charge后
+  的node residual，否则exact返回`array count exceeds caller limit`；每个Type至少消耗一个node，因此该
+  上界不得使用调用前budget或bytes remaining替代。所有children共享同一个child depth，并线程化前一
+  sibling的node residual。实现必须kernel-total，不得`partial`、`unsafe`、构造完整record后post-walk，
+  也不得创建fresh root budget或重算全树资源。
+
+  Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定：
+  10个PA96 checked-in supporting-record literals逐一decode为exact value、重新encode为同一bytes、`finish`并
+  核对exact node spend；6个field-count negatives（Param用2/4，FieldDecl与EnumVariant各用1/3）；至少
+  20个boundaries覆盖三个sibling tag wrong-family且省略fieldCount、known wrong fieldCount先于budgets、
+  depth-before-node、node-before-payload、Param visibility-before-name/type、FieldDecl name-before-type、
+  EnumVariant name-before-count、count-before-allocation/child、empty payload、two-child source order与sibling
+  residual、trailing、invalid Ident、invalid Visibility、invalid/nested Type、Type child depth short与node short。
+  所有`A-before-B`必须使用A、B同时失败并固定A exact error的conflict vector；三个wrong-family cases同时
+  使用`remainingDepth=0`、`remainingNodes=0`，known wrong fieldCount使用zero budgets，node-before-payload
+  对每个public decoder使用nonzero depth、zero nodes与malformed first field。每个public decoder至少有一个
+  primitive或Type child exact error原样传播vector。
+  Python成功输出`reference_source_ast_support_decode_v1: ok 10 6 <boundary-count>`，其中boundary-count不得
+  少于20。
+
+  变更文件集：新增`ProofForgeV2/Source/AstSupportDecodeV1.lean`、
+  `Tests/Language/SourceAstSupportDecodeV1.lean`、
+  `scripts/reference_source_ast_support_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean`
+  registration与机械manifest refresh，不修改support model/encoder、WireDecode、scalar/Type/Pattern decoder
+  或其他AST modules。budgets：production additions≤170、suite≤340、Python≤280、registrations≤5、
+  总authored additions≤800（manifest不计）。明确排除declaration/spine/ProgramItem/Program/root decoder、
+  fresh root budget API、frontend/Loader/CLI/Lean command、ProgramExport v2/ProgramPayload、legacy删除、
+  16MiB/完整100000-node session完成声明、sourceHash、NodeId、stable Diagnostic、Typed/Semantic与target。
+  验证只运行focused+aggregate build/test binary、Python self-check、package refresh后最终单次`just sbom`、
+  `just docs-check`、`git diff --check`与independent review；不运行完整`just ci`。结果只记录development
+  evidence，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
