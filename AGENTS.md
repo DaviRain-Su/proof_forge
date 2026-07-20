@@ -17,8 +17,8 @@
 | Formal milestone | **D0：9/9 done（milestone D0 收口）**；`TASK-D0-07` 经 `GOV-D0CLOSE-001` 以 bootstrap 级关闭（`EV-20260720-0003`），`TASK-D0-04` 经真实 six-item activation 关闭（`EV-20260719-0108`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级）；尚未正式进入 D1 |
 | Active task | 无；当前没有已正式置为 `in_progress` 的任务 |
 | Next task | **TASK-D1-01**（pending；Dependencies 已随 D0-07 关闭全部 done，冻结完成包已存在，正式开工仍须满足其 formal evidence 前置） |
-| Active development slice | **D1-PA-111**：complete `ParamV1`/`FieldDeclV1`/`EnumVariantV1` supporting-record decoders（accepted `ADR-0019` root-decoder prerequisite；只产生 development evidence） |
-| Next development slice | PA111 GREEN 后审计并冻结 spine-independent declaration decoders；随后按依赖进入 `Place↔Expr` 与 `Stmt↔Block` mutual SCC。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
+| Active development slice | 无；**D1-PA-111** complete supporting-record decoders 已完成 development GREEN（`EV-20260720-0005`），正式 `TASK-D1-01` 状态未改变 |
+| Next development slice | 审计并冻结 spine-independent declaration decoders；随后按依赖进入 `Place↔Expr` 与 `Stmt↔Block` mutual SCC。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无 blocked 任务；darwin live 重观察已在本机清偿（`EV-20260720-0002`，GOV-PRECUTOVER-001 §2.1 递延 P2 关闭）；D1 工作仅为明确标注的 pre-acceptance evidence，不能关闭正式 D1 task |

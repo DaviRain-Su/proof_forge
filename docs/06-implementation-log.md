@@ -6770,6 +6770,39 @@ normative: false
   `decodeCanonicalSourceAstBytesV1` prerequisite闭合前，不切换shared DSL/Loader/CLI/Lean command/export v2，
   不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback。
 
+## 2026-07-20 — D1 supporting-record decoder prerequisite slice
+
+- Commits：D1-PA-111 freeze `a32f19d`；RED `c04150e`；GREEN `a794d46`；test hardening
+  `d9cf70a`。正式TASK状态未改变。
+- Authority：本切片只实现accepted ADR-0019 step-3 root decoder prerequisite中的node-bearing
+  `ParamV1`、`FieldDeclV1`、`EnumVariantV1`；三个public API均接受caller的remainingDepth与
+  `DecodeBudgetV1`，不创建fresh root session，也不合并declaration或mutual-spine decoder。
+- Changed：82-line production decoder统一执行bounded tag→singleton dispatch→fieldCount→depth→node，
+  再分别按Visibility/Ident/Type、Ident/Type、Ident/count/source-order Types解码。EnumVariant count在record
+  charge后、任何array/child前与node residual比较；siblings共享child depth并线程化node residual。
+  无`partial`、`unsafe`、post-walk或error remap。Lean 110行、Python 164行、registrations 4行，总authored
+  additions 360/800；新增production后机械manifest重钉为61 files。
+- Tests：Lean/Python共同固定10个PA96 literals exact value/re-encode/node spend、6个field-count negatives与
+  23个unique boundaries；所有priority使用双故障conflict vectors，覆盖wrong-family/fieldCount/depth/node、
+  三个public decoder的malformed first field和child exact propagation、post-charge count、empty/source-order/
+  sibling residual、trailing及257/256 Type depth/node边界。Python hardening删除优化模式可消失的`assert`和
+  三个重复inventory执行，并把argv锁为exact `--self-check`。
+- Verification：tests-only focused RED仅因`AstSupportDecodeV1`缺失；GREEN与final focused各19 jobs，aggregate
+  374 jobs与test binary全绿；Python normal及`-O`均输出
+  `reference_source_ast_support_decode_v1: ok 10 6 23`，invalid argv exit 2。SBOM
+  self-test/generate/verify/closure与`git diff --check`全绿。锁定Lean资产仍因正式materializer的host-profile
+  readelf不匹配而从已校验cache手动提取用于development验证；临时目录在关账后删除。未运行完整`just ci`。
+- Review/Evidence：freeze review先要求所有priority使用双故障vector，冻结前补齐；implementation review
+  production P0/P1=0，三个P2中Python optimized assert与重复inventory已修复，allocation-before-bound由正确
+  production source order直接复核，Python未自动并入aggregate gate但本证据已逐字记录独立执行。development
+  evidence经rebase顺延为`EV-20260720-0005`。
+- Limitations：原候选的`docs_check.py`受当时D0-04 activation PHASE-5 live-document join漂移阻塞；
+  上游`ee38173`已修复并随D0 9/9 closeout闭合，未修改checker绕过。本证据不能关闭pending `TASK-D1-01`、
+  `TST-SRC-001` formal完成面或下游task。
+- Next：审计并冻结spine-independent declaration decoders；随后按依赖进入`Place↔Expr`与`Stmt↔Block`
+  mutual SCC。完整root decoder前不切换shared DSL/Loader/CLI/Lean command/export v2，不建立legacy adapter、
+  dual reader、第二套quoted decoder或fallback。
+
 ## 2026-07-20 — darwin live 重观察与 `host-bootstrap.lock` 重钉（GOV-PRECUTOVER-001 §2.1 P2 清偿）
 
 - Context：`TASK-D0-07` 冻结包 doneWhen#6 要求 Mac 实机执行
