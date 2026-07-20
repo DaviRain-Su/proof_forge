@@ -7177,3 +7177,14 @@ normative: false
   逐项join；scanner固定UTF-8、CRLF/LF、line anchor与ASCII whole-word算法，禁止report自述覆盖subject。
 - Boundary：不创建完整fixture/RED/production verifier/EV/closeout，不修改review wire、authorization、
   D8 aggregate、ADR-0019、DSL或D1范围；修订独立复审后再恢复原任务。
+
+## 2026-07-20 — TASK-D0-10 amendments rebased onto current upstream
+
+- Rebase：保留`origin/main`的D1-PA-112…115源码、证据与checkpoint，将D0-10 seven-join、fixture
+  review-pin、test-only primitive及review raw projection四项最终语义重放为`1cccea4`、`27f88af`、
+  `56fb75a`、`e19e761`；旧分支中间态的blocked/resume checkpoint提交不覆盖上游。
+- State：前述R2规范缺口均已有accepted amendment与独立`SAFE TO COMMIT`复审，故任务表保持上游
+  `TASK-D0-10 in_progress`；冻结Output/Tests/Dependencies/Prerequisites/doneWhen不变，D1工作仍仅为明确
+  标注的pre-acceptance development evidence。
+- Verification boundary：本条只记录语义rebase，不把primitive写成完整fixture/RED/GREEN、production
+  authority、EV或closeout；完整合并树验证在推送前重新执行并单独报告。

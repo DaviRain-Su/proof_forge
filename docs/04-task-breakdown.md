@@ -91,7 +91,7 @@ openFindings: none
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | EV-20260720-0003 | done |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
-| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | blocked |
+| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | in_progress |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
