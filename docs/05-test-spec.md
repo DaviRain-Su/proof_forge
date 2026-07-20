@@ -2915,6 +2915,138 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Diagnostic/Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行focused+aggregate
   build/test binary、Python normal/`-O`、package refresh后最终单次`just sbom`、docs/diff与independent review，
   不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-114 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  `StmtV1↔BlockV1↔StmtMatchArmV1` mutual decoder slice。它精确闭合 PA99 剩余的 statement spine SCC；
+  PA113 的 Place/Expr/ExternalCall 与 PA110 Pattern、PA107 Type 是只读 child dependencies。
+  spine-dependent declaration、`ProgramItemV1`、`ProgramV1` 与 canonical root decoder 仍排除。
+  production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstSpineStmtDecodeV1
+  decodeStmtV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.StmtV1 × DecodeBudgetV1)
+  decodeBlockV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.BlockV1 × DecodeBudgetV1)
+  decodeStmtMatchArmV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstSpineV1.StmtMatchArmV1 × DecodeBudgetV1)
+  ```
+
+  三个 defs 必须处于一个 kernel-total `mutual` block；每个 def 均按 bounded tag→closed-family
+  unknown→exact fieldCount→depth→parent node→wire-order fields，并以 Nat 参数 `d` 做结构递减及
+  `termination_by d => d`。递归 Stmt/Block/arm array loop 与 recursive Block option 必须 inline，禁止把
+  recursive decoder 传给 higher-order array/option helper；不得使用 `partial`、`unsafe`、post-walk、fresh
+  root budget 或默认 `256/100000` convenience API。
+
+  closed heads/fieldCounts/wire order 精确为：`Stmt.Let/3` Ident→Option Type→Expr、
+  `Stmt.Assign/2` Place→Expr、`Stmt.If/3` Expr→Block→Option Block、`Stmt.Match/2`
+  Expr→Array StmtMatchArm、`Stmt.For/5` Ident→Expr start→Expr endExclusive→u32 bound→Block、
+  `Stmt.Assert/2` Expr→Option Ident、`Stmt.Revert/2` Ident→Array Expr、`Stmt.Emit/2`
+  Ident→Array Expr、`Stmt.Return/1` Option Expr、`Stmt.Call/1` ExternalCallExpr、`Stmt.Schedule/1`
+  ExternalCallExpr、`Block/1` Array Stmt、`StmtMatchArm/2` Pattern→Block。unknown errors 精确为
+  `unknown stmt tag '<tag>'`、`unknown block tag '<tag>'` 与
+  `unknown stmt-match-arm tag '<tag>'`。26 个 exhaustive field-count negatives 是每个 tag 的
+  expected-1/expected+1：Let `2/4`、Assign `1/3`、If `2/4`、Match `1/3`、For `4/6`、Assert
+  `1/3`、Revert `1/3`、Emit `1/3`、Return `0/2`、Call `0/2`、Schedule `0/2`、Block `0/2`、
+  StmtMatchArm `1/3`；全部使用 `d=0,nodes=0` 证明 fieldCount 先于 budget，错误精确为
+  `tag '<tag>' must declare <expected> fields`。
+
+  每个 Stmt/Block/arm 恰消费一个 session-wide node；所有 node-bearing child 接收 parent `d-1`，
+  siblings 共享 child depth 并从左到右线程化 node residual；Ident/QID、scalar、option marker、count 与
+  For bound 不消费 node/depth。Option marker 仅接受 `0/1`，其他值精确返回
+  `invalid option marker`。Revert/Emit 允许空 args，并在 parent charge、Ident 后以当前 residual cap
+  count。Match 必须完整解 scrutinee 后读 count，zero 先返回
+  `stmt match arms must be nonempty`，再做 post-scrutinee cap。Block 在 parent charge 后读 count，zero
+  先返回 `block statements must be nonempty`，再做 cap。For decoder 必须按 wire 解 binder→start→end，
+  再读 bound；`4097` 精确返回 `for bound must be 0..4096` 且不触碰 body。该顺序有意不同于 encoder
+  在编码 child 前做 local bound preflight，但两者都只接受 `0..4096`。
+
+  Lean suite 与不 import Lean/ProofForge/既有 reference script 的 standalone Python oracle 必须共同固定
+  21/26/52。21 个 unique PA100 literal 全部逐字使用、比较 exact value、node residual、`finish` 与
+  byte-identical re-encode；顺序/节点花费精确为：`stmt_let_none/2`、`stmt_let_some/3`、
+  `stmt_assign/3`、`stmt_if_none/4`、`stmt_if_some/7`、`stmt_match/6`、`stmt_for_0/5`、
+  `stmt_for_4096/5`、`stmt_assert_none/2`、`stmt_assert_some/2`、`stmt_revert_empty/1`、
+  `stmt_revert_one/2`、`stmt_emit/1`、`stmt_return_none/1`、`stmt_return_1/2`、`stmt_call/2`、
+  `stmt_sched/3`、`block_single/2`、`block_multi/3`、`stmt_arm/4`、`nonalias_blk_er/3`。
+  PA100 的 `nonalias_blk_re` 与 `block_multi` 是同一 value/bytes carrier，不得重复计为第22个正例；
+  `block_multi` 与 `nonalias_blk_er` 必须同时证明 value/bytes nonalias。
+
+  52 个 boundary slots 精确冻结如下；每个 A-before-B 项必须同时携带 failing A/B，禁止 vacuous
+  placeholder。`bad("X")` 是 bounded ASCII tag `X` 且故意不带 fieldCount；`ident0` 是 declared Ident
+  length zero；`L0`/`L1`/`L4096`/`LT`、`place_name`、`block_single`、`stmt_arm` 均使用 PA100
+  checked-in bytes。所有未另写的错误文本沿用上述 exact child decoder error：
+
+  1. Stmt `bad("Block")`、`d=0,n=0` → `unknown stmt tag 'Block'`；2. Block
+  `bad("Stmt.Return")`、`d=0,n=0` → `unknown block tag 'Stmt.Return'`；3. arm
+  `bad("Stmt.Let")`、`d=0,n=0` → `unknown stmt-match-arm tag 'Stmt.Let'`；4. exact
+  `Stmt.Return/1` head、无 payload、`d=0,n=0` → `depth budget exhausted`；5. exact Let head +
+  `ident0`、`d=1,n=0` → `node budget exhausted`；6. exact Block head + count0、`d=1,n=0` → node
+  exhausted；7. exact arm head + `bad("BogusPattern"),bad("BogusBody")`、`d=1,n=0` → node exhausted。
+
+  8. Let `ident0,marker2,bad("BogusValue")`、`d=3,n=8` → Ident length error；9. Let
+  `Ident x,marker2,bad("BogusValue")`、`d=3,n=8` → invalid option marker；10. Let
+  `Ident x,marker1,bad("Expr.Literal") as Type,bad("BogusValue")`、`d=3,n=8` → unknown Type；
+  11. Let `Ident x,some Type.Bool,L1`、`d=2,n=2` → value node exhausted；12. Assign
+  `bad("BogusTarget"),bad("BogusValue")`、`d=3,n=8` → Place error；13. Assign
+  `place_name,bad("BogusValue")`、`d=3,n=8` → Expr error。
+
+  14. If `bad("BogusCondition"),bad("BogusThen"),marker2`、`d=4,n=16` → condition error；
+  15. If `LT,bad("BogusThen"),marker2`、`d=4,n=16` → then Block error；16. If
+  `LT,block_single,marker2`、`d=4,n=16` → invalid option marker；17. If
+  `LT,block_single,marker1,block_single`、`d=3,n=4` → else Block node exhausted；18. Match
+  `bad("BogusScrutinee"),count0`、`d=4,n=16` → scrutinee error；19. Match `L1,count0`、
+  `d=4,n=16` → nonempty；20. Match `L1,count2`、`d=4,n=3` → post-scrutinee cap；21. Match
+  `L1,count1,bad("BogusArm")`、`d=4,n=16` → unknown arm；22. Match
+  `L1,count2,stmt_arm,stmt_arm`、`d=4,n=6` → second arm node exhausted。
+
+  23. For `ident0,bad("BogusStart"),bad("BogusEnd"),4097,bad("BogusBody")`、`d=4,n=16`
+  → Ident error；24. For `Ident i,bad("BogusStart"),bad("BogusEnd"),4097,bad("BogusBody")`、
+  `d=4,n=16` → start error；25. For `Ident i,L0,bad("BogusEnd"),4097,bad("BogusBody")`、
+  `d=4,n=16` → end error；26. For `Ident i,L0,L4096,4097,bad("BogusBody")`、`d=4,n=16`
+  → bound error before body；27. For `Ident i,L0,L4096,0,block_single`、`d=2,n=2` → endExclusive
+  node exhausted after start consumes the final residual node。
+
+  28. Assert `bad("BogusCondition"),marker2`、`d=3,n=8` → condition error；29. Assert
+  `LT,marker2`、`d=3,n=8` → invalid option marker；30. Assert `LT,marker1,ident0`、`d=3,n=8`
+  → Ident error；31. Revert `ident0,count0xffffffff`、`d=2,n=8` → Ident error；32. Revert
+  `Ident Denied,count2`、`d=2,n=2` → cap；33. Revert
+  `Ident Denied,count1,bad("BogusArg")`、`d=2,n=2` → Expr error；34. Emit
+  `ident0,count0xffffffff`、`d=2,n=8` → Ident error；35. Emit `Ident Ping,count2`、`d=2,n=2`
+  → cap；36. Emit `Ident Ping,count1,bad("BogusArg")`、`d=2,n=2` → Expr error；37. Return
+  `marker2,bad("BogusValue")`、`d=2,n=8` → invalid option marker；38. Return `marker1,L1`、
+  `d=2,n=1` → Expr node exhausted；39. Call `bad("BogusExternal")`、`d=2,n=8` → unknown
+  external-call；40. Schedule 同一 hostile child、`d=2,n=8` →同一 child error。
+
+  41. Block `count0,bad("BogusStmt")`、`d=2,n=8` → nonempty；42. Block count2、`d=2,n=2`
+  → post-charge cap；43. Block `count1,bad("BogusStmt")`、`d=2,n=8` → unknown Stmt；44. Block
+  `count2,Return(Some L1),Return(None)`、`d=3,n=3` → second Stmt node exhausted；45. Block
+  `count2,Emit Ping [],Revert Denied []`、`d=2,n=3` → exact success/residual0/value/order/finish/re-encode；
+  46. arm `bad("BogusPattern"),bad("BogusBody")`、`d=3,n=8` → Pattern error；47. arm
+  `Pattern.Wildcard,bad("BogusBody")`、`d=3,n=8` → Block error；48. arm
+  `Pattern.Wildcard,block_single`、`d=2,n=2` → Block node exhausted。
+
+  49. `stmt_return_none || 00`、`d=2,n=2` 解出 value 后 `finish` → trailing bytes。深度构造精确为
+  `nestIf 0 base = base`；`nestIf (n+1) base = Stmt.If (Literal Bool true)
+  (Block #[nestIf n base]) none`。50. `nestIf 127 (Return (some L0))`、`d=256,n=383` → exact
+  success/residual0/value/finish/re-encode，最长 node path `256`、总 nodes `383`；51.
+  `nestIf 128 (Return none)`、`d=256,n=385` → depth exhausted，最长 path `257`、总 nodes `385`；
+  52. slot 50 同一 bytes、`d=256,n=382` → node exhausted。
+
+  Python 必须 assert-free，normal/`-O` 都通过，非精确 argv 输出 usage 且 exit 2，只打印
+  `reference_source_ast_spine_stmt_decode_v1: ok 21 26 52`；它使用独立 tuple value model 与独立
+  re-encoder，只复制本冻结实际触及的 PA107/110/113 child surface，不得通过调用 Lean 或既有 reference
+  script 形成自证循环。
+
+  变更文件集：新增`ProofForgeV2/Source/AstSpineStmtDecodeV1.lean`、
+  `Tests/Language/SourceAstSpineStmtDecodeV1.lean`、
+  `scripts/reference_source_ast_spine_stmt_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/
+  `lakefile.lean` registration与机械manifest refresh，不修改PA99 model/equality、PA100 codec/goldens、
+  PA106–113 decoder、WireDecode或其他AST modules。budgets：production≤240、suite≤480、Python≤620、
+  registrations≤5、总authored additions≤1300（manifest不计）。明确排除spine-dependent declarations、
+  ProgramItem/Program/root/fresh root session、16MiB/完整100000-node声明、frontend/Loader/CLI/Lean command/
+  export v2、legacy bridge/dual reader/第二 quoted decoder/fallback、sourceHash/NodeId/stable Diagnostic/
+  Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行focused+aggregate build/test binary、
+  Python normal/`-O`/invalid argv、package refresh后最终单次`just sbom`、docs/diff与independent review，
+  不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
