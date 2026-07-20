@@ -6937,3 +6937,16 @@ normative: false
   pending 且 dependency-blocked。未创建 verifier、RED tests、EV、approval、receipt 或 closeout。
 - Boundary：不改变 six-item activation/RequiredTestSet/raw EV vocabulary/D8 aggregate，不激活 D1，
   gate implementation 与 one-time bootstrap closeout 必须分提交。
+
+## 2026-07-20 — TASK-D0-10 R2 specification triage
+
+- Finding：tests-only RED 草案复核发现 positive carriers 是 unknown-field placeholder，36 mutations
+  均从非法 baseline 出发，会迫使 production test bypass 或形成 early-rejection false-green；草案未提交并
+  已删除。
+- Root cause：SPEC-TASKQUAL-001 §8 把 pure content verification 与 protected provenance 混在四个 API，
+  但缺 candidate archive/commit graph、control receipt raw bytes、revocation records、trusted verification
+  instant、external expected policy ref 与 command-resolution carriers；同时 production policy 私钥不可用于
+  fixture，而 spec 尚未授权与 production tuple 不相交的 fixture profile。不存在诚实 positive vector。
+- Triage：按 GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结 Output/Test/Dependencies/
+  Prerequisites 与 doneWhen 不变。先以 accepted amendment 明确 pure verifier/protected adapter 分层、fixture
+  namespace 与 exact carrier/projection/error contracts，再恢复同一 task 并提交真实 tests-only RED。

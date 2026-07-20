@@ -14,14 +14,14 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 经 `GOV-TASKQUAL-BOOTSTRAP-001` 新增并已进入 in_progress；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | **TASK-D0-10**（in_progress；冻结包 [`docs/governance/task-freeze-packages/TASK-D0-10.json`](docs/governance/task-freeze-packages/TASK-D0-10.json)；仅 task-scoped qualification verifier/consumer/one-time bridge） |
-| Next task | **TASK-D1-01**（pending；仍依赖当前 D0-10 done，不能提前正式激活） |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 经 R2 triage 暂置 blocked，冻结完成面不变；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | 无；formal bridge 在 tests-only RED 前因 SPEC-TASKQUAL-001 verifier/protected-adapter carrier 歧义暂时 blocked |
+| Next task | **TASK-D0-10**（blocked；先完成窄 accepted spec amendment 后恢复；D1-01 继续 pending） |
 | Active development slice | 无；**D1-PA-111** complete supporting-record decoders 已完成 development GREEN（`EV-20260720-0005`），正式 `TASK-D1-01` 状态未改变 |
 | Next development slice | 审计并冻结 spine-independent declaration decoders；随后按依赖进入 `Place↔Expr` 与 `Stmt↔Block` mutual SCC。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无状态为 `blocked` 的任务；D1 首任务由 in_progress D0-10 dependency 阻挡；D0-10 必须 gate-before-close，不能在 verifier 实现提交中自关单 |
+| Known blocker | `TASK-D0-10`：四个冻结 API 缺诚实 fixture/production verification 所需 carrier 与 fixture-authority 边界；按 R2 先修 spec，不得提交 placeholder RED 或实现 bypass |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
