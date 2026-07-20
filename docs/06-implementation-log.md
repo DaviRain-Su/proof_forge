@@ -6973,3 +6973,13 @@ normative: false
   恢复指向 D0-10，D1-01 继续 pending dependency-blocked。
 - Next boundary：先提交从独立完整合法 fixture graph 派生的 tests-only RED；禁止 placeholder carrier、
   fixture test mode、production policy substitution 或 mutation early-rejection false-green。
+
+## 2026-07-20 — TASK-D0-10 fixture-control wire clarification
+
+- Finding：honest RED builder确认R2 amendment仍未明确fixture control wire；若自行选择fixture-only字段或
+  domain会再次制造不可审计baseline。
+- Repair：SPEC-TASKQUAL-001明确fixture逐字段复用production control closed wire与digest/signature domain，
+  仅切换到FixturePolicyV1 role/quorum验签；补齐handoff/private-scan nested refs的gate-keyed roles，并冻结
+  FixtureResolvedBlobV1十个role-prefix与total ID derivation。production profile永久拒绝fixture blob schema。
+- Review：bounded independent review最终结论`SAFE FOR HONEST RED`，P0/P1=0；不改变freeze axes、task
+  status、D8 aggregate或ADR-0019，无Python/tests/EV。

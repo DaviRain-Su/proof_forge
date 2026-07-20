@@ -463,7 +463,9 @@ qualification/approval, and no other gateId, exact singletons are `command-polic
 `resolved-tool/<gateId>`, `resolved-probe/<gateId>`, `sandbox-policy/<gateId>`,
 `verifier-executable/<gateId>`, `verifier-closure/<gateId>`, `verifier-build-policy/<gateId>`,
 `eligible-stage0-handoff/<gateId>`, `session-containment/<gateId>`, `freshness/<gateId>`,
-`private-scan/<gateId>` plus nonempty `evidence/<EV-id>` exact gate partition. Pure bundle不承载额外adapter
+`private-scan/<gateId>`, `private-scan-policy/<gateId>`,
+`authority-store-service/<gateId>`, `host-observation/<gateId>`, `host-profile/<gateId>` plus nonempty
+`evidence/<EV-id>` exact gate partition. Pure bundle不承载额外adapter
 bytes；adapter refs只由production profile的external pin解析。Missing, extra, duplicate or wrong suffix is
 `members` rejection.
 
@@ -486,7 +488,8 @@ schema/id/version：
 | `production-profile` | typed-content | 本节ProductionVerificationProfileV1 | `pf.taskqual.production-profile.v1` | ContentRefV1 |
 | `command-policy/*` | typed-content | §3 TaskCommandPolicyV1 | `pf.task-command-policy.v1` | gate.commandPolicy |
 | gate control roles、`revocation-snapshot`,`revocation-record/*` | typed-content | local registry下表对应closed type | type表固定domain | gate ContentRefV1 |
-| resolved/verifier/protected-adapter roles | typed-content | §2 ContentRefV1/VerifierIdentityV1 joins | declared ContentRef digest / `pf.taskqual.verifier-identity.v1` | command/verifier refs |
+| fixture resolved/verifier/policy/host/service roles | typed-content | 本节FixtureResolvedBlobV1或VerifierIdentityV1 | `pf.taskqual.fixture-resolved-blob.v1` / `pf.taskqual.verifier-identity.v1` | command/control refs |
+| production resolved/verifier/policy/host/service roles | typed-content | subject及external profile声明的既有ContentRef schema | 该accepted schema固定domain | command/control refs |
 | dependency、qualification/approval/patch/file-set/D0-07 completion | typed-content | 本规格§4–§7 exact type |各节固定domain | subject中的exact typed ref |
 
 ProductionVerificationProfileV1 是candidate-external accepted mapping；namespace固定为policy管理的
@@ -549,6 +552,30 @@ local raw projection解析，不是accepted normative documents且不得投影�
 fixture subject内需要NormativeDocumentRefV1 wire位置时，允许投影结构相同但typed为
 `FixtureNormativeDocumentRefV1{id,status:"accepted",contentDigest,reviewCommit}`；pure verifier只在fixture
 profile接受并投影fixture authority class，production parser与docs-check必须拒绝该type。
+
+fixture control wire**逐字段复用**下表production type的closed schema、field order、id/version grammar与
+digest/signature domains，不发明fixture schema或alternate field；差异仅为authority verification：所有
+`authorityPolicy` ref exact等于FixturePolicyV1 ref，所有signatures按原type signature statement/message
+domain对FixturePolicyV1三principal及本节fixed rule验签，而不是调用production taskRules/named-rule lookup。
+无own signatures的EligibleStage0HandoffV1与RevocationRecord仍由其ContentRef、enclosing signed
+qualification/approval及signed snapshot绑定。fixture handoff的authorityStoreService/hostObservation/
+hostProfile、private scan的policy，以及command的tool/probe/sandbox/verifier raw refs必须分别解析到上述
+gate-keyed exact role，禁止bare digest或unresolved ref。
+
+fixture resolved raw bytes使用唯一wrapper：
+```text
+FixtureResolvedBlobV1 {
+  schema: "proof-forge.task-qualification-fixture-resolved-blob.v1",
+  id, version: "1.0.0", role, payloadSha256: Digest
+}
+```
+对每个枚举member role `<role-prefix>/<gateId>`，`role-prefix`只能是
+`resolved-tool|resolved-probe|sandbox-policy|verifier-executable|verifier-closure|verifier-build-policy|private-scan-policy|authority-store-service|host-observation|host-profile`，id固定为
+`fixture-resolved-<gateId>-<role-prefix>`；role exact等于完整member role，payloadSha256对该测试拥有的
+deterministic payload raw bytes计算plain SHA-256；wrapper full digest domain固定
+`pf.taskqual.fixture-resolved-blob.v1`。member bytes是canonical wrapper，ContentRef由wrapper重算；它只在
+fixture profile合法。VerifierIdentityV1按§2原domain并使executable/closure/buildPolicy分别resolve到
+对应FixtureResolvedBlobV1。production profile禁止FixtureResolvedBlobV1 schema。
 
 ### 8.3 projections、trusted time与safe-open语义
 
