@@ -88,7 +88,7 @@ openFindings: none
 | TASK-D0-04 | 实现 bootstrap foundation：eligible Stage-0 handoff、跨 process-session containment、signed RequiredTestSet/formal-catalog authority、per-task verifier receipt/protected service，以及 six-item BootstrapApprovalSet/activation producer-consumer；owned TST 只在 pre-activation 运行，task done 另须随后取得 set+activation receipt，且二者不得回填 TST/TaskApproval/task receipt | TASK-D0-02, TASK-D0-03, TASK-D0-05, TASK-D0-06 | — | TST-BOOTSTRAP-001 | EV-20260719-0108 | done |
 | TASK-D0-05 | direct/transitive license inventory + CycloneDX 1.6 SBOM 生成、schema/closure/release binding（FX-2026-07-17-D0-05：inventory+CycloneDX development gate） | TASK-D0-03 | — | TST-SBOM-001 | EV-20260717-0033 | done |
 | TASK-D0-06 | common scalar parsers、canonical encoders/domain hashes 与 ResourceProfileV1 types | TASK-D0-01, TASK-D0-02 | — | TST-COMMON-001 | EV-20260717-0035 | done |
-| TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | — | in_progress |
+| TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | EV-20260720-0003 | done |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
 
@@ -147,6 +147,22 @@ candidate）提交于 `docs/governance/bootstrap-closure/TASK-D0-04{,-reviews}`�
 genesis 关闭路径永久失效，任务关闭须持规范签名对象；本关闭为 bootstrap 级，不是
 formal/hermetic 证据（formal gate 属 `TASK-D0-07`），linux 信任根弱于 Apple SSV 且无
 remote attestation；四个 principal 实为同一人持有（GOV-MAINTAINERS-001 单点声明）。
+
+`TASK-D0-07` 于 2026-07-19 进入 `in_progress`（冻结包
+[`task-freeze-packages/TASK-D0-07.json`](governance/task-freeze-packages/TASK-D0-07.json)），
+2026-07-20 经 [`governance/d0-07-closure-ruling.md`](governance/d0-07-closure-ruling.md)
+（`GOV-D0CLOSE-001`，Architecture + Quality 批准）以 bootstrap 级关闭为 `done`：
+doneWhen 逐项满足——`TASK-D0-04` done 与 current activation（`EV-20260719-0108`）；
+`TST-EVIDENCE-002` fixture 验收链（revocation ledger、private scan、签名输入
+producers、单快照 finalizer、acceptance rehearsal）与 `TST-ISO-002` bwrap 引擎 +
+`formal_clean_room` harness 均先 RED 后绿；formal evidence-set finalization 产生并全
+consumer 复验，freshness/private scan/revocation/session containment 各按 policy rule
+签发；genesis §5 信任升级重放全绿（`just genesis-replay` post-commit 报告 21/21，
+含 `TST-HOST-002`/`TST-SBOM-002`）；darwin live 重观察（`EV-20260720-0002`）与
+D0-03 递延两项（`EV-20260719-0117`）清偿。attest
+`docs/governance/bootstrap-closure/TASK-D0-07.attest.json`，bootstrap EV
+`EV-20260720-0003`。**Milestone D0 由此 9/9 收口**；77-ID formal partition 与真实
+activation 的 formal gate 归 `TASK-D8-04`/`TST-ISO-003`。
 
 ## Milestone D1：语言前端
 

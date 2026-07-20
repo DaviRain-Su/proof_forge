@@ -14,9 +14,9 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：8/9 done**；`TASK-D0-04` 经真实 six-item activation 关闭（bootstrap 级 cutover，`EV-20260719-0108`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级），`TASK-D0-07` in_progress；尚未正式进入 D1 |
-| Active task | **TASK-D0-07**（formal hermetic clean-room gate + evidence-set finalizer；冻结包 [`docs/governance/task-freeze-packages/TASK-D0-07.json`](docs/governance/task-freeze-packages/TASK-D0-07.json)） |
-| Next task | **TASK-D1-01**（pending；但其 Dependencies 含 D0-07，正式开工仍须当前 in_progress 任务先 done） |
+| Formal milestone | **D0：9/9 done（milestone D0 收口）**；`TASK-D0-07` 经 `GOV-D0CLOSE-001` 以 bootstrap 级关闭（`EV-20260720-0003`），`TASK-D0-04` 经真实 six-item activation 关闭（`EV-20260719-0108`），`TASK-D0-08`/`TASK-D0-09` 经 `GOV-PRECUTOVER-001` 关闭（development 级）；尚未正式进入 D1 |
+| Active task | 无；当前没有可合法置为 `in_progress` 的正式任务（下一任务须先确认其冻结完成包后开工） |
+| Next task | **TASK-D1-01**（pending；Dependencies 已随 D0-07 关闭全部 done，开工前须确认其冻结完成包） |
 | Active development slice | 无；D1-PA-109 已完成 development GREEN，当前没有已冻结的后续切片 |
 | Next development slice | **blocked pending ADR acceptance**：shared DSL/Loader/Lean-command/export atomic cutover属于C3 breaking change，`ADR-0019`仍为proposed；必须先按Architecture+Language/Semantics+Quality五字段书面批准转accepted，再冻结cutover。不得用development evidence或本checkpoint绕过批准，不得建立legacy→ProgramV1 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |

@@ -6784,3 +6784,32 @@ normative: false
   活性文档分母若未来收缩到低于激活时集合属另一治理问题，不在本 join 覆盖。
 - Next：`just ci`（pipefail）后推送；重跑 genesis replay 取合并树全绿报告，
   随后 D0-07 关单。
+
+## 2026-07-20 — TASK-D0-07 关闭与 Milestone D0 收口（GOV-D0CLOSE-001）
+
+- Context：GOV-D0CLOSE-001（accepted，`c2377899`）第三变更集（关单，门禁
+  `45c69995` 先行）。doneWhen 全部前置已就绪：D0-04 重签发 activation
+  （`EV-20260719-0108`）、fixture 验收链 S1–S7、D0-03 递延清偿
+  （`EV-20260719-0117`）、darwin live 重观察（用户 Mac 实机，`EV-20260720-0002`）、
+  合并树 genesis 重放全绿（report `a57a21c2…`，21/21 腿，含
+  `TST-HOST-002`/`TST-SBOM-002`）。
+- Changed：attest `docs/governance/bootstrap-closure/TASK-D0-07.attest.json`（14
+  字段：ruling `GOV-D0CLOSE-001`、freezePackage 重算、replay 报告 digest、darwin
+  重观察记录、三项 EV 引用）；`TASK-D0-07-genesis-replay-report.json` 提交；任务表
+  D0-07 行 `in_progress → done`（Evidence `EV-20260720-0003`）+ D0 节关闭注记段；
+  台账 bootstrap 级 `EV-20260720-0003`；AGENTS.md checkpoint（Formal milestone
+  D0 **9/9 收口**、Active 无、Next=`TASK-D1-01`）。
+- Verification：`d0_07_fixture_acceptance_attested` 对 attest+报告返回 True；
+  `/usr/bin/python3 -I -S scripts/docs_check.py` ok（含 D0-07 bootstrap EV 门禁
+  正例与 D0-04 分支持续正例）；`/usr/bin/python3 -I -S
+  scripts/docs_check_self_test.py` ok（204 mutations）；`git diff --check` clean；
+  全量 `just ci`（pipefail）通过后推送。
+- Limitations：bootstrap 级关闭——fixture namespace 的 catalog/EV/containment/
+  handoff 均为 development maturity，**不是** formal/hermetic 证据；77-ID formal
+  partition、真实 activation 的 formal evidence set、real catalog 归
+  `TASK-D8-04`/`TST-ISO-003`，formal-EV 解锁分支届时落地；`05-test-spec.md` 的
+  fixture 文字同步仍为 P2 债务（随下次 required-set 重签发）；PHASE-4 graph
+  parser 修复（DEFECT-1）按 R3 归新任务；genesis 关闭路径已永久失效，后续任务
+  关闭须持规范签名对象。
+- Next：`TASK-D1-01`（Dependencies 已全部 done）——milestone D1 语言前端正式
+  开工前确认其冻结完成包（已由并行会话预备）。
