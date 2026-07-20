@@ -2798,8 +2798,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   errors继续为`depth budget exhausted`/`node budget exhausted`，同时为0时depth优先，所有 primitive、
   Type 与 PA111 child error 均不得 remap。进入 record 恰好消费一个 session-wide node；Type、FieldDecl、
   EnumVariant、Param child 使用 `remainingDepth - 1`，同一 array 的 siblings 共享 child depth并线程化
-  前一 sibling 的 node residual。实现必须 kernel-total，不得 `partial`、`unsafe`、post-walk 或 fresh
-  root budget。
+  前一 sibling 的 node residual。沿用 PA106/PA111 记账：Visibility/Literal/UnaryOp/BinaryOp scalar child
+  不消耗 node 或 depth；golden node spend 必须按该规则计算。实现必须 kernel-total，不得 `partial`、
+  `unsafe`、post-walk 或 fresh root budget。
 
   `StructDecl.fields` 与 `EnumDecl.variants` 必须 nonempty；读完 name 与 u32 count 后，zero count 分别
   exact 返回 `struct fields must be nonempty`/`enum variants must be nonempty`。Struct/Enum/Event/Error 的
@@ -2814,13 +2815,15 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Lean suite与不import Lean/ProofForge或既有reference脚本的standalone Python oracle必须共同固定：
   PA98 的14个checked-in declaration wire literals逐一decode为exact value、重新encode为同一bytes、`finish`
   并核对exact node spend；14个exhaustive field-count negatives（七个tags各使用expected-1/expected+1，
-  且以zero budgets证明fieldCount优先）；42个固定boundaries覆盖七个wrong-family/no-fieldCount/zero-budget、
-  depth-before-node、七个node-before-hostile-first-field、State三字段顺序与Type error透传、Struct/Enum的
-  name-first/nonempty/post-charge-count/child-error/sibling-residual、Event/Error的name-first/post-charge-count/
-  Param-error/sibling-residual、Extension的QID-before-version/digest、version-before-digest与独立
-  canonical-digest rejection、Proof的
-  invariant-before-QID/QID error以及whole-value trailing rejection。所有A-before-B均使用A、B同时失败的
-  conflict vector；source-order/residual positive不得复用同一assertion冒充多个inventory slot。
+  且以zero budgets证明fieldCount优先）；42个固定boundaries的分区精确为：7个使用不同declaration sibling
+  tag的wrong-family/no-fieldCount/zero-budget，1个depth-before-node，7个各public API的
+  node-before-hostile-first-field，State 3个（visibility-before-name、name-before-Type、Type error透传），
+  Struct与Enum各5个（name-first、nonempty、post-charge-count、child-error、sibling-residual），Event与Error
+  各4个（name-first、post-charge-count、Param-error、sibling-residual），Extension 3个（QID-before-hostile
+  version/digest、version-before-hostile digest、valid QID+version下的独立canonical-digest rejection），
+  Proof 2个（invariant-before-QID、QID error），以及1个whole-value trailing rejection。所有A-before-B均
+  使用A、B同时失败的conflict vector；source-order/residual positive不得复用同一assertion冒充多个
+  inventory slot。
   Python成功输出`reference_source_ast_decl_decode_v1: ok 14 14 42`。
 
   变更文件集：新增`ProofForgeV2/Source/AstDeclDecodeV1.lean`、
