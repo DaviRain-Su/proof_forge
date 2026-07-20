@@ -819,11 +819,15 @@ production paths固定为§8.3既有三path，`ruling-source`固定
 `SHA-256("pf.normative-document.v1" || NUL || UTF8(id) || NUL || raw document bytes)`，不得使用raw
 plain hash；reviewCommit及其他字段由pinned accepted parser/profile产生。Q/approval中的PHASE/ruling ref
 必须exact等于projection。fixture使用上述独立grammar，frontmatter
-id限§8.2枚举、reviewCommit必须等于fixture C.commit；synthetic
+id限§8.2枚举；全部fixture PHASE-4/PHASE-5/ruling frontmatter及其typed refs的reviewCommit固定为
+candidate-external review pin
+`f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0`，不得等于或由fixture C/D commit推导。该pin首byte
+`f0`，与fixture C commit首byte`f1`、tree首byte`f2`静态不相交；它只证明test-owned fixture grammar，
+不是Git ancestry、production review或docs acceptance。synthetic
 PHASE-4只允许`TASK-D1-FIXTURE` steady row，或D0-10 operation的`TASK-D0-10` row及其唯一direct dependency
 `TASK-D0-07`。synthetic PHASE-5只允许`TST-DOC-001` row。fixture ruling body H1必须对应其枚举ID；
 `FixtureNormativeDocumentRefV1.contentDigest = SHA-256("pf.taskqual.fixture-normative-document.v1" || NUL ||
-UTF8(id) || NUL || raw document bytes)`，reviewCommit exact join C，且不得转型
+UTF8(id) || NUL || raw document bytes)`，reviewCommit exact等于上述fixed pin，且不得转型
 为production NormativeDocumentRefV1。
 
 **Legacy candidate normalization。** 每个pinned legacy control candidate必须先由

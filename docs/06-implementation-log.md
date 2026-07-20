@@ -7132,3 +7132,21 @@ normative: false
   incompatibility、RPC signature closure、profile ID bound、authority equality/time chain与raw provenance ref
   不可构造问题；最终结论`SAFE TO COMMIT`、P0/P1=0。该结论只覆盖本docs-only contract amendment，不覆盖
   后续tests-only RED、production implementation或closeout ceremony。
+## 2026-07-20 — TASK-D0-10 fixture reviewCommit self-hash R2 triage
+
+- Finding：test-only reference builder确认fixture PHASE-4/5/ruling raw bytes被C archive/tree绑定，同时其
+  frontmatter reviewCommit又要求exact C.commit，形成`file→tree→commit→file` cryptographic cycle；不存在
+  诚实可构造positive baseline，草案已删除且未提交。
+- Triage：按GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结Output/Test/Dependencies/
+  Prerequisites/doneWhen不变。fixture reviewCommit改为candidate-external固定review pin并与f1 candidate静态
+  不相交；production accepted document reviewCommit规则不变。
+- Boundary：仅消除fixture自哈希，不创建Python/RED/EV，不修改production authority、ruling、freeze、D8、
+  ADR-0019、DSL或D1范围。
+
+## 2026-07-20 — TASK-D0-10 fixture review pin amendment（仅文档）
+
+- Repair：SPEC-TASKQUAL-001将fixture PHASE-4/5/ruling frontmatter及typed refs的reviewCommit固定为
+  candidate-external `f0…f0` 40-hex pin；它与f1 commit/f2 tree静态不相交，不再把C.commit写回决定C的
+  archive bytes。production normative reviewCommit parser与authority完全不变。
+- Boundary：只消除已记录的fixture cryptographic cycle；不改变冻结完成面、production protocol、raw EV、
+  ruling、ADR-0019或D1，无Python/tests/EV/closeout。
