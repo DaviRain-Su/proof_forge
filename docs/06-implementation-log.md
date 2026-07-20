@@ -6994,3 +6994,12 @@ normative: false
   key IDs、algorithm及四个public-key lowercase hex，并明确#4永不进入principal/signature/quorum。
 - Boundary：仅消除既有fixture contract歧义；不创建Python/RED/EV，不修改production authority、D8
   aggregate、ADR-0019、冻结包或D1状态。修订经独立复审并提交后再恢复原任务。
+
+## 2026-07-20 — TASK-D0-10 resumed after exact-wire amendment
+
+- Authority：FixturePolicyV1 nested exact-wire修订已由`15e9480`独立提交；bounded review结论
+  `SAFE TO COMMIT`，docs-check与204项mutation self-test均通过。
+- State：PHASE-4 `TASK-D0-10 blocked→in_progress`；原冻结Output/Test/Dependencies/Prerequisites/
+  doneWhen全部不变，D1-01仍为pending dependency-blocked。
+- Next boundary：构造并自校验完整合法steady-state与D0-10 fixture chains，再提交只因production module
+  尚不存在而失败的tests-only RED；禁止placeholder、early-rejection false-green或production test mode。
