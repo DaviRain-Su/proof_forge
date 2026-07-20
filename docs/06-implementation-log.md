@@ -6964,3 +6964,12 @@ normative: false
   external production-profile pin；最终结论 `SAFE TO COMMIT AMENDMENT`、P0/P1=0。
 - State：TASK-D0-10仍保持blocked，待本amendment独立提交后另行恢复；不声称RED、GREEN、EV、approval、
   receipt或closeout。
+
+## 2026-07-20 — TASK-D0-10 resumed after R2 amendment
+
+- Authority：accepted R2 amendment `cc2ad0f` 已独立提交并经 bounded review P0/P1=0；pure content API、
+  fixture profile、protected production adapter 与 external profile pin 已闭合。
+- State：PHASE-4 `TASK-D0-10 blocked→in_progress`，原冻结包与全部 completion axes 不变；AGENTS Active
+  恢复指向 D0-10，D1-01 继续 pending dependency-blocked。
+- Next boundary：先提交从独立完整合法 fixture graph 派生的 tests-only RED；禁止 placeholder carrier、
+  fixture test mode、production policy substitution 或 mutation early-rejection false-green。
