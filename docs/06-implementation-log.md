@@ -6711,3 +6711,30 @@ normative: false
   formal evidence未齐，不能关闭pending `TASK-D1-01`或任何下游task，D0 formal milestone仍8/9。
 - Next：当前无active development slice。下一步只读审计private one-way ProgramV1→legacy Typed input
   lowering的最小闭合面与删除门槛，先冻结再RED；该seam闭合前不得修改shared frontend cutover。
+
+## 2026-07-20 — D1 private ProgramV1-to-Typed lowering pre-cutover slice
+
+- Commits：D1-PA-109 freeze `05ebedb`；RED `84127b5`；GREEN `5ff695b`。正式TASK状态未改变。
+- Authority：`ADR-0019`仍为proposed；本切片只是可撤销pre-acceptance seam，不修改现行legacy frontend/
+  call sites/export。新增`compileValidatedSourceV1`接受validated unit，全部lowering helper留在Pipeline private；
+  既有`compile(Source.Program)`实现与goldens不变。
+- Changed：204-line Pipeline additions只投影Typed当前可执行subset：state/init/entry/view、accepted recursive
+  value types、UInt64/name-place/add、simple assign、value return与zero-arg call。其余9 top-level、named/map、
+  rich expression/statement、schedule/nonempty args按exact wire tag、source/wire order与parent-before-child拒绝。
+  lowering完成后才调用Typed；Typed成功后各调用一次`sourceHashV1`/`renderDigest`并检查tag/64 lowercase hex，
+  未计算legacy/second hash。qualified identity只由完整raw `.str` chain单次`Name.toString`产生。
+- Tests：271-line suite闭合accepted type/visibility/order/call/hash E2E、minimum/quoted/collision identity与callee、
+  cross-kind reorder provenance separation、complete reachable constructor matrix、Pattern/arm hostile sentinels、
+  call-arg/add/assign/item priority及9项Typed exact pass-through。19-line checker + 14-line self-test additions把
+  production direct`Core.Source` import锁到七路径upper bound，识别bare/quoted/public import并忽略comment/string；
+  self-test为43 mutations。总authored 511/800，机械manifest仍59 files。
+- Verification：focused 35 jobs、aggregate 366 jobs与test binary全绿；package-bound isolation self-test全绿；
+  commit后真实archive isolation完成374-job clean build、test binary与CLI help，输出
+  `committed archive 5ff695b... build/test/help ok`。最终SBOM self-test/generate/verify/closure、完整docs-check
+  recipe（191 mutations）与`git diff --check`通过；按冻结未运行完整`just ci`。
+- Review/Evidence：independent review先发现test-scope allowlist与quoted-import bypass及identity coverage缺口；
+  全部修复后复审Approve，P0/P1/P2=0。development evidence为`EV-20260720-0001`。
+- Limitations/Next：没有修改Typed/Semantic/target/Syntax/Loader/CLI/export/NodeId，也没有full-tree resource
+  containment或正式TASK closure。下一步atomic frontend/export cutover为C3 breaking change；必须先把
+  `ADR-0019`按Architecture+Language/Semantics+Quality五字段书面批准为accepted，再冻结cutover，不能由
+  本development evidence自动推进。D0 formal milestone仍8/9。
