@@ -7150,3 +7150,18 @@ normative: false
   archive bytes。production normative reviewCommit parser与authority完全不变。
 - Boundary：只消除已记录的fixture cryptographic cycle；不改变冻结完成面、production protocol、raw EV、
   ruling、ADR-0019或D1，无Python/tests/EV/closeout。
+## 2026-07-20 — TASK-D0-10 test-only fixture primitive foundation
+
+- Added：新增standalone、stdlib-only、non-authoritative `scripts/task_qualification_fixture_core.py`，提供
+  bounded canonical PF-JCS、RFC8032 vectors #1–#4与strict Ed25519、domain-separated signed object、
+  deterministic POSIX ustar subset、真实Git blob/tree/commit hash及all-parent ancestry closure、fixture
+  ruling Markdown envelope、FixturePolicyV1与FixtureResolvedBlobV1 primitives。candidate tree/commit通过改变
+  真实object bytes挖出`f2`/`f1`前缀，review pin固定为candidate-external `f0…f0`，没有替换hash bytes。
+- Hardening：独立复审先发现并修复签名preimage、commit payload carrier、Git tree ordering、ustar octal/
+  metadata、ancestry fail-open、PF-JCS/SemVer bounds及Markdown control问题；第二轮最终结论
+  `SAFE TO COMMIT`。当前模块只解析两个fixture ruling envelope；PHASE-4/5 exact table parser仍属于后续
+  完整四operation fixture validator，未用table-less PHASE baseline冒充合法carrier。
+- Verification：`/usr/bin/python3 -I -S scripts/task_qualification_fixture_core.py`输出
+  `task qualification fixture core self-check: passed`；docs-check与204项mutation self-test通过；
+  `git diff --check` clean。该foundation不是tests-only RED、production GREEN、EV或closeout，
+  `TASK-D0-10`保持`in_progress`且冻结完成面不变。
