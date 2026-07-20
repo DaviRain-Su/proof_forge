@@ -881,9 +881,20 @@ tree，D必须唯一parent=C且禁止extra parent。§6 full/semantic path-map�
 
 PHASE-4/5固定来自`docs/04-task-breakdown.md`/`docs/05-test-spec.md`；freeze/ruling使用§3/§7固定path。
 从raw bytes解析accepted frontmatter与唯一authority table/row。review report必须是protected review service的
-immutable raw bytes，reviewCommit=C，digest重算，invocationId与implementationInvocationId及其他review
-invocation不同。exact P0/P1 parser识别ASCII case-sensitive line `Severity: P0|P1`及`P0:`/`P1:`；任何命中、
-UTF-8失败、case-insensitive whole-word `unresolved`或object findings非空均拒绝，不信summary。
+immutable opaque raw bytes；它不承载、也不解析review metadata。`ReviewProjectionV1`的
+`reviewerId,reviewerKind,invocationId,reviewCommit,reviewLink,decision,findings`逐字段exact复制已解码subject中的
+`IndependentReviewRefV1`，`reportDigest`则由raw bytes按本节domain重算后必须exact等于subject ref及
+`ReviewMemberV1.reportDigest`；member role必须exact为
+`review-report/<reviewerId>/<reportDigest的64 lowercase hex，不含sha256:前缀>`，member reviewerId也必须
+exact等于该subject ref。由此
+reviewCommit=C，invocationId与implementationInvocationId及其他review invocation不同。raw bytes只做以下
+bounded内容扫描：先按§2检查`1..1048576` bytes并strict UTF-8 decode；把每个exact CRLF替换为LF，若仍有
+bare CR则拒绝，只按literal LF切line，不把其他Unicode line separator当换行。任一line exact等于
+`Severity: P0`/`Severity: P1`，或以ASCII case-sensitive `P0:`/`P1:`从byte 0开始即拒绝。另在原始UTF-8
+bytes上仅把ASCII `A..Z`映射为`a..z`后搜索`unresolved`；其前后若存在相邻byte，均不得属于
+`[A-Za-z0-9_]`，由此定义唯一ASCII whole-word boundary。UTF-8失败、任何上述命中或subject object
+findings非空均拒绝，不信summary，也不得从report文本标题、frontmatter、JSON或其他自述字段覆盖subject
+metadata。
 
 ancestry graph恰为consuming C到freezeCommit以及C到每个direct dependency completionCommit的所有父边
 闭包路径并集：每个目标至少一条路径、沿途每个commit的全部parents都须递归表示；member按commit id
@@ -907,7 +918,7 @@ projection是完整closed字段，不导入SPEC-EVFINAL-001，也不复制其gen
 | task qualification private scan | 本规格§8.3.1 local closed parser | complete `TaskQualificationPrivateScanReceiptV1`；result only `clean` | `pf.taskqual.private-scan.v1` |
 | revocation snapshot/records | `scripts/formal_evidence.py::parse_revocation_ledger_snapshot` + `scripts/revocation_ledger.py::parse_revocation_record` / accepted ADR-0018 consumer pin | complete snapshot `{authorityPolicy,records,head,recordsDigest,signatures}` 与 record `{id,evidence,revokedUtc,reasonCode,reason,authorityRef,replacement,previousRecordSha256}`；record无自签名/status字段 | `pf.revocation-ledger-snapshot.v1` / `pf.evidence-revocation.v1` |
 | governance completion | local §7 parser | complete GovernanceBootstrapCompletionV1 | §7 full domain |
-| reviews | local parser | `ReviewProjectionV1{reviewerId,invocationId,reviewCommit,reviewLink,decision,findings,reportDigest}` from raw report + subject ref | `pf.taskqual.review-report.v1` raw |
+| reviews | local parser | `ReviewProjectionV1{reviewerId,reviewerKind,invocationId,reviewCommit,reviewLink,decision,findings,reportDigest}`；前七项exact复制subject ref，reportDigest由opaque raw重算并join subject/member；raw只做bounded findings文本扫描 | `pf.taskqual.review-report.v1` raw |
 
 | object | pure snapshot test at bundle verificationInstant | protected currentness |
 |---|---|---|

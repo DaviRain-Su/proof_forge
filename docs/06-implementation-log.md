@@ -7165,3 +7165,15 @@ normative: false
   `task qualification fixture core self-check: passed`；docs-check与204项mutation self-test通过；
   `git diff --check` clean。该foundation不是tests-only RED、production GREEN、EV或closeout，
   `TASK-D0-10`保持`in_progress`且冻结完成面不变。
+
+## 2026-07-20 — TASK-D0-10 review raw-metadata join R2 triage
+
+- Finding：构造完整四operation fixture时确认SPEC-TASKQUAL-001虽将review report定义为opaque raw bytes，
+  registry却只写“raw report + subject ref”投影，未逐字段规定metadata来源；自行选择解析report metadata或
+  复制signed subject会产生不同acceptance language，不能用builder猜测。
+- Triage：按GOV-TASK-FREEZE-001 R2，`TASK-D0-10 in_progress→blocked`；冻结Output/Tests/Dependencies/
+  Prerequisites/doneWhen不变。最小修订明确raw只提供domain digest与bounded P0/P1/unresolved内容扫描，
+  reviewer/kind/invocation/commit/link/decision/findings metadata来自signed subject ref，member suffix/id/digest
+  逐项join；scanner固定UTF-8、CRLF/LF、line anchor与ASCII whole-word算法，禁止report自述覆盖subject。
+- Boundary：不创建完整fixture/RED/production verifier/EV/closeout，不修改review wire、authorization、
+  D8 aggregate、ADR-0019、DSL或D1范围；修订独立复审后再恢复原任务。
