@@ -239,8 +239,11 @@ def _verify_production_profile_signatures(profile: ProductionVerificationProfile
     This function is called after the authority policy is resolved (stage 7),
     so the principal public keys are available for signature verification.
     """
-    if len(profile.signatures) < 3:
-        _BTO._reject(f"{where}.signatures: must have at least 3 signatures")
+    # §1: signatures count 3..256, sorted by keyId ascending, unique.
+    # The parser enforces sort+unique; the verifier enforces the bounds
+    # (the parser uses MAX_ARRAY=4096, which is too permissive for the
+    # §1 signature-specific 3..256 bound).
+    _enforce_signature_bounds(profile.signatures, where)
 
     # Build the unsigned statement (remove signatures field)
     unsigned_wire = _TQO.production_profile_to_wire(profile)
@@ -261,10 +264,14 @@ def _verify_production_profile_signatures(profile: ProductionVerificationProfile
             minimumDistinctSigners=3,
         )
 
-    # Verify each signature
+    # Verify each signature (no extra ignored — all signatures are verified)
     signed_roles = set()
     signed_principal_ids = set()
+    seen_key_ids = set()
     for sig in profile.signatures:
+        if sig.keyId in seen_key_ids:
+            _BTO._reject(f"{where}.signatures: duplicate keyId '{sig.keyId}'")
+        seen_key_ids.add(sig.keyId)
         if sig.keyId not in principals:
             _BTO._reject(f"{where}.signatures: keyId '{sig.keyId}' not in policy")
         principal = principals[sig.keyId]
@@ -603,14 +610,21 @@ def _verify_authority_policy(
             _BTO._reject(f"{where}: authority-policy member content ref mismatch")
         return (policy, computed_ref)
     elif isinstance(profile, ProductionVerificationProfileV1):
-        # Production policy — use bootstrap_task_objects parser
-        policy = _BTO.parse_bootstrap_authority_policy(obj, f"{where}.authority-policy")
-        # Recompute the production policy content ref
-        # This requires the bootstrap authority policy domain
-        # For now, trust the member content ref
-        if member.content != expected_policy_ref:
-            _BTO._reject(f"{where}: production policy ref mismatch")
-        return (policy, member.content)
+        # Production policy — use bootstrap_task_objects parser, which takes
+        # the canonical bytes and recomputes the ContentRef digest under
+        # pf.bootstrap-authority-policy.v1. The decoded object is not passed
+        # because the parser validates canonical bytes directly.
+        policy, computed_ref = _BTO.parse_bootstrap_authority_policy(raw_bytes)
+        # §8.2: every ContentRef must resolve to exactly one member and the
+        # digest must be recomputed from the decoded bytes. The recomputed
+        # ref must equal both the expected policy ref and the member's
+        # declared content ref. A member whose bytes do not hash to its
+        # declared digest must reject.
+        if computed_ref != expected_policy_ref:
+            _BTO._reject(f"{where}: production policy ref != expected policy ref")
+        if member.content != computed_ref:
+            _BTO._reject(f"{where}: authority-policy member content ref != recomputed")
+        return (policy, computed_ref)
     else:
         _BTO._reject(f"{where}: unknown profile type")
 
@@ -856,8 +870,11 @@ def _verify_signatures(
     where: str,
 ) -> None:
     """Verify the subject's signatures against the authority policy."""
-    if len(signatures) < 3:
-        _BTO._reject(f"{where}.signatures: must have at least 3 signatures")
+    # §1: signatures count 3..256, sorted by keyId ascending, unique.
+    # The parser enforces sort+unique; the verifier enforces the bounds
+    # (the parser uses MAX_ARRAY=4096, which is too permissive for the
+    # §1 signature-specific 3..256 bound).
+    _enforce_signature_bounds(signatures, where)
 
     # Build the unsigned statement (remove signatures field)
     unsigned = dict(subject_obj)
@@ -877,10 +894,14 @@ def _verify_signatures(
             minimumDistinctSigners=3,
         )
 
-    # Verify each signature
+    # Verify each signature (no extra ignored — all signatures are verified)
     signed_roles = set()
     signed_principal_ids = set()
+    seen_key_ids = set()
     for sig in signatures:
+        if sig.keyId in seen_key_ids:
+            _BTO._reject(f"{where}.signatures: duplicate keyId '{sig.keyId}'")
+        seen_key_ids.add(sig.keyId)
         if sig.keyId not in principals:
             _BTO._reject(f"{where}.signatures: keyId '{sig.keyId}' not in policy")
         principal = principals[sig.keyId]
@@ -895,6 +916,27 @@ def _verify_signatures(
         _BTO._reject(f"{where}.signatures: required roles not covered")
     if len(signed_principal_ids) < rule.minimumDistinctSigners:
         _BTO._reject(f"{where}.signatures: minimum distinct signers not met")
+
+
+def _enforce_signature_bounds(signatures: tuple, where: str) -> None:
+    """§1: signatures count 3..256, sorted by keyId ascending, unique.
+
+    The parser enforces sort+uniqueness via ``_require_unique_sorted``, but
+    uses ``MAX_ARRAY`` (4096) as the upper bound. The §1 signature-specific
+    bound is 3..256, so the verifier re-checks both bounds and the sort
+    order defensively. A subject with >256 signatures or unsorted keyIds
+    must reject before any curve work.
+    """
+    n = len(signatures)
+    if n < 3:
+        _BTO._reject(f"{where}.signatures: count {n} < 3 (§1 minimum)")
+    if n > 256:
+        _BTO._reject(f"{where}.signatures: count {n} > 256 (§1 maximum)")
+    key_ids = [s.keyId for s in signatures]
+    if key_ids != sorted(key_ids):
+        _BTO._reject(f"{where}.signatures: keyIds not ASCII ascending sorted")
+    if len(set(key_ids)) != len(key_ids):
+        _BTO._reject(f"{where}.signatures: duplicate keyId")
 
 
 # ---------------------------------------------------------------------------

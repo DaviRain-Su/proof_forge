@@ -7275,3 +7275,136 @@ normative: false
   fixture path返回fixture-non-authoritative，不能产生Ledger bootstrap/formal、
   GovernanceBootstrapCompletion、docs acceptance或task closeout。
 - Next：准备production closeout ceremony；address remaining P1/P2 findings。
+
+## 2026-07-21 TASK-D0-10 protected adapter correctness fixes (in_progress)
+
+- Context：`TASK-D0-10`（in_progress；冻结包不变；pure verifier/protected adapter/one-time bridge）。
+  本切片处理 §8.4 protected production adapter 的 deferred P1/P2 findings，为
+  production closeout ceremony 准备正确的 adapter 实现。本条记录的是 development 证据，
+  不是正式 closeout。
+- Authority：`SPEC-TASKQUAL-001` §8.1 Verified* 完整记录、§8.2 production-profile-pin
+  domain、§8.4 ProtectedTaskQualificationAcceptanceV1。
+- Findings addressed:
+  - P1-A（pure projection 不完整）：`_serialize_pure_projection` 之前只投射
+    `taskId`/`preCloseCandidate`/`authorityClass`/`verificationInstant`（及 approval/completion
+    的局部子集），丢弃 `qualification`/`allowedCloseoutPatch`/`authorityPolicy`/
+    `receipt`/`closeoutDiffDigest` 等字段。`pureProjectionDigest` 因此只绑定 Verified 的子集，
+    无法证明 protected acceptance 覆盖完整 pure 验证结果。
+  - P1-B（pin digest domain 错误）：protected adapter 计算 `productionProfilePin` 时使用了
+    `DOMAIN_PROTECTED_ACCEPTANCE`（`pf.taskqual.protected-acceptance.v1`），但 §8.2 规定 pin 的
+    full-digest domain 是 `pf.taskqual.production-profile-pin.v1`。这会把 pin 绑定到错误的
+    statement，允许伪造 pin 通过 docs-check。
+  - P1-C（completion qualification 缺失投射）：`VerifiedTaskCompletionV1.qualification` 在 receipt
+    操作中被 verifier 设为 `None`（因 §8.2 role table 中 receipt 操作的 qualification family 为零，
+    bundle 不携带完整 qualification 对象）。直接序列化会 `AttributeError`。
+  - P2-A（signature 唯一性无防御）：adapter 未在签名后强制 keyId 唯一性。
+- Changed：
+  - `scripts/task_qualification_objects.py` (+331 行)：新增 §2-§7 typed wire encoders
+    `candidate_identity_to_wire`、`normative_document_ref_to_wire`、`raw_document_ref_to_wire`、
+    `evidence_ref_to_wire`、`independent_review_ref_to_wire`、`task_qualification_ref_to_wire`、
+    `completion_receipt_ref_to_wire`、`task_row_to_wire`、`freeze_package_ref_to_wire`、
+    `gate_to_wire`、`dependency_to_wire`、`allowed_closeout_patch_to_wire`、
+    `task_qualification_to_wire`、`task_completion_receipt_to_wire`、
+    `d0_10_bootstrap_gate_to_wire`、`d0_10_bootstrap_approval_to_wire`、
+    `d0_10_bootstrap_receipt_to_wire`，以及 §8.1 Verified* 完整 wire 形式
+    `verified_task_qualification_to_wire`、`verified_task_completion_to_wire`、
+    `verified_d0_10_bootstrap_approval_to_wire`、
+    `verified_d0_10_bootstrap_completion_to_wire`。`verified_task_completion_to_wire`
+    在 `qualification=None` 时回退到 `receipt.qualification` 的 `TaskQualificationRefV1` 投射，
+    绑定 verifier 已校验的 `(taskId,id,digest)` 三元，不伪造完整对象。
+  - `scripts/task_qualification_protected_adapter.py` (-87/+134 行)：
+    - `_serialize_pure_projection` 改为调用 `task_qualification_objects` 中的
+      `verified_*_to_wire` encoder，投射完整 §8.1 Verified 记录。
+    - `productionProfilePin` 改用 `_TQO.production_profile_pin_content_ref`（在
+      `DOMAIN_PRODUCTION_PROFILE_PIN` 下重算），不再手算 protected-acceptance domain。
+    - `preCloseCandidate`/`closeoutCandidate` 改用 `candidate_identity_to_wire`，确保
+      `archiveSha256` 拼写与 §8.1 Verified* 一致。
+    - 签名循环后增加 keyId 排序与唯一性强制（`sigs.sort(key=...)` + `set` 检查）。
+    - 保留 `import bootstrap_task_producers` 局部导入以避免循环依赖。
+  - `scripts/task_qualification_protected_adapter_self_test.py`（新增，~660 行）：
+    15 个独立 unit test，覆盖 schema/id grammar、§8.4 字段顺序、
+    `pureProjectionDigest` 完整性（task-qualification 与 task-completion 两路）、
+    `productionProfilePin` digest domain、signature 排序/唯一/重算匹配、
+    未知 keyId 拒绝、bundle/subject digest 精确 bytes、preCloseCandidate 与
+    Verified 一致、D0-10 approval/receipt 两路 adapter 构造、closeoutCandidate 可选、
+    `productionProfileDigest` 重算、`protected_acceptance_content_ref` domain。
+    使用 synthetic production profile 与 RFC 8032 vector seeds，不依赖外部 authority store；
+    不产生 docs-check 接受的 `production-candidate-bound` acceptance（仍需外部 ceremony）。
+- Tests：`python3 scripts/task_qualification_protected_adapter_self_test.py` → 15/15 passed。
+  `python3 scripts/task_qualification_red_matrix_self_test.py` → 34/34 passed（无回归）。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：所有 fixture chain 仍返回 `fixture-non-authoritative`；protected adapter
+  构造的 acceptance 仍需外部 ceremony 才能被 docs-check 接受。pure projection digest
+  现在绑定完整 Verified 字段集合，pin digest 现在绑定正确的 pin domain。
+- Evidence：development evidence for protected adapter correctness fixes。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭TASK-D0-10。正式 closeout 仍需：(1) eligible Stage-0 host；
+  (2) independent implementation review from separate session；(3) actual
+  Architecture+Quality+Security authorization signatures；(4) actual closeout commit D
+  with candidate-owned bootstrap-approval.json；(5) external D0_10BootstrapReceiptV1 +
+  GovernanceBootstrapCompletionV1。protected adapter 的外部 provenance（trusted clock、
+  authority store、live session、safe-open Git/archive）仍由 ceremony caller 提供；
+  本切片只验证 adapter 的确定性构造逻辑。
+- Next：准备 production closeout ceremony；address 任何 remaining P1/P2 findings from
+  the protected adapter review。
+
+## 2026-07-21 TASK-D0-10 protected adapter binding enforcement + verifier signature bounds (in_progress)
+
+- Context：`TASK-D0-10`（in_progress；冻结包不变）。本切片继续处理 §8.4 protected adapter
+  与 verifier 的 deferred P1/P2 findings，闭合 candidate-external profile↔adapter↔policy
+  binding 与 §1 signature bound enforcement。
+- Authority：`SPEC-TASKQUAL-001` §8.4 adapter equality、§8.2 profile/pin binding、
+  §1 signature count 3..256 / sorted / unique / no-extra。
+- Findings addressed:
+  - P1-D（adapter equality 未强制）：§8.4 要求 adapter executable/closure/buildPolicy 与
+    expectedAdapter（production profile 内嵌的 adapter）逐字段相等。adapter 之前未检查
+    `inp.adapter != inp.production_profile.adapter`，允许 swapped adapter 产生 accepted
+    acceptance。
+  - P1-E（provenanceRefs 规范未强制）：§8.4 要求 provenanceRefs 非空、按
+    `(schema,id,version,digest)` ASCII 升序且唯一。adapter 之前直接透传 `inp.provenance_refs`，
+    无排序/非空/唯一检查。
+  - P1-F（profile authorityPolicy binding 未强制）：§8.2 要求 production profile 的
+    expectedAuthorityPolicy 等于 bundle expectedAuthorityPolicy（即 Verified.authorityPolicy），
+    且 pin.authorityPolicy 等于 profile.expectedAuthorityPolicy，pin.profile 等于重算的
+    production profile content ref。adapter 之前未做这些交叉检查。
+  - P1-G（verifier signature sorted/unique 未防御）：`_verify_signatures` 与
+    `_verify_production_profile_signatures` 依赖 parser 的 `_require_unique_sorted`，
+    但未独立重新检查 sorted/unique（defense in depth）。
+  - P1-H（verifier signature 上限未强制）：§1 规定 signatures count `3..256`，但 parser 用
+    `MAX_ARRAY=4096`，verifier 只检查 `>= 3`。>256 signatures 的 subject 会通过。
+- Changed：
+  - `scripts/task_qualification_protected_adapter.py`：
+    - 新增 `_verify_profile_binding(inp)`：在 digest/signature 工作前检查 adapter == profile.adapter、
+      profile.expectedAuthorityPolicy == Verified.authorityPolicy、
+      pin.authorityPolicy == profile.expectedAuthorityPolicy、
+      pin.profile == recomputed profile content ref。任一不等 fail closed。
+    - 新增 `_normalize_provenance_refs(refs)`：非空 + 按
+      `(schema,id,version,digest)` ASCII 升序 + 唯一；返回 normalized tuple。
+    - `_build_protected_acceptance` 调用上述两函数；wire 与 dataclass 使用 normalized refs。
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_enforce_signature_bounds(signatures, where)`：count `3..256`、keyId ASCII 升序、唯一。
+    - `_verify_signatures` 与 `_verify_production_profile_signatures` 调用该函数，并在 per-signature
+      循环中跟踪 `seen_key_ids` 以防御 duplicate keyId。
+  - `scripts/task_qualification_protected_adapter_self_test.py`：
+    - 更新 harness：使用 `verified.authorityPolicy` 作为 profile 的 expectedAuthorityPolicy
+      （而非 synthetic digest），使 §8.4 binding 检查通过；provenance_refs 改为非空 synthetic refs。
+    - 新增 6 个 test：`reject_adapter_mismatch`、`reject_profile_authority_policy_mismatch`、
+      `reject_pin_profile_ref_mismatch`、`reject_empty_provenance_refs`、
+      `reject_duplicate_provenance_refs`、`provenance_refs_sorted_in_wire`。
+  - `scripts/task_qualification_red_matrix_self_test.py`：
+    - 新增 2 个 test：`oversized_signature_count`（257 signatures 拒绝）、
+      `unsorted_signature_keyids`（reversed keyIds 拒绝）。
+- Tests：`python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/task_qualification_red_matrix_self_test.py` → 36/36 passed（无回归）。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：binding 检查在 digest/signature 工作前执行，mismatch 一律 fail closed。
+  signature bound 在 curve work 前执行，>256 或 unsorted 拒绝。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for binding enforcement + signature bounds。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭TASK-D0-10。正式 closeout 外部前置不变。binding 检查验证
+  adapter↔profile↔policy↔bundle 的确定性等式，但不验证外部 authority store / trusted clock /
+  live session provenance（仍由 ceremony caller 提供）。
+- Next：独立复审 binding enforcement 与 signature bounds；准备 production closeout ceremony。

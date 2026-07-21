@@ -1979,6 +1979,337 @@ def production_profile_pin_content_ref(p: ProductionVerificationProfilePinV1) ->
 
 
 # ---------------------------------------------------------------------------
+# §2-§7 typed wire encoders (used by the §8.4 protected adapter projection)
+# ---------------------------------------------------------------------------
+
+def candidate_identity_to_wire(c: CandidateIdentity) -> dict:
+    """Encode a CandidateIdentityV1 as the §1 `archiveSha256` wire form.
+
+    The verifier projects Verified* records using the §1 wire spelling
+    ``archiveSha256`` (not the legacy ``archiveDigest``). The digest field is
+    omitted from the projection because the receiver recomputes it from
+    the other three fields under the candidate domain.
+    """
+    return {
+        "commit": c.commit,
+        "treeObjectId": c.treeObjectId,
+        "archiveSha256": digest_to_wire(c.archiveDigest),
+    }
+
+
+def normative_document_ref_to_wire(r: NormativeDocumentRefV1) -> dict:
+    return {
+        "id": r.id,
+        "status": r.status,
+        "contentDigest": digest_to_wire(r.contentDigest),
+        "reviewCommit": r.reviewCommit,
+    }
+
+
+def raw_document_ref_to_wire(r: RawDocumentRefV1) -> dict:
+    return {
+        "path": r.path,
+        "digest": digest_to_wire(r.digest),
+    }
+
+
+def evidence_ref_to_wire(e: EvidenceRefV1) -> dict:
+    return {
+        "id": e.id,
+        "digest": digest_to_wire(e.digest),
+    }
+
+
+def independent_review_ref_to_wire(r: IndependentReviewRefV1) -> dict:
+    return {
+        "reviewerId": r.reviewerId,
+        "reviewerKind": r.reviewerKind,
+        "invocationId": r.invocationId,
+        "reportDigest": digest_to_wire(r.reportDigest),
+        "reviewCommit": r.reviewCommit,
+        "reviewLink": r.reviewLink,
+        "decision": r.decision,
+        "findings": list(r.findings),
+    }
+
+
+def task_qualification_ref_to_wire(r: TaskQualificationRefV1) -> dict:
+    return {
+        "taskId": r.taskId,
+        "id": r.id,
+        "digest": digest_to_wire(r.digest),
+    }
+
+
+def completion_receipt_ref_to_wire(r: "TaskCompletionReceiptRefV1") -> dict:
+    return {
+        "taskId": r.taskId,
+        "id": r.id,
+        "digest": digest_to_wire(r.digest),
+    }
+
+
+def task_row_to_wire(r: TaskQualificationTaskRowV1) -> dict:
+    return {
+        "taskId": r.taskId,
+        "output": r.output,
+        "dependencies": list(r.dependencies),
+        "prerequisites": list(r.prerequisites),
+        "tests": list(r.tests),
+        "evidenceIds": list(r.evidenceIds),
+        "status": r.status,
+    }
+
+
+def freeze_package_ref_to_wire(r: TaskFreezePackageRefV1) -> dict:
+    return {
+        "taskId": r.taskId,
+        "digest": digest_to_wire(r.digest),
+    }
+
+
+def gate_to_wire(g: TaskQualificationGateV1) -> dict:
+    return {
+        "gateId": g.gateId,
+        "taskId": g.taskId,
+        "testIds": list(g.testIds),
+        "evidence": [evidence_ref_to_wire(e) for e in g.evidence],
+        "commandPolicy": content_ref_to_wire(g.commandPolicy),
+        "eligibleStage0Handoff": content_ref_to_wire(g.eligibleStage0Handoff),
+        "sessionContainment": content_ref_to_wire(g.sessionContainment),
+        "freshness": content_ref_to_wire(g.freshness),
+        "privateScan": content_ref_to_wire(g.privateScan),
+        "revocationSnapshot": content_ref_to_wire(g.revocationSnapshot),
+    }
+
+
+def dependency_to_wire(d: DependencyCompletionRefV1) -> dict:
+    if isinstance(d, BootstrapTaskReceiptDependencyV1):
+        return {
+            "kind": d.kind,
+            "taskId": d.taskId,
+            "completionCommit": d.completionCommit,
+            "authorityPolicy": content_ref_to_wire(d.authorityPolicy),
+            "objectDigest": digest_to_wire(d.objectDigest),
+            "objectBytesHex": d.objectBytesHex,
+            "signatures": [approval_signature_to_wire(s) for s in d.signatures],
+        }
+    if isinstance(d, GovernanceBootstrapReceiptDependencyV1):
+        return {
+            "kind": d.kind,
+            "taskId": d.taskId,
+            "ruling": content_ref_to_wire(d.ruling),
+            "completionCommit": d.completionCommit,
+            "authorityPolicy": content_ref_to_wire(d.authorityPolicy),
+            "objectDigest": digest_to_wire(d.objectDigest),
+            "objectBytesHex": d.objectBytesHex,
+            "signatures": [approval_signature_to_wire(s) for s in d.signatures],
+        }
+    if isinstance(d, TaskQualificationDependencyV1):
+        return {
+            "kind": d.kind,
+            "taskId": d.taskId,
+            "completionCommit": d.completionCommit,
+            "authorityPolicy": content_ref_to_wire(d.authorityPolicy),
+            "receipt": completion_receipt_ref_to_wire(d.receipt),
+            "objectDigest": digest_to_wire(d.objectDigest),
+            "objectBytesHex": d.objectBytesHex,
+            "signatures": [approval_signature_to_wire(s) for s in d.signatures],
+        }
+    _reject("dependency_to_wire: unknown dependency type")
+
+
+def allowed_closeout_patch_to_wire(p: AllowedCloseoutPatchV1) -> dict:
+    return {
+        "schema": p.schema,
+        "id": p.id,
+        "version": p.version,
+        "taskId": p.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(p.preCloseCandidate),
+        "allowedPaths": list(p.allowedPaths),
+        "semanticFileSetDigest": digest_to_wire(p.semanticFileSetDigest),
+        "resultingTaskRowDigest": digest_to_wire(p.resultingTaskRowDigest),
+    }
+
+
+def task_qualification_to_wire(q: TaskQualificationV1) -> dict:
+    return {
+        "schema": q.schema,
+        "id": q.id,
+        "version": q.version,
+        "taskId": q.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(q.preCloseCandidate),
+        "taskRow": task_row_to_wire(q.taskRow),
+        "freezePackage": freeze_package_ref_to_wire(q.freezePackage),
+        "gates": [gate_to_wire(g) for g in q.gates],
+        "dependencies": [dependency_to_wire(d) for d in q.dependencies],
+        "verifier": verifier_identity_to_wire(q.verifier),
+        "authorityPolicy": content_ref_to_wire(q.authorityPolicy),
+        "allowedCloseoutPatch": content_ref_to_wire(q.allowedCloseoutPatch),
+        "independentReviews": [
+            independent_review_ref_to_wire(r) for r in q.independentReviews
+        ],
+        "signatures": [approval_signature_to_wire(s) for s in q.signatures],
+    }
+
+
+def task_completion_receipt_to_wire(r: TaskCompletionReceiptV1) -> dict:
+    return {
+        "schema": r.schema,
+        "id": r.id,
+        "version": r.version,
+        "taskId": r.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(r.preCloseCandidate),
+        "closeoutCandidate": candidate_identity_to_wire(r.closeoutCandidate),
+        "qualification": task_qualification_ref_to_wire(r.qualification),
+        "allowedCloseoutPatch": content_ref_to_wire(r.allowedCloseoutPatch),
+        "closeoutDiffDigest": digest_to_wire(r.closeoutDiffDigest),
+        "authorityPolicy": content_ref_to_wire(r.authorityPolicy),
+        "revocationSnapshot": content_ref_to_wire(r.revocationSnapshot),
+        "issuedAt": r.issuedAt,
+        "signatures": [approval_signature_to_wire(s) for s in r.signatures],
+    }
+
+
+def d0_10_bootstrap_gate_to_wire(g: D0_10BootstrapGateV1) -> dict:
+    return {
+        "gateId": g.gateId,
+        "taskId": g.taskId,
+        "testIds": list(g.testIds),
+        "evidence": [evidence_ref_to_wire(e) for e in g.evidence],
+        "commandPolicy": content_ref_to_wire(g.commandPolicy),
+        "eligibleStage0Handoff": content_ref_to_wire(g.eligibleStage0Handoff),
+        "sessionContainment": content_ref_to_wire(g.sessionContainment),
+        "freshness": content_ref_to_wire(g.freshness),
+        "privateScan": content_ref_to_wire(g.privateScan),
+        "revocationSnapshot": content_ref_to_wire(g.revocationSnapshot),
+    }
+
+
+def d0_10_bootstrap_approval_to_wire(a: D0_10BootstrapApprovalV1) -> dict:
+    return {
+        "schema": a.schema,
+        "id": a.id,
+        "version": a.version,
+        "taskId": a.taskId,
+        "ruling": normative_document_ref_to_wire(a.ruling),
+        "preCloseCandidate": candidate_identity_to_wire(a.preCloseCandidate),
+        "taskRow": task_row_to_wire(a.taskRow),
+        "freezePackage": freeze_package_ref_to_wire(a.freezePackage),
+        "verifier": verifier_identity_to_wire(a.verifier),
+        "protectedConsumer": verifier_identity_to_wire(a.protectedConsumer),
+        "verifierClosureDigest": digest_to_wire(a.verifierClosureDigest),
+        "consumerClosureDigest": digest_to_wire(a.consumerClosureDigest),
+        "tstDocSubprofile": a.tstDocSubprofile,
+        "bootstrapGate": d0_10_bootstrap_gate_to_wire(a.bootstrapGate),
+        "d0_07Bridge": dependency_to_wire(a.d0_07Bridge),
+        "allowedCloseoutPatch": content_ref_to_wire(a.allowedCloseoutPatch),
+        "independentReviews": [
+            independent_review_ref_to_wire(r) for r in a.independentReviews
+        ],
+        "authorityPolicy": content_ref_to_wire(a.authorityPolicy),
+        "signatures": [approval_signature_to_wire(s) for s in a.signatures],
+    }
+
+
+def d0_10_bootstrap_receipt_to_wire(r: D0_10BootstrapReceiptV1) -> dict:
+    return {
+        "schema": r.schema,
+        "id": r.id,
+        "version": r.version,
+        "taskId": r.taskId,
+        "ruling": normative_document_ref_to_wire(r.ruling),
+        "preCloseCandidate": candidate_identity_to_wire(r.preCloseCandidate),
+        "closeoutCandidate": candidate_identity_to_wire(r.closeoutCandidate),
+        "approvalDigest": digest_to_wire(r.approvalDigest),
+        "allowedCloseoutPatch": content_ref_to_wire(r.allowedCloseoutPatch),
+        "closeoutDiffDigest": digest_to_wire(r.closeoutDiffDigest),
+        "authorityPolicy": content_ref_to_wire(r.authorityPolicy),
+        "revocationSnapshot": content_ref_to_wire(r.revocationSnapshot),
+        "ledgerGrade": r.ledgerGrade,
+        "purpose": r.purpose,
+        "issuedAt": r.issuedAt,
+        "signatures": [approval_signature_to_wire(s) for s in r.signatures],
+    }
+
+
+def verified_task_qualification_to_wire(v) -> dict:
+    """§8.1 VerifiedTaskQualificationV1 wire form for the pure projection."""
+    return {
+        "taskId": v.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(v.preCloseCandidate),
+        "qualification": task_qualification_to_wire(v.qualification),
+        "allowedCloseoutPatch": allowed_closeout_patch_to_wire(
+            v.allowedCloseoutPatch),
+        "authorityPolicy": content_ref_to_wire(v.authorityPolicy),
+        "verificationInstant": v.verificationInstant,
+        "authorityClass": v.authorityClass,
+    }
+
+
+def verified_task_completion_to_wire(v) -> dict:
+    """§8.1 VerifiedTaskCompletionV1 wire form for the pure projection.
+
+    The ``qualification`` field is projected as the full ``TaskQualificationV1``
+    when the verifier embedded it, or as the receipt's
+    ``TaskQualificationRefV1`` when the verifier only had the receipt subject
+    (receipt operations do not carry the qualification object in the bundle
+    per §8.2 role table, so the verifier stores ``None`` for the full object
+    and the receiver rebinds via the receipt's qualification ref). The
+    ``authorityClass`` is the pure verifier's result (``production-content-
+    verified`` or ``fixture-non-authoritative``); the protected adapter never
+    rewrites it.
+    """
+    if v.qualification is not None:
+        qualification_wire = task_qualification_to_wire(v.qualification)
+    else:
+        # Receipt operations: project the receipt's qualification ref so the
+        # pure projection binds the exact (taskId, id, digest) triple the
+        # verifier validated, without inventing a full qualification object.
+        qualification_wire = task_qualification_ref_to_wire(v.receipt.qualification)
+    return {
+        "taskId": v.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(v.preCloseCandidate),
+        "closeoutCandidate": candidate_identity_to_wire(v.closeoutCandidate),
+        "qualification": qualification_wire,
+        "receipt": task_completion_receipt_to_wire(v.receipt),
+        "closeoutDiffDigest": digest_to_wire(v.closeoutDiffDigest),
+        "authorityPolicy": content_ref_to_wire(v.authorityPolicy),
+        "verificationInstant": v.verificationInstant,
+        "authorityClass": v.authorityClass,
+    }
+
+
+def verified_d0_10_bootstrap_approval_to_wire(v) -> dict:
+    """§8.1 VerifiedD0_10BootstrapApprovalV1 wire form for the pure projection."""
+    return {
+        "taskId": v.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(v.preCloseCandidate),
+        "approvalDigest": digest_to_wire(v.approvalDigest),
+        "allowedCloseoutPatch": allowed_closeout_patch_to_wire(
+            v.allowedCloseoutPatch),
+        "authorityPolicy": content_ref_to_wire(v.authorityPolicy),
+        "verificationInstant": v.verificationInstant,
+        "authorityClass": v.authorityClass,
+    }
+
+
+def verified_d0_10_bootstrap_completion_to_wire(v) -> dict:
+    """§8.1 VerifiedD0_10BootstrapCompletionV1 wire form for the pure projection."""
+    return {
+        "taskId": v.taskId,
+        "preCloseCandidate": candidate_identity_to_wire(v.preCloseCandidate),
+        "closeoutCandidate": candidate_identity_to_wire(v.closeoutCandidate),
+        "approvalDigest": digest_to_wire(v.approvalDigest),
+        "receiptDigest": digest_to_wire(v.receiptDigest),
+        "closeoutDiffDigest": digest_to_wire(v.closeoutDiffDigest),
+        "authorityPolicy": content_ref_to_wire(v.authorityPolicy),
+        "verificationInstant": v.verificationInstant,
+        "authorityClass": v.authorityClass,
+    }
+
+
+# ---------------------------------------------------------------------------
 # §8.3 Archive (POSIX.1-1988 ustar) projection
 # ---------------------------------------------------------------------------
 

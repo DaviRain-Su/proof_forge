@@ -482,6 +482,60 @@ def test_negative_non_canonical_subject() -> RedMatrixResult:
     return RedMatrixResult("negative.non_canonical_subject", False, actual)
 
 
+def test_negative_oversized_signature_count() -> RedMatrixResult:
+    """A subject with >256 signatures must reject at signatures stage (§1).
+
+    The parser uses MAX_ARRAY=4096; the §1 signature-specific bound is 3..256.
+    A subject with 257 valid-but-duplicate-role signatures must reject before
+    any curve work rather than silently accepting extra signatures.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Duplicate the 3 fixture signatures to exceed 256. The parser enforces
+    # keyId uniqueness, so we must use distinct keyIds; instead, we inject
+    # 257 signatures by repeating the fixture principal signatures with
+    # synthetic keyIds that are NOT in the fixture policy. The verifier
+    # should reject at signatures stage (keyId not in policy) — but to test
+    # the §1 upper bound specifically, we instead verify the bound check
+    # fires for a count >256. Since the parser rejects duplicate keyIds,
+    # we test the bound by constructing a subject with 257 entries where
+    # every entry has a distinct synthetic keyId, none in the policy. The
+    # verifier's _enforce_signature_bounds runs before per-signature policy
+    # lookup, so the count >256 rejection fires first.
+    import copy
+    base_sigs = list(subject_obj["signatures"])
+    # Pad with synthetic signatures having distinct keyIds not in policy.
+    # The signatures array must still be sorted by keyId (parser enforces).
+    synth_sigs = []
+    for i in range(257):
+        synth_sigs.append({
+            "keyId": f"synth-key-{i:04d}",
+            "algorithm": "ed25519",
+            "signature": "00" * 64,
+        })
+    # Build a sorted combined list: the base sigs + synth sigs, sorted by keyId.
+    all_sigs = base_sigs + synth_sigs
+    all_sigs.sort(key=lambda s: s["keyId"])
+    subject_obj["signatures"] = all_sigs
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.oversized_signature_count", False, actual)
+
+
+def test_negative_unsorted_signature_keyids() -> RedMatrixResult:
+    """A subject with signatures not sorted by keyId must reject (§1)."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Reverse the signature order (parser should catch this, but the
+    # verifier's _enforce_signature_bounds also checks defensively).
+    subject_obj["signatures"] = list(reversed(subject_obj["signatures"]))
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.unsorted_signature_keyids", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -535,6 +589,9 @@ def run_all_tests() -> list:
         test_negative_wrong_schema,
         test_negative_empty_gates,
         test_negative_empty_reviews,
+        # §1 signature bound enforcement (P1-G/P1-H)
+        test_negative_oversized_signature_count,
+        test_negative_unsorted_signature_keyids,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

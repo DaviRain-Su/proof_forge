@@ -142,33 +142,43 @@ def _build_protected_acceptance(
     task_id: str,
     closeout_candidate: CandidateIdentity | None,
 ) -> ProtectedTaskQualificationAcceptanceV1:
-    # Compute the pure projection digest
+    # §8.4 binding checks before any digest/signature work. These enforce
+    # the candidate-external profile↔adapter↔policy↔bundle equality that the
+    # pure verifier alone cannot check (it only sees the bundle).
+    _verify_profile_binding(inp)
+
+    # Compute the pure projection digest.
+    # The pure projection is the PF-JCS of the complete §8.1 Verified record
+    # (not a subset): every field of the pure verifier's result is bound by
+    # SHA-256("pf.taskqual.pure-projection.v1" || NUL || PF-JCS(Verified)).
     pure_verified = inp.pure_verified
-    # The pure projection is the PF-JCS of the verified record
-    # We need to serialize the verified record to PF-JCS
-    # For now, use a simplified projection
     pure_projection = _serialize_pure_projection(pure_verified)
     pure_projection_digest = domain_digest(DOMAIN_PURE_PROJECTION, pure_projection)
 
-    # Compute bundle and subject digests
+    # Compute bundle and subject digests (plain SHA-256 of exact input bytes).
     bundle_digest = plain_sha256_digest(inp.bundle_bytes)
     subject_digest = plain_sha256_digest(inp.subject_bytes)
 
-    # Compute production profile digest
+    # Compute production profile digest under §8.2 profile domain.
     profile_wire = _TQO.production_profile_to_wire(inp.production_profile)
     production_profile_digest = domain_digest(_TQO.DOMAIN_PRODUCTION_PROFILE, profile_wire)
 
-    # Compute production profile pin ref
-    pin_wire = _TQO.production_profile_pin_to_wire(inp.production_profile_pin)
-    pin_digest = domain_digest(DOMAIN_PROTECTED_ACCEPTANCE, pin_wire)
-    pin_ref = ContentRef(
-        schema=inp.production_profile_pin.schema,
-        id=inp.production_profile_pin.id,
-        version=inp.production_profile_pin.version,
-        digest=pin_digest,
-    )
+    # Compute production profile pin ref under the §8.2 pin domain
+    # (pf.taskqual.production-profile-pin.v1), not the protected-acceptance
+    # domain. The pin has its own accepted full-digest domain; using the
+    # protected-acceptance domain would misbind the pin to the wrong
+    # statement and let a forged pin satisfy docs-check.
+    pin_ref = _TQO.production_profile_pin_content_ref(
+        inp.production_profile_pin)
 
-    # Build the protected acceptance object (unsigned)
+    # §8.4: provenanceRefs must be nonempty and sorted by
+    # (schema, id, version, digest) ASCII ascending, with exact coverage of
+    # clock/store/safe-open Git/archive/review/live-session attestations.
+    provenance_refs_sorted = _normalize_provenance_refs(inp.provenance_refs)
+
+    # Build the protected acceptance object (unsigned), with the §8.4 fixed
+    # field order. The preCloseCandidate/closeoutCandidate use the §1
+    # archiveSha256 spelling that matches the Verified records.
     task_suffix = task_id.lower().replace("task-", "")
     protected_id = f"protected-task-qualification-{operation}-{task_suffix}"
 
@@ -181,17 +191,10 @@ def _build_protected_acceptance(
         "pureProjectionDigest": digest_to_wire(pure_projection_digest),
         "bundleDigest": digest_to_wire(bundle_digest),
         "subjectDigest": digest_to_wire(subject_digest),
-        "preCloseCandidate": {
-            "commit": pure_verified.preCloseCandidate.commit,
-            "treeObjectId": pure_verified.preCloseCandidate.treeObjectId,
-            "archiveSha256": digest_to_wire(pure_verified.preCloseCandidate.archiveDigest),
-        },
+        "preCloseCandidate": _TQO.candidate_identity_to_wire(
+            pure_verified.preCloseCandidate),
         "closeoutCandidate": (
-            {
-                "commit": closeout_candidate.commit,
-                "treeObjectId": closeout_candidate.treeObjectId,
-                "archiveSha256": digest_to_wire(closeout_candidate.archiveDigest),
-            }
+            _TQO.candidate_identity_to_wire(closeout_candidate)
             if closeout_candidate is not None
             else None
         ),
@@ -199,21 +202,26 @@ def _build_protected_acceptance(
         "adapter": _TQO.verifier_identity_to_wire(inp.adapter),
         "productionProfileDigest": digest_to_wire(production_profile_digest),
         "productionProfilePin": content_ref_to_wire(pin_ref),
-        "provenanceRefs": [content_ref_to_wire(r) for r in inp.provenance_refs],
+        "provenanceRefs": [content_ref_to_wire(r) for r in provenance_refs_sorted],
         "signatures": [],
     }
 
-    # Sort provenance refs by (schema, id, version, digest)
-    # (already done by caller, but verify)
-    # Sign the protected acceptance
+    # Sign the protected acceptance. The unsigned statement is the object
+    # with an empty signatures array; domain_digest applies PF-JCS
+    # canonicalization internally, so the signature binds the canonical
+    # bytes (sorted keys, no whitespace) regardless of dict insertion order.
     import bootstrap_task_producers as _BTP
     unsigned = dict(obj)
     unsigned["signatures"] = []
-    statement_digest = domain_digest(DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT, unsigned)
+    statement_digest = domain_digest(
+        DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT, unsigned)
     message = DOMAIN_PROTECTED_ACCEPTANCE_SIGNATURE + b"\x00" + statement_digest.bytes
 
     sigs = []
-    for key_id, seed in sorted(inp.signing_seeds.items()):
+    signing_keys = sorted(
+        ((k, v) for k, v in inp.signing_seeds.items()),
+        key=lambda kv: kv[0])
+    for key_id, seed in signing_keys:
         if key_id not in inp.authority_principals:
             _BTO._reject(f"protected adapter: keyId '{key_id}' not in authority principals")
         sig = _BTP.sign_ed25519(seed, message)
@@ -223,9 +231,14 @@ def _build_protected_acceptance(
             signature=sig,
         ))
 
+    # Signatures must be sorted by keyId (§1). The signing loop already
+    # iterates in keyId order, but enforce uniqueness/sort defensively.
+    sigs.sort(key=lambda s: s.keyId)
+    if len({s.keyId for s in sigs}) != len(sigs):
+        _BTO._reject("protected adapter: duplicate keyId in signatures")
+
     obj["signatures"] = [_TQO.approval_signature_to_wire(s) for s in sigs]
 
-    # Parse to validate
     # Build the final protected acceptance object
     return ProtectedTaskQualificationAcceptanceV1(
         schema=obj["schema"],
@@ -242,71 +255,91 @@ def _build_protected_acceptance(
         adapter=inp.adapter,
         productionProfileDigest=production_profile_digest,
         productionProfilePin=pin_ref,
-        provenanceRefs=inp.provenance_refs,
+        provenanceRefs=tuple(provenance_refs_sorted),
         signatures=tuple(sigs),
     )
 
 
+def _verify_profile_binding(inp: "ProtectedAdapterInput") -> None:
+    """Enforce §8.4 candidate-external profile↔adapter↔policy equality.
+
+    The pure verifier only sees the bundle; it cannot check that the external
+    production profile's adapter matches the protected adapter that will sign
+    the acceptance, or that the profile/pin authorityPolicy matches the
+    bundle's expectedAuthorityPolicy (now carried on the Verified record).
+    These checks close that gap so a swapped adapter or mismatched policy
+    cannot produce an accepted ProtectedTaskQualificationAcceptanceV1.
+    """
+    # §8.4: adapter executable/closure/buildPolicy must equal expectedAdapter
+    # (the adapter embedded in the production profile) field-by-field.
+    profile_adapter = inp.production_profile.adapter
+    if inp.adapter != profile_adapter:
+        _BTO._reject(
+            "protected adapter: adapter != production_profile.adapter "
+            "(executable/closure/buildPolicy/sourceDigest must match)")
+
+    # §8.2: the production profile's expectedAuthorityPolicy must equal the
+    # bundle's expectedAuthorityPolicy, which the pure verifier projected as
+    # Verified*.authorityPolicy. A mismatch would let a profile signed under
+    # a different policy satisfy docs-check via the protected adapter.
+    if inp.production_profile.expectedAuthorityPolicy != inp.pure_verified.authorityPolicy:
+        _BTO._reject(
+            "protected adapter: production_profile.expectedAuthorityPolicy "
+            "!= bundle authorityPolicy")
+
+    # §8.2: the pin's authorityPolicy must equal the profile's
+    # expectedAuthorityPolicy and the pin's profile ref must equal the
+    # recomputed production profile content ref. The pure verifier checks
+    # the bundle's embedded profile; the adapter checks the external pin
+    # against the same profile.
+    if inp.production_profile_pin.authorityPolicy != inp.production_profile.expectedAuthorityPolicy:
+        _BTO._reject(
+            "protected adapter: pin.authorityPolicy != "
+            "production_profile.expectedAuthorityPolicy")
+    expected_profile_ref = _TQO.production_profile_content_ref(
+        inp.production_profile)
+    if inp.production_profile_pin.profile != expected_profile_ref:
+        _BTO._reject(
+            "protected adapter: pin.profile != recomputed "
+            "production_profile content ref")
+
+
+def _normalize_provenance_refs(refs) -> tuple:
+    """§8.4: provenanceRefs must be nonempty, unique, and ASCII-sorted by
+    (schema, id, version, digest). Return the normalized tuple.
+    """
+    if not refs:
+        _BTO._reject("protected adapter: provenanceRefs must be nonempty")
+    normalized = tuple(refs)
+    normalized = tuple(sorted(
+        normalized,
+        key=lambda r: (r.schema, r.id, r.version, r.digest.bytes.hex())))
+    # Uniqueness by (schema, id, version, digest)
+    seen = set()
+    for r in normalized:
+        key = (r.schema, r.id, r.version, r.digest.bytes.hex())
+        if key in seen:
+            _BTO._reject("protected adapter: duplicate provenanceRef")
+        seen.add(key)
+    return normalized
+
+
 def _serialize_pure_projection(verified) -> dict:
-    """Serialize a Verified record to a PF-JCS-serializable dict."""
+    """Serialize a §8.1 Verified record to its complete wire form.
+
+    The projection must include every field of the pure verifier result so
+    that pureProjectionDigest binds the complete verification outcome, not
+    a subset. The wire encoders live in ``task_qualification_objects`` and
+    emit the exact field order/spelling required by SPEC-TASKQUAL-001 §8.1.
+    """
     if isinstance(verified, _TQV.VerifiedTaskQualificationV1):
-        return {
-            "taskId": verified.taskId,
-            "preCloseCandidate": {
-                "commit": verified.preCloseCandidate.commit,
-                "treeObjectId": verified.preCloseCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.preCloseCandidate.archiveDigest),
-            },
-            "authorityClass": verified.authorityClass,
-            "verificationInstant": verified.verificationInstant,
-        }
+        return _TQO.verified_task_qualification_to_wire(verified)
     if isinstance(verified, _TQV.VerifiedTaskCompletionV1):
-        return {
-            "taskId": verified.taskId,
-            "preCloseCandidate": {
-                "commit": verified.preCloseCandidate.commit,
-                "treeObjectId": verified.preCloseCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.preCloseCandidate.archiveDigest),
-            },
-            "closeoutCandidate": {
-                "commit": verified.closeoutCandidate.commit,
-                "treeObjectId": verified.closeoutCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.closeoutCandidate.archiveDigest),
-            },
-            "authorityClass": verified.authorityClass,
-            "verificationInstant": verified.verificationInstant,
-        }
+        return _TQO.verified_task_completion_to_wire(verified)
     if isinstance(verified, _TQV.VerifiedD0_10BootstrapApprovalV1):
-        return {
-            "taskId": verified.taskId,
-            "preCloseCandidate": {
-                "commit": verified.preCloseCandidate.commit,
-                "treeObjectId": verified.preCloseCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.preCloseCandidate.archiveDigest),
-            },
-            "approvalDigest": digest_to_wire(verified.approvalDigest),
-            "authorityClass": verified.authorityClass,
-            "verificationInstant": verified.verificationInstant,
-        }
+        return _TQO.verified_d0_10_bootstrap_approval_to_wire(verified)
     if isinstance(verified, _TQV.VerifiedD0_10BootstrapCompletionV1):
-        return {
-            "taskId": verified.taskId,
-            "preCloseCandidate": {
-                "commit": verified.preCloseCandidate.commit,
-                "treeObjectId": verified.preCloseCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.preCloseCandidate.archiveDigest),
-            },
-            "closeoutCandidate": {
-                "commit": verified.closeoutCandidate.commit,
-                "treeObjectId": verified.closeoutCandidate.treeObjectId,
-                "archiveSha256": digest_to_wire(verified.closeoutCandidate.archiveDigest),
-            },
-            "approvalDigest": digest_to_wire(verified.approvalDigest),
-            "receiptDigest": digest_to_wire(verified.receiptDigest),
-            "closeoutDiffDigest": digest_to_wire(verified.closeoutDiffDigest),
-            "authorityClass": verified.authorityClass,
-            "verificationInstant": verified.verificationInstant,
-        }
+        return _TQO.verified_d0_10_bootstrap_completion_to_wire(verified)
     _BTO._reject("protected adapter: unknown verified type")
 
 
