@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 2012,
+      "bytes": 2060,
       "path": "ProofForgeV2.lean",
-      "sha256": "02ae362b6b8dbfe2a35db7a161bb6e7fa28836a8f958682c98d9b790fa495fbb"
+      "sha256": "7ea033b2afef63bcd4c1605eaa0d4e74bb4b2cd758dba3d5b86de29f0e1f1cce"
     },
     {
       "bytes": 8869,
@@ -194,6 +194,11 @@
       "bytes": 2151,
       "path": "ProofForgeV2/Source/AstSpineDeclCodecV1.lean",
       "sha256": "62088c0f045cd2f1c9a83e75601717d9c7ca651364964fcb5e9783dfc222c1d9"
+    },
+    {
+      "bytes": 6838,
+      "path": "ProofForgeV2/Source/AstSpineDeclDecodeV1.lean",
+      "sha256": "229ab4728b01902a0391a1dda57384ef4be768d2cd83c7caac85baff84c47172"
     },
     {
       "bytes": 1206,
