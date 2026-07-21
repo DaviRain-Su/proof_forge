@@ -732,17 +732,19 @@ def _verify_review_members(
     reviews: tuple,
     bundle_impl_invocation: str,
     signing_principal_ids: set,
+    pre_close_commit: str,
     where: str,
 ) -> None:
-    """Verify review report members per §2.
+    """Verify review report members per §2 and §8.3.
 
     Checks:
     - Each review member exists and has correct digest.
     - reviewerId matches the subject ref.
     - invocationId differs from bundle's implementationInvocationId.
     - invocationId is unique across all reviews.
-    - reviewerId is not among the signing principal IDs (§2: "reviewerId
-      不得是 authorization signer principalId").
+    - reviewerId is not among the signing principal IDs.
+    - reviewCommit equals the subject's preCloseCandidate.commit.
+    - The raw review report bytes pass the §8.3 P0/P1 parser.
     """
     seen_invocation_ids = set()
     for review in reviews:
@@ -753,12 +755,8 @@ def _verify_review_members(
         if not isinstance(member, _TQO.ReviewMemberV1):
             _BTO._reject(f"{where}: {role} must be review")
         raw_bytes = bytes.fromhex(member.bytesHex)
-        # Recompute the review report digest
-        import hashlib
-        computed = _TQO.Digest(
-            algorithm="sha256",
-            bytes=hashlib.sha256(_TQO.DOMAIN_REVIEW_REPORT + b"\x00" + raw_bytes).digest(),
-        )
+        # Recompute the review report digest under §8.3 raw domain
+        computed = _TQO.domain_digest_raw(_TQO.DOMAIN_REVIEW_REPORT, raw_bytes)
         if computed.bytes != review.reportDigest.bytes:
             _BTO._reject(f"{where}: {role} report digest mismatch")
         # Verify reviewerId matches
@@ -774,6 +772,38 @@ def _verify_review_members(
         # Verify reviewerId is not a signing principal
         if review.reviewerId in signing_principal_ids:
             _BTO._reject(f"{where}: {role} reviewerId must not be a signing principal")
+        # §2: reviewCommit must equal the subject's preCloseCandidate.commit
+        if review.reviewCommit != pre_close_commit:
+            _BTO._reject(
+                f"{where}: {role} reviewCommit must equal preCloseCandidate.commit")
+        # §8.3: run the P0/P1 parser on the raw review report bytes
+        _parse_review_report_for_findings(raw_bytes, f"{where}: {role}")
+
+
+def _parse_review_report_for_findings(raw_bytes: bytes, where: str) -> None:
+    """§8.3 bounded P0/P1 parser on review report raw bytes.
+
+    Rejects if the report contains:
+    - Invalid UTF-8 (review reports must be UTF-8 text)
+    - ASCII case-sensitive line starting with "Severity: P0" or "Severity: P1"
+    - ASCII case-sensitive line starting with "P0:" or "P1:"
+    - Case-insensitive whole-word "unresolved"
+
+    The spec says we must not trust a summary field; we scan the raw bytes.
+    """
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        _BTO._reject(f"{where}: review report is not valid UTF-8")
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("Severity: P0") or stripped.startswith("Severity: P1"):
+            _BTO._reject(f"{where}: review report contains P0/P1 severity line")
+        if stripped.startswith("P0:") or stripped.startswith("P1:"):
+            _BTO._reject(f"{where}: review report contains P0/P1 finding prefix")
+    import re
+    if re.search(r"\bunresolved\b", text, re.IGNORECASE):
+        _BTO._reject(f"{where}: review report contains 'unresolved'")
 
 
 # ---------------------------------------------------------------------------
@@ -1194,7 +1224,7 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
             signing_principal_ids = {p.principalId for p in policy_obj.principals}
         else:
             signing_principal_ids = {p.principalId for p in policy_obj.principals}
-        _verify_review_members(member_map, qualification.independentReviews, bundle.implementationInvocationId, signing_principal_ids, "reviews")
+        _verify_review_members(member_map, qualification.independentReviews, bundle.implementationInvocationId, signing_principal_ids, qualification.preCloseCandidate.commit, "reviews")
     except Rejected as r:
         return _reject_stage("reviews", r.detail)
 
@@ -1471,7 +1501,7 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
             signing_principal_ids = {p.principalId for p in policy_obj.principals}
         else:
             signing_principal_ids = {p.principalId for p in policy_obj.principals}
-        _verify_review_members(member_map, approval.independentReviews, bundle.implementationInvocationId, signing_principal_ids, "reviews")
+        _verify_review_members(member_map, approval.independentReviews, bundle.implementationInvocationId, signing_principal_ids, approval.preCloseCandidate.commit, "reviews")
     except Rejected as r:
         return _reject_stage("reviews", r.detail)
 

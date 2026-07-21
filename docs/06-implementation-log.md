@@ -7408,3 +7408,51 @@ normative: false
   adapter↔profile↔policy↔bundle 的确定性等式，但不验证外部 authority store / trusted clock /
   live session provenance（仍由 ceremony caller 提供）。
 - Next：独立复审 binding enforcement 与 signature bounds；准备 production closeout ceremony。
+
+## 2026-07-22 — TASK-D0-10 slice 2：P0-4 §8.3 review-report P0/P1 parser + P0-5 reviewCommit equality
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.3（independent review projection：raw report 必须不含
+  未解决 P0/P1 findings）与 §5（reviewCommit 必须等于 subject 的 preCloseCandidate.commit）；
+  `TST-DOC-001`（closed parser/verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 review 成员检查）：
+  - P0-4（review report P0/P1 parser 从未运行）：verifier 在 `_verify_review_members` 里
+    检查 role/keyId/content/reviewCommit/signatures，但从不解析 raw review report bytes 来
+    拒绝含未解决 P0/P1 finding 的报告。spec §8.3 明确要求 verifier 必须运行 P0/P1 parser。
+  - P0-5（reviewCommit equality 从未检查）：§5 与 §8.3 要求 `review.reviewCommit` 等于
+    subject 的 `preCloseCandidate.commit`。verifier 之前不校验该等式，允许 reviewCommit 与
+    被评审的 commit 不一致。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_parse_review_report_for_findings(raw_bytes, where)`：UTF-8 解码 raw report
+      bytes（失败即 reject），扫描 `Severity: P0`/`Severity: P1`、`P0:`/`P1:` 前缀
+      （case-insensitive）、`unresolved` 关键字（case-insensitive），命中任一即 reject。
+    - `_verify_review_members` 新增 `pre_close_commit` 形参：在签名检查前断言
+      `review.reviewCommit == pre_close_commit`，否则 reject；随后对 raw report bytes
+      运行 `_parse_review_report_for_findings`。
+    - 更新两个 caller：`verify_task_qualification_v1` 与 `verify_d0_10_bootstrap_v1`，
+      分别传入 `qualification.preCloseCandidate.commit` 与 `approval.preCloseCandidate.commit`。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 4 个 RED test：
+    `review_commit_mismatch`（mutate reviewCommit 后用 `_TQFB._sign_subject` 重签，
+      使 verifier 走到 reviews stage 再 reject）、`review_report_p0_severity`（report 含
+      `Severity: P0`）、`review_report_p1_prefix`（report 含 `P1:` 前缀）、
+    `review_report_unresolved`（report 含 `unresolved`）。四个 test 均先确认 RED
+    （expected=reject, actual=pass），实现后转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 40/40 passed
+  （slice 1 的 36 个 + slice 2 的 4 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：reviewCommit 等式在签名检查前断言，mismatch 一律 fail closed。P0/P1 parser
+  在 raw bytes 上运行，UTF-8 解码失败或命中 P0/P1/unresolved 一律 reject。reviewCommit RED
+  test 通过 `_TQFB._sign_subject` 重签被篡改 subject，确保 verifier 抵达 reviews stage
+  （不会因签名失败提前 reject，造成 test theater）。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for reviewCommit equality + P0/P1 parser。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变（eligible Stage-0 host、
+  独立复审、Architecture/Quality/Security 实际签名、closeout commit D、外部
+  D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1）。P0/P1 parser 是 keyword scan，
+  不做完整 AST 解析；对伪装为同义但不含上述 keyword 的文本不生效（spec §8.3 当前定义的
+  detection surface 即此）。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 或 P0-3 dependency
+  three-piece set enforcement），仍按 RED-first 协议。

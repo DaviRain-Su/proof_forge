@@ -536,6 +536,93 @@ def test_negative_unsorted_signature_keyids() -> RedMatrixResult:
     return RedMatrixResult("negative.unsorted_signature_keyids", False, actual)
 
 
+def test_negative_review_commit_mismatch() -> RedMatrixResult:
+    """§2: reviewCommit must equal the subject's preCloseCandidate.commit.
+
+    A review whose reviewCommit points to a different commit than the
+    subject's preCloseCandidate must reject at the reviews stage. The
+    subject is re-signed after mutation so signature verification passes
+    and the verifier reaches the reviews stage where the reviewCommit
+    equality check must fire.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the review's reviewCommit to a different commit and re-sign
+    # so the verifier reaches the reviews stage.
+    subject_obj["independentReviews"][0]["reviewCommit"] = "f1" + "0" * 38
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.review_commit_mismatch", False, actual)
+
+
+def _build_review_p01_test(name: str, bad_report: bytes) -> RedMatrixResult:
+    """Helper: inject a bad review report into the bundle, update the subject
+    ref's reportDigest to match, re-sign the subject, and run the verifier.
+
+    The verifier should reject at the reviews stage because the §8.3 P0/P1
+    parser finds a finding in the raw report bytes. The subject is re-signed
+    so signature verification passes and the verifier reaches the reviews
+    stage where the P0/P1 parser runs.
+
+    The member role uses the raw 64-char hex of the report digest (not the
+    `sha256:` wire form) to match the verifier's role construction.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    import hashlib
+    bad_digest = hashlib.sha256(
+        _TQO.DOMAIN_REVIEW_REPORT + b"\x00" + bad_report).digest()
+    bad_digest_hex = bad_digest.hex()
+    reviewer_id = subject_obj["independentReviews"][0]["reviewerId"]
+    # Subject ref uses the wire form sha256:<hex>; member role uses raw hex.
+    subject_obj["independentReviews"][0]["reportDigest"] = f"sha256:{bad_digest_hex}"
+    for m in bundle_obj["members"]:
+        if m.get("role", "").startswith("review-report/"):
+            m["role"] = f"review-report/{reviewer_id}/{bad_digest_hex}"
+            m["reviewerId"] = reviewer_id
+            m["reportDigest"] = f"sha256:{bad_digest_hex}"
+            m["bytesHex"] = bad_report.hex()
+            break
+    # Re-sign the subject so signature verification passes and the verifier
+    # reaches the reviews stage where the P0/P1 parser runs.
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(name, False, actual)
+
+
+def test_negative_review_report_p0_severity() -> RedMatrixResult:
+    """§8.3: review report containing 'Severity: P0' must reject."""
+    return _build_review_p01_test(
+        "negative.review_report_p0_severity",
+        b"# Review\n\nSeverity: P0\nsomething\n")
+
+
+def test_negative_review_report_p1_prefix() -> RedMatrixResult:
+    """§8.3: review report containing a 'P1:' line must reject."""
+    return _build_review_p01_test(
+        "negative.review_report_p1_prefix",
+        b"# Review\n\nP1: something is wrong\n")
+
+
+def test_negative_review_report_unresolved() -> RedMatrixResult:
+    """§8.3: review report containing 'unresolved' (case-insensitive) must reject."""
+    return _build_review_p01_test(
+        "negative.review_report_unresolved",
+        b"# Review\n\nThere is an Unresolved issue here.\n")
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -592,6 +679,11 @@ def run_all_tests() -> list:
         # §1 signature bound enforcement (P1-G/P1-H)
         test_negative_oversized_signature_count,
         test_negative_unsorted_signature_keyids,
+        # §2 reviewCommit equality + §8.3 P0/P1 parser (P0-5/P0-4)
+        test_negative_review_commit_mismatch,
+        test_negative_review_report_p0_severity,
+        test_negative_review_report_p1_prefix,
+        test_negative_review_report_unresolved,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,
