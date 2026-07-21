@@ -846,6 +846,55 @@ def test_negative_forbidden_allowed_path() -> RedMatrixResult:
     return RedMatrixResult("negative.forbidden_allowed_path", False, actual)
 
 
+def test_negative_freeze_package_digest_mismatch() -> RedMatrixResult:
+    """§3/§8.2: qualification.freezePackage.digest must equal the digest
+    recomputed from the freeze-package-source member bytes under
+    pf.task-freeze-package-source.v1.
+
+    The verifier currently parses the freeze-package-source member and
+    recomputes its digest (via _resolve_raw_member) but never joins it to
+    qualification.freezePackage. A subject whose freezePackage.digest does
+    not match the member bytes must reject. The subject is re-signed so
+    signature verification passes and the verifier reaches the documents
+    stage where the join check fires.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt the subject's freezePackage.digest to a different value.
+    subject_obj["freezePackage"]["digest"] = "sha256:" + "cd" * 32
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.freeze_package_digest_mismatch", False, actual)
+
+
+def test_negative_d0_10_freeze_package_digest_mismatch() -> RedMatrixResult:
+    """§3/§8.2: D0-10 approval.freezePackage.digest must equal the digest
+    recomputed from the freeze-package-source member bytes.
+
+    Same as the qualification variant but for the D0-10 bootstrap approval
+    path. The subject is re-signed so the verifier reaches the documents
+    stage where the join check fires.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["freezePackage"]["digest"] = "sha256:" + "cd" * 32
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_freeze_package_digest_mismatch", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -918,6 +967,9 @@ def run_all_tests() -> list:
         test_negative_d0_10_gate_testids_union_mismatch,
         # §5 allowedCloseoutPatch.allowedPaths content restrictions (P1-11)
         test_negative_forbidden_allowed_path,
+        # §3/§8.2 freezePackage digest join (P1-1)
+        test_negative_freeze_package_digest_mismatch,
+        test_negative_d0_10_freeze_package_digest_mismatch,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

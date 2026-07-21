@@ -7626,3 +7626,46 @@ normative: false
   的 path 一致性（P0-6 范畴）。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
   或 P0-3 dependency three-piece set enforcement with fixture），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 7：P1-1 freezePackage digest join to freeze-package-source member
+
+- Spec/Test：`SPEC-TASKQUAL-001` §3（`TaskFreezePackageRefV1 { taskId, digest: Digest }`，
+  `SHA-256("pf.task-freeze-package-source.v1" || NUL || raw repository bytes)`，
+  taskId 与 package exact）与 §8.2（每个 ContentRef/ ref 必须 resolve 到恰好一个 member
+  并按其 authority 重算 digest）；`TST-DOC-001`（closed verifier coverage for every wire
+  object）。
+- Findings（来自独立复审，针对 verifier 的 documents stage）：
+  - P1-1（freezePackage digest 未 join 到 member）：`_verify_freeze_package_source` 通过
+    `_resolve_raw_member` 在 `DOMAIN_TASK_FREEZE_PACKAGE_SOURCE` 下重算 freeze-package-source
+    member 的 digest，但从不将其 join 到 `qualification.freezePackage` / `approval.freezePackage`。
+    一个 subject 的 `freezePackage.digest` 与 member bytes 不一致时，verifier 会接受。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_task_qualification` 的 documents stage：在 `_verify_freeze_package_source`
+      返回 raw bytes 后，重算 `domain_digest_raw(DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, bytes)`，
+      断言 `recomputed == qualification.freezePackage.digest` 且
+      `qualification.freezePackage.taskId == qualification.taskId`。
+    - `_verify_d0_10_approval` 的 documents stage：同样 join 到 `approval.freezePackage`，
+      断言 digest 与 taskId（`approval.freezePackage.taskId == approval.taskId`）。D0-10
+      approval 此前未调用 `_verify_freeze_package_source`，本 slice 补上。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    `freeze_package_digest_mismatch`（qualification：corrupt subject `freezePackage.digest`
+      为 `sha256:cd*32`，重签 subject）、`d0_10_freeze_package_digest_mismatch`（D0-10
+      approval 同样操作）。两个 test 均先确认 RED（expected=reject, actual=pass），实现后
+    转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 49/49 passed
+  （slice 6 的 47 个 + slice 7 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：freezePackage digest 在 documents stage 从 freeze-package-source member
+  bytes 重算并与 subject 的 `freezePackage.digest` exact join；taskId 也必须与 subject
+  taskId 一致。mismatch 一律 fail closed。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for freezePackage digest join。不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只 join
+  digest 与 taskId；freeze package JSON 内部结构（`inScope`/`outOfScope`/`doneWhen` 等）
+  的逐字段校验不在本 slice 范围（spec §3 要求 repository path 固定 + raw digest，不要求
+  verifier 解析 JSON 内部）。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
+  或 P0-3 dependency three-piece set enforcement with fixture），仍按 RED-first 协议。

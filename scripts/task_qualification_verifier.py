@@ -1261,6 +1261,18 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
         phase4_bytes = _verify_phase4_source(member_map, profile, "documents")
         phase5_bytes = _verify_phase5_source(member_map, profile, "documents")
         freeze_bytes = _verify_freeze_package_source(member_map, "documents")
+        # §3/§8.2: join the recomputed freeze-package digest to the
+        # qualification.freezePackage ref. taskId and digest must match.
+        freeze_ref = qualification.freezePackage
+        computed_freeze = _TQO.domain_digest_raw(
+            _TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes)
+        if computed_freeze.bytes != freeze_ref.digest.bytes:
+            _BTO._reject(
+                "documents: freezePackage.digest does not recompute from "
+                "freeze-package-source member")
+        if freeze_ref.taskId != qualification.taskId:
+            _BTO._reject(
+                "documents: freezePackage.taskId must equal qualification.taskId")
     except Rejected as r:
         return _reject_stage("documents", r.detail)
 
@@ -1529,6 +1541,19 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         phase5_bytes = _verify_phase5_source(member_map, profile, "documents")
         # ruling-source
         ruling_bytes, ruling_ref = _resolve_raw_member(member_map, "ruling-source", "documents")
+        # §3/§8.2: join the recomputed freeze-package digest to the
+        # approval.freezePackage ref. taskId and digest must match.
+        freeze_bytes = _verify_freeze_package_source(member_map, "documents")
+        freeze_ref = approval.freezePackage
+        computed_freeze = _TQO.domain_digest_raw(
+            _TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes)
+        if computed_freeze.bytes != freeze_ref.digest.bytes:
+            _BTO._reject(
+                "documents: freezePackage.digest does not recompute from "
+                "freeze-package-source member")
+        if freeze_ref.taskId != approval.taskId:
+            _BTO._reject(
+                "documents: freezePackage.taskId must equal approval.taskId")
     except Rejected as r:
         return _reject_stage("documents", r.detail)
 
