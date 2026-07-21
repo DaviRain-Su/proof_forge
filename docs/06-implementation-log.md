@@ -7222,3 +7222,42 @@ normative: false
   export切换、legacy adapter、dual reader或fallback。
 - Next：只读审计`ProgramItemV1` decoder residual并只选择一个最小切片；审计完成前不冻结新slice，也不得
   由checkpoint自动递增或提前切换shared DSL/export v2。完整root decoder前继续禁止shared DSL/export cutover。
+
+## 2026-07-21 TASK-D0-10 pure verifier + RED matrix + protected adapter (in_progress)
+
+- Context：`TASK-D0-10`（in_progress；冻结包不变；pure verifier/protected adapter/one-time bridge）
+  的fixture-path实现。本条记录的是fixture-path RED→GREEN开发证据，不是正式closeout。
+  正式closeout需要eligible Stage-0 host、独立复审和正式签名，尚未完成。
+- Authority：本切片实现 `SPEC-TASKQUAL-001` §8.1 pure content verifier、§8.2 content bundle/profile、
+  §8.3 archive/Git projection、§8.4 protected production adapter。所有对象类型、digest domain、
+  签名域和15-stage pipeline按规格实现。fixture使用RFC 8032 §7.1 test vectors #1-#4。
+- Changed：
+  - `scripts/task_qualification_objects.py`（~2320行）：closed wire object authority for all
+    SPEC-TASKQUAL-001 §2-§8 object types。包括CandidateIdentity、ContentRef、TaskQualificationV1、
+    TaskCompletionReceiptV1、D0_10BootstrapApprovalV1、D0_10BootstrapReceiptV1、
+    GovernanceBootstrapCompletionV1、FixturePolicyV1、FixtureResolvedBlobV1、content bundle和
+    verification profiles。ustar archive parser、Git SHA-1 blob/tree/commit recompute、ancestry graph。
+  - `scripts/task_qualification_verifier.py`（~1320行）：pure content verifier implementing
+    the four §8.1 verify_* functions with the fixed 15-stage pipeline。
+  - `scripts/task_qualification_fixture_builder.py`（~1970行）：legal fixture chain builder
+    for all 4 operations (task-qualification, task-completion, d0-10-bootstrap-approval,
+    d0-10-bootstrap-receipt)。
+  - `scripts/task_qualification_red_matrix_self_test.py`（~370行）：TST-DOC-001/task-
+    qualification-v1 RED matrix with 30 test cases (4 positive, 26 negative)。
+  - `scripts/task_qualification_protected_adapter.py`（~350行）：protected production adapter
+    implementing §8.4 ProtectedTaskQualificationAcceptanceV1。
+- Tests：30/30 RED matrix tests pass。覆盖signature、member、candidate、profile、bounds、
+  canonicalization、closeout file set、D0-07 bridge、D0-10 approval/receipt invariants。
+  Pure verifier returns fixture-non-authoritative for fixture chains。
+- Verification：`python3 scripts/task_qualification_red_matrix_self_test.py` → 30/30 passed。
+  Git tree SHA-1 computation verified against real git repo。RFC 8032 test vector seeds
+  verified against project pure-Python Ed25519 implementation。
+- Evidence：development evidence for fixture-path implementation。不是正式closeout evidence。
+- Limitations：本证据不能关闭TASK-D0-10。正式closeout需要：(1) eligible Stage-0 host for
+  production closeout；(2) independent implementation review from separate session；
+  (3) actual Architecture+Quality+Security authorization signatures (not test vectors)；
+  (4) actual closeout commit D with candidate-owned bootstrap-approval.json；
+  (5) external D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1；
+  (6) docs-check integration尚未完成。fixture path返回fixture-non-authoritative，
+  不能产生Ledger bootstrap/formal、GovernanceBootstrapCompletion、docs acceptance或task closeout。
+- Next：完成docs-check integration；进行独立复审；准备production closeout ceremony。
