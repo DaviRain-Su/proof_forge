@@ -7456,3 +7456,57 @@ normative: false
   detection surface 即此）。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 或 P0-3 dependency
   three-piece set enforcement），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 3：P0-2 gate-control typed member digest recompute
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2（每个 ContentRef 必须 resolve 到恰好一个 member，
+  按其 typed authority 重算 schema/id/version/digest；禁止未引用 member、跨 role bytes alias）；
+  `TST-DOC-001`（closed parser/verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 gate-control 与 revocation-snapshot 检查）：
+  - P0-2（gate-control typed member digest 未重算）：`_verify_gate_controls` 对
+    gate-keyed controls（`eligible-stage0-handoff`、`session-containment`、`freshness`、
+    `private-scan`）与 bundle-level singleton `revocation-snapshot` 只检查
+    `member.content != ref`，不从 `bytesHex` 重算 digest。一个 member 携带 stale
+    `content.digest` 但 bytesHex 解码到不同 digest 时，verifier 会接受。`_resolve_typed_member`
+    同样只检查 `member.content != ref`（dead code，但同样含 stale-trust）。
+    注：`allowed-closeout-patch`、`command-policy/*`、`authority-policy`、`closeout-file-set`
+    路径已在此前 slice 重算，本 slice 只补 gate-control 与 revocation-snapshot。
+- Changed：
+  - `scripts/task_qualification_objects.py`：
+    - 新增 `_TYPED_CONTENT_SCHEMA_DOMAINS` mapping（`FIXTURE_POLICY_SCHEMA`→
+      `DOMAIN_FIXTURE_POLICY`，`FIXTURE_RESOLVED_BLOB_SCHEMA`→`DOMAIN_FIXTURE_RESOLVED_BLOB`）。
+    - 新增 `recompute_typed_content_ref(schema, obj)`：按 schema 选 domain，从 decoded
+      wire object 的 `id`/`version` 与 domain digest 重算 `ContentRef`。未知 schema 或
+      缺 id/version 即 `_reject`。
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_verify_typed_member_recompute(member, ref, where)`：decode `bytesHex`，
+      `recompute_typed_content_ref` 重算，断言 `recomputed == member.content == ref`。
+    - `_verify_gate_controls` 对 4 个 gate-keyed controls 与 `revocation-snapshot` 调用
+      `_verify_typed_member_recompute` 替代原先的 `member.content != ref`。
+    - `_resolve_typed_member`（dead code）同步改为重算路径，避免未来误用时 stale-trust。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    `typed_member_bytes_digest_mismatch`（corrupt `eligible-stage0-handoff/<gateId>`
+      bytesHex，保持 member.content 与 subject gate ref 不变）、
+    `gate_control_bytes_digest_mismatch`（corrupt `revocation-snapshot` bytesHex，
+      保持 member.content 与 gate.revocationSnapshot 不变）。两个 test 均先确认 RED
+    （expected=reject, actual=pass），实现后转 GREEN。corruption 在 bytesHex 中段翻转
+    一个 hex nibble（`0x30-0x39`/`0x61-0x66` 范围内 XOR `0x02`），确保仍为合法 PF-JCS
+    但 digest 不同。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 42/42 passed
+  （slice 2 的 40 个 + slice 3 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：gate-control 与 revocation-snapshot 的 `bytesHex` 在 decode 后按
+  `DOMAIN_FIXTURE_RESOLVED_BLOB` 重算 digest，与 `member.content` 与 subject ref 三方
+  相等才通过。stale `content.digest` 或篡改 bytes 一律 fail closed。所有 fixture chain
+  仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for gate-control typed member digest recompute。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。schema→domain mapping
+  当前只覆盖 fixture resolved blob 与 fixture policy；production gate-control schema
+  （subject/external profile 声明的既有 ContentRef schema）将在 production profile 落地时
+  补全。P0-3 dependency three-piece set enforcement 延后至单独 slice（需要构建带 dependency
+  的 fixture chain 才能写 RED test）。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 或 P0-3 dependency
+  three-piece set enforcement with fixture），仍按 RED-first 协议。

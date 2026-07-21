@@ -408,10 +408,35 @@ def _verify_member_role_set(
             _BTO._reject(f"{where}: role '{role}' is not a valid singleton or family member for operation '{operation}'")
 
 
+def _verify_typed_member_recompute(member, ref: ContentRef, where: str) -> None:
+    """Verify a typed-content member's content ref by recomputing from bytes.
+
+    Per §8.2, the verifier must not trust a stale member.content.digest. It
+    decodes the member's bytesHex, recomputes the ContentRef under the
+    schema's domain via _TQO.recompute_typed_content_ref, and asserts:
+
+      recomputed_ref == member.content == ref
+
+    Any disagreement is a `members` rejection.
+    """
+    raw_bytes = bytes.fromhex(member.bytesHex)
+    try:
+        obj = decode_canonical_pf_jcs(raw_bytes)
+    except Exception as exc:
+        _BTO._reject(f"{where}: decode failed: {exc}")
+    recomputed = _TQO.recompute_typed_content_ref(member.content.schema, obj)
+    if recomputed != member.content:
+        _BTO._reject(f"{where}: bytesHex does not recompute to member.content")
+    if member.content != ref:
+        _BTO._reject(f"{where}: content ref mismatch")
+
+
 def _resolve_typed_member(member_map: dict, role: str, ref: ContentRef, where: str) -> tuple:
     """Resolve a typed-content member to (decoded_obj, content_ref, bytes).
 
-    Returns the decoded object bytes, the recomputed ContentRef, and the raw bytes.
+    Recomputes the ContentRef from the member's bytesHex under the schema's
+    domain and asserts recomputed == member.content == ref. Returns the
+    decoded object, the recomputed ContentRef, and the raw bytes.
     """
     if role not in member_map:
         _BTO._reject(f"{where}: member '{role}' missing")
@@ -419,14 +444,13 @@ def _resolve_typed_member(member_map: dict, role: str, ref: ContentRef, where: s
     if not isinstance(member, _TQO.TypedContentMemberV1):
         _BTO._reject(f"{where}: member '{role}' must be typed-content")
     raw_bytes = bytes.fromhex(member.bytesHex)
-    # Recompute the content ref from the decoded bytes
     try:
         obj = decode_canonical_pf_jcs(raw_bytes)
     except Exception as exc:
         _BTO._reject(f"{where}: member '{role}' decode failed: {exc}")
-    # The schema/id/version come from the member's content ref, but the digest
-    # is recomputed from the decoded bytes using the schema's domain.
-    # For now, we trust the member's content ref and verify it matches the expected ref.
+    recomputed = _TQO.recompute_typed_content_ref(member.content.schema, obj)
+    if recomputed != member.content:
+        _BTO._reject(f"{where}: member '{role}' bytesHex does not recompute to member.content")
     if member.content != ref:
         _BTO._reject(f"{where}: member '{role}' content ref mismatch")
     return (obj, member.content, raw_bytes)
@@ -823,6 +847,10 @@ def _verify_gate_controls(
     host-observation, host-profile, command-policy, resolved-tool, resolved-probe,
     sandbox-policy, verifier-executable, verifier-closure, verifier-build-policy.
     The revocation-snapshot is a bundle-level singleton, not gate-keyed.
+
+    Per §8.2, every typed-content member's content ref must be recomputed from
+    its bytesHex under the schema's domain; the verifier must not trust a
+    stale member.content.digest.
     """
     # Gate-keyed controls
     gate_keyed_controls = [
@@ -838,8 +866,7 @@ def _verify_gate_controls(
             _BTO._reject(f"{where}: {role} member missing")
         if not isinstance(member, _TQO.TypedContentMemberV1):
             _BTO._reject(f"{where}: {role} must be typed-content")
-        if member.content != ref:
-            _BTO._reject(f"{where}: {role} content ref mismatch")
+        _verify_typed_member_recompute(member, ref, f"{where}: {role}")
 
     # Revocation snapshot is a bundle-level singleton (not gate-keyed)
     revocation_member = member_map.get("revocation-snapshot")
@@ -847,8 +874,9 @@ def _verify_gate_controls(
         _BTO._reject(f"{where}: revocation-snapshot singleton member missing")
     if not isinstance(revocation_member, _TQO.TypedContentMemberV1):
         _BTO._reject(f"{where}: revocation-snapshot must be typed-content")
-    if revocation_member.content != gate.revocationSnapshot:
-        _BTO._reject(f"{where}: revocation-snapshot content ref mismatch")
+    _verify_typed_member_recompute(
+        revocation_member, gate.revocationSnapshot,
+        f"{where}: revocation-snapshot")
 
 
 # ---------------------------------------------------------------------------

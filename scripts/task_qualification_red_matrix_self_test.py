@@ -623,6 +623,73 @@ def test_negative_review_report_unresolved() -> RedMatrixResult:
         b"# Review\n\nThere is an Unresolved issue here.\n")
 
 
+def _build_typed_member_corrupt_test(name: str, role_prefix: str) -> RedMatrixResult:
+    """Helper: corrupt a typed-content member's bytesHex while keeping its
+    content ref (and the subject ref) unchanged. The verifier must recompute
+    the digest from the bytes and reject the mismatch.
+
+    Currently the verifier only checks `member.content != ref`, which stays
+    equal, so this passes (the bug). After the fix it must reject.
+
+    The corruption flips a single byte in the middle of the bytesHex so that
+    the bytes still decode as valid PF-JCS but produce a different digest.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    for m in bundle_obj["members"]:
+        if m.get("role", "").startswith(role_prefix):
+            corrupted = bytearray(bytes.fromhex(m["bytesHex"]))
+            # Flip a byte in the middle of the payload. The fixture resolved
+            # blob wire ends in a lowercase hex payloadSha256; flipping the
+            # case bit of a hex letter keeps it valid lowercase hex (a-f ->
+            # A-F is invalid, so instead we XOR a bit that maps 0-9 to a
+            # different 0-9 or a-f to a different a-f). The simplest robust
+            # flip: change a nibble by XORing 0x01 when the byte is a hex
+            # digit char (0x30-0x39 or 0x61-0x66).
+            idx = len(corrupted) // 2
+            b = corrupted[idx]
+            if 0x30 <= b <= 0x39 or 0x61 <= b <= 0x66:
+                # Flip the low bit: 0x30<->0x31, 0x61<->0x60 (`a`<->backtick,
+                # invalid). Use 0x02 instead to map a<->c, 0<->2.
+                corrupted[idx] = b ^ 0x02
+            else:
+                # Fall back to flipping the case bit.
+                corrupted[idx] = b ^ 0x20
+            m["bytesHex"] = corrupted.hex()
+            break
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(name, False, actual)
+
+
+def test_negative_typed_member_bytes_digest_mismatch() -> RedMatrixResult:
+    """§8.2: gate-keyed control member bytesHex must recompute to member.content.digest.
+
+    A gate-keyed control (eligible-stage0-handoff) whose bytesHex decodes to
+    a different digest than member.content.digest must reject at the controls
+    stage. The member.content and the subject gate ref are left unchanged, so
+    the current verifier (which only checks member.content != ref) accepts it.
+    After the fix it must recompute and reject.
+    """
+    return _build_typed_member_corrupt_test(
+        "negative.typed_member_bytes_digest_mismatch",
+        "eligible-stage0-handoff/")
+
+
+def test_negative_gate_control_bytes_digest_mismatch() -> RedMatrixResult:
+    """§8.2: revocation-snapshot singleton bytesHex must recompute to member.content.digest.
+
+    The revocation-snapshot is a bundle-level singleton typed-content member.
+    Corrupting its bytesHex while keeping member.content and the gate ref
+    unchanged must reject. The current verifier only checks
+    member.content != ref, so it accepts the corruption.
+    """
+    return _build_typed_member_corrupt_test(
+        "negative.gate_control_bytes_digest_mismatch",
+        "revocation-snapshot")
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -684,6 +751,9 @@ def run_all_tests() -> list:
         test_negative_review_report_p0_severity,
         test_negative_review_report_p1_prefix,
         test_negative_review_report_unresolved,
+        # §8.2 typed-content member digest recompute (P0-2)
+        test_negative_typed_member_bytes_digest_mismatch,
+        test_negative_gate_control_bytes_digest_mismatch,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

@@ -1371,6 +1371,43 @@ FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
 )
 
 
+# Schema -> domain digest mapping for typed-content members.
+# Each typed-content member's bytesHex is the PF-JCS of a wire object whose
+# digest is computed under a schema-specific domain. The verifier recomputes
+# the content ref from the decoded bytes using this mapping so it cannot be
+# fooled by a member that carries a stale content.digest.
+#
+# Entries are added as new typed-content schemas are introduced. An unknown
+# schema is rejected by recompute_typed_content_ref.
+_TYPED_CONTENT_SCHEMA_DOMAINS = {
+    FIXTURE_POLICY_SCHEMA: DOMAIN_FIXTURE_POLICY,
+    FIXTURE_RESOLVED_BLOB_SCHEMA: DOMAIN_FIXTURE_RESOLVED_BLOB,
+}
+
+
+def recompute_typed_content_ref(schema: str, obj: dict) -> ContentRef:
+    """Recompute a ContentRef for a typed-content member from its decoded wire.
+
+    The schema selects the domain; the id and version are read from the
+    decoded object so a member cannot carry a content ref that disagrees
+    with its own bytes. Raises (via _reject) on unknown schema or missing
+    id/version.
+    """
+    if schema not in _TYPED_CONTENT_SCHEMA_DOMAINS:
+        _reject(f"recompute_typed_content_ref: unknown schema '{schema}'")
+    if not isinstance(obj, dict):
+        _reject(f"recompute_typed_content_ref: decoded value must be object")
+    obj_id = obj.get("id")
+    obj_version = obj.get("version")
+    if not isinstance(obj_id, str) or not obj_id:
+        _reject(f"recompute_typed_content_ref: missing id")
+    if not isinstance(obj_version, str) or not obj_version:
+        _reject(f"recompute_typed_content_ref: missing version")
+    domain = _TYPED_CONTENT_SCHEMA_DOMAINS[schema]
+    digest = domain_digest(domain, obj)
+    return ContentRef(schema=schema, id=obj_id, version=obj_version, digest=digest)
+
+
 def _require_ed25519_public_key_hex(value, where):
     if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
         _reject(f"{where}: must be 64 lowercase hex (32-byte Ed25519 public key)")
