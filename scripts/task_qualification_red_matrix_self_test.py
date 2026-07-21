@@ -64,9 +64,21 @@ def _run_completion_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
     return isinstance(result, _TQV.VerifiedTaskCompletionV1)
 
 
-def _make_mutated_chain(chain: _TQFB.FixtureChain) -> tuple:
+def _run_d0_10_approval_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
+    """Run the d0-10-bootstrap-approval verifier and return True if Verified, False if Rejected."""
+    result = _TQV.verify_d0_10_bootstrap_v1(bundle_bytes, subject_bytes)
+    return isinstance(result, _TQV.VerifiedD0_10BootstrapApprovalV1)
+
+
+def _make_mutated_chain(chain) -> tuple:
     """Return (bundle_obj_copy, subject_obj_copy) for mutation."""
-    return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.qualification_obj))
+    if hasattr(chain, "qualification_obj"):
+        return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.qualification_obj))
+    if hasattr(chain, "receipt_obj"):
+        return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.receipt_obj))
+    if hasattr(chain, "approval_obj"):
+        return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.approval_obj))
+    return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.approval_obj))
 
 
 def _canonical_bytes(obj: dict) -> bytes:
@@ -117,6 +129,47 @@ def test_negative_completion_wrong_parent() -> RedMatrixResult:
     subject_bytes = _canonical_bytes(receipt_obj)
     actual = _run_completion_verifier(bundle_bytes, subject_bytes)
     return RedMatrixResult("negative.completion_wrong_parent", False, actual)
+
+
+def test_positive_legal_d0_10_approval() -> RedMatrixResult:
+    """A legal D0-10 bootstrap approval chain should verify successfully."""
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_bytes, subject_bytes = _TQFB.d0_10_approval_chain_to_bytes(chain)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("positive.legal_d0_10_approval", True, actual)
+
+
+def test_negative_d0_10_wrong_signature() -> RedMatrixResult:
+    """A D0-10 approval with a wrong signature should reject."""
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["signatures"][0]["signature"] = "00" * 64
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_wrong_signature", False, actual)
+
+
+def test_negative_d0_10_wrong_task_id() -> RedMatrixResult:
+    """A D0-10 approval with wrong taskId should reject."""
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["taskId"] = "TASK-D0-99"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_wrong_task_id", False, actual)
+
+
+def test_negative_d0_10_wrong_ruling() -> RedMatrixResult:
+    """A D0-10 approval with wrong ruling ID should reject."""
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["ruling"]["id"] = "GOV-WRONG-001"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_wrong_ruling", False, actual)
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +434,11 @@ def run_all_tests() -> list:
         # Completion receipt negative
         test_negative_completion_wrong_signature,
         test_negative_completion_wrong_parent,
+        # D0-10 bootstrap approval
+        test_positive_legal_d0_10_approval,
+        test_negative_d0_10_wrong_signature,
+        test_negative_d0_10_wrong_task_id,
+        test_negative_d0_10_wrong_ruling,
     ]
     results = []
     for test in tests:

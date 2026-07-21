@@ -219,6 +219,7 @@ DOMAIN_PURE_PROJECTION = b"pf.taskqual.pure-projection.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT = b"pf.taskqual.protected-acceptance-statement.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_SIGNATURE = b"pf.taskqual.protected-acceptance-signature.v1"
 DOMAIN_PROTECTED_ACCEPTANCE = b"pf.taskqual.protected-acceptance.v1"
+DOMAIN_DEPENDENCY_OBJECT = b"pf.taskqual.dependency-object.v1"
 
 
 def domain_digest(domain: bytes, value) -> Digest:
@@ -293,11 +294,26 @@ def parse_candidate_identity(obj: dict, where: str) -> CandidateIdentity:
     )
 
 
+def _require_content_ref_id(value, where):
+    """ContentRef.id accepts lowercase profile IDs or uppercase document IDs."""
+    if not isinstance(value, str):
+        _reject(f"{where}: must be string")
+    if len(value) > 127:
+        _reject(f"{where}: exceeds 127 bytes")
+    # Try lowercase profile ID first
+    if PROFILE_ID_RE.fullmatch(value):
+        return value
+    # Try uppercase document ID (ADR-*, SPEC-*, GOV-*, etc.)
+    if re.fullmatch(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*", value):
+        return value
+    _reject(f"{where}: must be lowercase profile ID or uppercase document ID")
+
+
 def parse_content_ref(obj: dict, where: str) -> ContentRef:
     if not isinstance(obj, dict):
         _reject(f"{where}: content ref must be object")
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
-    cid = _require_ascii_text(obj.get("id"), PROFILE_ID_RE, f"{where}.id", 127)
+    cid = _require_content_ref_id(obj.get("id"), f"{where}.id")
     version = _require_semver(obj.get("version"), f"{where}.version")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return ContentRef(schema=schema, id=cid, version=version, digest=digest)
@@ -306,14 +322,19 @@ def parse_content_ref(obj: dict, where: str) -> ContentRef:
 def parse_normative_document_ref(obj: dict, where: str) -> NormativeDocumentRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: normative doc ref must be object")
-    cid = _require_ascii_text(obj.get("id"), PROFILE_ID_RE, f"{where}.id", 127)
+    # Document IDs can be ADR-*, SPEC-*, GOV-* etc. — uppercase + digits + hyphens
+    doc_id = obj.get("id")
+    if not isinstance(doc_id, str) or not re.fullmatch(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*", doc_id):
+        _reject(f"{where}.id: must be uppercase document ID format (e.g. ADR-0020, SPEC-TASKQUAL-001)")
+    if len(doc_id) > 127:
+        _reject(f"{where}.id: exceeds 127 bytes")
     status = obj.get("status")
     if status != "accepted":
         _reject(f"{where}.status: must be 'accepted'")
     content_digest = _require_digest(obj.get("contentDigest"), f"{where}.contentDigest")
     review_commit = _require_git_object(obj.get("reviewCommit"), f"{where}.reviewCommit")
     return NormativeDocumentRefV1(
-        id=cid, status=status, contentDigest=content_digest, reviewCommit=review_commit
+        id=doc_id, status=status, contentDigest=content_digest, reviewCommit=review_commit
     )
 
 

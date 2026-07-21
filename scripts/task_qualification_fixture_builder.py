@@ -1301,3 +1301,479 @@ def completion_receipt_chain_to_bytes(chain: CompletionReceiptChain) -> tuple:
     bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
     subject_bytes = canonical_pf_jcs(chain.receipt_obj)
     return (bundle_bytes, subject_bytes)
+
+
+# ---------------------------------------------------------------------------
+# D0-10 bootstrap approval fixture chain
+# ---------------------------------------------------------------------------
+
+D0_10_TASK_ID = "TASK-D0-10"
+D0_10_TASK_ID_LOWER = "task-d0-10"
+D0_10_GATE_ID = "d0-10-bootstrap-gate"
+D0_10_RULING_ID = "GOV-TASKQUAL-BOOTSTRAP-001"
+D0_10_APPROVAL_ID = "d0-10-bootstrap-approval-d0-10"
+D0_10_RECEIPT_ID = "d0-10-bootstrap-receipt-d0-10"
+D0_10_COMMAND_POLICY_ID = "tst-doc-001.task-qualification-v1"
+
+# D0-07 bridge constants
+D0_07_TASK_ID = "TASK-D0-07"
+D0_07_RULING_ID = "GOV-D0CLOSE-001"
+D0_07_SOURCE_PATH = "docs/governance/bootstrap-closure/TASK-D0-07.attest.json"
+
+
+@dataclass(frozen=True)
+class D0_10ApprovalChain:
+    """A complete fixture chain for the d0-10-bootstrap-approval operation."""
+    candidate: CandidateContext
+    fixture_policy: _TQO.FixturePolicyV1
+    approval_obj: dict
+    bundle_obj: dict
+    d0_07_completion_obj: dict
+    d0_07_completion_bytes: bytes
+    d0_07_archive_bytes: bytes
+    d0_07_commit_bytes: bytes
+    d0_07_candidate: CandidateContext
+
+
+def _build_d0_07_governance_completion(
+    fixture_policy: _TQO.FixturePolicyV1,
+    d0_07_candidate: CandidateContext,
+) -> dict:
+    """Build a fixture D0-07 GovernanceBootstrapCompletionV1."""
+    # The D0-07 source closure is the attest.json file
+    source_content = b'{"fixture": "d0-07-attest"}'
+    source_digest = plain_sha256_digest(source_content)
+
+    ruling_ref = _TQO.NormativeDocumentRefV1(
+        id=D0_07_RULING_ID,
+        status="accepted",
+        contentDigest=plain_sha256_digest(b"fixture ruling content"),
+        reviewCommit=d0_07_candidate.identity.commit,
+    )
+    policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
+
+    completion_obj = {
+        "schema": "proof-forge.governance-bootstrap-completion.v1",
+        "id": "governance-bootstrap-completion-d0-07",
+        "version": "1.0.0",
+        "taskId": D0_07_TASK_ID,
+        "rulingId": D0_07_RULING_ID,
+        "purpose": "d0-07-historical-bootstrap-closeout",
+        "completionCandidate": {
+            "commit": d0_07_candidate.identity.commit,
+            "treeObjectId": d0_07_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(d0_07_candidate.identity.archiveDigest),
+        },
+        "ruling": {
+            "id": ruling_ref.id,
+            "status": ruling_ref.status,
+            "contentDigest": digest_to_wire(ruling_ref.contentDigest),
+            "reviewCommit": ruling_ref.reviewCommit,
+        },
+        "sourceClosure": {
+            "path": D0_07_SOURCE_PATH,
+            "digest": digest_to_wire(source_digest),
+        },
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "independentReviews": [],
+        "signatures": [],
+    }
+
+    # Sign the completion
+    sigs = _sign_subject(
+        completion_obj,
+        _TQO.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT,
+        _TQO.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_SIGNATURE,
+    )
+    completion_obj["signatures"] = sigs
+    return completion_obj
+
+
+def build_d0_10_approval_chain() -> D0_10ApprovalChain:
+    """Build a legal fixture chain for d0-10-bootstrap-approval."""
+    fixture_policy = _TQO.build_default_fixture_policy()
+
+    # Build the D0-10 candidate (with f1/f2 prefix)
+    candidate = build_synthetic_candidate(
+        D0_10_TASK_ID,
+        {
+            "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture",
+            "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture",
+        },
+    )
+
+    # Build the D0-07 candidate (for the bridge)
+    d0_07_candidate = build_synthetic_candidate(
+        D0_07_TASK_ID,
+        {
+            "docs/governance/bootstrap-closure/TASK-D0-07.attest.json": b'{"fixture": "d0-07-attest"}',
+        },
+    )
+
+    # Build the D0-07 governance completion
+    d0_07_completion_obj = _build_d0_07_governance_completion(fixture_policy, d0_07_candidate)
+    d0_07_completion_bytes = canonical_pf_jcs(d0_07_completion_obj)
+
+    # Build the D0-07 bridge dependency
+    d0_07_bridge = _TQO.GovernanceBootstrapReceiptDependencyV1(
+        kind="governance-bootstrap-receipt",
+        taskId=D0_07_TASK_ID,
+        ruling=_BTO.ContentRef(
+            schema="proof-forge.governance-ruling.v1",
+            id=D0_07_RULING_ID,
+            version="1.0.0",
+            digest=plain_sha256_digest(b"fixture ruling content"),
+        ),
+        completionCommit=d0_07_candidate.identity.commit,
+        authorityPolicy=_TQO.fixture_policy_content_ref(fixture_policy),
+        objectDigest=_TQO.domain_digest_raw(
+            _TQO.DOMAIN_DEPENDENCY_OBJECT, d0_07_completion_bytes
+        ),
+        objectBytesHex=d0_07_completion_bytes.hex(),
+        signatures=tuple(
+            _TQO.parse_approval_signature(s, "bridge")
+            for s in d0_07_completion_obj["signatures"]
+        ),
+    )
+
+    # Build the D0-10 ruling ref
+    ruling_ref = _TQO.NormativeDocumentRefV1(
+        id=D0_10_RULING_ID,
+        status="accepted",
+        contentDigest=plain_sha256_digest(b"fixture d0-10 ruling content"),
+        reviewCommit=candidate.identity.commit,
+    )
+
+    # Build the task row for D0-10
+    task_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=D0_10_TASK_ID,
+        output="task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
+        dependencies=(D0_07_TASK_ID,),
+        prerequisites=(
+            "ADR-0020@accepted",
+            "GOV-TASKQUAL-BOOTSTRAP-001@accepted",
+            "SPEC-TASKQUAL-001@accepted",
+        ),
+        tests=("TST-DOC-001",),
+        evidenceIds=("EV-20260721-0001",),
+        status="in_progress",
+    )
+
+    # Build the freeze package ref
+    freeze_bytes = canonical_pf_jcs({
+        "schemaVersion": 1,
+        "taskId": D0_10_TASK_ID,
+        "frozenAt": "2026-07-20",
+        "freezeCommit": candidate.identity.commit,
+        "output": "task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
+        "dependencies": [D0_07_TASK_ID],
+        "prerequisites": ["ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"],
+        "tests": ["TST-DOC-001"],
+        "inScope": ["fixture"],
+        "outOfScope": ["production"],
+        "doneWhen": ["fixture passes"],
+        "overflowPolicy": "fixture",
+        "maxCalendarDays": 5,
+        "maxCommits": 20,
+        "notes": "fixture",
+    })
+    freeze_ref = _TQO.TaskFreezePackageRefV1(
+        taskId=D0_10_TASK_ID,
+        digest=_TQO.domain_digest_raw(_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes),
+    )
+
+    # Build the evidence
+    evidence_bytes = canonical_pf_jcs({
+        "id": "EV-20260721-0001",
+        "gate": {
+            "id": D0_10_GATE_ID,
+            "taskId": D0_10_TASK_ID,
+            "testIds": ["TST-DOC-001"],
+            "qualification": "development",
+        },
+        "repository": {
+            "commit": candidate.identity.commit,
+            "treeObjectId": candidate.identity.treeObjectId,
+            "archive": {"sha256": digest_to_wire(candidate.identity.archiveDigest)},
+        },
+        "command": {"argv": ["python3", "-c", "print('fixture')"], "environment": []},
+        "result": "passed",
+    })
+    evidence_ref = _TQO.EvidenceRefV1(
+        id="EV-20260721-0001",
+        digest=plain_sha256_digest(evidence_bytes),
+    )
+
+    # Build the review
+    review_report_bytes = b"fixture d0-10 review report no P0/P1"
+    review_ref = _TQO.IndependentReviewRefV1(
+        reviewerId="fixture-reviewer-d0-10",
+        reviewerKind="independent-ai",
+        invocationId="task-qualification-fixture-run-d0-10-review-0001",
+        reportDigest=_BTO.Digest(
+            algorithm="sha256",
+            bytes=hashlib.sha256(_TQO.DOMAIN_REVIEW_REPORT + b"\x00" + review_report_bytes).digest(),
+        ),
+        reviewCommit=candidate.identity.commit,
+        reviewLink="https://fixture.example/d0-10-review",
+        decision="approved",
+        findings=tuple(),
+    )
+
+    # Build the command policy
+    tool_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "resolved-tool", b"fixture tool")
+    probe_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "resolved-probe", b"fixture probe")
+    sandbox_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "sandbox-policy", b"fixture sandbox")
+    verifier_exec_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "verifier-executable", b"fixture verifier exec")
+    verifier_closure_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "verifier-closure", b"fixture verifier closure")
+    verifier_build_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "verifier-build-policy", b"fixture verifier build")
+
+    verifier = _TQO.VerifierIdentityV1(
+        id=f"fixture-verifier-{D0_10_GATE_ID}",
+        executable=_TQO.fixture_resolved_blob_content_ref(verifier_exec_blob),
+        closure=_TQO.fixture_resolved_blob_content_ref(verifier_closure_blob),
+        sourceDigest=plain_sha256_digest(b"fixture verifier source"),
+        buildPolicy=_TQO.fixture_resolved_blob_content_ref(verifier_build_blob),
+    )
+
+    command_policy = _TQO.TaskCommandPolicyV1(
+        schema="proof-forge.task-command-policy.v1",
+        id=D0_10_COMMAND_POLICY_ID,
+        version="1.0.0",
+        taskId=D0_10_TASK_ID,
+        testIds=("TST-DOC-001",),
+        argv=("python3", "-c", "print('fixture')"),
+        environment=(),
+        tool=_TQO.fixture_resolved_blob_content_ref(tool_blob),
+        probe=_TQO.fixture_resolved_blob_content_ref(probe_blob),
+        sandboxPolicy=_TQO.fixture_resolved_blob_content_ref(sandbox_blob),
+        verifier=verifier,
+    )
+    cmd_ref = command_policy_content_ref(command_policy)
+
+    # Build gate control blobs
+    handoff_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "host-observation", b"fixture handoff")
+    containment_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "authority-store-service", b"fixture containment")
+    freshness_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "host-profile", b"fixture freshness")
+    scan_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "private-scan-policy", b"fixture scan")
+    revocation_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "authority-store-service", b"fixture revocation")
+
+    # Build the bootstrap gate
+    bootstrap_gate = _TQO.D0_10BootstrapGateV1(
+        gateId=D0_10_GATE_ID,
+        taskId=D0_10_TASK_ID,
+        testIds=("TST-DOC-001",),
+        evidence=(evidence_ref,),
+        commandPolicy=cmd_ref,
+        eligibleStage0Handoff=_TQO.fixture_resolved_blob_content_ref(handoff_blob),
+        sessionContainment=_TQO.fixture_resolved_blob_content_ref(containment_blob),
+        freshness=_TQO.fixture_resolved_blob_content_ref(freshness_blob),
+        privateScan=_TQO.fixture_resolved_blob_content_ref(scan_blob),
+        revocationSnapshot=_TQO.fixture_resolved_blob_content_ref(revocation_blob),
+    )
+
+    # Build the protected consumer verifier identity
+    consumer = _TQO.VerifierIdentityV1(
+        id=f"fixture-consumer-{D0_10_GATE_ID}",
+        executable=_TQO.fixture_resolved_blob_content_ref(verifier_exec_blob),
+        closure=_TQO.fixture_resolved_blob_content_ref(verifier_closure_blob),
+        sourceDigest=plain_sha256_digest(b"fixture consumer source"),
+        buildPolicy=_TQO.fixture_resolved_blob_content_ref(verifier_build_blob),
+    )
+
+    # Build the allowed closeout patch
+    semantic_fset = _TQO.SemanticCloseoutFileSetV1(
+        schema="proof-forge.semantic-closeout-file-set.v1",
+        id="semantic-closeout-d0-10",
+        version="1.0.0",
+        taskId=D0_10_TASK_ID,
+        preCloseCandidate=candidate.identity,
+        changes=(
+            ("docs/04-task-breakdown.md", None, plain_sha256_digest(b"updated")),
+        ),
+    )
+    semantic_digest = domain_digest(_TQO.DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET, semantic_closeout_file_set_to_wire(semantic_fset))
+
+    resulting_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=D0_10_TASK_ID,
+        output="task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
+        dependencies=(D0_07_TASK_ID,),
+        prerequisites=("ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"),
+        tests=("TST-DOC-001",),
+        evidenceIds=("EV-20260721-0001",),
+        status="done",
+    )
+    resulting_row_digest = task_row_digest(resulting_row)
+
+    patch = _TQO.AllowedCloseoutPatchV1(
+        schema="proof-forge.allowed-closeout-patch.v1",
+        id="allowed-closeout-d0-10",
+        version="1.0.0",
+        taskId=D0_10_TASK_ID,
+        preCloseCandidate=candidate.identity,
+        allowedPaths=(
+            "docs/04-task-breakdown.md",
+            "docs/05-test-spec.md",
+            "docs/06-implementation-log.md",
+            "docs/07-review-report.md",
+            "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",
+        ),
+        semanticFileSetDigest=semantic_digest,
+        resultingTaskRowDigest=resulting_row_digest,
+    )
+    patch_ref = allowed_closeout_patch_content_ref(patch)
+
+    # Build the approval object
+    policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
+    approval_obj = {
+        "schema": "proof-forge.d0-10-bootstrap-approval.v1",
+        "id": D0_10_APPROVAL_ID,
+        "version": "1.0.0",
+        "taskId": D0_10_TASK_ID,
+        "ruling": {
+            "id": ruling_ref.id,
+            "status": ruling_ref.status,
+            "contentDigest": digest_to_wire(ruling_ref.contentDigest),
+            "reviewCommit": ruling_ref.reviewCommit,
+        },
+        "preCloseCandidate": {
+            "commit": candidate.identity.commit,
+            "treeObjectId": candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(candidate.identity.archiveDigest),
+        },
+        "taskRow": task_row_to_wire(task_row),
+        "freezePackage": freeze_package_ref_to_wire(freeze_ref),
+        "verifier": _TQO.verifier_identity_to_wire(verifier),
+        "protectedConsumer": _TQO.verifier_identity_to_wire(consumer),
+        "verifierClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture verifier closure")),
+        "consumerClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture consumer closure")),
+        "tstDocSubprofile": FIXTURE_SUBPROFILE,
+        "bootstrapGate": {
+            "gateId": bootstrap_gate.gateId,
+            "taskId": bootstrap_gate.taskId,
+            "testIds": list(bootstrap_gate.testIds),
+            "evidence": [evidence_ref_to_wire(e) for e in bootstrap_gate.evidence],
+            "commandPolicy": content_ref_to_wire(bootstrap_gate.commandPolicy),
+            "eligibleStage0Handoff": content_ref_to_wire(bootstrap_gate.eligibleStage0Handoff),
+            "sessionContainment": content_ref_to_wire(bootstrap_gate.sessionContainment),
+            "freshness": content_ref_to_wire(bootstrap_gate.freshness),
+            "privateScan": content_ref_to_wire(bootstrap_gate.privateScan),
+            "revocationSnapshot": content_ref_to_wire(bootstrap_gate.revocationSnapshot),
+        },
+        "d0_07Bridge": {
+            "kind": "governance-bootstrap-receipt",
+            "taskId": d0_07_bridge.taskId,
+            "ruling": content_ref_to_wire(d0_07_bridge.ruling),
+            "completionCommit": d0_07_bridge.completionCommit,
+            "authorityPolicy": content_ref_to_wire(d0_07_bridge.authorityPolicy),
+            "objectDigest": digest_to_wire(d0_07_bridge.objectDigest),
+            "objectBytesHex": d0_07_bridge.objectBytesHex,
+            "signatures": [_TQO.approval_signature_to_wire(s) for s in d0_07_bridge.signatures],
+        },
+        "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
+        "independentReviews": [review_ref_to_wire(review_ref)],
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "signatures": [],
+    }
+
+    # Sign the approval
+    sigs = _sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    approval_obj["signatures"] = sigs
+
+    # Build the content bundle members
+    phase4_bytes = b"# PHASE-4 D0-10 fixture"
+    phase5_bytes = b"# PHASE-5 D0-10 fixture"
+    ruling_bytes = b"fixture d0-10 ruling content"
+
+    policy_wire = _TQO.fixture_policy_to_wire(fixture_policy)
+    policy_bytes = canonical_pf_jcs(policy_wire)
+    patch_wire = allowed_closeout_patch_to_wire(patch)
+    patch_bytes = canonical_pf_jcs(patch_wire)
+    cmd_wire = command_policy_to_wire(command_policy)
+    cmd_bytes = canonical_pf_jcs(cmd_wire)
+
+    # Gate control member bytes
+    handoff_wire = _TQO.fixture_resolved_blob_to_wire(handoff_blob)
+    handoff_bytes = canonical_pf_jcs(handoff_wire)
+    containment_wire = _TQO.fixture_resolved_blob_to_wire(containment_blob)
+    containment_bytes = canonical_pf_jcs(containment_wire)
+    freshness_wire = _TQO.fixture_resolved_blob_to_wire(freshness_blob)
+    freshness_bytes = canonical_pf_jcs(freshness_wire)
+    scan_wire = _TQO.fixture_resolved_blob_to_wire(scan_blob)
+    scan_bytes = canonical_pf_jcs(scan_wire)
+    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
+    revocation_bytes = canonical_pf_jcs(revocation_wire)
+
+    # Verifier/consumer member bytes
+    exec_wire = _TQO.fixture_resolved_blob_to_wire(verifier_exec_blob)
+    exec_bytes = canonical_pf_jcs(exec_wire)
+    closure_wire = _TQO.fixture_resolved_blob_to_wire(verifier_closure_blob)
+    closure_bytes = canonical_pf_jcs(closure_wire)
+    build_wire = _TQO.fixture_resolved_blob_to_wire(verifier_build_blob)
+    build_bytes = canonical_pf_jcs(build_wire)
+
+    # Resolved tool/probe/sandbox
+    tool_wire = _TQO.fixture_resolved_blob_to_wire(tool_blob)
+    tool_bytes = canonical_pf_jcs(tool_wire)
+    probe_wire = _TQO.fixture_resolved_blob_to_wire(probe_blob)
+    probe_bytes = canonical_pf_jcs(probe_wire)
+    sandbox_wire = _TQO.fixture_resolved_blob_to_wire(sandbox_blob)
+    sandbox_bytes = canonical_pf_jcs(sandbox_wire)
+
+    members = [
+        ("phase-4-source", "raw-source", {"path": "fixtures/task-qualification/04-task-breakdown.md", "digest": digest_to_wire(plain_sha256_digest(phase4_bytes))}, phase4_bytes.hex()),
+        ("phase-5-source", "raw-source", {"path": "fixtures/task-qualification/05-test-spec.md", "digest": digest_to_wire(plain_sha256_digest(phase5_bytes))}, phase5_bytes.hex()),
+        ("ruling-source", "raw-source", {"path": "fixtures/task-qualification/ruling.md", "digest": digest_to_wire(plain_sha256_digest(ruling_bytes))}, ruling_bytes.hex()),
+        ("freeze-package-source", "raw-source", {"path": "fixtures/task-qualification/freeze.json", "digest": digest_to_wire(_TQO.domain_digest_raw(_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes))}, freeze_bytes.hex()),
+        ("candidate-archive", "archive", digest_to_wire(candidate.identity.archiveDigest), candidate.archive_bytes.hex()),
+        ("candidate-commit-object", "git-object", candidate.identity.commit, candidate.commit_bytes.hex()),
+        ("authority-policy", "typed-content", content_ref_to_wire(policy_ref), policy_bytes.hex()),
+        ("allowed-closeout-patch", "typed-content", content_ref_to_wire(patch_ref), patch_bytes.hex()),
+        (f"command-policy/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(cmd_ref), cmd_bytes.hex()),
+        (f"resolved-tool/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(tool_blob)), tool_bytes.hex()),
+        (f"resolved-probe/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(probe_blob)), probe_bytes.hex()),
+        (f"sandbox-policy/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(sandbox_blob)), sandbox_bytes.hex()),
+        (f"verifier-executable/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_exec_blob)), exec_bytes.hex()),
+        (f"verifier-closure/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_closure_blob)), closure_bytes.hex()),
+        (f"verifier-build-policy/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_build_blob)), build_bytes.hex()),
+        (f"eligible-stage0-handoff/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(handoff_blob)), handoff_bytes.hex()),
+        (f"session-containment/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
+        (f"freshness/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
+        (f"private-scan/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
+        (f"revocation-snapshot/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        ("d0-07-governance-completion", "typed-content", content_ref_to_wire(_BTO.ContentRef(
+            schema=d0_07_completion_obj["schema"],
+            id=d0_07_completion_obj["id"],
+            version=d0_07_completion_obj["version"],
+            digest=domain_digest(_TQO.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION, d0_07_completion_obj),
+        )), d0_07_completion_bytes.hex()),
+        ("d0-07-completion-archive", "archive", digest_to_wire(d0_07_candidate.identity.archiveDigest), d0_07_candidate.archive_bytes.hex()),
+        ("d0-07-completion-commit-object", "git-object", d0_07_candidate.identity.commit, d0_07_candidate.commit_bytes.hex()),
+        (f"evidence/EV-20260721-0001", "raw-source", {"path": "evidence/EV-20260721-0001", "digest": digest_to_wire(evidence_ref.digest)}, evidence_bytes.hex()),
+        (f"review-report/{review_ref.reviewerId}/{review_ref.reportDigest.bytes.hex()}", "review", {"reviewerId": review_ref.reviewerId, "reportDigest": digest_to_wire(review_ref.reportDigest)}, review_report_bytes.hex()),
+    ]
+
+    bundle_obj = build_content_bundle("d0-10-bootstrap-approval", fixture_policy, candidate, members)
+
+    return D0_10ApprovalChain(
+        candidate=candidate,
+        fixture_policy=fixture_policy,
+        approval_obj=approval_obj,
+        bundle_obj=bundle_obj,
+        d0_07_completion_obj=d0_07_completion_obj,
+        d0_07_completion_bytes=d0_07_completion_bytes,
+        d0_07_archive_bytes=d0_07_candidate.archive_bytes,
+        d0_07_commit_bytes=d0_07_candidate.commit_bytes,
+        d0_07_candidate=d0_07_candidate,
+    )
+
+
+def d0_10_approval_chain_to_bytes(chain: D0_10ApprovalChain) -> tuple:
+    """Convert a D0-10 approval chain to (bundle_bytes, subject_bytes)."""
+    bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
+    subject_bytes = canonical_pf_jcs(chain.approval_obj)
+    return (bundle_bytes, subject_bytes)
