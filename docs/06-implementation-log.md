@@ -7584,3 +7584,45 @@ normative: false
   独立不变式，留待后续 slice。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
   或 P1-11 allowedCloseoutPatch.allowedPaths restrictions），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 6：P1-11 allowedCloseoutPatch.allowedPaths content restrictions
+
+- Spec/Test：`SPEC-TASKQUAL-001` §5（allowedPaths 按 UTF-8 升序，count `1..16`，只能包含
+  task table、Evidence ledger、checkpoint、trace/review/log 的 task-owned closeout
+  locations 及固定 qualification/bootstrap-approval path；禁止 verifier/protocol/product/
+  test/freeze package）；`TST-DOC-001`（closed verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 patch stage）：
+  - P1-11（allowedPaths 内容限制未强制）：parser 强制 nonempty/sorted/unique/count<=16，
+    但不校验内容限制。一个 allowedPaths 含 product/verifier/protocol/test/freeze-package
+    路径的 patch 会通过 parser，verifier 也不检查，因此禁止路径会通过。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_FORBIDDEN_ALLOWED_PATH_PREFIXES` 闭集：`ProofForgeV2/`、`Tests/`、
+      `testdata/`、`sandbox/`、`scripts/`、`supply-chain/`、`build/`、`active/`、
+      `Examples/`、`docs/governance/task-freeze-packages/`、
+      `docs/governance/task-freeze-exceptions/`。
+    - 新增 `_verify_allowed_paths_content(paths, where)`：逐 path 检查是否以任一禁止前缀
+      开头，命中即 reject。
+    - `_verify_allowed_closeout_patch` 在 content ref 重算后调用该函数。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 1 个 RED test：
+    `forbidden_allowed_path`（向 patch member wire 的 allowedPaths 中按 sorted 位置插入
+      `ProofForgeV2/ProofForge/Verifier.lean`，重算 patch content ref，同步更新 member.content
+      与 subject allowedCloseoutPatch ref，重签 subject）。test 先确认 RED
+    （expected=reject, actual=pass），实现后转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 47/47 passed
+  （slice 5 的 46 个 + slice 6 的 1 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：allowedPaths 内容限制在 patch stage（content ref 重算后）强制，命中禁止前缀
+  一律 fail closed。fixture 的 allowedPaths（docs/04-07、docs/governance/task-qualifications/
+  下的 Q/approval path）均不触禁止前缀，故 positive chain 不受影响。所有 fixture chain 仍
+  返回 `fixture-non-authoritative`。
+- Evidence：development evidence for allowedPaths content restrictions。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。禁止前缀闭集基于
+  当前仓库 product/test/freeze/protocol 目录结构；若未来 product tree 重组，需同步更新
+  该闭集（spec §5 的语义不变）。本 slice 不校验 allowedPaths 与 closeout file set changes
+  的 path 一致性（P0-6 范畴）。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
+  或 P0-3 dependency three-piece set enforcement with fixture），仍按 RED-first 协议。

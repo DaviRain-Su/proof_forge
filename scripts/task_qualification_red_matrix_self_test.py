@@ -794,6 +794,58 @@ def test_negative_d0_10_gate_testids_union_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_gate_testids_union_mismatch", False, actual)
 
 
+def test_negative_forbidden_allowed_path() -> RedMatrixResult:
+    """§5: allowedCloseoutPatch.allowedPaths may only contain task-owned
+    closeout locations (task table, Evidence ledger, checkpoint,
+    trace/review/log) and the fixed qualification/bootstrap-approval path.
+
+    Paths under product/verifier/protocol/test/freeze package are forbidden.
+    The fixture patch is mutated to include a forbidden product path, the
+    patch content ref is recomputed, the bundle member.content and the
+    subject allowedCloseoutPatch ref are updated to match, and the subject
+    is re-signed. The parser accepts the sorted unique nonempty list, so
+    the verifier must reject it at the patch stage via the content
+    restriction check.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Locate the allowed-closeout-patch member and inject a forbidden path.
+    forbidden_path = "ProofForgeV2/ProofForge/Verifier.lean"
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            paths = list(patch_wire["allowedPaths"])
+            # Insert the forbidden path in sorted position.
+            import bisect
+            bisect.insort(paths, forbidden_path)
+            patch_wire["allowedPaths"] = paths
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            # Recompute the patch content ref.
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            # Update the subject's allowedCloseoutPatch ref to match.
+            subject_obj["allowedCloseoutPatch"] = new_ref
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.forbidden_allowed_path", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -864,6 +916,8 @@ def run_all_tests() -> list:
         # §3 gate testIds union == row.tests, non-overlap (P1-2)
         test_negative_gate_testids_union_mismatch,
         test_negative_d0_10_gate_testids_union_mismatch,
+        # §5 allowedCloseoutPatch.allowedPaths content restrictions (P1-11)
+        test_negative_forbidden_allowed_path,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

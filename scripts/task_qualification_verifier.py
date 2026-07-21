@@ -932,7 +932,43 @@ def _verify_allowed_closeout_patch(
         _BTO._reject(f"{where}: allowed-closeout-patch ref mismatch")
     if member.content != patch_ref:
         _BTO._reject(f"{where}: allowed-closeout-patch member content ref mismatch")
+    # §5: allowedPaths content restrictions — only task-owned closeout
+    # locations (task table, Evidence ledger, checkpoint, trace/review/log)
+    # and the fixed qualification/bootstrap-approval path are allowed.
+    # Product/verifier/protocol/test/freeze-package paths are forbidden.
+    _verify_allowed_paths_content(patch.allowedPaths, f"{where}.allowed-closeout-patch")
     return patch
+
+
+# Path prefixes that are forbidden in allowedCloseoutPatch.allowedPaths.
+# Per §5, allowedPaths may only contain task-owned closeout locations
+# (docs/ task table, evidence ledger, checkpoint, trace/review/log) and the
+# fixed qualification/bootstrap-approval path. Product, verifier, protocol,
+# test, and freeze-package locations are forbidden.
+_FORBIDDEN_ALLOWED_PATH_PREFIXES = (
+    "ProofForgeV2/",   # product / compiler / verifier
+    "Tests/",          # tests
+    "testdata/",       # test data
+    "sandbox/",        # sandbox / test harness
+    "scripts/",        # protocol / verifier tooling
+    "supply-chain/",   # freeze-package pins / SBOM
+    "build/",          # build artifacts
+    "active/",         # archived v1 research tree
+    "Examples/",       # examples
+    "docs/governance/task-freeze-packages/",  # freeze packages
+    "docs/governance/task-freeze-exceptions/",  # freeze exceptions
+)
+
+
+def _verify_allowed_paths_content(paths: tuple, where: str) -> None:
+    """§5: reject allowedPaths that touch forbidden locations."""
+    for p in paths:
+        for prefix in _FORBIDDEN_ALLOWED_PATH_PREFIXES:
+            if p.startswith(prefix):
+                _BTO._reject(
+                    f"{where}.allowedPaths: path '{p}' touches forbidden "
+                    f"location '{prefix}' (product/verifier/protocol/test/"
+                    f"freeze-package)")
 
 
 # ---------------------------------------------------------------------------
