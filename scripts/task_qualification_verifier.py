@@ -717,9 +717,20 @@ def _verify_review_members(
     member_map: dict,
     reviews: tuple,
     bundle_impl_invocation: str,
+    signing_principal_ids: set,
     where: str,
 ) -> None:
-    """Verify review report members."""
+    """Verify review report members per §2.
+
+    Checks:
+    - Each review member exists and has correct digest.
+    - reviewerId matches the subject ref.
+    - invocationId differs from bundle's implementationInvocationId.
+    - invocationId is unique across all reviews.
+    - reviewerId is not among the signing principal IDs (§2: "reviewerId
+      不得是 authorization signer principalId").
+    """
+    seen_invocation_ids = set()
     for review in reviews:
         role = f"review-report/{review.reviewerId}/{review.reportDigest.bytes.hex()}"
         member = member_map.get(role)
@@ -742,6 +753,13 @@ def _verify_review_members(
         # Verify invocationId is different from bundle's implementationInvocationId
         if review.invocationId == bundle_impl_invocation:
             _BTO._reject(f"{where}: {role} invocationId must differ from implementationInvocationId")
+        # Verify invocationId is unique across reviews
+        if review.invocationId in seen_invocation_ids:
+            _BTO._reject(f"{where}: {role} invocationId must be unique across reviews")
+        seen_invocation_ids.add(review.invocationId)
+        # Verify reviewerId is not a signing principal
+        if review.reviewerId in signing_principal_ids:
+            _BTO._reject(f"{where}: {role} reviewerId must not be a signing principal")
 
 
 # ---------------------------------------------------------------------------
@@ -1129,7 +1147,12 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
 
     # Stage 11: reviews
     try:
-        _verify_review_members(member_map, qualification.independentReviews, bundle.implementationInvocationId, "reviews")
+        # Build signing principal IDs from the authority policy
+        if isinstance(policy_obj, _TQO.FixturePolicyV1):
+            signing_principal_ids = {p.principalId for p in policy_obj.principals}
+        else:
+            signing_principal_ids = {p.principalId for p in policy_obj.principals}
+        _verify_review_members(member_map, qualification.independentReviews, bundle.implementationInvocationId, signing_principal_ids, "reviews")
     except Rejected as r:
         return _reject_stage("reviews", r.detail)
 
@@ -1401,7 +1424,12 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
 
     # Stage 11: reviews
     try:
-        _verify_review_members(member_map, approval.independentReviews, bundle.implementationInvocationId, "reviews")
+        # Build signing principal IDs from the authority policy
+        if isinstance(policy_obj, _TQO.FixturePolicyV1):
+            signing_principal_ids = {p.principalId for p in policy_obj.principals}
+        else:
+            signing_principal_ids = {p.principalId for p in policy_obj.principals}
+        _verify_review_members(member_map, approval.independentReviews, bundle.implementationInvocationId, signing_principal_ids, "reviews")
     except Rejected as r:
         return _reject_stage("reviews", r.detail)
 

@@ -37,6 +37,11 @@ SEMVER_RE = _BTO.SEMVER_RE
 DIGEST_RE = _BTO.DIGEST_RE
 GIT_OBJECT_RE = _BTO.GIT_OBJECT_RE
 
+# SPEC-TASKQUAL-001 §1: Git commit/tree are 40 lowercase hex (SHA-1 only).
+# The bootstrap GIT_OBJECT_RE accepts both 40 and 64 hex, but this protocol
+# only uses SHA-1 Git objects per §8.3.
+GIT_SHA1_RE = re.compile(r"[0-9a-f]{40}")
+
 TASKQUAL_REJECTION = "PF-TASK-QUALIFICATION-UNVERIFIED"
 
 # ---------------------------------------------------------------------------
@@ -77,8 +82,8 @@ def _require_digest(value, where):
 
 
 def _require_git_object(value, where):
-    if not isinstance(value, str) or not GIT_OBJECT_RE.fullmatch(value):
-        _reject(f"{where}: git object id must be 40 lowercase hex")
+    if not isinstance(value, str) or not GIT_SHA1_RE.fullmatch(value):
+        _reject(f"{where}: git object id must be 40 lowercase hex (SHA-1)")
     return value
 
 
