@@ -126,6 +126,10 @@ D0_08_SBOM_CLOSURE_ATTEST_RELATIVE = (
 D0_09_LINUX_HOST_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-09.attest.json"
 )
+D0_10_TASK_QUALIFICATION_ATTEST_RELATIVE = (
+    "docs/governance/bootstrap-closure/TASK-D0-10.attest.json"
+)
+D0_10_TASK_QUALIFICATION_SUBPROFILE = "TST-DOC-001/task-qualification-v1"
 D0_04_BOOTSTRAP_ACTIVATION_ATTEST_RELATIVE = (
     "docs/governance/bootstrap-closure/TASK-D0-04.attest.json"
 )
@@ -2413,6 +2417,69 @@ def d0_09_linux_host_attested(root: Path) -> bool:
     return True
 
 
+def d0_10_task_qualification_attested(root: Path) -> bool:
+    """Return True only for a fully verified D0-10 task qualification closure.
+
+    The D0-10 closure requires:
+    - attest.json with exact fields per GOV-TASKQUAL-BOOTSTRAP-001
+    - candidate-owned bootstrap-approval.json at the fixed path
+    - external D0_10BootstrapReceiptV1
+    - GovernanceBootstrapCompletionV1 for D0-10
+
+    For now, this returns False (no closure accepted) because the formal
+    closeout ceremony has not been performed. The fixture-path development
+    evidence is recorded separately in the implementation log.
+    """
+    payload = _load_bootstrap_closure_attest(
+        root, D0_10_TASK_QUALIFICATION_ATTEST_RELATIVE)
+    if payload is None:
+        return False
+    # The formal closeout requires the attest to have exact fields.
+    # This is a placeholder — the actual closeout ceremony will populate
+    # the attest and the candidate-owned bootstrap-approval.json.
+    expected_fields = {
+        "schemaVersion",
+        "taskId",
+        "kind",
+        "ruling",
+        "freezePackage",
+        "freezePackageSha256",
+        "bootstrapApproval",
+        "bootstrapApprovalSha256",
+        "bootstrapReceipt",
+        "bootstrapReceiptSha256",
+        "governanceBootstrapCompletion",
+        "governanceBootstrapCompletionSha256",
+        "docsCheckCommand",
+        "notes",
+    }
+    if set(payload) != expected_fields:
+        return False
+    exact_values: dict[str, Any] = {
+        "schemaVersion": 1,
+        "taskId": "TASK-D0-10",
+        "kind": "d0-10-taskqual-one-time-bridge-closure",
+        "ruling": "GOV-TASKQUAL-BOOTSTRAP-001",
+        "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-10.json",
+        "bootstrapApproval": (
+            "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
+        ),
+        "bootstrapReceipt": (
+            "docs/governance/task-completions/TASK-D0-10/receipt.json"
+        ),
+        "docsCheckCommand": (
+            "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
+    }
+    for field, expected in exact_values.items():
+        if payload.get(field) != expected:
+            return False
+    notes = payload.get("notes")
+    if (not isinstance(notes, str)
+            or "not formal or hermetic evidence" not in notes):
+        return False
+    return True
+
+
 def _load_bootstrap_task_consumer() -> Any | None:
     """Load scripts/bootstrap_task_objects.py with exact-path discipline."""
     try:
@@ -2957,6 +3024,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                 or (record.task == "TASK-D0-07" and d0_07_fixture_acceptance_attested(root))
                 or (record.task == "TASK-D0-08" and d0_08_sbom_closure_attested(root))
                 or (record.task == "TASK-D0-09" and d0_09_linux_host_attested(root))
+                or (record.task == "TASK-D0-10" and d0_10_task_qualification_attested(root))
             )
             if not allowed:
                 error = DocsCheckError(
