@@ -726,6 +726,39 @@ def _verify_signatures(
 # Stage 15: projection (closeout file set / diff verification)
 # ---------------------------------------------------------------------------
 
+def _verify_closeout_file_set_member(
+    member_map: dict,
+    expected_diff_digest: Digest,
+    where: str,
+) -> CloseoutFileSetV1:
+    """Verify the closeout-file-set member and the diff digest."""
+    member = member_map.get("closeout-file-set")
+    if member is None:
+        _BTO._reject(f"{where}: closeout-file-set member missing")
+    if not isinstance(member, _TQO.TypedContentMemberV1):
+        _BTO._reject(f"{where}: closeout-file-set must be typed-content")
+    raw_bytes = bytes.fromhex(member.bytesHex)
+    try:
+        obj = decode_canonical_pf_jcs(raw_bytes)
+    except Exception as exc:
+        _BTO._reject(f"{where}: closeout-file-set decode failed: {exc}")
+    file_set = _TQO.parse_closeout_file_set(obj, f"{where}.closeout-file-set")
+    # Recompute the closeout file set digest
+    computed_diff = domain_digest(_TQO.DOMAIN_CLOSEOUT_FILE_SET, obj)
+    if computed_diff.bytes != expected_diff_digest.bytes:
+        _BTO._reject(f"{where}: closeoutDiffDigest mismatch")
+    # Recompute the content ref and verify it matches the member
+    computed_ref = ContentRef(
+        schema=file_set.schema,
+        id=file_set.id,
+        version=file_set.version,
+        digest=computed_diff,
+    )
+    if member.content != computed_ref:
+        _BTO._reject(f"{where}: closeout-file-set member content ref mismatch")
+    return file_set
+
+
 def _verify_closeout_file_set(
     member_map: dict,
     pre_archive: ArchiveProjection,
@@ -1011,10 +1044,8 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
 
     # Stage 15: projection — verify closeout file set and diff
     try:
-        file_set = _verify_closeout_file_set(
-            member_map, pre_archive, close_archive,
-            receipt.allowedCloseoutPatch,  # This is wrong — need closeout-file-set ref
-            receipt.closeoutDiffDigest, "projection",
+        file_set = _verify_closeout_file_set_member(
+            member_map, receipt.closeoutDiffDigest, "projection",
         )
     except Rejected as r:
         return _reject_stage("projection", r.detail)

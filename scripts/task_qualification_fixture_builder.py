@@ -1136,3 +1136,168 @@ def fixture_chain_to_bytes(chain: FixtureChain) -> tuple:
     bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
     subject_bytes = canonical_pf_jcs(chain.qualification_obj)
     return (bundle_bytes, subject_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Task-completion-receipt fixture chain
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CompletionReceiptChain:
+    """A complete fixture chain for the task-completion operation."""
+    pre_candidate: CandidateContext
+    close_candidate: CandidateContext
+    fixture_policy: _TQO.FixturePolicyV1
+    qualification_obj: dict
+    receipt_obj: dict
+    bundle_obj: dict
+    closeout_file_set: _TQO.CloseoutFileSetV1
+    patch: _TQO.AllowedCloseoutPatchV1
+
+
+def build_completion_receipt_chain(qual_chain: FixtureChain) -> CompletionReceiptChain:
+    """Build a legal fixture chain for task-completion-receipt."""
+    pre_candidate = qual_chain.candidate
+
+    # Build closeout candidate D (child of C)
+    # D's archive contains the closeout files (qualification.json + updated docs)
+    closeout_files = {
+        "docs/04-task-breakdown.md": b"# PHASE-4 fixture updated",
+        "docs/05-test-spec.md": b"# PHASE-5 fixture updated",
+        "docs/06-implementation-log.md": b"# Implementation log fixture",
+        "docs/07-review-report.md": b"# Review report fixture",
+        "docs/governance/task-qualifications/TASK-D1-FIXTURE/qualification.json": canonical_pf_jcs(qual_chain.qualification_obj),
+    }
+    close_candidate = build_synthetic_candidate(
+        FIXTURE_TASK_ID,
+        closeout_files,
+        parent_sha=pre_candidate.identity.commit,
+    )
+
+    # Build the closeout file set (diff between C and D)
+    pre_paths = set(pre_candidate.archive_projection.path_map.keys())
+    close_paths = set(close_candidate.archive_projection.path_map.keys())
+    all_paths = sorted(pre_paths | close_paths)
+
+    changes = []
+    for path in all_paths:
+        pre_entry = pre_candidate.archive_projection.path_map.get(path)
+        close_entry = close_candidate.archive_projection.path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(close_entry.content) if close_entry else None
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue  # no change
+        if before_digest is None and after_digest is None:
+            continue  # shouldn't happen
+        changes.append((path, before_digest, after_digest))
+
+    closeout_file_set = build_closeout_file_set(
+        pre_candidate, close_candidate, changes,
+    )
+    closeout_diff_digest = closeout_file_set_digest(closeout_file_set)
+
+    # Build the qualification ref
+    qual_ref = _TQO.TaskQualificationRefV1(
+        taskId=FIXTURE_TASK_ID,
+        id=qual_chain.qualification_obj["id"],
+        digest=domain_digest(_TQO.DOMAIN_TASK_QUALIFICATION, qual_chain.qualification_obj),
+    )
+
+    # Build the receipt
+    task_suffix = FIXTURE_TASK_ID.lower().replace("task-", "")
+    policy_ref = _TQO.fixture_policy_content_ref(qual_chain.fixture_policy)
+    patch_ref = allowed_closeout_patch_content_ref(qual_chain.patch)
+
+    # Build revocation snapshot (synthetic fixture resolved blob)
+    revocation_blob = _TQO.build_fixture_resolved_blob(
+        FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation snapshot"
+    )
+    revocation_ref = _TQO.fixture_resolved_blob_content_ref(revocation_blob)
+
+    receipt_obj = {
+        "schema": "proof-forge.task-completion-receipt.v1",
+        "id": f"task-completion-{task_suffix}",
+        "version": "1.0.0",
+        "taskId": FIXTURE_TASK_ID,
+        "preCloseCandidate": {
+            "commit": pre_candidate.identity.commit,
+            "treeObjectId": pre_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(pre_candidate.identity.archiveDigest),
+        },
+        "closeoutCandidate": {
+            "commit": close_candidate.identity.commit,
+            "treeObjectId": close_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(close_candidate.identity.archiveDigest),
+        },
+        "qualification": {
+            "taskId": qual_ref.taskId,
+            "id": qual_ref.id,
+            "digest": digest_to_wire(qual_ref.digest),
+        },
+        "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
+        "closeoutDiffDigest": digest_to_wire(closeout_diff_digest),
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "revocationSnapshot": content_ref_to_wire(revocation_ref),
+        "issuedAt": FIXTURE_VERIFICATION_INSTANT,
+        "signatures": [],
+    }
+
+    # Sign the receipt
+    sigs = _sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    receipt_obj["signatures"] = sigs
+
+    # Build the content bundle for task-completion
+    # Members: pre-close-archive, closeout-archive, pre-close-commit-object,
+    # closeout-commit-object, qualification, allowed-closeout-patch,
+    # closeout-file-set, authority-policy, revocation-snapshot
+    policy_wire = _TQO.fixture_policy_to_wire(qual_chain.fixture_policy)
+    policy_bytes = canonical_pf_jcs(policy_wire)
+    patch_wire = allowed_closeout_patch_to_wire(qual_chain.patch)
+    patch_bytes = canonical_pf_jcs(patch_wire)
+    closeout_file_set_wire = closeout_file_set_to_wire(closeout_file_set)
+    closeout_file_set_bytes = canonical_pf_jcs(closeout_file_set_wire)
+    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
+    revocation_bytes = canonical_pf_jcs(revocation_wire)
+
+    closeout_file_set_ref = closeout_file_set_content_ref(closeout_file_set)
+
+    members = [
+        ("pre-close-archive", "archive", digest_to_wire(pre_candidate.identity.archiveDigest), pre_candidate.archive_bytes.hex()),
+        ("closeout-archive", "archive", digest_to_wire(close_candidate.identity.archiveDigest), close_candidate.archive_bytes.hex()),
+        ("pre-close-commit-object", "git-object", pre_candidate.identity.commit, pre_candidate.commit_bytes.hex()),
+        ("closeout-commit-object", "git-object", close_candidate.identity.commit, close_candidate.commit_bytes.hex()),
+        ("qualification", "typed-content", content_ref_to_wire(_BTO.ContentRef(
+            schema=qual_chain.qualification_obj["schema"],
+            id=qual_chain.qualification_obj["id"],
+            version=qual_chain.qualification_obj["version"],
+            digest=domain_digest(_TQO.DOMAIN_TASK_QUALIFICATION, qual_chain.qualification_obj),
+        )), canonical_pf_jcs(qual_chain.qualification_obj).hex()),
+        ("allowed-closeout-patch", "typed-content", content_ref_to_wire(patch_ref), patch_bytes.hex()),
+        ("closeout-file-set", "typed-content", content_ref_to_wire(closeout_file_set_ref), closeout_file_set_bytes.hex()),
+        ("authority-policy", "typed-content", content_ref_to_wire(policy_ref), policy_bytes.hex()),
+        ("revocation-snapshot", "typed-content", content_ref_to_wire(revocation_ref), revocation_bytes.hex()),
+    ]
+
+    bundle_obj = build_content_bundle("task-completion", qual_chain.fixture_policy, pre_candidate, members)
+
+    return CompletionReceiptChain(
+        pre_candidate=pre_candidate,
+        close_candidate=close_candidate,
+        fixture_policy=qual_chain.fixture_policy,
+        qualification_obj=qual_chain.qualification_obj,
+        receipt_obj=receipt_obj,
+        bundle_obj=bundle_obj,
+        closeout_file_set=closeout_file_set,
+        patch=qual_chain.patch,
+    )
+
+
+def completion_receipt_chain_to_bytes(chain: CompletionReceiptChain) -> tuple:
+    """Convert a completion receipt chain to (bundle_bytes, subject_bytes)."""
+    bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
+    subject_bytes = canonical_pf_jcs(chain.receipt_obj)
+    return (bundle_bytes, subject_bytes)

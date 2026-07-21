@@ -58,6 +58,12 @@ def _run_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
     return isinstance(result, _TQV.VerifiedTaskQualificationV1)
 
 
+def _run_completion_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
+    """Run the task-completion-receipt verifier and return True if Verified, False if Rejected."""
+    result = _TQV.verify_task_completion_receipt_v1(bundle_bytes, subject_bytes)
+    return isinstance(result, _TQV.VerifiedTaskCompletionV1)
+
+
 def _make_mutated_chain(chain: _TQFB.FixtureChain) -> tuple:
     """Return (bundle_obj_copy, subject_obj_copy) for mutation."""
     return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.qualification_obj))
@@ -77,6 +83,40 @@ def test_positive_legal_chain() -> RedMatrixResult:
     bundle_bytes, subject_bytes = _TQFB.fixture_chain_to_bytes(chain)
     actual = _run_verifier(bundle_bytes, subject_bytes)
     return RedMatrixResult("positive.legal_chain", True, actual)
+
+
+def test_positive_legal_completion_receipt() -> RedMatrixResult:
+    """A legal completion receipt chain should verify successfully."""
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_bytes, subject_bytes = _TQFB.completion_receipt_chain_to_bytes(receipt_chain)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("positive.legal_completion_receipt", True, actual)
+
+
+def test_negative_completion_wrong_signature() -> RedMatrixResult:
+    """A completion receipt with a wrong signature should reject."""
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    receipt_obj["signatures"][0]["signature"] = "00" * 64
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_wrong_signature", False, actual)
+
+
+def test_negative_completion_wrong_parent() -> RedMatrixResult:
+    """A completion receipt where D's parent is not C should reject."""
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    # Change the preCloseCandidate commit to something else
+    receipt_obj["preCloseCandidate"]["commit"] = "f1" + "c" * 38
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_wrong_parent", False, actual)
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +357,7 @@ def run_all_tests() -> list:
     tests = [
         # Positive
         test_positive_legal_chain,
+        test_positive_legal_completion_receipt,
         # Negative
         test_negative_wrong_signature,
         test_negative_missing_signature,
@@ -337,6 +378,9 @@ def run_all_tests() -> list:
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,
         test_negative_empty_bundle,
+        # Completion receipt negative
+        test_negative_completion_wrong_signature,
+        test_negative_completion_wrong_parent,
     ]
     results = []
     for test in tests:
