@@ -690,6 +690,61 @@ def test_negative_gate_control_bytes_digest_mismatch() -> RedMatrixResult:
         "revocation-snapshot")
 
 
+def test_negative_empty_independent_reviews() -> RedMatrixResult:
+    """§8.2: independentReviews must be nonempty (review nonempty).
+
+    A qualification with zero independent reviews must reject. The parser
+    caps reviews at MAX_REVIEWS=256 but does not enforce a lower bound of 1,
+    so an empty list parses. The verifier must reject it per §8.2
+    ('review nonempty'). The subject is re-signed so signature verification
+    passes and the verifier reaches the reviews stage where the count
+    check must fire.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Remove all review-report members from the bundle and empty the subject's
+    # independentReviews so the member-stage role-set and the reviews-stage
+    # count both see zero reviews.
+    bundle_obj["members"] = [
+        m for m in bundle_obj["members"]
+        if not m.get("role", "").startswith("review-report/")
+    ]
+    subject_obj["independentReviews"] = []
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.empty_independent_reviews", False, actual)
+
+
+def test_negative_d0_10_empty_independent_reviews() -> RedMatrixResult:
+    """§8.2: D0-10 bootstrap approval independentReviews must be nonempty.
+
+    Same as the qualification variant but for the D0-10 bootstrap approval
+    path. The verifier must reject an approval with zero independent reviews.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    bundle_obj["members"] = [
+        m for m in bundle_obj["members"]
+        if not m.get("role", "").startswith("review-report/")
+    ]
+    approval_obj["independentReviews"] = []
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_empty_independent_reviews", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -754,6 +809,9 @@ def run_all_tests() -> list:
         # §8.2 typed-content member digest recompute (P0-2)
         test_negative_typed_member_bytes_digest_mismatch,
         test_negative_gate_control_bytes_digest_mismatch,
+        # §8.2 independentReviews nonempty (P1-3)
+        test_negative_empty_independent_reviews,
+        test_negative_d0_10_empty_independent_reviews,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

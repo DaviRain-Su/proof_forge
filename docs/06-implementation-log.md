@@ -7510,3 +7510,38 @@ normative: false
   的 fixture chain 才能写 RED test）。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 或 P0-3 dependency
   three-piece set enforcement with fixture），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 4：P1-3 independentReviews nonempty enforcement
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2（qualification/approval 的 review 均 nonempty；
+  表格列 `review nonempty`）；`TST-DOC-001`（closed verifier coverage for every wire
+  object）。
+- Findings（来自独立复审，针对 verifier 的 reviews stage）：
+  - P1-3（independentReviews 下界未强制）：parser 用 `MAX_REVIEWS=256` 上界，但不强制
+    下界 1。一个 `independentReviews` 为空数组的 subject 会通过 parser，verifier 的
+    `_verify_review_members` 也不检查 count，因此空 review 的 qualification/approval 会
+    通过。spec §8.2 明确 `review nonempty`。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：`_verify_review_members` 在循环前断言
+    `len(reviews) >= 1`，否则 reject。该函数同时被 `verify_task_qualification_v1` 与
+    `verify_d0_10_bootstrap_v1` 调用，故 qualification 与 D0-10 approval 路径均覆盖。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    `empty_independent_reviews`（qualification：清空 `independentReviews` 并移除 bundle
+    中所有 `review-report/*` member，重签 subject 使 verifier 抵达 reviews stage）、
+    `d0_10_empty_independent_reviews`（D0-10 approval 同样操作）。两个 test 均先确认 RED
+    （expected=reject, actual=pass），实现后转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 44/44 passed
+  （slice 3 的 42 个 + slice 4 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：空 `independentReviews` 在 reviews stage 入口即 reject，fail closed。
+  receipt operations 不调用 `_verify_review_members`（receipt 的 review family 恰为零
+  是 spec 要求），故本检查不影响 receipt 路径。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for independentReviews nonempty enforcement。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只强制
+  下界 1；上界 256 已由 parser `MAX_REVIEWS` 覆盖。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
+  或 P1-2 gate testIds union == row.tests），仍按 RED-first 协议。

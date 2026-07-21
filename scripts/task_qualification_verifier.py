@@ -769,7 +769,10 @@ def _verify_review_members(
     - reviewerId is not among the signing principal IDs.
     - reviewCommit equals the subject's preCloseCandidate.commit.
     - The raw review report bytes pass the §8.3 P0/P1 parser.
+    - §8.2: independentReviews must be nonempty (review nonempty).
     """
+    if len(reviews) < 1:
+        _BTO._reject(f"{where}: independentReviews must be nonempty")
     seen_invocation_ids = set()
     for review in reviews:
         role = f"review-report/{review.reviewerId}/{review.reportDigest.bytes.hex()}"
