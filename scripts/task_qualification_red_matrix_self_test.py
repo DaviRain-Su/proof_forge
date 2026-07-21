@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+"""TST-DOC-001/task-qualification-v1 RED matrix.
+
+This is the RED matrix for TASK-D0-10. It tests the pure verifier
+(``task_qualification_verifier``) against legal fixture chains (positive
+cases) and mutated chains (negative cases).
+
+The RED matrix is committed before the GREEN implementation. The GREEN
+implementation must make all positive cases pass and all negative cases
+reject with the correct stage.
+
+This is a self-test module: run with ``python3 scripts/task_qualification_red_matrix_self_test.py``.
+"""
+
+from __future__ import annotations
+
+import copy
+import sys
+import os
+
+# Add scripts directory to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import task_qualification_objects as _TQO
+import task_qualification_verifier as _TQV
+import task_qualification_fixture_builder as _TQFB
+import bootstrap_task_objects as _BTO
+
+Rejected = _BTO.Rejected
+
+
+def _bytes_hex(b: bytes) -> str:
+    return b.hex()
+
+
+# ---------------------------------------------------------------------------
+# RED matrix test cases
+# ---------------------------------------------------------------------------
+
+class RedMatrixResult:
+    def __init__(self, name: str, expected_pass: bool, actual_pass: bool, detail: str = ""):
+        self.name = name
+        self.expected_pass = expected_pass
+        self.actual_pass = actual_pass
+        self.detail = detail
+
+    def passed(self) -> bool:
+        return self.expected_pass == self.actual_pass
+
+    def __repr__(self) -> str:
+        status = "PASS" if self.passed() else "FAIL"
+        return f"[{status}] {self.name}: expected={'pass' if self.expected_pass else 'reject'} actual={'pass' if self.actual_pass else 'reject'} {self.detail}"
+
+
+def _run_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
+    """Run the task-qualification verifier and return True if Verified, False if Rejected."""
+    result = _TQV.verify_task_qualification_v1(bundle_bytes, subject_bytes)
+    return isinstance(result, _TQV.VerifiedTaskQualificationV1)
+
+
+def _make_mutated_chain(chain: _TQFB.FixtureChain) -> tuple:
+    """Return (bundle_obj_copy, subject_obj_copy) for mutation."""
+    return (copy.deepcopy(chain.bundle_obj), copy.deepcopy(chain.qualification_obj))
+
+
+def _canonical_bytes(obj: dict) -> bytes:
+    return _BTO.canonical_pf_jcs(obj)
+
+
+# ---------------------------------------------------------------------------
+# Positive cases (should pass)
+# ---------------------------------------------------------------------------
+
+def test_positive_legal_chain() -> RedMatrixResult:
+    """A legal fixture chain should verify successfully."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_bytes, subject_bytes = _TQFB.fixture_chain_to_bytes(chain)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("positive.legal_chain", True, actual)
+
+
+# ---------------------------------------------------------------------------
+# Negative cases (should reject)
+# ---------------------------------------------------------------------------
+
+def test_negative_wrong_signature() -> RedMatrixResult:
+    """A chain with a wrong signature should reject at signatures stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt one signature
+    subject_obj["signatures"][0]["signature"] = "00" * 64
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_signature", False, actual)
+
+
+def test_negative_missing_signature() -> RedMatrixResult:
+    """A chain with only 2 signatures should reject at signatures stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Remove one signature
+    subject_obj["signatures"] = subject_obj["signatures"][:2]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.missing_signature", False, actual)
+
+
+def test_negative_wrong_role_signature() -> RedMatrixResult:
+    """A chain where all 3 signatures are from the same role should reject."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Replace all signatures with architecture key signatures
+    # This requires re-signing with only the architecture key
+    # For simplicity, just corrupt the keyId of one signature
+    subject_obj["signatures"][1]["keyId"] = "fixture-key-architecture"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_role_signature", False, actual)
+
+
+def test_negative_missing_member() -> RedMatrixResult:
+    """A chain missing a required member should reject at members stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Remove the authority-policy member
+    bundle_obj["members"] = [m for m in bundle_obj["members"] if m["role"] != "authority-policy"]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.missing_member", False, actual)
+
+
+def test_negative_corrupt_archive() -> RedMatrixResult:
+    """A chain with a corrupted archive should reject at candidate stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt the candidate-archive bytes
+    for m in bundle_obj["members"]:
+        if m["role"] == "candidate-archive":
+            # Flip a byte in the hex
+            corrupted = bytearray(bytes.fromhex(m["bytesHex"]))
+            corrupted[0] ^= 0x01
+            m["bytesHex"] = corrupted.hex()
+            # Also update the archiveSha256 to match the corrupted archive
+            import hashlib
+            new_digest = "sha256:" + hashlib.sha256(bytes(corrupted)).hexdigest()
+            m["archiveSha256"] = new_digest
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.corrupt_archive", False, actual)
+
+
+def test_negative_wrong_candidate_commit() -> RedMatrixResult:
+    """A chain where the subject's candidate commit doesn't match the archive should reject."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Change the preCloseCandidate commit in the subject
+    subject_obj["preCloseCandidate"]["commit"] = "f1" + "b" * 38
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_candidate_commit", False, actual)
+
+
+def test_negative_oversized_subject() -> RedMatrixResult:
+    """A subject exceeding 4 MiB should reject at bounds stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    # Create an oversized subject (5 MiB)
+    subject_obj["taskRow"]["output"] = "x" * (5 * 1024 * 1024)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.oversized_subject", False, actual)
+
+
+def test_negative_wrong_fixture_namespace() -> RedMatrixResult:
+    """A chain with the wrong fixture namespace should reject at profile stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Change the namespace
+    bundle_obj["verificationProfile"]["namespace"] = "wrong-namespace"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_fixture_namespace", False, actual)
+
+
+def test_negative_wrong_keyset() -> RedMatrixResult:
+    """A chain with the wrong keySet should reject at profile stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    bundle_obj["verificationProfile"]["keySet"] = "wrong-keyset"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_keyset", False, actual)
+
+
+def test_negative_policy_ref_mismatch() -> RedMatrixResult:
+    """A chain where the profile's fixturePolicy ref doesn't match the bundle's expectedAuthorityPolicy should reject."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Change the expectedAuthorityPolicy
+    bundle_obj["expectedAuthorityPolicy"]["digest"] = "sha256:" + "00" * 32
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.policy_ref_mismatch", False, actual)
+
+
+def test_negative_duplicate_member_role() -> RedMatrixResult:
+    """A chain with duplicate member roles should reject at members stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Duplicate the first member
+    bundle_obj["members"].append(bundle_obj["members"][0])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.duplicate_member_role", False, actual)
+
+
+def test_negative_unsorted_members() -> RedMatrixResult:
+    """A chain with unsorted members should reject at members stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Reverse the member order
+    bundle_obj["members"].reverse()
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.unsorted_members", False, actual)
+
+
+def test_negative_wrong_schema() -> RedMatrixResult:
+    """A subject with the wrong schema should reject at members stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    subject_obj["schema"] = "wrong.schema.v1"
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.wrong_schema", False, actual)
+
+
+def test_negative_empty_gates() -> RedMatrixResult:
+    """A subject with no gates should reject."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    subject_obj["gates"] = []
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.empty_gates", False, actual)
+
+
+def test_negative_empty_reviews() -> RedMatrixResult:
+    """A subject with no reviews should reject at reviews stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    subject_obj["independentReviews"] = []
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.empty_reviews", False, actual)
+
+
+def test_negative_non_canonical_subject() -> RedMatrixResult:
+    """A non-canonical subject (non-PF-JCS) should reject."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_bytes, _ = _TQFB.fixture_chain_to_bytes(chain)
+    # Create a non-canonical subject (with whitespace)
+    import json
+    subject_bytes = json.dumps(chain.qualification_obj, indent=2).encode("utf-8")
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.non_canonical_subject", False, actual)
+
+
+def test_negative_non_canonical_bundle() -> RedMatrixResult:
+    """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
+    chain = _TQFB.build_fixture_chain()
+    _, subject_bytes = _TQFB.fixture_chain_to_bytes(chain)
+    # Create a non-canonical bundle (with whitespace)
+    import json
+    bundle_bytes = json.dumps(chain.bundle_obj, indent=2).encode("utf-8")
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.non_canonical_bundle", False, actual)
+
+
+def test_negative_empty_subject() -> RedMatrixResult:
+    """An empty subject should reject at bounds stage."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_bytes, _ = _TQFB.fixture_chain_to_bytes(chain)
+    actual = _run_verifier(bundle_bytes, b"")
+    return RedMatrixResult("negative.empty_subject", False, actual)
+
+
+def test_negative_empty_bundle() -> RedMatrixResult:
+    """An empty bundle should reject at bounds stage."""
+    chain = _TQFB.build_fixture_chain()
+    _, subject_bytes = _TQFB.fixture_chain_to_bytes(chain)
+    actual = _run_verifier(b"", subject_bytes)
+    return RedMatrixResult("negative.empty_bundle", False, actual)
+
+
+# ---------------------------------------------------------------------------
+# Run all tests
+# ---------------------------------------------------------------------------
+
+def run_all_tests() -> list:
+    """Run all RED matrix tests and return the results."""
+    tests = [
+        # Positive
+        test_positive_legal_chain,
+        # Negative
+        test_negative_wrong_signature,
+        test_negative_missing_signature,
+        test_negative_wrong_role_signature,
+        test_negative_missing_member,
+        test_negative_corrupt_archive,
+        test_negative_wrong_candidate_commit,
+        test_negative_oversized_subject,
+        test_negative_wrong_fixture_namespace,
+        test_negative_wrong_keyset,
+        test_negative_policy_ref_mismatch,
+        test_negative_duplicate_member_role,
+        test_negative_unsorted_members,
+        test_negative_wrong_schema,
+        test_negative_empty_gates,
+        test_negative_empty_reviews,
+        test_negative_non_canonical_subject,
+        test_negative_non_canonical_bundle,
+        test_negative_empty_subject,
+        test_negative_empty_bundle,
+    ]
+    results = []
+    for test in tests:
+        try:
+            result = test()
+        except Exception as exc:
+            result = RedMatrixResult(test.__name__, False, False, f"exception: {exc}")
+        results.append(result)
+    return results
+
+
+def main():
+    results = run_all_tests()
+    passed = sum(1 for r in results if r.passed())
+    failed = sum(1 for r in results if not r.passed())
+    print(f"RED Matrix: {passed}/{len(results)} passed, {failed} failed")
+    for r in results:
+        print(r)
+    return 0 if failed == 0 else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
