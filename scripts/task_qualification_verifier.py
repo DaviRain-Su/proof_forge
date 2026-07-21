@@ -227,24 +227,58 @@ def _verify_profile(bundle: TaskQualificationContentBundleV1) -> tuple:
     return (profile, authority_class, policy_ref)
 
 
-def _verify_production_profile_signatures(profile: ProductionVerificationProfileV1, where: str) -> None:
-    """Verify the production profile signatures against the authority policy."""
-    # The production profile is signed by the authority policy principals.
-    # We need to resolve the authority policy from the bundle members.
-    # This is a placeholder — the actual production path requires external pin.
-    # For pure verifier, we only verify the profile's self-consistency.
-    # The protected adapter handles the external pin verification.
-    # Here we verify the profile signature domain and that signatures are valid.
+def _verify_production_profile_signatures(profile: ProductionVerificationProfileV1, policy_obj, where: str) -> None:
+    """Verify the production profile signatures against the authority policy principals.
+
+    Per §8.2, the production profile is signed by the authority policy principals
+    with statement domain pf.taskqual.production-profile-statement.v1, signature
+    message domain pf.taskqual.production-profile-signature.v1, and full digest
+    domain pf.taskqual.production-profile.v1 under the §1 fixed
+    Architecture+Quality+Security rule.
+
+    This function is called after the authority policy is resolved (stage 7),
+    so the principal public keys are available for signature verification.
+    """
+    if len(profile.signatures) < 3:
+        _BTO._reject(f"{where}.signatures: must have at least 3 signatures")
+
+    # Build the unsigned statement (remove signatures field)
     unsigned_wire = _TQO.production_profile_to_wire(profile)
     unsigned_wire_copy = dict(unsigned_wire)
     unsigned_wire_copy["signatures"] = []
     statement_digest = domain_digest(_TQO.DOMAIN_PRODUCTION_PROFILE_STATEMENT, unsigned_wire_copy)
     message = _TQO.DOMAIN_PRODUCTION_PROFILE_SIGNATURE + b"\x00" + statement_digest.bytes
-    # Verify each signature — but we need the public keys from the authority policy.
-    # In pure verifier, we can't resolve the policy from members yet (that's stage 5/6).
-    # So production profile signature verification happens after policy resolution.
-    # For now, just check the profile structure is valid.
-    pass  # Production profile signature verification deferred to after policy resolution
+
+    # Build the principal registry from the policy
+    if isinstance(policy_obj, _TQO.FixturePolicyV1):
+        principals = {p.keyId: p for p in policy_obj.principals}
+        rule = policy_obj.rule
+    else:
+        # Production policy — use bootstrap_task_objects principals
+        principals = {p.keyId: p for p in policy_obj.principals}
+        rule = _BTO.ApprovalRuleV1(
+            requiredRoles=("architecture", "quality", "security"),
+            minimumDistinctSigners=3,
+        )
+
+    # Verify each signature
+    signed_roles = set()
+    signed_principal_ids = set()
+    for sig in profile.signatures:
+        if sig.keyId not in principals:
+            _BTO._reject(f"{where}.signatures: keyId '{sig.keyId}' not in policy")
+        principal = principals[sig.keyId]
+        # Verify the Ed25519 signature
+        if not _BTP.verify_ed25519(principal.publicKey, message, sig.signature):
+            _BTO._reject(f"{where}.signatures: signature verification failed for keyId '{sig.keyId}'")
+        signed_roles.update(principal.roles)
+        signed_principal_ids.add(principal.principalId)
+
+    # Verify the rule: requiredRoles covered, minimumDistinctSigners met
+    if not set(rule.requiredRoles).issubset(signed_roles):
+        _BTO._reject(f"{where}.signatures: required roles not covered")
+    if len(signed_principal_ids) < rule.minimumDistinctSigners:
+        _BTO._reject(f"{where}.signatures: minimum distinct signers not met")
 
 
 # ---------------------------------------------------------------------------
@@ -849,12 +883,88 @@ def _verify_signatures(
 # Stage 15: projection (closeout file set / diff verification)
 # ---------------------------------------------------------------------------
 
+def _verify_closeout_file_set_from_archives(
+    member_map: dict,
+    pre_archive: ArchiveProjection,
+    close_archive: ArchiveProjection,
+    expected_diff_digest: Digest,
+    where: str,
+) -> CloseoutFileSetV1:
+    """Verify the closeout-file-set member and reconstruct from C/D archives per §6.
+
+    The closeout file set is the exact changed-file set from comparing C and D
+    candidate archives path-by-path. The verifier:
+    1. Decodes the closeout-file-set member.
+    2. Recomputes the closeoutDiffDigest.
+    3. Reconstructs the file set from the C/D archives and verifies it matches.
+    """
+    member = member_map.get("closeout-file-set")
+    if member is None:
+        _BTO._reject(f"{where}: closeout-file-set member missing")
+    if not isinstance(member, _TQO.TypedContentMemberV1):
+        _BTO._reject(f"{where}: closeout-file-set must be typed-content")
+    raw_bytes = bytes.fromhex(member.bytesHex)
+    try:
+        obj = decode_canonical_pf_jcs(raw_bytes)
+    except Exception as exc:
+        _BTO._reject(f"{where}: closeout-file-set decode failed: {exc}")
+    file_set = _TQO.parse_closeout_file_set(obj, f"{where}.closeout-file-set")
+    # Recompute the closeout file set digest
+    computed_diff = domain_digest(_TQO.DOMAIN_CLOSEOUT_FILE_SET, obj)
+    if computed_diff.bytes != expected_diff_digest.bytes:
+        _BTO._reject(f"{where}: closeoutDiffDigest mismatch")
+    # Recompute the content ref and verify it matches the member
+    computed_ref = ContentRef(
+        schema=file_set.schema,
+        id=file_set.id,
+        version=file_set.version,
+        digest=computed_diff,
+    )
+    if member.content != computed_ref:
+        _BTO._reject(f"{where}: closeout-file-set member content ref mismatch")
+
+    # Reconstruct the file set from C/D archives and verify it matches
+    pre_paths = set(pre_archive.path_map.keys())
+    close_paths = set(close_archive.path_map.keys())
+    all_paths = sorted(pre_paths | close_paths)
+
+    reconstructed_changes = []
+    for path in all_paths:
+        pre_entry = pre_archive.path_map.get(path)
+        close_entry = close_archive.path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(close_entry.content) if close_entry else None
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue  # no change
+        if before_digest is None and after_digest is None:
+            continue
+        reconstructed_changes.append((path, before_digest, after_digest))
+
+    # Compare reconstructed changes with the file set's changes
+    if len(reconstructed_changes) != len(file_set.changes):
+        _BTO._reject(f"{where}: closeout file set changes count mismatch (reconstructed {len(reconstructed_changes)}, file set {len(file_set.changes)})")
+    for i, (recon, file_set_change) in enumerate(zip(reconstructed_changes, file_set.changes)):
+        if recon[0] != file_set_change[0]:
+            _BTO._reject(f"{where}: closeout file set path mismatch at index {i}")
+        if recon[1] != file_set_change[1]:
+            _BTO._reject(f"{where}: closeout file set beforeDigest mismatch at index {i}")
+        if recon[2] != file_set_change[2]:
+            _BTO._reject(f"{where}: closeout file set afterDigest mismatch at index {i}")
+
+    return file_set
+
+
 def _verify_closeout_file_set_member(
     member_map: dict,
     expected_diff_digest: Digest,
     where: str,
 ) -> CloseoutFileSetV1:
-    """Verify the closeout-file-set member and the diff digest."""
+    """Verify the closeout-file-set member and the diff digest (without archive reconstruction).
+
+    Used when the verifier does not have access to the C/D archives (e.g. when
+    the archives are not yet loaded). For full §6 compliance, use
+    _verify_closeout_file_set_from_archives instead.
+    """
     member = member_map.get("closeout-file-set")
     if member is None:
         _BTO._reject(f"{where}: closeout-file-set member missing")
@@ -961,7 +1071,6 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     try:
         member_map = _build_member_map(bundle)
         _verify_member_role_set(bundle, member_map, profile, "members")
-        _verify_member_role_set(bundle, member_map, profile, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -992,6 +1101,9 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     # Stage 7: policy
     try:
         policy_obj, policy_ref = _verify_authority_policy(member_map, profile, policy_ref, "policy")
+        # For production profiles, verify the profile signatures now that policy is resolved
+        if isinstance(profile, ProductionVerificationProfileV1):
+            _verify_production_profile_signatures(profile, policy_obj, "profile")
     except Rejected as r:
         return _reject_stage("policy", r.detail)
 
@@ -1161,10 +1273,11 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("signatures", r.detail)
 
-    # Stage 15: projection — verify closeout file set and diff
+    # Stage 15: projection — verify closeout file set and diff from archives
     try:
-        file_set = _verify_closeout_file_set_member(
-            member_map, receipt.closeoutDiffDigest, "projection",
+        file_set = _verify_closeout_file_set_from_archives(
+            member_map, pre_archive, close_archive,
+            receipt.closeoutDiffDigest, "projection",
         )
     except Rejected as r:
         return _reject_stage("projection", r.detail)
@@ -1425,10 +1538,11 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("signatures", r.detail)
 
-    # Stage 15: projection — verify closeout file set and diff
+    # Stage 15: projection — verify closeout file set and diff from archives
     try:
-        file_set = _verify_closeout_file_set_member(
-            member_map, receipt.closeoutDiffDigest, "projection",
+        file_set = _verify_closeout_file_set_from_archives(
+            member_map, pre_archive, close_archive,
+            receipt.closeoutDiffDigest, "projection",
         )
     except Rejected as r:
         return _reject_stage("projection", r.detail)

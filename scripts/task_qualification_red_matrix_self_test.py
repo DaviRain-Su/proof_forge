@@ -267,6 +267,19 @@ def test_negative_qualification_missing_revocation_snapshot() -> RedMatrixResult
     return RedMatrixResult("negative.qualification_missing_revocation_snapshot", False, actual)
 
 
+def test_negative_completion_wrong_diff_digest() -> RedMatrixResult:
+    """A completion receipt whose closeoutDiffDigest doesn't match the actual C/D diff should reject (§6)."""
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    # Corrupt the closeoutDiffDigest to something wrong
+    receipt_obj["closeoutDiffDigest"] = "sha256:" + "ab" * 32
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_wrong_diff_digest", False, actual)
+
+
 # ---------------------------------------------------------------------------
 # Negative cases (should reject)
 # ---------------------------------------------------------------------------
@@ -542,6 +555,8 @@ def run_all_tests() -> list:
         test_negative_receipt_forbidden_evidence_member,
         test_negative_fixture_forbidden_production_profile,
         test_negative_qualification_missing_revocation_snapshot,
+        # §6 closeout file set from archives (P0-4)
+        test_negative_completion_wrong_diff_digest,
     ]
     results = []
     for test in tests:
