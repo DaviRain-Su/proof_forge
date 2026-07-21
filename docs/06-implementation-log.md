@@ -7232,32 +7232,46 @@ normative: false
   §8.3 archive/Git projection、§8.4 protected production adapter。所有对象类型、digest domain、
   签名域和15-stage pipeline按规格实现。fixture使用RFC 8032 §7.1 test vectors #1-#4。
 - Changed：
-  - `scripts/task_qualification_objects.py`（~2320行）：closed wire object authority for all
+  - `scripts/task_qualification_objects.py`（~2340行）：closed wire object authority for all
     SPEC-TASKQUAL-001 §2-§8 object types。包括CandidateIdentity、ContentRef、TaskQualificationV1、
     TaskCompletionReceiptV1、D0_10BootstrapApprovalV1、D0_10BootstrapReceiptV1、
     GovernanceBootstrapCompletionV1、FixturePolicyV1、FixtureResolvedBlobV1、content bundle和
     verification profiles。ustar archive parser、Git SHA-1 blob/tree/commit recompute、ancestry graph。
-  - `scripts/task_qualification_verifier.py`（~1320行）：pure content verifier implementing
+  - `scripts/task_qualification_verifier.py`（~1560行）：pure content verifier implementing
     the four §8.1 verify_* functions with the fixed 15-stage pipeline。
-  - `scripts/task_qualification_fixture_builder.py`（~1970行）：legal fixture chain builder
+  - `scripts/task_qualification_fixture_builder.py`（~1990行）：legal fixture chain builder
     for all 4 operations (task-qualification, task-completion, d0-10-bootstrap-approval,
     d0-10-bootstrap-receipt)。
-  - `scripts/task_qualification_red_matrix_self_test.py`（~370行）：TST-DOC-001/task-
-    qualification-v1 RED matrix with 30 test cases (4 positive, 26 negative)。
+  - `scripts/task_qualification_red_matrix_self_test.py`（~430行）：TST-DOC-001/task-
+    qualification-v1 RED matrix with 34 test cases (4 positive, 30 negative)。
   - `scripts/task_qualification_protected_adapter.py`（~350行）：protected production adapter
     implementing §8.4 ProtectedTaskQualificationAcceptanceV1。
-- Tests：30/30 RED matrix tests pass。覆盖signature、member、candidate、profile、bounds、
-  canonicalization、closeout file set、D0-07 bridge、D0-10 approval/receipt invariants。
+  - `scripts/docs_check.py`：D0-10 closure verification integration。
+- Tests：34/34 RED matrix tests pass。覆盖signature、member、candidate、profile、bounds、
+  canonicalization、closeout file set from archives、D0-07 bridge、D0-10 approval/receipt、
+  §8.2 role-set enforcement、§6 closeout file set reconstruction invariants。
   Pure verifier returns fixture-non-authoritative for fixture chains。
-- Verification：`python3 scripts/task_qualification_red_matrix_self_test.py` → 30/30 passed。
+- Verification：`python3 scripts/task_qualification_red_matrix_self_test.py` → 34/34 passed。
   Git tree SHA-1 computation verified against real git repo。RFC 8032 test vector seeds
-  verified against project pure-Python Ed25519 implementation。
+  verified against project pure-Python Ed25519 implementation。docs-check-self-test
+  passes with 204 mutations。
+- Review：fixture-path implementation reviewed by independent explore subagent from
+  separate session。Verdict: FIX。5 P0 findings addressed:
+  - P0-1: dead _resolve_review_member with NameError bug → removed/fixed.
+  - P0-2: production profile signature verification no-op → implemented.
+  - P0-3: §8.2 role-set/family-cardinality not enforced → implemented.
+  - P0-4: §6 closeout file set from archives dead code → implemented.
+  - P0-5: production profile pin wrong digest domain → fixed.
+  2 P1 findings addressed:
+  - P1-1: Git object IDs now require 40-hex SHA-1 only.
+  - P1-8: Review verification checks reviewerId not signing principal + unique invocationId.
+  Remaining P1/P2 findings are deferred to production closeout preparation.
 - Evidence：development evidence for fixture-path implementation。不是正式closeout evidence。
 - Limitations：本证据不能关闭TASK-D0-10。正式closeout需要：(1) eligible Stage-0 host for
   production closeout；(2) independent implementation review from separate session；
   (3) actual Architecture+Quality+Security authorization signatures (not test vectors)；
   (4) actual closeout commit D with candidate-owned bootstrap-approval.json；
-  (5) external D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1；
-  (6) docs-check integration尚未完成。fixture path返回fixture-non-authoritative，
-  不能产生Ledger bootstrap/formal、GovernanceBootstrapCompletion、docs acceptance或task closeout。
-- Next：完成docs-check integration；进行独立复审；准备production closeout ceremony。
+  (5) external D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1。
+  fixture path返回fixture-non-authoritative，不能产生Ledger bootstrap/formal、
+  GovernanceBootstrapCompletion、docs acceptance或task closeout。
+- Next：准备production closeout ceremony；address remaining P1/P2 findings。
