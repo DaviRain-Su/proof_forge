@@ -1104,7 +1104,7 @@ def build_fixture_chain() -> FixtureChain:
         (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
         (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
         (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
-        (f"revocation-snapshot/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
         (f"evidence/{FIXTURE_EVIDENCE_ID}", "raw-source", {"path": f"evidence/{FIXTURE_EVIDENCE_ID}", "digest": digest_to_wire(evidence_ref.digest)}, evidence_bytes.hex()),
         (f"review-report/{FIXTURE_REVIEWER_ID}/{review_ref.reportDigest.bytes.hex()}", "review", {"reviewerId": FIXTURE_REVIEWER_ID, "reportDigest": digest_to_wire(review_ref.reportDigest)}, review_report_bytes.hex()),
     ]
@@ -1744,7 +1744,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         (f"session-containment/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
         (f"freshness/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
         (f"private-scan/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
-        (f"revocation-snapshot/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
         ("d0-07-governance-completion", "typed-content", content_ref_to_wire(_BTO.ContentRef(
             schema=d0_07_completion_obj["schema"],
             id=d0_07_completion_obj["id"],

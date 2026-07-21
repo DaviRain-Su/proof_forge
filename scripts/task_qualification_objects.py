@@ -215,6 +215,9 @@ DOMAIN_FIXTURE_RESOLVED_BLOB = b"pf.taskqual.fixture-resolved-blob.v1"
 DOMAIN_PRODUCTION_PROFILE_STATEMENT = b"pf.taskqual.production-profile-statement.v1"
 DOMAIN_PRODUCTION_PROFILE_SIGNATURE = b"pf.taskqual.production-profile-signature.v1"
 DOMAIN_PRODUCTION_PROFILE = b"pf.taskqual.production-profile.v1"
+DOMAIN_PRODUCTION_PROFILE_PIN_STATEMENT = b"pf.taskqual.production-profile-pin-statement.v1"
+DOMAIN_PRODUCTION_PROFILE_PIN_SIGNATURE = b"pf.taskqual.production-profile-pin-signature.v1"
+DOMAIN_PRODUCTION_PROFILE_PIN = b"pf.taskqual.production-profile-pin.v1"
 DOMAIN_PURE_PROJECTION = b"pf.taskqual.pure-projection.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT = b"pf.taskqual.protected-acceptance-statement.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_SIGNATURE = b"pf.taskqual.protected-acceptance-signature.v1"
@@ -1966,7 +1969,7 @@ def production_profile_content_ref(p: ProductionVerificationProfileV1) -> Conten
 
 def production_profile_pin_content_ref(p: ProductionVerificationProfilePinV1) -> ContentRef:
     wire = production_profile_pin_to_wire(p)
-    digest = domain_digest(DOMAIN_PROTECTED_ACCEPTANCE, wire)
+    digest = domain_digest(DOMAIN_PRODUCTION_PROFILE_PIN, wire)
     return ContentRef(schema=p.schema, id=p.id, version=p.version, digest=digest)
 
 

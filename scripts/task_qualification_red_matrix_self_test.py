@@ -211,6 +211,62 @@ def test_negative_d0_10_receipt_wrong_parent() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_receipt_wrong_parent", False, actual)
 
 
+def test_negative_receipt_forbidden_evidence_member() -> RedMatrixResult:
+    """A receipt operation with an evidence/* member should reject at members stage (§8.2)."""
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    # Add a forbidden evidence member to a receipt operation
+    bundle_obj["members"].append({
+        "role": "evidence/EV-20260721-0001",
+        "kind": "raw-source",
+        "raw": {"path": "evidence/EV-20260721-0001", "digest": "sha256:" + "00" * 32},
+        "bytesHex": "00",
+    })
+    # Re-sort members
+    bundle_obj["members"].sort(key=lambda m: m["role"])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.receipt_forbidden_evidence_member", False, actual)
+
+
+def test_negative_fixture_forbidden_production_profile() -> RedMatrixResult:
+    """A fixture bundle with a production-profile member should reject at members stage (§8.2)."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Add a forbidden production-profile member to a fixture bundle
+    bundle_obj["members"].append({
+        "role": "production-profile",
+        "kind": "typed-content",
+        "content": {
+            "schema": "proof-forge.task-qualification-production-profile.v1",
+            "id": "task-qualification-production-profile-v1",
+            "version": "1.0.0",
+            "digest": "sha256:" + "00" * 32,
+        },
+        "bytesHex": "00",
+    })
+    # Re-sort members
+    bundle_obj["members"].sort(key=lambda m: m["role"])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.fixture_forbidden_production_profile", False, actual)
+
+
+def test_negative_qualification_missing_revocation_snapshot() -> RedMatrixResult:
+    """A qualification bundle missing the revocation-snapshot singleton should reject (§8.2)."""
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Remove the revocation-snapshot singleton
+    bundle_obj["members"] = [m for m in bundle_obj["members"] if m["role"] != "revocation-snapshot"]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.qualification_missing_revocation_snapshot", False, actual)
+
+
 # ---------------------------------------------------------------------------
 # Negative cases (should reject)
 # ---------------------------------------------------------------------------
@@ -482,6 +538,10 @@ def run_all_tests() -> list:
         test_positive_legal_d0_10_receipt,
         test_negative_d0_10_receipt_wrong_signature,
         test_negative_d0_10_receipt_wrong_parent,
+        # §8.2 role-set enforcement (P0-3)
+        test_negative_receipt_forbidden_evidence_member,
+        test_negative_fixture_forbidden_production_profile,
+        test_negative_qualification_missing_revocation_snapshot,
     ]
     results = []
     for test in tests:

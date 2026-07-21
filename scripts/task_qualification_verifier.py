@@ -261,6 +261,112 @@ def _build_member_map(bundle: TaskQualificationContentBundleV1) -> dict:
     return member_map
 
 
+# ---------------------------------------------------------------------------
+# §8.2 operation-specific role set enforcement
+# ---------------------------------------------------------------------------
+
+# Required singleton roles per operation (from §8.2 table)
+OPERATION_REQUIRED_SINGLETONS = {
+    "task-qualification": (
+        "phase-4-source", "phase-5-source", "freeze-package-source",
+        "candidate-archive", "candidate-commit-object",
+        "authority-policy", "revocation-snapshot", "allowed-closeout-patch",
+    ),
+    "task-completion": (
+        "pre-close-archive", "closeout-archive",
+        "pre-close-commit-object", "closeout-commit-object",
+        "qualification", "allowed-closeout-patch", "closeout-file-set",
+        "authority-policy", "revocation-snapshot",
+    ),
+    "d0-10-bootstrap-approval": (
+        "phase-4-source", "phase-5-source", "ruling-source",
+        "freeze-package-source", "candidate-archive", "candidate-commit-object",
+        "authority-policy", "revocation-snapshot",
+        "d0-07-governance-completion", "d0-07-completion-archive",
+        "d0-07-completion-commit-object", "allowed-closeout-patch",
+    ),
+    "d0-10-bootstrap-receipt": (
+        "pre-close-archive", "closeout-archive",
+        "pre-close-commit-object", "closeout-commit-object",
+        "bootstrap-approval", "allowed-closeout-patch", "closeout-file-set",
+        "authority-policy", "revocation-snapshot",
+    ),
+}
+
+# Family prefixes per operation (from §8.2 table)
+# Receipt operations have ZERO evidence/review/dependency/ancestry families.
+OPERATION_FAMILY_PREFIXES = {
+    "task-qualification": (
+        "evidence/", "review-report/", "dependency/", "dependency-archive/",
+        "dependency-commit-object/", "ancestry-commit/", "revocation-record/",
+        "command-policy/", "resolved-tool/", "resolved-probe/",
+        "sandbox-policy/", "verifier-executable/", "verifier-closure/",
+        "verifier-build-policy/", "eligible-stage0-handoff/",
+        "session-containment/", "freshness/", "private-scan/",
+        "private-scan-policy/", "authority-store-service/",
+        "host-observation/", "host-profile/",
+    ),
+    "task-completion": (
+        "revocation-record/",
+    ),
+    "d0-10-bootstrap-approval": (
+        "evidence/", "review-report/", "dependency/", "dependency-archive/",
+        "dependency-commit-object/", "ancestry-commit/", "revocation-record/",
+        "command-policy/", "resolved-tool/", "resolved-probe/",
+        "sandbox-policy/", "verifier-executable/", "verifier-closure/",
+        "verifier-build-policy/", "eligible-stage0-handoff/",
+        "session-containment/", "freshness/", "private-scan/",
+        "private-scan-policy/", "authority-store-service/",
+        "host-observation/", "host-profile/",
+    ),
+    "d0-10-bootstrap-receipt": (
+        "revocation-record/",
+    ),
+}
+
+# Forbidden roles per profile kind
+# Fixture operations must NOT have a "production-profile" member.
+# Production operations MUST have a "production-profile" member.
+FIXTURE_FORBIDDEN_ROLES = ("production-profile",)
+PRODUCTION_REQUIRED_ROLES = ("production-profile",)
+
+
+def _verify_member_role_set(
+    bundle: TaskQualificationContentBundleV1,
+    member_map: dict,
+    profile,
+    where: str,
+) -> None:
+    """Verify the §8.2 operation-specific role set and family cardinality."""
+    operation = bundle.operation
+    required = OPERATION_REQUIRED_SINGLETONS.get(operation, ())
+    family_prefixes = OPERATION_FAMILY_PREFIXES.get(operation, ())
+
+    # Check required singletons are present
+    for role in required:
+        if role not in member_map:
+            _BTO._reject(f"{where}: missing required singleton '{role}' for operation '{operation}'")
+
+    # Check for forbidden roles
+    if isinstance(profile, FixtureVerificationProfileV1):
+        for role in FIXTURE_FORBIDDEN_ROLES:
+            if role in member_map:
+                _BTO._reject(f"{where}: fixture profile forbids role '{role}'")
+    elif isinstance(profile, ProductionVerificationProfileV1):
+        for role in PRODUCTION_REQUIRED_ROLES:
+            if role not in member_map:
+                _BTO._reject(f"{where}: production profile requires role '{role}'")
+
+    # Check that all member roles are either required singletons or valid family members
+    for role in member_map:
+        if role in required:
+            continue
+        # Check if it's a valid family member
+        is_valid_family = any(role.startswith(prefix) for prefix in family_prefixes)
+        if not is_valid_family:
+            _BTO._reject(f"{where}: role '{role}' is not a valid singleton or family member for operation '{operation}'")
+
+
 def _resolve_typed_member(member_map: dict, role: str, ref: ContentRef, where: str) -> tuple:
     """Resolve a typed-content member to (decoded_obj, content_ref, bytes).
 
@@ -340,16 +446,17 @@ def _resolve_git_object_member(member_map: dict, role: str, where: str) -> tuple
 
 
 def _resolve_review_member(member_map: dict, role: str, where: str) -> tuple:
-    """Resolve a review member to (raw_bytes, report_digest)."""
+    """Resolve a review member to (raw_bytes, report_digest).
+
+    Review report digest is SHA-256("pf.taskqual.review-report.v1" || NUL || raw bytes).
+    """
     if role not in member_map:
         _BTO._reject(f"{where}: member '{role}' missing")
     member = member_map[role]
     if not isinstance(member, _TQO.ReviewMemberV1):
         _BTO._reject(f"{where}: member '{role}' must be review")
     raw_bytes = bytes.fromhex(member.bytesHex)
-    # Recompute the review report digest
-    computed = domain_digest(_TQO.DOMAIN_REVIEW_REPORT, decode_canonical_pf_jcs(raw_bytes) if False else raw_bytes)
-    # Actually, review report digest is SHA-256("pf.taskqual.review-report.v1" || NUL || raw bytes)
+    import hashlib
     computed = _TQO.Digest(
         algorithm="sha256",
         bytes=hashlib.sha256(_TQO.DOMAIN_REVIEW_REPORT + b"\x00" + raw_bytes).digest(),
@@ -613,15 +720,22 @@ def _verify_gate_controls(
     profile,
     where: str,
 ) -> None:
-    """Verify gate control members (handoff, containment, freshness, scan, revocation)."""
-    control_refs = [
+    """Verify gate control members (handoff, containment, freshness, scan).
+
+    Per §8.2, gate-keyed controls are: eligible-stage0-handoff, session-containment,
+    freshness, private-scan, private-scan-policy, authority-store-service,
+    host-observation, host-profile, command-policy, resolved-tool, resolved-probe,
+    sandbox-policy, verifier-executable, verifier-closure, verifier-build-policy.
+    The revocation-snapshot is a bundle-level singleton, not gate-keyed.
+    """
+    # Gate-keyed controls
+    gate_keyed_controls = [
         ("eligible-stage0-handoff", gate.eligibleStage0Handoff),
         ("session-containment", gate.sessionContainment),
         ("freshness", gate.freshness),
         ("private-scan", gate.privateScan),
-        ("revocation-snapshot", gate.revocationSnapshot),
     ]
-    for control_name, ref in control_refs:
+    for control_name, ref in gate_keyed_controls:
         role = f"{control_name}/{gate.gateId}"
         member = member_map.get(role)
         if member is None:
@@ -630,6 +744,15 @@ def _verify_gate_controls(
             _BTO._reject(f"{where}: {role} must be typed-content")
         if member.content != ref:
             _BTO._reject(f"{where}: {role} content ref mismatch")
+
+    # Revocation snapshot is a bundle-level singleton (not gate-keyed)
+    revocation_member = member_map.get("revocation-snapshot")
+    if revocation_member is None:
+        _BTO._reject(f"{where}: revocation-snapshot singleton member missing")
+    if not isinstance(revocation_member, _TQO.TypedContentMemberV1):
+        _BTO._reject(f"{where}: revocation-snapshot must be typed-content")
+    if revocation_member.content != gate.revocationSnapshot:
+        _BTO._reject(f"{where}: revocation-snapshot content ref mismatch")
 
 
 # ---------------------------------------------------------------------------
@@ -837,6 +960,8 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     # Stage 4: members
     try:
         member_map = _build_member_map(bundle)
+        _verify_member_role_set(bundle, member_map, profile, "members")
+        _verify_member_role_set(bundle, member_map, profile, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -978,6 +1103,7 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
     # Stage 4: members
     try:
         member_map = _build_member_map(bundle)
+        _verify_member_role_set(bundle, member_map, profile, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -1092,6 +1218,7 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
     # Stage 4: members
     try:
         member_map = _build_member_map(bundle)
+        _verify_member_role_set(bundle, member_map, profile, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -1242,6 +1369,7 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
     # Stage 4: members
     try:
         member_map = _build_member_map(bundle)
+        _verify_member_role_set(bundle, member_map, profile, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
