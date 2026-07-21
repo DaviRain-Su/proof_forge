@@ -837,6 +837,24 @@ def _parse_review_report_for_findings(raw_bytes: bytes, where: str) -> None:
 # Stage 12: controls verification (gate control members)
 # ---------------------------------------------------------------------------
 
+def _verify_gate_test_ids_union(gates: tuple, task_row, where: str) -> None:
+    """§3: all gate testIds must be non-overlapping and their sorted union
+    must exactly equal row.tests.
+    """
+    seen = set()
+    for gate in gates:
+        for tid in gate.testIds:
+            if tid in seen:
+                _BTO._reject(f"{where}: gate testId '{tid}' overlaps across gates")
+            seen.add(tid)
+    union_sorted = tuple(sorted(seen))
+    row_tests_sorted = tuple(sorted(task_row.tests))
+    if union_sorted != row_tests_sorted:
+        _BTO._reject(
+            f"{where}: gate testIds union does not equal row.tests "
+            f"(union={list(union_sorted)}, row.tests={list(row_tests_sorted)})")
+
+
 def _verify_gate_controls(
     member_map: dict,
     gate: TaskQualificationGateV1,
@@ -1261,6 +1279,7 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
 
     # Stage 12: controls
     try:
+        _verify_gate_test_ids_union(qualification.gates, qualification.taskRow, "controls")
         for gate in qualification.gates:
             _verify_gate_controls(member_map, gate, profile, "controls")
     except Rejected as r:
@@ -1538,6 +1557,7 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
 
     # Stage 12: controls
     try:
+        _verify_gate_test_ids_union((approval.bootstrapGate,), approval.taskRow, "controls")
         _verify_gate_controls(member_map, approval.bootstrapGate, profile, "controls")
     except Rejected as r:
         return _reject_stage("controls", r.detail)

@@ -7545,3 +7545,42 @@ normative: false
   下界 1；上界 256 已由 parser `MAX_REVIEWS` 覆盖。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
   或 P1-2 gate testIds union == row.tests），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 5：P1-2 gate testIds union == row.tests enforcement
+
+- Spec/Test：`SPEC-TASKQUAL-001` §3（全部 gate testIds 无交叠，其升序 union exact
+  等于 row.tests）；`TST-DOC-001`（closed verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 controls stage）：
+  - P1-2（gate testIds union 未校验）：verifier 在 controls stage 逐 gate 校验 gate
+    control members，但从不校验所有 gate `testIds` 的无交叠性与升序 union 是否 exact
+    等于 `taskRow.tests`。spec §3 明确要求该不变式。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_verify_gate_test_ids_union(gates, task_row, where)`：遍历所有 gate 的
+      `testIds`，检测跨 gate 重复（overlap），再断言 `sorted(union) == sorted(row.tests)`。
+    - `_verify_task_qualification` 在 controls stage 入口调用该函数（gates,
+      qualification.taskRow）。
+    - `_verify_d0_10_approval` 在 controls stage 入口调用该函数
+      （`(approval.bootstrapGate,)`, approval.taskRow）。D0-10 只有单一 bootstrapGate，
+      故 union 即该 gate 的 testIds，必须等于 row.tests。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    `gate_testids_union_mismatch`（qualification：在第一个 gate 的 testIds 末尾追加
+      `TST-EXTRA-FAKE`，使 union 多出一项不等于 row.tests，重签 subject）、
+    `d0_10_gate_testids_union_mismatch`（D0-10 approval：同样在 bootstrapGate 追加
+      `TST-EXTRA-FAKE`，重签）。两个 test 均先确认 RED（expected=reject, actual=pass），
+    实现后转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 46/46 passed
+  （slice 4 的 44 个 + slice 5 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：gate testIds union 在 controls stage 入口（任何 gate control member
+  校验之前）断言，overlap 或 union != row.tests 一律 fail closed。所有 fixture chain
+  仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for gate testIds union enforcement。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只校验
+  union 等式与无交叠；gate 的 evidence partition（每个 evidence 属于恰好一个 gate）是
+  独立不变式，留待后续 slice。
+- Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
+  或 P1-11 allowedCloseoutPatch.allowedPaths restrictions），仍按 RED-first 协议。

@@ -745,6 +745,55 @@ def test_negative_d0_10_empty_independent_reviews() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_empty_independent_reviews", False, actual)
 
 
+def test_negative_gate_testids_union_mismatch() -> RedMatrixResult:
+    """§3: all gate testIds must be non-overlapping and their sorted union
+    must exactly equal row.tests.
+
+    A qualification whose gate testIds union does not equal row.tests must
+    reject. The fixture has a single gate whose testIds == row.tests. Adding
+    an extra testId to the gate (so the union has one extra) breaks the
+    invariant. The subject is re-signed so signature verification passes and
+    the verifier reaches the controls stage where the union check fires.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Add an extra testId to the first gate so the union no longer equals
+    # row.tests.
+    subject_obj["gates"][0]["testIds"] = list(
+        subject_obj["gates"][0]["testIds"]) + ["TST-EXTRA-FAKE"]
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.gate_testids_union_mismatch", False, actual)
+
+
+def test_negative_d0_10_gate_testids_union_mismatch() -> RedMatrixResult:
+    """§3: D0-10 bootstrap gate testIds must equal row.tests.
+
+    The D0-10 approval has a single bootstrapGate whose testIds must equal
+    taskRow.tests. Adding an extra testId breaks the invariant. The subject
+    is re-signed so the verifier reaches the controls stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["bootstrapGate"]["testIds"] = list(
+        approval_obj["bootstrapGate"]["testIds"]) + ["TST-EXTRA-FAKE"]
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_gate_testids_union_mismatch", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -812,6 +861,9 @@ def run_all_tests() -> list:
         # §8.2 independentReviews nonempty (P1-3)
         test_negative_empty_independent_reviews,
         test_negative_d0_10_empty_independent_reviews,
+        # §3 gate testIds union == row.tests, non-overlap (P1-2)
+        test_negative_gate_testids_union_mismatch,
+        test_negative_d0_10_gate_testids_union_mismatch,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,
