@@ -70,6 +70,12 @@ def _run_d0_10_approval_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> b
     return isinstance(result, _TQV.VerifiedD0_10BootstrapApprovalV1)
 
 
+def _run_d0_10_receipt_verifier(bundle_bytes: bytes, subject_bytes: bytes) -> bool:
+    """Run the d0-10-bootstrap-receipt verifier and return True if Verified, False if Rejected."""
+    result = _TQV.verify_d0_10_bootstrap_receipt_v1(bundle_bytes, subject_bytes)
+    return isinstance(result, _TQV.VerifiedD0_10BootstrapCompletionV1)
+
+
 def _make_mutated_chain(chain) -> tuple:
     """Return (bundle_obj_copy, subject_obj_copy) for mutation."""
     if hasattr(chain, "qualification_obj"):
@@ -170,6 +176,39 @@ def test_negative_d0_10_wrong_ruling() -> RedMatrixResult:
     subject_bytes = _canonical_bytes(approval_obj)
     actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
     return RedMatrixResult("negative.d0_10_wrong_ruling", False, actual)
+
+
+def test_positive_legal_d0_10_receipt() -> RedMatrixResult:
+    """A legal D0-10 bootstrap receipt chain should verify successfully."""
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_bytes, subject_bytes = _TQFB.d0_10_receipt_chain_to_bytes(receipt_chain)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("positive.legal_d0_10_receipt", True, actual)
+
+
+def test_negative_d0_10_receipt_wrong_signature() -> RedMatrixResult:
+    """A D0-10 receipt with a wrong signature should reject."""
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    receipt_obj["signatures"][0]["signature"] = "00" * 64
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_receipt_wrong_signature", False, actual)
+
+
+def test_negative_d0_10_receipt_wrong_parent() -> RedMatrixResult:
+    """A D0-10 receipt where D's parent is not C should reject."""
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    receipt_obj["preCloseCandidate"]["commit"] = "f1" + "d" * 38
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_receipt_wrong_parent", False, actual)
 
 
 # ---------------------------------------------------------------------------
@@ -439,6 +478,10 @@ def run_all_tests() -> list:
         test_negative_d0_10_wrong_signature,
         test_negative_d0_10_wrong_task_id,
         test_negative_d0_10_wrong_ruling,
+        # D0-10 bootstrap receipt
+        test_positive_legal_d0_10_receipt,
+        test_negative_d0_10_receipt_wrong_signature,
+        test_negative_d0_10_receipt_wrong_parent,
     ]
     results = []
     for test in tests:

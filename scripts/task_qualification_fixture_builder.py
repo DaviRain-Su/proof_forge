@@ -1777,3 +1777,187 @@ def d0_10_approval_chain_to_bytes(chain: D0_10ApprovalChain) -> tuple:
     bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
     subject_bytes = canonical_pf_jcs(chain.approval_obj)
     return (bundle_bytes, subject_bytes)
+
+
+# ---------------------------------------------------------------------------
+# D0-10 bootstrap receipt fixture chain
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class D0_10ReceiptChain:
+    """A complete fixture chain for the d0-10-bootstrap-receipt operation."""
+    pre_candidate: CandidateContext
+    close_candidate: CandidateContext
+    fixture_policy: _TQO.FixturePolicyV1
+    approval_obj: dict
+    receipt_obj: dict
+    bundle_obj: dict
+    closeout_file_set: _TQO.CloseoutFileSetV1
+
+
+def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10ReceiptChain:
+    """Build a legal fixture chain for d0-10-bootstrap-receipt."""
+    pre_candidate = approval_chain.candidate
+
+    # Build closeout candidate D (child of C)
+    closeout_files = {
+        "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture updated",
+        "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture updated",
+        "docs/06-implementation-log.md": b"# D0-10 implementation log fixture",
+        "docs/07-review-report.md": b"# D0-10 review report fixture",
+        "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json": canonical_pf_jcs(approval_chain.approval_obj),
+    }
+    close_candidate = build_synthetic_candidate(
+        D0_10_TASK_ID,
+        closeout_files,
+        parent_sha=pre_candidate.identity.commit,
+    )
+
+    # Build the closeout file set
+    pre_paths = set(pre_candidate.archive_projection.path_map.keys())
+    close_paths = set(close_candidate.archive_projection.path_map.keys())
+    all_paths = sorted(pre_paths | close_paths)
+
+    changes = []
+    for path in all_paths:
+        pre_entry = pre_candidate.archive_projection.path_map.get(path)
+        close_entry = close_candidate.archive_projection.path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(close_entry.content) if close_entry else None
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue
+        if before_digest is None and after_digest is None:
+            continue
+        changes.append((path, before_digest, after_digest))
+
+    closeout_file_set = build_closeout_file_set(
+        pre_candidate, close_candidate, changes,
+    )
+    closeout_diff_digest = closeout_file_set_digest(closeout_file_set)
+
+    # Build the approval digest
+    approval_digest = domain_digest(_TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, approval_chain.approval_obj)
+
+    # Build the ruling ref
+    ruling_ref = _TQO.NormativeDocumentRefV1(
+        id=D0_10_RULING_ID,
+        status="accepted",
+        contentDigest=plain_sha256_digest(b"fixture d0-10 ruling content"),
+        reviewCommit=pre_candidate.identity.commit,
+    )
+
+    policy_ref = _TQO.fixture_policy_content_ref(approval_chain.fixture_policy)
+    patch_ref = allowed_closeout_patch_content_ref(_TQO.AllowedCloseoutPatchV1(
+        schema="proof-forge.allowed-closeout-patch.v1",
+        id="allowed-closeout-d0-10",
+        version="1.0.0",
+        taskId=D0_10_TASK_ID,
+        preCloseCandidate=pre_candidate.identity,
+        allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
+        semanticFileSetDigest=closeout_diff_digest,  # simplified
+        resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
+    ))
+
+    # Build revocation snapshot
+    revocation_blob = _TQO.build_fixture_resolved_blob(
+        D0_10_GATE_ID, "authority-store-service", b"fixture revocation snapshot"
+    )
+    revocation_ref = _TQO.fixture_resolved_blob_content_ref(revocation_blob)
+
+    receipt_obj = {
+        "schema": "proof-forge.d0-10-bootstrap-receipt.v1",
+        "id": D0_10_RECEIPT_ID,
+        "version": "1.0.0",
+        "taskId": D0_10_TASK_ID,
+        "ruling": {
+            "id": ruling_ref.id,
+            "status": ruling_ref.status,
+            "contentDigest": digest_to_wire(ruling_ref.contentDigest),
+            "reviewCommit": ruling_ref.reviewCommit,
+        },
+        "preCloseCandidate": {
+            "commit": pre_candidate.identity.commit,
+            "treeObjectId": pre_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(pre_candidate.identity.archiveDigest),
+        },
+        "closeoutCandidate": {
+            "commit": close_candidate.identity.commit,
+            "treeObjectId": close_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(close_candidate.identity.archiveDigest),
+        },
+        "approvalDigest": digest_to_wire(approval_digest),
+        "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
+        "closeoutDiffDigest": digest_to_wire(closeout_diff_digest),
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "revocationSnapshot": content_ref_to_wire(revocation_ref),
+        "ledgerGrade": "bootstrap",
+        "purpose": "d0-10-taskqual-one-time-bridge",
+        "issuedAt": FIXTURE_VERIFICATION_INSTANT,
+        "signatures": [],
+    }
+
+    # Sign the receipt
+    sigs = _sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    receipt_obj["signatures"] = sigs
+
+    # Build the content bundle for d0-10-bootstrap-receipt
+    policy_wire = _TQO.fixture_policy_to_wire(approval_chain.fixture_policy)
+    policy_bytes = canonical_pf_jcs(policy_wire)
+    patch_wire = allowed_closeout_patch_to_wire(_TQO.AllowedCloseoutPatchV1(
+        schema="proof-forge.allowed-closeout-patch.v1",
+        id="allowed-closeout-d0-10",
+        version="1.0.0",
+        taskId=D0_10_TASK_ID,
+        preCloseCandidate=pre_candidate.identity,
+        allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
+        semanticFileSetDigest=closeout_diff_digest,
+        resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
+    ))
+    patch_bytes = canonical_pf_jcs(patch_wire)
+    closeout_file_set_wire = closeout_file_set_to_wire(closeout_file_set)
+    closeout_file_set_bytes = canonical_pf_jcs(closeout_file_set_wire)
+    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
+    revocation_bytes = canonical_pf_jcs(revocation_wire)
+    approval_bytes = canonical_pf_jcs(approval_chain.approval_obj)
+
+    closeout_file_set_ref = closeout_file_set_content_ref(closeout_file_set)
+
+    members = [
+        ("pre-close-archive", "archive", digest_to_wire(pre_candidate.identity.archiveDigest), pre_candidate.archive_bytes.hex()),
+        ("closeout-archive", "archive", digest_to_wire(close_candidate.identity.archiveDigest), close_candidate.archive_bytes.hex()),
+        ("pre-close-commit-object", "git-object", pre_candidate.identity.commit, pre_candidate.commit_bytes.hex()),
+        ("closeout-commit-object", "git-object", close_candidate.identity.commit, close_candidate.commit_bytes.hex()),
+        ("bootstrap-approval", "typed-content", content_ref_to_wire(_BTO.ContentRef(
+            schema=approval_chain.approval_obj["schema"],
+            id=approval_chain.approval_obj["id"],
+            version=approval_chain.approval_obj["version"],
+            digest=approval_digest,
+        )), approval_bytes.hex()),
+        ("allowed-closeout-patch", "typed-content", content_ref_to_wire(patch_ref), patch_bytes.hex()),
+        ("closeout-file-set", "typed-content", content_ref_to_wire(closeout_file_set_ref), closeout_file_set_bytes.hex()),
+        ("authority-policy", "typed-content", content_ref_to_wire(policy_ref), policy_bytes.hex()),
+        ("revocation-snapshot", "typed-content", content_ref_to_wire(revocation_ref), revocation_bytes.hex()),
+    ]
+
+    bundle_obj = build_content_bundle("d0-10-bootstrap-receipt", approval_chain.fixture_policy, pre_candidate, members)
+
+    return D0_10ReceiptChain(
+        pre_candidate=pre_candidate,
+        close_candidate=close_candidate,
+        fixture_policy=approval_chain.fixture_policy,
+        approval_obj=approval_chain.approval_obj,
+        receipt_obj=receipt_obj,
+        bundle_obj=bundle_obj,
+        closeout_file_set=closeout_file_set,
+    )
+
+
+def d0_10_receipt_chain_to_bytes(chain: D0_10ReceiptChain) -> tuple:
+    """Convert a D0-10 receipt chain to (bundle_bytes, subject_bytes)."""
+    bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
+    subject_bytes = canonical_pf_jcs(chain.receipt_obj)
+    return (bundle_bytes, subject_bytes)

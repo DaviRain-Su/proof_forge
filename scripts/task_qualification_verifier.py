@@ -1299,10 +1299,8 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
 
     # Stage 15: projection — verify closeout file set and diff
     try:
-        file_set = _verify_closeout_file_set(
-            member_map, pre_archive, close_archive,
-            receipt.allowedCloseoutPatch,  # This is wrong — need closeout-file-set ref
-            receipt.closeoutDiffDigest, "projection",
+        file_set = _verify_closeout_file_set_member(
+            member_map, receipt.closeoutDiffDigest, "projection",
         )
     except Rejected as r:
         return _reject_stage("projection", r.detail)
