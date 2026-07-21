@@ -7188,3 +7188,37 @@ normative: false
   标注的pre-acceptance development evidence。
 - Verification boundary：本条只记录语义rebase，不把primitive写成完整fixture/RED/GREEN、production
   authority、EV或closeout；完整合并树验证在推送前重新执行并单独报告。
+
+## 2026-07-21 — D1 spine-dependent declaration decoder prerequisite slice
+
+- Commits：D1-PA-115 freeze `bdaff3ce`；task pointer `5cb2d923`；tests-only RED `c0408168`；
+  GREEN `7ca9bb0d`。正式 TASK 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中 PA101 剩余的六个
+  spine-dependent declaration record decoder（Const/Invariant/Init/Entry/View/Fn），并只读复用 PA107
+  Type、PA111 Param、PA113 Expr、PA114 Block child decoder。六个 public API 消费 caller 提供的 depth 与
+  `DecodeBudgetV1`；不创建 fresh root session，不进入 ProgramItem、Program 或 canonical root。
+- Changed：145-line kernel-total decoder 闭合 6 个 record；所有入口固定
+  tag→closed-family unknown→fieldCount→depth→parent node→wire-order fields。六个 def 彼此非 mutual，
+  因为所有 child decoder 已在 PA107/111/113/114 闭合；每个 def 在 `d` 上做 total pattern match。
+  Parent node 恰好一次 charge，children 使用 parent depth-1，siblings 从左到右线程化 node residual。
+  Param array 在 parent charge 后对当前 residual 做 count cap，count-before-child 优先。无 `partial`、
+  `unsafe`、post-walk、fresh budget、default-budget helper、fallback 或 error remap。
+- Tests：194-line Lean suite与390-line standalone Python oracle共同固定7个PA101 unique literal的exact
+  value/re-encode/finish/node spend、6个record的12个exhaustive field-count negatives（每tag expected±1），
+  以及46个具体且non-vacuous priority/resource boundaries。覆盖closed-family heads、unknown/fc/depth/node
+  优先级、所有 wire-order 双故障、Param array post-charge cap、Block nonempty delegation、width/field
+  校验透传、trailing bytes；Python normal/`-O`均使用独立tuple模型和独立re-encoder，assert-free。
+- Verification：RED focused build只因`AstSpineDeclDecodeV1`缺失；GREEN focused build 27 jobs、aggregate
+  390 jobs及test binary全绿；Python normal/`-O`均输出
+  `reference_source_ast_spine_decl_decode_v1: ok 7 12 46`，invalid argv exit 2；65-file package manifest
+  重钉；SBOM self-test/generate/verify/closure与`git diff --check`全绿。总authored additions732/1300
+  （mechanical manifest不计）。`just docs-check`在`PF-CLEAN-ROOM-STAGE0`按设计拒绝本机
+  `eligibleForHermetic=false`，与RED baseline一致，未绕过或冒充formal evidence。未运行完整`just ci`。
+- Review/Evidence：tests-only RED与GREEN均经独立复审；GREEN由explore subagent独立终审给出SHIP、
+  P0/P1/P2=0。唯一warning来自未被本切片修改的PA113 `AstSpineDecodeV1.lean` unused `termination_by`。
+  development evidence为`EV-20260721-0001`。
+- Limitations：本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task；D0-10仍为
+  in_progress且D1尚未正式启动。没有ProgramItem/Program/root decoder、frontend/Loader/CLI/Lean command/
+  export切换、legacy adapter、dual reader或fallback。
+- Next：只读审计`ProgramItemV1` decoder residual并只选择一个最小切片；审计完成前不冻结新slice，也不得
+  由checkpoint自动递增或提前切换shared DSL/export v2。完整root decoder前继续禁止shared DSL/export cutover。
