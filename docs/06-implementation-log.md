@@ -8562,3 +8562,61 @@ normative: false
   adapter bytes）是 §8.2 by-design，protected adapter 已在 §8.4 处理。
 - Next：做 final audit confirmation，然后 state external-prerequisite blocker
   for D0 formal closeout。
+
+## 2026-07-22 — TASK-D0-10 slice 22：final audit confirmation + external-prerequisite blocker
+
+- Spec/Test：`SPEC-TASKQUAL-001` 全部 §1-§8.4；`TST-DOC-001`；TASK-D0-10
+  freeze package doneWhen 全部 4 clauses。
+- Findings（来自 final independent read-only audit confirmation subagent）：
+  - 全部 14 个 pure-verifier GAP（GAP-3/5/6/8/11/12/13a/13b/15/16/24/25/26/NEW-2）
+    均确认 FIXED 且 enforcement code wired into corresponding verifier stage。
+    无 PENDING。
+  - GAP-6b（argv[0] 与 tool resolved bytes identity join）：spec clarification
+    gap——fixture profile 的 resolved-tool member 是 opaque payloadSha256，spec
+    未明确 "identity" 如何 join。留 spec process。
+  - GAP-17/18（pure verifier 不 resolve adapter bytes）：§8.2 by-design，
+    protected adapter 已在 §8.4 处理（scripts/task_qualification_protected_
+    adapter.py line 273-278 已 enforce adapter == production_profile.adapter
+    field-by-field）。
+  - NEW-1（D0-10 receipt approval signatures re-verification）：spec §6/§7 未明确
+    receipt 是否必须 re-verify approval signatures——task-completion 也不 replay
+    qualification closure，只做 digest join。这是 consistent by-design。留 spec
+    clarification。
+  - GAP-26 tree f2 first byte：fixture builder 无法在不破坏 §6 closeout diff
+    paths == allowedPaths invariant 的前提下 grind tree f2（padding file 会出现在
+    C/D diff 中，但不在 allowedPaths 中）。known fixture limitation，verifier
+    只 enforce commit f1。
+- Verification（runtime confirmation）：
+  - `python3 scripts/task_qualification_red_matrix_self_test.py` → 93/93 passed。
+  - `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  - `python3 scripts/docs_check.py` → ok。
+  - `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- External-prerequisite blocker for D0 formal closeout：
+  TASK-D0-10 freeze package doneWhen clause 2 与 clause 3 要求外部前置：
+  1. **independent implementation review with P0/P1=0**（必须来自独立 session/
+     reviewer，不是本开发机的 self-audit）。
+  2. **exact Architecture+Quality+Security authorization signs the one-time
+     D0_10BootstrapApprovalV1**（RFC 8032 test vector keys，来自 authority
+     policy；fixture profile 只能产生 fixture-non-authoritative evidence）。
+  3. **separate closeout commit D whose parent is the approved implementation
+     candidate**（D 只做 closeout，不含 verifier/protocol/product/test/freeze
+     change）。
+  4. **external D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1**
+     suitable for TASK-D1-01 dependency verification（由 protected adapter 在
+     candidate-external production policy 下签发，不是 fixture profile）。
+  这些外部前置是本开发机无法单方面产生的（fixture profile 只能产生
+  fixture-non-authoritative development evidence；production profile 的
+  eligible Stage-0 host attestation、formal Stage-0 handoff、process-session
+  containment、gate-catalog-bound formal evidence 尚未闭合，见 AGENTS.md
+  Execution Protocol step 5）。因此 D0 formal closeout 仍 blocked on external
+  prerequisites，不可由本 slice 单方面关闭。
+- Evidence：本 slice 22 是 final audit confirmation + blocker 声明，不是新的
+  implementation evidence。slices 17-21 的 development evidence 已记录在案。
+- Limitations：本 development evidence 不能关闭 TASK-D0-10。正式 closeout 外部
+  前置不变。D0 formal milestone 仍为 9/10 done；TASK-D0-10 仍 in_progress。
+  D1-01 仍 pending，依赖 D0-10 done。
+- Next：D0 formal closeout 需要独立 reviewer 执行 review、Architecture+Quality+
+  Security signer 签发 D0_10BootstrapApprovalV1、closeout commit D、external
+  D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1。这些是 governance
+  bootstrap 流程，不是本开发 session 的 scope。本开发 session 的 pure-verifier
+  development evidence 工作到此收口。
