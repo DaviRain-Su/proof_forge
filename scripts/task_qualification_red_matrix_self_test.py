@@ -982,6 +982,55 @@ def test_negative_d0_10_semantic_file_set_digest_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_semantic_file_set_digest_mismatch", False, actual)
 
 
+def test_negative_dependency_archive_missing() -> RedMatrixResult:
+    """§8.2: a present dependency requires its exact three-piece row:
+    dependency/<taskId>, dependency-archive/<taskId>,
+    dependency-commit-object/<taskId>.
+
+    A qualification with one dependency whose dependency-archive member is
+    removed must reject at the dependencies stage. The fixture chain with a
+    dependency is used; the subject is not re-signed because removing a bundle
+    member does not affect the subject signature.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Remove the dependency-archive member.
+    bundle_obj["members"] = [
+        m for m in bundle_obj["members"]
+        if not m.get("role", "").startswith("dependency-archive/")
+    ]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.dependency_archive_missing", False, actual)
+
+
+def test_negative_dependency_commit_missing() -> RedMatrixResult:
+    """§8.2: a present dependency requires its exact three-piece row.
+    Removing the dependency-commit-object member must reject.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    bundle_obj["members"] = [
+        m for m in bundle_obj["members"]
+        if not m.get("role", "").startswith("dependency-commit-object/")
+    ]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.dependency_commit_missing", False, actual)
+
+
+def test_positive_legal_chain_with_dependency() -> RedMatrixResult:
+    """A legal fixture chain with one task-qualification dependency and its
+    three-piece member row should verify successfully.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_bytes, subject_bytes = _TQFB.fixture_chain_to_bytes(chain)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("positive.legal_chain_with_dependency", True, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -1060,6 +1109,10 @@ def run_all_tests() -> list:
         # §6 semanticFileSetDigest reconstruction (P0-6)
         test_negative_semantic_file_set_digest_mismatch,
         test_negative_d0_10_semantic_file_set_digest_mismatch,
+        # §8.2 dependency three-piece row enforcement (P0-3)
+        test_negative_dependency_archive_missing,
+        test_negative_dependency_commit_missing,
+        test_positive_legal_chain_with_dependency,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

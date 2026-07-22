@@ -723,7 +723,18 @@ def _verify_dependency_members(
     dependencies: tuple,
     where: str,
 ) -> None:
-    """Verify dependency members for each dependency."""
+    """Verify dependency members for each dependency.
+
+    Per §8.2, each dependency is an exact three-piece row:
+    `dependency/<TASK-id>`, `dependency-archive/<TASK-id>`,
+    `dependency-commit-object/<TASK-id>`. Missing, extra, duplicate or wrong
+    suffix is a `members` rejection. The three-piece set may be empty (when
+    the dependency list is empty), but a present dependency requires all
+    three members.
+
+    Per §4, objectDigest = SHA-256("pf.taskqual.dependency-object.v1" || NUL
+    || raw bytes), i.e. a raw-bytes digest, not a PF-JCS digest.
+    """
     for dep in dependencies:
         role = f"dependency/{dep.taskId}"
         archive_role = f"dependency-archive/{dep.taskId}"
@@ -735,16 +746,18 @@ def _verify_dependency_members(
         if not isinstance(member, _TQO.TypedContentMemberV1):
             _BTO._reject(f"{where}: {role} must be typed-content")
         raw_bytes = bytes.fromhex(member.bytesHex)
-        # Verify objectDigest matches
-        computed = domain_digest(_TQO.DOMAIN_DEPENDENCY_OBJECT, raw_bytes)
+        # §4: objectDigest is a raw-bytes digest, not a PF-JCS digest.
+        computed = _TQO.domain_digest_raw(_TQO.DOMAIN_DEPENDENCY_OBJECT, raw_bytes)
         if computed.bytes != dep.objectDigest.bytes:
             _BTO._reject(f"{where}: {role} object digest mismatch")
-        # Verify dependency archive member
-        if archive_role in member_map:
-            _resolve_archive_member(member_map, archive_role, where)
-        # Verify dependency commit object member
-        if commit_role in member_map:
-            _resolve_git_object_member(member_map, commit_role, where)
+        # §8.2: dependency archive and commit object members are required
+        # (exact three-piece row), not optional.
+        if archive_role not in member_map:
+            _BTO._reject(f"{where}: {archive_role} member missing")
+        _resolve_archive_member(member_map, archive_role, where)
+        if commit_role not in member_map:
+            _BTO._reject(f"{where}: {commit_role} member missing")
+        _resolve_git_object_member(member_map, commit_role, where)
 
 
 # ---------------------------------------------------------------------------

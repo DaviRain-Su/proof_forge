@@ -7735,3 +7735,61 @@ normative: false
   path 命名变化需同步。重构要求 full file set 恰好含一个固定 path change（spec §6 要求）。
 - Next：继续下一 P0/P1 finding（P0-3 dependency three-piece set enforcement with
   fixture），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 9：P0-3 dependency three-piece row enforcement + §4 objectDigest raw-bytes fix
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2（每个 dependency 是 exact three-piece row：
+  `dependency/<TASK-id>`、`dependency-archive/<TASK-id>`、`dependency-commit-object/<TASK-id>`；
+  Missing, extra, duplicate or wrong suffix is `members` rejection；三件套可为空但
+  present dependency 要求全部三件）与 §4（`objectDigest=SHA-256(pf.taskqual.dependency-object.v1
+  || NUL || raw bytes)`，raw bytes 即 objectBytesHex 解码，非 PF-JCS）；
+  `TST-DOC-001`（closed verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 dependencies stage）：
+  - P0-3（dependency archive/commit members optional）：`_verify_dependency_members` 对
+    `dependency-archive/<taskId>` 与 `dependency-commit-object/<taskId>` 用 `if role in
+    member_map` 可选检查，不强制 present。一个 present dependency 缺 archive 或 commit
+    member 时 verifier 接受。
+  - 潜在 bug（P0-3 落地时发现）：verifier 用 `domain_digest(DOMAIN_DEPENDENCY_OBJECT,
+    raw_bytes)` 重算 objectDigest，但 `domain_digest` 走 PF-JCS，对 raw bytes 输入会抛
+    `value is not in the JSON data model`。spec §4 要求 `domain_digest_raw`（raw bytes）。
+    由于既有 fixture `dependencies=()`，该路径从未触发，bug 隐藏。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_dependency_members` 改用 `_TQO.domain_digest_raw(DOMAIN_DEPENDENCY_OBJECT,
+      raw_bytes)` 重算 objectDigest（与 spec §4 与 fixture 一致）。
+    - `dependency-archive/<taskId>` 与 `dependency-commit-object/<taskId>` 改为 required：
+      `if archive_role not in member_map: reject`，然后 `_resolve_archive_member`；
+      commit 同理。
+  - `scripts/task_qualification_fixture_builder.py`：
+    - 新增 `FIXTURE_DEP_TASK_ID = "TASK-D0-09"` 常量。
+    - 新增 `build_qualification_dependency(fixture_policy, dep_candidate, dep_receipt_id)`：
+      构造 synthetic TaskCompletionReceiptV1 wire（signed），其 canonical bytes 即
+      objectBytesHex 内容；dependency object 的 objectDigest =
+      `domain_digest_raw(DOMAIN_DEPENDENCY_OBJECT, receipt_bytes)`；dependency 的
+      signatures 复用 receipt 签名（P0-3 scope 不重验 dependency 内部签名）。
+    - 新增 `build_fixture_chain_with_dependency()`：构造带一个 task-qualification
+      dependency 的 legal fixture chain。qualification 的 taskRow.dependencies 与
+      qualification.dependencies 均列 `FIXTURE_DEP_TASK_ID`；bundle 含 three-piece
+      dependency row（`dependency/<taskId>` typed-content 携 receipt bytes、
+      `dependency-archive/<taskId>` archive、`dependency-commit-object/<taskId>` git-object）。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 3 个 test：
+    `dependency_archive_missing`（移除 `dependency-archive/*` member，reject）、
+    `dependency_commit_missing`（移除 `dependency-commit-object/*` member，reject）、
+    `positive.legal_chain_with_dependency`（完整 three-piece row 的 chain 通过）。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 54/54 passed
+  （slice 8 的 51 个 + slice 9 的 3 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：present dependency 的 archive/commit member 缺失一律在 dependencies
+  stage reject（fail closed）。objectDigest 重算用 raw bytes domain digest，与 spec §4
+  与 fixture 对齐。所有 fixture chain 仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for dependency three-piece row enforcement + §4
+  objectDigest raw-bytes fix。不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只强制
+  three-piece row presence 与 objectDigest raw-bytes；dependency 内部 receipt 签名/
+  ruling/ancestry 校验（P1-4）、ancestry graph closure（P1-5）、freezeCommit ancestor
+  （P1-6）仍 pending。dependency 的 `completionCommit ancestor-of consuming C` 校验也
+  pending。
+- Next：继续下一 P1 finding（P1-4 D0-07 bridge signatures 或 P1-9 aggregate bound），仍按
+  RED-first 协议。

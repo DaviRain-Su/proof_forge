@@ -69,6 +69,11 @@ _FIXTURE_PLANNED_SEMANTIC_FILES = {
 _FIXTURE_QUALIFICATION_PATH = (
     "docs/governance/task-qualifications/TASK-D1-FIXTURE/qualification.json"
 )
+
+# Dependency task used by build_fixture_chain_with_dependency. A task-qualification
+# dependency references a completed prior task's receipt; this synthetic task ID
+# stands in for that prior task in the fixture.
+FIXTURE_DEP_TASK_ID = "TASK-D0-09"
 FIXTURE_REVIEW_COMMIT = "f1" + "a" * 38  # Must match candidate commit
 FIXTURE_COMMAND_POLICY_ID = "tst-doc-001.task-qualification-v1"
 
@@ -1165,6 +1170,320 @@ def fixture_chain_to_bytes(chain: FixtureChain) -> tuple:
     bundle_bytes = canonical_pf_jcs(chain.bundle_obj)
     subject_bytes = canonical_pf_jcs(chain.qualification_obj)
     return (bundle_bytes, subject_bytes)
+
+
+# ---------------------------------------------------------------------------
+# Variant fixture chain with a task-qualification dependency
+# ---------------------------------------------------------------------------
+
+def build_qualification_dependency(
+    fixture_policy: _TQO.FixturePolicyV1,
+    dep_candidate: CandidateContext,
+    dep_receipt_id: str,
+) -> tuple:
+    """Build a fixture TaskQualificationDependencyV1 (kind=task-qualification).
+
+    Returns (dependency_wire_obj, dependency_object_bytes,
+    receipt_bytes) where:
+    - receipt_bytes is the canonical PF-JCS of a synthetic TaskCompletionReceipt
+      wire object (the prior task's receipt). This is what objectBytesHex
+      encodes and what objectDigest digests (under DOMAIN_DEPENDENCY_OBJECT,
+      raw bytes per §4).
+    - dependency_object_bytes is the canonical PF-JCS of the dependency wire
+      object (used as the dependency/<taskId> bundle member bytes).
+    - dependency_wire_obj is the wire object embedded in the qualification's
+      dependencies list.
+
+    The verifier (P0-3 scope) only checks objectDigest against the
+    dependency/<taskId> member bytes and the presence of the archive/commit
+    members. It does not re-verify the dependency's internal receipt
+    signatures (that is P1-4).
+    """
+    policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
+    # Build a minimal synthetic completion receipt wire object for the prior
+    # task. Its bytes are the objectBytesHex payload.
+    task_suffix = FIXTURE_DEP_TASK_ID.lower().replace("task-", "")
+    receipt_obj = {
+        "schema": "proof-forge.task-completion-receipt.v1",
+        "id": dep_receipt_id,
+        "version": "1.0.0",
+        "taskId": FIXTURE_DEP_TASK_ID,
+        "preCloseCandidate": {
+            "commit": dep_candidate.identity.commit,
+            "treeObjectId": dep_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(dep_candidate.identity.archiveDigest),
+        },
+        "closeoutCandidate": {
+            "commit": dep_candidate.identity.commit,
+            "treeObjectId": dep_candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(dep_candidate.identity.archiveDigest),
+        },
+        "qualification": {
+            "taskId": FIXTURE_DEP_TASK_ID,
+            "id": f"task-qualification-{task_suffix}",
+            "digest": digest_to_wire(plain_sha256_digest(b"fixture prior qual")),
+        },
+        "allowedCloseoutPatch": content_ref_to_wire(_BTO.ContentRef(
+            schema="proof-forge.allowed-closeout-patch.v1",
+            id=f"allowed-closeout-{task_suffix}",
+            version="1.0.0",
+            digest=plain_sha256_digest(b"fixture prior patch"),
+        )),
+        "closeoutDiffDigest": digest_to_wire(plain_sha256_digest(b"fixture prior diff")),
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "revocationSnapshot": content_ref_to_wire(_BTO.ContentRef(
+            schema="pf.taskqual.fixture-resolved-blob.v1",
+            id=f"revocation-{task_suffix}",
+            version="1.0.0",
+            digest=plain_sha256_digest(b"fixture prior revocation"),
+        )),
+        "issuedAt": FIXTURE_VERIFICATION_INSTANT,
+        "signatures": [],
+    }
+    receipt_obj["signatures"] = _sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    receipt_bytes = canonical_pf_jcs(receipt_obj)
+    receipt_digest = _TQO.domain_digest(
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT, receipt_obj)
+    receipt_ref = _TQO.TaskCompletionReceiptRefV1(
+        taskId=FIXTURE_DEP_TASK_ID,
+        id=dep_receipt_id,
+        digest=receipt_digest,
+    )
+    dep_obj = {
+        "kind": "task-qualification",
+        "taskId": FIXTURE_DEP_TASK_ID,
+        "completionCommit": dep_candidate.identity.commit,
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "receipt": _TQO.completion_receipt_ref_to_wire(receipt_ref),
+        "objectDigest": "",  # filled below
+        "objectBytesHex": receipt_bytes.hex(),
+        "signatures": receipt_obj["signatures"],
+    }
+    # §4: objectDigest = SHA-256(DOMAIN_DEPENDENCY_OBJECT || NUL || raw bytes)
+    # where raw bytes = objectBytesHex content = receipt_bytes. The verifier
+    # recomputes this from the dependency/<taskId> member's bytesHex (which
+    # carries receipt_bytes) and asserts equality.
+    object_digest = _TQO.domain_digest_raw(
+        _TQO.DOMAIN_DEPENDENCY_OBJECT, receipt_bytes)
+    dep_obj["objectDigest"] = digest_to_wire(object_digest)
+    dependency_object_bytes = canonical_pf_jcs(dep_obj)
+    return (dep_obj, dependency_object_bytes, receipt_bytes)
+
+
+def build_fixture_chain_with_dependency() -> FixtureChain:
+    """Build a legal fixture chain for task-qualification with one dependency.
+
+    The dependency is a task-qualification dependency on FIXTURE_DEP_TASK_ID.
+    The bundle carries the three-piece dependency row:
+      dependency/<depTaskId>, dependency-archive/<depTaskId>,
+      dependency-commit-object/<depTaskId>. The qualification's
+    taskRow.dependencies and qualification.dependencies both list
+    FIXTURE_DEP_TASK_ID.
+    """
+    fixture_policy = _TQO.build_default_fixture_policy()
+
+    candidate = build_synthetic_candidate(
+        FIXTURE_TASK_ID,
+        {
+            "docs/04-task-breakdown.md": b"# PHASE-4 fixture",
+            "docs/05-test-spec.md": b"# PHASE-5 fixture",
+        },
+    )
+
+    dep_candidate = build_synthetic_candidate(
+        FIXTURE_DEP_TASK_ID,
+        {
+            "docs/04-task-breakdown.md": b"# PHASE-4 prior task",
+            "docs/05-test-spec.md": b"# PHASE-5 prior task",
+        },
+    )
+
+    dep_receipt_id = "task-completion-d0-09"
+    dep_obj, dep_object_bytes, dep_receipt_bytes = build_qualification_dependency(
+        fixture_policy, dep_candidate, dep_receipt_id,
+    )
+    dep_object_digest = _TQO.domain_digest_raw(
+        _TQO.DOMAIN_DEPENDENCY_OBJECT, dep_receipt_bytes)
+
+    phase4_bytes = build_phase4_source(candidate)
+    phase5_bytes = build_phase5_source(candidate)
+    freeze_bytes = build_freeze_package_source(candidate)
+    evidence_bytes = build_evidence_source(candidate)
+    review_report_bytes = build_review_report(candidate)
+
+    evidence_ref = build_evidence_ref(evidence_bytes)
+    freeze_ref = build_freeze_package_ref(freeze_bytes)
+    review_ref = build_review_ref(candidate, review_report_bytes)
+
+    command_policy = build_command_policy(candidate, FIXTURE_GATE_ID, fixture_policy)
+    gate = build_gate(candidate, command_policy, evidence_ref, fixture_policy)
+    verifier = build_verifier_identity(FIXTURE_GATE_ID)
+
+    planned_semantic_files = _FIXTURE_PLANNED_SEMANTIC_FILES
+    pre_path_map = candidate.archive_projection.path_map
+    semantic_changes = []
+    for path in sorted(planned_semantic_files.keys()):
+        pre_entry = pre_path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(planned_semantic_files[path])
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue
+        if before_digest is None and after_digest is None:
+            continue
+        semantic_changes.append((path, before_digest, after_digest))
+    semantic_fset = build_semantic_closeout_file_set(candidate, semantic_changes)
+    semantic_digest = semantic_closeout_file_set_digest(semantic_fset)
+
+    resulting_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=FIXTURE_TASK_ID,
+        output="fixture qualification verifier test",
+        dependencies=(FIXTURE_DEP_TASK_ID,),
+        prerequisites=("SPEC-TASKQUAL-001@accepted",),
+        tests=(FIXTURE_TEST_ID,),
+        evidenceIds=(FIXTURE_EVIDENCE_ID,),
+        status="done",
+    )
+    resulting_row_digest = task_row_digest(resulting_row)
+
+    patch = build_allowed_closeout_patch(candidate, semantic_digest, resulting_row_digest)
+
+    policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
+    patch_ref = allowed_closeout_patch_content_ref(patch)
+    task_suffix = FIXTURE_TASK_ID.lower().replace("task-", "")
+    # The qualification's taskRow carries the in_progress row (status must be
+    # in_progress per §3). Its dependencies list the direct dependencies.
+    in_progress_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=FIXTURE_TASK_ID,
+        output="fixture qualification verifier test",
+        dependencies=(FIXTURE_DEP_TASK_ID,),
+        prerequisites=("SPEC-TASKQUAL-001@accepted",),
+        tests=(FIXTURE_TEST_ID,),
+        evidenceIds=(FIXTURE_EVIDENCE_ID,),
+        status="in_progress",
+    )
+    qualification_obj = {
+        "schema": "proof-forge.task-qualification.v1",
+        "id": f"task-qualification-{task_suffix}",
+        "version": "1.0.0",
+        "taskId": FIXTURE_TASK_ID,
+        "preCloseCandidate": {
+            "commit": candidate.identity.commit,
+            "treeObjectId": candidate.identity.treeObjectId,
+            "archiveSha256": digest_to_wire(candidate.identity.archiveDigest),
+        },
+        "taskRow": task_row_to_wire(in_progress_row),
+        "freezePackage": freeze_package_ref_to_wire(freeze_ref),
+        "gates": [gate_to_wire(gate)],
+        "dependencies": [dep_obj],
+        "verifier": _TQO.verifier_identity_to_wire(verifier),
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
+        "independentReviews": [review_ref_to_wire(review_ref)],
+        "signatures": [],
+    }
+    # Sign the qualification subject.
+    qualification_obj["signatures"] = _sign_subject(
+        qualification_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+
+    cmd_ref = command_policy_content_ref(command_policy)
+    handoff_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-observation", b"fixture handoff")
+    containment_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture containment")
+    freshness_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-profile", b"fixture freshness")
+    scan_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "private-scan-policy", b"fixture scan")
+    revocation_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation")
+
+    cmd_wire = command_policy_to_wire(command_policy)
+    cmd_bytes = canonical_pf_jcs(cmd_wire)
+    policy_wire = _TQO.fixture_policy_to_wire(fixture_policy)
+    policy_bytes = canonical_pf_jcs(policy_wire)
+    patch_wire = allowed_closeout_patch_to_wire(patch)
+    patch_bytes = canonical_pf_jcs(patch_wire)
+    handoff_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(handoff_blob))
+    containment_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(containment_blob))
+    freshness_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(freshness_blob))
+    scan_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(scan_blob))
+    revocation_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(revocation_blob))
+
+    exec_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-executable", b"fixture verifier exec")
+    closure_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-closure", b"fixture verifier closure")
+    build_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-build-policy", b"fixture verifier build")
+    exec_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(exec_blob))
+    closure_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(closure_blob))
+    build_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(build_blob))
+
+    tool_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "resolved-tool", b"fixture tool payload")
+    probe_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "resolved-probe", b"fixture probe payload")
+    sandbox_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "sandbox-policy", b"fixture sandbox payload")
+    tool_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(tool_blob))
+    probe_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(probe_blob))
+    sandbox_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(sandbox_blob))
+
+    dep_content_ref = _BTO.ContentRef(
+        schema="proof-forge.task-completion-receipt.v1",
+        id=dep_receipt_id,
+        version="1.0.0",
+        digest=_TQO.domain_digest(
+            _TQO.DOMAIN_TASK_COMPLETION_RECEIPT, _BTO.decode_canonical_pf_jcs(dep_receipt_bytes)),
+    )
+
+    members = [
+        ("phase-4-source", "raw-source", {"path": FIXTURE_PHASE4_PATH, "digest": digest_to_wire(plain_sha256_digest(phase4_bytes))}, phase4_bytes.hex()),
+        ("phase-5-source", "raw-source", {"path": FIXTURE_PHASE5_PATH, "digest": digest_to_wire(plain_sha256_digest(phase5_bytes))}, phase5_bytes.hex()),
+        ("freeze-package-source", "raw-source", {"path": FIXTURE_FREEZE_PATH, "digest": digest_to_wire(_TQO.domain_digest_raw(_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes))}, freeze_bytes.hex()),
+        ("candidate-archive", "archive", digest_to_wire(candidate.identity.archiveDigest), candidate.archive_bytes.hex()),
+        ("candidate-commit-object", "git-object", candidate.identity.commit, candidate.commit_bytes.hex()),
+        ("authority-policy", "typed-content", content_ref_to_wire(policy_ref), policy_bytes.hex()),
+        ("allowed-closeout-patch", "typed-content", content_ref_to_wire(patch_ref), patch_bytes.hex()),
+        (f"command-policy/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(cmd_ref), cmd_bytes.hex()),
+        (f"resolved-tool/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(tool_blob)), tool_bytes.hex()),
+        (f"resolved-probe/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(probe_blob)), probe_bytes.hex()),
+        (f"sandbox-policy/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(sandbox_blob)), sandbox_bytes.hex()),
+        (f"verifier-executable/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(exec_blob)), exec_bytes.hex()),
+        (f"verifier-closure/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(closure_blob)), closure_bytes.hex()),
+        (f"verifier-build-policy/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(build_blob)), build_bytes.hex()),
+        (f"eligible-stage0-handoff/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(handoff_blob)), handoff_bytes.hex()),
+        (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
+        (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
+        (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
+        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        (f"evidence/{FIXTURE_EVIDENCE_ID}", "raw-source", {"path": f"evidence/{FIXTURE_EVIDENCE_ID}", "digest": digest_to_wire(evidence_ref.digest)}, evidence_bytes.hex()),
+        (f"review-report/{FIXTURE_REVIEWER_ID}/{review_ref.reportDigest.bytes.hex()}", "review", {"reviewerId": FIXTURE_REVIEWER_ID, "reportDigest": digest_to_wire(review_ref.reportDigest)}, review_report_bytes.hex()),
+        # Three-piece dependency row. The dependency/<taskId> member carries
+        # the prior task's receipt bytes (objectBytesHex); the verifier
+        # recomputes objectDigest from those bytes under
+        # DOMAIN_DEPENDENCY_OBJECT (raw) and asserts it equals dep.objectDigest.
+        (f"dependency/{FIXTURE_DEP_TASK_ID}", "typed-content", content_ref_to_wire(dep_content_ref), dep_receipt_bytes.hex()),
+        (f"dependency-archive/{FIXTURE_DEP_TASK_ID}", "archive", digest_to_wire(dep_candidate.identity.archiveDigest), dep_candidate.archive_bytes.hex()),
+        (f"dependency-commit-object/{FIXTURE_DEP_TASK_ID}", "git-object", dep_candidate.identity.commit, dep_candidate.commit_bytes.hex()),
+    ]
+
+    bundle_obj = build_content_bundle("task-qualification", fixture_policy, candidate, members)
+
+    return FixtureChain(
+        candidate=candidate,
+        fixture_policy=fixture_policy,
+        command_policy=command_policy,
+        gate=gate,
+        evidence_ref=evidence_ref,
+        freeze_ref=freeze_ref,
+        review_ref=review_ref,
+        patch=patch,
+        verifier=verifier,
+        qualification_obj=qualification_obj,
+        bundle_obj=bundle_obj,
+        evidence_bytes=evidence_bytes,
+        review_report_bytes=review_report_bytes,
+        phase4_bytes=phase4_bytes,
+        phase5_bytes=phase5_bytes,
+        freeze_bytes=freeze_bytes,
+    )
 
 
 # ---------------------------------------------------------------------------
