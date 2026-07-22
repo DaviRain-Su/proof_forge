@@ -14,7 +14,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import NoReturn, Tuple
+from typing import NoReturn, Tuple, Union
 
 # Reuse the canonical PF-JCS + Digest + ContentRef + Rejected from bootstrap_task_objects.
 import bootstrap_task_objects as _BTO
@@ -802,11 +802,12 @@ class TaskQualificationDependencyV1:
     signatures: Tuple[ApprovalSignatureV1, ...]
 
 
-DependencyCompletionRefV1 = (
-    BootstrapTaskReceiptDependencyV1
-    | GovernanceBootstrapReceiptDependencyV1
-    | TaskQualificationDependencyV1
-)
+# Avoid runtime ``|`` union syntax so the module loads on Python 3.9.
+DependencyCompletionRefV1 = Union[
+    BootstrapTaskReceiptDependencyV1,
+    GovernanceBootstrapReceiptDependencyV1,
+    TaskQualificationDependencyV1,
+]
 
 
 def _parse_dependency_signatures(obj, where):
@@ -1967,13 +1968,13 @@ class ReviewMemberV1:
     bytesHex: str
 
 
-ContentMemberV1 = (
-    TypedContentMemberV1
-    | RawContentMemberV1
-    | ArchiveMemberV1
-    | GitObjectMemberV1
-    | ReviewMemberV1
-)
+ContentMemberV1 = Union[
+    TypedContentMemberV1,
+    RawContentMemberV1,
+    ArchiveMemberV1,
+    GitObjectMemberV1,
+    ReviewMemberV1,
+]
 
 
 @dataclass(frozen=True)

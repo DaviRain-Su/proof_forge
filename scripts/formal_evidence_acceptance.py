@@ -927,7 +927,7 @@ def main(argv: Optional[list] = None) -> int:
         print("usage: formal_evidence_acceptance.py", file=sys.stderr)
         return 2
     workspace = Path(
-        tempfile.mkdtemp(prefix="formal-evidence-acceptance-")
+        tempfile.mkdtemp(prefix="pf-fea-", dir="/tmp")
     ).resolve()
     try:
         workdir = workspace / "work"

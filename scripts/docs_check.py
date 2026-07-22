@@ -2417,6 +2417,55 @@ def d0_09_linux_host_attested(root: Path) -> bool:
     return True
 
 
+def _verify_task_qualification_object_signatures(
+    raw_bytes: bytes,
+    obj: Any,
+    policy: Any,
+    statement_domain: bytes,
+    signature_domain: bytes,
+    bootstrap_consumer: Any,
+) -> bool:
+    """Verify Ed25519 signatures on a parsed task-qualification object.
+
+    The signed object is canonical PF-JCS encoded after removing the
+    ``signatures`` field. The statement digest is
+    ``SHA-256(domain || NUL || canonical)`` and the Ed25519 message is
+    ``domain || NUL || raw32(statement)``.
+    """
+    try:
+        wire = json.loads(raw_bytes.decode("utf-8", errors="strict"))
+        if not isinstance(wire, dict):
+            return False
+        if "signatures" not in wire or not isinstance(wire["signatures"], list):
+            return False
+        signatures = wire.pop("signatures")
+        unsigned_bytes = bootstrap_consumer.canonical_pf_jcs(wire)
+        statement = hashlib.sha256(statement_domain + b"\x00" + unsigned_bytes).digest()
+        message = signature_domain + b"\x00" + statement
+        principal_by_key = {principal.keyId: principal for principal in policy.principals}
+        signed_roles: set[str] = set()
+        signed_principals: set[str] = set()
+        for sig in obj.signatures:
+            principal = principal_by_key.get(sig.keyId)
+            if principal is None:
+                return False
+            if not bootstrap_consumer.verify_ed25519(
+                principal.publicKey, message, sig.signature
+            ):
+                return False
+            signed_principals.add(principal.principalId)
+            signed_roles.update(principal.roles)
+        # SPEC-TASKQUAL-001 §1 fixed rule for task qualification objects.
+        required = {"architecture", "quality", "security"}
+        if not required.issubset(signed_roles):
+            return False
+        if len(signed_principals) < 3:
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def d0_10_task_qualification_attested(root: Path) -> bool:
     """Return True only for a fully verified D0-10 task qualification closure.
 
@@ -2425,18 +2474,13 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
     - candidate-owned bootstrap-approval.json at the fixed path
     - external D0_10BootstrapReceiptV1
     - GovernanceBootstrapCompletionV1 for D0-10
-
-    For now, this returns False (no closure accepted) because the formal
-    closeout ceremony has not been performed. The fixture-path development
-    evidence is recorded separately in the implementation log.
+    - all signatures verify against the activated D0-04 authority policy
+    - cross-object joins (taskId, candidate identity, approval digest) hold
     """
     payload = _load_bootstrap_closure_attest(
         root, D0_10_TASK_QUALIFICATION_ATTEST_RELATIVE)
     if payload is None:
         return False
-    # The formal closeout requires the attest to have exact fields.
-    # This is a placeholder — the actual closeout ceremony will populate
-    # the attest and the candidate-owned bootstrap-approval.json.
     expected_fields = {
         "schemaVersion",
         "taskId",
@@ -2477,6 +2521,143 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
     if (not isinstance(notes, str)
             or "not formal or hermetic evidence" not in notes):
         return False
+
+    # Load the pure bootstrap consumer and the typed task-qualification objects.
+    bootstrap_consumer = _load_bootstrap_task_consumer()
+    taskqual = _load_task_qualification_objects()
+    if bootstrap_consumer is None or taskqual is None:
+        return False
+
+    # Load the activated D0-04 authority policy. D0-10 is not authorized
+    # to substitute or relax this policy; the exact file from the activation
+    # bundle is the only trust root for closure signatures.
+    policy_path = root / D0_04_BOOTSTRAP_ACTIVATION_BUNDLE_RELATIVE / "authority-policy.json"
+    policy_relative = D0_04_BOOTSTRAP_ACTIVATION_BUNDLE_RELATIVE + "/authority-policy.json"
+    try:
+        ensure_repository_path(root, policy_path, policy_relative)
+        policy_bytes = policy_path.read_bytes()
+        policy, policy_ref = bootstrap_consumer.parse_bootstrap_authority_policy(
+            policy_bytes)
+    except Exception:
+        return False
+
+    # Resolve the four fixed closure files referenced by the attest.
+    approval_path = root / payload["bootstrapApproval"]
+    receipt_path = root / payload["bootstrapReceipt"]
+    completion_path = root / payload["governanceBootstrapCompletion"]
+    freeze_path = root / payload["freezePackage"]
+    try:
+        for artifact_path in (approval_path, receipt_path, completion_path, freeze_path):
+            ensure_repository_path(
+                root, artifact_path, artifact_path.relative_to(root).as_posix())
+        approval_bytes = approval_path.read_bytes()
+        receipt_bytes = receipt_path.read_bytes()
+        completion_bytes = completion_path.read_bytes()
+        freeze_bytes = freeze_path.read_bytes()
+    except Exception:
+        return False
+
+    # Attest hash claims must be plain SHA-256 of the exact file bytes.
+    expected_hashes = {
+        "freezePackage": freeze_bytes,
+        "bootstrapApproval": approval_bytes,
+        "bootstrapReceipt": receipt_bytes,
+        "governanceBootstrapCompletion": completion_bytes,
+    }
+    for stem, artifact_bytes in expected_hashes.items():
+        if hashlib.sha256(artifact_bytes).hexdigest() != payload.get(f"{stem}Sha256"):
+            return False
+
+    # Parse the three signed objects. Any schema or structural deviation
+    # fails closed.
+    try:
+        approval_wire = json.loads(approval_bytes.decode("utf-8", errors="strict"))
+        receipt_wire = json.loads(receipt_bytes.decode("utf-8", errors="strict"))
+        completion_wire = json.loads(completion_bytes.decode("utf-8", errors="strict"))
+        if not all(isinstance(w, dict) for w in (approval_wire, receipt_wire, completion_wire)):
+            return False
+        approval = taskqual.parse_d0_10_bootstrap_approval(
+            approval_wire, "bootstrapApproval")
+        receipt = taskqual.parse_d0_10_bootstrap_receipt(
+            receipt_wire, "bootstrapReceipt")
+        completion = taskqual.parse_governance_bootstrap_completion(
+            completion_wire, "governanceBootstrapCompletion")
+    except Exception:
+        return False
+
+    # Each object must point to the same activated authority policy.
+    if approval.authorityPolicy != policy_ref:
+        return False
+    if receipt.authorityPolicy != policy_ref:
+        return False
+    if completion.authorityPolicy != policy_ref:
+        return False
+
+    # Recompute the approval digest before signature verification mutates the
+    # parsed wire dict; the receipt must carry this exact digest.
+    try:
+        expected_approval_digest = taskqual.domain_digest(
+            taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, approval_wire)
+    except Exception:
+        return False
+    if receipt.approvalDigest != expected_approval_digest:
+        return False
+
+    # Verify Ed25519 signatures on all three objects.
+    if not _verify_task_qualification_object_signatures(
+        approval_bytes, approval, policy,
+        taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+        bootstrap_consumer,
+    ):
+        return False
+    if not _verify_task_qualification_object_signatures(
+        receipt_bytes, receipt, policy,
+        taskqual.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        taskqual.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+        bootstrap_consumer,
+    ):
+        return False
+    if not _verify_task_qualification_object_signatures(
+        completion_bytes, completion, policy,
+        taskqual.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT,
+        taskqual.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_SIGNATURE,
+        bootstrap_consumer,
+    ):
+        return False
+
+    # Cross-object joins required by GOV-TASKQUAL-BOOTSTRAP-001.
+    if approval.taskId != "TASK-D0-10":
+        return False
+    if receipt.taskId != "TASK-D0-10":
+        return False
+    if completion.taskId != "TASK-D0-10":
+        return False
+    if completion.rulingId != "GOV-TASKQUAL-BOOTSTRAP-001":
+        return False
+    if completion.purpose != "d0-10-taskqual-one-time-bridge":
+        return False
+    if receipt.ledgerGrade != "bootstrap":
+        return False
+    if receipt.purpose != "d0-10-taskqual-one-time-bridge":
+        return False
+    if completion.sourceClosure.path != (
+        "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
+    ):
+        return False
+    if approval.preCloseCandidate != receipt.preCloseCandidate:
+        return False
+    if completion.completionCandidate != receipt.closeoutCandidate:
+        return False
+    if approval.allowedCloseoutPatch != receipt.allowedCloseoutPatch:
+        return False
+    if approval.ledgerEvidenceId != receipt.ledgerEvidenceId:
+        return False
+    if not approval.independentReviews or not completion.independentReviews:
+        return False
+    if approval.freezePackage.taskId != "TASK-D0-10":
+        return False
+
     return True
 
 
@@ -2514,6 +2695,51 @@ def _load_bootstrap_task_consumer() -> Any | None:
             "parse_candidate_identity",
             "_preflight_eligible_stage0_handoff",
             "Rejected",
+        ):
+            if getattr(module, name, None) is None:
+                return None
+        return module
+    except Exception:
+        return None
+
+
+def _load_task_qualification_objects() -> Any | None:
+    """Load scripts/task_qualification_objects.py with exact-path discipline."""
+    try:
+        checker_path = Path(__file__).resolve(strict=True)
+        tool_path = checker_path.with_name("task_qualification_objects.py")
+        if tool_path.is_symlink() or not tool_path.is_file():
+            return None
+        exact_tool_path = tool_path.resolve(strict=True)
+        if exact_tool_path != tool_path:
+            return None
+        spec = importlib.util.spec_from_file_location(
+            "proof_forge_task_qualification_objects_for_docs_check",
+            exact_tool_path,
+        )
+        if spec is None or spec.loader is None or spec.origin is None:
+            return None
+        if Path(spec.origin).resolve(strict=True) != exact_tool_path:
+            return None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        for name in (
+            "D0_10BootstrapApprovalV1",
+            "D0_10BootstrapReceiptV1",
+            "GovernanceBootstrapCompletionV1",
+            "CandidateIdentityV1",
+            "ContentRef",
+            "parse_d0_10_bootstrap_approval",
+            "parse_d0_10_bootstrap_receipt",
+            "parse_governance_bootstrap_completion",
+            "domain_digest",
+            "DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT",
+            "DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE",
+            "DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT",
+            "DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE",
+            "DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT",
+            "DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_SIGNATURE",
         ):
             if getattr(module, name, None) is None:
                 return None

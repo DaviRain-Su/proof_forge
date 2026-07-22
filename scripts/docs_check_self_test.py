@@ -1343,6 +1343,7 @@ def main() -> None:
     expect_success("bootstrap-attest-d0-06-genesis", complete_d0_06_genesis_closure)
     expect_exact_d0_06_evidence_join()
     expect_root_ancestor_failure()
+    test_d0_10_consumer_negative()
 
     cases: list[tuple[str, Mutation, str, str]] = [
         ("required", lambda root: (root / "docs/index.md").unlink(),
@@ -2352,6 +2353,159 @@ def main() -> None:
     for name, mutation, code, marker in cases:
         expect_failure(name, mutation, code, marker)
     print(f"docs-check-self-test: ok ({len(cases)} mutations)")
+
+
+def test_d0_10_consumer_negative() -> None:
+    """The protected consumer rejects fixture-signed D0-10 closeout files.
+
+    We build a complete, internally consistent D0-10 closeout set using the
+    SPEC-TASKQUAL-001 fixture builder. The objects are signed by the fixture
+    policy, not the activated D0-04 authority policy, so docs_check must refuse
+    to close TASK-D0-10. This exercises the attest parser, the file-byte hash
+    checks, the object parsers, and the policy-binding gate.
+    """
+    scripts_dir = str(CHECKER.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import task_qualification_fixture_builder as fixture_builder
+    import task_qualification_objects as tqo
+    import bootstrap_task_objects as bto
+
+    docs_check = load_checker()
+
+    with tempfile.TemporaryDirectory(
+        prefix="proof-forge-d0-10-consumer-", dir="/tmp"
+    ) as temporary:
+        root = Path(temporary).resolve() / "repo"
+
+        # Copy the activated D0-04 authority policy into the synthetic root.
+        d0_04_policy_source = (
+            CHECKER.parent.parent
+            / "docs/governance/bootstrap-closure/TASK-D0-04/authority-policy.json"
+        )
+        d0_04_policy_dest = (
+            root / "docs/governance/bootstrap-closure/TASK-D0-04/authority-policy.json"
+        )
+        d0_04_policy_dest.parent.mkdir(parents=True, exist_ok=True)
+        d0_04_policy_dest.write_bytes(d0_04_policy_source.read_bytes())
+
+        # Write a minimal freeze package. Its content is irrelevant for this
+        # policy-mismatch test; only the attest hash must match the file bytes.
+        freeze_payload = {
+            "schemaVersion": 1,
+            "taskId": "TASK-D0-10",
+            "frozenAt": "2026-07-20",
+            "freezeCommit": "0" * 40,
+            "output": "task-scoped formal qualification verifier",
+            "dependencies": ["TASK-D0-07"],
+            "prerequisites": ["GOV-TASKQUAL-BOOTSTRAP-001@accepted"],
+            "tests": ["TST-DOC-001"],
+        }
+        freeze_bytes = json.dumps(freeze_payload, indent=2).encode("utf-8")
+        freeze_path = root / "docs/governance/task-freeze-packages/TASK-D0-10.json"
+        freeze_path.parent.mkdir(parents=True, exist_ok=True)
+        freeze_path.write_bytes(freeze_bytes)
+
+        # Build fixture closeout objects. They are signed by the fixture policy.
+        approval_chain = fixture_builder.build_d0_10_approval_chain()
+        receipt_chain = fixture_builder.build_d0_10_receipt_chain(approval_chain)
+
+        approval_bytes = bto.canonical_pf_jcs(approval_chain.approval_obj)
+        receipt_bytes = bto.canonical_pf_jcs(receipt_chain.receipt_obj)
+
+        # Build a minimal D0-10 governance completion object over the receipt.
+        completion_obj = {
+            "schema": "proof-forge.governance-bootstrap-completion.v1",
+            "id": "governance-bootstrap-completion-d0-10",
+            "version": "1.0.0",
+            "taskId": "TASK-D0-10",
+            "rulingId": "GOV-TASKQUAL-BOOTSTRAP-001",
+            "purpose": "d0-10-taskqual-one-time-bridge",
+            "completionCandidate": {
+                "commit": receipt_chain.close_candidate.identity.commit,
+                "treeObjectId": receipt_chain.close_candidate.identity.treeObjectId,
+                "archiveSha256": tqo.digest_to_wire(
+                    receipt_chain.close_candidate.identity.archiveDigest
+                ),
+            },
+            "ruling": {
+                "id": "GOV-TASKQUAL-BOOTSTRAP-001",
+                "status": "accepted",
+                "contentDigest": tqo.digest_to_wire(
+                    tqo.plain_sha256_digest(b"fixture ruling")
+                ),
+                "reviewCommit": receipt_chain.pre_candidate.identity.commit,
+            },
+            "sourceClosure": {
+                "path": (
+                    "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
+                ),
+                "digest": tqo.digest_to_wire(
+                    tqo.plain_sha256_digest(receipt_bytes)
+                ),
+            },
+            "authorityPolicy": tqo.content_ref_to_wire(
+                tqo.fixture_policy_content_ref(approval_chain.fixture_policy)
+            ),
+            "independentReviews": [],
+            "signatures": [],
+        }
+        completion_bytes = bto.canonical_pf_jcs(completion_obj)
+
+        # Write the candidate-owned closeout files.
+        approval_path = (
+            root / "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
+        )
+        approval_path.parent.mkdir(parents=True, exist_ok=True)
+        approval_path.write_bytes(approval_bytes)
+
+        receipt_path = (
+            root / "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
+        )
+        receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        receipt_path.write_bytes(receipt_bytes)
+
+        completion_path = (
+            root
+            / "docs/governance/task-completions/TASK-D0-10/governance-bootstrap-completion.json"
+        )
+        completion_path.parent.mkdir(parents=True, exist_ok=True)
+        completion_path.write_bytes(completion_bytes)
+
+        # Write the attest with correct file hashes.
+        attest = {
+            "schemaVersion": 1,
+            "taskId": "TASK-D0-10",
+            "kind": "d0-10-taskqual-one-time-bridge-closure",
+            "ruling": "GOV-TASKQUAL-BOOTSTRAP-001",
+            "freezePackage": "docs/governance/task-freeze-packages/TASK-D0-10.json",
+            "freezePackageSha256": hashlib.sha256(freeze_bytes).hexdigest(),
+            "bootstrapApproval": (
+                "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
+            ),
+            "bootstrapApprovalSha256": hashlib.sha256(approval_bytes).hexdigest(),
+            "bootstrapReceipt": (
+                "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
+            ),
+            "bootstrapReceiptSha256": hashlib.sha256(receipt_bytes).hexdigest(),
+            "governanceBootstrapCompletion": (
+                "docs/governance/task-completions/TASK-D0-10/"
+                "governance-bootstrap-completion.json"
+            ),
+            "governanceBootstrapCompletionSha256": hashlib.sha256(
+                completion_bytes
+            ).hexdigest(),
+            "docsCheckCommand": "/usr/bin/python3 -I -S scripts/docs_check.py --root .",
+            "notes": "This fixture test is not formal or hermetic evidence.",
+        }
+        attest_path = root / "docs/governance/bootstrap-closure/TASK-D0-10.attest.json"
+        attest_path.parent.mkdir(parents=True, exist_ok=True)
+        attest_path.write_bytes(bto.canonical_pf_jcs(attest))
+
+        if docs_check.d0_10_task_qualification_attested(root):
+            raise AssertionError(
+                "D0-10 consumer accepted fixture-signed closeout"
+            )
 
 
 if __name__ == "__main__":

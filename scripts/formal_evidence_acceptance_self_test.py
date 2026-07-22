@@ -139,7 +139,7 @@ def main() -> int:
         assert getattr(module, name, None) is not None, f"missing {name}"
     checked("public API surface")
 
-    with tempfile.TemporaryDirectory(prefix="formal-acceptance-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="pf-feat-", dir="/tmp") as temporary:
         workspace = Path(temporary)
         fixture = module.build_rehearsal_fixture(
             workspace / "fixture",
