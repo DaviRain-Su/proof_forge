@@ -8620,3 +8620,58 @@ normative: false
   D0_10BootstrapReceiptV1 + GovernanceBootstrapCompletionV1。这些是 governance
   bootstrap 流程，不是本开发 session 的 scope。本开发 session 的 pure-verifier
   development evidence 工作到此收口。
+
+## 2026-07-22 — TASK-D0-10 spec-alignment slices SA-1..SA-5（远程 spec 修订对齐）
+
+- Context：origin/main 远程 spec 修订（c0408168..179d19c5）重写了 SPEC-TASKQUAL-001 的
+  D0-10 对象 schema（QualificationNormativeDocumentRefV1 profile-discriminated、
+  sourceClosureBytesHex、ledgerEvidenceId、D0_10ReceiptLedgerProjectionV1、production
+  domains、§8.4 protected adapter schema）。本地代码仍是旧 schema。只读 audit 确认
+  5 类 spec/code 对齐缺口（均在 D0-10 output 范围内：verifier/parser/encoder）。
+- Triage：用户确认 GOV-MAINTAINERS-001 单点声明（三 role 唯一持有人），批准路径 A
+  （production 签发），并选定"全部 RED-first 补齐 schema 再写 producer"。
+- Slices delivered（6 commits，全部推送 origin/main，4 gate 全绿）：
+  - `89a8383f` 阻塞#1：parser+docs_check D0-10 sourceClosure 路径 receipt.json→
+    bootstrap-receipt.json（spec §7/§8.5）。
+  - `e6444a66` SA-1：ledgerEvidenceId 加到 D0_10BootstrapApprovalV1（dataclass/parser/
+    encoder/fixture + 3 RED 测试，spec §7 line 316）。
+  - `4f45daaf` SA-2：ledgerEvidenceId 加到 D0_10BootstrapReceiptV1 + approval/receipt
+    逐字相等校验（+ 4 RED 测试，spec §7 line 330/377）。
+  - `01140578` SA-3：sourceClosureBytesHex 加到 GovernanceBootstrapReceiptDependencyV1
+    + source closure bytes 重算校验（+ 3 RED 测试，spec §4 line 157/178）。
+  - `dbce8800` SA-4：production domains 常量（pf.normative-document.v1 /
+    pf.taskqual.fixture-normative-document.v1 / pf.d0-10.bootstrap-verifier-closure.v1 /
+    pf.d0-10.protected-consumer-closure.v1 / pf.d0-10.receipt-ledger-projection.v1）+
+    normative_document_digest helper + verifier documents stage profile-discriminated
+    ruling digest（生产用 domain digest，fixture 保持 plain_sha256，spec §8.3 line 819）。
+  - `8bcea172` SA-5：D0_10ReceiptLedgerProjectionV1 完整 dataclass/parser/encoder +
+    D0_10BootstrapApprovalRefV1/D0_10BootstrapReceiptRefV1 ref 类型 + 修正
+    DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION 为 spec §7 line 381 的
+    pf.d0-10.receipt-ledger-projection.v1（d0-10 后用 dot）。
+- Verification：RED Matrix 103/103、protected adapter 21/21、docs-check ok、
+  docs-check-self-test 204 mutations，每步全绿。
+- Reassessment（关键）：核实 docs_check.py `d0_10_task_qualification_attested` 只做
+  attest 结构校验，不验证签名对象本身；ProductionVerificationProfileV1 verifier 只强制
+  当前 8 字段（spec §8.2 完整 schema 的 taskId/operation/gateSetDigest/snapshotParser/
+  artifacts 不强制）；D0_10ReceiptLedgerProjectionV1 不在 docs_check 完成门禁里。
+  因此 SA-6（完整 profile schema）与 SA-5 projection 构造是 forward-compat 改进，
+  不是 doneWhen 阻塞。真正阻塞签发的是 SA-7（production ceremony producer）。
+- Limitations：本批 spec-alignment 仍是 development evidence，不能关闭 TASK-D0-10。
+  SA-6（完整 ProductionVerificationProfileV1 schema）与 SA-5 projection 构造 deferred
+  为已知 forward-compat 改进，不阻塞 doneWhen。
+- Next（production ceremony handoff）：SA-7 写 `scripts/task_qualification_ceremony.py`
+  production bundle assembler（读真实仓库文件：authority-policy.json、
+  task-qualification-bootstrap-ruling.md、TASK-D0-10.json freeze package、
+  TASK-D0-07.attest.json sourceClosure、candidate C 的 git archive/commit object；
+  组装 30+ bundle members 含 evidence/review/command-policy/gate-keyed roles/
+  dependency；production profile 由 authority principals 签名；D0_07Bridge 携带
+  补签的 D0-07 GBC，sourceClosure=attest bytes，completionCommit=D0-07 closeout
+  commit 2db8bfe0）。SA-8 扩展 bootstrap_sign_tool.py 3 个新子命令（sign-d0-10-
+  bootstrap-approval / sign-d0-10-bootstrap-receipt / sign-governance-bootstrap-
+  completion，3-signer arch+qual+sec，--seed-file）。SA-10 用户提供 architecture/
+  quality/security 三个 production seed 文件（0400 权限，32-byte 或 64-hex），
+  ceremony 签发 D0-07 GBC + D0-10 approval/receipt/GBC。SA-11 closeout commit D
+  （parent=C，含 approval + semantic file set + review report，不改 verifier/
+  protocol/product/test/freeze）+ docs 更新（task-breakdown→done、traceability、
+  evidence ledger、implementation log、checkpoint）+ final gate + SBOM re-pin。
+  估计 ~300-400 行 ceremony 代码，需新 session context 安全完成。
