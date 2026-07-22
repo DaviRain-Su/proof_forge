@@ -244,6 +244,35 @@ DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT = b"pf.taskqual.protected-acceptance-state
 DOMAIN_PROTECTED_ACCEPTANCE_SIGNATURE = b"pf.taskqual.protected-acceptance-signature.v1"
 DOMAIN_PROTECTED_ACCEPTANCE = b"pf.taskqual.protected-acceptance.v1"
 DOMAIN_DEPENDENCY_OBJECT = b"pf.taskqual.dependency-object.v1"
+# §8.3 production normative document content digest domain. Production
+# NormativeDocumentRefV1.contentDigest =
+#   SHA-256("pf.normative-document.v1" || NUL || UTF8(id) || NUL || raw bytes)
+DOMAIN_PRODUCTION_NORMATIVE_DOCUMENT = b"pf.normative-document.v1"
+# §8.3 fixture normative document content digest domain.
+# FixtureNormativeDocumentRefV1.contentDigest =
+#   SHA-256("pf.taskqual.fixture-normative-document.v1" || NUL ||
+#           UTF8(id) || NUL || raw bytes)
+DOMAIN_FIXTURE_NORMATIVE_DOCUMENT = b"pf.taskqual.fixture-normative-document.v1"
+# §8.3 D0-10 verifier/consumer closure digest domains.
+# verifierClosureDigest = SHA-256("pf.d0-10.bootstrap-verifier-closure.v1" ||
+#   NUL || PF-JCS(verifier))
+DOMAIN_D0_10_VERIFIER_CLOSURE = b"pf.d0-10.bootstrap-verifier-closure.v1"
+# consumerClosureDigest = SHA-256("pf.d0-10.protected-consumer-closure.v1" ||
+#   NUL || PF-JCS(protectedConsumer))
+DOMAIN_D0_10_CONSUMER_CLOSURE = b"pf.d0-10.protected-consumer-closure.v1"
+# §7 D0_10ReceiptLedgerProjectionV1 full digest domain.
+DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION = b"pf.d0-10-receipt-ledger-projection.v1"
+
+
+def normative_document_digest(domain: bytes, doc_id: str, raw_bytes: bytes) -> Digest:
+    """§8.3: SHA-256(domain || NUL || UTF8(id) || NUL || raw document bytes)."""
+    h = hashlib.sha256()
+    h.update(domain)
+    h.update(b"\x00")
+    h.update(doc_id.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(raw_bytes)
+    return Digest(algorithm="sha256", bytes=h.digest())
 
 
 def domain_digest(domain: bytes, value) -> Digest:

@@ -2348,9 +2348,18 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
                 f"got '{ruling_ref.path}'")
         # GAP-16: §7 "ruling ref 必须重算本 accepted ruling". The approval's
         # ruling (NormativeDocumentRefV1) must join to the ruling-source member
-        # bytes: contentDigest == plain_sha256(ruling_bytes), status=="accepted",
-        # reviewCommit == preCloseCandidate.commit.
-        computed_ruling_digest = plain_sha256_digest(ruling_bytes)
+        # bytes. §8.3: production uses
+        #   SHA-256("pf.normative-document.v1" || NUL || UTF8(id) || NUL || raw)
+        # while fixture uses plain_sha256(raw) (fixture-non-authoritative
+        # shortcut). status=="accepted", reviewCommit == preCloseCandidate.commit.
+        if isinstance(profile, ProductionVerificationProfileV1):
+            computed_ruling_digest = _TQO.normative_document_digest(
+                _TQO.DOMAIN_PRODUCTION_NORMATIVE_DOCUMENT,
+                approval.ruling.id,
+                ruling_bytes,
+            )
+        else:
+            computed_ruling_digest = plain_sha256_digest(ruling_bytes)
         if approval.ruling.contentDigest.bytes != computed_ruling_digest.bytes:
             _BTO._reject(
                 "documents: ruling.contentDigest does not recompute from "
