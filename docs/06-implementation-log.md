@@ -8365,3 +8365,71 @@ normative: false
   GAP-6 argv[0] identity、GAP-11/15/24/26 P2）仍 pending。
 - Next：继续 GAP-12/13 semantic file set after-bytes vs verified Q + closeout
   diff paths。
+
+## 2026-07-22 — TASK-D0-10 slice 19：GAP-12/13 semantic file set after-bytes + closeout diff paths + resulting row (§6)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §6 line 243-270（diff(C,D) paths/resulting row
+  与 AllowedCloseoutPatchV1 exact；reconstruct semanticFileSet 删除 fixed
+  Q/approval-path change，其 after bytes 不等于已验证 Q/approval 则拒绝；
+  resultingTaskRowDigest 绑定 status=done 的 row）；`TST-DOC-001`。
+- Findings（来自 final comprehensive audit，针对 verifier 的 projection stage）：
+  - GAP-12（fixed-path after-bytes 未与 verified Q/approval 比对）：
+    `_reconstruct_semantic_file_set_digest` 只断言 exactly one fixed-path
+    change 存在，docstring 明确写 "caller responsibility"。caller
+    `_verify_semantic_file_set_digest` 不接收 verified Q/approval bytes，
+    fixed-path change 的 afterDigest 从不与 plain_sha256(verified_q_bytes)
+    比对。恶意 bundle 可携带 after-bytes 与 verified Q 无关的 fixed-path
+    change，verifier 仍接受（只要 semanticFileSetDigest 匹配）。
+  - GAP-13a（closeout diff paths != allowedPaths）：verifier 从不比对
+    file_set.changes paths 与 patch.allowedPaths。extra/missing path 接受。
+  - GAP-13b（resultingTaskRowDigest 未校验）：verifier 从不 recompute
+    resulting row digest（status flipped to done）并 join patch.resultingTaskRowDigest。
+- Changed：
+  - `scripts/task_qualification_objects.py`：新增 `task_row_digest(r)` 函数
+    （plain SHA-256 of canonical PF-JCS wire），供 verifier 与 fixture builder
+    共享。
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_semantic_file_set_digest` 新增 `verified_q_bytes` 参数；
+      GAP-12：assert fixed-path change afterDigest == plain_sha256(verified_q_bytes)。
+    - 新增 `_verify_closeout_diff_paths_equal_allowed_paths(file_set, patch,
+      where)`：GAP-13a，assert sorted(file_set.changes paths) == sorted(patch.allowedPaths)。
+    - 新增 `_verify_resulting_task_row_digest(qualification_task_row, patch,
+      where)`：GAP-13b，recompute resulting row (status=done) digest 并 assert
+      == patch.resultingTaskRowDigest。
+    - `_verify_task_completion` projection stage：调用 GAP-13a、GAP-13b（用
+      qualification.taskRow），从 member_map["qualification"] 取 verified_q_bytes
+      调用 GAP-12。
+    - `_verify_d0_10_receipt` projection stage：重组顺序——先 verify closeout
+      file set，再 GAP-13a，再 parse bootstrap-approval member（取
+      approval_bytes），再 GAP-13b（用 approval.taskRow），再 GAP-12（用
+      approval_bytes）。
+  - `scripts/task_qualification_fixture_builder.py`：
+    `build_d0_10_receipt_chain`：从 approval_obj["taskRow"] 计算 resulting row
+    digest（status=done），patch allowedPaths 从 1 path 扩展为 5 paths（docs/04-07
+    + bootstrap-approval.json）使 exact-equal closeout diff paths；两处
+    patch 构建（patch_ref 与 patch_wire）同步更新。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 5 个 RED test：
+    - `test_negative_completion_resulting_task_row_digest_mismatch`
+    - `test_negative_completion_closeout_diff_paths_mismatch_allowed`
+    - `test_negative_completion_fixed_path_after_bytes_mismatch`
+    - `test_negative_d0_10_receipt_resulting_task_row_digest_mismatch`
+    - `test_negative_d0_10_receipt_fixed_path_after_bytes_mismatch`
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 86/86 passed
+  （slice 18 的 81 个 + slice 19 的 5 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：closeout diff paths 现在 exact-equal allowedCloseoutPatch.
+  allowedPaths，fail closed。resulting task row digest 现在从 qualification/
+  approval 的 taskRow（status flipped to done）recompute 并 join patch.
+  resultingTaskRowDigest，fail closed。fixed Q/approval-path change 的
+  afterDigest 现在与 plain_sha256(verified Q/approval bytes) 比对，fail closed。
+  所有 fixture chain 仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for GAP-12/13 closeout file set reconstruction
+  (§6)。不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。
+  remaining GAPs（GAP-16/17/18 D0-10 approval ruling/verifier/protectedConsumer、
+  GAP-6 argv[0] identity、GAP-11 fixed ids、GAP-15 issuedAt RFC3339、GAP-24 phantom
+  gateId、GAP-26 f1/f2 first-byte、NEW-1 D0-10 receipt approval signatures、
+  NEW-2 ruling-source path fixed）仍 pending。
+- Next：继续 GAP-16/17/18 D0-10 approval ruling-source join + verifier/
+  protectedConsumer resolution。

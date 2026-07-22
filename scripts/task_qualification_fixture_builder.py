@@ -2247,15 +2247,39 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     # digest. The allowedPaths list only the fixed approval path here; the
     # semantic reconstruction removes that path from the full file set.
     d0_10_semantic_digest = approval_chain.semantic_file_set_digest
+    # GAP-13: compute the resultingTaskRowDigest from the approval's taskRow
+    # (status flipped to done). The verifier recomputes this and asserts
+    # equality to the patch's resultingTaskRowDigest.
+    approval_task_row_wire = approval_chain.approval_obj["taskRow"]
+    resulting_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=approval_task_row_wire["taskId"],
+        output=approval_task_row_wire["output"],
+        dependencies=tuple(approval_task_row_wire["dependencies"]),
+        prerequisites=tuple(approval_task_row_wire["prerequisites"]),
+        tests=tuple(approval_task_row_wire["tests"]),
+        evidenceIds=tuple(approval_task_row_wire["evidenceIds"]),
+        status="done",
+    )
+    d0_10_resulting_row_digest = task_row_digest(resulting_row)
+    # GAP-13: the receipt's allowedCloseoutPatch.allowedPaths must exact-equal
+    # the closeout diff paths (§6). The closeout file set has 5 paths (docs/04-07
+    # + the fixed approval path), so allowedPaths lists all 5.
+    d0_10_allowed_paths = (
+        "docs/04-task-breakdown.md",
+        "docs/05-test-spec.md",
+        "docs/06-implementation-log.md",
+        "docs/07-review-report.md",
+        "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",
+    )
     patch_ref = allowed_closeout_patch_content_ref(_TQO.AllowedCloseoutPatchV1(
         schema="proof-forge.allowed-closeout-patch.v1",
         id="allowed-closeout-d0-10",
         version="1.0.0",
         taskId=D0_10_TASK_ID,
         preCloseCandidate=pre_candidate.identity,
-        allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
+        allowedPaths=d0_10_allowed_paths,
         semanticFileSetDigest=d0_10_semantic_digest,
-        resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
+        resultingTaskRowDigest=d0_10_resulting_row_digest,
     ))
 
     # Build revocation snapshot
@@ -2313,9 +2337,9 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         version="1.0.0",
         taskId=D0_10_TASK_ID,
         preCloseCandidate=pre_candidate.identity,
-        allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
+        allowedPaths=d0_10_allowed_paths,
         semanticFileSetDigest=d0_10_semantic_digest,
-        resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
+        resultingTaskRowDigest=d0_10_resulting_row_digest,
     ))
     patch_bytes = canonical_pf_jcs(patch_wire)
     closeout_file_set_wire = closeout_file_set_to_wire(closeout_file_set)

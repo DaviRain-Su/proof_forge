@@ -1646,8 +1646,8 @@ def _reconstruct_semantic_file_set_digest(
 
     Rejects if there is no fixed-path change, more than one, or the
     fixed-path change's after-bytes do not equal the verified Q/approval
-    (caller responsibility — here we only check the path belongs to the
-    fixed set and that exactly one remains after removal).
+    (GAP-12: caller passes verified_q_bytes; here we assert the fixed-path
+    change's afterDigest equals plain_sha256(verified_q_bytes)).
     """
     # Identify the fixed-path changes present in the full file set.
     fixed_changes = [c for c in file_set.changes if c[0] in fixed_q_paths]
@@ -1680,13 +1680,62 @@ def _reconstruct_semantic_file_set_digest(
     return domain_digest(_TQO.DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET, semantic_wire)
 
 
-def _verify_semantic_file_set_digest(
+def _verify_closeout_diff_paths_equal_allowed_paths(
     file_set: CloseoutFileSetV1,
     patch: "AllowedCloseoutPatchV1",
     where: str,
 ) -> None:
+    """GAP-13: §6 diff(C,D) paths must exact-equal AllowedCloseoutPatchV1.
+    allowedPaths. The full closeout file set's changed paths (sorted) must
+    exactly equal patch.allowedPaths (sorted). Extra/missing paths reject.
+    """
+    file_set_paths = sorted(c[0] for c in file_set.changes)
+    allowed_paths = sorted(patch.allowedPaths)
+    if file_set_paths != allowed_paths:
+        _BTO._reject(
+            f"{where}: closeout diff paths do not exact-equal "
+            f"allowedCloseoutPatch.allowedPaths "
+            f"(file_set={file_set_paths}, allowed={allowed_paths})")
+
+
+def _verify_resulting_task_row_digest(
+    qualification_task_row,
+    patch: "AllowedCloseoutPatchV1",
+    where: str,
+) -> None:
+    """GAP-13: §6 resulting row 与 AllowedCloseoutPatchV1 exact. The resulting
+    task row is the qualification's taskRow with status flipped to "done" (the
+    row after closeout). Recompute its digest and assert equals
+    patch.resultingTaskRowDigest.
+    """
+    resulting_row = _TQO.TaskQualificationTaskRowV1(
+        taskId=qualification_task_row.taskId,
+        output=qualification_task_row.output,
+        dependencies=qualification_task_row.dependencies,
+        prerequisites=qualification_task_row.prerequisites,
+        tests=qualification_task_row.tests,
+        evidenceIds=qualification_task_row.evidenceIds,
+        status="done",
+    )
+    computed = _TQO.task_row_digest(resulting_row)
+    if computed.bytes != patch.resultingTaskRowDigest.bytes:
+        _BTO._reject(
+            f"{where}: resulting task row digest mismatch "
+            f"(computed={computed.bytes.hex()}, "
+            f"patch={patch.resultingTaskRowDigest.bytes.hex()})")
+
+
+def _verify_semantic_file_set_digest(
+    file_set: CloseoutFileSetV1,
+    patch: "AllowedCloseoutPatchV1",
+    verified_q_bytes: bytes,
+    where: str,
+) -> None:
     """§6: reconstruct the semantic file set from the full closeout file set
     and assert its digest equals patch.semanticFileSetDigest.
+
+    GAP-12: the fixed Q/approval-path change's afterDigest must equal
+    plain_sha256(verified_q_bytes) (the verified Q/approval subject bytes).
 
     The fixed Q/approval paths are those allowedPaths that end with
     qualification.json or bootstrap-approval.json (the fixed
@@ -1697,6 +1746,21 @@ def _verify_semantic_file_set_digest(
         p for p in patch.allowedPaths
         if p.endswith("qualification.json") or p.endswith("bootstrap-approval.json")
     }
+    # GAP-12: assert the fixed-path change's afterDigest equals
+    # plain_sha256(verified_q_bytes).
+    fixed_changes = [c for c in file_set.changes if c[0] in fixed_q_paths]
+    if len(fixed_changes) != 1:
+        _BTO._reject(
+            f"{where}: full file set must contain exactly one fixed "
+            f"Q/approval-path change (found {len(fixed_changes)})")
+    fixed_after = fixed_changes[0][2]
+    if fixed_after is None:
+        _BTO._reject(f"{where}: fixed Q/approval-path change has null afterDigest")
+    expected_after = plain_sha256_digest(verified_q_bytes)
+    if fixed_after.bytes != expected_after.bytes:
+        _BTO._reject(
+            f"{where}: fixed Q/approval-path afterDigest does not equal "
+            f"plain_sha256(verified_q_bytes)")
     computed = _reconstruct_semantic_file_set_digest(file_set, fixed_q_paths, where)
     if computed.bytes != patch.semanticFileSetDigest.bytes:
         _BTO._reject(
@@ -2106,9 +2170,23 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
             member_map, pre_archive, close_archive,
             receipt.closeoutDiffDigest, "projection",
         )
+        # GAP-13: §6 diff(C,D) paths must exact-equal allowedCloseoutPatch.
+        # allowedPaths.
+        _verify_closeout_diff_paths_equal_allowed_paths(file_set, patch, "projection")
+        # GAP-13: §6 resulting row 与 AllowedCloseoutPatchV1 exact. Recompute
+        # the resulting row digest (status flipped to done) and assert equals
+        # patch.resultingTaskRowDigest.
+        _verify_resulting_task_row_digest(
+            qualification.taskRow, patch, "projection")
         # §6: reconstruct the semantic file set from the full closeout file
         # set and assert its digest equals patch.semanticFileSetDigest.
-        _verify_semantic_file_set_digest(file_set, patch, "projection")
+        # GAP-12: the fixed-path change's afterDigest must equal
+        # plain_sha256(verified qualification bytes).
+        qual_member = member_map.get("qualification")
+        if qual_member is None:
+            _BTO._reject("projection: qualification member missing")
+        verified_q_bytes = bytes.fromhex(qual_member.bytesHex)
+        _verify_semantic_file_set_digest(file_set, patch, verified_q_bytes, "projection")
     except Rejected as r:
         return _reject_stage("projection", r.detail)
 
@@ -2432,20 +2510,19 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("signatures", r.detail)
 
-    # Stage 15: projection — verify closeout file set and diff from archives
+    # Stage 15: projection — verify closeout file set and diff from archives,
+    # then verify the bootstrap-approval member, then reconstruct the semantic
+    # file set using the verified approval bytes as the fixed Q/approval path.
     try:
         file_set = _verify_closeout_file_set_from_archives(
             member_map, pre_archive, close_archive,
             receipt.closeoutDiffDigest, "projection",
         )
-        # §6: reconstruct the semantic file set from the full closeout file
-        # set and assert its digest equals patch.semanticFileSetDigest.
-        _verify_semantic_file_set_digest(file_set, patch, "projection")
-    except Rejected as r:
-        return _reject_stage("projection", r.detail)
-
-    # Verify the bootstrap-approval member
-    try:
+        # GAP-13: §6 diff(C,D) paths must exact-equal allowedCloseoutPatch.
+        # allowedPaths.
+        _verify_closeout_diff_paths_equal_allowed_paths(file_set, patch, "projection")
+        # Verify the bootstrap-approval member and capture its verified bytes
+        # for the GAP-12 fixed-path afterDigest check.
         approval_member = member_map.get("bootstrap-approval")
         if approval_member is None:
             _BTO._reject("projection: bootstrap-approval member missing")
@@ -2458,6 +2535,17 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
         computed_approval_digest = domain_digest(_TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, approval_obj)
         if computed_approval_digest != receipt.approvalDigest:
             _BTO._reject("projection: approval digest mismatch")
+        # GAP-13: §6 resulting row 与 AllowedCloseoutPatchV1 exact. Recompute
+        # the resulting row digest (status flipped to done) and assert equals
+        # patch.resultingTaskRowDigest. The approval's taskRow is the
+        # in_progress row that the resulting row derives from.
+        _verify_resulting_task_row_digest(
+            approval.taskRow, patch, "projection")
+        # §6: reconstruct the semantic file set from the full closeout file
+        # set and assert its digest equals patch.semanticFileSetDigest.
+        # GAP-12: the fixed-path change's afterDigest must equal
+        # plain_sha256(verified approval bytes).
+        _verify_semantic_file_set_digest(file_set, patch, approval_bytes, "projection")
     except Rejected as r:
         return _reject_stage("projection", r.detail)
 

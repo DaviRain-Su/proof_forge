@@ -2203,6 +2203,17 @@ def task_row_to_wire(r: TaskQualificationTaskRowV1) -> dict:
     }
 
 
+def task_row_digest(r: TaskQualificationTaskRowV1) -> "Digest":
+    """Compute the task row digest (plain SHA-256 of canonical PF-JCS wire).
+
+    Used for AllowedCloseoutPatchV1.resultingTaskRowDigest (§5). The resulting
+    row is the row with status flipped to "done" (§6 "diff(C,D) paths/resulting
+    row 与 AllowedCloseoutPatchV1 exact").
+    """
+    wire = task_row_to_wire(r)
+    return plain_sha256_digest(canonical_pf_jcs(wire))
+
+
 def freeze_package_ref_to_wire(r: TaskFreezePackageRefV1) -> dict:
     return {
         "taskId": r.taskId,

@@ -281,6 +281,128 @@ def test_negative_completion_wrong_diff_digest() -> RedMatrixResult:
     return RedMatrixResult("negative.completion_wrong_diff_digest", False, actual)
 
 
+def test_negative_completion_resulting_task_row_digest_mismatch() -> RedMatrixResult:
+    """GAP-13: §6 resulting row 与 AllowedCloseoutPatchV1 exact. The patch's
+    resultingTaskRowDigest must equal the digest recomputed from the
+    qualification's taskRow with status flipped to done. Corrupt the patch's
+    resultingTaskRowDigest and recompute the patch member ref; expect reject
+    at the projection stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    # Corrupt the allowed-closeout-patch member's resultingTaskRowDigest.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            patch_wire["resultingTaskRowDigest"] = "sha256:" + "ee" * 32
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            receipt_obj["allowedCloseoutPatch"] = new_ref
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_resulting_task_row_digest_mismatch", False, actual)
+
+
+def test_negative_completion_closeout_diff_paths_mismatch_allowed() -> RedMatrixResult:
+    """GAP-13: §6 diff(C,D) paths must exact-equal allowedCloseoutPatch.
+    allowedPaths. A patch whose allowedPaths omits one of the closeout diff
+    paths must reject at the projection stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    # Corrupt the allowed-closeout-patch member's allowedPaths to drop one
+    # path so it no longer exact-equals the closeout diff paths.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            # Drop the first path.
+            patch_wire["allowedPaths"] = list(patch_wire["allowedPaths"])[1:]
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            receipt_obj["allowedCloseoutPatch"] = new_ref
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_closeout_diff_paths_mismatch_allowed", False, actual)
+
+
+def test_negative_completion_fixed_path_after_bytes_mismatch() -> RedMatrixResult:
+    """GAP-12: §6 the fixed Q/approval-path change's afterDigest must equal
+    plain_sha256(verified qualification bytes). Corrupt the qualification
+    member bytes so the fixed-path change's afterDigest no longer matches;
+    expect reject at the projection stage. The qualification ref digest in
+    the receipt is recomputed to match the corrupted member so the verifier
+    reaches the projection stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    # Corrupt the qualification member bytes by appending a new field so the
+    # JSON remains valid but the bytes differ from the fixed-path afterDigest.
+    # Recompute the qualification full digest and the receipt's qualification
+    # ref digest so the verifier passes the qualification-join stage and
+    # reaches the projection stage.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "qualification":
+            orig_bytes = bytes.fromhex(m["bytesHex"])
+            orig_obj = _BTO.decode_canonical_pf_jcs(orig_bytes)
+            orig_obj["gap12_corruption_marker"] = "tampered"
+            corrupted = _BTO.canonical_pf_jcs(orig_obj)
+            m["bytesHex"] = corrupted.hex()
+            new_qual_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_TASK_QUALIFICATION, orig_obj)
+            m["content"]["digest"] = _TQO.digest_to_wire(new_qual_digest)
+            receipt_obj["qualification"]["digest"] = _TQO.digest_to_wire(new_qual_digest)
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_fixed_path_after_bytes_mismatch", False, actual)
+
+
 def test_negative_receipt_qualification_digest_mismatch() -> RedMatrixResult:
     """§8.1/§8.2: the task-completion bundle's ``qualification`` member must
     recompute to a full digest that exactly equals ``receipt.qualification.digest``.
@@ -1057,6 +1179,79 @@ def test_negative_d0_10_semantic_file_set_digest_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_semantic_file_set_digest_mismatch", False, actual)
 
 
+def test_negative_d0_10_receipt_resulting_task_row_digest_mismatch() -> RedMatrixResult:
+    """GAP-13: §6 D0-10 receipt resulting row 与 AllowedCloseoutPatchV1 exact.
+    The patch's resultingTaskRowDigest must equal the digest recomputed from
+    the approval's taskRow with status flipped to done. Corrupt the patch's
+    resultingTaskRowDigest and recompute the patch member ref; expect reject
+    at the projection stage.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            patch_wire["resultingTaskRowDigest"] = "sha256:" + "ee" * 32
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            receipt_obj["allowedCloseoutPatch"] = new_ref
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_receipt_resulting_task_row_digest_mismatch", False, actual)
+
+
+def test_negative_d0_10_receipt_fixed_path_after_bytes_mismatch() -> RedMatrixResult:
+    """GAP-12: §6 D0-10 receipt fixed Q/approval-path change's afterDigest
+    must equal plain_sha256(verified approval bytes). Corrupt the
+    bootstrap-approval member bytes so the fixed-path change's afterDigest no
+    longer matches; expect reject at the projection stage. The approval
+    digest in the receipt is recomputed to match the corrupted member so the
+    verifier reaches the projection stage.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    for m in bundle_obj["members"]:
+        if m.get("role") == "bootstrap-approval":
+            orig_bytes = bytes.fromhex(m["bytesHex"])
+            orig_obj = _BTO.decode_canonical_pf_jcs(orig_bytes)
+            orig_obj["gap12_corruption_marker"] = "tampered"
+            corrupted = _BTO.canonical_pf_jcs(orig_obj)
+            m["bytesHex"] = corrupted.hex()
+            new_approval_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, orig_obj)
+            m["content"]["digest"] = _TQO.digest_to_wire(new_approval_digest)
+            receipt_obj["approvalDigest"] = _TQO.digest_to_wire(new_approval_digest)
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_receipt_fixed_path_after_bytes_mismatch", False, actual)
+
+
 def test_negative_dependency_archive_missing() -> RedMatrixResult:
     """§8.2: a present dependency requires its exact three-piece row:
     dependency/<taskId>, dependency-archive/<taskId>,
@@ -1794,6 +1989,9 @@ def run_all_tests() -> list:
         # §6 semanticFileSetDigest reconstruction (P0-6)
         test_negative_semantic_file_set_digest_mismatch,
         test_negative_d0_10_semantic_file_set_digest_mismatch,
+        # §6 GAP-12/13 D0-10 receipt: resulting row + fixed-path after-bytes
+        test_negative_d0_10_receipt_resulting_task_row_digest_mismatch,
+        test_negative_d0_10_receipt_fixed_path_after_bytes_mismatch,
         # §8.2 dependency three-piece row enforcement (P0-3)
         test_negative_dependency_archive_missing,
         test_negative_dependency_commit_missing,
@@ -1853,6 +2051,10 @@ def run_all_tests() -> list:
         test_negative_qualification_missing_revocation_snapshot,
         # §6 closeout file set from archives (P0-4)
         test_negative_completion_wrong_diff_digest,
+        # §6 GAP-12/13: fixed-path after-bytes + closeout diff paths + resulting row
+        test_negative_completion_resulting_task_row_digest_mismatch,
+        test_negative_completion_closeout_diff_paths_mismatch_allowed,
+        test_negative_completion_fixed_path_after_bytes_mismatch,
         # §8.1/§8.2 receipt qualification member verification (P1-8)
         test_negative_receipt_qualification_digest_mismatch,
         test_negative_receipt_qualification_taskid_mismatch,
