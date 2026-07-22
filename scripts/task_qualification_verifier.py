@@ -1129,6 +1129,83 @@ def _verify_closeout_file_set_from_archives(
     return file_set
 
 
+def _reconstruct_semantic_file_set_digest(
+    file_set: CloseoutFileSetV1,
+    fixed_q_paths: set,
+    where: str,
+) -> Digest:
+    """§6: reconstruct the SemanticCloseoutFileSetV1 digest from the full
+    CloseoutFileSetV1.
+
+    The algorithm is fixed by §6:
+    1. Verify the full file set schema/id/version/taskId/C/D.
+    2. Remove the single fixed Q/approval-path change.
+    3. Replace schema with proof-forge.semantic-closeout-file-set.v1 and id
+       with semantic-closeout-<lowercase task suffix>, keep version 1.0.0.
+    4. Keep taskId, preCloseCandidate, and the remaining changes.
+    5. Drop closeoutCandidate.
+    6. Compute SHA-256("pf.semantic-closeout-file-set.v1" || NUL || PF-JCS(semantic)).
+
+    Rejects if there is no fixed-path change, more than one, or the
+    fixed-path change's after-bytes do not equal the verified Q/approval
+    (caller responsibility — here we only check the path belongs to the
+    fixed set and that exactly one remains after removal).
+    """
+    # Identify the fixed-path changes present in the full file set.
+    fixed_changes = [c for c in file_set.changes if c[0] in fixed_q_paths]
+    if len(fixed_changes) != 1:
+        _BTO._reject(
+            f"{where}: full file set must contain exactly one fixed "
+            f"Q/approval-path change (found {len(fixed_changes)})")
+    semantic_changes = [c for c in file_set.changes if c[0] not in fixed_q_paths]
+    # Build the semantic wire object per §6.
+    task_suffix = file_set.taskId.lower().replace("task-", "")
+    semantic_wire = {
+        "schema": "proof-forge.semantic-closeout-file-set.v1",
+        "id": f"semantic-closeout-{task_suffix}",
+        "version": "1.0.0",
+        "taskId": file_set.taskId,
+        "preCloseCandidate": {
+            "commit": file_set.preCloseCandidate.commit,
+            "treeObjectId": file_set.preCloseCandidate.treeObjectId,
+            "archiveSha256": _TQO.digest_to_wire(file_set.preCloseCandidate.archiveDigest),
+        },
+        "changes": [
+            {
+                "path": p,
+                "beforeDigest": _TQO.digest_to_wire(b) if b else None,
+                "afterDigest": _TQO.digest_to_wire(a) if a else None,
+            }
+            for (p, b, a) in semantic_changes
+        ],
+    }
+    return domain_digest(_TQO.DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET, semantic_wire)
+
+
+def _verify_semantic_file_set_digest(
+    file_set: CloseoutFileSetV1,
+    patch: "AllowedCloseoutPatchV1",
+    where: str,
+) -> None:
+    """§6: reconstruct the semantic file set from the full closeout file set
+    and assert its digest equals patch.semanticFileSetDigest.
+
+    The fixed Q/approval paths are those allowedPaths that end with
+    qualification.json or bootstrap-approval.json (the fixed
+    qualification/bootstrap-approval path per §5). Exactly one such path
+    must appear as a change in the full file set.
+    """
+    fixed_q_paths = {
+        p for p in patch.allowedPaths
+        if p.endswith("qualification.json") or p.endswith("bootstrap-approval.json")
+    }
+    computed = _reconstruct_semantic_file_set_digest(file_set, fixed_q_paths, where)
+    if computed.bytes != patch.semanticFileSetDigest.bytes:
+        _BTO._reject(
+            f"{where}: reconstructed semanticFileSetDigest does not equal "
+            f"patch.semanticFileSetDigest")
+
+
 def _verify_closeout_file_set_member(
     member_map: dict,
     expected_diff_digest: Digest,
@@ -1472,6 +1549,9 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
             member_map, pre_archive, close_archive,
             receipt.closeoutDiffDigest, "projection",
         )
+        # §6: reconstruct the semantic file set from the full closeout file
+        # set and assert its digest equals patch.semanticFileSetDigest.
+        _verify_semantic_file_set_digest(file_set, patch, "projection")
     except Rejected as r:
         return _reject_stage("projection", r.detail)
 
@@ -1756,6 +1836,9 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
             member_map, pre_archive, close_archive,
             receipt.closeoutDiffDigest, "projection",
         )
+        # §6: reconstruct the semantic file set from the full closeout file
+        # set and assert its digest equals patch.semanticFileSetDigest.
+        _verify_semantic_file_set_digest(file_set, patch, "projection")
     except Rejected as r:
         return _reject_stage("projection", r.detail)
 

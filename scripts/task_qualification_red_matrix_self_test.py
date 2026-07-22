@@ -895,6 +895,93 @@ def test_negative_d0_10_freeze_package_digest_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_freeze_package_digest_mismatch", False, actual)
 
 
+def test_negative_semantic_file_set_digest_mismatch() -> RedMatrixResult:
+    """§6: patch.semanticFileSetDigest must equal the digest recomputed from
+    the full CloseoutFileSetV1 by removing the fixed Q/approval-path change,
+    swapping schema/id, and dropping closeoutCandidate.
+
+    The completion-receipt fixture is mutated so the allowed-closeout-patch
+    member's semanticFileSetDigest disagrees with the §6 reconstruction.
+    The patch content ref, member.content, and subject allowedCloseoutPatch
+    ref are all recomputed consistently, and the subject is re-signed so
+    the verifier reaches the projection stage where the reconstruction
+    check fires.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    # Corrupt the allowed-closeout-patch member's semanticFileSetDigest and
+    # recompute its content ref so the verifier reaches the projection stage.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            patch_wire["semanticFileSetDigest"] = "sha256:" + "ee" * 32
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            receipt_obj["allowedCloseoutPatch"] = new_ref
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.semantic_file_set_digest_mismatch", False, actual)
+
+
+def test_negative_d0_10_semantic_file_set_digest_mismatch() -> RedMatrixResult:
+    """§6: D0-10 receipt patch.semanticFileSetDigest must equal the digest
+    recomputed from the full CloseoutFileSetV1.
+
+    Same as the qualification variant but for the D0-10 bootstrap receipt
+    path. The allowed-closeout-patch member's semanticFileSetDigest is
+    corrupted, the patch content ref is recomputed, and the subject is
+    re-signed.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    for m in bundle_obj["members"]:
+        if m.get("role") == "allowed-closeout-patch":
+            patch_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            patch_wire["semanticFileSetDigest"] = "sha256:" + "ee" * 32
+            new_bytes = _BTO.canonical_pf_jcs(patch_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_ALLOWED_CLOSEOUT_PATCH, patch_wire)
+            new_ref = {
+                "schema": patch_wire["schema"],
+                "id": patch_wire["id"],
+                "version": patch_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            receipt_obj["allowedCloseoutPatch"] = new_ref
+            break
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_semantic_file_set_digest_mismatch", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -970,6 +1057,9 @@ def run_all_tests() -> list:
         # §3/§8.2 freezePackage digest join (P1-1)
         test_negative_freeze_package_digest_mismatch,
         test_negative_d0_10_freeze_package_digest_mismatch,
+        # §6 semanticFileSetDigest reconstruction (P0-6)
+        test_negative_semantic_file_set_digest_mismatch,
+        test_negative_d0_10_semantic_file_set_digest_mismatch,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

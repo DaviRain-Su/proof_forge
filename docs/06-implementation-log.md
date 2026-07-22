@@ -7669,3 +7669,69 @@ normative: false
   verifier 解析 JSON 内部）。
 - Next：继续下一 P0/P1 finding（P0-6 semanticFileSetDigest recompute 需 fixture 对齐，
   或 P0-3 dependency three-piece set enforcement with fixture），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 8：P0-6 semanticFileSetDigest §6 reconstruction from full closeout file set
+
+- Spec/Test：`SPEC-TASKQUAL-001` §6（从 full CloseoutFileSetV1 重构 SemanticCloseoutFileSetV1：
+  删除固定 Q/approval path 的唯一 change；把 schema 替换为
+  `proof-forge.semantic-closeout-file-set.v1`、id 替换为 `semantic-closeout-<lowercase task
+  suffix>`、version 保持 `1.0.0`；保留 taskId/preCloseCandidate 与其余 changes；删除
+  closeoutCandidate；确定性重算 semanticFileSetDigest，无 caller selector）；§5
+  （Q/approval 不进入 pre-sign semantic digest；完整 D file set 只由 post-D receipt 的
+  closeoutDiffDigest 绑定）；`TST-DOC-001`（closed verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 verifier 的 receipt projection stage）：
+  - P0-6（semanticFileSetDigest 未从 full file set 重算）：verifier 在 receipt path 重算
+    closeoutDiffDigest 并从 C/D archives 重构 full file set，但从不从 full file set 重构
+    semantic file set 并 join 到 patch.semanticFileSetDigest。一个 patch 的
+    semanticFileSetDigest 与 full file set 重构结果不一致时，verifier 会接受。同时
+    fixture 的 semanticFileSetDigest 此前是 synthetic（与真实 C/D diff 不一致），任何
+    verifier 检查都会破坏 positive fixture，故需同步对齐 fixture。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_reconstruct_semantic_file_set_digest(file_set, fixed_q_paths, where)`：按 §6
+      算法重构 semantic wire（删除单一固定 Q/approval path change、swap schema/id、
+      drop closeoutCandidate），在 `DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET` 下重算 digest。要求
+      full file set 恰好含一个固定 path change。
+    - 新增 `_verify_semantic_file_set_digest(file_set, patch, where)`：从 patch.allowedPaths
+      推导 fixed Q/approval paths（以 `qualification.json`/`bootstrap-approval.json` 结尾），
+      重构并断言 `recomputed == patch.semanticFileSetDigest`。
+    - `_verify_task_completion` 与 `_verify_d0_10_receipt` 的 projection stage 在
+      `_verify_closeout_file_set_from_archives` 后调用该检查。
+  - `scripts/task_qualification_fixture_builder.py`：
+    - 新增 `_FIXTURE_PLANNED_SEMANTIC_FILES`（docs/04-07 after bytes）与
+      `_FIXTURE_QUALIFICATION_PATH`（固定 Q path）常量。`build_fixture_chain` 的 semantic
+      file set 改为从 C archive 的 before-digests 与 planned files 的 after-digests 构造
+      （排除固定 Q path）。`build_completion_receipt_chain` 的 D archive 改为用
+      `_FIXTURE_PLANNED_SEMANTIC_FILES` + qualification.json，确保 §6 重构命中
+      patch.semanticFileSetDigest。
+    - 新增 `_D0_10_PLANNED_SEMANTIC_FILES` 与 `_D0_10_APPROVAL_PATH` 常量。
+      `build_d0_10_approval_chain` 的 semantic file set 同样从 C archive + planned files
+      构造。`build_d0_10_receipt_chain` 的 D archive 改用 planned files + approval.json。
+    - `D0_10ApprovalChain` 新增 `semantic_file_set_digest` 字段，`build_d0_10_receipt_chain`
+      据此设置 receipt patch 的 semanticFileSetDigest（此前错误地用 closeoutDiffDigest）。
+    - `build_closeout_file_set` 新增 `task_id` 形参（默认 `FIXTURE_TASK_ID`）；
+      `build_d0_10_receipt_chain` 传入 `D0_10_TASK_ID`，修复既有 fixture bug
+      （D0-10 closeout file set 之前误用 TASK-D1-FIXTURE 作为 taskId）。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    `semantic_file_set_digest_mismatch`（completion receipt：corrupt patch member 的
+      semanticFileSetDigest，重算 patch content ref，同步 member.content 与 subject ref，
+      重签 receipt）、`d0_10_semantic_file_set_digest_mismatch`（D0-10 receipt 同样操作）。
+    两个 test 均先确认 RED（expected=reject, actual=pass），实现后转 GREEN。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 51/51 passed
+  （slice 7 的 49 个 + slice 8 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：§6 重构在 receipt projection stage（full file set 与 patch 均可用后）
+  执行，删除单一固定 Q/approval path change、swap schema/id、drop closeoutCandidate，
+  在 `DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET` 下重算并断言等于 patch.semanticFileSetDigest。
+  fixture 的 semanticFileSetDigest 现由 C archive + planned files 确定性构造，与 §6 重构
+  结果 exact 一致。所有 fixture chain 仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for semanticFileSetDigest §6 reconstruction。不是正式
+  closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 的
+  fixed-Q-path 识别用 path 后缀（`qualification.json`/`bootstrap-approval.json`）近似
+  spec §5 的“固定 qualification/bootstrap-approval path”语义；production 落地时若固定
+  path 命名变化需同步。重构要求 full file set 恰好含一个固定 path change（spec §6 要求）。
+- Next：继续下一 P0/P1 finding（P0-3 dependency three-piece set enforcement with
+  fixture），仍按 RED-first 协议。

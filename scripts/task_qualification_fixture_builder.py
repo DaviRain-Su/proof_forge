@@ -54,6 +54,21 @@ FIXTURE_REVIEW_INVOCATION_ID = "task-qualification-fixture-run-review-0001"
 FIXTURE_IMPL_INVOCATION_ID = "task-qualification-fixture-run-impl-0001"
 FIXTURE_VERIFICATION_INSTANT = "2026-07-21T00:00:00Z"
 FIXTURE_REVIEW_LINK = "https://fixture.example/review/0001"
+
+# Planned closeout files for the qualification fixture, excluding the fixed
+# Q path (qualification.json). These are the semantic closeout locations that
+# D writes; their after-bytes here must match the ones used to build D in
+# build_completion_receipt_chain so the §6 reconstruction the verifier
+# performs yields exactly patch.semanticFileSetDigest.
+_FIXTURE_PLANNED_SEMANTIC_FILES = {
+    "docs/04-task-breakdown.md": b"# PHASE-4 fixture updated",
+    "docs/05-test-spec.md": b"# PHASE-5 fixture updated",
+    "docs/06-implementation-log.md": b"# Implementation log fixture",
+    "docs/07-review-report.md": b"# Review report fixture",
+}
+_FIXTURE_QUALIFICATION_PATH = (
+    "docs/governance/task-qualifications/TASK-D1-FIXTURE/qualification.json"
+)
 FIXTURE_REVIEW_COMMIT = "f1" + "a" * 38  # Must match candidate commit
 FIXTURE_COMMAND_POLICY_ID = "tst-doc-001.task-qualification-v1"
 
@@ -581,14 +596,15 @@ def build_closeout_file_set(
     pre_candidate: CandidateContext,
     close_candidate: CandidateContext,
     changes: list,
+    task_id: str = FIXTURE_TASK_ID,
 ) -> _TQO.CloseoutFileSetV1:
     """Build a fixture CloseoutFileSetV1."""
-    task_suffix = FIXTURE_TASK_ID.lower().replace("task-", "")
+    task_suffix = task_id.lower().replace("task-", "")
     return _TQO.CloseoutFileSetV1(
         schema="proof-forge.closeout-file-set.v1",
         id=f"closeout-{task_suffix}",
         version="1.0.0",
-        taskId=FIXTURE_TASK_ID,
+        taskId=task_id,
         preCloseCandidate=pre_candidate.identity,
         closeoutCandidate=close_candidate.identity,
         changes=tuple(changes),
@@ -995,14 +1011,27 @@ def build_fixture_chain() -> FixtureChain:
     # Build verifier identity
     verifier = build_verifier_identity(FIXTURE_GATE_ID)
 
-    # Build semantic closeout file set
-    # The changes are the closeout files (task table, evidence ledger, etc.)
-    # For fixture, we use synthetic digests
-    changes = [
-        ("docs/04-task-breakdown.md", None, plain_sha256_digest(b"updated phase4")),
-        ("docs/05-test-spec.md", None, plain_sha256_digest(b"updated phase5")),
-    ]
-    semantic_fset = build_semantic_closeout_file_set(candidate, changes)
+    # Build semantic closeout file set.
+    # Per §5/§6, the semantic file set is constructed from C's archive and the
+    # planned closeout files *excluding* the fixed Q/approval path
+    # (qualification.json). The before-digests come from C's archive (where a
+    # path exists), the after-digests from the planned files. This must match
+    # the §6 reconstruction the verifier performs in the receipt path, so the
+    # planned docs/04-07 files below must be identical to the ones used to
+    # build D in build_completion_receipt_chain.
+    planned_semantic_files = _FIXTURE_PLANNED_SEMANTIC_FILES
+    pre_path_map = candidate.archive_projection.path_map
+    semantic_changes = []
+    for path in sorted(planned_semantic_files.keys()):
+        pre_entry = pre_path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(planned_semantic_files[path])
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue
+        if before_digest is None and after_digest is None:
+            continue
+        semantic_changes.append((path, before_digest, after_digest))
+    semantic_fset = build_semantic_closeout_file_set(candidate, semantic_changes)
     semantic_digest = semantic_closeout_file_set_digest(semantic_fset)
 
     # Build resulting task row digest (the row after closeout, status -> done)
@@ -1160,14 +1189,11 @@ def build_completion_receipt_chain(qual_chain: FixtureChain) -> CompletionReceip
     pre_candidate = qual_chain.candidate
 
     # Build closeout candidate D (child of C)
-    # D's archive contains the closeout files (qualification.json + updated docs)
-    closeout_files = {
-        "docs/04-task-breakdown.md": b"# PHASE-4 fixture updated",
-        "docs/05-test-spec.md": b"# PHASE-5 fixture updated",
-        "docs/06-implementation-log.md": b"# Implementation log fixture",
-        "docs/07-review-report.md": b"# Review report fixture",
-        "docs/governance/task-qualifications/TASK-D1-FIXTURE/qualification.json": canonical_pf_jcs(qual_chain.qualification_obj),
-    }
+    # D's archive contains the closeout files (qualification.json + updated docs).
+    # The docs/04-07 files must match _FIXTURE_PLANNED_SEMANTIC_FILES so the
+    # §6 reconstruction the verifier performs yields patch.semanticFileSetDigest.
+    closeout_files = dict(_FIXTURE_PLANNED_SEMANTIC_FILES)
+    closeout_files[_FIXTURE_QUALIFICATION_PATH] = canonical_pf_jcs(qual_chain.qualification_obj)
     close_candidate = build_synthetic_candidate(
         FIXTURE_TASK_ID,
         closeout_files,
@@ -1315,6 +1341,21 @@ D0_10_APPROVAL_ID = "d0-10-bootstrap-approval-d0-10"
 D0_10_RECEIPT_ID = "d0-10-bootstrap-receipt-d0-10"
 D0_10_COMMAND_POLICY_ID = "tst-doc-001.task-qualification-v1"
 
+# Planned closeout files for the D0-10 approval fixture, excluding the fixed
+# approval path (bootstrap-approval.json). The docs/04-07 after-bytes here
+# must match the ones used to build D in build_d0_10_receipt_chain so the §6
+# reconstruction the verifier performs yields the approval patch's
+# semanticFileSetDigest.
+_D0_10_PLANNED_SEMANTIC_FILES = {
+    "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture updated",
+    "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture updated",
+    "docs/06-implementation-log.md": b"# D0-10 implementation log fixture",
+    "docs/07-review-report.md": b"# D0-10 review report fixture",
+}
+_D0_10_APPROVAL_PATH = (
+    "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
+)
+
 # D0-07 bridge constants
 D0_07_TASK_ID = "TASK-D0-07"
 D0_07_RULING_ID = "GOV-D0CLOSE-001"
@@ -1328,6 +1369,7 @@ class D0_10ApprovalChain:
     fixture_policy: _TQO.FixturePolicyV1
     approval_obj: dict
     bundle_obj: dict
+    semantic_file_set_digest: _BTO.Digest
     d0_07_completion_obj: dict
     d0_07_completion_bytes: bytes
     d0_07_archive_bytes: bytes
@@ -1581,16 +1623,30 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         buildPolicy=_TQO.fixture_resolved_blob_content_ref(verifier_build_blob),
     )
 
-    # Build the allowed closeout patch
+    # Build the allowed closeout patch.
+    # Per §5/§6, the semantic file set is constructed from C's archive and the
+    # planned closeout files excluding the fixed approval path
+    # (bootstrap-approval.json). The before-digests come from C's archive,
+    # the after-digests from _D0_10_PLANNED_SEMANTIC_FILES. These must match
+    # the §6 reconstruction the verifier performs in the D0-10 receipt path.
+    pre_path_map = candidate.archive_projection.path_map
+    d0_10_semantic_changes = []
+    for path in sorted(_D0_10_PLANNED_SEMANTIC_FILES.keys()):
+        pre_entry = pre_path_map.get(path)
+        before_digest = plain_sha256_digest(pre_entry.content) if pre_entry else None
+        after_digest = plain_sha256_digest(_D0_10_PLANNED_SEMANTIC_FILES[path])
+        if before_digest and after_digest and before_digest.bytes == after_digest.bytes:
+            continue
+        if before_digest is None and after_digest is None:
+            continue
+        d0_10_semantic_changes.append((path, before_digest, after_digest))
     semantic_fset = _TQO.SemanticCloseoutFileSetV1(
         schema="proof-forge.semantic-closeout-file-set.v1",
         id="semantic-closeout-d0-10",
         version="1.0.0",
         taskId=D0_10_TASK_ID,
         preCloseCandidate=candidate.identity,
-        changes=(
-            ("docs/04-task-breakdown.md", None, plain_sha256_digest(b"updated")),
-        ),
+        changes=tuple(d0_10_semantic_changes),
     )
     semantic_digest = domain_digest(_TQO.DOMAIN_SEMANTIC_CLOSEOUT_FILE_SET, semantic_closeout_file_set_to_wire(semantic_fset))
 
@@ -1764,6 +1820,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         fixture_policy=fixture_policy,
         approval_obj=approval_obj,
         bundle_obj=bundle_obj,
+        semantic_file_set_digest=semantic_digest,
         d0_07_completion_obj=d0_07_completion_obj,
         d0_07_completion_bytes=d0_07_completion_bytes,
         d0_07_archive_bytes=d0_07_candidate.archive_bytes,
@@ -1799,14 +1856,13 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     """Build a legal fixture chain for d0-10-bootstrap-receipt."""
     pre_candidate = approval_chain.candidate
 
-    # Build closeout candidate D (child of C)
-    closeout_files = {
-        "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture updated",
-        "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture updated",
-        "docs/06-implementation-log.md": b"# D0-10 implementation log fixture",
-        "docs/07-review-report.md": b"# D0-10 review report fixture",
-        "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json": canonical_pf_jcs(approval_chain.approval_obj),
-    }
+    # Build closeout candidate D (child of C).
+    # The docs/04-07 files must match _D0_10_PLANNED_SEMANTIC_FILES so the
+    # §6 reconstruction the verifier performs yields the approval patch's
+    # semanticFileSetDigest. The fixed approval path carries the signed
+    # approval object bytes.
+    closeout_files = dict(_D0_10_PLANNED_SEMANTIC_FILES)
+    closeout_files[_D0_10_APPROVAL_PATH] = canonical_pf_jcs(approval_chain.approval_obj)
     close_candidate = build_synthetic_candidate(
         D0_10_TASK_ID,
         closeout_files,
@@ -1831,7 +1887,7 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         changes.append((path, before_digest, after_digest))
 
     closeout_file_set = build_closeout_file_set(
-        pre_candidate, close_candidate, changes,
+        pre_candidate, close_candidate, changes, task_id=D0_10_TASK_ID,
     )
     closeout_diff_digest = closeout_file_set_digest(closeout_file_set)
 
@@ -1847,6 +1903,12 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     )
 
     policy_ref = _TQO.fixture_policy_content_ref(approval_chain.fixture_policy)
+    # The receipt's allowed-closeout-patch must carry the same
+    # semanticFileSetDigest as the approval patch so the §6 reconstruction
+    # the verifier performs on the receipt's closeout file set yields this
+    # digest. The allowedPaths list only the fixed approval path here; the
+    # semantic reconstruction removes that path from the full file set.
+    d0_10_semantic_digest = approval_chain.semantic_file_set_digest
     patch_ref = allowed_closeout_patch_content_ref(_TQO.AllowedCloseoutPatchV1(
         schema="proof-forge.allowed-closeout-patch.v1",
         id="allowed-closeout-d0-10",
@@ -1854,7 +1916,7 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         taskId=D0_10_TASK_ID,
         preCloseCandidate=pre_candidate.identity,
         allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
-        semanticFileSetDigest=closeout_diff_digest,  # simplified
+        semanticFileSetDigest=d0_10_semantic_digest,
         resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
     ))
 
@@ -1914,7 +1976,7 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         taskId=D0_10_TASK_ID,
         preCloseCandidate=pre_candidate.identity,
         allowedPaths=("docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json",),
-        semanticFileSetDigest=closeout_diff_digest,
+        semanticFileSetDigest=d0_10_semantic_digest,
         resultingTaskRowDigest=plain_sha256_digest(b"resulting row"),
     ))
     patch_bytes = canonical_pf_jcs(patch_wire)
