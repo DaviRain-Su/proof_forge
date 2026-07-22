@@ -1357,6 +1357,7 @@ FIXTURE_POLICY_ID = "task-qualification-fixture-policy-v1"
 FIXTURE_POLICY_SCHEMA = "proof-forge.task-qualification-fixture-policy.v1"
 
 FIXTURE_RESOLVED_BLOB_SCHEMA = "proof-forge.task-qualification-fixture-resolved-blob.v1"
+TASK_QUALIFICATION_SCHEMA = "proof-forge.task-qualification.v1"
 FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
     "resolved-tool",
     "resolved-probe",
@@ -1382,6 +1383,7 @@ FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
 _TYPED_CONTENT_SCHEMA_DOMAINS = {
     FIXTURE_POLICY_SCHEMA: DOMAIN_FIXTURE_POLICY,
     FIXTURE_RESOLVED_BLOB_SCHEMA: DOMAIN_FIXTURE_RESOLVED_BLOB,
+    TASK_QUALIFICATION_SCHEMA: DOMAIN_TASK_QUALIFICATION,
 }
 
 

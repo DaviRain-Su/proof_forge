@@ -456,6 +456,59 @@ def _resolve_typed_member(member_map: dict, role: str, ref: ContentRef, where: s
     return (obj, member.content, raw_bytes)
 
 
+def _verify_receipt_qualification_member(
+    member_map: dict,
+    qual_ref: _TQO.TaskQualificationRefV1,
+    receipt_task_id: str,
+    where: str,
+) -> _TQO.TaskQualificationV1:
+    """§8.1/§8.2: authenticate the signed prior qualification subject in a
+    task-completion bundle.
+
+    Receipt operations do not replay the prior qualification closure
+    (candidate/gates/evidence/reviews are not re-verified), but the bundle's
+    ``qualification`` typed-content member must be authenticated by digest
+    join: its bytesHex must recompute to a ContentRef whose id and digest
+    exactly equal ``receipt.qualification.id`` / ``receipt.qualification.digest``,
+    and the qualification ref's taskId must equal both the receipt's taskId
+    and the decoded qualification object's taskId.
+
+    Returns the parsed ``TaskQualificationV1`` for the projection.
+    """
+    role = "qualification"
+    if role not in member_map:
+        _BTO._reject(f"{where}: member '{role}' missing")
+    member = member_map[role]
+    if not isinstance(member, _TQO.TypedContentMemberV1):
+        _BTO._reject(f"{where}: member '{role}' must be typed-content")
+    raw_bytes = bytes.fromhex(member.bytesHex)
+    try:
+        obj = decode_canonical_pf_jcs(raw_bytes)
+    except Exception as exc:
+        _BTO._reject(f"{where}: member '{role}' decode failed: {exc}")
+    # Recompute the ContentRef from the member bytes under the qualification
+    # schema domain so a stale member.content cannot be trusted.
+    recomputed = _TQO.recompute_typed_content_ref(member.content.schema, obj)
+    if recomputed != member.content:
+        _BTO._reject(f"{where}: member '{role}' bytesHex does not recompute to member.content")
+    # Join the member content ref to the receipt qualification ref. The ref
+    # is a TaskQualificationRefV1{taskId, id, digest} (no schema/version), so
+    # compare id and digest explicitly.
+    if member.content.id != qual_ref.id:
+        _BTO._reject(f"{where}: qualification id mismatch")
+    if member.content.digest != qual_ref.digest:
+        _BTO._reject(f"{where}: qualification digest mismatch")
+    # The qualification ref's taskId must equal the receipt's taskId.
+    if qual_ref.taskId != receipt_task_id:
+        _BTO._reject(f"{where}: qualification ref taskId does not equal receipt taskId")
+    # Parse the decoded object as a TaskQualificationV1 and assert its taskId
+    # agrees with the ref, so the prior subject is bound to the same task.
+    qualification = _TQO.parse_qualification(obj, f"{where}: qualification")
+    if qualification.taskId != qual_ref.taskId:
+        _BTO._reject(f"{where}: decoded qualification taskId does not equal ref taskId")
+    return qualification
+
+
 def _resolve_raw_member(member_map: dict, role: str, where: str, domain: bytes = None) -> tuple:
     """Resolve a raw-source member to (raw_bytes, raw_doc_ref).
 
@@ -1530,6 +1583,19 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("candidate", r.detail)
 
+    # Stage 6b: qualification — authenticate the signed prior qualification
+    # subject by digest join (§8.1/§8.2). Receipt operations do not replay the
+    # prior qualification closure, but the bundle's qualification member must
+    # recompute to a full digest equal to receipt.qualification.digest, and the
+    # ref's taskId/id must match. The parsed qualification is carried in the
+    # projection (VerifiedTaskCompletionV1.qualification is non-Optional per §8.1).
+    try:
+        qualification = _verify_receipt_qualification_member(
+            member_map, receipt.qualification, receipt.taskId, "qualification",
+        )
+    except Rejected as r:
+        return _reject_stage("qualification", r.detail)
+
     # Stage 7: policy
     try:
         policy_obj, policy_ref = _verify_authority_policy(member_map, profile, policy_ref, "policy")
@@ -1572,7 +1638,7 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
         taskId=receipt.taskId,
         preCloseCandidate=receipt.preCloseCandidate,
         closeoutCandidate=receipt.closeoutCandidate,
-        qualification=None,  # Receipt doesn't embed qualification object
+        qualification=qualification,  # §8.1: non-Optional, parsed from bundle member
         receipt=receipt,
         closeoutDiffDigest=receipt.closeoutDiffDigest,
         authorityPolicy=policy_ref,

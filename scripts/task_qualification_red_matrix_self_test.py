@@ -280,6 +280,80 @@ def test_negative_completion_wrong_diff_digest() -> RedMatrixResult:
     return RedMatrixResult("negative.completion_wrong_diff_digest", False, actual)
 
 
+def test_negative_receipt_qualification_digest_mismatch() -> RedMatrixResult:
+    """§8.1/§8.2: the task-completion bundle's ``qualification`` member must
+    recompute to a full digest that exactly equals ``receipt.qualification.digest``.
+    Receipt operations do not replay the prior qualification closure, but the
+    signed prior subject must be authenticated by digest join.
+
+    The receipt's ``qualification.digest`` ref is corrupted to a wrong value
+    and the subject is re-signed so the verifier reaches the qualification-join
+    stage where the mismatch fires.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    # Corrupt the qualification ref digest; the bundle member bytes are
+    # untouched, so the recomputed qualification full digest will not match.
+    receipt_obj["qualification"]["digest"] = "sha256:" + "cd" * 32
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.receipt_qualification_digest_mismatch", False, actual)
+
+
+def test_negative_receipt_qualification_taskid_mismatch() -> RedMatrixResult:
+    """§8.1/§8.2: ``receipt.qualification.taskId`` must equal
+    ``receipt.taskId`` and the decoded qualification member's taskId.
+
+    The receipt's ``qualification.taskId`` ref is corrupted and the subject is
+    re-signed so the verifier reaches the qualification-join stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    receipt_obj["qualification"]["taskId"] = "TASK-D0-99"
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.receipt_qualification_taskid_mismatch", False, actual)
+
+
+def test_negative_receipt_qualification_id_mismatch() -> RedMatrixResult:
+    """§8.1/§8.2: ``receipt.qualification.id`` must equal the decoded
+    qualification member's id.
+
+    The receipt's ``qualification.id`` ref is corrupted and the subject is
+    re-signed so the verifier reaches the qualification-join stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    receipt_obj["qualification"]["id"] = "task-qualification-d0-99"
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.receipt_qualification_id_mismatch", False, actual)
+
+
 # ---------------------------------------------------------------------------
 # Negative cases (should reject)
 # ---------------------------------------------------------------------------
@@ -1135,6 +1209,10 @@ def run_all_tests() -> list:
         test_negative_qualification_missing_revocation_snapshot,
         # §6 closeout file set from archives (P0-4)
         test_negative_completion_wrong_diff_digest,
+        # §8.1/§8.2 receipt qualification member verification (P1-8)
+        test_negative_receipt_qualification_digest_mismatch,
+        test_negative_receipt_qualification_taskid_mismatch,
+        test_negative_receipt_qualification_id_mismatch,
     ]
     results = []
     for test in tests:

@@ -7793,3 +7793,116 @@ normative: false
   pending。
 - Next：继续下一 P1 finding（P1-4 D0-07 bridge signatures 或 P1-9 aggregate bound），仍按
   RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 审计记录：P1-10 verifierClosureDigest/consumerClosureDigest spec gap 定性
+
+- 依据：AGENTS.md 执行协议第 4 条（"遇到规格缺口先改规格并重新评审；规格变化不得
+  静默扩大完成面"）与 Documentation Protocol。
+- 审计对象：`D0_10BootstrapApprovalV1.verifierClosureDigest` /
+  `consumerClosureDigest`（`docs/specs/task-qualification.md` §7 line 296）。
+- 审计结论（已执行事实，非预填通过）：
+  - 经全仓只读复审（`docs/specs/*`、`docs/adr/*`、`docs/governance/*`、`docs/*.md`、
+    `scripts/*`），这两个字段在仓库内**仅**在 spec §7 line 296 有声明，无任何 normative
+    语义定义、验证规则或关系不变量。
+  - `scripts/task_qualification_verifier.py` 的 `_verify_d0_10_approval`（15 个 stage）
+    完全不引用 `approval.verifierClosureDigest` 或 `approval.consumerClosureDigest`；
+    这两个解析值是 dead value，既不校验也不进入 projection。
+  - `scripts/task_qualification_objects.py` 仅做 shape 解码（line 1170-1171）与序列化
+    （line 2238-2239），无关系检查。
+  - `scripts/task_qualification_fixture_builder.py`（line 2023-2024）以
+    `plain_sha256_digest(b"fixture verifier closure")` /
+    `b"fixture consumer closure"` 填充，与 `verifier.closure.digest` /
+    `protectedConsumer.closure.digest`（实际为
+    `domain_digest(DOMAIN_FIXTURE_RESOLVED_BLOB, wire)`）**不相等**，但 verifier 通过，
+    印证无 invariant 被强制。
+  - `VerifierIdentityV1.closure: ContentRefV1`（§2 line 69-71）暗示最自然的 intended
+    invariant 是 `verifierClosureDigest == verifier.closure.digest`、
+    `consumerClosureDigest == protectedConsumer.closure.digest`，但该 intended
+    invariant **未在仓库任何文档写明**。
+- 定性：**genuine spec gap**。`verifierClosureDigest` / `consumerClosureDigest` 在 wire
+  schema 与 dataclass 中存在，但无 specified semantics、无 verification rule、无
+  test 断言任何关系。
+- 处理：按 AGENTS.md 执行协议第 4 条，**不在本 slice 内发明语义并写 verifier 检查**
+  （那会静默扩大完成面）。该字段语义定义属于规格变更流程：需先在
+  `docs/specs/task-qualification.md` 补 normative 规则并重新评审，再在 verifier 落地
+  RED-first 实现。本审计记录仅登记 gap 与定性，不修改 spec、不修改 verifier。
+- 影响：TASK-D0-10 冻结包完成面不变。P1-10 不在本 slice 收口，pending 规格变更与
+  重新评审。其余 P1 findings（P1-4/P1-5/P1-6/P1-7/P1-8/P1-9）均有明确 spec，可继续
+  RED-first 推进。
+- Next：继续下一有明确 spec 的 P1 finding（P1-8 receipt verifier qualification member
+  或 P1-5 ancestry graph closure），仍按 RED-first 协议。P1-10 留待规格变更流程。
+
+## 2026-07-22 — TASK-D0-10 slice 10：P1-8 receipt verifier qualification member authentication
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.1（`VerifiedTaskCompletionV1.qualification:
+  TaskQualificationV1` 非 Optional）与 §8.2（task-completion required singleton
+  roles 含 `qualification`；receipt operations "只验证signed prior subject/ref、
+  C→D closeout、policy/signatures，evidence/review/dependency/ancestry families 恰为零
+  且出现即拒绝，不递归重放 prior qualification/approval closure"）；`TST-DOC-001`
+  （closed verifier coverage for every wire object）。
+- Findings（来自独立复审，针对 receipt verifier 的 qualification member 处理）：
+  - P1-8（receipt verifier 未验证 qualification member，projection.qualification 为
+    None）：`_verify_task_completion_receipt` 在 member role set 检查里把 `qualification`
+    列为 required singleton，但从不解析 member bytes、不重算 digest、不与
+    `receipt.qualification`（`TaskQualificationRefV1{taskId,id,digest}`）做 join。
+    `VerifiedTaskCompletionV1.qualification` 声明为 `TaskQualificationV1`（非 Optional，
+    §8.1 line 381），但 verifier line 1575 传 `None`，与 spec 不符。
+  - 既有 test harness latent bug（暴露于本 slice）：`_make_mutated_chain` 对
+    `CompletionReceiptChain`（同时有 `qualification_obj` 与 `receipt_obj`）先命中
+    `hasattr(chain, "qualification_obj")` 分支，返回 `qualification_obj` 而非
+    `receipt_obj`。既有 receipt negative test（`test_negative_completion_wrong_signature`
+    等）因 qualification_obj 与 receipt_obj 都有 `signatures` key 而未暴露此 bug——
+    它们改的是 qualification_obj 的 signatures，却把它当 receipt subject 传给 verifier，
+    verifier 因 subject schema 不对而 reject，test 仍"pass"但 reject 原因错误。本 slice
+    的新 test 访问 `receipt_obj["qualification"]`（仅 receipt_obj 有此 key）才暴露。
+- Changed：
+  - `scripts/task_qualification_objects.py`：新增 `TASK_QUALIFICATION_SCHEMA` 常量并
+    加入 `_TYPED_CONTENT_SCHEMA_DOMAINS`，使 `recompute_typed_content_ref` 能处理
+    `proof-forge.task-qualification.v1` schema（与 fixture builder 的
+    `domain_digest(DOMAIN_TASK_QUALIFICATION, obj)` 一致）。
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_verify_receipt_qualification_member(member_map, qual_ref, receipt_task_id,
+      where) -> TaskQualificationV1`：resolve `qualification` typed-content member，
+      重算 ContentRef from bytes（不可信 stale member.content），断言
+      `member.content.id == qual_ref.id`、`member.content.digest == qual_ref.digest`、
+      `qual_ref.taskId == receipt_task_id`，parse 为 `TaskQualificationV1` 并断言
+      `parsed.taskId == qual_ref.taskId`。按 §8.2"不递归重放 closure"——只 parse 不
+      重验 gates/evidence/reviews（这些在 qualification 签发时已验）。
+    - `_verify_task_completion_receipt` 新增 Stage 6b "qualification"（candidate 之后、
+      policy 之前），调用上述函数并返回 parsed qualification。
+    - projection `qualification=None` 改为 `qualification=qualification`（§8.1 非
+      Optional）。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 3 个 test。注意新 test
+    不用 `_make_mutated_chain`（因上述 latent bug），直接
+    `copy.deepcopy(receipt_chain.receipt_obj)`：
+    - `test_negative_receipt_qualification_digest_mismatch`：corrupt
+      `receipt.qualification.digest`，重签 receipt，期望 reject。
+    - `test_negative_receipt_qualification_taskid_mismatch`：corrupt
+      `receipt.qualification.taskId`，重签，期望 reject。
+    - `test_negative_receipt_qualification_id_mismatch`：corrupt
+      `receipt.qualification.id`，重签，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 57/57 passed
+  （slice 9 的 54 个 + slice 10 的 3 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+  projection 验证：`verify_task_completion_receipt_v1` 对 legal fixture chain 返回
+  `VerifiedTaskCompletionV1`，`qualification is None: False`，
+  `qualification.taskId == receipt.taskId`，`qualification.id == receipt.qualification.id`。
+- Verification：receipt bundle 的 `qualification` member 现在按 digest join
+  authentication（id+digest+taskId 三件一致），fail closed。signed prior subject
+  被解析但不递归重放 closure（符合 §8.2）。projection.qualification 填完整
+  `TaskQualificationV1` 对象（符合 §8.1 非 Optional）。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。三个 corrupt ref 的 case 在 "qualification" stage reject。
+- Evidence：development evidence for receipt verifier qualification member
+  authentication。不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  digest/id/taskId join + parse，不重放 qualification closure（符合 spec）。既有
+  `_make_mutated_chain` 对 CompletionReceiptChain 的 latent bug 未在本 slice 修复
+  （超出 P1-8 scope，既有 receipt negative test 仍因 schema mismatch reject 而 pass，
+  但 reject 原因与 test 意图不符——留作后续 test-harness 修复 finding）。剩余 P1
+  findings（P1-4 D0-07 bridge、P1-5/P1-6 ancestry graph、P1-7 production-profile
+  member bytes、P1-9 aggregate bound、P1-10 spec gap）仍 pending。
+- Next：继续下一有明确 spec 的 P1 finding（P1-5 ancestry graph closure 或 P1-7
+  production-profile member bytes），仍按 RED-first 协议。P1-10 留待规格变更流程。
+  既有 `_make_mutated_chain` test-harness bug 登记为后续修复项。
