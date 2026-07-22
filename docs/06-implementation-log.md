@@ -8675,3 +8675,35 @@ normative: false
   protocol/product/test/freeze）+ docs 更新（task-breakdown→done、traceability、
   evidence ledger、implementation log、checkpoint）+ final gate + SBOM re-pin。
   估计 ~300-400 行 ceremony 代码，需新 session context 安全完成。
+
+## 2026-07-22 — TASK-D0-10 implementation candidate committed
+
+- Commit：实现候选 `1e0214f9`；tree 与 archive 待收口仪式单独记录。
+- Spec/Test：`TASK-D0-10`、`TST-DOC-001`、`SPEC-TASKQUAL-001`、
+  `GOV-TASKQUAL-BOOTSTRAP-001`。本切片完成冻结包内 protected consumer 实现与
+  fixture-based 负向验收，不改变 `TASK-D0-10` 的 `in_progress` 状态或完成面。
+- Changed：
+  - 在 `scripts/docs_check.py` 实现 `d0_10_task_qualification_attested`：加载
+    `TASK-D0-04/authority-policy.json`，解析 `D0_10BootstrapApprovalV1`、
+    `D0_10BootstrapReceiptV1`、`GovernanceBootstrapCompletionV1`，验证文件字节
+    SHA-256、Ed25519 签名、跨对象 taskId/candidate/approvalDigest/closeoutPatch 关联。
+  - 在 `scripts/docs_check_self_test.py` 增加 fixture-based 负向测试：使用
+    `task_qualification_fixture_builder` 生成完整但由 fixture policy 签名的收口对象，
+    验证 docs_check 拒绝关闭 TASK-D0-10。
+  - 修复 `task_qualification_objects.py` 在 Python 3.9 下 `X | Y` 运行时类型别名报错。
+  - 修复 `formal_evidence_acceptance.py` 与 self-test 在 macOS 默认长临时路径下
+    `AF_UNIX path too long` 失败。
+- Commands：
+  - `python3 -I -S scripts/docs_check.py --root .`
+  - `python3 -I -S scripts/docs_check_self_test.py`
+  - `python3 -I -S scripts/task_qualification_red_matrix_self_test.py`
+  - `python3 -I -S scripts/task_qualification_protected_adapter_self_test.py`
+- Results：以上全部 exit 0；docs-check-self-test 报告 `ok (204 mutations)`；RED matrix
+  103/103 passed；protected adapter 21/21 passed。`git diff --check` 无 trailing whitespace。
+- Evidence：本候选 commit 为 `1e0214f9`；尚未生成 bootstrap EV 或 closeout attest。
+- Limitations：尚未拥有 D0-04 授权策略的三个生产签名种子（architecture/quality/security），
+  无法完成 `D0_10BootstrapApprovalV1` / `D0_10BootstrapReceiptV1` /
+  `GovernanceBootstrapCompletionV1` 的合法签名；收口仪式需要 `scripts/task_qualification_ceremony.py`
+  与 seeds。当前 host 仍 `eligibleForHermetic=false`，不声称 hermetic/formal evidence。
+- Next：写 `scripts/task_qualification_ceremony.py` 生产 bundle assembler，并在用户
+  提供 seeds 后执行签名与关单 commit。

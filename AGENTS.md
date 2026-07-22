@@ -16,6 +16,7 @@
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
 | Formal milestone | **D0：9/10 done**；`TASK-D0-10` exact fixture wire amendment 经独立复审后恢复 in_progress；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
 | Active task | **TASK-D0-10**（in_progress；冻结包不变；pure verifier/protected adapter/one-time bridge） |
+| D0-10 candidate | `1e0214f9`；implementation committed，closeout ceremony pending |
 | Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
 | Active development slice | 无；**D1-PA-115 / TASK-D1-01 pre-acceptance** 已以 `EV-20260721-0001` 收口，正式 TASK 状态未改变 |
 | Next development slice | 未冻结；正在对 `ProgramItemV1` decoder residual 做只读审计并选择单一 slice，禁止由 checkpoint 自动递增。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
