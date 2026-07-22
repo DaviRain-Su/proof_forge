@@ -49,6 +49,10 @@ FIXTURE_GATE_ID = "fixture-gate-d1-fixture"
 FIXTURE_TEST_ID = "TST-DOC-001"
 FIXTURE_SUBPROFILE = "TST-DOC-001/task-qualification-v1"
 FIXTURE_EVIDENCE_ID = "EV-20260721-0001"
+# §7: approval/receipt ledgerEvidenceId must be an exact real EV-YYYYMMDD-NNNN
+# ID, distinct from the raw gate EV. The fixture reuses the development EV
+# namespace; the ledgerEvidenceId is a separate reserved ID.
+FIXTURE_LEDGER_EVIDENCE_ID = "EV-20260721-0042"
 FIXTURE_REVIEWER_ID = "fixture-reviewer-independent-ai"
 FIXTURE_REVIEW_INVOCATION_ID = "task-qualification-fixture-run-review-0001"
 FIXTURE_IMPL_INVOCATION_ID = "task-qualification-fixture-run-impl-0001"
@@ -2038,6 +2042,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         "protectedConsumer": _TQO.verifier_identity_to_wire(consumer),
         "verifierClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture verifier closure")),
         "consumerClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture consumer closure")),
+        "ledgerEvidenceId": FIXTURE_LEDGER_EVIDENCE_ID,
         "tstDocSubprofile": FIXTURE_SUBPROFILE,
         "bootstrapGate": {
             "gateId": bootstrap_gate.gateId,

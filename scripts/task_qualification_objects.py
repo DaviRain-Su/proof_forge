@@ -1164,6 +1164,7 @@ class D0_10BootstrapApprovalV1:
     protectedConsumer: VerifierIdentityV1
     verifierClosureDigest: Digest
     consumerClosureDigest: Digest
+    ledgerEvidenceId: str
     tstDocSubprofile: str  # "TST-DOC-001/task-qualification-v1"
     bootstrapGate: D0_10BootstrapGateV1
     d0_07Bridge: GovernanceBootstrapReceiptDependencyV1
@@ -1285,6 +1286,9 @@ def parse_d0_10_bootstrap_approval(obj: dict, where: str) -> D0_10BootstrapAppro
     consumer = parse_verifier_identity(obj.get("protectedConsumer"), f"{where}.protectedConsumer")
     vcd = _require_digest(obj.get("verifierClosureDigest"), f"{where}.verifierClosureDigest")
     ccd = _require_digest(obj.get("consumerClosureDigest"), f"{where}.consumerClosureDigest")
+    ledger_evidence_id = _require_evidence_id(
+        obj.get("ledgerEvidenceId"), f"{where}.ledgerEvidenceId"
+    )
     subprofile = obj.get("tstDocSubprofile")
     if subprofile != "TST-DOC-001/task-qualification-v1":
         _reject(f"{where}.tstDocSubprofile: must be TST-DOC-001/task-qualification-v1")
@@ -1305,6 +1309,7 @@ def parse_d0_10_bootstrap_approval(obj: dict, where: str) -> D0_10BootstrapAppro
         preCloseCandidate=candidate, taskRow=row, freezePackage=freeze,
         verifier=verifier, protectedConsumer=consumer,
         verifierClosureDigest=vcd, consumerClosureDigest=ccd,
+        ledgerEvidenceId=ledger_evidence_id,
         tstDocSubprofile=subprofile, bootstrapGate=gate, d0_07Bridge=bridge,
         allowedCloseoutPatch=patch, independentReviews=reviews,
         authorityPolicy=policy, signatures=sigs,
@@ -2391,6 +2396,7 @@ def d0_10_bootstrap_approval_to_wire(a: D0_10BootstrapApprovalV1) -> dict:
         "protectedConsumer": verifier_identity_to_wire(a.protectedConsumer),
         "verifierClosureDigest": digest_to_wire(a.verifierClosureDigest),
         "consumerClosureDigest": digest_to_wire(a.consumerClosureDigest),
+        "ledgerEvidenceId": a.ledgerEvidenceId,
         "tstDocSubprofile": a.tstDocSubprofile,
         "bootstrapGate": d0_10_bootstrap_gate_to_wire(a.bootstrapGate),
         "d0_07Bridge": dependency_to_wire(a.d0_07Bridge),
