@@ -260,8 +260,11 @@ DOMAIN_D0_10_VERIFIER_CLOSURE = b"pf.d0-10.bootstrap-verifier-closure.v1"
 # consumerClosureDigest = SHA-256("pf.d0-10.protected-consumer-closure.v1" ||
 #   NUL || PF-JCS(protectedConsumer))
 DOMAIN_D0_10_CONSUMER_CLOSURE = b"pf.d0-10.protected-consumer-closure.v1"
-# §7 D0_10ReceiptLedgerProjectionV1 full digest domain.
-DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION = b"pf.d0-10-receipt-ledger-projection.v1"
+# §7 D0_10ReceiptLedgerProjectionV1 full digest domain. Spec §7 line 381:
+# full digest domain is pf.d0-10.receipt-ledger-projection.v1 (dot after
+# d0-10, hyphens within receipt-ledger-projection). The schema string
+# (line 336) uses proof-forge.d0-10-receipt-ledger-projection.v1 (all hyphens).
+DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION = b"pf.d0-10.receipt-ledger-projection.v1"
 
 
 def normative_document_digest(domain: bytes, doc_id: str, raw_bytes: bytes) -> Digest:
@@ -1229,6 +1232,33 @@ class D0_10BootstrapReceiptV1:
     signatures: Tuple[ApprovalSignatureV1, ...]
 
 
+@dataclass(frozen=True)
+class D0_10BootstrapApprovalRefV1:
+    id: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
+class D0_10BootstrapReceiptRefV1:
+    id: str
+    digest: Digest
+
+
+@dataclass(frozen=True)
+class D0_10ReceiptLedgerProjectionV1:
+    schema: str
+    id: str
+    version: str
+    evidenceId: str
+    taskId: str  # "TASK-D0-10"
+    testId: str  # "TST-DOC-001"
+    grade: str  # "bootstrap"
+    result: str  # "passed"
+    approvalRef: D0_10BootstrapApprovalRefV1
+    receiptRef: D0_10BootstrapReceiptRefV1
+    rulingRef: NormativeDocumentRefV1
+
+
 def parse_governance_bootstrap_completion(obj: dict, where: str) -> GovernanceBootstrapCompletionV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: governance completion must be object")
@@ -1390,6 +1420,60 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
         ledgerEvidenceId=ledger_evidence_id,
         authorityPolicy=policy, revocationSnapshot=revocation,
         ledgerGrade=grade, purpose=purpose, issuedAt=issued, signatures=sigs,
+    )
+
+
+def parse_d0_10_approval_ref(obj: dict, where: str) -> D0_10BootstrapApprovalRefV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: approval ref must be object")
+    aid = _require_safe_id(obj.get("id"), f"{where}.id")
+    digest = _require_digest(obj.get("digest"), f"{where}.digest")
+    return D0_10BootstrapApprovalRefV1(id=aid, digest=digest)
+
+
+def parse_d0_10_receipt_ref(obj: dict, where: str) -> D0_10BootstrapReceiptRefV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: receipt ref must be object")
+    rid = _require_safe_id(obj.get("id"), f"{where}.id")
+    digest = _require_digest(obj.get("digest"), f"{where}.digest")
+    return D0_10BootstrapReceiptRefV1(id=rid, digest=digest)
+
+
+def parse_d0_10_receipt_ledger_projection(
+    obj: dict, where: str
+) -> D0_10ReceiptLedgerProjectionV1:
+    """§7 D0_10ReceiptLedgerProjectionV1 parser. Field order per spec §7."""
+    if not isinstance(obj, dict):
+        _reject(f"{where}: ledger projection must be object")
+    schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
+    if schema != "proof-forge.d0-10-receipt-ledger-projection.v1":
+        _reject(f"{where}.schema: must be proof-forge.d0-10-receipt-ledger-projection.v1")
+    pid = _require_safe_id(obj.get("id"), f"{where}.id")
+    if pid != "d0-10-receipt-ledger-projection":
+        _reject(f"{where}.id: must be d0-10-receipt-ledger-projection")
+    version = _require_semver(obj.get("version"), f"{where}.version")
+    if version != "1.0.0":
+        _reject(f"{where}.version: must be 1.0.0")
+    evidence_id = _require_evidence_id(obj.get("evidenceId"), f"{where}.evidenceId")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    if task_id != "TASK-D0-10":
+        _reject(f"{where}.taskId: must be TASK-D0-10")
+    test_id = obj.get("testId")
+    if test_id != "TST-DOC-001":
+        _reject(f"{where}.testId: must be TST-DOC-001")
+    grade = obj.get("grade")
+    if grade != "bootstrap":
+        _reject(f"{where}.grade: must be 'bootstrap'")
+    result = obj.get("result")
+    if result != "passed":
+        _reject(f"{where}.result: must be 'passed'")
+    approval_ref = parse_d0_10_approval_ref(obj.get("approvalRef"), f"{where}.approvalRef")
+    receipt_ref = parse_d0_10_receipt_ref(obj.get("receiptRef"), f"{where}.receiptRef")
+    ruling_ref = parse_normative_document_ref(obj.get("rulingRef"), f"{where}.rulingRef")
+    return D0_10ReceiptLedgerProjectionV1(
+        schema=schema, id=pid, version=version, evidenceId=evidence_id,
+        taskId=task_id, testId=test_id, grade=grade, result=result,
+        approvalRef=approval_ref, receiptRef=receipt_ref, rulingRef=ruling_ref,
     )
 
 
@@ -2468,6 +2552,32 @@ def d0_10_bootstrap_receipt_to_wire(r: D0_10BootstrapReceiptV1) -> dict:
         "purpose": r.purpose,
         "issuedAt": r.issuedAt,
         "signatures": [approval_signature_to_wire(s) for s in r.signatures],
+    }
+
+
+def d0_10_approval_ref_to_wire(ref: D0_10BootstrapApprovalRefV1) -> dict:
+    return {"id": ref.id, "digest": digest_to_wire(ref.digest)}
+
+
+def d0_10_receipt_ref_to_wire(ref: D0_10BootstrapReceiptRefV1) -> dict:
+    return {"id": ref.id, "digest": digest_to_wire(ref.digest)}
+
+
+def d0_10_receipt_ledger_projection_to_wire(
+    p: D0_10ReceiptLedgerProjectionV1
+) -> dict:
+    return {
+        "schema": p.schema,
+        "id": p.id,
+        "version": p.version,
+        "evidenceId": p.evidenceId,
+        "taskId": p.taskId,
+        "testId": p.testId,
+        "grade": p.grade,
+        "result": p.result,
+        "approvalRef": d0_10_approval_ref_to_wire(p.approvalRef),
+        "receiptRef": d0_10_receipt_ref_to_wire(p.receiptRef),
+        "rulingRef": normative_document_ref_to_wire(p.rulingRef),
     }
 
 
