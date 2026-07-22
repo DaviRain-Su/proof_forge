@@ -2465,7 +2465,7 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
             "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
         ),
         "bootstrapReceipt": (
-            "docs/governance/task-completions/TASK-D0-10/receipt.json"
+            "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
         ),
         "docsCheckCommand": (
             "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),

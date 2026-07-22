@@ -1224,7 +1224,7 @@ def parse_governance_bootstrap_completion(obj: dict, where: str) -> GovernanceBo
         if source.path != "docs/governance/bootstrap-closure/TASK-D0-07.attest.json":
             _reject(f"{where}.sourceClosure.path: D0-07 path fixed")
     elif task_id == "TASK-D0-10":
-        if source.path != "docs/governance/task-completions/TASK-D0-10/receipt.json":
+        if source.path != "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json":
             _reject(f"{where}.sourceClosure.path: D0-10 path fixed")
     policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
     reviews_arr = _require_array(obj.get("independentReviews"), f"{where}.independentReviews", MAX_REVIEWS)
