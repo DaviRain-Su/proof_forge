@@ -323,6 +323,44 @@ def test_negative_completion_receipt_invalid_issued_at() -> RedMatrixResult:
     return RedMatrixResult("negative.completion_receipt_invalid_issued_at", False, actual)
 
 
+def test_negative_command_policy_argv0_not_absolute() -> RedMatrixResult:
+    """GAP-6: §3 argv[0] is absolute canonical executable (starts with '/').
+    A command policy whose argv[0] is a relative path must reject at the
+    command stage. The command-policy member is corrupted and the subject is
+    re-signed.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt the command-policy member's argv[0] to a relative path.
+    for m in bundle_obj["members"]:
+        if m.get("role", "").startswith("command-policy/"):
+            cmd_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            cmd_wire["argv"][0] = "python3"
+            new_bytes = _BTO.canonical_pf_jcs(cmd_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_TASK_COMMAND_POLICY, cmd_wire)
+            new_ref = {
+                "schema": cmd_wire["schema"],
+                "id": cmd_wire["id"],
+                "version": cmd_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            subject_obj["gates"][0]["commandPolicy"] = new_ref
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.command_policy_argv0_not_absolute", False, actual)
+
+
 def test_positive_legal_d0_10_receipt() -> RedMatrixResult:
     """A legal D0-10 bootstrap receipt chain should verify successfully."""
     approval_chain = _TQFB.build_d0_10_approval_chain()
@@ -2195,6 +2233,8 @@ def run_all_tests() -> list:
         test_negative_fixture_policy_wrong_principal_public_key,
         # §6 GAP-15: issuedAt RFC3339 UTC validation
         test_negative_completion_receipt_invalid_issued_at,
+        # §3 GAP-6: argv[0] absolute canonical executable
+        test_negative_command_policy_argv0_not_absolute,
         # D0-10 bootstrap receipt
         test_positive_legal_d0_10_receipt,
         test_negative_d0_10_receipt_wrong_signature,

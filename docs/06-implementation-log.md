@@ -8521,3 +8521,44 @@ normative: false
   是否 re-verify approval signatures 未明确）。
 - Next：做 final audit confirmation，然后 state external-prerequisite blocker
   for D0 formal closeout。
+
+## 2026-07-22 — TASK-D0-10 slice 21：GAP-6 argv[0] absolute canonical (§3)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §3 line 129-130（argv[0] 是 absolute canonical
+  executable）；`TST-DOC-001`。
+- Findings（来自 final comprehensive audit）：
+  - GAP-6a（argv[0] 未要求 absolute）：`parse_command_policy` 只验证 argv
+    nonempty + 各 entry string ≤65536 bytes，不检查 argv[0] 以 `/` 开头。
+  - GAP-6b（argv[0] 与 tool resolved bytes identity）：spec 说 "与 tool resolved
+    bytes identity 一致"。fixture 的 resolved-tool member 是 FixtureResolvedBlobV1
+    （opaque payloadSha256），spec 对 "identity" join 在 fixture profile 下结构上未
+    明确（payloadSha256 ≠ executable path）。这是 spec clarification gap，留 spec
+    process。
+- Changed：
+  - `scripts/task_qualification_objects.py`：`parse_command_policy` 新增
+    GAP-6a：assert `argv[0].startswith("/")`（absolute path）。
+  - `scripts/task_qualification_fixture_builder.py`：fixture command policy
+    argv[0] 从 `"python3"` 改为 `"/usr/bin/python3"`（absolute）；fixture
+    evidence command argv[0] 同步。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 1 个 RED test：
+    - `test_negative_command_policy_argv0_not_absolute`：corrupt
+      command-policy member argv[0] 为相对路径，recompute digest，重签，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 93/93 passed
+  （slice 20 的 92 个 + slice 21 的 1 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：command policy argv[0] 现在 enforce absolute canonical
+  executable（start with `/`），fail closed。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for GAP-6a argv[0] absolute (§3)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。GAP-6b
+  （argv[0] 与 tool resolved bytes identity join）是 spec clarification gap——
+  fixture profile 的 resolved-tool member 是 opaque payloadSha256，spec 未明确
+  "identity" 如何 join，留 spec process。NEW-1（D0-10 receipt approval signatures
+  re-verification）仍 pending-confirmation——spec §6/§7 未明确 receipt 是否必须
+  re-verify approval signatures（task-completion 也不 replay qualification closure，
+  只做 digest join），这是 consistent by-design。GAP-17/18（pure verifier 不 resolve
+  adapter bytes）是 §8.2 by-design，protected adapter 已在 §8.4 处理。
+- Next：做 final audit confirmation，然后 state external-prerequisite blocker
+  for D0 formal closeout。

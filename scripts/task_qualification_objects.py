@@ -660,6 +660,9 @@ def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:
     argv_out = []
     for a in argv:
         argv_out.append(_require_string(a, f"{where}.argv", MAX_ARGV_BYTES))
+    # GAP-6: §3 argv[0] is absolute canonical executable (starts with '/').
+    if not argv_out[0].startswith("/"):
+        _reject(f"{where}.argv[0]: must be absolute path (start with '/')")
     env_arr = _require_array(obj.get("environment"), f"{where}.environment", MAX_ENV)
     env_pairs = []
     for entry in env_arr:

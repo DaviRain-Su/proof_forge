@@ -354,7 +354,7 @@ def build_evidence_source(candidate: CandidateContext) -> bytes:
             },
         },
         "command": {
-            "argv": ["python3", "-c", "print('fixture')"],
+            "argv": ["/usr/bin/python3", "-c", "print('fixture')"],
             "environment": [],
         },
         "result": "passed",
@@ -435,7 +435,7 @@ def build_command_policy(
         version="1.0.0",
         taskId=FIXTURE_TASK_ID,
         testIds=(FIXTURE_TEST_ID,),
-        argv=("python3", "-c", "print('fixture')"),
+        argv=("/usr/bin/python3", "-c", "print('fixture')"),
         environment=(),
         tool=tool_ref,
         probe=probe_ref,
@@ -1873,7 +1873,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
             "treeObjectId": candidate.identity.treeObjectId,
             "archive": {"sha256": digest_to_wire(candidate.identity.archiveDigest)},
         },
-        "command": {"argv": ["python3", "-c", "print('fixture')"], "environment": []},
+        "command": {"argv": ["/usr/bin/python3", "-c", "print('fixture')"], "environment": []},
         "result": "passed",
     })
     evidence_ref = _TQO.EvidenceRefV1(
@@ -1919,7 +1919,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         version="1.0.0",
         taskId=D0_10_TASK_ID,
         testIds=("TST-DOC-001",),
-        argv=("python3", "-c", "print('fixture')"),
+        argv=("/usr/bin/python3", "-c", "print('fixture')"),
         environment=(),
         tool=_TQO.fixture_resolved_blob_content_ref(tool_blob),
         probe=_TQO.fixture_resolved_blob_content_ref(probe_blob),
