@@ -8001,3 +8001,75 @@ normative: false
   `_make_mutated_chain` test-harness bug 仍 pending。
 - Next：继续下一有明确 spec 的 P1 finding（P1-7 production-profile member bytes 或
   P1-4 D0-07 bridge internal verification），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 12：P1-4 D0-07 bridge internal verification (§7)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §7（GovernanceBootstrapCompletionV1 enum positional
+  exact：D0-07 pair 为 `(TASK-D0-07, GOV-D0CLOSE-001, d0-07-historical-bootstrap-
+  closeout)`；wrapper `completionCommit` exact 等于 decoded `completionCandidate.commit`；
+  dependency wrapper signatures 必须与 decoded signed object 内 signatures exact
+  相等，不能用 wrapper 自行给 unsigned attest 补票；sourceClosure path 固定为
+  `docs/governance/bootstrap-closure/TASK-D0-07.attest.json`；签名按 §1 fixed rule；
+  ruling ref 必须重算本 accepted ruling）与 §4（逐字段 exact join）；`TST-DOC-001`。
+- Findings（来自独立复审，针对 D0-10 approval verifier 的 dependencies stage）：
+  - P1-4（D0-07 bridge 内部验证缺失）：`_verify_d0_10_approval` 的 dependencies stage
+    解析 `d0-07-governance-completion` member bytes 并 parse 为
+    GovernanceBootstrapCompletionV1，但不验证：
+    (a) gc 签名（§1 Architecture+Quality+Security fixed rule，DOMAIN_GOVERNANCE_BOOTSTRAP_
+    COMPLETION_STATEMENT/SIGNATURE）；
+    (b) enum positional exact（taskId/rulingId/purpose/id）；
+    (c) wrapper.completionCommit == gc.completionCandidate.commit；
+    (d) bridge.taskId == gc.taskId；
+    (e) bridge.ruling join gc.ruling（ContentRef vs NormativeDocumentRef，id 与
+    digest==contentDigest）；
+    (f) bridge.signatures == gc.signatures（禁止 wrapper self-sign）；
+    (g) gc.sourceClosure.path 固定；
+    (h) gc ContentRef 从 member bytes 重算。
+- Changed：
+  - `scripts/task_qualification_objects.py`：新增 `GOVERNANCE_BOOTSTRAP_COMPLETION_SCHEMA`
+    常量并加入 `_TYPED_CONTENT_SCHEMA_DOMAINS`，使 `recompute_typed_content_ref` 能
+    处理 `proof-forge.governance-bootstrap-completion.v1`。
+  - `scripts/task_qualification_verifier.py`：新增 `_verify_d0_07_bridge_internal(
+    gc_member, gc_obj, gc, bridge, authority_policy, profile, where)`：
+    (a) 重算 gc ContentRef from member bytes，断言 == member.content；
+    (b) enum positional exact（taskId/rulingId/purpose/id）；
+    (c) bridge.completionCommit == gc.completionCandidate.commit；
+    (d) bridge.taskId == gc.taskId；
+    (e) bridge.ruling.id == gc.ruling.id 且 bridge.ruling.digest == gc.ruling.contentDigest；
+    (f) tuple(bridge.signatures) == tuple(gc.signatures)；
+    (g) gc.sourceClosure.path == 固定 D0-07 path；
+    (h) 调 `_verify_signatures` 验 gc 签名（DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_*
+    + §1 fixed rule + authority_policy principals）。
+    `_verify_d0_10_approval` dependencies stage 在 parse gc 后调
+    `_verify_d0_07_bridge_internal`。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 5 个 RED test：
+    - `test_negative_d0_10_bridge_wrong_completion_commit`：bridge.completionCommit
+      改为不同值，重签，期望 reject。
+    - `test_negative_d0_10_bridge_wrong_task_id`：bridge.taskId 改为不同值，重签，
+      期望 reject。
+    - `test_negative_d0_10_bridge_wrong_ruling_digest`：bridge.ruling.digest 改为
+      不同值，重签，期望 reject。
+    - `test_negative_d0_10_bridge_self_signed`：bridge.signatures 截断为 1 个（与
+      gc 的 3 个不等），重签 approval，期望 reject（禁止 wrapper self-sign）。
+    - `test_negative_d0_10_bridge_corrupt_gc_signatures`：corrupt gc member 的
+      signatures[0] 并重算 ContentRef，期望 gc 签名验证 reject。
+    新增 `_mutate_d0_10_approval_bridge` helper。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 66/66 passed
+  （slice 11 的 61 个 + slice 12 的 5 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：D0-07 governance completion 对象现在按 §1 fixed rule 验签，enum
+  positional exact，wrapper.completionCommit == gc.completionCandidate.commit，
+  bridge.signatures == gc.signatures（禁止 wrapper self-sign），ruling ref join，
+  sourceClosure path 固定，ContentRef 从 member bytes 重算。所有 corrupt case 在
+  dependencies stage reject（fail closed）。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for D0-07 bridge internal verification (§7)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  D0-07 bridge 内部一致性验证；D0-07 bridge 的 "current, non-revoked" 校验（需
+  revocation ledger lookup）与 ruling source bytes 重算（需 ruling-source member
+  join）仍 pending。remaining P1 findings（P1-7 production-profile member bytes、
+  P1-9 aggregate bound、P1-10 spec gap）仍 pending。
+- Next：继续下一有明确 spec 的 P1 finding（P1-9 aggregate bound 或 P1-7
+  production-profile member bytes），仍按 RED-first 协议。

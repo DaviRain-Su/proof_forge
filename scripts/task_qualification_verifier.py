@@ -792,6 +792,91 @@ def _verify_ancestry_graph(
 
 
 # ---------------------------------------------------------------------------
+# Stage 10c: D0-07 bridge internal verification (P1-4)
+# ---------------------------------------------------------------------------
+
+def _verify_d0_07_bridge_internal(
+    gc_member,
+    gc_obj: dict,
+    gc: _TQO.GovernanceBootstrapCompletionV1,
+    bridge: _TQO.GovernanceBootstrapReceiptDependencyV1,
+    authority_policy,
+    profile,
+    where: str,
+) -> None:
+    """Verify the D0-07 governance completion object internal consistency
+    per §7 and the §8.2 dependencies stage.
+
+    The D0-07 bridge must be an authenticated, current, non-revoked
+    GOV-D0CLOSE-001 historical receipt. The governance completion object's
+    signatures must verify under §1 Architecture+Quality+Security rule. The
+    enum positional exact correspondence must hold (taskId/rulingId/purpose).
+    wrapper.completionCommit must equal decoded completionCandidate.commit.
+    The dependency wrapper's signatures must equal the decoded object's
+    signatures (no wrapper-self-signed). The ruling ref must recompute from
+    the member bytes. The sourceClosure path is fixed.
+    """
+    # Recompute the governance completion ContentRef from the member bytes
+    # and assert it equals the member's declared content ref.
+    recomputed = _TQO.recompute_typed_content_ref(gc_member.content.schema, gc_obj)
+    if recomputed != gc_member.content:
+        _BTO._reject(f"{where}: bytesHex does not recompute to member.content")
+
+    # §7 enum positional exact correspondence: D0-07 pair is
+    # (TASK-D0-07, GOV-D0CLOSE-001, d0-07-historical-bootstrap-closeout).
+    if gc.taskId != "TASK-D0-07":
+        _BTO._reject(f"{where}: gc.taskId must be TASK-D0-07, got {gc.taskId}")
+    if gc.rulingId != "GOV-D0CLOSE-001":
+        _BTO._reject(f"{where}: gc.rulingId must be GOV-D0CLOSE-001, got {gc.rulingId}")
+    if gc.purpose != "d0-07-historical-bootstrap-closeout":
+        _BTO._reject(f"{where}: gc.purpose must be d0-07-historical-bootstrap-closeout, got {gc.purpose}")
+    if gc.id != "governance-bootstrap-completion-d0-07":
+        _BTO._reject(f"{where}: gc.id must be governance-bootstrap-completion-d0-07, got {gc.id}")
+
+    # §7: wrapper.completionCommit must equal decoded completionCandidate.commit.
+    if bridge.completionCommit != gc.completionCandidate.commit:
+        _BTO._reject(
+            f"{where}: bridge.completionCommit ({bridge.completionCommit}) != "
+            f"gc.completionCandidate.commit ({gc.completionCandidate.commit})")
+
+    # §7: bridge.taskId must equal gc.taskId.
+    if bridge.taskId != gc.taskId:
+        _BTO._reject(f"{where}: bridge.taskId != gc.taskId")
+
+    # §7: bridge.ruling (ContentRef) must join to gc.ruling (NormativeDocumentRef)
+    # by id and digest == contentDigest (逐字段 exact join per §4).
+    if bridge.ruling.id != gc.ruling.id:
+        _BTO._reject(f"{where}: bridge.ruling.id != gc.ruling.id")
+    if bridge.ruling.digest != gc.ruling.contentDigest:
+        _BTO._reject(f"{where}: bridge.ruling.digest != gc.ruling.contentDigest")
+
+    # §7: dependency wrapper signatures must equal decoded object signatures
+    # (no wrapper-self-signed).
+    if tuple(bridge.signatures) != tuple(gc.signatures):
+        _BTO._reject(f"{where}: bridge.signatures != gc.signatures (wrapper must not self-sign)")
+
+    # §7: sourceClosure path is fixed for D0-07.
+    expected_source_path = "docs/governance/bootstrap-closure/TASK-D0-07.attest.json"
+    if gc.sourceClosure.path != expected_source_path:
+        _BTO._reject(
+            f"{where}: gc.sourceClosure.path must be {expected_source_path}, "
+            f"got {gc.sourceClosure.path}")
+
+    # §7: verify the governance completion signatures under §1 fixed rule.
+    # The governance completion is signed under
+    # DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT / SIGNATURE.
+    _verify_signatures(
+        gc_obj,
+        gc.signatures,
+        authority_policy,
+        profile,
+        _TQO.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT,
+        _TQO.DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_SIGNATURE,
+        f"{where}.signatures",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Stage 6: candidate verification
 # ---------------------------------------------------------------------------
 
@@ -1947,6 +2032,11 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         gc_bytes = bytes.fromhex(gc_member.bytesHex)
         gc_obj = decode_canonical_pf_jcs(gc_bytes)
         gc = _TQO.parse_governance_bootstrap_completion(gc_obj, "dependencies.d0-07-governance-completion")
+        # P1-4: verify the D0-07 governance completion internal consistency.
+        _verify_d0_07_bridge_internal(
+            gc_member, gc_obj, gc, bridge, policy_obj, profile,
+            "dependencies.d0-07-bridge",
+        )
         # Verify the archive and commit object members
         _resolve_archive_member(member_map, "d0-07-completion-archive", "dependencies")
         _resolve_git_object_member(member_map, "d0-07-completion-commit-object", "dependencies")

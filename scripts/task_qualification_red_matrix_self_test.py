@@ -1237,6 +1237,107 @@ def test_negative_d0_10_ancestry_bridge_unreachable() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_ancestry_bridge_unreachable", False, actual)
 
 
+def _mutate_d0_10_approval_bridge(bridge_mutator, re_sign=True) -> RedMatrixResult:
+    """Helper: mutate the D0-10 approval subject's d0_07Bridge field via
+    bridge_mutator(approval_obj), optionally re-sign, and run the verifier.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    bridge_mutator(approval_obj)
+    if re_sign:
+        approval_obj["signatures"] = _TQFB._sign_subject(
+            approval_obj,
+            _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+            _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+        )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return actual
+
+
+def test_negative_d0_10_bridge_wrong_completion_commit() -> RedMatrixResult:
+    """§7: wrapper.completionCommit must equal decoded completionCandidate.commit.
+    Mutating the bridge completionCommit to a different value must reject.
+    """
+    def mutator(approval_obj):
+        approval_obj["d0_07Bridge"]["completionCommit"] = "f1" + "e" * 38
+    actual = _mutate_d0_10_approval_bridge(mutator)
+    return RedMatrixResult("negative.d0_10_bridge_wrong_completion_commit", False, actual)
+
+
+def test_negative_d0_10_bridge_wrong_task_id() -> RedMatrixResult:
+    """§7: bridge.taskId must equal gc.taskId (TASK-D0-07). Mutating the bridge
+    taskId must reject.
+    """
+    def mutator(approval_obj):
+        approval_obj["d0_07Bridge"]["taskId"] = "TASK-D0-99"
+    actual = _mutate_d0_10_approval_bridge(mutator)
+    return RedMatrixResult("negative.d0_10_bridge_wrong_task_id", False, actual)
+
+
+def test_negative_d0_10_bridge_wrong_ruling_digest() -> RedMatrixResult:
+    """§7: bridge.ruling.digest must equal gc.ruling.contentDigest. Mutating
+    the bridge ruling digest must reject.
+    """
+    def mutator(approval_obj):
+        approval_obj["d0_07Bridge"]["ruling"]["digest"] = "sha256:" + "ee" * 32
+    actual = _mutate_d0_10_approval_bridge(mutator)
+    return RedMatrixResult("negative.d0_10_bridge_wrong_ruling_digest", False, actual)
+
+
+def test_negative_d0_10_bridge_self_signed() -> RedMatrixResult:
+    """§7: dependency wrapper signatures must equal decoded object signatures
+    (no wrapper-self-signed). Mutating the bridge signatures to differ from the
+    gc object signatures must reject.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    # The gc object signatures are 3 (Architecture+Quality+Security). Replace
+    # the bridge signatures with a single bogus signature to make them differ.
+    approval_obj["d0_07Bridge"]["signatures"] = [
+        approval_obj["d0_07Bridge"]["signatures"][0]
+    ]
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_bridge_self_signed", False, actual)
+
+
+def test_negative_d0_10_bridge_corrupt_gc_signatures() -> RedMatrixResult:
+    """§7: the governance completion object's signatures must verify under §1
+    fixed rule. Corrupting the gc member's signature bytes must reject.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    # Corrupt the d0-07-governance-completion member's bytesHex (corrupt a
+    # signature) so the gc signature verification fails.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "d0-07-governance-completion":
+            gc_wire = _BTO.decode_canonical_pf_jcs(bytes.fromhex(m["bytesHex"]))
+            gc_wire["signatures"][0]["signature"] = "00" * 64
+            m["bytesHex"] = _BTO.canonical_pf_jcs(gc_wire).hex()
+            # Recompute the content ref digest to match the corrupted bytes.
+            new_ref = _TQO.recompute_typed_content_ref(
+                gc_wire["schema"], gc_wire)
+            m["content"] = {
+                "schema": new_ref.schema,
+                "id": new_ref.id,
+                "version": new_ref.version,
+                "digest": _TQO.digest_to_wire(new_ref.digest),
+            }
+            break
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_bridge_corrupt_gc_signatures", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -1324,6 +1425,12 @@ def run_all_tests() -> list:
         test_negative_ancestry_dependency_unreachable,
         test_negative_ancestry_duplicate_target_as_ancestry_commit,
         test_negative_d0_10_ancestry_bridge_unreachable,
+        # §7 D0-07 bridge internal verification (P1-4)
+        test_negative_d0_10_bridge_wrong_completion_commit,
+        test_negative_d0_10_bridge_wrong_task_id,
+        test_negative_d0_10_bridge_wrong_ruling_digest,
+        test_negative_d0_10_bridge_self_signed,
+        test_negative_d0_10_bridge_corrupt_gc_signatures,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,
