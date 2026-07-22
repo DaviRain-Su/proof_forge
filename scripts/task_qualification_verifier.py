@@ -2626,6 +2626,11 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
         approval_bytes = bytes.fromhex(approval_member.bytesHex)
         approval_obj = decode_canonical_pf_jcs(approval_bytes)
         approval = _TQO.parse_d0_10_bootstrap_approval(approval_obj, "projection.bootstrap-approval")
+        # §7: approval and receipt ledgerEvidenceId must be逐字 equal.
+        if approval.ledgerEvidenceId != receipt.ledgerEvidenceId:
+            _BTO._reject(
+                "projection: approval and receipt ledgerEvidenceId must be equal"
+            )
         # Verify the approval digest matches
         computed_approval_digest = domain_digest(_TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, approval_obj)
         if computed_approval_digest != receipt.approvalDigest:

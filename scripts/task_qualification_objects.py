@@ -1186,6 +1186,7 @@ class D0_10BootstrapReceiptV1:
     approvalDigest: Digest
     allowedCloseoutPatch: ContentRef
     closeoutDiffDigest: Digest
+    ledgerEvidenceId: str
     authorityPolicy: ContentRef
     revocationSnapshot: ContentRef
     ledgerGrade: str  # "bootstrap"
@@ -1335,6 +1336,9 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
     approval_digest = _require_digest(obj.get("approvalDigest"), f"{where}.approvalDigest")
     patch = parse_content_ref(obj.get("allowedCloseoutPatch"), f"{where}.allowedCloseoutPatch")
     diff_digest = _require_digest(obj.get("closeoutDiffDigest"), f"{where}.closeoutDiffDigest")
+    ledger_evidence_id = _require_evidence_id(
+        obj.get("ledgerEvidenceId"), f"{where}.ledgerEvidenceId"
+    )
     policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
     revocation = parse_content_ref(obj.get("revocationSnapshot"), f"{where}.revocationSnapshot")
     grade = obj.get("ledgerGrade")
@@ -1349,6 +1353,7 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
         schema=schema, id=rid, version=version, taskId=task_id, ruling=ruling,
         preCloseCandidate=pre, closeoutCandidate=close, approvalDigest=approval_digest,
         allowedCloseoutPatch=patch, closeoutDiffDigest=diff_digest,
+        ledgerEvidenceId=ledger_evidence_id,
         authorityPolicy=policy, revocationSnapshot=revocation,
         ledgerGrade=grade, purpose=purpose, issuedAt=issued, signatures=sigs,
     )
@@ -2421,6 +2426,7 @@ def d0_10_bootstrap_receipt_to_wire(r: D0_10BootstrapReceiptV1) -> dict:
         "approvalDigest": digest_to_wire(r.approvalDigest),
         "allowedCloseoutPatch": content_ref_to_wire(r.allowedCloseoutPatch),
         "closeoutDiffDigest": digest_to_wire(r.closeoutDiffDigest),
+        "ledgerEvidenceId": r.ledgerEvidenceId,
         "authorityPolicy": content_ref_to_wire(r.authorityPolicy),
         "revocationSnapshot": content_ref_to_wire(r.revocationSnapshot),
         "ledgerGrade": r.ledgerGrade,

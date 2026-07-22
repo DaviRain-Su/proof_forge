@@ -295,6 +295,89 @@ def test_positive_d0_10_approval_has_ledger_evidence_id() -> RedMatrixResult:
     )
 
 
+def test_positive_d0_10_receipt_has_ledger_evidence_id() -> RedMatrixResult:
+    """SA-2: §7 the legal fixture D0-10 receipt must include a valid
+    ledgerEvidenceId. RED until the fixture builder emits it.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    _bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    has_field = (
+        "ledgerEvidenceId" in receipt_obj
+        and isinstance(receipt_obj["ledgerEvidenceId"], str)
+        and __import__("re").fullmatch(
+            r"EV-\d{8}-\d{4}", receipt_obj["ledgerEvidenceId"]
+        ) is not None
+    )
+    return RedMatrixResult(
+        "positive.d0_10_receipt_has_ledger_evidence_id", True, has_field,
+    )
+
+
+def test_negative_d0_10_receipt_missing_ledger_evidence_id() -> RedMatrixResult:
+    """SA-2: §7 D0_10BootstrapReceiptV1 must carry ledgerEvidenceId. Removing
+    it must reject at the document stage.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    del receipt_obj["ledgerEvidenceId"]
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(
+        "negative.d0_10_receipt_missing_ledger_evidence_id", False, actual,
+    )
+
+
+def test_negative_d0_10_receipt_malformed_ledger_evidence_id() -> RedMatrixResult:
+    """SA-2: §7 D0_10BootstrapReceiptV1.ledgerEvidenceId must be an exact real
+    EV-YYYYMMDD-NNNN ID. A malformed value must reject.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    receipt_obj["ledgerEvidenceId"] = "not-an-ev-id"
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(
+        "negative.d0_10_receipt_malformed_ledger_evidence_id", False, actual,
+    )
+
+
+def test_negative_d0_10_receipt_ledger_evidence_id_mismatch() -> RedMatrixResult:
+    """SA-2: §7 approval and receipt ledgerEvidenceId must be逐字 equal. A
+    receipt whose ledgerEvidenceId differs from the embedded approval's must
+    reject at the projection stage.
+    """
+    approval_chain = _TQFB.build_d0_10_approval_chain()
+    receipt_chain = _TQFB.build_d0_10_receipt_chain(approval_chain)
+    bundle_obj, receipt_obj = _make_mutated_chain(receipt_chain)
+    receipt_obj["ledgerEvidenceId"] = "EV-20260721-0099"
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_d0_10_receipt_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(
+        "negative.d0_10_receipt_ledger_evidence_id_mismatch", False, actual,
+    )
+
+
 def test_negative_phantom_gate_id_member() -> RedMatrixResult:
     """GAP-24: §8.2 gate-keyed member suffixes must exactly equal declared
     gateIds. A qualification bundle with an extra command-policy/<phantom-gate>
@@ -2290,6 +2373,11 @@ def run_all_tests() -> list:
         test_positive_d0_10_approval_has_ledger_evidence_id,
         test_negative_d0_10_approval_missing_ledger_evidence_id,
         test_negative_d0_10_approval_malformed_ledger_evidence_id,
+        # §7 SA-2: ledgerEvidenceId on D0-10 receipt + approval/receipt equality
+        test_positive_d0_10_receipt_has_ledger_evidence_id,
+        test_negative_d0_10_receipt_missing_ledger_evidence_id,
+        test_negative_d0_10_receipt_malformed_ledger_evidence_id,
+        test_negative_d0_10_receipt_ledger_evidence_id_mismatch,
         # §8.2 GAP-24: phantom gateId in gate-keyed members
         test_negative_phantom_gate_id_member,
         # §8.2 GAP-11: fixture policy principal keys pinned to RFC 8032 vectors

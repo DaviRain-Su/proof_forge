@@ -2314,6 +2314,7 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         "approvalDigest": digest_to_wire(approval_digest),
         "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
         "closeoutDiffDigest": digest_to_wire(closeout_diff_digest),
+        "ledgerEvidenceId": FIXTURE_LEDGER_EVIDENCE_ID,
         "authorityPolicy": content_ref_to_wire(policy_ref),
         "revocationSnapshot": content_ref_to_wire(revocation_ref),
         "ledgerGrade": "bootstrap",
