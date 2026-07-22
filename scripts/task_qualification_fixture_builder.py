@@ -307,10 +307,12 @@ def build_freeze_package_source(
         "inScope": [
             "fixture parser and verifier coverage",
             "fixture policy and resolved blob",
+            "fixture RED matrix self-test",
         ],
         "outOfScope": [
             "production policy",
             "release aggregate",
+            "formal closeout evidence",
         ],
         "doneWhen": [
             "fixture RED matrix passes",
@@ -1847,8 +1849,8 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         "dependencies": [D0_07_TASK_ID],
         "prerequisites": ["ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"],
         "tests": ["TST-DOC-001"],
-        "inScope": ["fixture"],
-        "outOfScope": ["production"],
+        "inScope": ["fixture d0-10 approval verifier", "fixture d0-10 receipt verifier", "fixture protected adapter"],
+        "outOfScope": ["production profile", "release aggregate", "formal closeout evidence"],
         "doneWhen": ["fixture passes"],
         "overflowPolicy": "fixture",
         "maxCalendarDays": 5,

@@ -15,6 +15,7 @@ This is a self-test module: run with ``python3 scripts/task_qualification_red_ma
 from __future__ import annotations
 
 import copy
+import json
 import sys
 import os
 
@@ -1235,6 +1236,99 @@ def test_negative_row_tests_mismatch_freeze() -> RedMatrixResult:
     return RedMatrixResult("negative.row_tests_mismatch_freeze", False, actual)
 
 
+def test_negative_freeze_in_scope_too_few() -> RedMatrixResult:
+    """GAP-5: §3 freeze package inScope must be 3..12. A freeze package source
+    whose inScope has only 2 items must reject at the ancestry stage (freeze
+    package parse). The bundle's freeze-package-source member is corrupted to
+    have only 2 inScope items; the subject's freezePackage.digest is recomputed
+    to match so the verifier reaches the ancestry stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the freeze-package-source member to have only 2 inScope items.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "freeze-package-source":
+            content_bytes = bytes.fromhex(m["bytesHex"])
+            pkg = json.loads(content_bytes.decode("utf-8"))
+            pkg["inScope"] = pkg["inScope"][:2]
+            new_bytes = json.dumps(pkg, separators=(",", ":")).encode("utf-8")
+            m["bytesHex"] = new_bytes.hex()
+            # Recompute the raw.digest and subject's freezePackage.digest.
+            new_digest = _TQO.domain_digest_raw(
+                _TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, new_bytes)
+            m["raw"]["digest"] = _TQO.digest_to_wire(new_digest)
+            subject_obj["freezePackage"]["digest"] = _TQO.digest_to_wire(new_digest)
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.freeze_in_scope_too_few", False, actual)
+
+
+def test_negative_freeze_max_days_out_of_bounds() -> RedMatrixResult:
+    """GAP-5: §3 freeze package maxCalendarDays must be 1..365. A freeze
+    package source whose maxCalendarDays exceeds 365 must reject at the
+    ancestry stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    for m in bundle_obj["members"]:
+        if m.get("role") == "freeze-package-source":
+            content_bytes = bytes.fromhex(m["bytesHex"])
+            pkg = json.loads(content_bytes.decode("utf-8"))
+            pkg["maxCalendarDays"] = 366
+            new_bytes = json.dumps(pkg, separators=(",", ":")).encode("utf-8")
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest_raw(
+                _TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, new_bytes)
+            m["raw"]["digest"] = _TQO.digest_to_wire(new_digest)
+            subject_obj["freezePackage"]["digest"] = _TQO.digest_to_wire(new_digest)
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.freeze_max_days_out_of_bounds", False, actual)
+
+
+def test_negative_freeze_tests_empty() -> RedMatrixResult:
+    """GAP-5: §3 freeze package tests must be nonempty. A freeze package
+    source whose tests is empty must reject at the ancestry stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    for m in bundle_obj["members"]:
+        if m.get("role") == "freeze-package-source":
+            content_bytes = bytes.fromhex(m["bytesHex"])
+            pkg = json.loads(content_bytes.decode("utf-8"))
+            pkg["tests"] = []
+            new_bytes = json.dumps(pkg, separators=(",", ":")).encode("utf-8")
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest_raw(
+                _TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, new_bytes)
+            m["raw"]["digest"] = _TQO.digest_to_wire(new_digest)
+            subject_obj["freezePackage"]["digest"] = _TQO.digest_to_wire(new_digest)
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.freeze_tests_empty", False, actual)
+
+
 def test_negative_command_policy_tool_ref_unjoined() -> RedMatrixResult:
     """GAP-23: §8.2/§3 the command policy's tool ContentRef must join the
     resolved-tool/<gateId> member. A bundle whose resolved-tool member content
@@ -1712,6 +1806,10 @@ def run_all_tests() -> list:
         test_negative_row_output_mismatch_freeze,
         test_negative_row_prerequisites_mismatch_freeze,
         test_negative_row_tests_mismatch_freeze,
+        # §3 freeze field bounds (GAP-5)
+        test_negative_freeze_in_scope_too_few,
+        test_negative_freeze_max_days_out_of_bounds,
+        test_negative_freeze_tests_empty,
         # §8.2/§3 command policy ref joins (GAP-22/23)
         test_negative_command_policy_tool_ref_unjoined,
         test_negative_command_policy_verifier_closure_missing,

@@ -8319,3 +8319,49 @@ normative: false
   remaining GAPs（GAP-12/13 semantic file set、GAP-16/17/18 D0-10 approval、
   GAP-6 argv[0] identity、GAP-11/15/24/26 P2）仍 pending。
 - Next：继续 GAP-5 freeze field bounds，然后是 GAP-12/13 semantic file set。
+
+## 2026-07-22 — TASK-D0-10 slice 18：GAP-5 freeze field bounds (§3)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §3 line 119-120（frozenAt 真实 YYYY-MM-DD；
+  in/out scope 各 3..12；doneWhen 1..32；limits 1..365/1..10000 safe integer；
+  tests 非空；overflowPolicy 签名完成面一部分）；`TST-DOC-001`。
+- Findings（来自 final comprehensive audit，针对 freeze package parser）：
+  - GAP-5（freeze field bounds 未强制）：`parse_freeze_package` 只解析
+    taskId/freezeCommit/output/dependencies/prerequisites/tests，不解析或校验
+    frozenAt/inScope/outOfScope/doneWhen/overflowPolicy/maxCalendarDays/
+    maxCommits/notes 的 bounds。fixture 的 inScope/outOfScope 只有 2 项（低于
+    spec 的 3..12），但 verifier 未拒绝。
+- Changed：
+  - `scripts/task_qualification_objects.py`：
+    - 新增 `_YYYY_MM_DD_RE` 正则。
+    - `TaskFreezePackageV1` 新增 inScope/outOfScope/doneWhen/overflowPolicy/
+      maxCalendarDays/maxCommits/notes/frozenAt 字段。
+    - `parse_freeze_package` 新增 GAP-5 bounds 校验：
+      frozenAt 匹配 YYYY-MM-DD；tests 非空；inScope/outOfScope 各 3..12；
+      doneWhen 1..32；maxCalendarDays 1..365 safe int；maxCommits 1..10000
+      safe int；overflowPolicy/notes safe string。
+  - `scripts/task_qualification_fixture_builder.py`：
+    - `build_freeze_package_source`：inScope 从 2 项增至 3 项，outOfScope 从
+      2 项增至 3 项（满足 3..12 bounds）。
+    - `build_d0_10_approval_chain` 内联 freeze：inScope/outOfScope 各从 1 项
+      增至 3 项。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 3 个 RED test：
+    - `test_negative_freeze_in_scope_too_few`：inScope 截断为 2 项，recompute
+      digest，期望 reject。
+    - `test_negative_freeze_max_days_out_of_bounds`：maxCalendarDays 改为 366，
+      recompute digest，期望 reject。
+    - `test_negative_freeze_tests_empty`：tests 清空，recompute digest，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 81/81 passed
+  （slice 17 的 78 个 + slice 18 的 3 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：freeze package 现在在 frozenAt/inScope/outOfScope/doneWhen/
+  overflowPolicy/maxCalendarDays/maxCommits/notes/tests 全部字段上 enforce bounds，
+  fail closed。所有 fixture chain 仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for freeze field bounds (§3)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。
+  remaining GAPs（GAP-12/13 semantic file set、GAP-16/17/18 D0-10 approval、
+  GAP-6 argv[0] identity、GAP-11/15/24/26 P2）仍 pending。
+- Next：继续 GAP-12/13 semantic file set after-bytes vs verified Q + closeout
+  diff paths。

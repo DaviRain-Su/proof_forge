@@ -42,6 +42,9 @@ GIT_OBJECT_RE = _BTO.GIT_OBJECT_RE
 # only uses SHA-1 Git objects per §8.3.
 GIT_SHA1_RE = re.compile(r"[0-9a-f]{40}")
 
+# SPEC-TASKQUAL-001 §3: frozenAt is a real YYYY-MM-DD date.
+_YYYY_MM_DD_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
 TASKQUAL_REJECTION = "PF-TASK-QUALIFICATION-UNVERIFIED"
 
 # ---------------------------------------------------------------------------
@@ -537,12 +540,20 @@ class TaskFreezePackageV1:
     dependencies: Tuple[str, ...]
     prerequisites: Tuple[str, ...]
     tests: Tuple[str, ...]
+    inScope: Tuple[str, ...]
+    outOfScope: Tuple[str, ...]
+    doneWhen: Tuple[str, ...]
+    overflowPolicy: str
+    maxCalendarDays: int
+    maxCommits: int
+    notes: str
+    frozenAt: str
 
 
 def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
     """Parse the raw freeze package source (§3 TaskFreezePackageV1) and
     extract the fields the verifier needs for ancestry graph construction
-    and row-equality verification (GAP-3).
+    and row-equality verification (GAP-3) plus freeze field bounds (GAP-5).
     """
     if not isinstance(obj, dict):
         _reject(f"{where}: freeze package must be object")
@@ -551,22 +562,71 @@ def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
         _reject(f"{where}.schemaVersion: must be 1")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     freeze_commit = _require_git_object(obj.get("freezeCommit"), f"{where}.freezeCommit")
+    # GAP-5: frozenAt must be a real YYYY-MM-DD date (§3).
+    frozen_at = _require_string(obj.get("frozenAt"), f"{where}.frozenAt", 10)
+    if not _YYYY_MM_DD_RE.fullmatch(frozen_at):
+        _reject(f"{where}.frozenAt: must be YYYY-MM-DD")
     output = _require_string(obj.get("output"), f"{where}.output")
     deps_arr = obj.get("dependencies")
     if not isinstance(deps_arr, list):
         _reject(f"{where}.dependencies: must be array")
+    if len(deps_arr) > MAX_DEPENDENCIES:
+        _reject(f"{where}.dependencies: exceeds {MAX_DEPENDENCIES}")
     deps = tuple(_require_task_id(d, f"{where}.dependencies") for d in deps_arr)
     prereqs_arr = obj.get("prerequisites")
     if not isinstance(prereqs_arr, list):
         _reject(f"{where}.prerequisites: must be array")
+    if len(prereqs_arr) > MAX_ARRAY:
+        _reject(f"{where}.prerequisites: exceeds {MAX_ARRAY}")
     prereqs = tuple(_require_string(p, f"{where}.prerequisites") for p in prereqs_arr)
     tests_arr = obj.get("tests")
     if not isinstance(tests_arr, list):
         _reject(f"{where}.tests: must be array")
-    tests = tuple(_require_string(t, f"{where}.tests") for t in tests_arr)
+    # GAP-5: tests nonempty (§3 "tests 非空").
+    if len(tests_arr) == 0:
+        _reject(f"{where}.tests: must be nonempty")
+    if len(tests_arr) > MAX_ARRAY:
+        _reject(f"{where}.tests: exceeds {MAX_ARRAY}")
+    tests = tuple(_require_test_id(t, f"{where}.tests") for t in tests_arr)
+    # GAP-5: in/out scope each 3..12, doneWhen 1..32 (§3).
+    in_scope_arr = obj.get("inScope")
+    if not isinstance(in_scope_arr, list):
+        _reject(f"{where}.inScope: must be array")
+    if not (3 <= len(in_scope_arr) <= MAX_SCOPE_ITEMS):
+        _reject(f"{where}.inScope: must be 3..{MAX_SCOPE_ITEMS}")
+    in_scope = tuple(_require_string(s, f"{where}.inScope") for s in in_scope_arr)
+    out_scope_arr = obj.get("outOfScope")
+    if not isinstance(out_scope_arr, list):
+        _reject(f"{where}.outOfScope: must be array")
+    if not (3 <= len(out_scope_arr) <= MAX_SCOPE_ITEMS):
+        _reject(f"{where}.outOfScope: must be 3..{MAX_SCOPE_ITEMS}")
+    out_scope = tuple(_require_string(s, f"{where}.outOfScope") for s in out_scope_arr)
+    done_when_arr = obj.get("doneWhen")
+    if not isinstance(done_when_arr, list):
+        _reject(f"{where}.doneWhen: must be array")
+    if not (1 <= len(done_when_arr) <= MAX_DONE_WHEN):
+        _reject(f"{where}.doneWhen: must be 1..{MAX_DONE_WHEN}")
+    done_when = tuple(_require_string(s, f"{where}.doneWhen") for s in done_when_arr)
+    # GAP-5: overflowPolicy safe string (§3).
+    overflow_policy = _require_string(obj.get("overflowPolicy"), f"{where}.overflowPolicy", 256)
+    # GAP-5: maxCalendarDays 1..365, maxCommits 1..10000 safe int (§3).
+    max_days = obj.get("maxCalendarDays")
+    if not isinstance(max_days, int) or isinstance(max_days, bool):
+        _reject(f"{where}.maxCalendarDays: must be integer")
+    if not (1 <= max_days <= MAX_DAYS):
+        _reject(f"{where}.maxCalendarDays: must be 1..{MAX_DAYS}")
+    max_commits = obj.get("maxCommits")
+    if not isinstance(max_commits, int) or isinstance(max_commits, bool):
+        _reject(f"{where}.maxCommits: must be integer")
+    if not (1 <= max_commits <= MAX_COMMITS):
+        _reject(f"{where}.maxCommits: must be 1..{MAX_COMMITS}")
+    notes = _require_string(obj.get("notes"), f"{where}.notes")
     return TaskFreezePackageV1(
         taskId=task_id, freezeCommit=freeze_commit, output=output,
-        dependencies=deps, prerequisites=prereqs, tests=tests)
+        dependencies=deps, prerequisites=prereqs, tests=tests,
+        inScope=in_scope, outOfScope=out_scope, doneWhen=done_when,
+        overflowPolicy=overflow_policy, maxCalendarDays=max_days,
+        maxCommits=max_commits, notes=notes, frozenAt=frozen_at)
 
 
 def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:
