@@ -1379,6 +1379,7 @@ FIXTURE_POLICY_SCHEMA = "proof-forge.task-qualification-fixture-policy.v1"
 FIXTURE_RESOLVED_BLOB_SCHEMA = "proof-forge.task-qualification-fixture-resolved-blob.v1"
 TASK_QUALIFICATION_SCHEMA = "proof-forge.task-qualification.v1"
 GOVERNANCE_BOOTSTRAP_COMPLETION_SCHEMA = "proof-forge.governance-bootstrap-completion.v1"
+PRODUCTION_PROFILE_SCHEMA = "proof-forge.task-qualification-production-profile.v1"
 FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
     "resolved-tool",
     "resolved-probe",
@@ -1406,6 +1407,7 @@ _TYPED_CONTENT_SCHEMA_DOMAINS = {
     FIXTURE_RESOLVED_BLOB_SCHEMA: DOMAIN_FIXTURE_RESOLVED_BLOB,
     TASK_QUALIFICATION_SCHEMA: DOMAIN_TASK_QUALIFICATION,
     GOVERNANCE_BOOTSTRAP_COMPLETION_SCHEMA: DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION,
+    PRODUCTION_PROFILE_SCHEMA: DOMAIN_PRODUCTION_PROFILE,
 }
 
 
@@ -1648,7 +1650,6 @@ MAX_ARCHIVE_EXPANDED = 128 * 1024 * 1024  # 128 MiB
 MAX_ARCHIVE_PATH_BYTES = 4096
 MAX_MEMBERS = 4096
 
-PRODUCTION_PROFILE_SCHEMA = "proof-forge.task-qualification-production-profile.v1"
 PRODUCTION_PROFILE_ID = "task-qualification-production-profile-v1"
 PRODUCTION_PROFILE_PIN_SCHEMA = "proof-forge.task-qualification-production-profile-pin.v1"
 PRODUCTION_PROFILE_PIN_ID = "task-qualification-production-profile-v1"

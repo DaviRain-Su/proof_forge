@@ -200,6 +200,46 @@ def _check_aggregate_member_bound(bundle: TaskQualificationContentBundleV1, wher
                 f"{_TQO.MAX_BUNDLE_AGGREGATE} (§8.2)")
 
 
+def _verify_production_profile_member_bytes(
+    member_map: dict,
+    profile: ProductionVerificationProfileV1,
+    where: str,
+) -> None:
+    """§8.2 line 497-500: the bundle's embedded verificationProfile canonical
+    PF-JCS bytes must逐字 equal the production-profile member's decoded bytes.
+    The profile wire is re-canonicalized from the parsed profile (production_
+    profile_to_wire is deterministic) and compared to the member's bytesHex.
+
+    The re-computed ContentRef under pf.taskqual.production-profile.v1 must
+    equal the member's content ref (the verifier already recomputes member
+    content refs via _resolve_typed_member; this check additionally asserts the
+    profile wire bytes equal the member bytes, prohibiting two semantically-
+    equivalent but byte-different profiles).
+    """
+    member = member_map.get("production-profile")
+    if member is None:
+        _BTO._reject(f"{where}: production-profile member missing")
+    if not isinstance(member, _TQO.TypedContentMemberV1):
+        _BTO._reject(f"{where}: production-profile must be typed-content")
+    # Re-canonicalize the parsed profile to PF-JCS bytes.
+    profile_wire = _TQO.production_profile_to_wire(profile)
+    profile_bytes = canonical_pf_jcs(profile_wire)
+    member_bytes = bytes.fromhex(member.bytesHex)
+    if profile_bytes != member_bytes:
+        _BTO._reject(
+            f"{where}: bundle verificationProfile PF-JCS bytes != "
+            f"production-profile member bytes (§8.2)")
+    # Verify the member content ref recomputes from the member bytes under
+    # the production-profile domain.
+    try:
+        member_obj = decode_canonical_pf_jcs(member_bytes)
+    except Exception as exc:
+        _BTO._reject(f"{where}: production-profile member decode failed: {exc}")
+    recomputed = _TQO.recompute_typed_content_ref(member.content.schema, member_obj)
+    if recomputed != member.content:
+        _BTO._reject(f"{where}: production-profile member bytes do not recompute to member.content")
+
+
 # ---------------------------------------------------------------------------
 # Stage 2: bundle decode
 # ---------------------------------------------------------------------------
@@ -1673,6 +1713,15 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("members", f"subject decode: {r.detail}")
 
+    # Stage 4b: production profile member bytes (§8.2 line 497-500)
+    # For production profiles, the bundle's embedded verificationProfile PF-JCS
+    # bytes must equal the production-profile member's decoded bytes.
+    if isinstance(profile, ProductionVerificationProfileV1):
+        try:
+            _verify_production_profile_member_bytes(member_map, profile, "profile-member")
+        except Rejected as r:
+            return _reject_stage("profile-member", r.detail)
+
     # Stage 5: documents
     try:
         phase4_bytes = _verify_phase4_source(member_map, profile, "documents")
@@ -1988,6 +2037,13 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         approval = _TQO.parse_d0_10_bootstrap_approval(subject_obj, "subject")
     except Rejected as r:
         return _reject_stage("members", f"subject decode: {r.detail}")
+
+    # Stage 4b: production profile member bytes (§8.2 line 497-500)
+    if isinstance(profile, ProductionVerificationProfileV1):
+        try:
+            _verify_production_profile_member_bytes(member_map, profile, "profile-member")
+        except Rejected as r:
+            return _reject_stage("profile-member", r.detail)
 
     # Stage 5: documents
     try:

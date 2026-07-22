@@ -8117,3 +8117,56 @@ normative: false
   spec gap 留待规格变更流程。
 - Next：继续最后的有明确 spec 的 P1 finding（P1-7 production-profile member bytes），
   仍按 RED-first 协议。然后做 final comprehensive audit。
+
+## 2026-07-22 — TASK-D0-10 slice 14：P1-7 production-profile member bytes (§8.2)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2 line 497-500（"bundle 内嵌
+  `verificationProfile` 的 canonical PF-JCS bytes 必须逐字等于
+  `production-profile` member decoded bytes；按固定 schema/id/version与
+  `pf.taskqual.production-profile.v1` 重算的 ContentRef 必须 exact 等于
+  external pin.profile，禁止两份语义等价但 bytes 不同的 profile"）；
+  `TST-DOC-001`。
+- Findings（来自独立复审，针对 verifier 的 production profile member 处理）：
+  - P1-7（production-profile member bytes 未与 bundle verificationProfile 逐字比对）：
+    `_verify_profile` 对 ProductionVerificationProfileV1 验签与 namespace，但不比对
+    bundle 嵌入 `verificationProfile` 的 canonical PF-JCS bytes 与 `production-profile`
+    member 的 decoded bytes。一个 bundle 可携带两份语义等价但 bytes 不同的 profile
+    （member 与 embedded profile 不同），verifier 接受。recompute ContentRef from member
+    bytes 也未做。
+- Changed：
+  - `scripts/task_qualification_objects.py`：将 `PRODUCTION_PROFILE_SCHEMA` 常量
+    提前至 `_TYPED_CONTENT_SCHEMA_DOMAINS` 之前并加入该 mapping（使
+    `recompute_typed_content_ref` 能处理 production-profile schema）。
+  - `scripts/task_qualification_verifier.py`：新增
+    `_verify_production_profile_member_bytes(member_map, profile, where)`：
+    (a) 重新 canonicalize parsed profile 为 PF-JCS bytes（`production_profile_to_wire`
+    deterministic），与 `production-profile` member 的 `bytesHex` decoded bytes 逐字比对；
+    (b) decode member bytes 并 `recompute_typed_content_ref` 断言 == member.content。
+    在 `_verify_task_qualification` 与 `_verify_d0_10_approval` 的 Stage 4b
+    "profile-member"（members 之后、documents 之前）调用，仅 production profile 触发。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 test：
+    - `test_negative_production_profile_member_bytes_mismatch`：用 protected adapter
+      self-test 的 `_build_synth_production_profile` 构造 signed production profile，
+      构造 corrupt member（corrupt 一签名字节，重算 ContentRef），直接调
+      `_verify_production_profile_member_bytes`，期望 reject。
+    - `test_positive_production_profile_member_bytes_match`：构造 matching member
+      （bytes == profile PF-JCS），直接调函数，期望 pass。
+    两个 test 驱动真实 shipped `_verify_production_profile_member_bytes` 函数。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 69/69 passed
+  （slice 13 的 67 个 + slice 14 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：production bundle 的 `verificationProfile` PF-JCS bytes 现在逐字
+  比对 `production-profile` member bytes，fail closed。member ContentRef 从 member
+  bytes 重算。fixture chain（fixture profile）不触发该检查（仅 production profile）。
+  corrupt case 在 profile-member stage reject，matching case pass。
+- Evidence：development evidence for production-profile member bytes verification
+  (§8.2 line 497-500)。不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  pure verifier 的 profile-bytes 比对；external pin.profile 比对属 protected adapter
+  职责（既有 `test_production_profile_pin_digest_domain` 覆盖）。完整 production
+  qualification chain fixture（含 production authority policy + production profile
+  + production pin + bundle with production-profile member）未在本 slice 构建（工作量大，
+  纯 verifier 检查已通过 direct-function test 覆盖）。remaining P1-10 spec gap 留待
+  规格变更流程。既有 `_make_mutated_chain` test-harness bug 仍 pending。
+- Next：做 final comprehensive independent audit，确认所有 P0/P1 finding 已闭合或登记。

@@ -1368,6 +1368,73 @@ def test_negative_aggregate_member_bound_exceeded() -> RedMatrixResult:
     return RedMatrixResult("negative.aggregate_member_bound_exceeded", False, actual)
 
 
+def test_negative_production_profile_member_bytes_mismatch() -> RedMatrixResult:
+    """§8.2 line 497-500: the bundle's embedded verificationProfile canonical
+    PF-JCS bytes must equal the production-profile member's decoded bytes.
+
+    This test drives the real shipped _verify_production_profile_member_bytes
+    function directly with a synthetic production profile and a production-
+    profile member whose bytes differ from the profile's PF-JCS bytes.
+    """
+    import task_qualification_protected_adapter_self_test as _tas
+    # Build a synthetic production profile (signed).
+    auth_policy_ref = _TQO.fixture_policy_content_ref(_TQO.build_default_fixture_policy())
+    adapter = _TQFB.build_verifier_identity("synth-gate")
+    profile = _tas._build_synth_production_profile(auth_policy_ref, adapter)
+    # Build a production-profile typed-content member whose bytes differ
+    # from the profile's canonical PF-JCS bytes (corrupt one signature byte).
+    profile_wire = _TQO.production_profile_to_wire(profile)
+    profile_bytes = _BTO.canonical_pf_jcs(profile_wire)
+    corrupt_wire = _BTO.decode_canonical_pf_jcs(profile_bytes)
+    corrupt_wire["signatures"][0]["signature"] = "00" * 64
+    corrupt_bytes = _BTO.canonical_pf_jcs(corrupt_wire)
+    corrupt_ref = _TQO.recompute_typed_content_ref(corrupt_wire["schema"], corrupt_wire)
+    member = _TQO.TypedContentMemberV1(
+        role="production-profile",
+        kind="typed-content",
+        content=corrupt_ref,
+        bytesHex=corrupt_bytes.hex(),
+    )
+    member_map = {"production-profile": member}
+    # The function must reject because the profile PF-JCS bytes != member bytes.
+    try:
+        _TQV._verify_production_profile_member_bytes(member_map, profile, "profile-member")
+        actual = True  # should not reach here
+    except _BTO.Rejected:
+        actual = False  # rejected as expected
+    return RedMatrixResult("negative.production_profile_member_bytes_mismatch", False, actual)
+
+
+def test_positive_production_profile_member_bytes_match() -> RedMatrixResult:
+    """§8.2: when the production-profile member bytes exactly equal the
+    bundle's verificationProfile PF-JCS bytes, the check must pass.
+
+    This test drives the real shipped _verify_production_profile_member_bytes
+    function directly with a synthetic production profile and a matching
+    production-profile member.
+    """
+    import task_qualification_protected_adapter_self_test as _tas
+    auth_policy_ref = _TQO.fixture_policy_content_ref(_TQO.build_default_fixture_policy())
+    adapter = _TQFB.build_verifier_identity("synth-gate")
+    profile = _tas._build_synth_production_profile(auth_policy_ref, adapter)
+    profile_wire = _TQO.production_profile_to_wire(profile)
+    profile_bytes = _BTO.canonical_pf_jcs(profile_wire)
+    profile_ref = _TQO.recompute_typed_content_ref(profile_wire["schema"], profile_wire)
+    member = _TQO.TypedContentMemberV1(
+        role="production-profile",
+        kind="typed-content",
+        content=profile_ref,
+        bytesHex=profile_bytes.hex(),
+    )
+    member_map = {"production-profile": member}
+    try:
+        _TQV._verify_production_profile_member_bytes(member_map, profile, "profile-member")
+        actual = True  # passed as expected
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("positive.production_profile_member_bytes_match", True, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -1463,6 +1530,9 @@ def run_all_tests() -> list:
         test_negative_d0_10_bridge_corrupt_gc_signatures,
         # §8.2 aggregate decoded-member bound (P1-9)
         test_negative_aggregate_member_bound_exceeded,
+        # §8.2 production-profile member bytes (P1-7)
+        test_negative_production_profile_member_bytes_mismatch,
+        test_positive_production_profile_member_bytes_match,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,
