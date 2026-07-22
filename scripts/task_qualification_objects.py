@@ -45,6 +45,19 @@ GIT_SHA1_RE = re.compile(r"[0-9a-f]{40}")
 # SPEC-TASKQUAL-001 §3: frozenAt is a real YYYY-MM-DD date.
 _YYYY_MM_DD_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
+# GAP-15: §6/§8.2 issuedAt and verificationInstant are RFC3339 UTC seconds.
+# Strict RFC3339 with 'Z' suffix (UTC only, no offsets).
+_RFC3339_UTC_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
+
+
+def _require_rfc3339_utc(value, where: str) -> str:
+    """GAP-15: validate a string is RFC3339 UTC (Z suffix, no offset)."""
+    s = _require_string(value, where, 64)
+    if not _RFC3339_UTC_RE.fullmatch(s):
+        _reject(f"{where}: must be RFC3339 UTC (YYYY-MM-DDThh:mm:ss[.ssssss]Z)")
+    return s
+
 TASKQUAL_REJECTION = "PF-TASK-QUALIFICATION-UNVERIFIED"
 
 # ---------------------------------------------------------------------------
@@ -1066,7 +1079,7 @@ def parse_completion_receipt(obj: dict, where: str) -> TaskCompletionReceiptV1:
     diff_digest = _require_digest(obj.get("closeoutDiffDigest"), f"{where}.closeoutDiffDigest")
     policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
     revocation = parse_content_ref(obj.get("revocationSnapshot"), f"{where}.revocationSnapshot")
-    issued = _require_string(obj.get("issuedAt"), f"{where}.issuedAt", 64)
+    issued = _require_rfc3339_utc(obj.get("issuedAt"), f"{where}.issuedAt")
     sigs = _parse_dependency_signatures(obj, where)
     return TaskCompletionReceiptV1(
         schema=schema, id=rid, version=version, taskId=task_id,
@@ -1322,7 +1335,7 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
     purpose = obj.get("purpose")
     if purpose != "d0-10-taskqual-one-time-bridge":
         _reject(f"{where}.purpose: must be 'd0-10-taskqual-one-time-bridge'")
-    issued = _require_string(obj.get("issuedAt"), f"{where}.issuedAt", 64)
+    issued = _require_rfc3339_utc(obj.get("issuedAt"), f"{where}.issuedAt")
     sigs = _parse_dependency_signatures(obj, where)
     return D0_10BootstrapReceiptV1(
         schema=schema, id=rid, version=version, taskId=task_id, ruling=ruling,
@@ -1564,8 +1577,30 @@ def parse_fixture_policy(obj: dict, where: str) -> FixturePolicyV1:
         parse_fixture_authority_principal(p, f"{where}.principals") for p in principals_arr
     )
     _require_unique_sorted(principals, lambda p: p.keyId, f"{where}.principals")
+    # GAP-11: §8.2 fixture-profile principal signing keys must use RFC 8032
+    # §7.1 public test vectors #1-#3 (architecture/quality/security), and the
+    # non-quorum verifier key must use vector #4. Pin keyIds and public keys.
+    if len(principals) != 3:
+        _reject(f"{where}.principals: must be exactly 3 (fixture)")
+    expected_pins = (
+        (FIXTURE_KEY_ARCHITECTURE, bytes.fromhex(RFC8032_VECTOR_1_PUBLIC), ("architecture",)),
+        (FIXTURE_KEY_QUALITY, bytes.fromhex(RFC8032_VECTOR_2_PUBLIC), ("quality",)),
+        (FIXTURE_KEY_SECURITY, bytes.fromhex(RFC8032_VECTOR_3_PUBLIC), ("security",)),
+    )
+    for p, (exp_key_id, exp_pub, exp_roles) in zip(principals, expected_pins):
+        if p.keyId != exp_key_id:
+            _reject(f"{where}.principals: keyId must be {exp_key_id}, got {p.keyId}")
+        if p.publicKey != exp_pub:
+            _reject(f"{where}.principals[{p.keyId}].publicKey must be RFC 8032 vector public key")
+        if tuple(p.roles) != exp_roles:
+            _reject(f"{where}.principals[{p.keyId}].roles must be {exp_roles}, got {tuple(p.roles)}")
     rule = _BTO._parse_approval_rule(obj.get("rule"), f"{where}.rule")
     verifier_key = parse_fixture_verifier_key(obj.get("verifierKey"), f"{where}.verifierKey")
+    # GAP-11: verifier key must use RFC 8032 vector #4.
+    if verifier_key.keyId != FIXTURE_VERIFIER_KEY_ID:
+        _reject(f"{where}.verifierKey.keyId must be {FIXTURE_VERIFIER_KEY_ID}, got {verifier_key.keyId}")
+    if verifier_key.publicKey != bytes.fromhex(RFC8032_VECTOR_4_PUBLIC):
+        _reject(f"{where}.verifierKey.publicKey must be RFC 8032 vector #4 public key")
     return FixturePolicyV1(
         schema=schema, id=pid, version=version, namespace=namespace,
         principals=principals, rule=rule, verifierKey=verifier_key,
@@ -1953,7 +1988,7 @@ def parse_content_bundle(obj: dict, where: str) -> TaskQualificationContentBundl
         _reject(f"{where}.id: must be {OPERATION_BUNDLE_IDS[operation]} for operation {operation}")
     profile = parse_verification_profile(obj.get("verificationProfile"), f"{where}.verificationProfile")
     policy = parse_content_ref(obj.get("expectedAuthorityPolicy"), f"{where}.expectedAuthorityPolicy")
-    instant = _require_string(obj.get("verificationInstant"), f"{where}.verificationInstant", 64)
+    instant = _require_rfc3339_utc(obj.get("verificationInstant"), f"{where}.verificationInstant")
     impl_invocation = _require_safe_id(obj.get("implementationInvocationId"), f"{where}.implementationInvocationId")
     members_arr = _require_array(obj.get("members"), f"{where}.members", MAX_MEMBERS)
     if len(members_arr) == 0:

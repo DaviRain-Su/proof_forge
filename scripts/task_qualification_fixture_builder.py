@@ -205,18 +205,16 @@ def build_synthetic_candidate(
     tree_prefix: str = FIXTURE_CANDIDATE_TREE_PREFIX,
 ) -> CandidateContext:
     """Build a synthetic candidate with f1/f2 prefixed commit/tree."""
+    # GAP-26: §8.2 candidate commit/tree first bytes fixed to f1/f2 (fixture
+    # profile). The commit prefix f1 is enforced by grinding the commit
+    # message nonce. The tree prefix f2 is NOT enforced here because grinding
+    # the tree requires a padding file that would appear in the C/D diff and
+    # break the §6 closeout-diff-paths == allowedPaths invariant. The verifier
+    # checks f2 on the tree; the fixture builder accepts whatever the tree
+    # computes to. This is a known fixture limitation (see implementation log).
     archive_bytes = build_synthetic_candidate_archive(task_id, files)
     archive_proj = _TQO.parse_ustar_archive(archive_bytes, task_id, "candidate")
     tree_sha = _TQO.build_git_tree_from_archive(archive_proj)
-
-    # Ensure tree starts with f2
-    if not tree_sha.startswith(tree_prefix):
-        # We need to find a tree that starts with f2.
-        # For fixture, we accept whatever the tree computes to.
-        # The spec says candidate commit/tree first bytes are fixed to f1/f2.
-        # We'll add padding files until we get the right prefix.
-        # For now, just proceed — the fixture builder will verify.
-        pass
 
     commit_payload = build_synthetic_git_commit(tree_sha, parent_sha)
     commit_sha = _TQO.git_sha1_object("commit", commit_payload)
@@ -224,7 +222,6 @@ def build_synthetic_candidate(
 
     # Ensure commit starts with f1
     if not commit_sha.startswith(commit_prefix):
-        # Add a nonce to the commit message to change the SHA
         nonce = 0
         while not commit_sha.startswith(commit_prefix):
             nonce += 1

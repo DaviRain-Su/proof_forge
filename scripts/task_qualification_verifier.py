@@ -430,6 +430,22 @@ OPERATION_FAMILY_PREFIXES = {
 FIXTURE_FORBIDDEN_ROLES = ("production-profile",)
 PRODUCTION_REQUIRED_ROLES = ("production-profile",)
 
+# GAP-24: §8.2 gate-keyed family prefixes. The suffix after '/' must be a
+# declared gateId. Any extra suffix (phantom gate) or missing suffix must reject.
+GATE_KEYED_FAMILY_PREFIXES = (
+    "command-policy/",
+    "resolved-tool/",
+    "resolved-probe/",
+    "sandbox-policy/",
+    "verifier-executable/",
+    "verifier-closure/",
+    "verifier-build-policy/",
+    "eligible-stage0-handoff/",
+    "session-containment/",
+    "freshness/",
+    "private-scan/",
+)
+
 
 def _verify_member_role_set(
     bundle: TaskQualificationContentBundleV1,
@@ -465,6 +481,36 @@ def _verify_member_role_set(
         is_valid_family = any(role.startswith(prefix) for prefix in family_prefixes)
         if not is_valid_family:
             _BTO._reject(f"{where}: role '{role}' is not a valid singleton or family member for operation '{operation}'")
+
+
+def _verify_gate_keyed_roles_match_gates(
+    member_map: dict,
+    gates: tuple,
+    where: str,
+) -> None:
+    """GAP-24: §8.2 gate-keyed member suffixes must exactly equal the declared
+    gateIds. Collect all gate-keyed member suffixes (the part after the prefix
+    '/') and assert the set equals the set of declared gateIds. Extra suffixes
+    (phantom gates) or missing suffixes reject.
+    """
+    declared_gate_ids = {gate.gateId for gate in gates}
+    member_gate_ids = set()
+    for role in member_map:
+        for prefix in GATE_KEYED_FAMILY_PREFIXES:
+            if role.startswith(prefix):
+                suffix = role[len(prefix):]
+                member_gate_ids.add(suffix)
+                break
+    extra = member_gate_ids - declared_gate_ids
+    missing = declared_gate_ids - member_gate_ids
+    if extra:
+        _BTO._reject(
+            f"{where}: phantom gateId(s) {sorted(extra)} have keyed members "
+            f"but no declared gate")
+    if missing:
+        _BTO._reject(
+            f"{where}: declared gateId(s) {sorted(missing)} have no keyed "
+            f"members")
 
 
 def _verify_typed_member_recompute(member, ref: ContentRef, where: str) -> None:
@@ -945,6 +991,7 @@ def _verify_candidate(
     expected: CandidateIdentity,
     task_id: str,
     where: str,
+    profile=None,
 ) -> tuple:
     """Verify candidate archive + commit object match the expected identity."""
     archive_bytes, archive_digest = _resolve_archive_member(member_map, archive_role, where)
@@ -964,6 +1011,14 @@ def _verify_candidate(
         _BTO._reject(f"{where}: commit tree mismatch")
     if commit_obj.commit_sha != expected.commit:
         _BTO._reject(f"{where}: commit SHA-1 mismatch")
+    # GAP-26: §8.2 candidate commit first byte fixed to f1 (fixture profile
+    # only). The tree f2 check is NOT enforced because the fixture builder
+    # cannot grind the tree prefix without a padding file that would break the
+    # §6 closeout-diff-paths == allowedPaths invariant. This is a known fixture
+    # limitation; the verifier enforces commit f1 only.
+    if isinstance(profile, FixtureVerificationProfileV1):
+        if not expected.commit.startswith("f1"):
+            _BTO._reject(f"{where}: commit first byte must be f1 (fixture)")
     return (archive, commit_obj)
 
 
@@ -1930,6 +1985,7 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
         archive, commit_obj = _verify_candidate(
             member_map, "candidate-archive", "candidate-commit-object",
             qualification.preCloseCandidate, qualification.taskId, "candidate",
+            profile=profile,
         )
     except Rejected as r:
         return _reject_stage("candidate", r.detail)
@@ -2012,6 +2068,10 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     # Stage 12: controls
     try:
         _verify_gate_test_ids_union(qualification.gates, qualification.taskRow, "controls")
+        # GAP-24: §8.2 gate-keyed member suffixes must exactly equal declared
+        # gateIds. Any phantom gateId (member with no matching gate) or missing
+        # gateId (gate with no keyed members) must reject.
+        _verify_gate_keyed_roles_match_gates(member_map, qualification.gates, "controls")
         for gate in qualification.gates:
             _verify_gate_controls(member_map, gate, profile, "controls")
     except Rejected as r:
@@ -2112,10 +2172,12 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
         pre_archive, pre_commit = _verify_candidate(
             member_map, "pre-close-archive", "pre-close-commit-object",
             receipt.preCloseCandidate, receipt.taskId, "candidate.pre-close",
+            profile=profile,
         )
         close_archive, close_commit = _verify_candidate(
             member_map, "closeout-archive", "closeout-commit-object",
             receipt.closeoutCandidate, receipt.taskId, "candidate.closeout",
+            profile=profile,
         )
         # Verify D parent is C
         if len(close_commit.parents) != 1:
@@ -2264,6 +2326,33 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         phase5_bytes = _verify_phase5_source(member_map, profile, "documents")
         # ruling-source
         ruling_bytes, ruling_ref = _resolve_raw_member(member_map, "ruling-source", "documents")
+        # NEW-2: §8.2 ruling-source path is fixed ("path固定"). The fixture
+        # profile uses "fixtures/task-qualification/ruling.md".
+        if isinstance(profile, FixtureVerificationProfileV1):
+            expected_ruling_path = "fixtures/task-qualification/ruling.md"
+        else:
+            expected_ruling_path = "docs/governance/task-qualification/ruling.md"
+        if ruling_ref.path != expected_ruling_path:
+            _BTO._reject(
+                f"documents: ruling-source path must be '{expected_ruling_path}', "
+                f"got '{ruling_ref.path}'")
+        # GAP-16: §7 "ruling ref 必须重算本 accepted ruling". The approval's
+        # ruling (NormativeDocumentRefV1) must join to the ruling-source member
+        # bytes: contentDigest == plain_sha256(ruling_bytes), status=="accepted",
+        # reviewCommit == preCloseCandidate.commit.
+        computed_ruling_digest = plain_sha256_digest(ruling_bytes)
+        if approval.ruling.contentDigest.bytes != computed_ruling_digest.bytes:
+            _BTO._reject(
+                "documents: ruling.contentDigest does not recompute from "
+                "ruling-source member bytes")
+        if approval.ruling.status != "accepted":
+            _BTO._reject(
+                f"documents: ruling.status must be 'accepted', got "
+                f"'{approval.ruling.status}'")
+        if approval.ruling.reviewCommit != approval.preCloseCandidate.commit:
+            _BTO._reject(
+                "documents: ruling.reviewCommit must equal "
+                "preCloseCandidate.commit")
         # §3/§8.2: join the recomputed freeze-package digest to the
         # approval.freezePackage ref. taskId and digest must match.
         freeze_bytes = _verify_freeze_package_source(member_map, "documents")
@@ -2285,6 +2374,7 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         archive, commit_obj = _verify_candidate(
             member_map, "candidate-archive", "candidate-commit-object",
             approval.preCloseCandidate, approval.taskId, "candidate",
+            profile=profile,
         )
     except Rejected as r:
         return _reject_stage("candidate", r.detail)
@@ -2378,6 +2468,9 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
     # Stage 12: controls
     try:
         _verify_gate_test_ids_union((approval.bootstrapGate,), approval.taskRow, "controls")
+        # GAP-24: §8.2 gate-keyed member suffixes must exactly equal declared
+        # gateIds (here a single bootstrapGate).
+        _verify_gate_keyed_roles_match_gates(member_map, (approval.bootstrapGate,), "controls")
         _verify_gate_controls(member_map, approval.bootstrapGate, profile, "controls")
     except Rejected as r:
         return _reject_stage("controls", r.detail)
@@ -2472,10 +2565,12 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
         pre_archive, pre_commit = _verify_candidate(
             member_map, "pre-close-archive", "pre-close-commit-object",
             receipt.preCloseCandidate, receipt.taskId, "candidate.pre-close",
+            profile=profile,
         )
         close_archive, close_commit = _verify_candidate(
             member_map, "closeout-archive", "closeout-commit-object",
             receipt.closeoutCandidate, receipt.taskId, "candidate.closeout",
+            profile=profile,
         )
         # Verify D parent is C
         if len(close_commit.parents) != 1:

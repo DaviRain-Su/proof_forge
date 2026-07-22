@@ -8433,3 +8433,91 @@ normative: false
   NEW-2 ruling-source path fixed）仍 pending。
 - Next：继续 GAP-16/17/18 D0-10 approval ruling-source join + verifier/
   protectedConsumer resolution。
+
+## 2026-07-22 — TASK-D0-10 slice 20：GAP-16/24/26/11/15 + NEW-2 (§7/§8.2/§3/§6)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §7 line 339（ruling ref 必须重算本 accepted
+  ruling）、§8.2 line 461-462（gate-keyed member suffixes exact-equal declared
+  gateIds）、§8.2 line 529-530（candidate commit/tree 首 byte f1/f2 fixture
+  profile）、§8.2 line 530-531（fixture principal keys RFC 8032 vectors #1-3、
+  verifier key #4）、§6 line 251（issuedAt RFC3339 UTC）、§8.2 line 481
+  （ruling-source path固定）；`TST-DOC-001`。
+- Findings（来自 final comprehensive audit）：
+  - GAP-16（D0-10 approval ruling 未 join ruling-source member）：verifier
+    resolve ruling-source bytes 但不比对 approval.ruling.contentDigest/status/
+    reviewCommit。
+  - GAP-24（phantom gateId）：verifier 不收集 gate-keyed member suffixes 并
+    比对 declared gateIds。
+  - GAP-26（f1/f2 first-byte 未强制）：verifier 不检查 fixture candidate commit
+    首 byte f1；fixture builder 不 grind tree f2。
+  - GAP-11（fixture principal keys 未 pin RFC 8032 vectors）：parse_fixture_policy
+    只验证 keySet label，不 pin principal publicKey 到 RFC 8032 vectors #1-3 与
+    verifier key #4。
+  - GAP-15（issuedAt 非 RFC3339）：parse_completion_receipt/parse_d0_10_bootstrap_
+    receipt/parse_content_bundle 只 _require_string(issuedAt, 64)。
+  - NEW-2（ruling-source path 未固定）：verifier 不验证 ruling-source member
+    的 raw.path 固定。
+  - GAP-17/18（verifier/protectedConsumer resolution + row/freeze completeness）：
+    §8.2 明确 pure verifier 不 resolve adapter bytes（"adapter executable/closure/
+    buildPolicy refs 是唯一例外"），protected adapter 已在 scripts/task_
+    qualification_protected_adapter.py 处理（§8.4）。这是 by-design，非 pure
+    verifier gap。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_d0_10_approval` documents stage：GAP-16，join approval.ruling.
+      contentDigest == plain_sha256(ruling_bytes)、status=="accepted"、
+      reviewCommit == preCloseCandidate.commit。
+    - 新增 `_verify_gate_keyed_roles_match_gates(member_map, gates, where)`：
+      GAP-24，collect gate-keyed member suffixes，assert == declared gateIds。
+      在 qualification 与 D0-10 approval 的 controls stage 调用。
+    - 新增 `GATE_KEYED_FAMILY_PREFIXES` 常量。
+    - `_verify_candidate` 新增 `profile` 参数：GAP-26，fixture profile 下 assert
+      commit.startswith("f1")（tree f2 因 fixture 无法 grind 不破坏 §6 diff
+      invariant 而留为 known limitation，见 Limitations）。
+    - 所有 `_verify_candidate` 调用传入 `profile=profile`。
+    - `_verify_d0_10_approval` documents stage：NEW-2，assert ruling-source
+      raw.path == "fixtures/task-qualification/ruling.md"（fixture）。
+  - `scripts/task_qualification_objects.py`：
+    - 新增 `_RFC3339_UTC_RE` 与 `_require_rfc3339_utc`：GAP-15。
+    - `parse_completion_receipt`/`parse_d0_10_bootstrap_receipt`/
+      `parse_content_bundle` 用 `_require_rfc3339_utc` 替换 `_require_string`。
+    - `parse_fixture_policy`：GAP-11，pin principals keyIds ==
+      {FIXTURE_KEY_ARCHITECTURE/QUALITY/SECURITY}、publicKeys ==
+      RFC8032_VECTOR_1/2/3_PUBLIC、roles == ("architecture",)/("quality",)/
+      ("security",)；pin verifierKey.keyId == FIXTURE_VERIFIER_KEY_ID、
+      publicKey == RFC8032_VECTOR_4_PUBLIC。
+  - `scripts/task_qualification_fixture_builder.py`：
+    `build_synthetic_candidate` 清理 tree f2 grind 注释（fixture 不 grind tree f2，
+    避免破坏 §6 diff paths == allowedPaths invariant）。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 6 个 RED test：
+    - `test_negative_d0_10_ruling_content_digest_mismatch`
+    - `test_negative_d0_10_ruling_wrong_status`
+    - `test_negative_d0_10_ruling_review_commit_mismatch`
+    - `test_negative_phantom_gate_id_member`
+    - `test_negative_fixture_policy_wrong_principal_public_key`
+    - `test_negative_completion_receipt_invalid_issued_at`
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 92/92 passed
+  （slice 19 的 86 个 + slice 20 的 6 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：D0-10 approval ruling 现在 join ruling-source member（contentDigest/
+  status/reviewCommit），fail closed。gate-keyed member suffixes 现在 exact-equal
+  declared gateIds，phantom gateId reject。fixture candidate commit 首 byte f1
+  enforced（fixture profile）。fixture principal keys 现在 pin 到 RFC 8032 vectors
+  #1-3 + verifier key #4。issuedAt/verificationInstant 现在 RFC3339 UTC strict。
+  ruling-source path 现在 fixed。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for GAP-16/24/26/11/15 + NEW-2 (§7/§8.2/§3/§6)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。GAP-26
+  tree f2 首 byte 未 enforce——fixture builder 无法在不破坏 §6 closeout diff
+  paths == allowedPaths invariant 的前提下 grind tree f2（padding file 会出现在
+  C/D diff 中，但不在 allowedPaths 中）。这是 known fixture limitation，verifier
+  只 enforce commit f1。GAP-6（argv[0] absolute canonical + tool resolved bytes
+  identity）仍 pending（spec 对 "identity" join 在 fixture profile 下结构上未
+  明确，留 spec clarification）。GAP-17/18 是 by-design（§8.2 pure verifier 不
+  resolve adapter bytes，protected adapter 已在 §8.4 处理）。NEW-1（D0-10 receipt
+  approval signatures re-verification）仍 pending-confirmation（spec 对 receipt
+  是否 re-verify approval signatures 未明确）。
+- Next：做 final audit confirmation，然后 state external-prerequisite blocker
+  for D0 formal closeout。

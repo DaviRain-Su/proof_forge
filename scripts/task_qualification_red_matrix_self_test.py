@@ -179,6 +179,150 @@ def test_negative_d0_10_wrong_ruling() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_wrong_ruling", False, actual)
 
 
+def test_negative_d0_10_ruling_content_digest_mismatch() -> RedMatrixResult:
+    """GAP-16: §7 ruling ref 必须重算本 accepted ruling. The approval's
+    ruling.contentDigest must equal plain_sha256(ruling-source member bytes).
+    Corrupt the ruling.contentDigest to a wrong value; expect reject at the
+    documents stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["ruling"]["contentDigest"] = "sha256:" + "ee" * 32
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_ruling_content_digest_mismatch", False, actual)
+
+
+def test_negative_d0_10_ruling_wrong_status() -> RedMatrixResult:
+    """GAP-16: §7 ruling.status must be 'accepted'. A D0-10 approval whose
+    ruling.status is 'draft' must reject at the documents stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["ruling"]["status"] = "draft"
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_ruling_wrong_status", False, actual)
+
+
+def test_negative_d0_10_ruling_review_commit_mismatch() -> RedMatrixResult:
+    """GAP-16: §7 ruling.reviewCommit must equal preCloseCandidate.commit. A
+    D0-10 approval whose ruling.reviewCommit differs from the candidate commit
+    must reject at the documents stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    approval_obj["ruling"]["reviewCommit"] = "0" * 40
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_ruling_review_commit_mismatch", False, actual)
+
+
+def test_negative_phantom_gate_id_member() -> RedMatrixResult:
+    """GAP-24: §8.2 gate-keyed member suffixes must exactly equal declared
+    gateIds. A qualification bundle with an extra command-policy/<phantom-gate>
+    member (no matching declared gate) must reject at the controls stage.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Duplicate an existing command-policy member with a phantom gateId suffix.
+    phantom_gate = "phantom-gate-id"
+    for m in bundle_obj["members"]:
+        if m.get("role", "").startswith("command-policy/"):
+            bundle_obj["members"].append({
+                "role": f"command-policy/{phantom_gate}",
+                "kind": m["kind"],
+                "content": copy.deepcopy(m["content"]),
+                "bytesHex": m["bytesHex"],
+            })
+            break
+    bundle_obj["members"].sort(key=lambda m: m["role"])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.phantom_gate_id_member", False, actual)
+
+
+def test_negative_fixture_policy_wrong_principal_public_key() -> RedMatrixResult:
+    """GAP-11: §8.2 fixture-profile principal signing keys must use RFC 8032
+    §7.1 public test vectors #1-#3. A fixture policy whose architecture
+    principal has a non-RFC-8032 public key must reject at the policy stage.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt the authority-policy member's architecture principal publicKey.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "authority-policy":
+            policy_wire = _BTO.decode_canonical_pf_jcs(
+                bytes.fromhex(m["bytesHex"]))
+            # Replace the architecture principal's publicKey with a random
+            # 32-byte value (not RFC 8032 vector #1).
+            policy_wire["principals"][0]["publicKey"] = "aa" * 32
+            new_bytes = _BTO.canonical_pf_jcs(policy_wire)
+            m["bytesHex"] = new_bytes.hex()
+            new_digest = _TQO.domain_digest(
+                _TQO.DOMAIN_FIXTURE_POLICY, policy_wire)
+            new_ref = {
+                "schema": policy_wire["schema"],
+                "id": policy_wire["id"],
+                "version": policy_wire["version"],
+                "digest": _TQO.digest_to_wire(new_digest),
+            }
+            m["content"] = new_ref
+            subject_obj["authorityPolicy"] = new_ref
+            bundle_obj["expectedAuthorityPolicy"] = new_ref
+            break
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.fixture_policy_wrong_principal_public_key", False, actual)
+
+
+def test_negative_completion_receipt_invalid_issued_at() -> RedMatrixResult:
+    """GAP-15: §6 issuedAt is RFC3339 UTC seconds. A completion receipt whose
+    issuedAt is not RFC3339 UTC (e.g. has a timezone offset) must reject at
+    the subject decode stage.
+    """
+    qual_chain = _TQFB.build_fixture_chain()
+    receipt_chain = _TQFB.build_completion_receipt_chain(qual_chain)
+    bundle_obj = copy.deepcopy(receipt_chain.bundle_obj)
+    receipt_obj = copy.deepcopy(receipt_chain.receipt_obj)
+    # Corrupt issuedAt to a non-RFC3339-UTC value (with offset).
+    receipt_obj["issuedAt"] = "2026-07-21T00:00:00+02:00"
+    receipt_obj["signatures"] = _TQFB._sign_subject(
+        receipt_obj,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_STATEMENT,
+        _TQO.DOMAIN_TASK_COMPLETION_RECEIPT_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(receipt_obj)
+    actual = _run_completion_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.completion_receipt_invalid_issued_at", False, actual)
+
+
 def test_positive_legal_d0_10_receipt() -> RedMatrixResult:
     """A legal D0-10 bootstrap receipt chain should verify successfully."""
     approval_chain = _TQFB.build_d0_10_approval_chain()
@@ -2041,6 +2185,16 @@ def run_all_tests() -> list:
         test_negative_d0_10_wrong_signature,
         test_negative_d0_10_wrong_task_id,
         test_negative_d0_10_wrong_ruling,
+        # §7 GAP-16: ruling-source join (contentDigest/status/reviewCommit)
+        test_negative_d0_10_ruling_content_digest_mismatch,
+        test_negative_d0_10_ruling_wrong_status,
+        test_negative_d0_10_ruling_review_commit_mismatch,
+        # §8.2 GAP-24: phantom gateId in gate-keyed members
+        test_negative_phantom_gate_id_member,
+        # §8.2 GAP-11: fixture policy principal keys pinned to RFC 8032 vectors
+        test_negative_fixture_policy_wrong_principal_public_key,
+        # §6 GAP-15: issuedAt RFC3339 UTC validation
+        test_negative_completion_receipt_invalid_issued_at,
         # D0-10 bootstrap receipt
         test_positive_legal_d0_10_receipt,
         test_negative_d0_10_receipt_wrong_signature,
