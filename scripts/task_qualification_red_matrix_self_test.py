@@ -1169,6 +1169,72 @@ def test_negative_dependency_receipt_signatures_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.dependency_receipt_signatures_mismatch", False, actual)
 
 
+def test_negative_row_output_mismatch_freeze() -> RedMatrixResult:
+    """GAP-3: §3 the taskRow must exact-equal the freeze package across
+    taskId/output/dependencies/prerequisites/tests. A qualification whose
+    taskRow.output differs from the freeze package's output must reject at the
+    ancestry stage. The subject is re-signed so the verifier reaches the
+    ancestry stage where the row-vs-freeze equality check fires.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the row.output to a different value than the freeze package's
+    # output ("fixture qualification verifier test").
+    subject_obj["taskRow"]["output"] = "tampered output value"
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.row_output_mismatch_freeze", False, actual)
+
+
+def test_negative_row_prerequisites_mismatch_freeze() -> RedMatrixResult:
+    """GAP-3: §3 the taskRow.prerequisites must exact-equal the freeze
+    package's prerequisites. A qualification whose row lists an extra
+    prerequisite absent from the freeze package must reject at the ancestry
+    stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Add an extra prerequisite to row that the freeze package lacks.
+    subject_obj["taskRow"]["prerequisites"] = list(
+        subject_obj["taskRow"]["prerequisites"]
+    ) + ["ADR-9999@accepted"]
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.row_prerequisites_mismatch_freeze", False, actual)
+
+
+def test_negative_row_tests_mismatch_freeze() -> RedMatrixResult:
+    """GAP-3: §3 the taskRow.tests must exact-equal the freeze package's
+    tests. A qualification whose row lists a different test than the freeze
+    package must reject at the ancestry stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the row.tests to a different test id.
+    subject_obj["taskRow"]["tests"] = ["TST-FAKE-001"]
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.row_tests_mismatch_freeze", False, actual)
+
+
 def test_negative_command_policy_tool_ref_unjoined() -> RedMatrixResult:
     """GAP-23: §8.2/§3 the command policy's tool ContentRef must join the
     resolved-tool/<gateId> member. A bundle whose resolved-tool member content
@@ -1204,6 +1270,26 @@ def test_negative_command_policy_verifier_closure_missing() -> RedMatrixResult:
     subject_bytes = _canonical_bytes(subject_obj)
     actual = _run_verifier(bundle_bytes, subject_bytes)
     return RedMatrixResult("negative.command_policy_verifier_closure_missing", False, actual)
+
+
+def test_negative_gate_evidence_empty() -> RedMatrixResult:
+    """GAP-25: §8.2 qualification/approval evidence families are nonempty per
+    gate. A qualification whose gate has zero evidence must reject at the
+    evidence stage.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Empty the gate's evidence list and re-sign.
+    subject_obj["gates"][0]["evidence"] = []
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.gate_evidence_empty", False, actual)
 
 
 def _build_random_root_commit() -> tuple:
@@ -1622,9 +1708,15 @@ def run_all_tests() -> list:
         test_negative_dependency_row_mismatch,
         test_negative_dependency_receipt_taskid_mismatch,
         test_negative_dependency_receipt_signatures_mismatch,
+        # §3 row vs freeze package exact equality (GAP-3)
+        test_negative_row_output_mismatch_freeze,
+        test_negative_row_prerequisites_mismatch_freeze,
+        test_negative_row_tests_mismatch_freeze,
         # §8.2/§3 command policy ref joins (GAP-22/23)
         test_negative_command_policy_tool_ref_unjoined,
         test_negative_command_policy_verifier_closure_missing,
+        # §8.2/§3 gate evidence nonempty + id-sort (GAP-25/8)
+        test_negative_gate_evidence_empty,
         # §8.3 ancestry graph closure (P1-5/P1-6)
         test_negative_ancestry_extra_commit_not_in_graph,
         test_negative_ancestry_dependency_unreachable,

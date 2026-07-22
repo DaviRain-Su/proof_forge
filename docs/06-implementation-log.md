@@ -8266,3 +8266,56 @@ normative: false
   需 fixture 扩展，留后续）。GAP-6（argv[0] absolute + tool identity）仍 pending。
   remaining GAPs（GAP-12/13、GAP-16/17/18、GAP-3/5/8/25、P2）仍 pending。
 - Next：继续 GAP-3/5/8/25 row/freeze/evidence validation（§3）。
+
+## 2026-07-22 — TASK-D0-10 slice 17：GAP-3/8/25 row/freeze equality + gate evidence (§3/§8.2)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §3 line 98-134（taskRow 与 freeze package 在
+  taskId/output/dependencies/prerequisites/tests 上 exact equality；evidence refs 在
+  gate 内按 id 升序且唯一）与 §8.2 line 460-470（gate evidence families nonempty per
+  gate）；`TST-DOC-001`。
+- Findings（来自 final comprehensive audit，针对 verifier 的 ancestry + evidence
+  stages）：
+  - GAP-3（row vs freeze package 不做 exact equality）：`_verify_task_qualification`
+    ancestry stage 与 `_verify_d0_10_approval` ancestry stage 都 parse 了 freeze
+    package source bytes，但只取 freezeCommit，不比对 row 与 freeze 的
+    taskId/output/dependencies/prerequisites/tests。fixture 的 freeze package
+    `dependencies: []` 与 taskRow `dependencies: [FIXTURE_DEP_TASK_ID]` 已存在
+    mismatch，但 verifier 未拒绝。
+  - GAP-8（gate evidence refs 不按 id 排序/唯一）：`_verify_evidence_members` 只
+    遍历 evidence refs，不断言 sorted-by-id 与 unique。
+  - GAP-25（gate evidence 可为空）：`_verify_evidence_members` 不断言 evidence
+    families nonempty per gate（§8.2）。
+- Changed：
+  - `scripts/task_qualification_objects.py`：`TaskFreezePackageV1` 新增
+    output/dependencies/prerequisites/tests 字段；`parse_freeze_package` 提取这些
+    字段并做类型/bounds 校验。
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_evidence_members` 末尾新增 GAP-25（gate evidence nonempty）与
+      GAP-8（evidence refs sorted-by-id 且 unique）断言。
+    - `_verify_task_qualification` ancestry stage 新增 GAP-3 断言：
+      row.taskId/output/dependencies/prerequisites/tests exact-equal freeze package。
+    - `_verify_d0_10_approval` ancestry stage 新增同样 GAP-3 断言。
+  - `scripts/task_qualification_fixture_builder.py`：
+    `build_freeze_package_source(candidate, dependencies=())` 新增 dependencies
+    参数；`build_fixture_chain()` 传 `dependencies=()`；`build_fixture_chain_with_dependency()`
+    传 `dependencies=(FIXTURE_DEP_TASK_ID,)` 使 freeze package 与 taskRow 一致。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 4 个 RED test：
+    - `test_negative_row_output_mismatch_freeze`：row.output 改为不同值，重签，期望 reject。
+    - `test_negative_row_prerequisites_mismatch_freeze`：row.prerequisites 加一项，重签，期望 reject。
+    - `test_negative_row_tests_mismatch_freeze`：row.tests 改为不同 test id，重签，期望 reject。
+    - `test_negative_gate_evidence_empty`：gate.evidence 清空，重签，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 78/78 passed
+  （slice 16 的 74 个 + slice 17 的 4 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：row 与 freeze package 现在在 5 个轴（taskId/output/dependencies/
+  prerequisites/tests）上 exact equality，fail closed。gate evidence refs 按 id 升序且
+  唯一，gate evidence families nonempty per gate。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for row/freeze equality + gate evidence (§3/§8.2)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。GAP-5
+  （freeze field bounds：overflowPolicy/maxCalendarDays/maxCommits）仍 pending。
+  remaining GAPs（GAP-12/13 semantic file set、GAP-16/17/18 D0-10 approval、
+  GAP-6 argv[0] identity、GAP-11/15/24/26 P2）仍 pending。
+- Next：继续 GAP-5 freeze field bounds，然后是 GAP-12/13 semantic file set。

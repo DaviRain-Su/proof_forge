@@ -1103,7 +1103,21 @@ def _verify_evidence_members(
     gate: TaskQualificationGateV1,
     where: str,
 ) -> None:
-    """Verify evidence members for a gate."""
+    """Verify evidence members for a gate.
+
+    Per §8.2, qualification/approval evidence families are nonempty per gate.
+    Per §3, evidence refs within a gate must be sorted by id ascending and
+    unique.
+    """
+    # GAP-25: evidence must be nonempty per gate (§8.2 "nonempty").
+    if len(gate.evidence) == 0:
+        _BTO._reject(f"{where}: gate {gate.gateId} evidence must be nonempty (§8.2)")
+    # GAP-8: evidence refs must be sorted by id ascending and unique (§3).
+    ev_ids = [ev.id for ev in gate.evidence]
+    if ev_ids != sorted(ev_ids):
+        _BTO._reject(f"{where}: gate {gate.gateId} evidence refs not sorted by id (§3)")
+    if len(set(ev_ids)) != len(ev_ids):
+        _BTO._reject(f"{where}: gate {gate.gateId} evidence refs duplicate id (§3)")
     for ev_ref in gate.evidence:
         role = f"evidence/{ev_ref.id}"
         member = member_map.get(role)
@@ -1904,6 +1918,19 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
             qualification.dependencies,
             "ancestry",
         )
+        # GAP-3: §3 row vs freeze package exact equality (taskId/output/
+        # dependencies/prerequisites/tests).
+        row = qualification.taskRow
+        if row.taskId != freeze_pkg.taskId:
+            _BTO._reject("ancestry: row.taskId != freeze.taskId")
+        if row.output != freeze_pkg.output:
+            _BTO._reject("ancestry: row.output != freeze.output")
+        if tuple(row.dependencies) != freeze_pkg.dependencies:
+            _BTO._reject("ancestry: row.dependencies != freeze.dependencies")
+        if tuple(row.prerequisites) != freeze_pkg.prerequisites:
+            _BTO._reject("ancestry: row.prerequisites != freeze.prerequisites")
+        if tuple(row.tests) != freeze_pkg.tests:
+            _BTO._reject("ancestry: row.tests != freeze.tests")
     except Rejected as r:
         return _reject_stage("ancestry", r.detail)
 
@@ -2243,6 +2270,19 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
                 "d0-07-completion-commit-object": approval.d0_07Bridge.completionCommit,
             },
         )
+        # GAP-3: §3 row vs freeze package exact equality (taskId/output/
+        # dependencies/prerequisites/tests).
+        row = approval.taskRow
+        if row.taskId != freeze_pkg.taskId:
+            _BTO._reject("ancestry: row.taskId != freeze.taskId")
+        if row.output != freeze_pkg.output:
+            _BTO._reject("ancestry: row.output != freeze.output")
+        if tuple(row.dependencies) != freeze_pkg.dependencies:
+            _BTO._reject("ancestry: row.dependencies != freeze.dependencies")
+        if tuple(row.prerequisites) != freeze_pkg.prerequisites:
+            _BTO._reject("ancestry: row.prerequisites != freeze.prerequisites")
+        if tuple(row.tests) != freeze_pkg.tests:
+            _BTO._reject("ancestry: row.tests != freeze.tests")
     except Rejected as r:
         return _reject_stage("ancestry", r.detail)
 

@@ -533,11 +533,16 @@ def parse_freeze_package_ref(obj: dict, where: str) -> TaskFreezePackageRefV1:
 class TaskFreezePackageV1:
     taskId: str
     freezeCommit: str
+    output: str
+    dependencies: Tuple[str, ...]
+    prerequisites: Tuple[str, ...]
+    tests: Tuple[str, ...]
 
 
 def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
     """Parse the raw freeze package source (§3 TaskFreezePackageV1) and
-    extract the fields the verifier needs for ancestry graph construction.
+    extract the fields the verifier needs for ancestry graph construction
+    and row-equality verification (GAP-3).
     """
     if not isinstance(obj, dict):
         _reject(f"{where}: freeze package must be object")
@@ -546,7 +551,22 @@ def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
         _reject(f"{where}.schemaVersion: must be 1")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     freeze_commit = _require_git_object(obj.get("freezeCommit"), f"{where}.freezeCommit")
-    return TaskFreezePackageV1(taskId=task_id, freezeCommit=freeze_commit)
+    output = _require_string(obj.get("output"), f"{where}.output")
+    deps_arr = obj.get("dependencies")
+    if not isinstance(deps_arr, list):
+        _reject(f"{where}.dependencies: must be array")
+    deps = tuple(_require_task_id(d, f"{where}.dependencies") for d in deps_arr)
+    prereqs_arr = obj.get("prerequisites")
+    if not isinstance(prereqs_arr, list):
+        _reject(f"{where}.prerequisites: must be array")
+    prereqs = tuple(_require_string(p, f"{where}.prerequisites") for p in prereqs_arr)
+    tests_arr = obj.get("tests")
+    if not isinstance(tests_arr, list):
+        _reject(f"{where}.tests: must be array")
+    tests = tuple(_require_string(t, f"{where}.tests") for t in tests_arr)
+    return TaskFreezePackageV1(
+        taskId=task_id, freezeCommit=freeze_commit, output=output,
+        dependencies=deps, prerequisites=prereqs, tests=tests)
 
 
 def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:

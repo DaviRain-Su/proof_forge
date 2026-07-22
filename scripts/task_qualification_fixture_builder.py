@@ -285,15 +285,23 @@ Fixture subprofile for TST-DOC-001/task-qualification-v1.
     return content.encode("utf-8")
 
 
-def build_freeze_package_source(candidate: CandidateContext) -> bytes:
-    """Build synthetic freeze package source bytes."""
+def build_freeze_package_source(
+    candidate: CandidateContext,
+    dependencies: tuple = (),
+) -> bytes:
+    """Build synthetic freeze package source bytes.
+
+    The dependencies list must match the taskRow.dependencies (§3 row-vs-package
+    exact equality). For the dependency-chain fixture, pass
+    (FIXTURE_DEP_TASK_ID,).
+    """
     package = {
         "schemaVersion": 1,
         "taskId": FIXTURE_TASK_ID,
         "frozenAt": "2026-07-21",
         "freezeCommit": candidate.identity.commit,
         "output": "fixture qualification verifier test",
-        "dependencies": [],
+        "dependencies": list(dependencies),
         "prerequisites": ["SPEC-TASKQUAL-001@accepted"],
         "tests": [FIXTURE_TEST_ID],
         "inScope": [
@@ -1000,7 +1008,7 @@ def build_fixture_chain() -> FixtureChain:
     # Build source documents
     phase4_bytes = build_phase4_source(candidate)
     phase5_bytes = build_phase5_source(candidate)
-    freeze_bytes = build_freeze_package_source(candidate)
+    freeze_bytes = build_freeze_package_source(candidate, dependencies=())
     evidence_bytes = build_evidence_source(candidate)
     review_report_bytes = build_review_report(candidate)
 
@@ -1316,7 +1324,7 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
 
     phase4_bytes = build_phase4_source(candidate)
     phase5_bytes = build_phase5_source(candidate)
-    freeze_bytes = build_freeze_package_source(candidate)
+    freeze_bytes = build_freeze_package_source(candidate, dependencies=(FIXTURE_DEP_TASK_ID,))
     evidence_bytes = build_evidence_source(candidate)
     review_report_bytes = build_review_report(candidate)
 
