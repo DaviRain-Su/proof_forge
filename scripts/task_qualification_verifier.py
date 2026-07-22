@@ -1029,7 +1029,14 @@ def _verify_command_policy(
     policy,
     where: str,
 ) -> TaskCommandPolicyV1:
-    """Verify a gate's command policy member and return the parsed policy."""
+    """Verify a gate's command policy member and return the parsed policy.
+
+    Per §8.2/§3, the command policy's tool/probe/sandboxPolicy/verifier refs
+    must resolve to the resolved-tool/<gateId>, resolved-probe/<gateId>,
+    sandbox-policy/<gateId>, verifier-executable/<gateId>,
+    verifier-closure/<gateId>, verifier-build-policy/<gateId> members
+    respectively (逐字段 exact join).
+    """
     role = f"command-policy/{gate.gateId}"
     member = member_map.get(role)
     if member is None:
@@ -1054,7 +1061,37 @@ def _verify_command_policy(
     )
     if computed_ref != gate.commandPolicy:
         _BTO._reject(f"{where}: {role} recomputed ref mismatch")
+    # GAP-23: resolve command policy refs to gate-keyed resolved-* members.
+    _resolve_command_policy_refs(member_map, gate.gateId, cmd, where)
     return cmd
+
+
+def _resolve_command_policy_refs(
+    member_map: dict,
+    gate_id: str,
+    cmd: TaskCommandPolicyV1,
+    where: str,
+) -> None:
+    """§8.2/§3: resolve the command policy's tool/probe/sandboxPolicy/verifier
+    ContentRefs to the gate-keyed resolved-* members and assert exact join
+    (recompute ContentRef from member bytes, compare to cmd ref).
+    """
+    ref_joins = [
+        ("resolved-tool", cmd.tool),
+        ("resolved-probe", cmd.probe),
+        ("sandbox-policy", cmd.sandboxPolicy),
+        ("verifier-executable", cmd.verifier.executable),
+        ("verifier-closure", cmd.verifier.closure),
+        ("verifier-build-policy", cmd.verifier.buildPolicy),
+    ]
+    for control_name, ref in ref_joins:
+        role = f"{control_name}/{gate_id}"
+        member = member_map.get(role)
+        if member is None:
+            _BTO._reject(f"{where}: {role} member missing (§8.2 gate-keyed control)")
+        if not isinstance(member, _TQO.TypedContentMemberV1):
+            _BTO._reject(f"{where}: {role} must be typed-content")
+        _verify_typed_member_recompute(member, ref, f"{where}: {role}")
 
 
 # ---------------------------------------------------------------------------

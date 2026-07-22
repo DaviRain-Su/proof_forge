@@ -8221,3 +8221,48 @@ normative: false
   （GAP-22/23/6 gate-keyed controls、GAP-12/13 semantic file set、GAP-16/17/18 D0-10
   approval、GAP-3/5/8/25 row/freeze/evidence、P2 gaps）仍 pending。
 - Next：继续 GAP-22/23/6 gate-keyed control resolution + command policy ref joins。
+
+## 2026-07-22 — TASK-D0-10 slice 16：GAP-22/23 command policy ref joins (§8.2/§3)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2 line 460-470（每个 gateId 的 exact singletons
+  含 command-policy、resolved-tool、resolved-probe、sandbox-policy、verifier-executable、
+  verifier-closure、verifier-build-policy 等；"command refs逐一exact join resolved
+  tool/probe/sandbox/verifier executable/closure/build policy"）与 §3 line 130
+  （argv/tool/probe/sandboxPolicy/verifier refs resolve to gate-keyed members）；
+  `TST-DOC-001`。
+- Findings（来自 final comprehensive audit，针对 verifier 的 command policy 处理）：
+  - GAP-23（command policy tool/probe/sandboxPolicy/verifier refs 未 join resolved-*
+    members）：`_verify_command_policy` parse command policy 并 recompute content ref，
+    但不 resolve cmd.tool → resolved-tool/<gateId>、cmd.probe → resolved-probe/<gateId>、
+    cmd.sandboxPolicy → sandbox-policy/<gateId>、cmd.verifier.{executable,closure,
+    buildPolicy} → verifier-executable/closure/build-policy/<gateId> member。
+  - GAP-22（8 of 12 gate-keyed control roles 未 resolve per gateId）：verifier 只 resolve
+    4 个（eligible-stage0-handoff、session-contment、freshness、private-scan），不 resolve
+    resolved-tool/probe、sandbox-policy、verifier-executable/closure/build-policy。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：新增 `_resolve_command_policy_refs(
+    member_map, gate_id, cmd, where)`：resolve cmd.tool/probe/sandboxPolicy/
+    verifier.{executable,closure,buildPolicy} 到 6 个 gate-keyed resolved-* member，
+    recompute ContentRef from member bytes，断言 == cmd ref。在
+    `_verify_command_policy` 末尾调用。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 2 个 RED test：
+    - `test_negative_command_policy_tool_ref_unjoined`：corrupt resolved-tool member
+      content ref digest，期望 reject。
+    - `test_negative_command_policy_verifier_closure_missing`：移除
+      verifier-closure/<gateId> member，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 74/74 passed
+  （slice 15 的 72 个 + slice 16 的 2 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：command policy 的 6 个 gate-keyed ref（tool/probe/sandboxPolicy/
+  verifier.executable/closure/buildPolicy）现在 recompute + join resolved-* member
+  bytes，fail closed。missing member 与 corrupt ref 一律在 command stage reject。
+- Evidence：development evidence for command policy ref joins (§8.2/§3)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  command policy 的 6 个 ref join；GAP-22 的其余 4 个 gate-keyed control（private-scan-
+  policy、authority-store-service、host-observation、host-profile）未 join（fixture
+  不单独创建这些 member——host-observation 内容在 eligible-stage0-handoff member 中，
+  需 fixture 扩展，留后续）。GAP-6（argv[0] absolute + tool identity）仍 pending。
+  remaining GAPs（GAP-12/13、GAP-16/17/18、GAP-3/5/8/25、P2）仍 pending。
+- Next：继续 GAP-3/5/8/25 row/freeze/evidence validation（§3）。

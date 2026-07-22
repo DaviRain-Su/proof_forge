@@ -1169,6 +1169,43 @@ def test_negative_dependency_receipt_signatures_mismatch() -> RedMatrixResult:
     return RedMatrixResult("negative.dependency_receipt_signatures_mismatch", False, actual)
 
 
+def test_negative_command_policy_tool_ref_unjoined() -> RedMatrixResult:
+    """GAP-23: §8.2/§3 the command policy's tool ContentRef must join the
+    resolved-tool/<gateId> member. A bundle whose resolved-tool member content
+    ref differs from the command policy's tool ref must reject at the command
+    stage.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Corrupt the resolved-tool member's content ref so it doesn't match the
+    # command policy's tool ref.
+    for m in bundle_obj["members"]:
+        if m.get("role", "").startswith("resolved-tool/"):
+            m["content"]["digest"] = "sha256:" + "ee" * 32
+            break
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.command_policy_tool_ref_unjoined", False, actual)
+
+
+def test_negative_command_policy_verifier_closure_missing() -> RedMatrixResult:
+    """GAP-22/23: §8.2 the verifier-closure/<gateId> member must be present and
+    join the command policy's verifier.closure ref. Removing the
+    verifier-closure member must reject at the command stage.
+    """
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    bundle_obj["members"] = [
+        m for m in bundle_obj["members"]
+        if not m.get("role", "").startswith("verifier-closure/")
+    ]
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.command_policy_verifier_closure_missing", False, actual)
+
+
 def _build_random_root_commit() -> tuple:
     """Build a random root git commit object (no parents) and return
     (commit_sha, commit_payload).
@@ -1585,6 +1622,9 @@ def run_all_tests() -> list:
         test_negative_dependency_row_mismatch,
         test_negative_dependency_receipt_taskid_mismatch,
         test_negative_dependency_receipt_signatures_mismatch,
+        # §8.2/§3 command policy ref joins (GAP-22/23)
+        test_negative_command_policy_tool_ref_unjoined,
+        test_negative_command_policy_verifier_closure_missing,
         # §8.3 ancestry graph closure (P1-5/P1-6)
         test_negative_ancestry_extra_commit_not_in_graph,
         test_negative_ancestry_dependency_unreachable,
