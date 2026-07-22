@@ -378,6 +378,68 @@ def test_negative_d0_10_receipt_ledger_evidence_id_mismatch() -> RedMatrixResult
     )
 
 
+def test_positive_d0_10_bridge_has_source_closure_bytes() -> RedMatrixResult:
+    """SA-3: §4 the d0_07Bridge must carry sourceClosureBytesHex (nonempty
+    lowercase even hex). RED until the fixture builder emits it.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    _bundle_obj, approval_obj = _make_mutated_chain(chain)
+    bridge = approval_obj.get("d0_07Bridge", {})
+    has_field = (
+        "sourceClosureBytesHex" in bridge
+        and isinstance(bridge["sourceClosureBytesHex"], str)
+        and len(bridge["sourceClosureBytesHex"]) >= 2
+        and len(bridge["sourceClosureBytesHex"]) % 2 == 0
+    )
+    return RedMatrixResult(
+        "positive.d0_10_bridge_has_source_closure_bytes", True, has_field,
+    )
+
+
+def test_negative_d0_10_bridge_missing_source_closure_bytes() -> RedMatrixResult:
+    """SA-3: §4 GovernanceBootstrapReceiptDependencyV1 must carry
+    sourceClosureBytesHex. Removing it must reject at the dependencies stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    del approval_obj["d0_07Bridge"]["sourceClosureBytesHex"]
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(
+        "negative.d0_10_bridge_missing_source_closure_bytes", False, actual,
+    )
+
+
+def test_negative_d0_10_bridge_source_closure_bytes_mismatch() -> RedMatrixResult:
+    """SA-3: §4 sourceClosureBytesHex decoded bytes' plain SHA-256 must equal
+    the decoded completion.sourceClosure.digest. A bridge whose
+    sourceClosureBytesHex does not hash to the GBC sourceClosure digest must
+    reject at the dependencies stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    # Corrupt the sourceClosureBytesHex so it no longer hashes to the GBC
+    # sourceClosure digest.
+    approval_obj["d0_07Bridge"]["sourceClosureBytesHex"] = "00" * 32
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult(
+        "negative.d0_10_bridge_source_closure_bytes_mismatch", False, actual,
+    )
+
+
 def test_negative_phantom_gate_id_member() -> RedMatrixResult:
     """GAP-24: §8.2 gate-keyed member suffixes must exactly equal declared
     gateIds. A qualification bundle with an extra command-policy/<phantom-gate>
@@ -2378,6 +2440,10 @@ def run_all_tests() -> list:
         test_negative_d0_10_receipt_missing_ledger_evidence_id,
         test_negative_d0_10_receipt_malformed_ledger_evidence_id,
         test_negative_d0_10_receipt_ledger_evidence_id_mismatch,
+        # §4 SA-3: sourceClosureBytesHex on d0_07Bridge + source closure bytes recompute
+        test_positive_d0_10_bridge_has_source_closure_bytes,
+        test_negative_d0_10_bridge_missing_source_closure_bytes,
+        test_negative_d0_10_bridge_source_closure_bytes_mismatch,
         # §8.2 GAP-24: phantom gateId in gate-keyed members
         test_negative_phantom_gate_id_member,
         # §8.2 GAP-11: fixture policy principal keys pinned to RFC 8032 vectors

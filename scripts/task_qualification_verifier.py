@@ -966,6 +966,16 @@ def _verify_d0_07_bridge_internal(
             f"{where}: gc.sourceClosure.path must be {expected_source_path}, "
             f"got {gc.sourceClosure.path}")
 
+    # §4: sourceClosureBytesHex decoded bytes' plain SHA-256 must equal the
+    # decoded completion.sourceClosure.digest. The wrapper verifies the
+    # source closure bytes independently of the objectBytesHex claims.
+    source_bytes = bytes.fromhex(bridge.sourceClosureBytesHex)
+    computed_source_digest = _TQO.plain_sha256_digest(source_bytes)
+    if computed_source_digest != gc.sourceClosure.digest:
+        _BTO._reject(
+            f"{where}: sourceClosureBytesHex sha256 != gc.sourceClosure.digest"
+        )
+
     # §7: verify the governance completion signatures under §1 fixed rule.
     # The governance completion is signed under
     # DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT / SIGNATURE.

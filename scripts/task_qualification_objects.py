@@ -754,6 +754,7 @@ class GovernanceBootstrapReceiptDependencyV1:
     authorityPolicy: ContentRef
     objectDigest: Digest
     objectBytesHex: str
+    sourceClosureBytesHex: str
     signatures: Tuple[ApprovalSignatureV1, ...]
 
 
@@ -816,11 +817,15 @@ def parse_dependency(obj: dict, where: str) -> DependencyCompletionRefV1:
         policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
         obj_digest = _require_digest(obj.get("objectDigest"), f"{where}.objectDigest")
         obj_hex = _parse_object_bytes_hex(obj.get("objectBytesHex"), f"{where}.objectBytesHex")
+        source_hex = _parse_object_bytes_hex(
+            obj.get("sourceClosureBytesHex"), f"{where}.sourceClosureBytesHex"
+        )
         sigs = _parse_dependency_signatures(obj, where)
         return GovernanceBootstrapReceiptDependencyV1(
             kind=kind, taskId=task_id, ruling=ruling, completionCommit=commit,
             authorityPolicy=policy, objectDigest=obj_digest,
-            objectBytesHex=obj_hex, signatures=sigs,
+            objectBytesHex=obj_hex, sourceClosureBytesHex=source_hex,
+            signatures=sigs,
         )
     if kind == "task-qualification":
         task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
@@ -2304,6 +2309,7 @@ def dependency_to_wire(d: DependencyCompletionRefV1) -> dict:
             "authorityPolicy": content_ref_to_wire(d.authorityPolicy),
             "objectDigest": digest_to_wire(d.objectDigest),
             "objectBytesHex": d.objectBytesHex,
+            "sourceClosureBytesHex": d.sourceClosureBytesHex,
             "signatures": [approval_signature_to_wire(s) for s in d.signatures],
         }
     if isinstance(d, TaskQualificationDependencyV1):

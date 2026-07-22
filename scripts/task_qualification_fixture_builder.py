@@ -1695,6 +1695,10 @@ _D0_10_APPROVAL_PATH = (
 D0_07_TASK_ID = "TASK-D0-07"
 D0_07_RULING_ID = "GOV-D0CLOSE-001"
 D0_07_SOURCE_PATH = "docs/governance/bootstrap-closure/TASK-D0-07.attest.json"
+# §4: the d0_07Bridge sourceClosureBytesHex carries the raw bytes of the
+# D0-07 GBC sourceClosure (the attest file content), so the verifier can
+# recompute plain_sha256(bytes) == gc.sourceClosure.digest independently.
+D0_07_SOURCE_CONTENT = b'{"fixture": "d0-07-attest"}'
 
 
 @dataclass(frozen=True)
@@ -1718,7 +1722,7 @@ def _build_d0_07_governance_completion(
 ) -> dict:
     """Build a fixture D0-07 GovernanceBootstrapCompletionV1."""
     # The D0-07 source closure is the attest.json file
-    source_content = b'{"fixture": "d0-07-attest"}'
+    source_content = D0_07_SOURCE_CONTENT
     source_digest = plain_sha256_digest(source_content)
 
     ruling_ref = _TQO.NormativeDocumentRefV1(
@@ -1811,6 +1815,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
             _TQO.DOMAIN_DEPENDENCY_OBJECT, d0_07_completion_bytes
         ),
         objectBytesHex=d0_07_completion_bytes.hex(),
+        sourceClosureBytesHex=D0_07_SOURCE_CONTENT.hex(),
         signatures=tuple(
             _TQO.parse_approval_signature(s, "bridge")
             for s in d0_07_completion_obj["signatures"]
@@ -2064,6 +2069,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
             "authorityPolicy": content_ref_to_wire(d0_07_bridge.authorityPolicy),
             "objectDigest": digest_to_wire(d0_07_bridge.objectDigest),
             "objectBytesHex": d0_07_bridge.objectBytesHex,
+            "sourceClosureBytesHex": d0_07_bridge.sourceClosureBytesHex,
             "signatures": [_TQO.approval_signature_to_wire(s) for s in d0_07_bridge.signatures],
         },
         "allowedCloseoutPatch": content_ref_to_wire(patch_ref),
