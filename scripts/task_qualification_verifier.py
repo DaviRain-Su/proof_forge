@@ -182,6 +182,24 @@ def _check_bounds(content_bundle_bytes: bytes, subject_bytes: bytes) -> None:
         _BTO._reject(f"contentBundleBytes exceeds {_TQO.MAX_BUNDLE_CANONICAL}")
 
 
+def _check_aggregate_member_bound(bundle: TaskQualificationContentBundleV1, where: str) -> None:
+    """Check the §8.2 aggregate decoded-member bound: the sum of all member
+    bytesHex decoded sizes must not exceed MAX_BUNDLE_AGGREGATE (128 MiB).
+
+    Per §8.2 line 440: "展开总计 <=128 MiB". The consumer must scan canonical
+    token/hex length before any hex decode, allocation, or curve work.
+    """
+    aggregate = 0
+    for m in bundle.members:
+        # Each member's bytesHex is lowercase hex; decoded size = len // 2.
+        # The parser already validates bytesHex format and per-member 64 MiB.
+        aggregate += len(m.bytesHex) // 2
+        if aggregate > _TQO.MAX_BUNDLE_AGGREGATE:
+            _BTO._reject(
+                f"{where}: aggregate decoded-member bytes {aggregate} > "
+                f"{_TQO.MAX_BUNDLE_AGGREGATE} (§8.2)")
+
+
 # ---------------------------------------------------------------------------
 # Stage 2: bundle decode
 # ---------------------------------------------------------------------------
@@ -1644,6 +1662,7 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     try:
         member_map = _build_member_map(bundle)
         _verify_member_role_set(bundle, member_map, profile, "members")
+        _check_aggregate_member_bound(bundle, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -1826,6 +1845,7 @@ def _verify_task_completion(content_bundle_bytes, subject_bytes):
     try:
         member_map = _build_member_map(bundle)
         _verify_member_role_set(bundle, member_map, profile, "members")
+        _check_aggregate_member_bound(bundle, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -1958,6 +1978,7 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
     try:
         member_map = _build_member_map(bundle)
         _verify_member_role_set(bundle, member_map, profile, "members")
+        _check_aggregate_member_bound(bundle, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 
@@ -2151,6 +2172,7 @@ def _verify_d0_10_receipt(content_bundle_bytes, subject_bytes):
     try:
         member_map = _build_member_map(bundle)
         _verify_member_role_set(bundle, member_map, profile, "members")
+        _check_aggregate_member_bound(bundle, "members")
     except Rejected as r:
         return _reject_stage("members", r.detail)
 

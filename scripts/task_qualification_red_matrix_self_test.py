@@ -1338,6 +1338,36 @@ def test_negative_d0_10_bridge_corrupt_gc_signatures() -> RedMatrixResult:
     return RedMatrixResult("negative.d0_10_bridge_corrupt_gc_signatures", False, actual)
 
 
+def test_negative_aggregate_member_bound_exceeded() -> RedMatrixResult:
+    """§8.2: the aggregate decoded-member bytes must not exceed
+    MAX_BUNDLE_AGGREGATE (128 MiB). The verifier must scan canonical hex
+    length before any allocation/curve work and reject if the aggregate
+    exceeds the bound.
+
+    To keep the test computationally feasible, the MAX_BUNDLE_AGGREGATE
+    constant is temporarily lowered to a small value, and a fixture bundle's
+    member bytesHex are inflated to exceed that lowered threshold. The test
+    drives the real shipped _check_aggregate_member_bound code path (which
+    reads _TQO.MAX_BUNDLE_AGGREGATE at runtime).
+    """
+    import unittest.mock as mock
+    chain = _TQFB.build_fixture_chain()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Lower the threshold to 256 bytes so the test is fast. Inflate one
+    # member's bytesHex to exceed 256 decoded bytes.
+    small_limit = 256
+    with mock.patch.object(_TQO, "MAX_BUNDLE_AGGREGATE", small_limit):
+        for m in bundle_obj["members"]:
+            if m.get("role") == "candidate-archive":
+                # Set bytesHex to 300 decoded bytes (600 hex chars).
+                m["bytesHex"] = "ab" * 300
+                break
+        bundle_bytes = _canonical_bytes(bundle_obj)
+        subject_bytes = _canonical_bytes(subject_obj)
+        actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.aggregate_member_bound_exceeded", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -1431,6 +1461,8 @@ def run_all_tests() -> list:
         test_negative_d0_10_bridge_wrong_ruling_digest,
         test_negative_d0_10_bridge_self_signed,
         test_negative_d0_10_bridge_corrupt_gc_signatures,
+        # §8.2 aggregate decoded-member bound (P1-9)
+        test_negative_aggregate_member_bound_exceeded,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

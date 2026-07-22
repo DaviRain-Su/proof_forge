@@ -8073,3 +8073,47 @@ normative: false
   P1-9 aggregate bound、P1-10 spec gap）仍 pending。
 - Next：继续下一有明确 spec 的 P1 finding（P1-9 aggregate bound 或 P1-7
   production-profile member bytes），仍按 RED-first 协议。
+
+## 2026-07-22 — TASK-D0-10 slice 13：P1-9 aggregate decoded-member bound (§8.2)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.2 line 440（"展开总计 <=128 MiB"；consumer
+  必须仅扫描 canonical token/hex length，在任何 hex decode、entry
+  allocation/hash/curve 前同时检查 subject、bundle、member、aggregate 与
+  archive bounds）；`TST-DOC-001`。
+- Findings（来自独立复审，针对 verifier 的 aggregate bound 处理）：
+  - P1-9（aggregate decoded-member bound 未强制）：`MAX_BUNDLE_AGGREGATE`
+    （128 MiB）在 `task_qualification_objects.py` line 1642 定义但 verifier 从不使用。
+    `_check_bounds` 只验 bundle canonical（260 MiB）与 subject（4 MiB），不验所有
+    member bytesHex decoded 大小总和。一个 bundle 可携带多个接近 64 MiB 的 member，
+    aggregate 远超 128 MiB 而 verifier 接受。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：新增 `_check_aggregate_member_bound(
+    bundle, where)`：对所有 member 的 `bytesHex` decoded 大小（`len//2`）累加，
+    超过 `_TQO.MAX_BUNDLE_AGGREGATE` 即 reject（fail closed，在 any
+    allocation/hash/curve 前扫描 hex length）。在全部 4 个 verifier
+    （qualification、task-completion-receipt、d0-10-approval、d0-10-receipt）的
+    members stage（`_build_member_map` + `_verify_member_role_set` 之后）调用。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 1 个 RED test：
+    `test_negative_aggregate_member_bound_exceeded`：用 `unittest.mock.patch` 将
+    `MAX_BUNDLE_AGGREGATE` 临时降至 256 bytes，将 fixture 的 candidate-archive
+    member bytesHex 膨胀至 300 decoded bytes，期望 verifier 在 members stage reject
+    （`aggregate decoded-member bytes 749 > 256`）。test 驱动真实 shipped
+    `_check_aggregate_member_bound` 代码路径（运行时读取
+    `_TQO.MAX_BUNDLE_AGGREGATE`）。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 67/67 passed
+  （slice 12 的 66 个 + slice 13 的 1 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：bundle 的 aggregate decoded-member bytes 超过 128 MiB 一律在
+  members stage reject（fail closed，扫描 hex length 不 decode）。RED test 确认
+  reject 发生在 members stage 且消息含 "aggregate decoded-member bytes"。
+  所有 fixture chain 仍返回 `fixture-non-authoritative`。
+- Evidence：development evidence for aggregate decoded-member bound (§8.2)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只
+  做 aggregate decoded-member bound；per-member 64 MiB 与 single archive 64 MiB
+  限制已由 parser `_require_bytes_hex` 与 `parse_ustar_archive` 强制（既有）。
+  remaining P1 finding（P1-7 production-profile member bytes）仍 pending。P1-10
+  spec gap 留待规格变更流程。
+- Next：继续最后的有明确 spec 的 P1 finding（P1-7 production-profile member bytes），
+  仍按 RED-first 协议。然后做 final comprehensive audit。
