@@ -1087,6 +1087,9 @@ def _verify_evidence_members(
 def _verify_dependency_members(
     member_map: dict,
     dependencies: tuple,
+    row_dependencies: tuple,
+    authority_policy,
+    profile,
     where: str,
 ) -> None:
     """Verify dependency members for each dependency.
@@ -1099,8 +1102,26 @@ def _verify_dependency_members(
     three members.
 
     Per §4, objectDigest = SHA-256("pf.taskqual.dependency-object.v1" || NUL
-    || raw bytes), i.e. a raw-bytes digest, not a PF-JCS digest.
+    || raw bytes), i.e. a raw-bytes digest, not a PF-JCS digest. objectBytesHex
+    must decode to canonical JSON (PF-JCS). The typed task, policy, receipt,
+    signatures must逐字段 exact join the decoded raw object. dependencies
+    taskId set must exact-equal row direct dependencies (no transitive
+    substitute).
+
+    Per §4 kind-specific rules:
+    - bootstrap-task-receipt: only D0-01..06, verify complete object bytes
+      under the historical receipt schema/signature domain.
+    - task-qualification: only D1..D8, verify TaskCompletionReceiptV1.
+    - governance-bootstrap-receipt: handled by _verify_d0_07_bridge_internal
+      for the D0-10 approval path (not here).
     """
+    # GAP-10: dependencies taskId set must exact-equal row direct dependencies.
+    dep_task_ids = tuple(dep.taskId for dep in dependencies)
+    if dep_task_ids != tuple(row_dependencies):
+        _BTO._reject(
+            f"{where}: dependency taskIds {dep_task_ids} != row.dependencies "
+            f"{tuple(row_dependencies)} (§4 exact equality)")
+
     for dep in dependencies:
         role = f"dependency/{dep.taskId}"
         archive_role = f"dependency-archive/{dep.taskId}"
@@ -1116,6 +1137,53 @@ def _verify_dependency_members(
         computed = _TQO.domain_digest_raw(_TQO.DOMAIN_DEPENDENCY_OBJECT, raw_bytes)
         if computed.bytes != dep.objectDigest.bytes:
             _BTO._reject(f"{where}: {role} object digest mismatch")
+        # GAP-9: decode objectBytesHex and assert canonical (PF-JCS).
+        dep_obj = _BTO.decode_canonical_pf_jcs(raw_bytes)
+        # GAP-9: for task-qualification kind, the objectBytesHex carries the
+        # prior task's TaskCompletionReceiptV1. Join the dependency wire fields
+        # to the decoded receipt fields (逐字段 exact join per §4).
+        if dep.kind == "task-qualification":
+            receipt = _TQO.parse_completion_receipt(dep_obj, f"{where}: {role} receipt")
+            # dep.taskId == receipt.taskId
+            if dep.taskId != receipt.taskId:
+                _BTO._reject(f"{where}: {role} taskId != receipt.taskId")
+            # dep.completionCommit == receipt.closeoutCandidate.commit
+            if dep.completionCommit != receipt.closeoutCandidate.commit:
+                _BTO._reject(
+                    f"{where}: {role} completionCommit != receipt.closeoutCandidate.commit")
+            # dep.authorityPolicy == receipt.authorityPolicy
+            if dep.authorityPolicy != receipt.authorityPolicy:
+                _BTO._reject(f"{where}: {role} authorityPolicy != receipt.authorityPolicy")
+            # dep.receipt ref recomputes from the decoded receipt under
+            # DOMAIN_TASK_COMPLETION_RECEIPT.
+            expected_receipt_ref = _TQO.TaskCompletionReceiptRefV1(
+                taskId=receipt.taskId,
+                id=receipt.id,
+                digest=_TQO.domain_digest(_TQO.DOMAIN_TASK_COMPLETION_RECEIPT, dep_obj),
+            )
+            if dep.receipt != expected_receipt_ref:
+                _BTO._reject(f"{where}: {role} receipt ref does not recompute from decoded receipt")
+            # dep.signatures == receipt.signatures (逐字段 exact join)
+            if tuple(dep.signatures) != tuple(receipt.signatures):
+                _BTO._reject(f"{where}: {role} signatures != receipt.signatures")
+        elif dep.kind == "bootstrap-task-receipt":
+            # §4: bootstrap-task-receipt only allows D0-01..06, verify complete
+            # object bytes under the historical receipt schema/signature domain.
+            # This is not exercised by the fixture (no D0-01..06 dependency in
+            # the fixture chain). We verify the objectBytesHex is canonical
+            # (already done) and that kind/taskId/completionCommit/signatures
+            # join the decoded object. The historical receipt schema parser is
+            # named in §8.3 but not wired here (out of fixture scope).
+            if dep_obj.get("taskId") != dep.taskId:
+                _BTO._reject(f"{where}: {role} taskId != decoded taskId")
+            if dep_obj.get("completionCommit") != dep.completionCommit:
+                _BTO._reject(f"{where}: {role} completionCommit != decoded completionCommit")
+            dep_sigs = dep_obj.get("signatures", [])
+            decoded_sigs = tuple(
+                _TQO.parse_approval_signature(s, f"{where}: {role} signatures")
+                for s in dep_sigs)
+            if decoded_sigs != tuple(dep.signatures):
+                _BTO._reject(f"{where}: {role} signatures != decoded signatures")
         # §8.2: dependency archive and commit object members are required
         # (exact three-piece row), not optional.
         if archive_role not in member_map:
@@ -1776,7 +1844,10 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
 
     # Stage 10: dependencies
     try:
-        _verify_dependency_members(member_map, qualification.dependencies, "dependencies")
+        _verify_dependency_members(
+            member_map, qualification.dependencies,
+            qualification.taskRow.dependencies, policy_obj, profile,
+            "dependencies")
     except Rejected as r:
         return _reject_stage("dependencies", r.detail)
 

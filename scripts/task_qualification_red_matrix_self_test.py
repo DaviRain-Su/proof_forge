@@ -1105,6 +1105,70 @@ def test_positive_legal_chain_with_dependency() -> RedMatrixResult:
     return RedMatrixResult("positive.legal_chain_with_dependency", True, actual)
 
 
+def test_negative_dependency_row_mismatch() -> RedMatrixResult:
+    """GAP-10: §4 dependencies taskId set must exact-equal row direct
+    dependencies. A qualification whose row.dependencies lists a different
+    taskId than the actual dependency must reject.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the row.dependencies to a different taskId.
+    subject_obj["taskRow"]["dependencies"] = ["TASK-D0-99"]
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.dependency_row_mismatch", False, actual)
+
+
+def test_negative_dependency_receipt_taskid_mismatch() -> RedMatrixResult:
+    """GAP-9: §4 the dependency's taskId must join the decoded receipt's
+    taskId. A qualification whose dependency taskId differs from the decoded
+    receipt's taskId must reject.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Mutate the dependency wire taskId to a different value (doesn't match
+    # the decoded receipt). Re-sign the subject.
+    subject_obj["dependencies"][0]["taskId"] = "TASK-D0-99"
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.dependency_receipt_taskid_mismatch", False, actual)
+
+
+def test_negative_dependency_receipt_signatures_mismatch() -> RedMatrixResult:
+    """GAP-9: §4 the dependency's signatures must exact-equal the decoded
+    receipt's signatures (no wrapper self-sign). A qualification whose
+    dependency signatures differ from the decoded receipt signatures must
+    reject.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Truncate the dependency wire signatures (differs from receipt's 3).
+    subject_obj["dependencies"][0]["signatures"] = [
+        subject_obj["dependencies"][0]["signatures"][0]
+    ]
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.dependency_receipt_signatures_mismatch", False, actual)
+
+
 def _build_random_root_commit() -> tuple:
     """Build a random root git commit object (no parents) and return
     (commit_sha, commit_payload).
@@ -1517,6 +1581,10 @@ def run_all_tests() -> list:
         test_negative_dependency_archive_missing,
         test_negative_dependency_commit_missing,
         test_positive_legal_chain_with_dependency,
+        # §4 dependency internal verification (GAP-9/10)
+        test_negative_dependency_row_mismatch,
+        test_negative_dependency_receipt_taskid_mismatch,
+        test_negative_dependency_receipt_signatures_mismatch,
         # §8.3 ancestry graph closure (P1-5/P1-6)
         test_negative_ancestry_extra_commit_not_in_graph,
         test_negative_ancestry_dependency_unreachable,

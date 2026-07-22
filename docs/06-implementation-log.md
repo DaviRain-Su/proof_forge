@@ -8170,3 +8170,54 @@ normative: false
   纯 verifier 检查已通过 direct-function test 覆盖）。remaining P1-10 spec gap 留待
   规格变更流程。既有 `_make_mutated_chain` test-harness bug 仍 pending。
 - Next：做 final comprehensive independent audit，确认所有 P0/P1 finding 已闭合或登记。
+
+## 2026-07-22 — TASK-D0-10 slice 15：GAP-9/10 dependency object internal verification (§4)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §4 line 159-169（objectBytesHex 解码后必须 canonical；
+  typed task、policy、receipt、签名与 raw object 逐字段 exact join；dependencies 按
+  taskId 升序且 exact 等于 row direct dependencies，不接受 transitive substitute）；
+  `TST-DOC-001`。
+- Findings（来自 final comprehensive audit，针对 verifier 的 dependencies stage）：
+  - GAP-9（dependency object internal verification shallow）：`_verify_dependency_members`
+    只重算 objectDigest 与检查 archive/commit member presence，不 decode objectBytesHex、
+    不验证 kind-specific schema/signature、不 join authorityPolicy/receipt/signatures。
+    对 bootstrap-task-receipt 与 task-qualification kind，verifier 只做 surface check。
+  - GAP-10（dependencies taskId != row.dependencies）：verifier 不比对
+    `qualification.dependencies` 的 taskId 集合与 `qualification.taskRow.dependencies`。
+- Changed：
+  - `scripts/task_qualification_verifier.py`：
+    - `_verify_dependency_members` 新增参数 `row_dependencies, authority_policy, profile`。
+    - GAP-10：断言 `dep_task_ids == tuple(row_dependencies)`（§4 exact equality）。
+    - GAP-9：decode objectBytesHex 为 canonical PF-JCS，按 kind 分支 join：
+      - `task-qualification`：parse 为 TaskCompletionReceiptV1，断言 dep.taskId ==
+        receipt.taskId、dep.completionCommit == receipt.closeoutCandidate.commit、
+        dep.authorityPolicy == receipt.authorityPolicy、dep.receipt recompute from
+        decoded receipt under DOMAIN_TASK_COMPLETION_RECEIPT、tuple(dep.signatures) ==
+        tuple(receipt.signatures)。
+      - `bootstrap-task-receipt`：断言 decoded taskId/completionCommit/signatures join
+        （historical receipt schema parser 未接线，fixture 不覆盖 D0-01..06）。
+    - `_verify_task_qualification` Stage 10 调用处传入
+      `qualification.taskRow.dependencies, policy_obj, profile`。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 3 个 RED test：
+    - `test_negative_dependency_row_mismatch`：row.dependencies 改为不同 taskId，重签，
+      期望 reject。
+    - `test_negative_dependency_receipt_taskid_mismatch`：dependency wire taskId 改为
+      不同值（不匹配 decoded receipt），重签，期望 reject。
+    - `test_negative_dependency_receipt_signatures_mismatch`：dependency signatures 截断
+      为 1 个（不匹配 decoded receipt 的 3 个），重签，期望 reject。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 72/72 passed
+  （slice 14 的 69 个 + slice 15 的 3 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+- Verification：dependency object 现在按 §4 逐字段 exact join decoded raw object
+  （taskId/completionCommit/authorityPolicy/receipt/signatures），fail closed。
+  dependency taskId 集合 exact-equal row.dependencies。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for dependency object internal verification (§4)。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  task-qualification kind 的完整 receipt join；bootstrap-task-receipt kind 的 historical
+  receipt schema parser 未接线（fixture 不覆盖 D0-01..06）。remaining audit GAPs
+  （GAP-22/23/6 gate-keyed controls、GAP-12/13 semantic file set、GAP-16/17/18 D0-10
+  approval、GAP-3/5/8/25 row/freeze/evidence、P2 gaps）仍 pending。
+- Next：继续 GAP-22/23/6 gate-keyed control resolution + command policy ref joins。
