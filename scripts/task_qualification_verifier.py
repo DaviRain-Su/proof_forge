@@ -28,6 +28,7 @@ stage's hash/curve work runs.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from typing import Tuple
@@ -619,6 +620,175 @@ def _verify_freeze_package_source(member_map: dict, where: str) -> bytes:
         domain=_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE,
     )
     return raw_bytes
+
+
+def _parse_freeze_package_source_bytes(raw_bytes: bytes, where: str) -> _TQO.TaskFreezePackageV1:
+    """Parse the raw freeze package source bytes (JSON) per §3 to extract the
+    fields needed for ancestry graph construction (freezeCommit).
+
+    The freeze-package-source is a raw-source member whose bytes are the JSON
+    encoding of TaskFreezePackageV1. It is not PF-JCS-encoded; the digest is a
+    raw-bytes domain digest. We parse it as JSON and validate the fields the
+    verifier consumes.
+    """
+    try:
+        obj = json.loads(raw_bytes.decode("utf-8"))
+    except Exception as exc:
+        _BTO._reject(f"{where}: freeze package source is not valid JSON: {exc}")
+    return _TQO.parse_freeze_package(obj, where)
+
+
+# ---------------------------------------------------------------------------
+# Stage 6b: ancestry graph verification (§8.3)
+# ---------------------------------------------------------------------------
+
+def _collect_git_commit_objects(
+    member_map: dict,
+    roles: tuple,
+    where: str,
+) -> tuple:
+    """Resolve a set of git-object member roles to a (commit_sha -> GitCommitObject)
+    map. Each member's bytesHex is parsed and its SHA-1 recomputed (via
+    _resolve_git_object_member which asserts objectId == recomputed SHA-1).
+
+    Returns the map of commit_sha -> GitCommitObject. Raises Rejected if any
+    role is missing or not a git-object member.
+    """
+    commit_objects = {}
+    for role in roles:
+        if role not in member_map:
+            continue  # optional roles are skipped
+        raw_bytes, commit_sha = _resolve_git_object_member(member_map, role, where)
+        commit_obj = _TQO.parse_git_commit_object(raw_bytes, where)
+        commit_objects[commit_sha] = commit_obj
+    return commit_objects
+
+
+def _collect_ancestry_commit_members(member_map: dict, where: str) -> tuple:
+    """Collect all ancestry-commit/* family members and return a
+    (commit_sha -> GitCommitObject) map plus a set of the roles seen.
+
+    Per §8.3, ancestry-commit/<40hex> members carry the closure nodes of the
+    ancestry graph (commits that are parents of targets or of other closure
+    nodes). Each is a git-object member whose objectId is the Git SHA-1.
+    """
+    extra_commits = {}
+    ancestry_roles = []
+    for role, member in member_map.items():
+        if not role.startswith("ancestry-commit/"):
+            continue
+        if not isinstance(member, _TQO.GitObjectMemberV1):
+            _BTO._reject(f"{where}: member '{role}' must be git-object")
+        raw_bytes = bytes.fromhex(member.bytesHex)
+        commit_obj = _TQO.parse_git_commit_object(raw_bytes, f"{where}: {role}")
+        if commit_obj.commit_sha != member.objectId:
+            _BTO._reject(f"{where}: member '{role}' git object id mismatch")
+        extra_commits[commit_obj.commit_sha] = commit_obj
+        ancestry_roles.append(role)
+    return (extra_commits, tuple(ancestry_roles))
+
+
+def _verify_ancestry_graph(
+    member_map: dict,
+    candidate_commit: str,
+    freeze_commit: str,
+    dependencies: tuple,
+    where: str,
+    extra_target_roles: dict = None,
+) -> None:
+    """Verify the §8.3 ancestry graph closure.
+
+    The graph is the union of all parent-edge closure paths from consuming C
+    to freezeCommit and from C to each direct dependency completionCommit
+    (and from C to each extra target, e.g. D0-07 completionCommit). Every
+    commit's parents must be recursively represented; any missing parent,
+    unreachable target, or extra commit not in the union is rejected. Target
+    commits (C, dependency completionCommits, extra targets) must not be
+    duplicated as ancestry-commit/*. ancestry-commit/* only carries closure
+    nodes.
+
+    extra_target_roles: optional dict of {member_role: commit_sha} for
+    operation-specific singleton targets (e.g. d0-07-completion-commit-object).
+    """
+    # Collect dependency completion commits keyed by taskId.
+    dependency_commits = {}
+    for dep in dependencies:
+        dep_commit_role = f"dependency-commit-object/{dep.taskId}"
+        if dep_commit_role not in member_map:
+            _BTO._reject(f"{where}: {dep_commit_role} member missing")
+        _resolve_git_object_member(member_map, dep_commit_role, where)
+        dependency_commits[dep.taskId] = dep.completionCommit
+
+    # Collect extra target commits (e.g. D0-07 completionCommit).
+    extra_target_commits = {}
+    if extra_target_roles:
+        for role, commit_sha in extra_target_roles.items():
+            if role not in member_map:
+                _BTO._reject(f"{where}: {role} member missing")
+            _resolve_git_object_member(member_map, role, where)
+            extra_target_commits[role] = commit_sha
+
+    # Collect all git-object members into a commit_sha -> GitCommitObject map.
+    # candidate-commit-object carries C; dependency-commit-object/<TASK> carry
+    # dependency targets; extra target roles carry their targets;
+    # ancestry-commit/* carry closure nodes.
+    candidate_commits = _collect_git_commit_objects(
+        member_map, ("candidate-commit-object",), where)
+    dep_commit_objects = {}
+    for dep in dependencies:
+        dep_commit_role = f"dependency-commit-object/{dep.taskId}"
+        if dep_commit_role in member_map:
+            raw_bytes, commit_sha = _resolve_git_object_member(
+                member_map, dep_commit_role, where)
+            dep_commit_objects[commit_sha] = _TQO.parse_git_commit_object(
+                raw_bytes, where)
+    extra_target_commit_objects = {}
+    if extra_target_roles:
+        for role in extra_target_roles:
+            if role in member_map:
+                raw_bytes, commit_sha = _resolve_git_object_member(
+                    member_map, role, where)
+                extra_target_commit_objects[commit_sha] = _TQO.parse_git_commit_object(
+                    raw_bytes, where)
+    extra_commits, _ = _collect_ancestry_commit_members(member_map, where)
+
+    commit_objects = {}
+    commit_objects.update(candidate_commits)
+    commit_objects.update(dep_commit_objects)
+    commit_objects.update(extra_target_commit_objects)
+    commit_objects.update(extra_commits)
+
+    # Merge extra targets into dependency_commits for build_ancestry_graph
+    # (using the member role as the "task_id" key to distinguish them).
+    all_dependency_commits = dict(dependency_commits)
+    if extra_target_roles:
+        for role, commit_sha in extra_target_roles.items():
+            all_dependency_commits[role] = commit_sha
+
+    # Build the ancestry graph per §8.3. BFS from C following parent edges;
+    # every target must be reachable from C (an ancestor of C).
+    graph = _TQO.build_ancestry_graph(
+        candidate_commit=candidate_commit,
+        freeze_commit=freeze_commit,
+        dependency_commits=all_dependency_commits,
+        commit_objects=commit_objects,
+        where=where,
+    )
+
+    # Verify membership: no extra commits outside the graph, no target
+    # duplicated as ancestry-commit/*.
+    _TQO.verify_ancestry_membership(graph, extra_commits, where)
+
+    # §8.3: no two distinct git-object members carry the same commit_sha
+    # (cross-role alias), per "同一objectId跨role出现...拒绝".
+    seen_shas = {}
+    for role, member in member_map.items():
+        if not isinstance(member, _TQO.GitObjectMemberV1):
+            continue
+        sha = member.objectId
+        if sha in seen_shas:
+            _BTO._reject(f"{where}: commit {sha} aliased across roles '{seen_shas[sha]}' and '{role}'")
+        seen_shas[sha] = role
 
 
 # ---------------------------------------------------------------------------
@@ -1457,6 +1627,25 @@ def _verify_task_qualification(content_bundle_bytes, subject_bytes):
     except Rejected as r:
         return _reject_stage("dependencies", r.detail)
 
+    # Stage 10b: ancestry graph (§8.3)
+    # The ancestry graph is the union of parent-edge closure paths from C to
+    # freezeCommit and from C to each direct dependency completionCommit. Every
+    # commit's parents must be recursively represented; any missing parent,
+    # unreachable target, or extra commit not in the union is rejected. Target
+    # commits must not be duplicated as ancestry-commit/*. Receipt operations do
+    # not carry this graph (§8.2).
+    try:
+        freeze_pkg = _parse_freeze_package_source_bytes(freeze_bytes, "ancestry")
+        _verify_ancestry_graph(
+            member_map,
+            qualification.preCloseCandidate.commit,
+            freeze_pkg.freezeCommit,
+            qualification.dependencies,
+            "ancestry",
+        )
+    except Rejected as r:
+        return _reject_stage("ancestry", r.detail)
+
     # Stage 11: reviews
     try:
         # Build signing principal IDs from the authority policy
@@ -1763,6 +1952,24 @@ def _verify_d0_10_approval(content_bundle_bytes, subject_bytes):
         _resolve_git_object_member(member_map, "d0-07-completion-commit-object", "dependencies")
     except Rejected as r:
         return _reject_stage("dependencies", r.detail)
+
+    # Stage 10b: ancestry graph (§8.3)
+    # D0-10 approval targets: C, freezeCommit, D0-07 completionCommit. The
+    # D0-07 completionCommit must be a strict ancestor of C.
+    try:
+        freeze_pkg = _parse_freeze_package_source_bytes(freeze_bytes, "ancestry")
+        _verify_ancestry_graph(
+            member_map,
+            approval.preCloseCandidate.commit,
+            freeze_pkg.freezeCommit,
+            (),  # D0-10 approval has no task-qualification dependencies
+            "ancestry",
+            extra_target_roles={
+                "d0-07-completion-commit-object": approval.d0_07Bridge.completionCommit,
+            },
+        )
+    except Rejected as r:
+        return _reject_stage("ancestry", r.detail)
 
     # Stage 11: reviews
     try:

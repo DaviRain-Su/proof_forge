@@ -1286,20 +1286,25 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     """
     fixture_policy = _TQO.build_default_fixture_policy()
 
-    candidate = build_synthetic_candidate(
-        FIXTURE_TASK_ID,
-        {
-            "docs/04-task-breakdown.md": b"# PHASE-4 fixture",
-            "docs/05-test-spec.md": b"# PHASE-5 fixture",
-        },
-    )
-
+    # Per §4/§8.3: the dependency's completionCommit must be a strict ancestor
+    # of the consuming candidate C. So the dependency candidate is built first
+    # (as a root commit), and the main candidate is built with parent_sha set
+    # to the dependency candidate's commit, making dep an ancestor of C.
     dep_candidate = build_synthetic_candidate(
         FIXTURE_DEP_TASK_ID,
         {
             "docs/04-task-breakdown.md": b"# PHASE-4 prior task",
             "docs/05-test-spec.md": b"# PHASE-5 prior task",
         },
+    )
+
+    candidate = build_synthetic_candidate(
+        FIXTURE_TASK_ID,
+        {
+            "docs/04-task-breakdown.md": b"# PHASE-4 fixture",
+            "docs/05-test-spec.md": b"# PHASE-5 fixture",
+        },
+        parent_sha=dep_candidate.identity.commit,
     )
 
     dep_receipt_id = "task-completion-d0-09"
@@ -1754,21 +1759,25 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     """Build a legal fixture chain for d0-10-bootstrap-approval."""
     fixture_policy = _TQO.build_default_fixture_policy()
 
-    # Build the D0-10 candidate (with f1/f2 prefix)
+    # Per §4/§8.3: the D0-07 bridge completionCommit must be a strict ancestor
+    # of the consuming candidate C. So the D0-07 candidate is built first (as
+    # a root commit), and the D0-10 candidate is built with parent_sha set to
+    # the D0-07 candidate's commit, making D0-07 an ancestor of C.
+    d0_07_candidate = build_synthetic_candidate(
+        D0_07_TASK_ID,
+        {
+            "docs/governance/bootstrap-closure/TASK-D0-07.attest.json": b'{"fixture": "d0-07-attest"}',
+        },
+    )
+
+    # Build the D0-10 candidate (with f1/f2 prefix), parented to D0-07.
     candidate = build_synthetic_candidate(
         D0_10_TASK_ID,
         {
             "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture",
             "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture",
         },
-    )
-
-    # Build the D0-07 candidate (for the bridge)
-    d0_07_candidate = build_synthetic_candidate(
-        D0_07_TASK_ID,
-        {
-            "docs/governance/bootstrap-closure/TASK-D0-07.attest.json": b'{"fixture": "d0-07-attest"}',
-        },
+        parent_sha=d0_07_candidate.identity.commit,
     )
 
     # Build the D0-07 governance completion

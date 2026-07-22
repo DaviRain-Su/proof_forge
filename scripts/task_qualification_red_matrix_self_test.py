@@ -1105,6 +1105,138 @@ def test_positive_legal_chain_with_dependency() -> RedMatrixResult:
     return RedMatrixResult("positive.legal_chain_with_dependency", True, actual)
 
 
+def _build_random_root_commit() -> tuple:
+    """Build a random root git commit object (no parents) and return
+    (commit_sha, commit_payload).
+    """
+    tree_sha = "a" * 40  # arbitrary tree, doesn't need to match anything
+    payload = _TQFB.build_synthetic_git_commit(tree_sha, None, message="extra ancestry node")
+    sha = _TQO.git_sha1_object("commit", payload)
+    return (sha, payload)
+
+
+def test_negative_ancestry_extra_commit_not_in_graph() -> RedMatrixResult:
+    """§8.3: an ancestry-commit/* member whose commit is not in the ancestry
+    union (not reachable from C via parent edges) must reject at the ancestry
+    stage. The fixture chain with a dependency is used; an extra
+    ancestry-commit/<40hex> member with a random root commit is appended.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    sha, payload = _build_random_root_commit()
+    bundle_obj["members"].append({
+        "role": f"ancestry-commit/{sha}",
+        "kind": "git-object",
+        "objectId": sha,
+        "objectType": "commit",
+        "bytesHex": payload.hex(),
+    })
+    bundle_obj["members"].sort(key=lambda m: m["role"])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.ancestry_extra_commit_not_in_graph", False, actual)
+
+
+def test_negative_ancestry_dependency_unreachable() -> RedMatrixResult:
+    """§4/§8.3: the dependency's completionCommit must be a strict ancestor of
+    C (reachable from C via parent edges). A qualification whose dependency
+    completionCommit is an independent root (not C's ancestor) must reject at
+    the ancestry stage.
+
+    The fixture chain is mutated: a second independent root commit is built,
+    added as a dependency-commit-object/<taskId> member, and the
+    qualification's dependency completionCommit is set to that commit. The
+    subject is re-signed so the verifier reaches the ancestry stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    # Build an independent root commit that is NOT an ancestor of C.
+    unreachable_sha, unreachable_payload = _build_random_root_commit()
+    # Add a dependency-commit-object member for a bogus task carrying the
+    # unreachable commit. We use the existing FIXTURE_DEP_TASK_ID role.
+    for m in bundle_obj["members"]:
+        if m.get("role") == f"dependency-commit-object/{_TQFB.FIXTURE_DEP_TASK_ID}":
+            m["objectId"] = unreachable_sha
+            m["bytesHex"] = unreachable_payload.hex()
+            break
+    # Mutate the qualification subject's dependency completionCommit to the
+    # unreachable commit and re-sign.
+    subject_obj["dependencies"][0]["completionCommit"] = unreachable_sha
+    subject_obj["signatures"] = _TQFB._sign_subject(
+        subject_obj,
+        _TQO.DOMAIN_TASK_QUALIFICATION_STATEMENT,
+        _TQO.DOMAIN_TASK_QUALIFICATION_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.ancestry_dependency_unreachable", False, actual)
+
+
+def test_negative_ancestry_duplicate_target_as_ancestry_commit() -> RedMatrixResult:
+    """§8.3: target commits (C, dependency completionCommits) must not be
+    duplicated as ancestry-commit/*. A qualification whose candidate commit
+    is also carried by an ancestry-commit/* member must reject at the ancestry
+    stage.
+    """
+    chain = _TQFB.build_fixture_chain_with_dependency()
+    bundle_obj, subject_obj = _make_mutated_chain(chain)
+    candidate_commit = subject_obj["preCloseCandidate"]["commit"]
+    # Find the candidate-commit-object member's bytesHex (the candidate commit
+    # payload) and duplicate it as an ancestry-commit/* member.
+    candidate_payload_hex = None
+    for m in bundle_obj["members"]:
+        if m.get("role") == "candidate-commit-object":
+            candidate_payload_hex = m["bytesHex"]
+            break
+    bundle_obj["members"].append({
+        "role": f"ancestry-commit/{candidate_commit}",
+        "kind": "git-object",
+        "objectId": candidate_commit,
+        "objectType": "commit",
+        "bytesHex": candidate_payload_hex,
+    })
+    bundle_obj["members"].sort(key=lambda m: m["role"])
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(subject_obj)
+    actual = _run_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.ancestry_duplicate_target_as_ancestry_commit", False, actual)
+
+
+def test_negative_d0_10_ancestry_bridge_unreachable() -> RedMatrixResult:
+    """§4/§8.3: the D0-07 bridge completionCommit must be a strict ancestor of
+    C. A D0-10 approval whose D0-07 completionCommit is an independent root
+    (not C's ancestor) must reject at the ancestry stage.
+
+    The D0-10 approval fixture is mutated: the d0-07-completion-commit-object
+    member is replaced with an independent root commit, and the approval
+    subject's d0_07Bridge.completionCommit is set to that commit. The subject
+    is re-signed so the verifier reaches the ancestry stage.
+    """
+    chain = _TQFB.build_d0_10_approval_chain()
+    bundle_obj, approval_obj = _make_mutated_chain(chain)
+    unreachable_sha, unreachable_payload = _build_random_root_commit()
+    # Replace the d0-07-completion-commit-object member with the unreachable
+    # commit.
+    for m in bundle_obj["members"]:
+        if m.get("role") == "d0-07-completion-commit-object":
+            m["objectId"] = unreachable_sha
+            m["bytesHex"] = unreachable_payload.hex()
+            break
+    # Mutate the approval subject's d0_07Bridge.completionCommit and re-sign.
+    approval_obj["d0_07Bridge"]["completionCommit"] = unreachable_sha
+    approval_obj["signatures"] = _TQFB._sign_subject(
+        approval_obj,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+        _TQO.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+    )
+    bundle_bytes = _canonical_bytes(bundle_obj)
+    subject_bytes = _canonical_bytes(approval_obj)
+    actual = _run_d0_10_approval_verifier(bundle_bytes, subject_bytes)
+    return RedMatrixResult("negative.d0_10_ancestry_bridge_unreachable", False, actual)
+
+
 def test_negative_non_canonical_bundle() -> RedMatrixResult:
     """A non-canonical bundle (non-PF-JCS) should reject at bundle stage."""
     chain = _TQFB.build_fixture_chain()
@@ -1187,6 +1319,11 @@ def run_all_tests() -> list:
         test_negative_dependency_archive_missing,
         test_negative_dependency_commit_missing,
         test_positive_legal_chain_with_dependency,
+        # §8.3 ancestry graph closure (P1-5/P1-6)
+        test_negative_ancestry_extra_commit_not_in_graph,
+        test_negative_ancestry_dependency_unreachable,
+        test_negative_ancestry_duplicate_target_as_ancestry_commit,
+        test_negative_d0_10_ancestry_bridge_unreachable,
         test_negative_non_canonical_subject,
         test_negative_non_canonical_bundle,
         test_negative_empty_subject,

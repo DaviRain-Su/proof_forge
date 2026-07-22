@@ -7906,3 +7906,98 @@ normative: false
 - Next：继续下一有明确 spec 的 P1 finding（P1-5 ancestry graph closure 或 P1-7
   production-profile member bytes），仍按 RED-first 协议。P1-10 留待规格变更流程。
   既有 `_make_mutated_chain` test-harness bug 登记为后续修复项。
+
+## 2026-07-22 — TASK-D0-10 slice 11：P1-5/P1-6 ancestry graph closure (§8.3)
+
+- Spec/Test：`SPEC-TASKQUAL-001` §8.3（ancestry graph 恰为 consuming C 到 freezeCommit
+  以及 C 到每个 direct dependency completionCommit 的所有父边闭包路径并集；每个
+  target 至少一条路径、沿途每个 commit 的全部 parents 递归表示；target 不得重复为
+  ancestry-commit/*；同一 objectId 跨 role 出现、同 bytes alias 或 extra node 拒绝）
+  与 §4（dependency completionCommit 必须是 consuming pre-close candidate commit 的
+  strict ancestor）；§8.2 table（task-qualification 与 d0-10-bootstrap-approval 均要求
+  ancestry exact；receipt operations 不承载此图）；`TST-DOC-001`。
+- Findings（来自独立复审，针对 verifier 的 ancestry graph 处理）：
+  - P1-5（ancestry graph closure 缺失）：`scripts/task_qualification_verifier.py` 完全
+    不调用 `build_ancestry_graph` / `verify_ancestry_membership`（这两个函数在
+    `task_qualification_objects.py` 已定义但从未被 verifier 接线）。`ancestry-commit/*`
+    family 成员在 `_verify_member_role_set` 被列为合法 family prefix，但 verifier 不解析、
+    不构建图、不校验闭包。
+  - P1-6（freezeCommit ancestor 校验缺失）：freezeCommit 来自 freeze-package-source
+    member 的 raw bytes（§3 TaskFreezePackageV1），verifier 解析 freeze bytes 但不提取
+    freezeCommit、不验证 freezeCommit 是 C 的 ancestor。
+  - 潜在 bug（P1-5 落地时发现）：`build_ancestry_graph` 原实现从每个 target 起做 BFS 跟
+    parents，构建每个 target 的 ancestor 集，而非从 C 起做 BFS 并要求所有 target 可达。
+    这使一个独立 root commit（非 C 的 ancestor）被错误地"reachable"（自可达），
+    与 §8.3"从 C 到 target 的路径并集"语义不符。
+  - 潜在 fixture 不合规（P1-5 落地时发现）：`build_fixture_chain_with_dependency` 与
+    `build_d0_10_approval_chain` 的 dependency/D0-07 candidate 均为独立 root commit
+    （无 parent），其 completionCommit 不是 C 的 strict ancestor，违反 §4。原 verifier
+    不校验 ancestry 时该不合规被隐藏。
+- Changed：
+  - `scripts/task_qualification_objects.py`：
+    - 新增 `TaskFreezePackageV1` dataclass 与 `parse_freeze_package(obj, where)`：
+      解析 §3 raw freeze package source JSON，提取 `freezeCommit`（验证 git object id
+      格式）。
+    - 修正 `build_ancestry_graph`：BFS 从 C（consuming candidate）起跟 parent edges，
+      要求所有 target（freezeCommit、每个 dependency completionCommit）从 C 可达
+      （即 C 的 ancestor）；unreachable target 拒绝。修正原实现"从每个 target 起 BFS"
+      的语义错误。
+  - `scripts/task_qualification_verifier.py`：
+    - 新增 `_parse_freeze_package_source_bytes(raw_bytes, where)`：解析 freeze
+      package source raw bytes 为 JSON 并调 `parse_freeze_package` 提取 freezeCommit。
+    - 新增 `_collect_git_commit_objects(member_map, roles, where)` 与
+      `_collect_ancestry_commit_members(member_map, where)`：从 git-object members 收集
+      commit_sha -> GitCommitObject map（重算 SHA-1 并验证 objectId）。
+    - 新增 `_verify_ancestry_graph(member_map, candidate_commit, freeze_commit,
+      dependencies, where, extra_target_roles=None)`：收集 candidate/dependency/
+      ancestry-commit/extra-target commit objects，调 `build_ancestry_graph` 构建
+      闭包，调 `verify_ancestry_membership` 校验无 extra commit、target 不重复为
+      ancestry-commit/*，并校验无 cross-role commit alias。
+    - `_verify_task_qualification` 新增 Stage 10b "ancestry"（dependencies 之后、reviews
+      之前）：解析 freeze package 提取 freezeCommit，调
+      `_verify_ancestry_graph(candidate_commit, freeze_commit, dependencies)`。
+    - `_verify_d0_10_approval` 新增 Stage 10b "ancestry"（dependencies 之后、reviews
+      之前）：调 `_verify_ancestry_graph(candidate_commit, freeze_commit, (),
+      extra_target_roles={"d0-07-completion-commit-object": bridge.completionCommit})`，
+      D0-07 completionCommit 作为 singleton target。
+    - 新增 `import json`。
+  - `scripts/task_qualification_fixture_builder.py`：
+    - `build_fixture_chain_with_dependency`：先建 dep_candidate（root），再建主
+      candidate（`parent_sha=dep_candidate.identity.commit`），使 dep completionCommit
+      成为 C 的 strict ancestor（合规 §4）。
+    - `build_d0_10_approval_chain`：先建 d0_07_candidate（root），再建 D0-10 candidate
+      （`parent_sha=d0_07_candidate.identity.commit`），使 D0-07 completionCommit 成为
+      C 的 strict ancestor（合规 §4/§8.3）。
+  - `scripts/task_qualification_red_matrix_self_test.py`：新增 4 个 RED test：
+    - `test_negative_ancestry_extra_commit_not_in_graph`：追加 random root commit 的
+      ancestry-commit/* member（不在 ancestry union），期望 reject。
+    - `test_negative_ancestry_dependency_unreachable`：将 dependency completionCommit
+      改为独立 root commit（非 C 的 ancestor），重签 subject，期望 reject。
+    - `test_negative_ancestry_duplicate_target_as_ancestry_commit`：将 candidate commit
+      重复为 ancestry-commit/* member，期望 reject。
+    - `test_negative_d0_10_ancestry_bridge_unreachable`：将 D0-07 completionCommit 改为
+      独立 root commit，重签 approval subject，期望 reject。
+    - 新增 `_build_random_root_commit()` helper（build random root git commit object）。
+- Tests：`python3 scripts/task_qualification_red_matrix_self_test.py` → 61/61 passed
+  （slice 10 的 57 个 + slice 11 的 4 个，无回归）。
+  `python3 scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed。
+  `python3 scripts/docs_check.py` → ok。
+  `python3 scripts/docs_check_self_test.py` → ok (204 mutations)。
+- Verification：ancestry graph 从 C 起 BFS 跟 parent edges，所有 target（freezeCommit、
+  dependency completionCommits、D0-07 completionCommit）必须从 C 可达（strict ancestor
+  for dependencies，ancestor-or-self for freezeCommit per §3）。extra ancestry-commit/*
+  不在 union 中一律 reject（fail closed）。target 重复为 ancestry-commit/* reject。
+  cross-role commit alias reject。fixture chain 现在合规 §4（dependency/D0-07
+  completionCommit 为 C 的 strict ancestor）。所有 fixture chain 仍返回
+  `fixture-non-authoritative`。
+- Evidence：development evidence for ancestry graph closure (§8.3) + freezeCommit
+  ancestor enforcement + §4 dependency completionCommit strict-ancestor enforcement。
+  不是正式 closeout evidence。
+- Limitations：本证据不能关闭 TASK-D0-10。正式 closeout 外部前置不变。本 slice 只做
+  task-qualification 与 d0-10-bootstrap-approval 的 ancestry graph；d0-10-bootstrap-receipt
+  与 task-completion 按 §8.2 不承载 ancestry graph（已确认不接线）。remaining P1
+  findings（P1-4 D0-07 bridge internal signatures/ruling、P1-7 production-profile
+  member bytes、P1-9 aggregate bound、P1-10 spec gap）仍 pending。既有
+  `_make_mutated_chain` test-harness bug 仍 pending。
+- Next：继续下一有明确 spec 的 P1 finding（P1-7 production-profile member bytes 或
+  P1-4 D0-07 bridge internal verification），仍按 RED-first 协议。

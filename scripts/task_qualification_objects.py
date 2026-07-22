@@ -529,6 +529,26 @@ def parse_freeze_package_ref(obj: dict, where: str) -> TaskFreezePackageRefV1:
     return TaskFreezePackageRefV1(taskId=task_id, digest=digest)
 
 
+@dataclass(frozen=True)
+class TaskFreezePackageV1:
+    taskId: str
+    freezeCommit: str
+
+
+def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
+    """Parse the raw freeze package source (§3 TaskFreezePackageV1) and
+    extract the fields the verifier needs for ancestry graph construction.
+    """
+    if not isinstance(obj, dict):
+        _reject(f"{where}: freeze package must be object")
+    schema_version = obj.get("schemaVersion")
+    if schema_version != 1:
+        _reject(f"{where}.schemaVersion: must be 1")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    freeze_commit = _require_git_object(obj.get("freezeCommit"), f"{where}.freezeCommit")
+    return TaskFreezePackageV1(taskId=task_id, freezeCommit=freeze_commit)
+
+
 def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: command policy must be object")
@@ -2687,7 +2707,11 @@ def build_ancestry_graph(
 
     The graph is the union of all parent-edge closure paths from consuming C
     to freezeCommit and from C to each direct dependency completionCommit.
-    Every commit's parents must be recursively represented.
+    BFS starts from C (consuming candidate) and follows parent edges. Every
+    target (freezeCommit and each dependency completionCommit) must be
+    reachable from C along parent edges — i.e. each target must be an ancestor
+    of C. Every commit's parents must be recursively represented. Any missing
+    parent, unreachable target, or extra commit not in the union is rejected.
     """
     targets = {
         candidate_commit: "candidate-commit-object",
@@ -2696,9 +2720,13 @@ def build_ancestry_graph(
     for task_id, dep_commit in dependency_commits.items():
         targets[dep_commit] = f"dependency-commit-object/{task_id}"
 
-    # BFS/DFS from each target, collecting all reachable commits
+    # BFS from C (consuming candidate) following parent edges. The reachable
+    # set is the union of all parent-edge closure paths from C. Every target
+    # must be reachable from C (i.e. an ancestor of C).
+    if candidate_commit not in commit_objects:
+        _reject(f"{where}: ancestry missing candidate commit {candidate_commit}")
     reachable = set()
-    to_visit = list(targets.keys())
+    to_visit = [candidate_commit]
     while to_visit:
         sha = to_visit.pop()
         if sha in reachable:
@@ -2710,10 +2738,15 @@ def build_ancestry_graph(
             if parent not in reachable:
                 to_visit.append(parent)
 
-    # Verify all reachable commits are in commit_objects
-    for sha in reachable:
-        if sha not in commit_objects:
-            _reject(f"{where}: ancestry missing commit {sha}")
+    # Every target must be reachable from C (an ancestor of C). C itself is a
+    # trivial target (reachable as the BFS root). freezeCommit and dependency
+    # completionCommits must be ancestors of C.
+    target_set = set(targets.keys())
+    unreachable_targets = target_set - reachable
+    if unreachable_targets:
+        _reject(
+            f"{where}: ancestry target(s) unreachable from candidate C: "
+            f"{sorted(unreachable_targets)}")
 
     members = {sha: commit_objects[sha] for sha in reachable}
     return AncestryGraph(members=members, targets=targets)
