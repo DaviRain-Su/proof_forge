@@ -18,7 +18,7 @@ normative: true
 | 2 | [Architecture](02-architecture.md) | `accepted` | 边界、不变量、威胁模型获批 |
 | 3 | [Technical Spec](03-technical-spec.md) | `accepted` | 所有公共接口、状态、错误、版本和边界获批 |
 | 4 | [Task Breakdown](04-task-breakdown.md) | `proposed` | 任务均可在 4 小时内独立验收 |
-| 5 | [Test Spec](05-test-spec.md) | `proposed` | 测试骨架和 acceptance matrix 获批 |
+| 5 | [Test Spec](05-test-spec.md) | `accepted` | 测试骨架和 acceptance matrix 获批 |
 | 6 | [Implementation Log](06-implementation-log.md) | `draft` | 只记录真实执行与证据；当前为 pre-acceptance alpha |
 | 7 | [Review Report](07-review-report.md) | `not_started` | 规格、安全、依赖、性能、发布与回滚签署 |
 
