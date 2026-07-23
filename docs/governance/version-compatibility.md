@@ -39,3 +39,10 @@ protocol/service/frame closed wire与`2.0.0` major不变，只把未发布isolat
 v2 pins/objects、spend全部handoff nonce并让TASK-D0-10回到blocked；一旦v2 acceptance签发，修复必须使用新
 protocol major，不能回退v1、旧capability checkpoint或caller-provided seeds。仓库没有已发布v2对象需要data
 migration。
+
+2026-07-24 raw artifact owner R2不改变profile/pin/frame/acceptance字段或v2 protocol major；它注册
+`proof-forge.task-qualification-artifact-payload.v1`，并把既有production artifact/protected identity roles
+closed映射到该raw owner或已accepted typed owner。首个production profile/pin/acceptance尚未签发，因此没有
+legacy bytes可迁移；任何使用unknown owner、fixture schema、错误role/schema或把plain `payloadSha256`冒充
+ContentRef digest的草稿profile必须删除，关联nonce spent。禁止same-ID alias、dual registry、generic raw hash或
+best-effort fallback；首个production acceptance后的owner语义变化必须升级对应schema/protocol并走新评审。

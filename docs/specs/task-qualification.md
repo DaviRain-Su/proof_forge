@@ -1,15 +1,10 @@
 ---
 id: SPEC-TASKQUAL-001
 title: TaskQualificationV1 任务作用域 formal qualification
-status: accepted
+status: in_review
 owner: quality
-updated: 2026-07-23
+updated: 2026-07-24
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-23
-reviewCommit: d7390d472785fae533460eb96f31bdbec13ae21e
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/d7390d472785fae533460eb96f31bdbec13ae21e
-openFindings: none
 ---
 
 # SPEC-TASKQUAL-001：TaskQualificationV1
@@ -76,7 +71,17 @@ VerifierIdentityV1 {
   id, executable: ContentRefV1, closure: ContentRefV1,
   sourceDigest: Digest, buildPolicy: ContentRefV1
 }
+TaskQualificationArtifactPayloadRefV1 = ContentRefV1 where {
+  schema: "proof-forge.task-qualification-artifact-payload.v1"
+}
 ```
+
+`TaskQualificationArtifactPayloadRefV1`只拥有raw immutable payload identity，不编码wrapper object：令
+`payloadBytes`为`1..67108864` exact bytes、`id`使用上述ContentRef id grammar、`version`使用canonical SemVer，
+唯一digest为`SHA-256("pf.taskqual.artifact-payload.v1" || NUL || UTF8(id) || NUL || UTF8(version) || NUL ||
+payloadBytes)`。payload不要求UTF-8/PF-JCS且不canonicalize；同bytes不同id/version不alias。本ref digest与任何
+profile `payloadSha256=SHA-256(payloadBytes)`是两个独立字段/前像，consumer必须分别重算，禁止generic raw
+ContentRef、caller digest callback或以plain checksum替代本domain。
 
 `CandidateIdentityV1.archiveSha256` 是 `sha256:` Digest，不是裸 hex；candidate digest domain 为
 `pf.taskqual.candidate.v1`。Evidence ID 是真实日期的 `EV-[0-9]{8}-[0-9]{4}`；EvidenceRef digest
@@ -544,7 +549,7 @@ schema/id/version：
 | `command-policy/*` | typed-content | §3 TaskCommandPolicyV1 | `pf.task-command-policy.v1` | gate.commandPolicy |
 | `eligible-stage0-handoff/*`,`session-containment/*`,`freshness/*`,`private-scan/*`,`revocation-snapshot`,`revocation-record/*` | typed-content | local registry下表对应closed type | type表固定domain | gate ContentRefV1 |
 | fixture artifact logical roles及六个top-level verifier/consumer roles | typed-content bundle member | 本节FixtureResolvedBlobV1 | `pf.taskqual.fixture-resolved-blob.v1` | command/control/identity refs |
-| production artifact logical roles及六个top-level verifier/consumer roles | **无bundle member**；profile signed `artifacts` mapping | original accepted ContentRef schema；mapping携带exact ref+payloadSha256 | original ref domain；payload plain SHA-256 | command/control/identity refs |
+| production artifact logical roles及六个top-level verifier/consumer roles | **无bundle member**；profile signed `artifacts` mapping | 本节closed role→owner registry；mapping携带exact ref+payloadSha256 | owner ref domain；payload plain SHA-256独立重算 | command/control/identity refs |
 | dependency、qualification/approval/patch/file-set/D0-07 completion | typed-content | 本规格§4–§7 exact type |各节固定domain | subject中的exact typed ref |
 
 ProductionVerificationProfileV1 是candidate-external accepted mapping；namespace固定为policy管理的
@@ -573,8 +578,27 @@ roles（qualification/approval每 gate exact 12；D0 approval再加六个top-lev
 不得包含raw/archive/git/review/control wrapper roles。每项保留original accepted `artifact` ContentRef identity，
 绝不生成wrapper identity或bundle member；这是与adapter refs同类的external-resolution exception。pure
 verifier只重验signed profile并把subject/control中的ref exact join到mapping.artifact；protected adapter才
-从candidate外safe-open该original ref的payload、按accepted schema/domain重算ref并要求plain SHA-256
+从candidate外safe-open该original ref的payload、按下表accepted owner重算ref并要求plain SHA-256
 等于mapping.payloadSha256。mapping缺失、extra、重复或role/ref不等均拒绝。
+
+| production artifact role/prefix | artifact.schema与唯一owner |
+|---|---|
+| `resolved-tool/*`,`resolved-tool-closure/*`,`resolved-probe/*`,`sandbox-policy/*`,`verifier-executable/*`,`verifier-closure/*`,`verifier-build-policy/*`,`private-scan-scanner/*` | `proof-forge.task-qualification-artifact-payload.v1`；§2 raw payload公式 |
+| `private-scan-policy/*` | `proof-forge.private-scan-policy.v1`；`scripts/private_scan.py::private_scan_policy_ref`完整parse/canonical owner |
+| `authority-store-service/*` | `proof-forge.authority-store-service.v1`；`scripts/authority_store.py::descriptor_content_ref`完整closed descriptor owner |
+| `host-observation/*` | `proof-forge.host-observation.v1`；`scripts/stage0_handoff.py` accepted bounded JSON eligibility + raw-byte digest owner |
+| `host-profile/*` | `proof-forge.host-profile.v1`；`scripts/stage0_handoff.py` accepted raw-byte digest owner，id/version exact来自handoff ref |
+| `bootstrap-verifier-executable`,`bootstrap-verifier-closure`,`bootstrap-verifier-build-policy`,`protected-consumer-executable`,`protected-consumer-closure`,`protected-consumer-build-policy` | `proof-forge.task-qualification-artifact-payload.v1`；§2 raw payload公式 |
+
+表是total dispatch而不是可选allowlist：known schema用在错误role、unknown schema、production中的
+FixtureResolvedBlobV1、owner parse失败、owner所得schema/id/version/digest与mapping.artifact任一不同、ref正确但
+payloadSha256错误或反之均拒绝。plain-SHA host owner只对其两项accepted schema/role合法，不能作为其他raw
+payload的generic fallback。本owner修订不放宽或扩大§8.2/§8.3既有role/ref/bytes alias规则；其中
+`d0-10-bootstrap-approval`已要求`protectedConsumer == handoff.adapter`，所以同一identity跨profile artifact与
+protected provenance的`protected-consumer-{executable,closure,build-policy}`↔对应
+`adapter-{executable,closure,build-policy}`三对必须分别ref/bytes exact相等，不视为新的logical-role alias；
+缺一对或错配拒绝。
+
 bundle内嵌`verificationProfile`的canonical PF-JCS bytes必须逐字等于`production-profile` member decoded
 bytes；按固定schema/id/version与`pf.taskqual.production-profile.v1`重算的ContentRef必须exact等于
 external pin.profile，禁止两份语义等价但bytes不同的profile。
@@ -855,17 +879,19 @@ fixture使用其own domain；该role禁止与D0-10 `ruling-source` alias。fixtu
 profile可验证为nonauthoritative；production仍验证并接受仓库actual D0-07 accepted ruling。
 
 **D0-10 top-level identities。** approval.verifier与protectedConsumer必须不同id且逐字段resolve六个新增
-singleton role；每个identity的executable/closure/buildPolicy依次只可指向其同prefix role，禁止跨identity、
-gate verifier或production adapter bytes alias。`verifierClosureDigest =
+singleton role；每个identity的executable/closure/buildPolicy依次只可指向其同prefix role。approval.verifier、
+protectedConsumer、gate verifier及tool四者保持不同identity/ref，彼此跨identity bytes alias拒绝；production
+protectedConsumer则必须按下文与§8.4 protected acceptance.adapter保持同一identity的三ref/bytes跨carrier
+exact equality。`verifierClosureDigest =
 SHA-256("pf.d0-10.bootstrap-verifier-closure.v1"||NUL||PF-JCS(verifier))`，
 `consumerClosureDigest = SHA-256("pf.d0-10.protected-consumer-closure.v1"||NUL||
 PF-JCS(protectedConsumer))`。gate commandPolicy.verifier只解析gate-keyed三role且与top-level verifier不同；
 它证明测试命令身份。top-level verifier是执行§7 checker的identity；protectedConsumer必须在production
 等于§8.4 protected acceptance.adapter，fixture只验证结构并保持non-authoritative。fixture六role由wrapper
 members承载；production六role逐一exact join profile artifact mappings的original refs，closure digest公式
-绑定完整identity，protected adapter再safe-open并hash。approval verifier、protectedConsumer、gate verifier
-及tool保持不同identity/ref，所有跨role alias拒绝。由此role表、
-gate family及FixtureResolvedBlob prefix对四个operation均total：未列role一律extra-member拒绝。
+绑定完整identity，protected adapter再safe-open并hash。上述protectedConsumer↔adapter equality是同一identity
+跨两个authenticated carrier的join，不是不同logical identity之间的role alias。由此role表、gate family及
+FixtureResolvedBlob prefix对四个operation均total：未列role一律extra-member拒绝。
 
 archive只接受POSIX.1-1988 ustar（512-byte header、octal size/checksum）或`git archive --format=tar`
 产生的同一ustar子集；全archive只能选一种。每项必须在唯一root prefix `<taskId-lower>/` 下，prefix剥离后
@@ -1002,16 +1028,19 @@ entries按role ASCII严格升序唯一，bytesHex使用§8.2相同single/aggrega
 `authority-store-build-policy`、
 `adapter-executable`、`adapter-closure`、`adapter-build-policy`、`snapshot-parser-executable`、
 `snapshot-parser-closure`、`snapshot-parser-build-policy`；v2新production handoff再恰加
+`trusted-clock-executable`、`trusted-clock-closure`、`trusted-clock-build-policy`、
 `store-supervisor-executable`、`store-supervisor-closure`、`store-supervisor-build-policy`与
-`store-isolation-policy`，historical v1禁止这四role。D0 receipt acceptance另加`bootstrap-receipt`、
+`store-isolation-policy`，historical v1禁止这七role。D0 receipt acceptance另加`bootstrap-receipt`、
 `governance-bootstrap-completion`、`receipt-ledger-projection`。artifact payload roles由signed profile mapping
-展开并在bundle各出现一次，bytes按mapping payloadSha256与original accepted ref重算。bundle不携带expected
+展开并在bundle各出现一次，bytes按mapping payloadSha256与§8.2 closed role owner分别重算。bundle不携带expected
 policy/profile/revocation值且不签发authority；它是本协议自己的provenance channel，不是evidence root。
-其task/operation/run/nonce、subject及archive digests须exact handoff/API/subject/channel bytes；六个
-adapter/parser payload及v2四个supervisor/isolation payload逐字段匹配current pin/descriptor refs并重算。
-authority-store descriptor bytes重算后exact等于handoff.authorityStoreService。historical v1 verifier三ref分别
-绑定三个authority-store payload roles；v2还要求descriptor.supervisor三ref与isolationPolicy逐字段绑定新增
-四role，并按`ADR-0021`验证static service、supervisor、socket endpoint lineage与live session identity。
+其task/operation/run/nonce、subject及archive digests须exact handoff/API/subject/channel bytes；adapter、
+snapshot parser与trusted clock九个identity payload及v2四个supervisor/isolation payload逐字段匹配current
+handoff/pin/descriptor/lookup refs并重算。authority-store descriptor bytes重算后exact等于
+handoff.authorityStoreService；descriptor.verifier三ref逐字段绑定三个authority-store payload roles。
+v2还要求descriptor.supervisor三ref与isolationPolicy逐字段绑定新增四role，并按`ADR-0021`验证static service、
+supervisor、socket endpoint lineage与live session identity。所有identity三件套使用§2 raw payload schema；
+descriptor/isolation使用各自structured owner，禁止只验plain hash或unknown owner fallback。
 trusted-clock-observation是closed
 `{schema:"proof-forge.task-qualification-trusted-clock-observation.v1",id,version:"1.0.0",taskId,operation,
 runId,nonce,trustedClockService,observedAt,clockSourceDigest,signatures}`，tuple/service exact handoff，
@@ -1199,7 +1228,12 @@ role/parser、fixture policy、time/revocation、Git ancestry 与 external profi
 
 2026-07-23 首次C3 terminal-signing amendment与`ADR-0021`、PHASE-5同一历史review/acceptance unit，修复
 七参数API、lookup-only v1与最终acceptance role signatures之间的不可实现闭环。activation后真实Linux probe
-又证明其capability checkpoint不可达；当前三份bytes因此共同转`in_review`，仅纠正同一v2 signer的exec
-transition，不改变TASK-D0-10完成面。当前unit只在新的immutable proposed-body commit/HTTPS review取得
-P0/P1=0，且metadata-only commit记录Architecture+Quality+Security批准后生效；此前TASK-D0-10保持blocked，
-本文workspace草案不得作为implementation authority。
+又证明其capability checkpoint不可达；corrected immutable body `d7390d47`经独立P0/P1=0复审并由
+`687d59bb` metadata-only acceptance恢复accepted，随后`e574aaf1`建立corrected tests-only RED。
+
+2026-07-24 GREEN审计确认production raw artifact/identity ContentRef owner未定义，task再次按R2 blocked。本次
+同一review unit只增加§2 raw identity、§8.2/§8.4 closed owner dispatch及对应negative matrix，不改变
+TASK-D0-10冻结Output/Tests/Dependencies/Prerequisites/doneWhen、profile/frame字段或v2 protocol major。当前
+ADR-0021、SPEC-TASKQUAL-001与PHASE-5 bytes共同为`in_review`；只有新的immutable proposed-body commit取得
+实现会话外Architecture+Quality+Security P0/P1=0复审，且metadata-only commit记录批准后才可恢复
+`accepted`。此前workspace草案不是implementation authority；若Exception expiry先到则保持blocked。

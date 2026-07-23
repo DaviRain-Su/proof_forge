@@ -1,15 +1,10 @@
 ---
 id: PHASE-5
 title: 测试与验收规格
-status: accepted
+status: in_review
 owner: quality
-updated: 2026-07-23
+updated: 2026-07-24
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-23
-reviewCommit: d7390d472785fae533460eb96f31bdbec13ae21e
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/d7390d472785fae533460eb96f31bdbec13ae21e
-openFindings: none
 ---
 
 # Phase 5：测试与验收规格
@@ -531,7 +526,14 @@ adapter须在credential drop前清空bounding set，adapter/service均须覆盖`
 rule、setfsuid/setfsgid或任一filtered credential mutation、shared supplementary group、setuid/setgid executable、
 `security.capability` xattr、transition crash与ambient不支持必须零签名且spend nonce，不得标skip/PASS或切换
 file-capability/U-root/helper fallback。
-positive production case必须走七参数
+
+raw artifact owner case必须对`proof-forge.task-qualification-artifact-payload.v1`的id/version/payload三段前像
+逐项mutation，并独立mutation plain `payloadSha256`；覆盖SPEC-TASKQUAL-001 §8.2每个role→owner class与
+§8.4 authority-store/adapter/parser/trusted-clock/supervisor identity三件套。正确payload+错误ref、正确ref+错误
+plain hash、same bytes/different id、known schema放到错误role、unknown/fixture schema、typed owner
+noncanonical/parse失败、三件套missing/extra/ref错配和trusted-clock三role缺失都必须在terminal前零签名拒绝；
+既有alias negative matrix保持不变，D0 approval的三对`protected-consumer-*`↔`adapter-*`必须作为跨carrier
+exact-equality正例并对每对错配做负例，不得把host raw digest owner推广成generic fallback。positive production case必须走七参数
 positional-only API和完整v2 protected path；任何caller seed、fixture key、v1 fallback、generic signer、
 partial signature或未accepted Freeze Exception均不得产生`production-candidate-bound`。这些case仍只计一个
 `TST-DOC-001` denominator。

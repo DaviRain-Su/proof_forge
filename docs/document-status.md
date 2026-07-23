@@ -28,9 +28,9 @@ normative: true
 | 商业验证 | [`00-business-validation.md`](00-business-validation.md) | `draft` | 市场假设与 Go/No-Go |
 | 产品 | [`01-prd.md`](01-prd.md) | `accepted` | 用户需求、范围、成功标准 |
 | 架构 | [`02-architecture.md`](02-architecture.md) | `accepted` | 系统边界、不变量、数据流 |
-| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本；包含已批准的`SPEC-TASKQUAL-001` capability-transition C3纠错 |
+| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | `03-technical-spec.md`及其他accepted specs；当前`SPEC-TASKQUAL-001` raw artifact owner R2修订为`in_review`并排除在accepted aggregate外 |
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
-| 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | 验收和证据要求；包含已批准的ADR-0021 ambient capability-transition matrix |
+| 测试 | [`05-test-spec.md`](05-test-spec.md) | `in_review` | 验收和证据要求；artifact `ContentRef` owner matrix审核中，旧accepted批准只保留于Git历史 |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 
@@ -48,9 +48,14 @@ accepted unit为`ADR-0021`、当时的`SPEC-TASKQUAL-001`与PHASE-5，reviewComm
 `3d68d8658cc26ce95201b277b10e4a94103836af`；该批准只保留于Git历史。真实Linux probe随后证明其中
 capability checkpoint不可达。纠错后的immutable proposed-body commit固定为
 `d7390d472785fae533460eb96f31bdbec13ae21e`，两次fresh commit-bound复审
-`019f8f3c-ab93-7a50-a267-696a04253d76`与`019f8f3c-ab93-7a50-a267-697b0f23c2d5`均为P0=0、P1=0；
-当前三份bytes仅以metadata-only变更重新记录Architecture+Quality+Security批准并恢复`accepted`，normative
-body相对该reviewCommit零变化。
+`019f8f3c-ab93-7a50-a267-696a04253d76`与`019f8f3c-ab93-7a50-a267-697b0f23c2d5`均为P0=0、P1=0；三份bytes曾由
+metadata-only `687d59bb229e3b0bdc3fd7bb56dd4b8a2c749753`恢复`accepted`且normative body相对reviewCommit零变化。
+
+2026-07-24 corrected RED后的GREEN审计发现raw artifact/identity payload没有owning ContentRef schema/domain，
+而accepted contract又要求adapter/service重算original ref；旧approval不覆盖本次新增owner registry。当前
+`ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5共同转`in_review`，TASK-D0-10按R2 blocked。只有新的immutable
+proposed-body commit取得实现会话外Architecture+Quality+Security P0/P1=0复审，并由metadata-only commit
+恢复三份`accepted`，其bytes才重新成为implementation authority。
 
 ## 接受与废弃
 

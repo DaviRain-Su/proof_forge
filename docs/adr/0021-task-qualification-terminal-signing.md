@@ -1,15 +1,10 @@
 ---
 id: ADR-0021
 title: Task qualification protected acceptance 的一次性终结签名
-status: accepted
+status: in_review
 owner: architecture
-updated: 2026-07-23
+updated: 2026-07-24
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-23
-reviewCommit: d7390d472785fae533460eb96f31bdbec13ae21e
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/d7390d472785fae533460eb96f31bdbec13ae21e
-openFindings: none
 ---
 
 # ADR-0021：Task qualification protected acceptance 的一次性终结签名
@@ -51,6 +46,11 @@ wire、message domain和授权语义，不能复制或复用。
    ambient exec bridge，并在service第一段受信代码内先清bounding/ambient/inheritable/SETPCAP，再允许
    post-exec service读取已打开seed FD、接收packet或检查peer；supervisor在durable `active`后、exec前的既有
    seed读取顺序保持不变。
+7. corrected RED后的GREEN审计又确认：既有profile同时签入`artifact:ContentRefV1`与
+   `payloadSha256`，却没有为raw executable/closure/build-policy/tool/probe/scanner bytes定义ContentRef owner；
+   仅验证plain hash不能证明独立ref。本文在不改变七参数API、profile/frame wire、TST ID或Exception surface的
+   前提下，增加taskqualification-owned raw payload schema及closed role→owner registry；unknown schema、
+   fixture schema与跨role owner masquerade全部fail closed。
 
 ## 1. 唯一 protected API
 
@@ -202,12 +202,65 @@ descriptor/handoff钉住。ContentRef full digest domain固定为`pf.taskqual.au
 
 handoff `authorityStoreService` 必须指向该v2 descriptor；descriptor exact bytes/ref、service verifier、
 supervisor identity、isolation policy、service peer与current store lookup结果逐字段相等。v2 protected
-provenance bundle在既有exact roles外增加且只增加
-`store-supervisor-{executable,closure,build-policy}`与`store-isolation-policy`四个role；adapter和ceremony
+provenance bundle在historical v1 exact roles外增加且只增加
+`trusted-clock-{executable,closure,build-policy}`、`store-supervisor-{executable,closure,build-policy}`与
+`store-isolation-policy`七个role；adapter和ceremony
 分别safe-open/recompute这些payload，supervisor必须从对应identity启动，isolation policy bytes必须exact
-描述本ADR的UID/GID mapping、namespace、capability drop、seccomp、socket buffer与FD roles。四个payload
-refs与descriptor逐字段join，不得由candidate或CLI选择。v1 schema/protocol/version、unknown custody、不同
+描述本ADR的UID/GID mapping、namespace、capability drop、seccomp、socket buffer与FD roles。supervisor三件套
+与isolation policy四个refs逐字段join descriptor；trusted-clock三件套逐字段join handoff/lookup/clock observation；
+两组refs都不得由candidate或CLI选择。v1 schema/protocol/version、unknown custody、不同
 frame bound或`maximumTerminalAcceptances != 1`均在任何role curve work前拒绝。
+
+### 2.1 Raw payload `ContentRef` owner 与 closed dispatch
+
+本协议新增且只新增一个taskqualification-owned raw immutable payload identity：
+
+```text
+TaskQualificationArtifactPayloadRefV1 = ContentRefV1 where
+  schema = "proof-forge.task-qualification-artifact-payload.v1"
+```
+
+令`id`使用SPEC-COMMON-001 profile-id grammar，`version`是canonical SemVer，`payloadBytes`为
+`1..67108864` exact bytes；其digest唯一为：
+
+```text
+SHA-256(
+  ASCII("pf.taskqual.artifact-payload.v1") || NUL ||
+  UTF8(id) || NUL || UTF8(version) || NUL || payloadBytes
+)
+```
+
+raw bytes不要求UTF-8/PF-JCS且不做canonicalization。该ref不是wrapper object、bundle member或plain checksum；
+同payload不同id必须产生不同digest。profile的`payloadSha256`仍独立等于`SHA-256(payloadBytes)`，两者都必须
+重算并逐字相等，禁止用其中一个填另一个、只验证一个或接受caller-supplied digest callback。
+
+production profile artifact的role→owner dispatch固定为：
+
+| logical role | 唯一允许的artifact schema/owner |
+|---|---|
+| `resolved-tool/*`,`resolved-tool-closure/*`,`resolved-probe/*`,`sandbox-policy/*`,`verifier-executable/*`,`verifier-closure/*`,`verifier-build-policy/*`,`private-scan-scanner/*` | `proof-forge.task-qualification-artifact-payload.v1` / 本节raw公式 |
+| `private-scan-policy/*` | `proof-forge.private-scan-policy.v1` / accepted `scripts/private_scan.py::private_scan_policy_ref` |
+| `authority-store-service/*` | `proof-forge.authority-store-service.v1` / accepted `scripts/authority_store.py::descriptor_content_ref` |
+| `host-observation/*` | `proof-forge.host-observation.v1` / accepted `scripts/stage0_handoff.py` raw-byte ref规则 |
+| `host-profile/*` | `proof-forge.host-profile.v1` / accepted `scripts/stage0_handoff.py` raw-byte ref规则 |
+| 六个`bootstrap-verifier-*`/`protected-consumer-*` top-level roles | `proof-forge.task-qualification-artifact-payload.v1` / 本节raw公式 |
+
+protected-only identity payload同样closed：`authority-store-*`、`adapter-*`、`snapshot-parser-*`、
+`trusted-clock-*`及`store-supervisor-*`的executable/closure/build-policy三件套只能使用本节raw schema；
+`authority-store-service-descriptor`只能使用本文v2 descriptor schema/domain；`store-isolation-policy`只能使用
+本文isolation-policy schema/domain。每个三件套逐字段exact join其已验
+`VerifierIdentityV1{executable,closure,buildPolicy}`；payload必须分别重算ref，禁止只验plain SHA或借用
+host/private-scan/legacy descriptor schema。本owner修订不改变SPEC-TASKQUAL-001既有alias规则；D0 approval
+`protectedConsumer == handoff.adapter`所要求的`protected-consumer-*`↔对应`adapter-*`三对跨carrier
+ref/bytes exact equality继续合法且必须验证。production任一
+`proof-forge.task-qualification-fixture-resolved-blob.v1`、unknown schema、known schema用在错误role、owner parser
+拒绝、id/version/digest漂移均在pure verifier/terminal request前拒绝。
+
+trusted-clock三件套因此作为v2 protected provenance exact roles加入，但不是profile artifacts或pure bundle
+members。它们只证明handoff/lookup/clock observation共同pin住的clock service identity payload；
+`trustedClockFd`中的signed observation、trusted instant equality及A+Q+S签名规则不变。此次修订发生在首个
+production profile/pin/service/isolation/acceptance之前，不改变既有schema bytes；任何按未定义owner构造的
+草稿profile/pin必须删除，关联nonce永久spent，不存在implicit migration、fallback或same-ref alias。
 
 ## 3. framing、公共标量与签名
 
@@ -666,12 +719,15 @@ final三项role signatures证明该one-shot delegation下的机器签发，不�
 | fallback/negotiation/dual reader | 禁止 | 禁止 |
 | old candidate `1e0214f9` | 不可closeout | 必须建立新candidate |
 
-本变更不修改v1 bytes/domain。v2 schema仍为major `2.0.0`，domain仍以`.v2`结尾；本次R2纠错发生在首个
+本变更不修改v1 bytes/domain。v2 schema仍为major `2.0.0`，domain仍以`.v2`结尾；capability R2纠错发生在首个
 production profile/service/isolation-policy pin及首个v2 acceptance签发之前，closed wire字段集合、service
 protocol与custody enum均未增加，只把不可达的`custodyCapabilities=[19]`及其checkpoint修正为上述唯一
-`[8,19]` ambient transition。任何按旧checkpoint构造的未发布policy bytes必须删除并cross-reject，关联handoff
-nonce永久spent；不得把同ID/ref或“语义等价”alias迁移为新policy。配套接受单元必须更新
-`docs/governance/version-compatibility.md`和实现日志作为release note；仓库没有已发布v2对象需要data migration。
+`[8,19]` ambient transition。后续raw artifact owner R2同样发生在首个production profile/pin/acceptance前：
+profile/frame既有字段不变，只注册新的`proof-forge.task-qualification-artifact-payload.v1` schema并把既有
+logical/protected roles映射到exact owner。任何按旧checkpoint或未定义owner构造的未发布policy/profile bytes
+必须删除并cross-reject，关联handoff nonce永久spent；不得把同ID/ref、plain SHA或“语义等价”alias迁移为新
+identity。配套接受单元必须更新`docs/governance/version-compatibility.md`和实现日志作为release note；仓库没有
+已发布v2对象需要data migration。
 
 rollback：首次production acceptance前可撤销v2 pin并保持TASK-D0-10 blocked；一旦v2签发，发现缺陷时立即
 撤销v2 profile/service pin及所有未消费handoff nonce，拒绝新acceptance；禁止回退v1或caller-seed adapter，
@@ -736,7 +792,24 @@ SPEC-TASKQUAL-001与PHASE-5共同恢复`accepted`且三者reviewCommit exact指�
 `2026-07-25T06:00:00Z`尚未`done`，必须把任何`in_progress`原子转回`blocked`（或经批准Split），旧Exception
 不再授权继续实现、再次reactivation或延长时限；后续须按`GOV-TASK-FREEZE-001`重新取得书面Exception。
 旧`c22ed76e`只证明原accepted black-box RED；纠错accepted后必须先补提交同一TST subprofile的
-capability-transition RED，才可恢复production runtime GREEN。
+capability-transition RED，才可恢复production runtime GREEN；该RED已由
+`e574aaf11d4c829eea28e3dd993f85c6e3e28bf1`完成。
+
+### 11.2 corrected RED 后 raw artifact owner R2 纠错
+
+GREEN审计确认§2.1所述owner缺口后，task再次按R2转`blocked`。该修正仍交付同一profile mapping、protected
+adapter、v2 signer、seven-argument API、custody backend、TST-DOC-001 subprofile及doneWhen；没有增加profile/
+frame字段、TST ID、Dependency、Prerequisite、inScope或output，因而不是第二次Exception或完成面扩张。
+纠错必须形成新的immutable proposed-body commit，由实现会话以外的Architecture+Quality+Security复审至
+P0/P1=0；随后只允许metadata-only commit把ADR-0021、SPEC-TASKQUAL-001与PHASE-5共同恢复`accepted`，且
+三者reviewCommit exact指向该proposed body、normative body零变化。
+
+若该metadata acceptance与其direct-child reactivation都早于原
+`2026-07-25T06:00:00Z`，该reactivation只可把task `blocked→in_progress`并把existing package的
+`freezeCommit`再次重锚到metadata commit；`exceptionId`、`exceptionExpiresAt`及除`freezeCommit`外全部package
+字段必须逐字不变。这是owner-R2唯一一次reanchor，不授权修改或延长Exception。owner纠错accepted后须先在
+同一TST subprofile提交ref-digest/plain-digest独立性、role/schema confusion与unknown owner的focused RED，
+才可恢复GREEN。若到expiry仍未done，§11.1的强制Block/Split规则原样生效。
 
 ## 12. 验证要求
 
@@ -747,6 +820,11 @@ capability-transition RED，才可恢复production runtime GREEN。
 - unknown/extra/missing field、noncanonical、frame/acceptance bound拒绝；worst-case encoder KAT证明最大合法
   terminal request/response均严格小于4194304 bytes，增加一个byte稳定拒绝；
 - generic digest/message、错误acceptance domain、signature类型互换拒绝；
+- §2.1 raw ref与plain payloadSha256分别重算：payload相同但id/version不同、ref digest仅等于plain SHA、
+  payloadSha正确而artifact ref错误、artifact ref正确而payloadSha错误、known owner用于错误role、unknown/fixture
+  schema、typed owner noncanonical/parse失败、identity三件套任一missing/extra/ref错配及trusted-clock三role缺失
+  全部在terminal前拒绝；既有alias matrix不变，D0 `protected-consumer-*`↔`adapter-*`三对跨carrier exact
+  equality为正例；每个accepted owner至少一个正例和逐byte payload mutation；
 - wrong/missing `SCM_CREDENTIALS`、packet间credential漂移、PID reuse/process exit、pidfd mismatch、
   peer FD set/socket替换、adapterUid==serviceUid、shared supplementary group、adapter可traverse seed目录、
   U dev/ino或uid/gid map漂移、unmapped/overflow ID、sibling user namespace、service不在P或adapter不在唯一child A、

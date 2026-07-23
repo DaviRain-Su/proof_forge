@@ -8907,3 +8907,29 @@ normative: false
   `proof-forge.task-qualification-artifact-payload.v1` raw identity、exact digest preimage、closed
   role→schema owner dispatch及unknown/masquerade negatives；取得commit-bound独立P0/P1=0复审和
   metadata-only re-acceptance后，若仍在Exception时限内才可恢复同一GREEN。生产seed未读取、复制或输出。
+
+## 2026-07-24 — TASK-D0-10 raw artifact owner R2 proposed body（仍 blocked）
+
+- Scope：`ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5共同转`in_review`并移除旧approval metadata；同步ADR/
+  document/index状态、version compatibility与本日志。任务表冻结列/package/TST ID/EV/authority object/profile/
+  frame/acceptance字段均未改变；本slice未把既有Python working-tree草稿纳入提交。
+- Identity：新增唯一raw schema `proof-forge.task-qualification-artifact-payload.v1`；digest前像固定为
+  domain+NUL+UTF8(id)+NUL+UTF8(canonical SemVer)+NUL+exact payload，payload限1..64MiB且不canonicalize。
+  profile `payloadSha256`继续独立plain SHA-256，两者必须分别重算，禁止互填或generic fallback。
+- Dispatch：12个gate artifact roles分成8个raw owner与private-scan policy/general authority-store descriptor/
+  host observation/host profile四个accepted owner；六个D0 top-level roles使用raw owner。v2 protected identity
+  exact覆盖authority-store/adapter/snapshot-parser/trusted-clock/store-supervisor五个三件套，descriptor与
+  isolation policy保留各自structured owner；historical v1不增加trusted-clock三role。D0 approval既有的
+  `protected-consumer-*`↔`adapter-*`三对跨carrier ref/bytes exact-equality join继续必须验证；本owner修订不
+  放宽或收窄其他既有role/ref/bytes alias规则。
+- Tests：同一`TST-DOC-001/task-qualification-v1`增加id/version/payload/ref/plain-hash独立mutation、known-owner
+  wrong-role、unknown/fixture schema、typed parse failure、protected triplet closure与D0跨carrier exact-equality
+  cases；不新增denominator。若proposed body获批，focused owner RED仍必须先于GREEN。
+- Compatibility/Governance：首个production profile/pin/acceptance尚未签发，无legacy data migration；未定义
+  owner的草稿profile必须删除且nonce spent。修订不扩Exception surface或期限；只有本immutable body取得实现
+  会话外Architecture+Quality+Security P0/P1=0复审，并经metadata-only re-acceptance后，才可在原expiry前
+  direct-child reanchor并恢复。否则保持blocked。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py --root .`→`docs-check: ok`；
+  `/usr/bin/python3 -I -S scripts/docs_check_self_test.py`→`docs-check-self-test: ok (204 mutations)`；owner registry
+  coverage probe→`12 gate roles + 6 top-level roles + 15 protected identity roles; exact`；`git diff --check`→exit 0。
+  生产seed未读取、复制或输出，尚无独立review/approval/implementation candidate。
