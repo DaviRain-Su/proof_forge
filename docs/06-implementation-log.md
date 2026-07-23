@@ -8808,3 +8808,28 @@ normative: false
 - Boundary/Next：本activation没有修改Python/Lean、没有RED/GREEN、EV、approval/receipt或closeout。下一提交
   必须是在既有`TST-DOC-001/task-qualification-v1`下覆盖accepted ADR-0021 exact v2 matrix的tests-only RED；
   RED提交前禁止production实现。
+
+## 2026-07-23 — TASK-D0-10 capability checkpoint R2 blocker
+
+- Baseline：tests-only RED commit `c22ed76e581bb49472465c6912d7e1b8aff827a5` 已建立；本次诊断开始时
+  `HEAD == origin/main == c22ed76e`且worktree clean。该commit不是implementation candidate或production evidence。
+- Impossibility probe：以`cc -static -O2 -Wall -Wextra`编译一次性Linux user-namespace probe；ELF无
+  `PT_INTERP`/`DT_NEEDED`。四个distinct subordinate UID/GID mapping后，pre-exec exact状态为
+  `CapBnd/CapPrm/CapEff=0x80000`（`CAP_SYS_PTRACE`）、`CapInh/CapAmb=0`；同PID
+  `execveat(...,AT_EMPTY_PATH)`后实测`CapPrm/CapEff=0`而`CapBnd=0x80000`，随后
+  `PR_CAPBSET_DROP(CAP_SYS_PTRACE)`返回`-1/EPERM`。独立oracle invocation
+  `019f8ef5-cc16-7062-947b-faba79c35e74`给出同一最小矛盾，结论high confidence。
+- Feasibility probe：第二个一次性probe在同一U、nonzero service UID/GID、零supplementary group、
+  `no_new_privs=1`下验证最小可行过渡：static exec前后五组capability均exact为
+  `{CAP_SETPCAP,CAP_SYS_PTRACE}`；service首段先清两项bounding bit，再清ambient/inheritable/SETPCAP，
+  达到`CapBnd/CapInh/CapAmb=0, CapPrm/CapEff={CAP_SYS_PTRACE}`；terminal drop后五组全部为零。
+  invocation `019f8efc-3569-76f2-a40a-593da34360b1`独立建议同一路径并拒绝U-root/file-capability fallback。
+- Review：首轮隔离runtime、ceremony与object/adapter候选经fresh只读审查仍有P0/P1，全部未进入main、未推送；
+  它们的primitive/self-test PASS不能替代完整six-frame production positive。并行返工可保留为非权威草稿，
+  corrected ADR accepted前不得建立或宣称implementation candidate。
+- Triage：该事实属于`GOV-TASK-FREEZE-001` R2规格错误；TASK-D0-10从`in_progress`暂时回到`blocked`。
+  冻结Output/Tests/Dependencies/Prerequisites/doneWhen及`FX-2026-07-23-D0-10` surface字节不变；不新增TST、
+  task、custody backend或protocol major。下一步仅提交ADR-0021/SPEC-TASKQUAL-001/PHASE-5同一C3纠错正文，
+  经commit-bound Architecture+Quality+Security独立复审和metadata-only re-acceptance后再恢复RED→GREEN。
+- Limitation：上述probe是本机时点性Linux feasibility observation，不是Stage-0、formal EV、protected acceptance、
+  production signature或closeout证据；D0仍为9/10，D1-01仍dependency-blocked。
