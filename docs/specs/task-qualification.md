@@ -3,7 +3,7 @@ id: SPEC-TASKQUAL-001
 title: TaskQualificationV1 任务作用域 formal qualification
 status: accepted
 owner: quality
-updated: 2026-07-20
+updated: 2026-07-23
 normative: true
 approvers: architecture-owner, davirain, quality-owner, security-owner
 approvedAt: 2026-07-20
@@ -939,9 +939,11 @@ live、source path/safe-open、真实Git graph、external policy currentness或a
 
 root-only `docs_check` 永远只是 structural checker，任何运行方式都不构成 production-authority complete。
 本节定义独立、taskqualification-owned protected authority；它**不修改、不复用、也不冒充**
-`proof-forge.eligible-stage0-handoff.v1`、`BootstrapEvidenceRootManifestV1`或
+`proof-forge.eligible-stage0-handoff.v1`、`BootstrapEvidenceRootManifestV1`或通用
 `pf.authority-store.rpc.v1`，且其任何对象、service descriptor或executable pin均不得进入six-item
-activation。名称相似、字段可投影或同一进程实现均不构成wire兼容。
+activation。名称相似、字段可投影或同一进程实现均不构成wire兼容。2026-07-23 C3 amendment经
+`ADR-0021`把新production handoff从本节原taskqualification lookup-only v1迁移到exact v2 terminal signer；
+旧v1只保留historical decoder，禁止production fallback、协商或dual reader。
 
 唯一 protected positional API 固定为
 `protect_taskqualification_v1(operationBytes, handoffBytes, authorityPolicyFd, authorityStoreFd,
@@ -949,8 +951,9 @@ candidateArchiveFd, provenanceBundleFd, trustedClockFd)`；七个参数均requir
 path/env/kwargs/default。operationBytes是四operation之一的exact ASCII。继承FD集合必须exact为
 `0,1,2`加后五个FD，五者为非负、两两不同且逐一等于handoff.channels中的同名值；禁止reopen、dup后替换、
 ambient FD或fallback。policy/archive/provenance/clock是只读regular file，从offset 0 stable exact-consume，
-读取前后`fstat(dev,ino,mode,nlink,size)`相等、`nlink=1`、非symlink；store是唯一authenticated
-`SOCK_STREAM` connected peer，不按文件读取。handoffBytes不在candidate archive/provenance中取得。
+读取前后`fstat(dev,ino,mode,nlink,size)`相等、`nlink=1`、非symlink；store是唯一authenticated channel且
+不按文件读取。historical v1为`SOCK_STREAM`；新production handoff只允许`ADR-0021`冻结的Linux
+`AF_UNIX/SOCK_SEQPACKET` v2 socketpair endpoint。handoffBytes不在candidate archive/provenance中取得。
 
 ```text
 TaskQualificationProtectedChannelsV1 {
@@ -997,14 +1000,17 @@ entries按role ASCII严格升序唯一，bytesHex使用§8.2相同single/aggrega
 `authority-store-service-descriptor`、`authority-store-executable`、`authority-store-closure`、
 `authority-store-build-policy`、
 `adapter-executable`、`adapter-closure`、`adapter-build-policy`、`snapshot-parser-executable`、
-`snapshot-parser-closure`、`snapshot-parser-build-policy`，D0 receipt acceptance再加`bootstrap-receipt`、
+`snapshot-parser-closure`、`snapshot-parser-build-policy`；v2新production handoff再恰加
+`store-supervisor-executable`、`store-supervisor-closure`、`store-supervisor-build-policy`与
+`store-isolation-policy`，historical v1禁止这四role。D0 receipt acceptance另加`bootstrap-receipt`、
 `governance-bootstrap-completion`、`receipt-ledger-projection`。artifact payload roles由signed profile mapping
 展开并在bundle各出现一次，bytes按mapping payloadSha256与original accepted ref重算。bundle不携带expected
 policy/profile/revocation值且不签发authority；它是本协议自己的provenance channel，不是evidence root。
-其task/operation/run/nonce、subject及archive digests须exact handoff/API/subject/channel bytes；
-六个adapter/parser payload逐字段匹配authority-store返回的current pin identity refs并重算。
-authority-store descriptor bytes重算后exact等于handoff.authorityStoreService，其verifier三ref分别绑定三个
-authority-store payload roles；socket peer executable/session identity必须与该descriptor verifier一致。
+其task/operation/run/nonce、subject及archive digests须exact handoff/API/subject/channel bytes；六个
+adapter/parser payload及v2四个supervisor/isolation payload逐字段匹配current pin/descriptor refs并重算。
+authority-store descriptor bytes重算后exact等于handoff.authorityStoreService。historical v1 verifier三ref分别
+绑定三个authority-store payload roles；v2还要求descriptor.supervisor三ref与isolationPolicy逐字段绑定新增
+四role，并按`ADR-0021`验证static service、supervisor、socket endpoint lineage与live session identity。
 trusted-clock-observation是closed
 `{schema:"proof-forge.task-qualification-trusted-clock-observation.v1",id,version:"1.0.0",taskId,operation,
 runId,nonce,trustedClockService,observedAt,clockSourceDigest,signatures}`，tuple/service exact handoff，
@@ -1014,7 +1020,9 @@ unsigned/signature/full domains依次为
 rule验签，observedAt是本次唯一trusted instant。
 current-revocation-snapshot及records须与authority-store同一headSequence/headDigest lookup结果exact。
 
-authorityStoreFd只讲独立协议`pf.taskqual.authority-store.rpc.v1`。service descriptor及其ref固定为：
+以下`pf.taskqual.authority-store.rpc.v1` descriptor/frame/key是C3迁移后只读historical grammar，bytes、domain与
+lookup-only语义保持不变；新protected production invocation必须在curve前拒绝它。historical service descriptor
+及其ref固定为：
 ```text
 TaskQualificationAuthorityStoreServiceV1 {
   schema: "proof-forge.task-qualification-authority-store-service.v1",
@@ -1072,7 +1080,17 @@ decoded bytes重算object ref及schema/key exact。只允许lookup，禁止publi
 requestId、not-found/revoked/multiple、peer/service pin不符均fail closed并使nonce永久spent。每个response及
 最终acceptance都必须保持handoff current head；验证结束前再lookup revocation head并exact相等。失败后不得
 重试同nonce；新尝试必须由candidate-external authority签发新handoff。profile/pin lookup唯一按signed
-handoff `(taskId,operation,gateSetDigest)`，绝不按candidate声明。
+handoff `(taskId,operation,gateSetDigest)`，绝不按candidate声明。以上段落同样只定义historical v1 replay；它
+不得为新production acceptance提供签名或authority。
+
+新production `authorityStoreFd`只讲`pf.taskqual.authority-store.rpc.v2`，其closed descriptor、六种frame、
+PF-JCS field order、full/signature domains、4 MiB seqpacket framing、lookup key union与exact序列、unsigned
+acceptance wire、terminal request/response、Linux U/P/A peer/custody profile、static service
+supervisor→same-PID `execveat`、seedRoot/role-key custody、durable nonce/head transaction、bounds及negative
+matrix全部以同一accepted acceptance unit中的`ADR-0021` §§2–8、§12为本规格exact normative内容。v2只允许
+同一authenticated session完成全部lookup后恰一次`sign-acceptance`；adapter不得接收private key、seed、HSM
+handle、signer callback或任意message/digest signer。v1/v2 schema、socket kind、frame、descriptor与object key
+必须双向cross-reject，且新handoff.authorityStoreService必须exact指向v2 descriptor。
 
 authority equality chain不可省略：RPC返回的policy ref/bytes exact等于handoff.authorityPolicy及
 authorityPolicyFd bytes/ref；返回pin ref exact等于handoff.productionProfilePin，且pin.authorityPolicy exact
@@ -1094,8 +1112,10 @@ ordinary candidate evidence member，不能授权本API、提供FD或替代本�
 executable/closure/buildPolicy须与handoff.adapter逐字段相等（D0-10 roles显式承载；steady-state由外层
 policy-pinned protected invocation同样绑定）。protected entry 对 exact D archive运行structural docs_check，
 并在外部验证R、GBC与Ledger projection（适用时）；只在protected receipt acceptance后发出acceptance，且不把
-external对象写入D。docs-check只消费adapter immutable projection并重算subject/ref/candidate equality，
-fixture在curve前拒绝。
+external对象写入D。v2 adapter只能把`ADR-0021` terminal response中的exact signed acceptance bytes作为
+成功结果；它必须重验service signature、Architecture+Quality+Security fixed quorum、unsigned/signed byte
+identity、statement/full digest、current head与durable accepted terminal state，不得自行签名、替换或重排。
+docs-check只消费adapter immutable projection并重算subject/ref/candidate equality，fixture在curve前拒绝。
 
 ```text
 ProtectedTaskQualificationAcceptanceV1 {
@@ -1167,3 +1187,8 @@ protected production adapter，并补齐 fixture/profile/provenance边界；不�
 Tests、Dependencies、Prerequisites或doneWhen。amendment 经多轮 bounded independent review 修复 size、
 role/parser、fixture policy、time/revocation、Git ancestry 与 external profile pin 后，最终结论
 `SAFE TO COMMIT AMENDMENT`、P0/P1=0；该结论仍不覆盖后续 RED/GREEN implementation。
+
+2026-07-23 C3 terminal-signing amendment与`ADR-0021`、PHASE-5同一review/acceptance unit，修复七参数API、
+lookup-only v1与最终acceptance role signatures之间的不可实现闭环。该unit只在ADR-0021 accepted metadata、
+Architecture+Quality+Security批准、immutable proposed-body commit/HTTPS review及P0/P1=0全部存在后生效；
+此前TASK-D0-10保持blocked，本文workspace草案不得作为实现authority。

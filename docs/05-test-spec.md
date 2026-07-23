@@ -3,7 +3,7 @@ id: PHASE-5
 title: 测试与验收规格
 status: accepted
 owner: quality
-updated: 2026-07-20
+updated: 2026-07-23
 normative: true
 approvers: architecture-owner, davirain, quality-owner, security-owner
 approvedAt: 2026-07-20
@@ -517,6 +517,14 @@ operation。steady-state使用synthetic D1 fixture；D0-10 fixture只覆盖one-t
 D0-07 completion。fixture必须与production tuple静态不相交且永不被docs-check接受；production acceptance
 另经policy-pinned protected adapter验证trusted time、safe-open archive/Git ancestry、authority store及live
 FD/session provenance。pure成功本身不是task evidence或closeout。
+
+`ADR-0021` C3 amendment不新增Test ID；它只扩展同一个`TST-DOC-001/task-qualification-v1` subprofile。该
+subprofile必须逐项执行ADR-0021 §12的exact v1/v2 cross-rejection、seqpacket framing、lookup/terminal wire、
+unsigned/signed acceptance equality、socket endpoint lineage、U/P/A namespace/credential/capability、static
+service same-PID exec、seedRoot/FD custody、durable nonce/head transaction、failure injection与structural-only
+root checker matrix。positive production case必须走七参数positional-only API和完整v2 protected path；任何
+caller seed、fixture key、v1 fallback、generic signer、partial signature或未accepted Freeze Exception均不得
+产生`production-candidate-bound`。这些case仍只计一个`TST-DOC-001` denominator。
 
 Evidence Ledger 的 canonical columns 固定为
 `ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是

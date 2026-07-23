@@ -3,7 +3,7 @@ id: GOV-VER-001
 title: 版本与兼容治理
 status: proposed
 owner: release
-updated: 2026-07-15
+updated: 2026-07-23
 normative: true
 ---
 
@@ -20,3 +20,17 @@ artifact backup；migration 不自动部署或覆盖原文件。
 release notes 分为 added/changed/deprecated/removed/security/toolchains/target maturity。没有
 schema/profile version justification 的 golden/ABI/layout change 阻断合并。revoked profile
 进入 denylist 后所有仍安装的 compiler 也必须在显式 registry update 时 fail closed。
+
+## TASK-D0-10 taskqualification authority-store v1 → v2
+
+`ADR-0021`是C3 breaking protocol amendment。`pf.taskqual.authority-store.rpc.v1`及其descriptor/frame/domain
+保持字节不变且只供historical lookup evidence重放；它不能签发protected acceptance。所有新
+`TaskQualificationProtectedHandoffV1` production invocation必须exact pin
+`pf.taskqual.authority-store.rpc.v2`与`TaskQualificationAuthorityStoreServiceV2`，使用Linux
+`AF_UNIX/SOCK_SEQPACKET`、exact v2 frame decoder和一次terminal acceptance-signing。不存在in-place alias、
+version negotiation、v1→v2 coercion、dual reader、best effort或fallback。
+
+迁移只适用于首次production acceptance前尚未发布的D0-10 candidate：旧candidate `1e0214f9`永久不可closeout，
+必须从accepted v2 profile/service pin建立新candidate。rollback只能撤销尚未签发的v2 pins/objects、spend
+全部handoff nonce并让TASK-D0-10回到blocked；一旦v2 acceptance签发，修复必须使用新protocol major，不能
+回退v1或caller-provided seeds。仓库没有已发布v2对象需要data migration。

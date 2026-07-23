@@ -8745,3 +8745,31 @@ normative: false
   `blocked`，将首版 proposal 作为 immutable baseline；随后选择正式 Freeze Exception，冻结 exact
   v2 wire/state/migration/custody/authorization，重审至 P0/P1=0 并取得 Architecture+Quality+Security
   批准，方可修订 SPEC/test/trace、恢复 `in_progress` 并按 RED→GREEN 建立新 candidate。
+
+## 2026-07-23 — TASK-D0-10 terminal-signing C3 proposed-body repair（仍 blocked）
+
+- Scope：仅形成`ADR-0021` + `SPEC-TASKQUAL-001` §8.4 + PHASE-5 + trace + version migration的同一
+  proposed acceptance unit；没有修改Python/Lean、task row、freeze package、EV、签名对象或closeout。
+- Contract：保留七参数positional-only protected API及historical lookup-only v1；新production handoff只允许
+  `pf.taskqual.authority-store.rpc.v2`。冻结exact seqpacket六frame、lookup union/order、无`signatures`字段的
+  unsigned acceptance、terminal response、durable nonce/head transaction、Architecture+Quality+Security
+  one-shot signing与structural-only root checker边界。
+- Custody：v2 descriptor/policy钉住Linux shared user namespace、parent/child PID topology、distinct UID/GID、
+  supervisor-created endpoint lineage、SCM credentials/pidfd/proc direct observation、static service same-PID
+  `execveat`、seedRoot exact FD custody、capability drop及signed complete default-deny seccomp allow tables；adapter
+  永不取得role seeds或generic signer。
+- Freeze：proposal记录`FX-2026-07-23-D0-10`，把新增service/custody/durable-state能力明确视为完成面扩张；
+  Exception未获Architecture+Quality+Security批准前，TASK-D0-10继续`blocked`且原freeze package不变。
+- Independent review：连续bounded oracle invocations
+  `019f8dad-4f34-7e10-88cf-963360ba191b`至
+  `019f8dbe-c41a-7760-8419-a0523010969a`依次发现并修复self-referential reviewCommit、accepted v1/v2冲突、
+  socket peer不可证明、pre-exec dynamic loader、send/recv framing、opaque isolation policy、seccomp pointer
+  claim、CLOEXEC endpoint、mount wire、allowlist authority及proc traversal问题；最终复审明确
+  **P0=0、P1=0**。该结论只覆盖当前workspace normative body，不替代immutable commit/HTTPS review、正式批准
+  或后续implementation review。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py --root .` → `docs-check: ok`；
+  `git diff --check` → exit 0。提交proposed-body前仍须重跑204-mutation docs-check self-test。
+- Limits/Next：先建立immutable proposed-body commit并取得指向该commit的HTTPS review与三角色批准；随后只能以
+  metadata-only acceptance commit更新ADR/SPEC/PHASE-5 metadata和index。仅在Exception未过
+  `2026-07-25T06:00:00Z`且replacement freeze package exact后恢复`in_progress`。production role seeds仍未在
+  workspace提供，不能预填批准、签名或D0 closeout。
