@@ -8789,3 +8789,22 @@ normative: false
   failure转`rejected`，crash recovery也不得重新active。
 - Boundary：仍无task row/freeze package/implementation/EV/authority signature变更；TASK-D0-10继续blocked。
   修复后须建立新的immutable proposed-body commit并重新取得P0/P1=0 commit-bound review。
+
+## 2026-07-23 — TASK-D0-10 FX-2026-07-23-D0-10 activation
+
+- Review/approval：replacement proposed-body commit
+  `3d68d8658cc26ce95201b277b10e4a94103836af` 已推送至GitHub并经fresh commit-bound独立复审，结论
+  P0=0、P1=0。ADR-0021、SPEC-TASKQUAL-001与PHASE-5随后仅以frontmatter/index metadata commit
+  `0bbd1b2445622760a9c4e1b21220f53183727ce6`转accepted；规范正文相对reviewCommit零变化。
+- Exception：本activation是`0bbd1b24` direct child；按accepted ADR-0021 §11重置D0-10 package，
+  `freezeCommit` exact等于parent，记录`exceptionId=FX-2026-07-23-D0-10`与
+  `exceptionExpiresAt=2026-07-25T06:00:00Z`，output新增且只新增taskqualification authority-store v2 terminal
+  signer；Tests/Dependencies/Prerequisites集合不变。
+- State：TASK-D0-10 `blocked→in_progress`；D0仍9/10，D1-01仍pending dependency-blocked。旧candidate
+  `1e0214f9`继续拒绝，新candidate尚未建立。
+- Key preflight：对candidate-external六个0400 seed file只读safe-open，未输出private material；派生public keys
+  分别exact匹配D0-04 policy的Architecture/Quality/Release/Security、authority-store service与verifier-receipt
+  public keys，结果`seed-set: VALID`。这只证明材料可用，不是签名或closeout evidence。
+- Boundary/Next：本activation没有修改Python/Lean、没有RED/GREEN、EV、approval/receipt或closeout。下一提交
+  必须是在既有`TST-DOC-001/task-qualification-v1`下覆盖accepted ADR-0021 exact v2 matrix的tests-only RED；
+  RED提交前禁止production实现。

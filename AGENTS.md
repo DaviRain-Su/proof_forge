@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 因 accepted §8.4 无合法 acceptance-signing capability 暂时 blocked；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | 无；当前正式任务 blocked，冻结包不变，等待 ADR-0021 / SPEC-TASKQUAL-001 修订 accepted 后恢复 |
-| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0），不得用于 closeout；新候选未建立 |
-| Next task | **TASK-D0-10**（blocked；ADR-0021 与配套 SPEC 修订 accepted 后才可恢复 in_progress） |
-| Active development slice | 无；**D1-PA-115 / TASK-D1-01 pre-acceptance** 已以 `EV-20260721-0001` 收口，正式 TASK 状态未改变 |
-| Next development slice | 未冻结；正在对 `ProgramItemV1` decoder residual 做只读审计并选择单一 slice，禁止由 checkpoint 自动递增。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted ProgramV1 decoder 或 fallback |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 已经 `FX-2026-07-23-D0-10` 重冻结并恢复 in_progress；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | **TASK-D0-10**（in_progress；task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge） |
+| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0），不得用于 closeout；v2新候选尚未建立 |
+| Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
+| Active development slice | 无；D0-10 Exception activation刚完成，尚未提交v2 RED/implementation |
+| Next development slice | `TST-DOC-001/task-qualification-v1`下的ADR-0021 exact v2 tests-only RED；禁止在RED前修改production实现，禁止触碰D1/DSL/ProgramV1/Loader/target范围 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-10**：`SPEC-TASKQUAL-001` §8.4 的七参数 API、lookup-only store 与最终 A+Q+S acceptance 会签不可同时实现；ADR-0021 proposed，修订 accepted 前禁止 implementation/ceremony |
+| Known blocker | 无；ADR-0021 C3修订与Freeze Exception已accepted/activated，后续仍须按新冻结包完成RED→GREEN、独立实现复审与生产closeout ceremony |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

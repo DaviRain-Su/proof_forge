@@ -91,7 +91,7 @@ openFindings: none
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | EV-20260720-0003 | done |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
-| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | blocked |
+| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | in_progress |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -108,8 +108,14 @@ freeze package、不激活、不产 EV，也不改变 D0-01 的 frozen TST-DOC-0
 acceptance wire、root checker authority 与 accepted 规格不符；进一步审计确认 §8.4 的唯一七参数 API
 无法经 lookup-only store 获得运行后 acceptance 所需的 Architecture+Quality+Security 会签。按
 `GOV-TASK-FREEZE-001` §4/§5 停止实现并将任务置为 `blocked`；冻结 Output/Tests/Dependencies/
-Prerequisites/doneWhen 均不变。修复提案见 proposed `ADR-0021`，其与配套 spec 经独立复审并正式
+Prerequisites/doneWhen 均不变。修复提案见当时 proposed `ADR-0021`，其与配套 spec 经独立复审并正式
 accepted 前，禁止 closeout ceremony 或把旧 candidate 恢复为可签发状态。
+
+2026-07-23 `FX-2026-07-23-D0-10` activation：ADR-0021、SPEC-TASKQUAL-001 与 PHASE-5 的
+metadata-only acceptance commit `0bbd1b2445622760a9c4e1b21220f53183727ce6` 已批准v2扩面；本direct-child
+activation按Exception替换freeze package/output并把TASK-D0-10恢复`in_progress`。Tests/Dependencies/
+Prerequisites集合保持不变，新增范围仅为accepted ADR-0021 exact v2 signer/custody/durable-state matrix；
+旧candidate `1e0214f9`仍永久不可closeout，必须按新package重新走RED→GREEN并建立新candidate。
 
 `TASK-D0-09` 经 [`adr/0016-cross-platform-host-profile-and-linux-eligibility.md`](adr/0016-cross-platform-host-profile-and-linux-eligibility.md)
 立项（GOV-TASK-FREEZE-001 §4 R3 / §7 milestone 变更）：linux host profile 与 locked linux

@@ -1,9 +1,11 @@
 {
   "schemaVersion": 1,
   "taskId": "TASK-D0-10",
-  "frozenAt": "2026-07-20",
-  "freezeCommit": "60568e6ec6532547347530376c6da7ce241af26b",
-  "output": "task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
+  "frozenAt": "2026-07-23",
+  "freezeCommit": "0bbd1b2445622760a9c4e1b21220f53183727ce6",
+  "exceptionId": "FX-2026-07-23-D0-10",
+  "exceptionExpiresAt": "2026-07-25T06:00:00Z",
+  "output": "task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge",
   "dependencies": [
     "TASK-D0-07"
   ],
@@ -20,22 +22,23 @@
     "policy-pinned protected consumers for task qualification, completion receipt, the D0-07 governance-bootstrap completion bridge, and the exact one-time D0-10 bootstrap approval/receipt path",
     "docs-check integration that accepts the pending no-package baseline before activation, requires the exact package while in_progress, validates candidate-owned qualification/bootstrap approval at closeout, and permits D0-10 bootstrap grade only under GOV-TASKQUAL-BOOTSTRAP-001",
     "deterministic C-to-Q-or-approval-to-D-to-external-receipt-to-optional-P file-set validation with no digest cycle, no-clobber temporary publication, fixed candidate-owned paths, and authenticated ancestor dependency completion",
-    "mutation acceptance for cross-task/ref substitution, weak or wrong-role signatures, non-independent or P0/P1 review, development-to-formal promotion, no-op command substitution, stale/revoked/scan-omitted inputs, wrong candidate/build/parent/tree/archive, full-release aggregate substitution, and qualification-as-release substitution"
+    "mutation acceptance for cross-task/ref substitution, weak or wrong-role signatures, non-independent or P0/P1 review, development-to-formal promotion, no-op command substitution, stale/revoked/scan-omitted inputs, wrong candidate/build/parent/tree/archive, full-release aggregate substitution, and qualification-as-release substitution",
+    "ADR-0021 exact authority-store v2 descriptor, isolation policy, six-frame seqpacket client/server, lookup and terminal acceptance-signing protocol, static supervisor-to-service custody transition, one-time seed FD handling, durable nonce/head transaction, and complete negative matrix"
   ],
   "outOfScope": [
     "changing BootstrapAuthorityPolicyV1 taskRules, the six-item activation, RequiredTestSetV1, raw EV qualification vocabulary, the 77-ID TASK-D8-04/TST-ISO-003 aggregate, or any release acceptance semantics",
     "closing or activating TASK-D1-01, producing TST-SRC-001/TST-SRC-002 formal evidence, or modifying any pending D1-02 through D1-08 completion surface",
     "source DSL, ProgramV1 decoders, Loader/CLI/Lean command/export cutover, legacy lowering removal, SemanticProgram, target Plan/IR, materialization, runtime, proof, or deployment behavior",
-    "new Test IDs, a subset RequiredTestSet, a second formal evidence-finalization schema, unsigned attest acceptance, reviewer signatures masquerading as independence, or runtime/environment fallback"
+    "new Test IDs, a subset RequiredTestSet, a second formal evidence-finalization schema, unsigned attest acceptance, reviewer signatures masquerading as independence, generic signing RPC, alternate custody backend, or runtime/environment fallback"
   ],
   "doneWhen": [
-    "the TST-DOC-001/task-qualification-v1 RED matrix is committed before implementation and every frozen positive/negative case passes through the production verifier and docs-check consumer without changing the single TST-DOC-001 release denominator",
+    "the TST-DOC-001/task-qualification-v1 RED matrix is committed before implementation and every frozen positive/negative case passes through the production verifier, seven-argument protected adapter, exact authority-store v2 terminal signer, and structural-only docs-check consumer without changing the single TST-DOC-001 release denominator",
     "candidate-bound passed development EV for TASK-D0-10/TST-DOC-001 records the exact command policy and protected run; independent implementation review has P0/P1=0; exact Architecture+Quality+Security authorization signs the one-time D0_10BootstrapApprovalV1 against the fixed in_progress implementation candidate",
     "a separate closeout commit whose parent is the approved implementation candidate contains no verifier/protocol/product/test/freeze change, has the exact allowed semantic/full file sets, carries the candidate-owned bootstrap approval, and is followed by an external D0_10BootstrapReceiptV1 plus GovernanceBootstrapCompletionV1 suitable for TASK-D1-01 dependency verification",
     "docs-check, docs-check-self-test, the focused production self-test, git diff --check, traceability, checkpoint, evidence ledger, implementation log, and package-to-task-row consistency all pass with no P0/P1 findings"
   ],
-  "overflowPolicy": "Any policy-root change, release aggregate work, D1 task behavior, DSL/decoder/cutover work, new TST, or protocol not required by SPEC-TASKQUAL-001 goes to a separately approved task; this package cannot expand after activation.",
-  "maxCalendarDays": 5,
+  "overflowPolicy": "Any policy-root change, release aggregate work, D1 task behavior, DSL/decoder/cutover work, new TST, or protocol not required by accepted SPEC-TASKQUAL-001 and ADR-0021 goes to a separately approved task; this exception package cannot expand after activation.",
+  "maxCalendarDays": 2,
   "maxCommits": 20,
-  "notes": "Activation package only. The reused TST-DOC-001 ID is limited to the D0-10-owned task-qualification-v1 subprofile and does not reopen D0-01. Gate implementation and one-time closeout must remain separate commits under GOV-TASKQUAL-BOOTSTRAP-001."
+  "notes": "FX-2026-07-23-D0-10 replacement activation package. The reused TST-DOC-001 ID remains limited to the D0-10-owned task-qualification-v1 subprofile and does not reopen D0-01. The metadata-only acceptance commit is the exact freezeCommit parent of this activation. Gate implementation and one-time closeout must remain separate commits under GOV-TASKQUAL-BOOTSTRAP-001. Expiry is fail-closed."
 }
