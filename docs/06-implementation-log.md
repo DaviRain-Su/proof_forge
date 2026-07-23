@@ -8933,3 +8933,19 @@ normative: false
   `/usr/bin/python3 -I -S scripts/docs_check_self_test.py`→`docs-check-self-test: ok (204 mutations)`；owner registry
   coverage probe→`12 gate roles + 6 top-level roles + 15 protected identity roles; exact`；`git diff --check`→exit 0。
   生产seed未读取、复制或输出，尚无独立review/approval/implementation candidate。
+
+## 2026-07-24 — TASK-D0-10 single-maintainer owner waiver + owner RED
+
+- Owner directive：唯一项目维护者明确说明本仓库由其单人开发并要求当前主代理直接推进，不再以其他agent的
+  独立流程复审阻塞D0收口；记录token为`single-maintainer-owner-waiver`。本记录不声称independent review，
+  也不把此前失败且零tool-call的后台agent计入任何证据。
+- Retained boundary：waiver只替换人员/agent流程；raw owner closed dispatch、RED→GREEN、真实eligible-kernel与
+  七参数production acceptance、A+Q+S三distinct-principal签名、candidate C→direct-child D、证据/traceability
+  与完整gate全部保留。生产seed仍只允许当前主代理的本地ceremony进程消费，不得输出或传给其他agent。
+- Immutable inputs：owner proposed body `3fb9c700f549cc45692a34cc5f4c652a1765b71c`已推送；focused tests-only
+  RED `38047c1e`只新增`scripts/task_qualification_artifact_owner_self_test.py`，首次执行为`0/7`且全部稳定
+  `API-ABSENT`/owner-dispatch-absent。
+- Worktree GREEN progress：实现raw domain/id/version/payload preimage、29个raw role与existing typed owner closed
+  dispatch、plain checksum独立验证、五组三件套和D0 consumer↔adapter跨carrier join后，focused matrix为
+  `8/8 passed`；既有RED matrix `111/111`、protected adapter `39/39`保持通过。authority-store v2仍为`25/26`，
+  唯一RED是`QUALIFIED-INTEGRATION-INPUT-ABSENT`；当前改动尚未形成implementation candidate。

@@ -1234,6 +1234,8 @@ role/parser、fixture policy、time/revocation、Git ancestry 与 external profi
 2026-07-24 GREEN审计确认production raw artifact/identity ContentRef owner未定义，task再次按R2 blocked。本次
 同一review unit只增加§2 raw identity、§8.2/§8.4 closed owner dispatch及对应negative matrix，不改变
 TASK-D0-10冻结Output/Tests/Dependencies/Prerequisites/doneWhen、profile/frame字段或v2 protocol major。当前
-ADR-0021、SPEC-TASKQUAL-001与PHASE-5 bytes共同为`in_review`；只有新的immutable proposed-body commit取得
-实现会话外Architecture+Quality+Security P0/P1=0复审，且metadata-only commit记录批准后才可恢复
-`accepted`。此前workspace草案不是implementation authority；若Exception expiry先到则保持blocked。
+ADR-0021、SPEC-TASKQUAL-001与PHASE-5 bytes共同为`in_review`。2026-07-24唯一维护者已明确要求按
+single-maintainer模式继续；因此本次允许ADR-0021 §11.2的`single-maintainer-owner-waiver`替代流程复审，但不
+替代owner matrix、RED→GREEN、真实production acceptance/A+Q+S签名、C→D或完整gate。metadata-only commit只
+可批准包含该waiver的immutable body，三份`approvers`只列唯一维护者且不得写成independent review。此前
+workspace草案不是implementation authority；若Exception expiry先到则保持blocked。

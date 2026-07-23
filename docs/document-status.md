@@ -53,9 +53,11 @@ metadata-only `687d59bb229e3b0bdc3fd7bb56dd4b8a2c749753`恢复`accepted`且norma
 
 2026-07-24 corrected RED后的GREEN审计发现raw artifact/identity payload没有owning ContentRef schema/domain，
 而accepted contract又要求adapter/service重算original ref；旧approval不覆盖本次新增owner registry。当前
-`ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5共同转`in_review`，TASK-D0-10按R2 blocked。只有新的immutable
-proposed-body commit取得实现会话外Architecture+Quality+Security P0/P1=0复审，并由metadata-only commit
-恢复三份`accepted`，其bytes才重新成为implementation authority。
+`ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5共同转`in_review`，TASK-D0-10按R2 blocked。唯一维护者随后于
+2026-07-24明确采用ADR-0021 §11.2的`single-maintainer-owner-waiver`：不再声称或要求其他agent提供independent
+review，但全部可执行、kernel、production签名、C→D与gate验收保持不变。包含该waiver的新immutable body提交后，
+只允许以`approvers: davirain`的metadata-only commit恢复三份`accepted`；该批准明确是owner directive而不是
+independent review。
 
 ## 接受与废弃
 

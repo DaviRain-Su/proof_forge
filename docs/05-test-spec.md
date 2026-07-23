@@ -536,7 +536,8 @@ noncanonical/parse失败、三件套missing/extra/ref错配和trusted-clock三ro
 exact-equality正例并对每对错配做负例，不得把host raw digest owner推广成generic fallback。positive production case必须走七参数
 positional-only API和完整v2 protected path；任何caller seed、fixture key、v1 fallback、generic signer、
 partial signature或未accepted Freeze Exception均不得产生`production-candidate-bound`。这些case仍只计一个
-`TST-DOC-001` denominator。
+`TST-DOC-001` denominator。ADR-0021 §11.2的`single-maintainer-owner-waiver`只替换流程复审人员，不允许删除、
+skip、降级或伪造本段任一RED/GREEN、kernel、production、签名或closeout case。
 
 Evidence Ledger 的 canonical columns 固定为
 `ID | Task | Tests | Grade | Gate / command | Result | Scope and limitation`。`Grade` 只能是

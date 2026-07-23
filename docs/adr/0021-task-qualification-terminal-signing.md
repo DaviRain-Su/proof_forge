@@ -800,9 +800,13 @@ capability-transition RED，才可恢复production runtime GREEN；该RED已由
 GREEN审计确认§2.1所述owner缺口后，task再次按R2转`blocked`。该修正仍交付同一profile mapping、protected
 adapter、v2 signer、seven-argument API、custody backend、TST-DOC-001 subprofile及doneWhen；没有增加profile/
 frame字段、TST ID、Dependency、Prerequisite、inScope或output，因而不是第二次Exception或完成面扩张。
-纠错必须形成新的immutable proposed-body commit，由实现会话以外的Architecture+Quality+Security复审至
-P0/P1=0；随后只允许metadata-only commit把ADR-0021、SPEC-TASKQUAL-001与PHASE-5共同恢复`accepted`，且
-三者reviewCommit exact指向该proposed body、normative body零变化。
+纠错必须形成新的immutable proposed-body commit；默认由实现会话以外的Architecture+Quality+Security复审至
+P0/P1=0。仓库由唯一维护者独立开发时，唯一维护者可用明确owner directive替代该流程复审，但必须在实现日志中
+逐字记录`single-maintainer-owner-waiver`、不得声称independent review，并继续满足全部closed wire、RED→GREEN、
+真实kernel/production acceptance、A+Q+S distinct-principal签名、C→D与完整gate。waiver只替换人员/agent流程，
+不替换任何可执行或密码学验收。随后只允许metadata-only commit把ADR-0021、SPEC-TASKQUAL-001与PHASE-5共同
+恢复`accepted`；sole-maintainer路径的三份`approvers`只列唯一维护者，`reviewCommit` exact指向包含本条的
+immutable body，normative body相对metadata commit零变化。
 
 若该metadata acceptance与其direct-child reactivation都早于原
 `2026-07-25T06:00:00Z`，该reactivation只可把task `blocked→in_progress`并把existing package的

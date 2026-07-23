@@ -144,6 +144,9 @@ accepted registry 只覆盖少数 typed payload，未为其余 raw executable/to
 Dependencies/Prerequisites/doneWhen、既有 Exception surface 与 `2026-07-25T06:00:00Z` expiry 全部不变。
 只允许先按 `GOV-CHANGE-001` 定义 exact taskqualification raw-payload identity及closed role→schema owner
 registry并重审；禁止以 generic raw hash、wrapper masquerade 或仅检查 `payloadSha256` 伪造 positive。
+2026-07-24 唯一维护者明确指示改用ADR-0021 §11.2的`single-maintainer-owner-waiver`推进：它只免除不适合
+单人仓库的独立agent流程，不改变本任务冻结列、owner RED→GREEN、真实production acceptance、A+Q+S
+三distinct-principal签名、C→D、证据或完整gate，且不得记录为independent review。
 
 `TASK-D0-09` 经 [`adr/0016-cross-platform-host-profile-and-linux-eligibility.md`](adr/0016-cross-platform-host-profile-and-linux-eligibility.md)
 立项（GOV-TASK-FREEZE-001 §4 R3 / §7 milestone 变更）：linux host profile 与 locked linux
