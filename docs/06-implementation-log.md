@@ -8773,3 +8773,19 @@ normative: false
   metadata-only acceptance commit更新ADR/SPEC/PHASE-5 metadata和index。仅在Exception未过
   `2026-07-25T06:00:00Z`且replacement freeze package exact后恢复`in_progress`。production role seeds仍未在
   workspace提供，不能预填批准、签名或D0 closeout。
+
+## 2026-07-23 — TASK-D0-10 immutable proposal review P1 repair（仍 blocked）
+
+- Reviewed commit：`4f1c8d79da65c6eab45986965e31026a25bb6679`（parent
+  `70c55daa3d89af4e572cab9f8bb47a567c286313`）。fresh independent invocation
+  `019f8dc2-b6c6-70e1-b996-bbc2e5db8969`按commit复审结论P0=0、P1=3，因此该commit不得作为最终
+  `reviewCommit`或Exception批准输入。
+- P1 findings：accepted SPEC/PHASE-5正文被修改但仍携带旧approval metadata；proposal把早于修订/package的
+  `70c55daa`误写为new freeze commit；seed/service启动前失败尚未明确durably spend signed handoff nonce。
+- Repaired：SPEC-TASKQUAL-001与PHASE-5显式转`in_review`并移除旧frontmatter批准字段，旧批准只留Git历史，
+  document-status同步；Exception改为三阶段proposed-body→metadata-only approval→direct-child activation，
+  replacement package的literal freezeCommit必须exact等于activation direct parent，不得预填future hash；
+  supervisor在任何seed open前执行`absent→active` fsync reservation，全部post-reservation setup/custody/exec
+  failure转`rejected`，crash recovery也不得重新active。
+- Boundary：仍无task row/freeze package/implementation/EV/authority signature变更；TASK-D0-10继续blocked。
+  修复后须建立新的immutable proposed-body commit并重新取得P0/P1=0 commit-bound review。

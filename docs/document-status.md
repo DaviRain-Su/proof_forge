@@ -28,9 +28,9 @@ normative: true
 | 商业验证 | [`00-business-validation.md`](00-business-validation.md) | `draft` | 市场假设与 Go/No-Go |
 | 产品 | [`01-prd.md`](01-prd.md) | `accepted` | 用户需求、范围、成功标准 |
 | 架构 | [`02-architecture.md`](02-architecture.md) | `accepted` | 系统边界、不变量、数据流 |
-| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本 |
+| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | `03-technical-spec.md`及其他accepted specs的API/schema/错误/版本；当前`SPEC-TASKQUAL-001` C3 amendment为`in_review`并明确排除在accepted aggregate外 |
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
-| 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | 验收和证据要求 |
+| 测试 | [`05-test-spec.md`](05-test-spec.md) | `in_review` | 验收和证据要求；ADR-0021 C3 amendment审核中，旧accepted批准保留于Git历史且当前不得作为新v2 authority |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 
@@ -41,9 +41,11 @@ accepted technical/module spec → accepted test spec。当前事实冲突时：
 → 可复现 gate/evidence → implementation log。调研冲突时：官方 primary source →
 verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 
-本轮 authority amendment 的 accepted 输入为 `ADR-0020`、`SPEC-TASKQUAL-001` 与
-`GOV-TASKQUAL-BOOTSTRAP-001`；批准来源是 Amp thread
-`T-019f7dea-e600-77ea-8884-9f35f81f747d`，其 reviewCommit 为批准时 current HEAD。
+2026-07-20 authority amendment的**历史accepted revision**输入为`ADR-0020`、当时的
+`SPEC-TASKQUAL-001`与`GOV-TASKQUAL-BOOTSTRAP-001`；批准来源是Amp thread
+`T-019f7dea-e600-77ea-8884-9f35f81f747d`，其reviewCommit为批准时current HEAD。当前工作树中的
+`SPEC-TASKQUAL-001`因ADR-0021 C3正文修订已转`in_review`，不再由该旧metadata授权；旧accepted bytes只保留
+于Git历史。只有新的proposed-body review及metadata-only approval完成后，当前bytes才能重新成为accepted输入。
 
 ## 接受与废弃
 

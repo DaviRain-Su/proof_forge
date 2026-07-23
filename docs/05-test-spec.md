@@ -1,15 +1,10 @@
 ---
 id: PHASE-5
 title: 测试与验收规格
-status: accepted
+status: in_review
 owner: quality
 updated: 2026-07-23
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-20
-reviewCommit: db4cf6b883196548e46e0e9c7d630ae6b397ee4e
-reviewLink: https://ampcode.com/threads/T-019f7dea-e600-77ea-8884-9f35f81f747d
-openFindings: none
 ---
 
 # Phase 5：测试与验收规格

@@ -1,15 +1,10 @@
 ---
 id: SPEC-TASKQUAL-001
 title: TaskQualificationV1 任务作用域 formal qualification
-status: accepted
+status: in_review
 owner: quality
 updated: 2026-07-23
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-20
-reviewCommit: db4cf6b883196548e46e0e9c7d630ae6b397ee4e
-reviewLink: https://ampcode.com/threads/T-019f7dea-e600-77ea-8884-9f35f81f747d
-openFindings: none
 ---
 
 # SPEC-TASKQUAL-001：TaskQualificationV1

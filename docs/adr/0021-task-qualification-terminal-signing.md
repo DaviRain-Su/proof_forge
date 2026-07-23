@@ -261,17 +261,19 @@ endpoint执行一次`fcntl(F_SETFD,0)`并以`F_GETFD`确认`FD_CLOEXEC`已清除
 adapter，再直接用kernel namespace/credential/FD facts重验
 child已完成前述隔离并且其authorityStoreFd identity等于记录的adapter endpoint，关闭同步pipe；该ready只控制
 时序，不替代service后续direct peer inspection；(4)parent设置`PR_SET_KEEPCAPS`后切换到service UID/GID，只
-保留U内`CAP_SYS_PTRACE`，并验证CapBnd/CapPrm/CapEff恰含该bit、CapInh/CapAmb为零；(5)严格按§7从与
-descriptor.seedRoot匹配的唯一pre-opened seedRootFd打开四个seed并完成权限、公钥、FD唯一性检查；(6)关闭
-seedRootFd、同步/setup FD和所有非exact pre-exec service-role FD；只对retained service endpoint执行一次
-`fcntl(F_SETFD,0)`并以`F_GETFD`确认`FD_CLOEXEC`已清除，serviceExecutableFd必须仍设置该flag；建立含两端
-endpoint lineage及serviceExecutableFd identity的sealed transition record，枚举确认U/P内除当前supervisor与既有adapter child外
-不存在其他ceremony process；(7)安装custody seccomp：永久禁止`fork/vfork/clone/clone3`、
+保留U内`CAP_SYS_PTRACE`，并验证CapBnd/CapPrm/CapEff恰含该bit、CapInh/CapAmb为零；(5)在打开任何seed文件
+之前，supervisor按§6用durableStateRootFd对signed handoff tuple执行唯一`absent -> active` fsync transaction；
+existing/stale state一律按§6处理并停止，reservation未commit不得继续；(6)严格按§7从与descriptor.seedRoot
+匹配的唯一pre-opened seedRootFd打开四个seed并完成权限、公钥、FD唯一性检查；(7)关闭seedRootFd、同步/setup
+FD和所有非exact pre-exec service-role FD；只对retained service endpoint执行一次`fcntl(F_SETFD,0)`并以
+`F_GETFD`确认`FD_CLOEXEC`已清除，serviceExecutableFd必须仍设置该flag；建立含两端endpoint lineage及
+serviceExecutableFd identity的sealed transition record，枚举确认U/P内除当前supervisor与既有adapter child外
+不存在其他ceremony process；(8)安装custody seccomp：永久禁止`fork/vfork/clone/clone3`、
 `dup/dup2/dup3`、`fcntl(F_DUPFD*)`、`pidfd_getfd`、`sendmsg/sendmmsg`和任意FD transfer；pathname open只允许
 对fixed procRootFd做readonly peer/self inspection，或对fixed durableStateRootFd做§6 exact transaction flags，
 其他`open/openat/openat2/creat`一律拒绝；`execve`永久拒绝，seccomp只按可观察scalar参数允许
 `execveat`的dirfd exact等于serviceExecutableFd且flags exact等于`AT_EMPTY_PATH`，不声称filter可解引用pathname/
-argv/envp pointer；该FD必须设置`FD_CLOEXEC`；(8)不再fork，由supervisor传入policy exact fixedArgv/emptyEnv并
+argv/envp pointer；该FD必须设置`FD_CLOEXEC`；(9)不再fork，由supervisor传入policy exact fixedArgv/emptyEnv并
 执行`execveat(serviceExecutableFd,"",...,AT_EMPTY_PATH)`，由kernel在成功exec时关闭serviceExecutableFd，
 同一PID从supervisor image过渡为static exact descriptor.verifier service。不存在与service并存的privileged
 seed-holder；adapter在seed打开前已进入不含seed/durable root的mount、不同UID与child PID namespace，且两侧
@@ -281,7 +283,10 @@ seccomp禁止事后传FD。service第一条用户逻辑必须叠加拒绝全部e
 transition record与policy exact，重验record中的supervisor PID和`/proc/self/stat`start-time仍等于当前值、
 serviceExecutableFd已关闭且`/proc/self/exe` exact为record/descriptor identity，再关闭transition FD；这些检查
 全部先于post-exec seed FD读取、任何client packet及任何role signing。该record仅证明同一trusted
-supervisor process未在seed打开后fork，不是candidate launch receipt或新的授权对象。
+supervisor process未在seed打开后fork，不是candidate launch receipt或新的授权对象。步骤(5) active commit
+之后任一root/seed/FD/public-key/transition/seccomp/exec/self-check失败，supervisor或service必须在退出前把同一
+nonce原子写`rejected`；若process在写前崩溃，下一次supervisor recovery必须先把遗留`active|signing`写
+`rejected`并拒绝复用，绝不重新转active。
 
 service在读取任何client packet前设置`SO_PASSCRED=1`；每个client packet的`recvmsg`必须取得恰一个kernel
 `SCM_CREDENTIALS(pid,uid,gid)`，拒绝missing/extra ancillary及packet间pid/uid/gid变化。首packet pid必须
@@ -481,11 +486,16 @@ absent -> active -> signing -> accepted
           \------------> rejected
 ```
 
-- server hello前在serializable transaction中执行`absent -> active`；任何existing state均为replay并拒绝。
-- 在durable `accepted` commit前，任一malformed frame、wrong peer、lookup failure、timeout、EOF、extra
-  frame、disconnect、send-preparation failure或protocol mismatch原子写`rejected`，wire上零role signature。
-- terminal request通过preflight后CAS `active -> signing`；并发同nonce最多一个成功。
-- process restart时任何遗留`active|signing`在接新session前原子转`rejected`。
+- supervisor在§4.1切换到service UID/GID后、**打开任何seed文件前**，先验证signed handoff/policy/service tuple，
+  再以serializable fsync transaction执行`absent -> active`。reservation commit前不得读取seed、启动service或
+  发送hello；任何existing state都是replay，禁止把`rejected|accepted|active|signing`重新转active。
+- `active` commit后至durable `accepted` commit前，任一setup/root/seed/FD/public-key/transition/seccomp/exec/
+  self-check失败，或malformed frame、wrong peer、lookup failure、timeout、EOF、extra frame、disconnect、
+  send-preparation failure、protocol mismatch，均由当前supervisor/service原子写`rejected`，wire上零role signature。
+- service startup只验证state exact为`active`，不得再次reserve；terminal request通过preflight后CAS
+  `active -> signing`，并发同nonce最多一个成功。
+- supervisor/process restart在接收新session或打开seed前，必须先把所有遗留`active|signing`原子转
+  `rejected`并fsync；若遗留key正是请求tuple，本次直接拒绝，不创建第二个active。
 - service读取并暂存exact head H0，生成三项role signatures和完整response于service-private memory；在任何
   signature bytes发送前进入serializable final transaction：重新读取current policy/head，要求H1==H0、
   signingKeyIds仍映射同一三个current principals，并CAS `signing -> accepted`，同时持久记录signed
@@ -571,7 +581,7 @@ candidate生成、未sealed或不同PID生成的transition record，且该record
 
 candidate、subject、environment、argv、日志、transition record与durable state均不得携带seed bytes、private
 scalar或可导出handle；protected provenance只携带public supervisor/isolation payload。seed读取失败、公钥不符、
-权限/目录/FD set不符时在hello前零输出并永久拒绝本次ceremony。terminal结束后立即关闭四个seed FD和所有
+权限/目录/FD set不符时在hello前零输出并按§6把已reserved nonce持久化为`rejected`。terminal结束后立即关闭四个seed FD和所有
 nonstdio FD并退出整个service process；进程销毁是secret lifetime边界，不把Python不可证明的内存清零写成
 authority。未来non-exportable HSM backend必须使用新protocol major/ADR，不得在v2增加alternate custody enum。
 
@@ -621,7 +631,8 @@ rollback：首次production acceptance前可撤销v2 pin并保持TASK-D0-10 bloc
 |---|---|
 | taskId | `TASK-D0-10` |
 | originalFreezeCommit | `60568e6ec6532547347530376c6da7ce241af26b` |
-| newFreezeCommit | `70c55daa3d89af4e572cab9f8bb47a567c286313` |
+| blockedProposalBaseline | `70c55daa3d89af4e572cab9f8bb47a567c286313`（只证明triage/block，不是新freeze点） |
+| newFreezeCommit | 由后续activation commit内replacement package写成exact 40-hex，且必须等于该activation commit的direct parent（即accepted metadata-only commit）；本proposed body不得预填未来hash |
 | reason | accepted七参数/lookup-only/最终会签形成不可实现闭环；实现完整protected consumer必须增加candidate-external v2 terminal signer |
 | user/security impact | adapter仍无private key；新增三角色key使用面、durable nonce/head事务和service process TCB，必须独立安全复审 |
 | old output | `task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge` |
@@ -635,19 +646,23 @@ rollback：首次production acceptance前可撤销v2 pin并保持TASK-D0-10 bloc
 | rollback | 删除未签发v2 pin/objects，spend全部handoff nonce，任务回blocked；不得以v1/caller seeds降级关闭 |
 | approval record | ADR转accepted时的`approvers,approvedAt,reviewCommit,reviewLink,openFindings`同时是本Exception批准记录；approvers必须覆盖Architecture+Quality+Security，openFindings必须为none，另需独立只读安全复审P0/P1=0 |
 
-本表在ADR仍为`proposed`时不授权修改task row/freeze package或恢复实现。ADR-0021、SPEC-TASKQUAL-001与
-PHASE-5 accepted amendment frontmatter的`reviewCommit`必须共同指向包含本exact normative body、配套
-SPEC/test/trace/version migration/release-note log且经独立P0/P1=0复审的immutable **proposed-body commit**；
-其后只允许
-一个把该reviewed unit的frontmatter/index状态与approval metadata写入accepted状态的metadata-only commit，
-禁止改变normative body。`reviewLink`必须指向该proposed-body commit及其review的HTTPS记录；accepted
-metadata commit不把自己的hash写入自身。只有ADR、
-配套SPEC/test/trace、version migration和Exception作为同一acceptance
-unit获正式批准后，才可把task row/新freeze package按上表逐字重置并恢复`in_progress`；新freeze package
-必须新增exact `exceptionId:"FX-2026-07-23-D0-10"`、
-`exceptionExpiresAt:"2026-07-25T06:00:00Z"`、
-`freezeCommit:"70c55daa3d89af4e572cab9f8bb47a567c286313"`，并采用表中new output/inScope。
-完成面重置后不得再次扩大。
+本表在ADR仍为`proposed`时不授权修改task row/freeze package或恢复实现。proposed-body阶段必须把
+SPEC-TASKQUAL-001与PHASE-5显式置为`in_review`并移除旧accepted approval fields；旧批准只保留于Git历史，
+因此未经批准的v2正文不会伪装成现行accepted authority。`docs/document-status.md`同步镜像PHASE-5
+`in_review`。ADR-0021、SPEC-TASKQUAL-001与PHASE-5后续accepted amendment frontmatter的`reviewCommit`必须
+共同指向包含本exact normative body、配套SPEC/test/trace/version migration/release-note log且经独立
+P0/P1=0复审的immutable **proposed-body commit**；其后只允许一个把三个文档frontmatter与index状态写成
+accepted并加入approval metadata的metadata-only commit，禁止改变normative body。`reviewLink`必须指向该
+proposed-body commit及其review的HTTPS记录；accepted metadata commit不把自己的hash写入自身。
+
+metadata-only commit只批准Exception，状态为`approved-pending-activation`，不恢复task。取得其actual 40-hex后，
+唯一后续activation commit才可同时：(a)把task row改为新output/`in_progress`；(b)替换freeze package；(c)在
+package写入exact `exceptionId:"FX-2026-07-23-D0-10"`、
+`exceptionExpiresAt:"2026-07-25T06:00:00Z"`、`freezeCommit:<metadata-only-parent-40hex>`及表中new
+output/inScope。该literal hash必须exact等于activation commit的direct parent，且parent必须是上述accepted
+metadata commit；package连同accepted ADR approval metadata才构成§8完整Exception record。任何更早commit、
+proposal baseline、activation commit自身或非direct parent均拒绝。只有该activation commit在expiry前完成后
+TASK-D0-10才恢复`in_progress`；完成面重置后不得再次扩大。
 
 ## 12. 验证要求
 
@@ -679,9 +694,10 @@ unit获正式批准后，才可把task row/新freeze package按上表逐字重�
 - partial role sign、service sign、fsync/commit/send failure的spent/no-retry行为；accepted commit前disconnect
   命中rejected，commit后disconnect保持accepted并记录undelivered audit；
 - seedRoot dev/ino/type/owner/mode、extra entry、root在adapter mount可达、adapter ready前seed open、seed basename/order、
-  seed FD number/type/owner/mode/link/stability/content/public-key mismatch拒绝；`seedRootFd`存活过exec、duplicate
-  inode/OFD、extra ambient FD、transition memfd未sealed/PID或start-time漂移、seed-open后
-  fork/clone/dup/`F_DUPFD*`/`pidfd_getfd`/`SCM_RIGHTS`任一发生均拒绝；
+  seed FD number/type/owner/mode/link/stability/content/public-key mismatch拒绝；reservation失败不得打开seed，
+  active后任一root/seed/public-key/transition/seccomp/exec failure必须durably rejected且同handoff retry拒绝；
+  `seedRootFd`存活过exec、duplicate inode/OFD、extra ambient FD、transition memfd未sealed/PID或start-time漂移、
+  seed-open后fork/clone/dup/`F_DUPFD*`/`pidfd_getfd`/`SCM_RIGHTS`任一发生均拒绝；
 - fixture key、revoked/changed key、角色复用、service/role/handoff signature互换拒绝；
 - successful response exact signed acceptance bytes/ref/quorum和adapter re-verification；
 - root docs-check保持D/P structural-only且不获得authority。
