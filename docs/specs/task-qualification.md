@@ -1,10 +1,15 @@
 ---
 id: SPEC-TASKQUAL-001
 title: TaskQualificationV1 任务作用域 formal qualification
-status: in_review
+status: accepted
 owner: quality
 updated: 2026-07-24
 normative: true
+approvers: davirain
+approvedAt: 2026-07-24
+reviewCommit: 102342f5c89600780220e6c075f7ddac937dcf2e
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/102342f5c89600780220e6c075f7ddac937dcf2e
+openFindings: none
 ---
 
 # SPEC-TASKQUAL-001：TaskQualificationV1

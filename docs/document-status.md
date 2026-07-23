@@ -28,9 +28,9 @@ normative: true
 | 商业验证 | [`00-business-validation.md`](00-business-validation.md) | `draft` | 市场假设与 Go/No-Go |
 | 产品 | [`01-prd.md`](01-prd.md) | `accepted` | 用户需求、范围、成功标准 |
 | 架构 | [`02-architecture.md`](02-architecture.md) | `accepted` | 系统边界、不变量、数据流 |
-| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | `03-technical-spec.md`及其他accepted specs；当前`SPEC-TASKQUAL-001` raw artifact owner R2修订为`in_review`并排除在accepted aggregate外 |
+| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本；`SPEC-TASKQUAL-001` raw artifact owner R2已按single-maintainer owner waiver批准 |
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
-| 测试 | [`05-test-spec.md`](05-test-spec.md) | `in_review` | 验收和证据要求；artifact `ContentRef` owner matrix审核中，旧accepted批准只保留于Git历史 |
+| 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | owner matrix、真实production acceptance、签名与closeout要求已批准 |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 
@@ -55,9 +55,9 @@ metadata-only `687d59bb229e3b0bdc3fd7bb56dd4b8a2c749753`恢复`accepted`且norma
 而accepted contract又要求adapter/service重算original ref；旧approval不覆盖本次新增owner registry。当前
 `ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5共同转`in_review`，TASK-D0-10按R2 blocked。唯一维护者随后于
 2026-07-24明确采用ADR-0021 §11.2的`single-maintainer-owner-waiver`：不再声称或要求其他agent提供independent
-review，但全部可执行、kernel、production签名、C→D与gate验收保持不变。包含该waiver的新immutable body提交后，
-只允许以`approvers: davirain`的metadata-only commit恢复三份`accepted`；该批准明确是owner directive而不是
-independent review。
+review，但全部可执行、kernel、production签名、C→D与gate验收保持不变。包含该waiver的immutable body
+`102342f5c89600780220e6c075f7ddac937dcf2e`已由唯一维护者批准；ADR-0021、SPEC-TASKQUAL-001与PHASE-5仅以
+`approvers: davirain`及status/index metadata恢复`accepted`。该批准明确是owner directive而不是independent review。
 
 ## 接受与废弃
 

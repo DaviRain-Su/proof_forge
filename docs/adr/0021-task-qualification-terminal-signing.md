@@ -1,10 +1,15 @@
 ---
 id: ADR-0021
 title: Task qualification protected acceptance 的一次性终结签名
-status: in_review
+status: accepted
 owner: architecture
 updated: 2026-07-24
 normative: true
+approvers: davirain
+approvedAt: 2026-07-24
+reviewCommit: 102342f5c89600780220e6c075f7ddac937dcf2e
+reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/102342f5c89600780220e6c075f7ddac937dcf2e
+openFindings: none
 ---
 
 # ADR-0021：Task qualification protected acceptance 的一次性终结签名
