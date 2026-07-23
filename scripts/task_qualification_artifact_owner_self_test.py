@@ -15,6 +15,7 @@ import inspect
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 _HERE = Path(__file__).resolve()
 sys.path.insert(0, str(_HERE.parent))
@@ -325,7 +326,13 @@ def _authority_store_vector() -> tuple[bytes, _BTO.ContentRef]:
         "maximumFrameBytes": _AUTH_STORE.MAXIMUM_FRAME_BYTES,
     }
     payload = _BTO.canonical_pf_jcs(obj)
-    return payload, _AUTH_STORE.descriptor_content_ref(obj)
+    foreign_ref = _AUTH_STORE.descriptor_content_ref(obj)
+    return payload, _BTO.ContentRef(
+        foreign_ref.schema,
+        foreign_ref.id,
+        foreign_ref.version,
+        _BTO.Digest(foreign_ref.digest.algorithm, foreign_ref.digest.bytes),
+    )
 
 
 def _raw_typed_vector(schema: str, identifier: str, payload: bytes) -> _BTO.ContentRef:
@@ -385,6 +392,77 @@ def test_existing_typed_owner_positive_and_negative() -> Result:
     return Result(name, True)
 
 
+def test_protected_identity_and_cross_carrier() -> Result:
+    name = "owner.protected_identity_and_cross_carrier"
+    try:
+        entries = {}
+        refs = {}
+        for role_part, field in (
+            ("executable", "executable"),
+            ("closure", "closure"),
+            ("build-policy", "buildPolicy"),
+        ):
+            payload = b"adapter:" + role_part.encode("ascii")
+            ref = _raw_ref(f"owner-adapter-{role_part}", "1.0.0", payload)
+            refs[field] = ref
+            entries[f"adapter-{role_part}"] = payload
+            entries[f"protected-consumer-{role_part}"] = payload
+        identity = {
+            "id": "owner-adapter-v1",
+            "executable": _TQO.content_ref_to_wire(refs["executable"]),
+            "closure": _TQO.content_ref_to_wire(refs["closure"]),
+            "sourceDigest": _TQO.digest_to_wire(_digest(b"adapter-source")),
+            "buildPolicy": _TQO.content_ref_to_wire(refs["buildPolicy"]),
+        }
+        mappings = tuple(
+            _TQO.ProductionArtifactMappingV1(
+                f"protected-consumer-{role_part}",
+                refs[field],
+                _digest(entries[f"protected-consumer-{role_part}"]),
+            )
+            for role_part, field in (
+                ("executable", "executable"),
+                ("closure", "closure"),
+                ("build-policy", "buildPolicy"),
+            )
+        )
+        profile = SimpleNamespace(artifacts=mappings)
+        _ADAPTER._validate_identity_payloads(entries, "adapter", identity)
+        _ADAPTER._validate_d0_consumer_adapter_cross_carrier(
+            entries, profile, identity
+        )
+        bad_mapping = replace(
+            mappings[0], artifact=replace(mappings[0].artifact, id="owner-wrong")
+        )
+        _expect_rejected(
+            lambda: _ADAPTER._validate_d0_consumer_adapter_cross_carrier(
+                entries,
+                SimpleNamespace(artifacts=(bad_mapping,) + mappings[1:]),
+                identity,
+            ),
+            "cross-carrier ref mismatch",
+        )
+        bad_entries = dict(entries)
+        bad_entries["protected-consumer-closure"] += b"!"
+        _expect_rejected(
+            lambda: _ADAPTER._validate_d0_consumer_adapter_cross_carrier(
+                bad_entries, profile, identity
+            ),
+            "cross-carrier bytes mismatch",
+        )
+        missing_entries = dict(entries)
+        del missing_entries["adapter-build-policy"]
+        _expect_rejected(
+            lambda: _ADAPTER._validate_identity_payloads(
+                missing_entries, "adapter", identity
+            ),
+            "protected identity payload missing",
+        )
+    except Exception as exc:
+        return Result(name, False, str(exc))
+    return Result(name, True)
+
+
 def run_all() -> list[Result]:
     tests = (
         test_api_and_domain,
@@ -394,6 +472,7 @@ def run_all() -> list[Result]:
         test_raw_mutations_and_schema_confusion,
         test_plain_sha_is_independent,
         test_existing_typed_owner_positive_and_negative,
+        test_protected_identity_and_cross_carrier,
     )
     results = []
     for test in tests:

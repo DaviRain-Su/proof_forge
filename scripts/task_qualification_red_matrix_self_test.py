@@ -864,6 +864,203 @@ def test_negative_receipt_qualification_id_mismatch() -> RedMatrixResult:
 
 
 # ---------------------------------------------------------------------------
+# §8.2 production profile structural tests (follow-up review P1-2/3/4)
+# ---------------------------------------------------------------------------
+
+def _build_production_profile_for_test(
+    operation: str = "task-qualification",
+    task_id: str = "TASK-D1-FIXTURE",
+    gate_ids: tuple = ("fixture-gate-d1-fixture",),
+):
+    """Build a synthetic production profile and pin for structural tests."""
+    import task_qualification_protected_adapter_self_test as _tas
+    auth_policy_ref = _TQO.fixture_policy_content_ref(_TQO.build_default_fixture_policy())
+    adapter = _TQFB.build_verifier_identity("synth-gate")
+    artifact_roles = _TQO.operation_artifact_roles(operation, gate_ids)
+    artifacts = tuple(
+        _TQO.ProductionArtifactMappingV1(
+            role=role,
+            artifact=_TQO.ContentRef(
+                schema="proof-forge.task-qualification-fixture-resolved-blob.v1",
+                id=f"synth-artifact-{role}",
+                version="1.0.0",
+                digest=_BTO.Digest(algorithm="sha256", bytes=b"\xaa" * 32),
+            ),
+            payloadSha256=_BTO.Digest(algorithm="sha256", bytes=b"\xbb" * 32),
+        )
+        for role in artifact_roles
+    )
+    profile = _tas._build_synth_production_profile(
+        auth_policy_ref, adapter,
+        task_id=task_id, operation=operation, gate_ids=gate_ids,
+        artifacts=artifacts)
+    return profile
+
+
+def test_positive_production_profile_fields_present() -> RedMatrixResult:
+    """§8.2: production profile must carry all new fields in spec order."""
+    p = _build_production_profile_for_test()
+    wire = _TQO.production_profile_to_wire(p)
+    expected_keys = [
+        "schema", "id", "version", "kind", "namespace",
+        "taskId", "operation", "gateSetDigest",
+        "expectedAuthorityPolicy", "adapter", "snapshotParser",
+        "artifacts", "signatures",
+    ]
+    actual_keys = list(wire.keys())
+    if actual_keys != expected_keys:
+        return RedMatrixResult("positive.production_profile_fields", True, False,
+                               f"field order: {actual_keys}")
+    return RedMatrixResult("positive.production_profile_fields", True, True)
+
+
+def test_positive_production_pin_fields_present() -> RedMatrixResult:
+    """§8.2: production pin must carry all new fields in spec order."""
+    import task_qualification_protected_adapter_self_test as _tas
+    p = _build_production_profile_for_test()
+    auth_policy_ref = _TQO.fixture_policy_content_ref(_TQO.build_default_fixture_policy())
+    pin = _tas._build_synth_production_profile_pin(p, auth_policy_ref)
+    wire = _TQO.production_profile_pin_to_wire(pin)
+    expected_keys = [
+        "schema", "id", "version", "taskId", "operation", "gateSetDigest",
+        "authorityPolicy", "namespace", "profile", "expectedSnapshotParser",
+        "signatures",
+    ]
+    actual_keys = list(wire.keys())
+    if actual_keys != expected_keys:
+        return RedMatrixResult("positive.production_pin_fields", True, False,
+                               f"field order: {actual_keys}")
+    return RedMatrixResult("positive.production_pin_fields", True, True)
+
+
+def test_negative_production_profile_wrong_taskid() -> RedMatrixResult:
+    """§8.2: parse_production_verification_profile must reject a profile whose
+    taskId does not match the derived id (taskId embedded in id derivation)."""
+    p = _build_production_profile_for_test()
+    wire = _TQO.production_profile_to_wire(p)
+    # Corrupt the taskId so it no longer matches the derived id
+    wire["taskId"] = "TASK-D0-99"
+    wire_bytes = _BTO.canonical_pf_jcs(wire)
+    try:
+        _TQO.parse_production_verification_profile(
+            _BTO.decode_canonical_pf_jcs(wire_bytes), "test")
+        actual = True  # should not reach
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_wrong_taskid", False, actual)
+
+
+def test_negative_production_profile_wrong_operation() -> RedMatrixResult:
+    """§8.2: parse_production_verification_profile must reject a profile whose
+    operation does not match the derived id."""
+    p = _build_production_profile_for_test()
+    wire = _TQO.production_profile_to_wire(p)
+    # Corrupt the operation so it no longer matches the derived id
+    wire["operation"] = "task-completion"
+    wire_bytes = _BTO.canonical_pf_jcs(wire)
+    try:
+        _TQO.parse_production_verification_profile(
+            _BTO.decode_canonical_pf_jcs(wire_bytes), "test")
+        actual = True
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_wrong_operation", False, actual)
+
+
+def test_negative_production_profile_gatesetdigest_mismatch() -> RedMatrixResult:
+    """§8.2: parse_production_verification_profile must reject a profile whose
+    gateSetDigest does not match the derived id (same-prefix collision)."""
+    import dataclasses
+    p = _build_production_profile_for_test()
+    # Flip last byte of gateSetDigest to create same-prefix different-full collision
+    wrong_bytes = bytearray(p.gateSetDigest.bytes)
+    wrong_bytes[-1] ^= 0x01
+    wrong_digest = _BTO.Digest(algorithm="sha256", bytes=bytes(wrong_bytes))
+    wrong_p = dataclasses.replace(p, gateSetDigest=wrong_digest)
+    wire = _TQO.production_profile_to_wire(wrong_p)
+    wire_bytes = _BTO.canonical_pf_jcs(wire)
+    try:
+        _TQO.parse_production_verification_profile(
+            _BTO.decode_canonical_pf_jcs(wire_bytes), "test")
+        actual = True
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_gatesetdigest_mismatch", False, actual)
+
+
+def test_negative_production_profile_artifacts_extra() -> RedMatrixResult:
+    """§8.2: parse_production_verification_profile must reject artifacts with
+    an extra role not in the operation's expected set."""
+    import dataclasses
+    p = _build_production_profile_for_test()
+    # Add an extra artifact with a wrong role
+    extra = _TQO.ProductionArtifactMappingV1(
+        role="extra-wrong-role",
+        artifact=_TQO.ContentRef(
+            schema="proof-forge.test.v1", id="extra", version="1.0.0",
+            digest=_BTO.Digest(algorithm="sha256", bytes=b"\x00" * 32),
+        ),
+        payloadSha256=_BTO.Digest(algorithm="sha256", bytes=b"\x00" * 32),
+    )
+    wrong_p = dataclasses.replace(p, artifacts=tuple(p.artifacts) + (extra,))
+    wire = _TQO.production_profile_to_wire(wrong_p)
+    wire_bytes = _BTO.canonical_pf_jcs(wire)
+    try:
+        _TQO.parse_production_verification_profile(
+            _BTO.decode_canonical_pf_jcs(wire_bytes), "test")
+        actual = True
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_artifacts_extra", False, actual)
+
+
+def test_negative_production_profile_artifacts_missing() -> RedMatrixResult:
+    """§8.2: parse_production_verification_profile must reject artifacts that
+    are missing a required role."""
+    import dataclasses
+    p = _build_production_profile_for_test()
+    # Drop the first artifact (missing role)
+    wrong_p = dataclasses.replace(p, artifacts=tuple(p.artifacts[1:]))
+    wire = _TQO.production_profile_to_wire(wrong_p)
+    wire_bytes = _BTO.canonical_pf_jcs(wire)
+    try:
+        _TQO.parse_production_verification_profile(
+            _BTO.decode_canonical_pf_jcs(wire_bytes), "test")
+        actual = True
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_artifacts_missing", False, actual)
+
+
+def test_negative_production_profile_artifacts_receipt_nonzero() -> RedMatrixResult:
+    """§8.2: the verifier's _verify_profile_artifacts_coverage must reject a
+    receipt operation profile with nonzero artifacts.  This test drives the
+    verifier helper directly because the parser does not check coverage (it
+    only checks sort/unique), and coverage requires knowing the operation's
+    expected artifact roles which the parser cannot derive without gate IDs.
+    """
+    import dataclasses
+    p = _build_production_profile_for_test(
+        operation="task-completion", gate_ids=())
+    # The profile should have zero artifacts for receipts. Add one extra.
+    extra = _TQO.ProductionArtifactMappingV1(
+        role="extra-wrong-role",
+        artifact=_TQO.ContentRef(
+            schema="proof-forge.test.v1", id="extra", version="1.0.0",
+            digest=_BTO.Digest(algorithm="sha256", bytes=b"\x00" * 32),
+        ),
+        payloadSha256=_BTO.Digest(algorithm="sha256", bytes=b"\x00" * 32),
+    )
+    wrong_p = dataclasses.replace(p, artifacts=(extra,))
+    try:
+        _TQV._verify_profile_artifacts_coverage(wrong_p, "task-completion", (), "test")
+        actual = True  # should not reach
+    except _BTO.Rejected:
+        actual = False
+    return RedMatrixResult("negative.production_profile_artifacts_receipt_nonzero", False, actual)
+
+
+# ---------------------------------------------------------------------------
 # Negative cases (should reject)
 # ---------------------------------------------------------------------------
 
@@ -2470,6 +2667,15 @@ def run_all_tests() -> list:
         test_negative_receipt_qualification_digest_mismatch,
         test_negative_receipt_qualification_taskid_mismatch,
         test_negative_receipt_qualification_id_mismatch,
+        # §8.2 production profile structural tests (follow-up review P1-2/3/4)
+        test_positive_production_profile_fields_present,
+        test_positive_production_pin_fields_present,
+        test_negative_production_profile_wrong_taskid,
+        test_negative_production_profile_wrong_operation,
+        test_negative_production_profile_gatesetdigest_mismatch,
+        test_negative_production_profile_artifacts_extra,
+        test_negative_production_profile_artifacts_missing,
+        test_negative_production_profile_artifacts_receipt_nonzero,
     ]
     results = []
     for test in tests:

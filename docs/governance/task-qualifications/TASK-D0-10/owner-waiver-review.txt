@@ -1,0 +1,8 @@
+TASK-D0-10 single-maintainer owner review record
+
+Directive: single-maintainer-owner-waiver
+Review mode: owner self-review; this is not an independent review.
+Scope: raw and typed artifact ownership, pure verifier, seven-positional protected adapter, v2 seqpacket client, and one-time bootstrap-development ceremony.
+Executable checks retained: artifact owner 8/8, verifier matrix 111/111, protected adapter 39/39, qualified bootstrap-development matrix 26/26.
+Blocking findings recorded by the owner: none.
+Limitations: the local Python ceremony does not claim the complete static U/P/A custody supervisor, durable nonce store, formal evidence, or hermetic evidence.

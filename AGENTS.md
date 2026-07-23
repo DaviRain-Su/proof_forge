@@ -16,13 +16,13 @@
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
 | Formal milestone | **D0：9/10 done**；`TASK-D0-10` raw artifact owner R2已按single-maintainer owner waiver批准并恢复实施；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
 | Active task | **TASK-D0-10**（in_progress；冻结完成面与既有 Exception surface不变） |
-| D0-10 candidate | `1e0214f9` 已被拒绝；`38047c1e`是focused owner tests-only RED；当前 working tree GREEN尚未形成新implementation candidate |
+| D0-10 candidate | `1e0214f9` 已被拒绝；`38047c1e`是focused owner tests-only RED；当前 owner GREEN/closeout builder待形成新implementation candidate C |
 | Next task | **TASK-D1-01**（pending；仍依赖D0-10正式done） |
-| Active development slice | closed raw/typed owner dispatch、protected identity joins及七参数production acceptance GREEN |
-| Next development slice | 完成authority-store v2 qualified input、生产ceremony、新C→direct-child D及证据/checkpoint；禁止触碰D1/DSL/ProgramV1/Loader/target范围 |
+| Active development slice | closed raw/typed owner dispatch、protected identity joins、七参数bootstrap-development acceptance 26/26及candidate-bound closeout builder |
+| Next development slice | 提交新C，签发candidate-owned approval，创建唯一direct-child D，再完成external receipt/GBC/Ledger projection与checkpoint；禁止触碰D1/DSL/ProgramV1/Loader/target范围 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无外部blocker；authority-store v2仍需把qualified production acceptance从25/26闭合到26/26，并完成真实签名与C→D |
+| Known blocker | 无外部blocker；本地Python ceremony明确仅为bootstrap/development、非formal/hermetic static custody，仍须完成C→D与external one-time bridge |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

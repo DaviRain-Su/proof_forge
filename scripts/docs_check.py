@@ -2427,8 +2427,8 @@ def _verify_task_qualification_object_signatures(
 ) -> bool:
     """Verify Ed25519 signatures on a parsed task-qualification object.
 
-    The signed object is canonical PF-JCS encoded after removing the
-    ``signatures`` field. The statement digest is
+    The signed object is canonical PF-JCS encoded with ``signatures`` replaced
+    by the exact empty array. The statement digest is
     ``SHA-256(domain || NUL || canonical)`` and the Ed25519 message is
     ``domain || NUL || raw32(statement)``.
     """
@@ -2438,7 +2438,8 @@ def _verify_task_qualification_object_signatures(
             return False
         if "signatures" not in wire or not isinstance(wire["signatures"], list):
             return False
-        signatures = wire.pop("signatures")
+        signatures = wire["signatures"]
+        wire["signatures"] = []
         unsigned_bytes = bootstrap_consumer.canonical_pf_jcs(wire)
         statement = hashlib.sha256(statement_domain + b"\x00" + unsigned_bytes).digest()
         message = signature_domain + b"\x00" + statement
@@ -2464,6 +2465,88 @@ def _verify_task_qualification_object_signatures(
         return True
     except Exception:
         return False
+
+
+def _content_ref_value_equal(left: object, right: object) -> bool:
+    """Compare ContentRef-shaped records across exact-path module namespaces."""
+    try:
+        return (
+            left.schema == right.schema
+            and left.id == right.id
+            and left.version == right.version
+            and left.digest.algorithm == right.digest.algorithm
+            and left.digest.bytes == right.digest.bytes
+        )
+    except AttributeError:
+        return False
+
+
+def _d0_10_structural_approval(root: Path) -> dict[str, Any] | None:
+    """Verify D0-10's candidate-owned approval without claiming completion.
+
+    This is the D-state structural consumer from SPEC-TASKQUAL-001 §8.5.  It
+    verifies canonical bytes, the activated policy, A+Q+S signatures, the
+    frozen package ref, and the one reserved Ledger ID.  Receipt/currentness
+    authority remains external; absence of a bootstrap Ledger row is allowed
+    only for this exact reserved ID.
+    """
+    bootstrap_consumer = _load_bootstrap_task_consumer()
+    taskqual = _load_task_qualification_objects()
+    if bootstrap_consumer is None or taskqual is None:
+        return None
+    approval_relative = (
+        "docs/governance/task-qualifications/TASK-D0-10/bootstrap-approval.json"
+    )
+    policy_relative = (
+        D0_04_BOOTSTRAP_ACTIVATION_BUNDLE_RELATIVE + "/authority-policy.json"
+    )
+    freeze_relative = "docs/governance/task-freeze-packages/TASK-D0-10.json"
+    try:
+        approval_bytes = read_repository_regular_bytes(
+            root, root / approval_relative, approval_relative)
+        policy_bytes = read_repository_regular_bytes(
+            root, root / policy_relative, policy_relative)
+        freeze_bytes = read_repository_regular_bytes(
+            root, root / freeze_relative, freeze_relative)
+        approval_wire = taskqual.decode_canonical_pf_jcs(approval_bytes)
+        if taskqual.canonical_pf_jcs(approval_wire) != approval_bytes:
+            return None
+        approval = taskqual.parse_d0_10_bootstrap_approval(
+            approval_wire, "bootstrapApproval")
+        policy, policy_ref = bootstrap_consumer.parse_bootstrap_authority_policy(
+            policy_bytes)
+        if not _content_ref_value_equal(approval.authorityPolicy, policy_ref):
+            return None
+        if not _verify_task_qualification_object_signatures(
+            approval_bytes, approval, policy,
+            taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT,
+            taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE,
+            bootstrap_consumer,
+        ):
+            return None
+        if approval.taskId != "TASK-D0-10" or approval.taskRow.status != "in_progress":
+            return None
+        if approval.freezePackage.taskId != "TASK-D0-10":
+            return None
+        freeze_digest = taskqual.domain_digest_raw(
+            taskqual.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes)
+        if approval.freezePackage.digest != freeze_digest:
+            return None
+        if approval.ledgerEvidenceId in approval.taskRow.evidenceIds:
+            return None
+        resulting_evidence = (
+            tuple(approval.taskRow.evidenceIds) + (approval.ledgerEvidenceId,)
+        )
+        if resulting_evidence != tuple(sorted(resulting_evidence)):
+            return None
+        return {
+            "approval": approval,
+            "approvalBytes": approval_bytes,
+            "reservedEvidenceId": approval.ledgerEvidenceId,
+            "resultingEvidenceIds": resulting_evidence,
+        }
+    except Exception:
+        return None
 
 
 def d0_10_task_qualification_attested(root: Path) -> bool:
@@ -2494,6 +2577,9 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
         "bootstrapReceiptSha256",
         "governanceBootstrapCompletion",
         "governanceBootstrapCompletionSha256",
+        "ledgerProjection",
+        "ledgerProjectionSha256",
+        "protectedReceiptAcceptanceSha256",
         "docsCheckCommand",
         "notes",
     }
@@ -2511,6 +2597,12 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
         "bootstrapReceipt": (
             "docs/governance/task-completions/TASK-D0-10/bootstrap-receipt.json"
         ),
+        "governanceBootstrapCompletion": (
+            "docs/governance/task-completions/TASK-D0-10/receipt.json"
+        ),
+        "ledgerProjection": (
+            "docs/governance/task-completions/TASK-D0-10/ledger-projection.json"
+        ),
         "docsCheckCommand": (
             "/usr/bin/python3 -I -S scripts/docs_check.py --root ."),
     }
@@ -2520,6 +2612,9 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
     notes = payload.get("notes")
     if (not isinstance(notes, str)
             or "not formal or hermetic evidence" not in notes):
+        return False
+    if not re.fullmatch(
+            r"[0-9a-f]{64}", payload.get("protectedReceiptAcceptanceSha256", "")):
         return False
 
     # Load the pure bootstrap consumer and the typed task-qualification objects.
@@ -2545,14 +2640,18 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
     approval_path = root / payload["bootstrapApproval"]
     receipt_path = root / payload["bootstrapReceipt"]
     completion_path = root / payload["governanceBootstrapCompletion"]
+    ledger_path = root / payload["ledgerProjection"]
     freeze_path = root / payload["freezePackage"]
     try:
-        for artifact_path in (approval_path, receipt_path, completion_path, freeze_path):
+        artifact_paths = (
+            approval_path, receipt_path, completion_path, ledger_path, freeze_path)
+        for artifact_path in artifact_paths:
             ensure_repository_path(
                 root, artifact_path, artifact_path.relative_to(root).as_posix())
         approval_bytes = approval_path.read_bytes()
         receipt_bytes = receipt_path.read_bytes()
         completion_bytes = completion_path.read_bytes()
+        ledger_bytes = ledger_path.read_bytes()
         freeze_bytes = freeze_path.read_bytes()
     except Exception:
         return False
@@ -2563,34 +2662,43 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
         "bootstrapApproval": approval_bytes,
         "bootstrapReceipt": receipt_bytes,
         "governanceBootstrapCompletion": completion_bytes,
+        "ledgerProjection": ledger_bytes,
     }
     for stem, artifact_bytes in expected_hashes.items():
         if hashlib.sha256(artifact_bytes).hexdigest() != payload.get(f"{stem}Sha256"):
             return False
 
-    # Parse the three signed objects. Any schema or structural deviation
-    # fails closed.
+    # Parse the three signed objects and the closed Ledger projection. Any
+    # non-canonical bytes, schema deviation, or structural drift fails closed.
     try:
-        approval_wire = json.loads(approval_bytes.decode("utf-8", errors="strict"))
-        receipt_wire = json.loads(receipt_bytes.decode("utf-8", errors="strict"))
-        completion_wire = json.loads(completion_bytes.decode("utf-8", errors="strict"))
-        if not all(isinstance(w, dict) for w in (approval_wire, receipt_wire, completion_wire)):
+        object_bytes = (
+            approval_bytes, receipt_bytes, completion_bytes, ledger_bytes)
+        decoded = tuple(
+            taskqual.decode_canonical_pf_jcs(item) for item in object_bytes)
+        if not all(isinstance(wire, dict) for wire in decoded):
             return False
+        if any(
+                taskqual.canonical_pf_jcs(wire) != raw
+                for wire, raw in zip(decoded, object_bytes)):
+            return False
+        approval_wire, receipt_wire, completion_wire, ledger_wire = decoded
         approval = taskqual.parse_d0_10_bootstrap_approval(
             approval_wire, "bootstrapApproval")
         receipt = taskqual.parse_d0_10_bootstrap_receipt(
             receipt_wire, "bootstrapReceipt")
         completion = taskqual.parse_governance_bootstrap_completion(
             completion_wire, "governanceBootstrapCompletion")
+        ledger = taskqual.parse_d0_10_receipt_ledger_projection(
+            ledger_wire, "receiptLedgerProjection")
     except Exception:
         return False
 
     # Each object must point to the same activated authority policy.
-    if approval.authorityPolicy != policy_ref:
+    if not _content_ref_value_equal(approval.authorityPolicy, policy_ref):
         return False
-    if receipt.authorityPolicy != policy_ref:
+    if not _content_ref_value_equal(receipt.authorityPolicy, policy_ref):
         return False
-    if completion.authorityPolicy != policy_ref:
+    if not _content_ref_value_equal(completion.authorityPolicy, policy_ref):
         return False
 
     # Recompute the approval digest before signature verification mutates the
@@ -2598,6 +2706,10 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
     try:
         expected_approval_digest = taskqual.domain_digest(
             taskqual.DOMAIN_D0_10_BOOTSTRAP_APPROVAL, approval_wire)
+        expected_receipt_digest = taskqual.domain_digest(
+            taskqual.DOMAIN_D0_10_BOOTSTRAP_RECEIPT, receipt_wire)
+        taskqual.domain_digest(
+            taskqual.DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION, ledger_wire)
     except Exception:
         return False
     if receipt.approvalDigest != expected_approval_digest:
@@ -2657,6 +2769,44 @@ def d0_10_task_qualification_attested(root: Path) -> bool:
         return False
     if approval.freezePackage.taskId != "TASK-D0-10":
         return False
+    freeze_digest = taskqual.domain_digest_raw(
+        taskqual.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes)
+    if approval.freezePackage.digest != freeze_digest:
+        return False
+    if completion.sourceClosure.digest.bytes != hashlib.sha256(receipt_bytes).digest():
+        return False
+
+    # The optional-P Ledger projection is fully derived from the two signed
+    # objects and the verified ruling; it cannot introduce another authority.
+    if ledger.evidenceId != approval.ledgerEvidenceId:
+        return False
+    if ledger.approvalRef.id != "d0-10-bootstrap-approval":
+        return False
+    if ledger.approvalRef.digest != expected_approval_digest:
+        return False
+    if ledger.receiptRef.id != receipt.id:
+        return False
+    if ledger.receiptRef.digest != expected_receipt_digest:
+        return False
+    if ledger.rulingRef != approval.ruling:
+        return False
+
+    # The human-readable Evidence Ledger row is an exact seven-column mirror
+    # of the closed projection. No hidden column or alternate wording is
+    # accepted for the reserved ID.
+    evidence_relative = "docs/traceability/evidence-ledger.md"
+    try:
+        evidence_text = read_repository_regular_bytes(
+            root, root / evidence_relative, evidence_relative).decode("utf-8")
+    except Exception:
+        return False
+    expected_row = (
+        f"| {ledger.evidenceId} | TASK-D0-10 | TST-DOC-001 | bootstrap | "
+        f"protected receipt sha256:{expected_receipt_digest.bytes.hex()} | passed | "
+        "GOV-TASKQUAL-BOOTSTRAP-001 one-time receipt projection |"
+    )
+    if sum(line == expected_row for line in evidence_text.splitlines()) != 1:
+        return False
 
     return True
 
@@ -2713,6 +2863,14 @@ def _load_task_qualification_objects() -> Any | None:
         exact_tool_path = tool_path.resolve(strict=True)
         if exact_tool_path != tool_path:
             return None
+        # The object module imports its PF-JCS/value-object dependency by
+        # module name. Under ``python -I -S script.py`` the script directory is
+        # absent from sys.path, so inject only the exact-path-loaded bootstrap
+        # module instead of relying on ambient import resolution.
+        bootstrap_module = _load_bootstrap_task_consumer()
+        if bootstrap_module is None:
+            return None
+        sys.modules["bootstrap_task_objects"] = bootstrap_module
         spec = importlib.util.spec_from_file_location(
             "proof_forge_task_qualification_objects_for_docs_check",
             exact_tool_path,
@@ -2728,16 +2886,25 @@ def _load_task_qualification_objects() -> Any | None:
             "D0_10BootstrapApprovalV1",
             "D0_10BootstrapReceiptV1",
             "GovernanceBootstrapCompletionV1",
-            "CandidateIdentityV1",
+            "D0_10ReceiptLedgerProjectionV1",
+            "CandidateIdentity",
             "ContentRef",
             "parse_d0_10_bootstrap_approval",
             "parse_d0_10_bootstrap_receipt",
             "parse_governance_bootstrap_completion",
+            "parse_d0_10_receipt_ledger_projection",
+            "canonical_pf_jcs",
+            "decode_canonical_pf_jcs",
             "domain_digest",
+            "domain_digest_raw",
+            "DOMAIN_TASK_FREEZE_PACKAGE_SOURCE",
             "DOMAIN_D0_10_BOOTSTRAP_APPROVAL_STATEMENT",
             "DOMAIN_D0_10_BOOTSTRAP_APPROVAL_SIGNATURE",
+            "DOMAIN_D0_10_BOOTSTRAP_APPROVAL",
             "DOMAIN_D0_10_BOOTSTRAP_RECEIPT_STATEMENT",
             "DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE",
+            "DOMAIN_D0_10_BOOTSTRAP_RECEIPT",
+            "DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION",
             "DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_STATEMENT",
             "DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION_SIGNATURE",
         ):
@@ -3205,6 +3372,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
                    genesis_effective: bool) -> None:
     tasks_by_id = {task.identifier: task for task in tasks}
     diagnostics: list[OrderedDiagnostic] = []
+    d0_10_structural = _d0_10_structural_approval(root)
 
     def add_task_error(task: TaskRecord, code: str, detail: str,
                        identifier: str | None = None) -> None:
@@ -3224,7 +3392,7 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
         bootstrap_tasks = {
             "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
             "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
-            "TASK-D0-07", "TASK-D0-08", "TASK-D0-09",
+            "TASK-D0-07", "TASK-D0-08", "TASK-D0-09", "TASK-D0-10",
         }
         if record.grade == "bootstrap" and record.task not in bootstrap_tasks:
             error = DocsCheckError(
@@ -3327,12 +3495,32 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
         if task.status == "done" and not task.evidence:
             add_task_error(task, "PF-DOC-DONE-EV",
                            f"done task {task.identifier} has no EV")
+        if task.status == "done" and task.identifier == "TASK-D0-10":
+            if d0_10_structural is None:
+                add_task_error(
+                    task, "PF-DOC-D0-10-STRUCTURAL",
+                    "TASK-D0-10 done requires its verified candidate-owned bootstrap approval")
+            elif task.evidence != d0_10_structural["resultingEvidenceIds"]:
+                add_task_error(
+                    task, "PF-DOC-D0-10-STRUCTURAL",
+                    "TASK-D0-10 evidence IDs must equal C development IDs plus the "
+                    "single signed reserved Ledger ID")
 
         covered_tests: set[str] = set()
         for evidence in task.evidence:
             record = evidence_records.get(evidence)
             definition = definitions.get(evidence)
             if record is None or definition is None or definition.kind != "evidence":
+                is_reserved_d0_10 = (
+                    task.status == "done"
+                    and task.identifier == "TASK-D0-10"
+                    and d0_10_structural is not None
+                    and evidence == d0_10_structural["reservedEvidenceId"]
+                )
+                if is_reserved_d0_10:
+                    # D state: the signed ID is reserved but the external
+                    # receipt projection has not yet been mirrored into P.
+                    continue
                 code = "PF-DOC-DONE-EV" if task.status == "done" else "PF-DOC-ID-UNKNOWN"
                 add_task_error(task, code,
                                f"task {task.identifier} references unknown {evidence}", evidence)
@@ -3347,6 +3535,12 @@ def validate_tasks(root: Path, definitions: dict[str, Definition], tasks: list[T
             if task.status == "done":
                 if is_frozen_a0_task(task.identifier):
                     required_grade = "development"
+                elif task.identifier == "TASK-D0-10":
+                    if (d0_10_structural is not None
+                            and evidence == d0_10_structural["reservedEvidenceId"]):
+                        required_grade = "bootstrap"
+                    else:
+                        required_grade = "development"
                 elif task.identifier in {
                     "TASK-D0-01", "TASK-D0-02", "TASK-D0-03",
                     "TASK-D0-04", "TASK-D0-05", "TASK-D0-06",
@@ -3622,7 +3816,14 @@ def main() -> None:
     except DocsCheckError as error:
         print(f"docs-check: {error.render()}", file=sys.stderr)
         raise SystemExit(1)
-    print("docs-check: ok")
+    structural = _d0_10_structural_approval(arguments.root.expanduser().absolute().resolve())
+    if structural is not None:
+        print(
+            "docs-check: structural-only TASK-D0-10 "
+            + structural["reservedEvidenceId"]
+        )
+    else:
+        print("docs-check: ok")
 
 
 if __name__ == "__main__":

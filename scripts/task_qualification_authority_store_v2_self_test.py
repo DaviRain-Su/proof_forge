@@ -1376,7 +1376,10 @@ def _blackbox_qualified_production_acceptance_inner() -> Result:
             "governanceCompletionDigest", "provenanceBundleDigest",
             "provenanceRoles", "signatures",
         ]
-        if list(wire) != expected_acceptance_fields:
+        # PF-JCS sorts object keys bytewise; after canonical decode the exact
+        # accepted field manifest must therefore appear in that canonical
+        # order, not in the schema prose's presentation order.
+        if list(wire) != sorted(expected_acceptance_fields):
             return _red(name, "qualified acceptance field manifest/order mismatch")
         if (wire.get("schema") != ACCEPTANCE_SCHEMA
                 or wire.get("version") != "1.0.0"

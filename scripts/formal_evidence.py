@@ -146,6 +146,34 @@ REVOCATION_RECORD_SCHEMA = "proof-forge.evidence-revocation.v1"
 _D0_GATE_TASK_IDS = frozenset(f"TASK-D0-{index:02d}" for index in range(1, 8))
 
 
+def _is_external_policy_abi(policy: object) -> bool:
+    """Accept the exact policy ABI across pinned sibling module namespaces.
+
+    Exact-path loaders intentionally create distinct Python class identities.
+    A caller that already parsed the same closed wire through its own pinned
+    sibling must not fail solely because ``type`` objects differ.  The formal
+    parsers still verify every signature/rule/content field below.
+    """
+    fields = (
+        "schema", "id", "version", "principals", "taskRules",
+        "requiredTestSetRule", "formalCatalogRule", "bootstrapSetRule",
+        "sessionContainmentRule", "freshnessAuthorityRule",
+        "privateScanRule", "privateScanPolicy", "revocationSnapshotRule",
+        "authorityStoreService", "verifier",
+    )
+    if not all(hasattr(policy, field) for field in fields):
+        return False
+    principals = getattr(policy, "principals", None)
+    if type(principals) is not tuple or not principals:
+        return False
+    return all(
+        all(hasattr(principal, field) for field in (
+            "principalId", "keyId", "publicKey", "roles"
+        ))
+        for principal in principals
+    )
+
+
 class Rejected(Exception):
     """Stable formal-evidence rejection; details never grant authority."""
 
@@ -579,7 +607,7 @@ def parse_session_containment_receipt(
     policy: BootstrapAuthorityPolicyV1,
 ) -> SessionContainmentReceiptV1:
     """Validate a signed SessionContainmentReceiptV1 under the policy rule."""
-    if type(policy) is not BootstrapAuthorityPolicyV1:
+    if not _is_external_policy_abi(policy):
         _reject("session containment verification requires the external policy")
     decoded = _consumer_checked(
         lambda: decode_canonical_pf_jcs(receipt_bytes),
@@ -716,7 +744,7 @@ def parse_freshness_authority_snapshot(
     policy: BootstrapAuthorityPolicyV1,
 ) -> FreshnessAuthoritySnapshotV1:
     """Validate a signed FreshnessAuthoritySnapshotV1 under the policy rule."""
-    if type(policy) is not BootstrapAuthorityPolicyV1:
+    if not _is_external_policy_abi(policy):
         _reject("freshness authority verification requires the external policy")
     decoded = _consumer_checked(
         lambda: decode_canonical_pf_jcs(snapshot_bytes),
@@ -779,7 +807,7 @@ def parse_private_scan_receipt(
     policy: BootstrapAuthorityPolicyV1,
 ) -> PrivateScanReceiptV1:
     """Validate a signed PrivateScanReceiptV1 under the policy rule."""
-    if type(policy) is not BootstrapAuthorityPolicyV1:
+    if not _is_external_policy_abi(policy):
         _reject("private scan verification requires the external policy")
     decoded = _consumer_checked(
         lambda: decode_canonical_pf_jcs(receipt_bytes),
@@ -916,7 +944,7 @@ def parse_revocation_ledger_snapshot(
     ``previousRecordSha256`` chain is verified (genesis zero, then plain
     SHA-256 of the previous record's canonical bytes).
     """
-    if type(policy) is not BootstrapAuthorityPolicyV1:
+    if not _is_external_policy_abi(policy):
         _reject("revocation ledger verification requires the external policy")
     if type(revocation_record_bytes) is not tuple or any(
         type(item) is not bytes for item in revocation_record_bytes

@@ -29,6 +29,7 @@ from typing import Tuple
 
 import bootstrap_task_objects as _BTO
 import bootstrap_task_producers as _BTP
+import evidence_v1_core as _EVIDENCE
 import task_qualification_objects as _TQO
 import task_qualification_verifier as _TQV
 
@@ -85,6 +86,7 @@ FIXTURE_COMMAND_POLICY_ID = "tst-doc-001.task-qualification-v1"
 FIXTURE_PHASE4_ID = "PHASE-4-FIXTURE"
 FIXTURE_PHASE5_ID = "PHASE-5-FIXTURE"
 FIXTURE_RULING_ID = "GOV-TASKQUAL-FIXTURE-001"
+FIXTURE_DOCUMENT_REVIEW_COMMIT = "f0" * 20
 FIXTURE_PHASE4_PATH = "fixtures/task-qualification/04-task-breakdown.md"
 FIXTURE_PHASE5_PATH = "fixtures/task-qualification/05-test-spec.md"
 FIXTURE_FREEZE_PATH = "fixtures/task-qualification/freeze.json"
@@ -201,24 +203,38 @@ class CandidateContext:
     commit_object: _TQO.GitCommitObject
 
 
+_SYNTHETIC_CANDIDATE_CACHE = {}
+
+
 def build_synthetic_candidate(
     task_id: str,
     files: dict,
     parent_sha: str | None = None,
     commit_prefix: str = FIXTURE_CANDIDATE_COMMIT_PREFIX,
-    tree_prefix: str = FIXTURE_CANDIDATE_TREE_PREFIX,
+    tree_prefix: str | None = FIXTURE_CANDIDATE_TREE_PREFIX,
 ) -> CandidateContext:
-    """Build a synthetic candidate with f1/f2 prefixed commit/tree."""
-    # GAP-26: §8.2 candidate commit/tree first bytes fixed to f1/f2 (fixture
-    # profile). The commit prefix f1 is enforced by grinding the commit
-    # message nonce. The tree prefix f2 is NOT enforced here because grinding
-    # the tree requires a padding file that would appear in the C/D diff and
-    # break the §6 closeout-diff-paths == allowedPaths invariant. The verifier
-    # checks f2 on the tree; the fixture builder accepts whatever the tree
-    # computes to. This is a known fixture limitation (see implementation log).
-    archive_bytes = build_synthetic_candidate_archive(task_id, files)
+    """Build a synthetic candidate with the fixture C commit/tree prefixes."""
+    cache_key = (
+        task_id, tuple(sorted(files.items())), parent_sha, commit_prefix,
+        tree_prefix)
+    cached = _SYNTHETIC_CANDIDATE_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    working_files = dict(files)
+    archive_bytes = build_synthetic_candidate_archive(task_id, working_files)
     archive_proj = _TQO.parse_ustar_archive(archive_bytes, task_id, "candidate")
     tree_sha = _TQO.build_git_tree_from_archive(archive_proj)
+    if tree_prefix is not None and not tree_sha.startswith(tree_prefix):
+        padding_path = "fixtures/task-qualification/tree-padding.bin"
+        nonce = 0
+        while not tree_sha.startswith(tree_prefix):
+            nonce += 1
+            working_files[padding_path] = f"tree-padding={nonce}\n".encode("ascii")
+            archive_bytes = build_synthetic_candidate_archive(
+                task_id, working_files)
+            archive_proj = _TQO.parse_ustar_archive(
+                archive_bytes, task_id, "candidate")
+            tree_sha = _TQO.build_git_tree_from_archive(archive_proj)
 
     commit_payload = build_synthetic_git_commit(tree_sha, parent_sha)
     commit_sha = _TQO.git_sha1_object("commit", commit_payload)
@@ -244,51 +260,87 @@ def build_synthetic_candidate(
             "archiveSha256": digest_to_wire(archive_proj.archiveSha256),
         }),
     )
-    return CandidateContext(
+    result = CandidateContext(
         identity=identity,
         archive_bytes=archive_bytes,
         commit_bytes=commit_payload,
         archive_projection=archive_proj,
         commit_object=commit_obj,
     )
+    _SYNTHETIC_CANDIDATE_CACHE[cache_key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
 # Fixture document builders
 # ---------------------------------------------------------------------------
 
-def build_phase4_source(candidate: CandidateContext) -> bytes:
-    """Build synthetic PHASE-4 source bytes (task table)."""
-    # Synthetic task table row for TASK-D1-FIXTURE
-    content = f"""# PHASE-4 Task Table (FIXTURE)
+def _fixture_document(document_id: str, title: str, body: str) -> bytes:
+    """Build the exact §8.3 fixture Markdown carrier."""
+    if not body.endswith("\n") or body.endswith("\n\n"):
+        raise ValueError("fixture document body must have exactly one trailing LF")
+    return (
+        "---\n"
+        f"id: {document_id}\n"
+        f"title: {title}\n"
+        "status: accepted\n"
+        "owner: fixture-owner\n"
+        "updated: 2026-07-21\n"
+        "normative: true\n"
+        "approvers: fixture-architecture, fixture-quality, fixture-security\n"
+        "approvedAt: 2026-07-21\n"
+        f"reviewCommit: {FIXTURE_DOCUMENT_REVIEW_COMMIT}\n"
+        "reviewLink: https://fixture.example/task-qualification-review\n"
+        "openFindings: none\n"
+        "---\n\n"
+        f"{body}"
+    ).encode("utf-8")
 
-| Field | Value |
-|---|---|
-| taskId | {FIXTURE_TASK_ID} |
-| output | fixture qualification verifier test |
-| dependencies | — |
-| prerequisites | SPEC-TASKQUAL-001@accepted |
-| tests | {FIXTURE_TEST_ID} |
-| evidenceIds | {FIXTURE_EVIDENCE_ID} |
-| status | in_progress |
-"""
-    return content.encode("utf-8")
+
+def build_phase4_source(
+    candidate: CandidateContext,
+    dependencies: tuple = (),
+    *,
+    task_id: str = FIXTURE_TASK_ID,
+    output: str = "fixture qualification verifier test",
+    prerequisites: tuple = ("SPEC-TASKQUAL-001@accepted",),
+    evidence_ids: tuple = (FIXTURE_EVIDENCE_ID,),
+) -> bytes:
+    """Build the exact synthetic PHASE-4 fixture task table."""
+    del candidate
+    dep_cell = ", ".join(dependencies) if dependencies else "—"
+    prereq_cell = ", ".join(prerequisites) if prerequisites else "—"
+    evidence_cell = ", ".join(evidence_ids) if evidence_ids else "—"
+    body = (
+        "# PHASE-4-FIXTURE: Task Table\n\n"
+        "| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |\n"
+        "|---|---|---|---|---|---|---|\n"
+        f"| {task_id} | {output} | {dep_cell} | {prereq_cell} | "
+        f"{FIXTURE_TEST_ID} | {evidence_cell} | in_progress |\n"
+    )
+    return _fixture_document(
+        FIXTURE_PHASE4_ID, "Fixture task table", body)
 
 
 def build_phase5_source(candidate: CandidateContext) -> bytes:
-    """Build synthetic PHASE-5 source bytes (test spec)."""
-    content = f"""# PHASE-5 Test Spec (FIXTURE)
-
-## {FIXTURE_TEST_ID}/task-qualification-v1
-
-Fixture subprofile for TST-DOC-001/task-qualification-v1.
-"""
-    return content.encode("utf-8")
+    """Build the exact synthetic PHASE-5 fixture test catalog."""
+    del candidate
+    body = (
+        "# PHASE-5-FIXTURE: Test Spec\n\n"
+        "TST-DOC-001/task-qualification-v1\n\n"
+        "| ID | 测试对象 |\n"
+        "|---|---|\n"
+        "| TST-DOC-001 | task-qualification-v1 |\n"
+    )
+    return _fixture_document(
+        FIXTURE_PHASE5_ID, "Fixture test specification", body)
 
 
 def build_freeze_package_source(
     candidate: CandidateContext,
     dependencies: tuple = (),
+    *,
+    freeze_commit: str | None = None,
 ) -> bytes:
     """Build synthetic freeze package source bytes.
 
@@ -300,7 +352,7 @@ def build_freeze_package_source(
         "schemaVersion": 1,
         "taskId": FIXTURE_TASK_ID,
         "frozenAt": "2026-07-21",
-        "freezeCommit": candidate.identity.commit,
+        "freezeCommit": freeze_commit or candidate.identity.commit,
         "output": "fixture qualification verifier test",
         "dependencies": list(dependencies),
         "prerequisites": ["SPEC-TASKQUAL-001@accepted"],
@@ -327,43 +379,169 @@ def build_freeze_package_source(
     return canonical_pf_jcs(package).encode("utf-8") if False else json.dumps(package, separators=(",", ":")).encode("utf-8")
 
 
-def build_ruling_source(candidate: CandidateContext) -> bytes:
-    """Build synthetic ruling source bytes."""
-    content = f"""# GOV-TASKQUAL-FIXTURE-001
+def _fixture_ruling_source(document_id: str, text: str) -> bytes:
+    return _fixture_document(
+        document_id,
+        f"Fixture ruling {document_id}",
+        f"# {document_id}\n\n{text}\n",
+    )
 
-Fixture ruling for task qualification verifier test.
-"""
-    return content.encode("utf-8")
+
+def build_ruling_source(candidate: CandidateContext) -> bytes:
+    """Build a closed synthetic ruling source document."""
+    del candidate
+    return _fixture_ruling_source(
+        FIXTURE_RULING_ID,
+        "Fixture ruling for task qualification verifier test.")
 
 
 # ---------------------------------------------------------------------------
 # Fixture evidence builder
 # ---------------------------------------------------------------------------
 
-def build_evidence_source(candidate: CandidateContext) -> bytes:
-    """Build synthetic evidence source bytes (RawEvidenceProjectionV1)."""
+def build_evidence_source(
+    candidate: CandidateContext,
+    gate_id: str = FIXTURE_GATE_ID,
+    task_id: str = FIXTURE_TASK_ID,
+) -> bytes:
+    """Build a complete canonical evidence-v1 fixture projection."""
+    payload = lambda role: (
+        b"pf.taskqual.fixture-resolved-payload.v1\x00" + role.encode("ascii"))
+    tool_id = f"fixture-resolved-{gate_id}-resolved-tool"
+    sandbox_id = f"fixture-resolved-{gate_id}-sandbox-policy"
+    probe_id = f"fixture-resolved-{gate_id}-resolved-probe"
+    probe_bytes = payload(f"resolved-probe/{gate_id}")
+    artifact_bytes = b"fixture retained artifact\n"
+    log_bytes = b"fixture command log\n"
+    inputs = [
+        {
+            "role": "candidate-archive",
+            "path": "candidate/archive.tar",
+            "sha256": candidate.identity.archiveDigest.bytes.hex(),
+            "size": len(candidate.archive_bytes),
+        },
+        {
+            "role": "sandbox-probe-wrapper",
+            "path": "inputs/probe-wrapper.bin",
+            "sha256": hashlib.sha256(probe_bytes).hexdigest(),
+            "size": len(probe_bytes),
+        },
+    ]
+    artifacts = [{
+        "target": "docs",
+        "role": "task-qualification-fixture",
+        "path": "artifacts/fixture.bin",
+        "mediaType": "application/octet-stream",
+        "sha256": hashlib.sha256(artifact_bytes).hexdigest(),
+        "size": len(artifact_bytes),
+        "retained": True,
+    }]
+    logs = [{
+        "path": "logs/fixture.log",
+        "sha256": hashlib.sha256(log_bytes).hexdigest(),
+        "size": len(log_bytes),
+        "truncated": False,
+        "privateDataScan": "passed",
+    }]
     evidence = {
+        "schema": "proof-forge.evidence.v1",
         "id": FIXTURE_EVIDENCE_ID,
         "gate": {
-            "id": FIXTURE_GATE_ID,
-            "taskId": FIXTURE_TASK_ID,
+            "id": gate_id,
+            "taskId": task_id,
             "testIds": [FIXTURE_TEST_ID],
             "qualification": "development",
         },
         "repository": {
             "commit": candidate.identity.commit,
+            "subtree": ".",
             "treeObjectId": candidate.identity.treeObjectId,
+            "anchorSource": "external",
+            "dirty": False,
+            "dirtyDigest": None,
+            "unchangedDuringRun": True,
             "archive": {
-                "sha256": digest_to_wire(candidate.identity.archiveDigest),
+                "format": "git-tar",
+                "sha256": candidate.identity.archiveDigest.bytes.hex(),
+                "size": len(candidate.archive_bytes),
             },
         },
+        "hostAttestation": {
+            "scope": "local-point-in-time",
+            "remoteAttestation": False,
+            "profileId": "taskqual-fixture-host",
+            "eligibleForHermetic": True,
+            "bootstrapLockSha256": "11" * 32,
+            "hostProfileLockSha256": "22" * 32,
+            "toolchainLockSha256": "33" * 32,
+            "launcherSha256": "44" * 32,
+            "verifierSha256": "55" * 32,
+            "observationSha256": "66" * 32,
+        },
+        "environment": {
+            "os": "linux 7.0.0",
+            "arch": "x86_64",
+            "environmentSha256": "77" * 32,
+            "sourceDateEpoch": 0,
+            "cleanRoom": True,
+            "buildCache": "empty",
+            "assetCache": "locked-read-only",
+        },
+        "sandboxPolicies": [{
+            "id": sandbox_id,
+            "engine": "sandbox-exec",
+            "engineSha256": "88" * 32,
+            "defaultAction": "deny",
+            "network": "deny-all",
+            "templateSha256": "99" * 32,
+            "renderedSha256": hashlib.sha256(
+                payload(f"sandbox-policy/{gate_id}")).hexdigest(),
+            "probes": [{"id": probe_id, "status": "passed"}],
+        }],
+        "tools": [{
+            "id": tool_id,
+            "version": "1.0.0",
+            "source": "content-addressed-cache",
+            "assetSha256": "bb" * 32,
+            "executableSha256": hashlib.sha256(
+                payload(f"resolved-tool/{gate_id}")).hexdigest(),
+            "closureSha256": hashlib.sha256(
+                payload(f"resolved-tool-closure/{gate_id}")).hexdigest(),
+        }],
         "command": {
             "argv": ["/usr/bin/python3", "-c", "print('fixture')"],
-            "environment": [],
+            "cwdRelative": ".",
+            "startedUtc": "2026-07-21T00:00:00Z",
+            "endedUtc": "2026-07-21T00:00:01Z",
+            "durationMs": 1,
+            "attempts": [{
+                "number": 1,
+                "exitCode": 0,
+                "signal": None,
+                "timedOut": False,
+                "stdoutLog": "logs/fixture.log",
+                "stderrLog": "logs/fixture.log",
+            }],
         },
+        "inputs": inputs,
+        "artifacts": artifacts,
+        "artifactSetSha256": "",
+        "observations": [{
+            "step": "task-qualification-fixture",
+            "status": "passed",
+            "return": 0,
+            "logicalState": {"gate": gate_id},
+            "effects": [],
+            "errorClass": None,
+        }],
+        "logs": logs,
         "result": "passed",
+        "skipAuthorization": None,
     }
-    return canonical_pf_jcs(evidence)
+    evidence["artifactSetSha256"] = _EVIDENCE.artifact_set_sha256(artifacts)
+    encoded = _EVIDENCE.canonical_bytes(evidence)
+    _EVIDENCE.validate_evidence(_EVIDENCE.decode_json(encoded))
+    return encoded
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +618,12 @@ def build_command_policy(
         taskId=FIXTURE_TASK_ID,
         testIds=(FIXTURE_TEST_ID,),
         argv=("/usr/bin/python3", "-c", "print('fixture')"),
-        environment=(),
+        environment=(
+            ("HOME", "/var/empty"),
+            ("LC_ALL", "C"),
+            ("PATH", "/usr/bin:/bin"),
+            ("TZ", "UTC"),
+        ),
         tool=tool_ref,
         probe=probe_ref,
         sandboxPolicy=sandbox_ref,
@@ -472,37 +655,274 @@ def command_policy_content_ref(cmd: _TQO.TaskCommandPolicyV1) -> _BTO.ContentRef
     return _BTO.ContentRef(schema=cmd.schema, id=cmd.id, version=cmd.version, digest=digest)
 
 
+def _fixture_artifact_member(gate_id: str, role_prefix: str) -> tuple:
+    """Build one exact gate-keyed FixtureResolvedBlobV1 bundle member."""
+    blob = _TQO.build_fixture_resolved_blob(gate_id, role_prefix)
+    payload = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(blob))
+    return (
+        f"{role_prefix}/{gate_id}",
+        "typed-content",
+        content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(blob)),
+        payload.hex(),
+    )
+
+
+def _fixture_top_level_artifact_member(role: str) -> tuple:
+    """Build one exact D0-10 top-level FixtureResolvedBlobV1 member."""
+    blob = _TQO.build_fixture_top_level_resolved_blob(role)
+    payload = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(blob))
+    return (
+        role,
+        "typed-content",
+        content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(blob)),
+        payload.hex(),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Fixture gate control builders
 # ---------------------------------------------------------------------------
 
-def build_gate_control_object(
-    gate_id: str,
-    control_name: str,
-    fixture_policy: _TQO.FixturePolicyV1,
-) -> dict:
-    """Build a fixture gate control object (synthetic)."""
-    # For fixture, gate controls are FixtureResolvedBlobV1
-    role_prefix_map = {
-        "eligible-stage0-handoff": "host-observation",  # simplified
-        "session-containment": "authority-store-service",
-        "freshness": "host-profile",
-        "private-scan": "private-scan-policy",
-        "revocation-snapshot": "authority-store-service",
+def _legacy_candidate_wire(candidate: CandidateContext) -> dict:
+    statement = {
+        "commit": candidate.identity.commit,
+        "treeObjectId": candidate.identity.treeObjectId,
+        "archiveDigest": digest_to_wire(candidate.identity.archiveDigest),
     }
-    # Actually, the spec says gate controls use production type schemas with
-    # fixture authority verification. For fixture, we use FixtureResolvedBlobV1
-    # as the wrapper for all resolved bytes.
-    # But eligible-stage0-handoff, session-containment, etc. have their own
-    # production schemas. For fixture, we need to build synthetic objects
-    # that match those schemas but use fixture policy.
-    # This is complex — for the RED matrix, we'll use simplified synthetic
-    # objects that pass the pure verifier's structural checks.
-    # For now, return a minimal fixture resolved blob.
-    blob = _TQO.build_fixture_resolved_blob(
-        gate_id, "authority-store-service", b"fixture control payload"
+    digest = hashlib.sha256(
+        b"pf.candidate-identity.v1\x00" + canonical_pf_jcs(statement)).digest()
+    return {**statement, "digest": f"sha256:{digest.hex()}"}
+
+
+def _signed_fixture_control(
+    statement: dict, statement_domain: bytes, signature_domain: bytes,
+) -> dict:
+    result = dict(statement)
+    result["signatures"] = _sign_subject(
+        result, statement_domain, signature_domain)
+    return result
+
+
+def _control_record(obj: dict) -> tuple:
+    encoded = canonical_pf_jcs(obj)
+    ref = _TQO.recompute_typed_content_ref(obj["schema"], obj)
+    return obj, encoded, ref
+
+
+_FIXTURE_GATE_CONTROL_CACHE = {}
+
+
+def build_fixture_gate_controls(
+    candidate: CandidateContext,
+    fixture_policy: _TQO.FixturePolicyV1,
+    gate_id: str,
+    task_id: str,
+    evidence_bytes: bytes,
+) -> dict:
+    """Build the five real closed control types under fixture authority."""
+    cache_key = (
+        candidate.identity.commit, gate_id, task_id,
+        hashlib.sha256(evidence_bytes).digest(),
+        _TQO.fixture_policy_content_ref(fixture_policy).digest.bytes,
     )
-    return _TQO.fixture_resolved_blob_to_wire(blob)
+    cached = _FIXTURE_GATE_CONTROL_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
+    artifact_ref = lambda prefix: _TQO.fixture_resolved_blob_content_ref(
+        _TQO.build_fixture_resolved_blob(gate_id, prefix))
+    artifact_payload = lambda prefix: _TQO.build_fixture_resolved_blob(
+        gate_id, prefix).payloadSha256
+    legacy_candidate = _legacy_candidate_wire(candidate)
+
+    authority_store_ref = artifact_ref("authority-store-service")
+    host_observation_ref = artifact_ref("host-observation")
+    host_profile_ref = artifact_ref("host-profile")
+    handoff_obj = {
+        "schema": "proof-forge.eligible-stage0-handoff.v1",
+        "id": f"eligible-stage0-handoff-{gate_id}",
+        "version": "1.0.0",
+        "runId": f"taskqual-fixture-{gate_id}",
+        "nonce": "10" * 32,
+        "candidate": legacy_candidate,
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "authorityStoreService": content_ref_to_wire(authority_store_ref),
+        "hostObservation": content_ref_to_wire(host_observation_ref),
+        "hostProfile": content_ref_to_wire(host_profile_ref),
+        "eligible": True,
+        "tcb": {
+            "stage0VerifierDigest": "sha256:" + "21" * 32,
+            "bootstrapVerifierDigest": "sha256:" + "22" * 32,
+            "continuationDigest": "sha256:" + "23" * 32,
+            "formalFinalizerDigest": "sha256:" + "24" * 32,
+        },
+        "environment": {
+            "mode": "env-i",
+            "home": "/var/empty",
+            "path": "/usr/bin:/bin",
+            "lcAll": "C",
+            "tz": "UTC",
+            "network": "deny-default",
+        },
+        "channels": [
+            {
+                "role": "authority-policy", "fd": 3,
+                "transport": "regular-file", "access": "read-only",
+                "bindingDigest": digest_to_wire(policy_ref.digest),
+            },
+            {
+                "role": "authority-store", "fd": 4,
+                "transport": "authenticated-stream", "access": "request-response",
+                "bindingDigest": digest_to_wire(authority_store_ref.digest),
+            },
+            {
+                "role": "candidate-archive", "fd": 5,
+                "transport": "regular-file", "access": "read-only",
+                "bindingDigest": digest_to_wire(candidate.identity.archiveDigest),
+            },
+            {
+                "role": "evidence-root", "fd": 6,
+                "transport": "regular-file", "access": "read-only",
+                "bindingDigest": digest_to_wire(plain_sha256_digest(evidence_bytes)),
+            },
+        ],
+        "pathnameReopen": False,
+        "fallback": "none",
+    }
+    handoff_record = _control_record(handoff_obj)
+    # Exercise the accepted historical handoff parser while constructing the
+    # fixture so malformed legacy candidate/channel projections cannot enter.
+    _BTO._preflight_eligible_stage0_handoff(handoff_record[1])
+
+    containment_statement = {
+        "schema": "proof-forge.session-containment-receipt.v1",
+        "id": f"session-containment-{gate_id}",
+        "version": "1.0.0",
+        "candidate": legacy_candidate,
+        "stage0Handoff": content_ref_to_wire(handoff_record[2]),
+        "supervisorDigest": "sha256:" + "31" * 32,
+        "rootSessionId": f"root-session-{gate_id}",
+        "descendants": [{
+            "pid": 101,
+            "parentPid": 1,
+            "startToken": 11,
+            "sessionId": 501,
+            "executableDigest": "sha256:" + "32" * 32,
+            "termination": "exited",
+        }],
+        "escapeProbes": [{
+            "id": f"escape-probe-{gate_id}", "result": "contained"}],
+        "startedAt": "2026-07-20T23:59:00Z",
+        "finishedAt": "2026-07-20T23:59:30Z",
+        "result": "contained",
+    }
+    containment_obj = _signed_fixture_control(
+        containment_statement,
+        b"pf.session-containment-receipt-statement.v1",
+        b"pf.session-containment-receipt-signature.v1")
+    containment_record = _control_record(containment_obj)
+
+    freshness_statement = {
+        "schema": "proof-forge.freshness-authority-snapshot.v1",
+        "id": f"freshness-{gate_id}",
+        "version": "1.0.0",
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "observedAt": "2026-07-20T23:59:30Z",
+        "maximumAgeSeconds": 120,
+        "clockSourceDigest": "sha256:" + "41" * 32,
+    }
+    freshness_obj = _signed_fixture_control(
+        freshness_statement,
+        b"pf.freshness-authority-snapshot-statement.v1",
+        b"pf.freshness-authority-snapshot-signature.v1")
+    freshness_record = _control_record(freshness_obj)
+
+    evidence_obj = _EVIDENCE.validate_evidence(
+        _EVIDENCE.decode_json(evidence_bytes))
+    evidence_ref = {
+        "id": evidence_obj["id"],
+        "digest": digest_to_wire(plain_sha256_digest(evidence_bytes)),
+    }
+    scanned_members = []
+    for entry in evidence_obj["inputs"]:
+        scanned_members.append({
+            "evidence": evidence_ref,
+            "role": entry["role"],
+            "path": entry["path"],
+            "size": entry["size"],
+            "digest": "sha256:" + entry["sha256"],
+        })
+    for entry in evidence_obj["artifacts"]:
+        scanned_members.append({
+            "evidence": evidence_ref,
+            "role": f"artifact.{entry['target']}.{entry['role']}",
+            "path": entry["path"],
+            "size": entry["size"],
+            "digest": "sha256:" + entry["sha256"],
+        })
+    for entry in evidence_obj["logs"]:
+        scanned_members.append({
+            "evidence": evidence_ref,
+            "role": "log",
+            "path": entry["path"],
+            "size": entry["size"],
+            "digest": "sha256:" + entry["sha256"],
+        })
+    scanned_members.sort(key=lambda item: (
+        item["evidence"]["id"], item["evidence"]["digest"][7:],
+        item["path"].encode("utf-8")))
+    scan_core = {
+        "candidate": _TQO.candidate_identity_to_wire(candidate.identity),
+        "scannedEvidenceRefs": [evidence_ref],
+        "scannedMembers": scanned_members,
+    }
+    scan_statement = {
+        "schema": "proof-forge.task-qualification-private-scan-receipt.v1",
+        "id": f"task-qualification-private-scan-{gate_id}",
+        "version": "1.0.0",
+        "candidate": _TQO.candidate_identity_to_wire(candidate.identity),
+        "evidenceCoreDigest": digest_to_wire(_TQO.domain_digest(
+            b"pf.taskqual.private-scan-core.v1", scan_core)),
+        "scannerDigest": digest_to_wire(
+            artifact_payload("private-scan-scanner")),
+        "policy": content_ref_to_wire(artifact_ref("private-scan-policy")),
+        "scannedEvidenceRefs": [evidence_ref],
+        "scannedMembers": scanned_members,
+        "findings": [],
+        "result": "clean",
+    }
+    scan_obj = _signed_fixture_control(
+        scan_statement,
+        b"pf.taskqual.private-scan-statement.v1",
+        b"pf.taskqual.private-scan-signature.v1")
+    scan_record = _control_record(scan_obj)
+
+    records_digest = hashlib.sha256(
+        b"pf.revocation-ledger-records.v1\x00").digest()
+    revocation_statement = {
+        "schema": "proof-forge.revocation-ledger-snapshot.v1",
+        "id": f"revocation-ledger-{gate_id}",
+        "version": "1.0.0",
+        "authorityPolicy": content_ref_to_wire(policy_ref),
+        "records": [],
+        "head": None,
+        "recordsDigest": f"sha256:{records_digest.hex()}",
+    }
+    revocation_obj = _signed_fixture_control(
+        revocation_statement,
+        b"pf.revocation-ledger-snapshot-statement.v1",
+        b"pf.revocation-ledger-snapshot-signature.v1")
+    revocation_record = _control_record(revocation_obj)
+
+    result = {
+        "eligible-stage0-handoff": handoff_record,
+        "session-containment": containment_record,
+        "freshness": freshness_record,
+        "private-scan": scan_record,
+        "revocation-snapshot": revocation_record,
+    }
+    _FIXTURE_GATE_CONTROL_CACHE[cache_key] = result
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -779,27 +1199,24 @@ def build_gate(
     command_policy: _TQO.TaskCommandPolicyV1,
     evidence_ref: _TQO.EvidenceRefV1,
     fixture_policy: _TQO.FixturePolicyV1,
+    evidence_bytes: bytes,
 ) -> _TQO.TaskQualificationGateV1:
-    """Build a fixture TaskQualificationGateV1."""
+    """Build a fixture gate referencing the five real closed controls."""
     cmd_ref = command_policy_content_ref(command_policy)
-    # Build synthetic control refs (FixtureResolvedBlobV1)
-    handoff_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-observation", b"fixture handoff")
-    containment_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture containment")
-    freshness_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-profile", b"fixture freshness")
-    scan_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "private-scan-policy", b"fixture scan")
-    revocation_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation")
-
+    controls = build_fixture_gate_controls(
+        candidate, fixture_policy, FIXTURE_GATE_ID, FIXTURE_TASK_ID,
+        evidence_bytes)
     return _TQO.TaskQualificationGateV1(
         gateId=FIXTURE_GATE_ID,
         taskId=FIXTURE_TASK_ID,
         testIds=(FIXTURE_TEST_ID,),
         evidence=(evidence_ref,),
         commandPolicy=cmd_ref,
-        eligibleStage0Handoff=_TQO.fixture_resolved_blob_content_ref(handoff_blob),
-        sessionContainment=_TQO.fixture_resolved_blob_content_ref(containment_blob),
-        freshness=_TQO.fixture_resolved_blob_content_ref(freshness_blob),
-        privateScan=_TQO.fixture_resolved_blob_content_ref(scan_blob),
-        revocationSnapshot=_TQO.fixture_resolved_blob_content_ref(revocation_blob),
+        eligibleStage0Handoff=controls["eligible-stage0-handoff"][2],
+        sessionContainment=controls["session-containment"][2],
+        freshness=controls["freshness"][2],
+        privateScan=controls["private-scan"][2],
+        revocationSnapshot=controls["revocation-snapshot"][2],
     )
 
 
@@ -999,19 +1416,26 @@ def build_fixture_chain() -> FixtureChain:
     # Build fixture policy
     fixture_policy = _TQO.build_default_fixture_policy()
 
-    # Build synthetic candidate
+    # Freeze source points to a strict ancestor; C then archives the exact
+    # PHASE/freeze bytes it signs and consumes.
+    freeze_anchor = build_synthetic_candidate(
+        FIXTURE_TASK_ID, {"fixtures/task-qualification/anchor.txt": b"anchor\n"})
+    phase4_bytes = build_phase4_source(freeze_anchor)
+    phase5_bytes = build_phase5_source(freeze_anchor)
+    freeze_bytes = build_freeze_package_source(
+        freeze_anchor, dependencies=(),
+        freeze_commit=freeze_anchor.identity.commit)
     candidate = build_synthetic_candidate(
         FIXTURE_TASK_ID,
         {
             "docs/04-task-breakdown.md": b"# PHASE-4 fixture",
             "docs/05-test-spec.md": b"# PHASE-5 fixture",
+            FIXTURE_PHASE4_PATH: phase4_bytes,
+            FIXTURE_PHASE5_PATH: phase5_bytes,
+            FIXTURE_FREEZE_PATH: freeze_bytes,
         },
+        parent_sha=freeze_anchor.identity.commit,
     )
-
-    # Build source documents
-    phase4_bytes = build_phase4_source(candidate)
-    phase5_bytes = build_phase5_source(candidate)
-    freeze_bytes = build_freeze_package_source(candidate, dependencies=())
     evidence_bytes = build_evidence_source(candidate)
     review_report_bytes = build_review_report(candidate)
 
@@ -1022,7 +1446,9 @@ def build_fixture_chain() -> FixtureChain:
 
     # Build command policy and gate
     command_policy = build_command_policy(candidate, FIXTURE_GATE_ID, fixture_policy)
-    gate = build_gate(candidate, command_policy, evidence_ref, fixture_policy)
+    gate = build_gate(
+        candidate, command_policy, evidence_ref, fixture_policy,
+        evidence_bytes)
 
     # Build verifier identity
     verifier = build_verifier_identity(FIXTURE_GATE_ID)
@@ -1077,12 +1503,9 @@ def build_fixture_chain() -> FixtureChain:
     patch_ref = allowed_closeout_patch_content_ref(patch)
     cmd_ref = command_policy_content_ref(command_policy)
 
-    # Build gate control blobs
-    handoff_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-observation", b"fixture handoff")
-    containment_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture containment")
-    freshness_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-profile", b"fixture freshness")
-    scan_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "private-scan-policy", b"fixture scan")
-    revocation_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation")
+    controls = build_fixture_gate_controls(
+        candidate, fixture_policy, FIXTURE_GATE_ID, FIXTURE_TASK_ID,
+        evidence_bytes)
 
     # Build command policy member bytes
     cmd_wire = command_policy_to_wire(command_policy)
@@ -1096,17 +1519,11 @@ def build_fixture_chain() -> FixtureChain:
     patch_wire = allowed_closeout_patch_to_wire(patch)
     patch_bytes = canonical_pf_jcs(patch_wire)
 
-    # Build gate control member bytes
-    handoff_wire = _TQO.fixture_resolved_blob_to_wire(handoff_blob)
-    handoff_bytes = canonical_pf_jcs(handoff_wire)
-    containment_wire = _TQO.fixture_resolved_blob_to_wire(containment_blob)
-    containment_bytes = canonical_pf_jcs(containment_wire)
-    freshness_wire = _TQO.fixture_resolved_blob_to_wire(freshness_blob)
-    freshness_bytes = canonical_pf_jcs(freshness_wire)
-    scan_wire = _TQO.fixture_resolved_blob_to_wire(scan_blob)
-    scan_bytes = canonical_pf_jcs(scan_wire)
-    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
-    revocation_bytes = canonical_pf_jcs(revocation_wire)
+    handoff_bytes = controls["eligible-stage0-handoff"][1]
+    containment_bytes = controls["session-containment"][1]
+    freshness_bytes = controls["freshness"][1]
+    scan_bytes = controls["private-scan"][1]
+    revocation_bytes = controls["revocation-snapshot"][1]
 
     # Build verifier identity member bytes (for verifier-executable, verifier-closure, verifier-build-policy)
     exec_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-executable", b"fixture verifier exec")
@@ -1145,13 +1562,20 @@ def build_fixture_chain() -> FixtureChain:
         (f"verifier-executable/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(exec_blob)), exec_bytes.hex()),
         (f"verifier-closure/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(closure_blob)), closure_bytes.hex()),
         (f"verifier-build-policy/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(build_blob)), build_bytes.hex()),
-        (f"eligible-stage0-handoff/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(handoff_blob)), handoff_bytes.hex()),
-        (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
-        (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
-        (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
-        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "resolved-tool-closure"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "private-scan-policy"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "private-scan-scanner"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "authority-store-service"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "host-observation"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "host-profile"),
+        (f"eligible-stage0-handoff/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["eligible-stage0-handoff"][2]), handoff_bytes.hex()),
+        (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["session-containment"][2]), containment_bytes.hex()),
+        (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["freshness"][2]), freshness_bytes.hex()),
+        (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["private-scan"][2]), scan_bytes.hex()),
+        ("revocation-snapshot", "typed-content", content_ref_to_wire(controls["revocation-snapshot"][2]), revocation_bytes.hex()),
         (f"evidence/{FIXTURE_EVIDENCE_ID}", "raw-source", {"path": f"evidence/{FIXTURE_EVIDENCE_ID}", "digest": digest_to_wire(evidence_ref.digest)}, evidence_bytes.hex()),
         (f"review-report/{FIXTURE_REVIEWER_ID}/{review_ref.reportDigest.bytes.hex()}", "review", {"reviewerId": FIXTURE_REVIEWER_ID, "reportDigest": digest_to_wire(review_ref.reportDigest)}, review_report_bytes.hex()),
+        (f"ancestry-commit/{freeze_anchor.identity.commit}", "git-object", freeze_anchor.identity.commit, freeze_anchor.commit_bytes.hex()),
     ]
 
     bundle_obj = build_content_bundle("task-qualification", fixture_policy, candidate, members)
@@ -1309,11 +1733,20 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
         },
     )
 
+    phase4_bytes = build_phase4_source(
+        dep_candidate, dependencies=(FIXTURE_DEP_TASK_ID,))
+    phase5_bytes = build_phase5_source(dep_candidate)
+    freeze_bytes = build_freeze_package_source(
+        dep_candidate, dependencies=(FIXTURE_DEP_TASK_ID,),
+        freeze_commit=dep_candidate.identity.commit)
     candidate = build_synthetic_candidate(
         FIXTURE_TASK_ID,
         {
             "docs/04-task-breakdown.md": b"# PHASE-4 fixture",
             "docs/05-test-spec.md": b"# PHASE-5 fixture",
+            FIXTURE_PHASE4_PATH: phase4_bytes,
+            FIXTURE_PHASE5_PATH: phase5_bytes,
+            FIXTURE_FREEZE_PATH: freeze_bytes,
         },
         parent_sha=dep_candidate.identity.commit,
     )
@@ -1325,9 +1758,6 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     dep_object_digest = _TQO.domain_digest_raw(
         _TQO.DOMAIN_DEPENDENCY_OBJECT, dep_receipt_bytes)
 
-    phase4_bytes = build_phase4_source(candidate)
-    phase5_bytes = build_phase5_source(candidate)
-    freeze_bytes = build_freeze_package_source(candidate, dependencies=(FIXTURE_DEP_TASK_ID,))
     evidence_bytes = build_evidence_source(candidate)
     review_report_bytes = build_review_report(candidate)
 
@@ -1336,7 +1766,9 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     review_ref = build_review_ref(candidate, review_report_bytes)
 
     command_policy = build_command_policy(candidate, FIXTURE_GATE_ID, fixture_policy)
-    gate = build_gate(candidate, command_policy, evidence_ref, fixture_policy)
+    gate = build_gate(
+        candidate, command_policy, evidence_ref, fixture_policy,
+        evidence_bytes)
     verifier = build_verifier_identity(FIXTURE_GATE_ID)
 
     planned_semantic_files = _FIXTURE_PLANNED_SEMANTIC_FILES
@@ -1409,11 +1841,9 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     )
 
     cmd_ref = command_policy_content_ref(command_policy)
-    handoff_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-observation", b"fixture handoff")
-    containment_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture containment")
-    freshness_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "host-profile", b"fixture freshness")
-    scan_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "private-scan-policy", b"fixture scan")
-    revocation_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation")
+    controls = build_fixture_gate_controls(
+        candidate, fixture_policy, FIXTURE_GATE_ID, FIXTURE_TASK_ID,
+        evidence_bytes)
 
     cmd_wire = command_policy_to_wire(command_policy)
     cmd_bytes = canonical_pf_jcs(cmd_wire)
@@ -1421,11 +1851,11 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     policy_bytes = canonical_pf_jcs(policy_wire)
     patch_wire = allowed_closeout_patch_to_wire(patch)
     patch_bytes = canonical_pf_jcs(patch_wire)
-    handoff_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(handoff_blob))
-    containment_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(containment_blob))
-    freshness_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(freshness_blob))
-    scan_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(scan_blob))
-    revocation_bytes = canonical_pf_jcs(_TQO.fixture_resolved_blob_to_wire(revocation_blob))
+    handoff_bytes = controls["eligible-stage0-handoff"][1]
+    containment_bytes = controls["session-containment"][1]
+    freshness_bytes = controls["freshness"][1]
+    scan_bytes = controls["private-scan"][1]
+    revocation_bytes = controls["revocation-snapshot"][1]
 
     exec_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-executable", b"fixture verifier exec")
     closure_blob = _TQO.build_fixture_resolved_blob(FIXTURE_GATE_ID, "verifier-closure", b"fixture verifier closure")
@@ -1464,11 +1894,17 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
         (f"verifier-executable/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(exec_blob)), exec_bytes.hex()),
         (f"verifier-closure/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(closure_blob)), closure_bytes.hex()),
         (f"verifier-build-policy/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(build_blob)), build_bytes.hex()),
-        (f"eligible-stage0-handoff/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(handoff_blob)), handoff_bytes.hex()),
-        (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
-        (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
-        (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
-        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "resolved-tool-closure"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "private-scan-policy"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "private-scan-scanner"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "authority-store-service"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "host-observation"),
+        _fixture_artifact_member(FIXTURE_GATE_ID, "host-profile"),
+        (f"eligible-stage0-handoff/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["eligible-stage0-handoff"][2]), handoff_bytes.hex()),
+        (f"session-containment/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["session-containment"][2]), containment_bytes.hex()),
+        (f"freshness/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["freshness"][2]), freshness_bytes.hex()),
+        (f"private-scan/{FIXTURE_GATE_ID}", "typed-content", content_ref_to_wire(controls["private-scan"][2]), scan_bytes.hex()),
+        ("revocation-snapshot", "typed-content", content_ref_to_wire(controls["revocation-snapshot"][2]), revocation_bytes.hex()),
         (f"evidence/{FIXTURE_EVIDENCE_ID}", "raw-source", {"path": f"evidence/{FIXTURE_EVIDENCE_ID}", "digest": digest_to_wire(evidence_ref.digest)}, evidence_bytes.hex()),
         (f"review-report/{FIXTURE_REVIEWER_ID}/{review_ref.reportDigest.bytes.hex()}", "review", {"reviewerId": FIXTURE_REVIEWER_ID, "reportDigest": digest_to_wire(review_ref.reportDigest)}, review_report_bytes.hex()),
         # Three-piece dependency row. The dependency/<taskId> member carries
@@ -1502,6 +1938,17 @@ def build_fixture_chain_with_dependency() -> FixtureChain:
     )
 
 
+def _reuse_typed_bundle_member(bundle_obj: dict, role: str) -> tuple:
+    matches = [member for member in bundle_obj["members"] if member["role"] == role]
+    if len(matches) != 1 or matches[0].get("kind") != "typed-content":
+        raise ValueError(f"expected one typed member {role}")
+    member = matches[0]
+    return (
+        _TQO.parse_content_ref(member["content"], f"fixture.{role}.content"),
+        bytes.fromhex(member["bytesHex"]),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task-completion-receipt fixture chain
 # ---------------------------------------------------------------------------
@@ -1527,12 +1974,17 @@ def build_completion_receipt_chain(qual_chain: FixtureChain) -> CompletionReceip
     # D's archive contains the closeout files (qualification.json + updated docs).
     # The docs/04-07 files must match _FIXTURE_PLANNED_SEMANTIC_FILES so the
     # §6 reconstruction the verifier performs yields patch.semanticFileSetDigest.
-    closeout_files = dict(_FIXTURE_PLANNED_SEMANTIC_FILES)
+    closeout_files = {
+        path: entry.content
+        for path, entry in pre_candidate.archive_projection.path_map.items()
+    }
+    closeout_files.update(_FIXTURE_PLANNED_SEMANTIC_FILES)
     closeout_files[_FIXTURE_QUALIFICATION_PATH] = canonical_pf_jcs(qual_chain.qualification_obj)
     close_candidate = build_synthetic_candidate(
         FIXTURE_TASK_ID,
         closeout_files,
         parent_sha=pre_candidate.identity.commit,
+        tree_prefix=None,
     )
 
     # Build the closeout file set (diff between C and D)
@@ -1569,11 +2021,9 @@ def build_completion_receipt_chain(qual_chain: FixtureChain) -> CompletionReceip
     policy_ref = _TQO.fixture_policy_content_ref(qual_chain.fixture_policy)
     patch_ref = allowed_closeout_patch_content_ref(qual_chain.patch)
 
-    # Build revocation snapshot (synthetic fixture resolved blob)
-    revocation_blob = _TQO.build_fixture_resolved_blob(
-        FIXTURE_GATE_ID, "authority-store-service", b"fixture revocation snapshot"
-    )
-    revocation_ref = _TQO.fixture_resolved_blob_content_ref(revocation_blob)
+    # Receipt consumes the exact snapshot already verified with Q.
+    revocation_ref, revocation_bytes = _reuse_typed_bundle_member(
+        qual_chain.bundle_obj, "revocation-snapshot")
 
     receipt_obj = {
         "schema": "proof-forge.task-completion-receipt.v1",
@@ -1621,9 +2071,6 @@ def build_completion_receipt_chain(qual_chain: FixtureChain) -> CompletionReceip
     patch_bytes = canonical_pf_jcs(patch_wire)
     closeout_file_set_wire = closeout_file_set_to_wire(closeout_file_set)
     closeout_file_set_bytes = canonical_pf_jcs(closeout_file_set_wire)
-    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
-    revocation_bytes = canonical_pf_jcs(revocation_wire)
-
     closeout_file_set_ref = closeout_file_set_content_ref(closeout_file_set)
 
     members = [
@@ -1693,8 +2140,12 @@ _D0_10_APPROVAL_PATH = (
 
 # D0-07 bridge constants
 D0_07_TASK_ID = "TASK-D0-07"
-D0_07_RULING_ID = "GOV-D0CLOSE-001"
+D0_07_RULING_ID = "GOV-D0CLOSE-FIXTURE-001"
 D0_07_SOURCE_PATH = "docs/governance/bootstrap-closure/TASK-D0-07.attest.json"
+D0_07_RULING_BYTES = _fixture_ruling_source(
+    D0_07_RULING_ID, "Fixture D0-07 historical closeout ruling.")
+D0_10_RULING_BYTES = _fixture_ruling_source(
+    D0_10_RULING_ID, "Fixture D0-10 task qualification bootstrap ruling.")
 # §4: the d0_07Bridge sourceClosureBytesHex carries the raw bytes of the
 # D0-07 GBC sourceClosure (the attest file content), so the verifier can
 # recompute plain_sha256(bytes) == gc.sourceClosure.digest independently.
@@ -1728,8 +2179,12 @@ def _build_d0_07_governance_completion(
     ruling_ref = _TQO.NormativeDocumentRefV1(
         id=D0_07_RULING_ID,
         status="accepted",
-        contentDigest=plain_sha256_digest(b"fixture ruling content"),
-        reviewCommit=d0_07_candidate.identity.commit,
+        contentDigest=_TQO.normative_document_digest(
+            _TQO.DOMAIN_FIXTURE_NORMATIVE_DOCUMENT,
+            D0_07_RULING_ID,
+            D0_07_RULING_BYTES,
+        ),
+        reviewCommit=FIXTURE_DOCUMENT_REVIEW_COMMIT,
     )
     policy_ref = _TQO.fixture_policy_content_ref(fixture_policy)
 
@@ -1785,12 +2240,48 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         },
     )
 
-    # Build the D0-10 candidate (with f1/f2 prefix), parented to D0-07.
+    phase4_bytes = build_phase4_source(
+        d0_07_candidate,
+        dependencies=(D0_07_TASK_ID,),
+        task_id=D0_10_TASK_ID,
+        output=(
+            "task-scoped formal qualification verifier + protected docs "
+            "consumer + one-time completion bridge"),
+        prerequisites=(
+            "ADR-0020@accepted",
+            "GOV-TASKQUAL-BOOTSTRAP-001@accepted",
+            "SPEC-TASKQUAL-001@accepted",
+        ),
+        evidence_ids=(FIXTURE_EVIDENCE_ID,),
+    )
+    phase5_bytes = build_phase5_source(d0_07_candidate)
+    freeze_bytes = canonical_pf_jcs({
+        "schemaVersion": 1,
+        "taskId": D0_10_TASK_ID,
+        "frozenAt": "2026-07-20",
+        "freezeCommit": d0_07_candidate.identity.commit,
+        "output": "task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
+        "dependencies": [D0_07_TASK_ID],
+        "prerequisites": ["ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"],
+        "tests": ["TST-DOC-001"],
+        "inScope": ["fixture d0-10 approval verifier", "fixture d0-10 receipt verifier", "fixture protected adapter"],
+        "outOfScope": ["production profile", "release aggregate", "formal closeout evidence"],
+        "doneWhen": ["fixture passes"],
+        "overflowPolicy": "fixture",
+        "maxCalendarDays": 5,
+        "maxCommits": 20,
+        "notes": "fixture",
+    })
     candidate = build_synthetic_candidate(
         D0_10_TASK_ID,
         {
             "docs/04-task-breakdown.md": b"# PHASE-4 D0-10 fixture",
             "docs/05-test-spec.md": b"# PHASE-5 D0-10 fixture",
+            FIXTURE_PHASE4_PATH: phase4_bytes,
+            FIXTURE_PHASE5_PATH: phase5_bytes,
+            FIXTURE_FREEZE_PATH: freeze_bytes,
+            FIXTURE_RULING_PATH: D0_10_RULING_BYTES,
+            "fixtures/task-qualification/d0-07-ruling.md": D0_07_RULING_BYTES,
         },
         parent_sha=d0_07_candidate.identity.commit,
     )
@@ -1803,11 +2294,15 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     d0_07_bridge = _TQO.GovernanceBootstrapReceiptDependencyV1(
         kind="governance-bootstrap-receipt",
         taskId=D0_07_TASK_ID,
-        ruling=_BTO.ContentRef(
-            schema="proof-forge.governance-ruling.v1",
+        ruling=_TQO.NormativeDocumentRefV1(
             id=D0_07_RULING_ID,
-            version="1.0.0",
-            digest=plain_sha256_digest(b"fixture ruling content"),
+            status="accepted",
+            contentDigest=_TQO.normative_document_digest(
+                _TQO.DOMAIN_FIXTURE_NORMATIVE_DOCUMENT,
+                D0_07_RULING_ID,
+                D0_07_RULING_BYTES,
+            ),
+            reviewCommit=FIXTURE_DOCUMENT_REVIEW_COMMIT,
         ),
         completionCommit=d0_07_candidate.identity.commit,
         authorityPolicy=_TQO.fixture_policy_content_ref(fixture_policy),
@@ -1826,8 +2321,12 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     ruling_ref = _TQO.NormativeDocumentRefV1(
         id=D0_10_RULING_ID,
         status="accepted",
-        contentDigest=plain_sha256_digest(b"fixture d0-10 ruling content"),
-        reviewCommit=candidate.identity.commit,
+        contentDigest=_TQO.normative_document_digest(
+            _TQO.DOMAIN_FIXTURE_NORMATIVE_DOCUMENT,
+            D0_10_RULING_ID,
+            D0_10_RULING_BYTES,
+        ),
+        reviewCommit=FIXTURE_DOCUMENT_REVIEW_COMMIT,
     )
 
     # Build the task row for D0-10
@@ -1845,46 +2344,15 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         status="in_progress",
     )
 
-    # Build the freeze package ref
-    freeze_bytes = canonical_pf_jcs({
-        "schemaVersion": 1,
-        "taskId": D0_10_TASK_ID,
-        "frozenAt": "2026-07-20",
-        "freezeCommit": candidate.identity.commit,
-        "output": "task-scoped formal qualification verifier + protected docs consumer + one-time completion bridge",
-        "dependencies": [D0_07_TASK_ID],
-        "prerequisites": ["ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"],
-        "tests": ["TST-DOC-001"],
-        "inScope": ["fixture d0-10 approval verifier", "fixture d0-10 receipt verifier", "fixture protected adapter"],
-        "outOfScope": ["production profile", "release aggregate", "formal closeout evidence"],
-        "doneWhen": ["fixture passes"],
-        "overflowPolicy": "fixture",
-        "maxCalendarDays": 5,
-        "maxCommits": 20,
-        "notes": "fixture",
-    })
+    # Build the freeze package ref from the exact archived bytes.
     freeze_ref = _TQO.TaskFreezePackageRefV1(
         taskId=D0_10_TASK_ID,
         digest=_TQO.domain_digest_raw(_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes),
     )
 
-    # Build the evidence
-    evidence_bytes = canonical_pf_jcs({
-        "id": "EV-20260721-0001",
-        "gate": {
-            "id": D0_10_GATE_ID,
-            "taskId": D0_10_TASK_ID,
-            "testIds": ["TST-DOC-001"],
-            "qualification": "development",
-        },
-        "repository": {
-            "commit": candidate.identity.commit,
-            "treeObjectId": candidate.identity.treeObjectId,
-            "archive": {"sha256": digest_to_wire(candidate.identity.archiveDigest)},
-        },
-        "command": {"argv": ["/usr/bin/python3", "-c", "print('fixture')"], "environment": []},
-        "result": "passed",
-    })
+    # Build the complete evidence-v1 source.
+    evidence_bytes = build_evidence_source(
+        candidate, D0_10_GATE_ID, D0_10_TASK_ID)
     evidence_ref = _TQO.EvidenceRefV1(
         id="EV-20260721-0001",
         digest=plain_sha256_digest(evidence_bytes),
@@ -1929,7 +2397,12 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         taskId=D0_10_TASK_ID,
         testIds=("TST-DOC-001",),
         argv=("/usr/bin/python3", "-c", "print('fixture')"),
-        environment=(),
+        environment=(
+            ("HOME", "/var/empty"),
+            ("LC_ALL", "C"),
+            ("PATH", "/usr/bin:/bin"),
+            ("TZ", "UTC"),
+        ),
         tool=_TQO.fixture_resolved_blob_content_ref(tool_blob),
         probe=_TQO.fixture_resolved_blob_content_ref(probe_blob),
         sandboxPolicy=_TQO.fixture_resolved_blob_content_ref(sandbox_blob),
@@ -1937,12 +2410,9 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     )
     cmd_ref = command_policy_content_ref(command_policy)
 
-    # Build gate control blobs
-    handoff_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "host-observation", b"fixture handoff")
-    containment_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "authority-store-service", b"fixture containment")
-    freshness_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "host-profile", b"fixture freshness")
-    scan_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "private-scan-policy", b"fixture scan")
-    revocation_blob = _TQO.build_fixture_resolved_blob(D0_10_GATE_ID, "authority-store-service", b"fixture revocation")
+    controls = build_fixture_gate_controls(
+        candidate, fixture_policy, D0_10_GATE_ID, D0_10_TASK_ID,
+        evidence_bytes)
 
     # Build the bootstrap gate
     bootstrap_gate = _TQO.D0_10BootstrapGateV1(
@@ -1951,20 +2421,40 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         testIds=("TST-DOC-001",),
         evidence=(evidence_ref,),
         commandPolicy=cmd_ref,
-        eligibleStage0Handoff=_TQO.fixture_resolved_blob_content_ref(handoff_blob),
-        sessionContainment=_TQO.fixture_resolved_blob_content_ref(containment_blob),
-        freshness=_TQO.fixture_resolved_blob_content_ref(freshness_blob),
-        privateScan=_TQO.fixture_resolved_blob_content_ref(scan_blob),
-        revocationSnapshot=_TQO.fixture_resolved_blob_content_ref(revocation_blob),
+        eligibleStage0Handoff=controls["eligible-stage0-handoff"][2],
+        sessionContainment=controls["session-containment"][2],
+        freshness=controls["freshness"][2],
+        privateScan=controls["private-scan"][2],
+        revocationSnapshot=controls["revocation-snapshot"][2],
     )
 
-    # Build the protected consumer verifier identity
+    # D0 top-level checker/consumer identities are distinct from the gate
+    # command verifier and resolve only their six singleton roles.
+    bootstrap_verifier = _TQO.VerifierIdentityV1(
+        id="fixture-bootstrap-verifier-d0-10",
+        executable=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "bootstrap-verifier-executable")),
+        closure=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "bootstrap-verifier-closure")),
+        sourceDigest=plain_sha256_digest(b"fixture bootstrap verifier source"),
+        buildPolicy=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "bootstrap-verifier-build-policy")),
+    )
     consumer = _TQO.VerifierIdentityV1(
-        id=f"fixture-consumer-{D0_10_GATE_ID}",
-        executable=_TQO.fixture_resolved_blob_content_ref(verifier_exec_blob),
-        closure=_TQO.fixture_resolved_blob_content_ref(verifier_closure_blob),
+        id="fixture-protected-consumer-d0-10",
+        executable=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "protected-consumer-executable")),
+        closure=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "protected-consumer-closure")),
         sourceDigest=plain_sha256_digest(b"fixture consumer source"),
-        buildPolicy=_TQO.fixture_resolved_blob_content_ref(verifier_build_blob),
+        buildPolicy=_TQO.fixture_resolved_blob_content_ref(
+            _TQO.build_fixture_top_level_resolved_blob(
+                "protected-consumer-build-policy")),
     )
 
     # Build the allowed closeout patch.
@@ -2000,7 +2490,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         dependencies=(D0_07_TASK_ID,),
         prerequisites=("ADR-0020@accepted", "GOV-TASKQUAL-BOOTSTRAP-001@accepted", "SPEC-TASKQUAL-001@accepted"),
         tests=("TST-DOC-001",),
-        evidenceIds=("EV-20260721-0001",),
+        evidenceIds=("EV-20260721-0001", FIXTURE_LEDGER_EVIDENCE_ID),
         status="done",
     )
     resulting_row_digest = task_row_digest(resulting_row)
@@ -2043,10 +2533,14 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         },
         "taskRow": task_row_to_wire(task_row),
         "freezePackage": freeze_package_ref_to_wire(freeze_ref),
-        "verifier": _TQO.verifier_identity_to_wire(verifier),
+        "verifier": _TQO.verifier_identity_to_wire(bootstrap_verifier),
         "protectedConsumer": _TQO.verifier_identity_to_wire(consumer),
-        "verifierClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture verifier closure")),
-        "consumerClosureDigest": digest_to_wire(plain_sha256_digest(b"fixture consumer closure")),
+        "verifierClosureDigest": digest_to_wire(_TQO.domain_digest(
+            _TQO.DOMAIN_D0_10_VERIFIER_CLOSURE,
+            _TQO.verifier_identity_to_wire(bootstrap_verifier))),
+        "consumerClosureDigest": digest_to_wire(_TQO.domain_digest(
+            _TQO.DOMAIN_D0_10_CONSUMER_CLOSURE,
+            _TQO.verifier_identity_to_wire(consumer))),
         "ledgerEvidenceId": FIXTURE_LEDGER_EVIDENCE_ID,
         "tstDocSubprofile": FIXTURE_SUBPROFILE,
         "bootstrapGate": {
@@ -2064,7 +2558,8 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         "d0_07Bridge": {
             "kind": "governance-bootstrap-receipt",
             "taskId": d0_07_bridge.taskId,
-            "ruling": content_ref_to_wire(d0_07_bridge.ruling),
+            "ruling": _TQO.normative_document_ref_to_wire(
+                d0_07_bridge.ruling),
             "completionCommit": d0_07_bridge.completionCommit,
             "authorityPolicy": content_ref_to_wire(d0_07_bridge.authorityPolicy),
             "objectDigest": digest_to_wire(d0_07_bridge.objectDigest),
@@ -2086,10 +2581,8 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     )
     approval_obj["signatures"] = sigs
 
-    # Build the content bundle members
-    phase4_bytes = b"# PHASE-4 D0-10 fixture"
-    phase5_bytes = b"# PHASE-5 D0-10 fixture"
-    ruling_bytes = b"fixture d0-10 ruling content"
+    # Build the content bundle members from the archived source bytes.
+    ruling_bytes = D0_10_RULING_BYTES
 
     policy_wire = _TQO.fixture_policy_to_wire(fixture_policy)
     policy_bytes = canonical_pf_jcs(policy_wire)
@@ -2099,16 +2592,11 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
     cmd_bytes = canonical_pf_jcs(cmd_wire)
 
     # Gate control member bytes
-    handoff_wire = _TQO.fixture_resolved_blob_to_wire(handoff_blob)
-    handoff_bytes = canonical_pf_jcs(handoff_wire)
-    containment_wire = _TQO.fixture_resolved_blob_to_wire(containment_blob)
-    containment_bytes = canonical_pf_jcs(containment_wire)
-    freshness_wire = _TQO.fixture_resolved_blob_to_wire(freshness_blob)
-    freshness_bytes = canonical_pf_jcs(freshness_wire)
-    scan_wire = _TQO.fixture_resolved_blob_to_wire(scan_blob)
-    scan_bytes = canonical_pf_jcs(scan_wire)
-    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
-    revocation_bytes = canonical_pf_jcs(revocation_wire)
+    handoff_bytes = controls["eligible-stage0-handoff"][1]
+    containment_bytes = controls["session-containment"][1]
+    freshness_bytes = controls["freshness"][1]
+    scan_bytes = controls["private-scan"][1]
+    revocation_bytes = controls["revocation-snapshot"][1]
 
     # Verifier/consumer member bytes
     exec_wire = _TQO.fixture_resolved_blob_to_wire(verifier_exec_blob)
@@ -2130,6 +2618,7 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         ("phase-4-source", "raw-source", {"path": "fixtures/task-qualification/04-task-breakdown.md", "digest": digest_to_wire(plain_sha256_digest(phase4_bytes))}, phase4_bytes.hex()),
         ("phase-5-source", "raw-source", {"path": "fixtures/task-qualification/05-test-spec.md", "digest": digest_to_wire(plain_sha256_digest(phase5_bytes))}, phase5_bytes.hex()),
         ("ruling-source", "raw-source", {"path": "fixtures/task-qualification/ruling.md", "digest": digest_to_wire(plain_sha256_digest(ruling_bytes))}, ruling_bytes.hex()),
+        ("d0-07-ruling-source", "raw-source", {"path": "fixtures/task-qualification/d0-07-ruling.md", "digest": digest_to_wire(plain_sha256_digest(D0_07_RULING_BYTES))}, D0_07_RULING_BYTES.hex()),
         ("freeze-package-source", "raw-source", {"path": "fixtures/task-qualification/freeze.json", "digest": digest_to_wire(_TQO.domain_digest_raw(_TQO.DOMAIN_TASK_FREEZE_PACKAGE_SOURCE, freeze_bytes))}, freeze_bytes.hex()),
         ("candidate-archive", "archive", digest_to_wire(candidate.identity.archiveDigest), candidate.archive_bytes.hex()),
         ("candidate-commit-object", "git-object", candidate.identity.commit, candidate.commit_bytes.hex()),
@@ -2142,11 +2631,23 @@ def build_d0_10_approval_chain() -> D0_10ApprovalChain:
         (f"verifier-executable/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_exec_blob)), exec_bytes.hex()),
         (f"verifier-closure/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_closure_blob)), closure_bytes.hex()),
         (f"verifier-build-policy/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(verifier_build_blob)), build_bytes.hex()),
-        (f"eligible-stage0-handoff/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(handoff_blob)), handoff_bytes.hex()),
-        (f"session-containment/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(containment_blob)), containment_bytes.hex()),
-        (f"freshness/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(freshness_blob)), freshness_bytes.hex()),
-        (f"private-scan/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(scan_blob)), scan_bytes.hex()),
-        (f"revocation-snapshot", "typed-content", content_ref_to_wire(_TQO.fixture_resolved_blob_content_ref(revocation_blob)), revocation_bytes.hex()),
+        _fixture_artifact_member(D0_10_GATE_ID, "resolved-tool-closure"),
+        _fixture_artifact_member(D0_10_GATE_ID, "private-scan-policy"),
+        _fixture_artifact_member(D0_10_GATE_ID, "private-scan-scanner"),
+        _fixture_artifact_member(D0_10_GATE_ID, "authority-store-service"),
+        _fixture_artifact_member(D0_10_GATE_ID, "host-observation"),
+        _fixture_artifact_member(D0_10_GATE_ID, "host-profile"),
+        _fixture_top_level_artifact_member("bootstrap-verifier-executable"),
+        _fixture_top_level_artifact_member("bootstrap-verifier-closure"),
+        _fixture_top_level_artifact_member("bootstrap-verifier-build-policy"),
+        _fixture_top_level_artifact_member("protected-consumer-executable"),
+        _fixture_top_level_artifact_member("protected-consumer-closure"),
+        _fixture_top_level_artifact_member("protected-consumer-build-policy"),
+        (f"eligible-stage0-handoff/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(controls["eligible-stage0-handoff"][2]), handoff_bytes.hex()),
+        (f"session-containment/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(controls["session-containment"][2]), containment_bytes.hex()),
+        (f"freshness/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(controls["freshness"][2]), freshness_bytes.hex()),
+        (f"private-scan/{D0_10_GATE_ID}", "typed-content", content_ref_to_wire(controls["private-scan"][2]), scan_bytes.hex()),
+        ("revocation-snapshot", "typed-content", content_ref_to_wire(controls["revocation-snapshot"][2]), revocation_bytes.hex()),
         ("d0-07-governance-completion", "typed-content", content_ref_to_wire(_BTO.ContentRef(
             schema=d0_07_completion_obj["schema"],
             id=d0_07_completion_obj["id"],
@@ -2207,12 +2708,17 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     # §6 reconstruction the verifier performs yields the approval patch's
     # semanticFileSetDigest. The fixed approval path carries the signed
     # approval object bytes.
-    closeout_files = dict(_D0_10_PLANNED_SEMANTIC_FILES)
+    closeout_files = {
+        path: entry.content
+        for path, entry in pre_candidate.archive_projection.path_map.items()
+    }
+    closeout_files.update(_D0_10_PLANNED_SEMANTIC_FILES)
     closeout_files[_D0_10_APPROVAL_PATH] = canonical_pf_jcs(approval_chain.approval_obj)
     close_candidate = build_synthetic_candidate(
         D0_10_TASK_ID,
         closeout_files,
         parent_sha=pre_candidate.identity.commit,
+        tree_prefix=None,
     )
 
     # Build the closeout file set
@@ -2244,8 +2750,12 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     ruling_ref = _TQO.NormativeDocumentRefV1(
         id=D0_10_RULING_ID,
         status="accepted",
-        contentDigest=plain_sha256_digest(b"fixture d0-10 ruling content"),
-        reviewCommit=pre_candidate.identity.commit,
+        contentDigest=_TQO.normative_document_digest(
+            _TQO.DOMAIN_FIXTURE_NORMATIVE_DOCUMENT,
+            D0_10_RULING_ID,
+            D0_10_RULING_BYTES,
+        ),
+        reviewCommit=FIXTURE_DOCUMENT_REVIEW_COMMIT,
     )
 
     policy_ref = _TQO.fixture_policy_content_ref(approval_chain.fixture_policy)
@@ -2265,7 +2775,8 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         dependencies=tuple(approval_task_row_wire["dependencies"]),
         prerequisites=tuple(approval_task_row_wire["prerequisites"]),
         tests=tuple(approval_task_row_wire["tests"]),
-        evidenceIds=tuple(approval_task_row_wire["evidenceIds"]),
+        evidenceIds=tuple(approval_task_row_wire["evidenceIds"])
+        + (approval_chain.approval_obj["ledgerEvidenceId"],),
         status="done",
     )
     d0_10_resulting_row_digest = task_row_digest(resulting_row)
@@ -2290,11 +2801,9 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
         resultingTaskRowDigest=d0_10_resulting_row_digest,
     ))
 
-    # Build revocation snapshot
-    revocation_blob = _TQO.build_fixture_resolved_blob(
-        D0_10_GATE_ID, "authority-store-service", b"fixture revocation snapshot"
-    )
-    revocation_ref = _TQO.fixture_resolved_blob_content_ref(revocation_blob)
+    # Receipt consumes the exact snapshot already verified with approval.
+    revocation_ref, revocation_bytes = _reuse_typed_bundle_member(
+        approval_chain.bundle_obj, "revocation-snapshot")
 
     receipt_obj = {
         "schema": "proof-forge.d0-10-bootstrap-receipt.v1",
@@ -2353,8 +2862,6 @@ def build_d0_10_receipt_chain(approval_chain: D0_10ApprovalChain) -> D0_10Receip
     patch_bytes = canonical_pf_jcs(patch_wire)
     closeout_file_set_wire = closeout_file_set_to_wire(closeout_file_set)
     closeout_file_set_bytes = canonical_pf_jcs(closeout_file_set_wire)
-    revocation_wire = _TQO.fixture_resolved_blob_to_wire(revocation_blob)
-    revocation_bytes = canonical_pf_jcs(revocation_wire)
     approval_bytes = canonical_pf_jcs(approval_chain.approval_obj)
 
     closeout_file_set_ref = closeout_file_set_content_ref(closeout_file_set)

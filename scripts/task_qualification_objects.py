@@ -10,11 +10,12 @@ ADR-0018 or SPEC-EVFINAL-001.
 
 from __future__ import annotations
 
+import datetime as _datetime
 import hashlib
 import json
 import re
 from dataclasses import dataclass
-from typing import NoReturn, Tuple, Union
+from typing import NoReturn, Optional, Tuple, Union
 
 # Reuse the canonical PF-JCS + Digest + ContentRef + Rejected from bootstrap_task_objects.
 import bootstrap_task_objects as _BTO
@@ -45,17 +46,20 @@ GIT_SHA1_RE = re.compile(r"[0-9a-f]{40}")
 # SPEC-TASKQUAL-001 §3: frozenAt is a real YYYY-MM-DD date.
 _YYYY_MM_DD_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
-# GAP-15: §6/§8.2 issuedAt and verificationInstant are RFC3339 UTC seconds.
-# Strict RFC3339 with 'Z' suffix (UTC only, no offsets).
+# §6/§8.2 use RFC3339 UTC *seconds*: exactly ``YYYY-MM-DDTHH:MM:SSZ``.
 _RFC3339_UTC_RE = re.compile(
-    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z")
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 def _require_rfc3339_utc(value, where: str) -> str:
-    """GAP-15: validate a string is RFC3339 UTC (Z suffix, no offset)."""
-    s = _require_string(value, where, 64)
+    """Validate a real RFC3339 UTC-second instant (no offset/fraction)."""
+    s = _require_string(value, where, 20)
     if not _RFC3339_UTC_RE.fullmatch(s):
-        _reject(f"{where}: must be RFC3339 UTC (YYYY-MM-DDThh:mm:ss[.ssssss]Z)")
+        _reject(f"{where}: must be RFC3339 UTC second (YYYY-MM-DDThh:mm:ssZ)")
+    try:
+        _datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        _reject(f"{where}: must be a real RFC3339 UTC second")
     return s
 
 TASKQUAL_REJECTION = "PF-TASK-QUALIFICATION-UNVERIFIED"
@@ -81,6 +85,13 @@ MAX_SCOPE_ITEMS = 12
 MAX_DONE_WHEN = 32
 MAX_DAYS = 365
 MAX_COMMITS = 10000
+
+# ADR-0021 §11 is the accepted, task-specific extension to the otherwise
+# closed SPEC-TASKQUAL-001 §3 freeze-package source.  These two fields are a
+# pair: ordinary packages contain neither; the D0-10 replacement package may
+# contain both, with these exact values.  No other extension field is allowed.
+D0_10_FREEZE_EXCEPTION_ID = "FX-2026-07-23-D0-10"
+D0_10_FREEZE_EXCEPTION_EXPIRES_AT = "2026-07-25T06:00:00Z"
 
 
 def _require_ascii_text(value, pattern, where, limit=127):
@@ -159,6 +170,16 @@ def _require_unique_sorted(items, key_fn, where):
     return items
 
 
+def _require_closed_keys(obj: dict, fields, where: str) -> dict:
+    expected = set(fields)
+    actual = set(obj)
+    if actual != expected:
+        _reject(
+            f"{where}: closed field set mismatch "
+            f"(missing={sorted(expected - actual)}, extra={sorted(actual - expected)})")
+    return obj
+
+
 @dataclass(frozen=True)
 class NormativeDocumentRefV1:
     id: str
@@ -233,6 +254,10 @@ DOMAIN_D0_10_BOOTSTRAP_RECEIPT_SIGNATURE = b"pf.d0-10-bootstrap-receipt-signatur
 DOMAIN_D0_10_BOOTSTRAP_RECEIPT = b"pf.d0-10-bootstrap-receipt.v1"
 DOMAIN_FIXTURE_POLICY = b"pf.taskqual.fixture-policy.v1"
 DOMAIN_FIXTURE_RESOLVED_BLOB = b"pf.taskqual.fixture-resolved-blob.v1"
+# ADR-0021 §2.1 raw immutable production payload identity. Unlike
+# ``domain_digest``, this domain binds id/version and exact opaque bytes rather
+# than a PF-JCS object.
+DOMAIN_TASKQUAL_ARTIFACT_PAYLOAD = b"pf.taskqual.artifact-payload.v1"
 DOMAIN_PRODUCTION_PROFILE_STATEMENT = b"pf.taskqual.production-profile-statement.v1"
 DOMAIN_PRODUCTION_PROFILE_SIGNATURE = b"pf.taskqual.production-profile-signature.v1"
 DOMAIN_PRODUCTION_PROFILE = b"pf.taskqual.production-profile.v1"
@@ -243,6 +268,9 @@ DOMAIN_PURE_PROJECTION = b"pf.taskqual.pure-projection.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_STATEMENT = b"pf.taskqual.protected-acceptance-statement.v1"
 DOMAIN_PROTECTED_ACCEPTANCE_SIGNATURE = b"pf.taskqual.protected-acceptance-signature.v1"
 DOMAIN_PROTECTED_ACCEPTANCE = b"pf.taskqual.protected-acceptance.v1"
+# §8.2 gate-set digest domain. gateSetDigest =
+#   SHA-256("pf.taskqual.gate-set.v1" || NUL || PF-JCS(entries))
+DOMAIN_GATE_SET = b"pf.taskqual.gate-set.v1"
 DOMAIN_DEPENDENCY_OBJECT = b"pf.taskqual.dependency-object.v1"
 # §8.3 production normative document content digest domain. Production
 # NormativeDocumentRefV1.contentDigest =
@@ -332,6 +360,8 @@ def digest_to_wire_or_none(d) -> str | None:
 def parse_candidate_identity(obj: dict, where: str) -> CandidateIdentity:
     if not isinstance(obj, dict):
         _reject(f"{where}: candidate must be object")
+    _require_closed_keys(
+        obj, ("commit", "treeObjectId", "archiveSha256"), where)
     commit = _require_git_object(obj.get("commit"), f"{where}.commit")
     tree = _require_git_object(obj.get("treeObjectId"), f"{where}.treeObjectId")
     archive = _require_digest(obj.get("archiveSha256"), f"{where}.archiveSha256")
@@ -368,6 +398,7 @@ def _require_content_ref_id(value, where):
 def parse_content_ref(obj: dict, where: str) -> ContentRef:
     if not isinstance(obj, dict):
         _reject(f"{where}: content ref must be object")
+    _require_closed_keys(obj, ("schema", "id", "version", "digest"), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     cid = _require_content_ref_id(obj.get("id"), f"{where}.id")
     version = _require_semver(obj.get("version"), f"{where}.version")
@@ -378,6 +409,8 @@ def parse_content_ref(obj: dict, where: str) -> ContentRef:
 def parse_normative_document_ref(obj: dict, where: str) -> NormativeDocumentRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: normative doc ref must be object")
+    _require_closed_keys(
+        obj, ("id", "status", "contentDigest", "reviewCommit"), where)
     # Document IDs can be ADR-*, SPEC-*, GOV-* etc. — uppercase + digits + hyphens
     doc_id = obj.get("id")
     if not isinstance(doc_id, str) or not re.fullmatch(r"[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*", doc_id):
@@ -397,6 +430,7 @@ def parse_normative_document_ref(obj: dict, where: str) -> NormativeDocumentRefV
 def parse_raw_document_ref(obj: dict, where: str) -> RawDocumentRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: raw doc ref must be object")
+    _require_closed_keys(obj, ("path", "digest"), where)
     path = _require_string(obj.get("path"), f"{where}.path", 4096)
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return RawDocumentRefV1(path=path, digest=digest)
@@ -405,6 +439,7 @@ def parse_raw_document_ref(obj: dict, where: str) -> RawDocumentRefV1:
 def parse_evidence_ref(obj: dict, where: str) -> EvidenceRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: evidence ref must be object")
+    _require_closed_keys(obj, ("id", "digest"), where)
     eid = _require_evidence_id(obj.get("id"), f"{where}.id")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return EvidenceRefV1(id=eid, digest=digest)
@@ -413,6 +448,7 @@ def parse_evidence_ref(obj: dict, where: str) -> EvidenceRefV1:
 def parse_approval_signature(obj: dict, where: str) -> ApprovalSignatureV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: signature must be object")
+    _require_closed_keys(obj, ("keyId", "algorithm", "signature"), where)
     key_id = _require_safe_id(obj.get("keyId"), f"{where}.keyId")
     algorithm = obj.get("algorithm")
     if algorithm != "ed25519":
@@ -428,6 +464,10 @@ def parse_approval_signature(obj: dict, where: str) -> ApprovalSignatureV1:
 def parse_independent_review_ref(obj: dict, where: str) -> IndependentReviewRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: review ref must be object")
+    _require_closed_keys(obj, (
+        "reviewerId", "reviewerKind", "invocationId", "reportDigest",
+        "reviewCommit", "reviewLink", "decision", "findings",
+    ), where)
     reviewer_id = _require_safe_id(obj.get("reviewerId"), f"{where}.reviewerId")
     kind = obj.get("reviewerKind")
     if kind not in ("human", "independent-ai"):
@@ -459,6 +499,9 @@ def parse_independent_review_ref(obj: dict, where: str) -> IndependentReviewRefV
 def parse_verifier_identity(obj: dict, where: str) -> VerifierIdentityV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: verifier identity must be object")
+    _require_closed_keys(
+        obj, ("id", "executable", "closure", "sourceDigest", "buildPolicy"),
+        where)
     vid = _require_safe_id(obj.get("id"), f"{where}.id")
     executable = parse_content_ref(obj.get("executable"), f"{where}.executable")
     closure = parse_content_ref(obj.get("closure"), f"{where}.closure")
@@ -486,6 +529,12 @@ class TaskQualificationTaskRowV1:
     tests: Tuple[str, ...]
     evidenceIds: Tuple[str, ...]
     status: str  # "in_progress"
+
+
+@dataclass(frozen=True)
+class TaskQualificationSnapshotV1:
+    row: TaskQualificationTaskRowV1
+    tests: Tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -531,9 +580,234 @@ def _parse_id_list(value, where, id_validator, limit=MAX_ARRAY):
     return tuple(out)
 
 
+_DOCUMENT_FRONTMATTER_FIELDS = (
+    "id", "title", "status", "owner", "updated", "normative",
+    "approvers", "approvedAt", "reviewCommit", "reviewLink",
+    "openFindings",
+)
+_TASK_TABLE_HEADER = (
+    "| ID | 任务/输出 | Dependencies | Prerequisites | Tests | Evidence | 状态 |"
+)
+_TASK_TABLE_DELIMITER = "|---|---|---|---|---|---|---|"
+_TEST_TABLE_HEADER = "| ID | 测试对象 |"
+_TEST_TABLE_DELIMITER = "|---|---|"
+
+
+def _decode_snapshot_document(raw, expected_id: str, where: str, *, fixture: bool):
+    if not isinstance(raw, bytes):
+        _reject(f"{where}: document must be bytes")
+    if not raw or raw.startswith(b"\xef\xbb\xbf") or b"\x00" in raw or b"\r" in raw:
+        _reject(f"{where}: document must be nonempty UTF-8 LF-only without BOM/NUL")
+    if not raw.endswith(b"\n") or raw.endswith(b"\n\n"):
+        _reject(f"{where}: document must have exactly one trailing LF")
+    try:
+        text = raw.decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        _reject(f"{where}: document must be strict UTF-8")
+    lines = text.split("\n")
+    if lines[0] != "---":
+        _reject(f"{where}: frontmatter must start at byte zero")
+    try:
+        closing = lines.index("---", 1)
+    except ValueError:
+        _reject(f"{where}: frontmatter closing delimiter missing")
+    frontmatter = lines[1:closing]
+    if len(frontmatter) != len(_DOCUMENT_FRONTMATTER_FIELDS):
+        _reject(f"{where}: frontmatter must contain exactly 11 fields")
+    values = {}
+    for line, field in zip(frontmatter, _DOCUMENT_FRONTMATTER_FIELDS):
+        prefix = f"{field}: "
+        if not line.startswith(prefix):
+            _reject(f"{where}: frontmatter field order/value syntax mismatch at {field}")
+        values[field] = line[len(prefix):]
+    if values["id"] != expected_id:
+        _reject(f"{where}: frontmatter id must be {expected_id}")
+    if not values["title"]:
+        _reject(f"{where}: title must be nonempty")
+    _require_safe_id(values["owner"], f"{where}.owner")
+    if values["status"] != "accepted" or values["normative"] != "true":
+        _reject(f"{where}: document must be accepted and normative")
+    for field in ("updated", "approvedAt"):
+        try:
+            _datetime.date.fromisoformat(values[field])
+        except ValueError:
+            _reject(f"{where}.{field}: must be a real YYYY-MM-DD date")
+    approvers = values["approvers"].split(", ")
+    if not approvers or any(not SAFE_ID_RE.fullmatch(item) for item in approvers):
+        _reject(f"{where}.approvers: invalid exact ', ' safe-id list")
+    if approvers != sorted(approvers) or len(set(approvers)) != len(approvers):
+        _reject(f"{where}.approvers: must be unique ASCII ascending")
+    review_commit = _require_git_object(
+        values["reviewCommit"], f"{where}.reviewCommit")
+    if not values["reviewLink"].startswith("https://"):
+        _reject(f"{where}.reviewLink: must be HTTPS")
+    if values["openFindings"] != "none":
+        _reject(f"{where}.openFindings: must be none")
+    if closing + 1 >= len(lines) or lines[closing + 1] != "":
+        _reject(f"{where}: frontmatter must be followed by one blank line")
+    body_lines = lines[closing + 2:-1]
+    if fixture:
+        h1 = next((line for line in body_lines if line.startswith("# ")), None)
+        if h1 is None:
+            _reject(f"{where}: fixture H1 missing")
+        suffix = h1[2 + len(expected_id):]
+        if not h1.startswith(f"# {expected_id}") or (
+                suffix and not suffix.startswith(":") and not suffix.startswith("：")):
+            _reject(f"{where}: fixture H1 must begin with exact frontmatter id")
+        if review_commit != "f0" * 20:
+            _reject(f"{where}: fixture reviewCommit must equal fixed external pin")
+    return body_lines, values
+
+
+def _split_table_row(line: str, width: int, where: str) -> Tuple[str, ...]:
+    if not line.startswith("| ") or not line.endswith(" |"):
+        _reject(f"{where}: table row must use exact outer delimiters")
+    cells = tuple(line[2:-2].split(" | "))
+    if len(cells) != width:
+        _reject(f"{where}: table row width must be {width}")
+    return cells
+
+
+def _parse_delimited_ids(cell: str, where: str, validator) -> Tuple[str, ...]:
+    if cell == "—":
+        return tuple()
+    values = cell.split(", ")
+    if not values or ", ".join(values) != cell or any(not value for value in values):
+        _reject(f"{where}: invalid exact ', ' list")
+    parsed = tuple(validator(value, where) for value in values)
+    if len(set(parsed)) != len(parsed):
+        _reject(f"{where}: duplicates forbidden")
+    return parsed
+
+
+def _project_task_row_from_phase4(
+    body_lines, task_id: str, where: str,
+) -> TaskQualificationTaskRowV1:
+    rows = []
+    for index, line in enumerate(body_lines):
+        if line != _TASK_TABLE_HEADER:
+            continue
+        if index + 1 >= len(body_lines) or body_lines[index + 1] != _TASK_TABLE_DELIMITER:
+            _reject(f"{where}: task table delimiter mismatch")
+        cursor = index + 2
+        while cursor < len(body_lines) and body_lines[cursor].startswith("| "):
+            cells = _split_table_row(body_lines[cursor], 7, where)
+            if cells[0] == task_id:
+                rows.append(cells)
+            cursor += 1
+    if len(rows) != 1:
+        _reject(f"{where}: task row must occur exactly once")
+    cells = rows[0]
+    dependencies = _parse_delimited_ids(
+        cells[2], f"{where}.dependencies", _require_task_id)
+    prerequisites = tuple() if cells[3] == "—" else tuple(cells[3].split(", "))
+    if cells[3] != "—" and ", ".join(prerequisites) != cells[3]:
+        _reject(f"{where}.prerequisites: invalid exact ', ' list")
+    tests = _parse_delimited_ids(cells[4], f"{where}.tests", _require_test_id)
+    evidence_ids = _parse_delimited_ids(
+        cells[5], f"{where}.evidenceIds", _require_evidence_id)
+    return parse_task_row({
+        "taskId": cells[0],
+        "output": cells[1],
+        "dependencies": list(dependencies),
+        "prerequisites": list(prerequisites),
+        "tests": list(tests),
+        "evidenceIds": list(evidence_ids),
+        "status": cells[6],
+    }, where)
+
+
+def _project_test_catalog(body_lines, where: str) -> Tuple[str, ...]:
+    test_ids = []
+    table_count = 0
+    for index, line in enumerate(body_lines):
+        if line != _TEST_TABLE_HEADER:
+            continue
+        table_count += 1
+        if index + 1 >= len(body_lines) or body_lines[index + 1] != _TEST_TABLE_DELIMITER:
+            _reject(f"{where}: test table delimiter mismatch")
+        cursor = index + 2
+        while cursor < len(body_lines) and body_lines[cursor].startswith("| "):
+            cells = _split_table_row(body_lines[cursor], 2, where)
+            test_ids.append(_require_test_id(cells[0], f"{where}.testId"))
+            cursor += 1
+    if table_count != 1 or not test_ids:
+        _reject(f"{where}: complete test catalog must occur exactly once")
+    if len(set(test_ids)) != len(test_ids):
+        _reject(f"{where}: duplicate test catalog ID")
+    return tuple(test_ids)
+
+
+def _parse_snapshot(
+    phase4_bytes, phase5_bytes, task_id, *, fixture: bool,
+) -> TaskQualificationSnapshotV1:
+    task_id = _require_task_id(task_id, "snapshot.taskId")
+    phase4_id = "PHASE-4-FIXTURE" if fixture else "PHASE-4"
+    phase5_id = "PHASE-5-FIXTURE" if fixture else "PHASE-5"
+    phase4_body, _ = _decode_snapshot_document(
+        phase4_bytes, phase4_id, "snapshot.phase4", fixture=fixture)
+    phase5_body, _ = _decode_snapshot_document(
+        phase5_bytes, phase5_id, "snapshot.phase5", fixture=fixture)
+    row = _project_task_row_from_phase4(
+        phase4_body, task_id, "snapshot.phase4.taskRow")
+    catalog = _project_test_catalog(phase5_body, "snapshot.phase5.catalog")
+    if any(test_id not in catalog for test_id in row.tests):
+        _reject("snapshot: task row references test absent from PHASE-5 catalog")
+    phase5_text = "\n".join(phase5_body)
+    if "TST-DOC-001/task-qualification-v1" not in phase5_text:
+        _reject("snapshot: PHASE-5 task-qualification subprofile missing")
+    if tuple(row.tests) != ("TST-DOC-001",):
+        _reject("snapshot: task-qualification task must own exactly TST-DOC-001")
+    return TaskQualificationSnapshotV1(row=row, tests=row.tests)
+
+
+def parse_taskqualification_snapshot_v1(phase4Bytes, phase5Bytes, taskId, /):
+    """Production three-positional-input PHASE-4/5 snapshot parser."""
+    return _parse_snapshot(phase4Bytes, phase5Bytes, taskId, fixture=False)
+
+
+def parse_fixture_taskqualification_snapshot_v1(phase4Bytes, phase5Bytes, taskId, /):
+    """Statically disjoint local fixture snapshot parser."""
+    return _parse_snapshot(phase4Bytes, phase5Bytes, taskId, fixture=True)
+
+
+def _parse_normative_document(raw_bytes, document_id: str, *, fixture: bool):
+    body, values = _decode_snapshot_document(
+        raw_bytes, document_id, "normative-document", fixture=fixture)
+    h1 = next((line for line in body if line.startswith("# ")), None)
+    if h1 is None or not h1.startswith(f"# {document_id}"):
+        _reject("normative-document: first H1 must begin with exact document id")
+    suffix = h1[2 + len(document_id):]
+    if suffix and not suffix.startswith(":") and not suffix.startswith("："):
+        _reject("normative-document: document id must end at H1 or precede colon")
+    domain = (
+        DOMAIN_FIXTURE_NORMATIVE_DOCUMENT
+        if fixture else DOMAIN_PRODUCTION_NORMATIVE_DOCUMENT)
+    digest = normative_document_digest(domain, document_id, raw_bytes)
+    if fixture:
+        return FixtureNormativeDocumentRefV1(
+            id=document_id, status="accepted", contentDigest=digest,
+            reviewCommit=values["reviewCommit"])
+    return NormativeDocumentRefV1(
+        id=document_id, status="accepted", contentDigest=digest,
+        reviewCommit=values["reviewCommit"])
+
+
+def parse_qualification_normative_document_v1(rawBytes, documentId, /):
+    return _parse_normative_document(rawBytes, documentId, fixture=False)
+
+
+def parse_fixture_qualification_normative_document_v1(rawBytes, documentId, /):
+    return _parse_normative_document(rawBytes, documentId, fixture=True)
+
+
 def parse_task_row(obj: dict, where: str) -> TaskQualificationTaskRowV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: task row must be object")
+    _require_closed_keys(obj, (
+        "taskId", "output", "dependencies", "prerequisites", "tests",
+        "evidenceIds", "status",
+    ), where)
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     output = _require_string(obj.get("output"), f"{where}.output", MAX_STRING_BYTES)
     deps = _parse_id_list(obj.get("dependencies"), f"{where}.dependencies", _require_task_id)
@@ -572,6 +846,7 @@ def parse_task_row(obj: dict, where: str) -> TaskQualificationTaskRowV1:
 def parse_freeze_package_ref(obj: dict, where: str) -> TaskFreezePackageRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: freeze ref must be object")
+    _require_closed_keys(obj, ("taskId", "digest"), where)
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return TaskFreezePackageRefV1(taskId=task_id, digest=digest)
@@ -593,6 +868,8 @@ class TaskFreezePackageV1:
     maxCommits: int
     notes: str
     frozenAt: str
+    exceptionId: Optional[str]
+    exceptionExpiresAt: Optional[str]
 
 
 def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
@@ -602,15 +879,48 @@ def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
     """
     if not isinstance(obj, dict):
         _reject(f"{where}: freeze package must be object")
+    base_fields = (
+        "schemaVersion", "taskId", "frozenAt", "freezeCommit", "output",
+        "dependencies", "prerequisites", "tests", "inScope", "outOfScope",
+        "doneWhen", "overflowPolicy", "maxCalendarDays", "maxCommits",
+        "notes",
+    )
+    exception_fields = base_fields + ("exceptionId", "exceptionExpiresAt")
+    actual_fields = set(obj)
+    if actual_fields == set(base_fields):
+        exception_id = None
+        exception_expires_at = None
+    elif actual_fields == set(exception_fields):
+        exception_id = _require_string(
+            obj.get("exceptionId"), f"{where}.exceptionId", 127)
+        exception_expires_at = _require_rfc3339_utc(
+            obj.get("exceptionExpiresAt"), f"{where}.exceptionExpiresAt")
+    else:
+        _require_closed_keys(obj, base_fields, where)
+        raise AssertionError("unreachable")
     schema_version = obj.get("schemaVersion")
     if schema_version != 1:
         _reject(f"{where}.schemaVersion: must be 1")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    if exception_id is not None:
+        if task_id != "TASK-D0-10":
+            _reject(f"{where}.exceptionId: only TASK-D0-10 may use the ADR-0021 exception")
+        if exception_id != D0_10_FREEZE_EXCEPTION_ID:
+            _reject(
+                f"{where}.exceptionId: must be {D0_10_FREEZE_EXCEPTION_ID}")
+        if exception_expires_at != D0_10_FREEZE_EXCEPTION_EXPIRES_AT:
+            _reject(
+                f"{where}.exceptionExpiresAt: must be "
+                f"{D0_10_FREEZE_EXCEPTION_EXPIRES_AT}")
     freeze_commit = _require_git_object(obj.get("freezeCommit"), f"{where}.freezeCommit")
     # GAP-5: frozenAt must be a real YYYY-MM-DD date (§3).
     frozen_at = _require_string(obj.get("frozenAt"), f"{where}.frozenAt", 10)
     if not _YYYY_MM_DD_RE.fullmatch(frozen_at):
         _reject(f"{where}.frozenAt: must be YYYY-MM-DD")
+    try:
+        _datetime.date.fromisoformat(frozen_at)
+    except ValueError:
+        _reject(f"{where}.frozenAt: must be a real calendar date")
     output = _require_string(obj.get("output"), f"{where}.output")
     deps_arr = obj.get("dependencies")
     if not isinstance(deps_arr, list):
@@ -652,8 +962,11 @@ def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
     if not (1 <= len(done_when_arr) <= MAX_DONE_WHEN):
         _reject(f"{where}.doneWhen: must be 1..{MAX_DONE_WHEN}")
     done_when = tuple(_require_string(s, f"{where}.doneWhen") for s in done_when_arr)
-    # GAP-5: overflowPolicy safe string (§3).
-    overflow_policy = _require_string(obj.get("overflowPolicy"), f"{where}.overflowPolicy", 256)
+    # §3 requires a safe string; use the protocol-wide safe-string bound.
+    # A narrower local limit would reject the accepted D0-10 package.
+    overflow_policy = _require_string(
+        obj.get("overflowPolicy"), f"{where}.overflowPolicy",
+        MAX_STRING_BYTES)
     # GAP-5: maxCalendarDays 1..365, maxCommits 1..10000 safe int (§3).
     max_days = obj.get("maxCalendarDays")
     if not isinstance(max_days, int) or isinstance(max_days, bool):
@@ -671,12 +984,17 @@ def parse_freeze_package(obj: dict, where: str) -> TaskFreezePackageV1:
         dependencies=deps, prerequisites=prereqs, tests=tests,
         inScope=in_scope, outOfScope=out_scope, doneWhen=done_when,
         overflowPolicy=overflow_policy, maxCalendarDays=max_days,
-        maxCommits=max_commits, notes=notes, frozenAt=frozen_at)
+        maxCommits=max_commits, notes=notes, frozenAt=frozen_at,
+        exceptionId=exception_id, exceptionExpiresAt=exception_expires_at)
 
 
 def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: command policy must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "testIds", "argv",
+        "environment", "tool", "probe", "sandboxPolicy", "verifier",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.task-command-policy.v1":
         _reject(f"{where}.schema: must be proof-forge.task-command-policy.v1")
@@ -700,7 +1018,8 @@ def parse_command_policy(obj: dict, where: str) -> TaskCommandPolicyV1:
     for entry in env_arr:
         if not isinstance(entry, dict):
             _reject(f"{where}.environment: entry must be object")
-        name = obj_env_name(entry.get("name"), f"{where}.environment.name")
+        _require_closed_keys(entry, ("name", "value"), f"{where}.environment")
+        name = _obj_env_name(entry.get("name"), f"{where}.environment.name")
         value = _require_string(entry.get("value"), f"{where}.environment.value", MAX_ARGV_BYTES)
         env_pairs.append((name, value))
     # environment must be sorted by name ascending
@@ -737,6 +1056,11 @@ def _obj_env_name(value, where):
 def parse_gate(obj: dict, where: str) -> TaskQualificationGateV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: gate must be object")
+    _require_closed_keys(obj, (
+        "gateId", "taskId", "testIds", "evidence", "commandPolicy",
+        "eligibleStage0Handoff", "sessionContainment", "freshness",
+        "privateScan", "revocationSnapshot",
+    ), where)
     gate_id = _require_safe_id(obj.get("gateId"), f"{where}.gateId")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     test_ids = _parse_id_list(obj.get("testIds"), f"{where}.testIds", _require_test_id)
@@ -781,7 +1105,7 @@ class BootstrapTaskReceiptDependencyV1:
 class GovernanceBootstrapReceiptDependencyV1:
     kind: str  # "governance-bootstrap-receipt"
     taskId: str
-    ruling: ContentRef
+    ruling: NormativeDocumentRefV1
     completionCommit: str
     authorityPolicy: ContentRef
     objectDigest: Digest
@@ -830,6 +1154,10 @@ def parse_dependency(obj: dict, where: str) -> DependencyCompletionRefV1:
         _reject(f"{where}: dependency must be object")
     kind = obj.get("kind")
     if kind == "bootstrap-task-receipt":
+        _require_closed_keys(obj, (
+            "kind", "taskId", "completionCommit", "authorityPolicy",
+            "objectDigest", "objectBytesHex", "signatures",
+        ), where)
         task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
         if task_id not in _BTO._BOOTSTRAP_TASK_IDS:
             _reject(f"{where}.taskId: bootstrap-task-receipt only allows D0-01..06")
@@ -844,8 +1172,14 @@ def parse_dependency(obj: dict, where: str) -> DependencyCompletionRefV1:
             objectBytesHex=obj_hex, signatures=sigs,
         )
     if kind == "governance-bootstrap-receipt":
+        _require_closed_keys(obj, (
+            "kind", "taskId", "ruling", "completionCommit",
+            "authorityPolicy", "objectDigest", "objectBytesHex",
+            "sourceClosureBytesHex", "signatures",
+        ), where)
         task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
-        ruling = parse_content_ref(obj.get("ruling"), f"{where}.ruling")
+        ruling = parse_normative_document_ref(
+            obj.get("ruling"), f"{where}.ruling")
         commit = _require_git_object(obj.get("completionCommit"), f"{where}.completionCommit")
         policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
         obj_digest = _require_digest(obj.get("objectDigest"), f"{where}.objectDigest")
@@ -861,6 +1195,10 @@ def parse_dependency(obj: dict, where: str) -> DependencyCompletionRefV1:
             signatures=sigs,
         )
     if kind == "task-qualification":
+        _require_closed_keys(obj, (
+            "kind", "taskId", "completionCommit", "authorityPolicy",
+            "receipt", "objectDigest", "objectBytesHex", "signatures",
+        ), where)
         task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
         commit = _require_git_object(obj.get("completionCommit"), f"{where}.completionCommit")
         policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
@@ -930,6 +1268,7 @@ class TaskQualificationV1:
 def parse_completion_receipt_ref(obj: dict, where: str) -> "TaskCompletionReceiptRefV1":
     if not isinstance(obj, dict):
         _reject(f"{where}: receipt ref must be object")
+    _require_closed_keys(obj, ("taskId", "id", "digest"), where)
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     rid = _require_safe_id(obj.get("id"), f"{where}.id")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
@@ -941,6 +1280,8 @@ def _parse_closeout_changes(arr, where):
     for entry in arr:
         if not isinstance(entry, dict):
             _reject(f"{where}: change must be object")
+        _require_closed_keys(
+            entry, ("path", "beforeDigest", "afterDigest"), where)
         path = _require_string(entry.get("path"), f"{where}.path", 4096)
         before = entry.get("beforeDigest")
         after = entry.get("afterDigest")
@@ -956,12 +1297,11 @@ def _parse_closeout_changes(arr, where):
         if after is not None:
             after = _require_digest(after, f"{where}.afterDigest")
         out.append((path, before, after))
-    # sort by path UTF-8 ascending
-    out.sort(key=lambda c: c[0].encode("utf-8"))
-    # check sorted + unique
-    paths = [c[0] for c in out]
-    if paths != sorted(paths):
+    # The wire itself must already be sorted; never normalize attacker input.
+    path_keys = [c[0].encode("utf-8") for c in out]
+    if path_keys != sorted(path_keys):
         _reject(f"{where}: must be sorted by path UTF-8 ascending")
+    paths = [c[0] for c in out]
     if len(set(paths)) != len(paths):
         _reject(f"{where}: duplicate paths forbidden")
     return tuple(out)
@@ -970,6 +1310,10 @@ def _parse_closeout_changes(arr, where):
 def parse_allowed_closeout_patch(obj: dict, where: str) -> AllowedCloseoutPatchV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: allowed patch must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "preCloseCandidate",
+        "allowedPaths", "semanticFileSetDigest", "resultingTaskRowDigest",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.allowed-closeout-patch.v1":
         _reject(f"{where}.schema: must be proof-forge.allowed-closeout-patch.v1")
@@ -978,6 +1322,9 @@ def parse_allowed_closeout_patch(obj: dict, where: str) -> AllowedCloseoutPatchV
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"allowed-closeout-{_task_suffix(task_id)}"
+    if cid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     candidate = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     paths = _require_array(obj.get("allowedPaths"), f"{where}.allowedPaths", MAX_CLOSEOUT_PATHS)
     if len(paths) < 1:
@@ -999,6 +1346,10 @@ def parse_allowed_closeout_patch(obj: dict, where: str) -> AllowedCloseoutPatchV
 def parse_semantic_closeout_file_set(obj: dict, where: str) -> SemanticCloseoutFileSetV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: semantic file set must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "preCloseCandidate",
+        "changes",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.semantic-closeout-file-set.v1":
         _reject(f"{where}.schema: must be proof-forge.semantic-closeout-file-set.v1")
@@ -1007,6 +1358,9 @@ def parse_semantic_closeout_file_set(obj: dict, where: str) -> SemanticCloseoutF
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"semantic-closeout-{_task_suffix(task_id)}"
+    if cid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     candidate = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     changes = _parse_closeout_changes(
         _require_array(obj.get("changes"), f"{where}.changes", MAX_CLOSEOUT_PATHS),
@@ -1021,6 +1375,7 @@ def parse_semantic_closeout_file_set(obj: dict, where: str) -> SemanticCloseoutF
 def parse_qualification_ref(obj: dict, where: str) -> TaskQualificationRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: qualification ref must be object")
+    _require_closed_keys(obj, ("taskId", "id", "digest"), where)
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     qid = _require_safe_id(obj.get("id"), f"{where}.id")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
@@ -1030,6 +1385,12 @@ def parse_qualification_ref(obj: dict, where: str) -> TaskQualificationRefV1:
 def parse_qualification(obj: dict, where: str) -> TaskQualificationV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: qualification must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "preCloseCandidate",
+        "taskRow", "freezePackage", "gates", "dependencies", "verifier",
+        "authorityPolicy", "allowedCloseoutPatch", "independentReviews",
+        "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.task-qualification.v1":
         _reject(f"{where}.schema: must be proof-forge.task-qualification.v1")
@@ -1038,6 +1399,9 @@ def parse_qualification(obj: dict, where: str) -> TaskQualificationV1:
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"task-qualification-{_task_suffix(task_id)}"
+    if qid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     candidate = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     row = parse_task_row(obj.get("taskRow"), f"{where}.taskRow")
     freeze = parse_freeze_package_ref(obj.get("freezePackage"), f"{where}.freezePackage")
@@ -1105,6 +1469,12 @@ class CloseoutFileSetV1:
 def parse_completion_receipt(obj: dict, where: str) -> TaskCompletionReceiptV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: receipt must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "preCloseCandidate",
+        "closeoutCandidate", "qualification", "allowedCloseoutPatch",
+        "closeoutDiffDigest", "authorityPolicy", "revocationSnapshot",
+        "issuedAt", "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.task-completion-receipt.v1":
         _reject(f"{where}.schema: must be proof-forge.task-completion-receipt.v1")
@@ -1113,6 +1483,9 @@ def parse_completion_receipt(obj: dict, where: str) -> TaskCompletionReceiptV1:
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"task-completion-{_task_suffix(task_id)}"
+    if rid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     pre = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     close = parse_candidate_identity(obj.get("closeoutCandidate"), f"{where}.closeoutCandidate")
     qual = parse_qualification_ref(obj.get("qualification"), f"{where}.qualification")
@@ -1134,6 +1507,10 @@ def parse_completion_receipt(obj: dict, where: str) -> TaskCompletionReceiptV1:
 def parse_closeout_file_set(obj: dict, where: str) -> CloseoutFileSetV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: closeout file set must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "preCloseCandidate",
+        "closeoutCandidate", "changes",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.closeout-file-set.v1":
         _reject(f"{where}.schema: must be proof-forge.closeout-file-set.v1")
@@ -1142,6 +1519,9 @@ def parse_closeout_file_set(obj: dict, where: str) -> CloseoutFileSetV1:
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"closeout-{_task_suffix(task_id)}"
+    if cid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     pre = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     close = parse_candidate_identity(obj.get("closeoutCandidate"), f"{where}.closeoutCandidate")
     changes = _parse_closeout_changes(
@@ -1263,6 +1643,11 @@ class D0_10ReceiptLedgerProjectionV1:
 def parse_governance_bootstrap_completion(obj: dict, where: str) -> GovernanceBootstrapCompletionV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: governance completion must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "rulingId", "purpose",
+        "completionCandidate", "ruling", "sourceClosure", "authorityPolicy",
+        "independentReviews", "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.governance-bootstrap-completion.v1":
         _reject(f"{where}.schema: must be proof-forge.governance-bootstrap-completion.v1")
@@ -1271,9 +1656,18 @@ def parse_governance_bootstrap_completion(obj: dict, where: str) -> GovernanceBo
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    expected_id = f"governance-bootstrap-completion-{_task_suffix(task_id)}"
+    if cid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     ruling_id = obj.get("rulingId")
-    # positional enum: (D0-07, GOV-D0CLOSE-001) or (D0-10, GOV-TASKQUAL-BOOTSTRAP-001)
-    pairs = {("TASK-D0-07", "GOV-D0CLOSE-001"), ("TASK-D0-10", "GOV-TASKQUAL-BOOTSTRAP-001")}
+    # Profile-discriminated positional enum. The fixture-only D0-07 ruling is
+    # accepted structurally here and rejected unless the verifier profile is
+    # ``fixture``; production only accepts GOV-D0CLOSE-001.
+    pairs = {
+        ("TASK-D0-07", "GOV-D0CLOSE-001"),
+        ("TASK-D0-07", "GOV-D0CLOSE-FIXTURE-001"),
+        ("TASK-D0-10", "GOV-TASKQUAL-BOOTSTRAP-001"),
+    }
     if (task_id, ruling_id) not in pairs:
         _reject(f"{where}: (taskId, rulingId) must be one of {sorted(pairs)}")
     purpose = obj.get("purpose")
@@ -1309,6 +1703,11 @@ def parse_governance_bootstrap_completion(obj: dict, where: str) -> GovernanceBo
 def parse_d0_10_bootstrap_gate(obj: dict, where: str) -> D0_10BootstrapGateV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: d0-10 gate must be object")
+    _require_closed_keys(obj, (
+        "gateId", "taskId", "testIds", "evidence", "commandPolicy",
+        "eligibleStage0Handoff", "sessionContainment", "freshness",
+        "privateScan", "revocationSnapshot",
+    ), where)
     gate_id = _require_safe_id(obj.get("gateId"), f"{where}.gateId")
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     if task_id != "TASK-D0-10":
@@ -1334,6 +1733,14 @@ def parse_d0_10_bootstrap_gate(obj: dict, where: str) -> D0_10BootstrapGateV1:
 def parse_d0_10_bootstrap_approval(obj: dict, where: str) -> D0_10BootstrapApprovalV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: d0-10 approval must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "ruling",
+        "preCloseCandidate", "taskRow", "freezePackage", "verifier",
+        "protectedConsumer", "verifierClosureDigest", "consumerClosureDigest",
+        "ledgerEvidenceId", "tstDocSubprofile", "bootstrapGate",
+        "d0_07Bridge", "allowedCloseoutPatch", "independentReviews",
+        "authorityPolicy", "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.d0-10-bootstrap-approval.v1":
         _reject(f"{where}.schema: must be proof-forge.d0-10-bootstrap-approval.v1")
@@ -1344,6 +1751,8 @@ def parse_d0_10_bootstrap_approval(obj: dict, where: str) -> D0_10BootstrapAppro
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     if task_id != "TASK-D0-10":
         _reject(f"{where}.taskId: must be TASK-D0-10")
+    if aid != "d0-10-bootstrap-approval-d0-10":
+        _reject(f"{where}.id: must be d0-10-bootstrap-approval-d0-10")
     ruling = parse_normative_document_ref(obj.get("ruling"), f"{where}.ruling")
     candidate = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     row = parse_task_row(obj.get("taskRow"), f"{where}.taskRow")
@@ -1385,6 +1794,13 @@ def parse_d0_10_bootstrap_approval(obj: dict, where: str) -> D0_10BootstrapAppro
 def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceiptV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: d0-10 receipt must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "ruling",
+        "preCloseCandidate", "closeoutCandidate", "approvalDigest",
+        "allowedCloseoutPatch", "closeoutDiffDigest", "ledgerEvidenceId",
+        "authorityPolicy", "revocationSnapshot", "ledgerGrade", "purpose",
+        "issuedAt", "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.d0-10-bootstrap-receipt.v1":
         _reject(f"{where}.schema: must be proof-forge.d0-10-bootstrap-receipt.v1")
@@ -1395,6 +1811,8 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
     task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
     if task_id != "TASK-D0-10":
         _reject(f"{where}.taskId: must be TASK-D0-10")
+    if rid != "d0-10-bootstrap-receipt-d0-10":
+        _reject(f"{where}.id: must be d0-10-bootstrap-receipt-d0-10")
     ruling = parse_normative_document_ref(obj.get("ruling"), f"{where}.ruling")
     pre = parse_candidate_identity(obj.get("preCloseCandidate"), f"{where}.preCloseCandidate")
     close = parse_candidate_identity(obj.get("closeoutCandidate"), f"{where}.closeoutCandidate")
@@ -1427,6 +1845,7 @@ def parse_d0_10_bootstrap_receipt(obj: dict, where: str) -> D0_10BootstrapReceip
 def parse_d0_10_approval_ref(obj: dict, where: str) -> D0_10BootstrapApprovalRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: approval ref must be object")
+    _require_closed_keys(obj, ("id", "digest"), where)
     aid = _require_safe_id(obj.get("id"), f"{where}.id")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return D0_10BootstrapApprovalRefV1(id=aid, digest=digest)
@@ -1435,6 +1854,7 @@ def parse_d0_10_approval_ref(obj: dict, where: str) -> D0_10BootstrapApprovalRef
 def parse_d0_10_receipt_ref(obj: dict, where: str) -> D0_10BootstrapReceiptRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: receipt ref must be object")
+    _require_closed_keys(obj, ("id", "digest"), where)
     rid = _require_safe_id(obj.get("id"), f"{where}.id")
     digest = _require_digest(obj.get("digest"), f"{where}.digest")
     return D0_10BootstrapReceiptRefV1(id=rid, digest=digest)
@@ -1446,6 +1866,10 @@ def parse_d0_10_receipt_ledger_projection(
     """§7 D0_10ReceiptLedgerProjectionV1 parser. Field order per spec §7."""
     if not isinstance(obj, dict):
         _reject(f"{where}: ledger projection must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "evidenceId", "taskId", "testId",
+        "grade", "result", "approvalRef", "receiptRef", "rulingRef",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != "proof-forge.d0-10-receipt-ledger-projection.v1":
         _reject(f"{where}.schema: must be proof-forge.d0-10-receipt-ledger-projection.v1")
@@ -1607,12 +2031,14 @@ GOVERNANCE_BOOTSTRAP_COMPLETION_SCHEMA = "proof-forge.governance-bootstrap-compl
 PRODUCTION_PROFILE_SCHEMA = "proof-forge.task-qualification-production-profile.v1"
 FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
     "resolved-tool",
+    "resolved-tool-closure",
     "resolved-probe",
     "sandbox-policy",
     "verifier-executable",
     "verifier-closure",
     "verifier-build-policy",
     "private-scan-policy",
+    "private-scan-scanner",
     "authority-store-service",
     "host-observation",
     "host-profile",
@@ -1630,9 +2056,34 @@ FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES = (
 _TYPED_CONTENT_SCHEMA_DOMAINS = {
     FIXTURE_POLICY_SCHEMA: DOMAIN_FIXTURE_POLICY,
     FIXTURE_RESOLVED_BLOB_SCHEMA: DOMAIN_FIXTURE_RESOLVED_BLOB,
+    "proof-forge.bootstrap-authority-policy.v1":
+        b"pf.bootstrap-authority-policy.v1",
     TASK_QUALIFICATION_SCHEMA: DOMAIN_TASK_QUALIFICATION,
+    "proof-forge.task-command-policy.v1": DOMAIN_TASK_COMMAND_POLICY,
+    "proof-forge.task-completion-receipt.v1": DOMAIN_TASK_COMPLETION_RECEIPT,
+    "proof-forge.closeout-file-set.v1": DOMAIN_CLOSEOUT_FILE_SET,
+    "proof-forge.allowed-closeout-patch.v1": DOMAIN_ALLOWED_CLOSEOUT_PATCH,
     GOVERNANCE_BOOTSTRAP_COMPLETION_SCHEMA: DOMAIN_GOVERNANCE_BOOTSTRAP_COMPLETION,
+    "proof-forge.d0-10-bootstrap-approval.v1": DOMAIN_D0_10_BOOTSTRAP_APPROVAL,
+    "proof-forge.d0-10-bootstrap-receipt.v1": DOMAIN_D0_10_BOOTSTRAP_RECEIPT,
+    "proof-forge.d0-10-receipt-ledger-projection.v1":
+        DOMAIN_D0_10_RECEIPT_LEDGER_PROJECTION,
     PRODUCTION_PROFILE_SCHEMA: DOMAIN_PRODUCTION_PROFILE,
+    "proof-forge.task-qualification-production-profile-pin.v1":
+        DOMAIN_PRODUCTION_PROFILE_PIN,
+    # §8.3 accepted external control registry.
+    "proof-forge.eligible-stage0-handoff.v1":
+        b"pf.eligible-stage0-handoff.v1",
+    "proof-forge.session-containment-receipt.v1":
+        b"pf.session-containment-receipt.v1",
+    "proof-forge.freshness-authority-snapshot.v1":
+        b"pf.freshness-authority-snapshot.v1",
+    "proof-forge.task-qualification-private-scan-receipt.v1":
+        b"pf.taskqual.private-scan.v1",
+    "proof-forge.revocation-ledger-snapshot.v1":
+        b"pf.revocation-ledger-snapshot.v1",
+    "proof-forge.evidence-revocation.v1":
+        b"pf.evidence-revocation.v1",
 }
 
 
@@ -1668,6 +2119,8 @@ def _require_ed25519_public_key_hex(value, where):
 def parse_fixture_authority_principal(obj: dict, where: str) -> FixtureAuthorityPrincipalV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture principal must be object")
+    _require_closed_keys(
+        obj, ("principalId", "keyId", "publicKey", "roles"), where)
     pid = _require_safe_id(obj.get("principalId"), f"{where}.principalId")
     key_id = _require_safe_id(obj.get("keyId"), f"{where}.keyId")
     pk = _require_ed25519_public_key_hex(obj.get("publicKey"), f"{where}.publicKey")
@@ -1683,6 +2136,7 @@ def parse_fixture_authority_principal(obj: dict, where: str) -> FixtureAuthority
 def parse_fixture_verifier_key(obj: dict, where: str) -> FixtureVerifierKeyV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture verifier key must be object")
+    _require_closed_keys(obj, ("keyId", "algorithm", "publicKey"), where)
     key_id = _require_safe_id(obj.get("keyId"), f"{where}.keyId")
     algorithm = obj.get("algorithm")
     if algorithm != "ed25519":
@@ -1694,6 +2148,10 @@ def parse_fixture_verifier_key(obj: dict, where: str) -> FixtureVerifierKeyV1:
 def parse_fixture_policy(obj: dict, where: str) -> FixturePolicyV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture policy must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "namespace", "principals", "rule",
+        "verifierKey",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != FIXTURE_POLICY_SCHEMA:
         _reject(f"{where}.schema: must be {FIXTURE_POLICY_SCHEMA}")
@@ -1742,6 +2200,8 @@ def parse_fixture_policy(obj: dict, where: str) -> FixturePolicyV1:
 def parse_fixture_resolved_blob(obj: dict, where: str) -> FixtureResolvedBlobV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture resolved blob must be object")
+    _require_closed_keys(
+        obj, ("schema", "id", "version", "role", "payloadSha256"), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != FIXTURE_RESOLVED_BLOB_SCHEMA:
         _reject(f"{where}.schema: must be {FIXTURE_RESOLVED_BLOB_SCHEMA}")
@@ -1750,7 +2210,21 @@ def parse_fixture_resolved_blob(obj: dict, where: str) -> FixtureResolvedBlobV1:
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
     role = _require_string(obj.get("role"), f"{where}.role", 4096)
+    if role in D0_10_TOP_LEVEL_ARTIFACT_ROLES:
+        expected_id = f"fixture-resolved-{role}"
+    else:
+        role_prefix, separator, gate_id = role.partition("/")
+        if (separator != "/" or "/" in gate_id
+                or role_prefix not in FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES):
+            _reject(f"{where}.role: invalid gate-keyed fixture artifact role")
+        _require_safe_id(gate_id, f"{where}.role.gateId")
+        expected_id = f"fixture-resolved-{gate_id}-{role_prefix}"
+    if rid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}")
     payload_digest = _require_digest(obj.get("payloadSha256"), f"{where}.payloadSha256")
+    payload = b"pf.taskqual.fixture-resolved-payload.v1\x00" + role.encode("ascii")
+    if payload_digest != plain_sha256_digest(payload):
+        _reject(f"{where}.payloadSha256: fixture role token digest mismatch")
     return FixtureResolvedBlobV1(
         schema=schema, id=rid, version=version, role=role, payloadSha256=payload_digest,
     )
@@ -1759,6 +2233,8 @@ def parse_fixture_resolved_blob(obj: dict, where: str) -> FixtureResolvedBlobV1:
 def parse_fixture_normative_document_ref(obj: dict, where: str) -> FixtureNormativeDocumentRefV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture normative doc ref must be object")
+    _require_closed_keys(
+        obj, ("id", "status", "contentDigest", "reviewCommit"), where)
     cid = _require_ascii_text(obj.get("id"), PROFILE_ID_RE, f"{where}.id", 127)
     status = obj.get("status")
     if status != "accepted":
@@ -1853,19 +2329,42 @@ def build_default_fixture_policy() -> FixturePolicyV1:
     )
 
 
-def build_fixture_resolved_blob(gate_id: str, role_prefix: str, payload: bytes) -> FixtureResolvedBlobV1:
-    """Build a FixtureResolvedBlobV1 for a gate-keyed resolved role."""
+def build_fixture_resolved_blob(
+    gate_id: str, role_prefix: str, _legacy_payload: bytes = b"",
+) -> FixtureResolvedBlobV1:
+    """Build the exact §8.2 role-owned fixture wrapper.
+
+    The payload is not caller-selected. It is the deterministic virtual token
+    ``pf.taskqual.fixture-resolved-payload.v1 || NUL || UTF8(role)``. The
+    retained third argument exists only for internal fixture-builder source
+    compatibility and is deliberately ignored.
+    """
+    gate_id = _require_safe_id(gate_id, "build_fixture_resolved_blob.gateId")
     if role_prefix not in FIXTURE_RESOLVED_BLOB_ROLE_PREFIXES:
         _reject(f"build_fixture_resolved_blob: role_prefix '{role_prefix}' not allowed")
     role = f"{role_prefix}/{gate_id}"
     blob_id = f"fixture-resolved-{gate_id}-{role_prefix}"
-    payload_digest = plain_sha256_digest(payload)
+    payload = b"pf.taskqual.fixture-resolved-payload.v1\x00" + role.encode("ascii")
     return FixtureResolvedBlobV1(
         schema=FIXTURE_RESOLVED_BLOB_SCHEMA,
         id=blob_id,
         version="1.0.0",
         role=role,
-        payloadSha256=payload_digest,
+        payloadSha256=plain_sha256_digest(payload),
+    )
+
+
+def build_fixture_top_level_resolved_blob(role: str) -> FixtureResolvedBlobV1:
+    """Build one of the six D0-10 top-level fixture artifact wrappers."""
+    if role not in D0_10_TOP_LEVEL_ARTIFACT_ROLES:
+        _reject(f"build_fixture_top_level_resolved_blob: role '{role}' not allowed")
+    payload = b"pf.taskqual.fixture-resolved-payload.v1\x00" + role.encode("ascii")
+    return FixtureResolvedBlobV1(
+        schema=FIXTURE_RESOLVED_BLOB_SCHEMA,
+        id=f"fixture-resolved-{role}",
+        version="1.0.0",
+        role=role,
+        payloadSha256=plain_sha256_digest(payload),
     )
 
 
@@ -1887,6 +2386,40 @@ OPERATION_BUNDLE_IDS = {
     "d0-10-bootstrap-receipt": "task-qualification-content-d0-10-bootstrap-receipt",
 }
 
+# §8.2 operation code mapping for derived profile/pin IDs.
+OPERATION_CODES = {
+    "task-qualification": "tq",
+    "task-completion": "tc",
+    "d0-10-bootstrap-approval": "d0a",
+    "d0-10-bootstrap-receipt": "d0r",
+}
+
+# §8.2 gate-keyed artifact logical roles (exactly twelve per gate).
+GATE_KEYED_ARTIFACT_ROLES = (
+    "resolved-tool",
+    "resolved-tool-closure",
+    "resolved-probe",
+    "sandbox-policy",
+    "verifier-executable",
+    "verifier-closure",
+    "verifier-build-policy",
+    "private-scan-policy",
+    "private-scan-scanner",
+    "authority-store-service",
+    "host-observation",
+    "host-profile",
+)
+
+# §8.2 D0-10 approval top-level artifact roles (exactly six).
+D0_10_TOP_LEVEL_ARTIFACT_ROLES = (
+    "bootstrap-verifier-executable",
+    "bootstrap-verifier-closure",
+    "bootstrap-verifier-build-policy",
+    "protected-consumer-executable",
+    "protected-consumer-closure",
+    "protected-consumer-build-policy",
+)
+
 MAX_MEMBER_BYTES = 64 * 1024 * 1024  # 64 MiB per member
 MAX_BUNDLE_AGGREGATE = 128 * 1024 * 1024  # 128 MiB aggregate
 MAX_BUNDLE_CANONICAL = 260 * 1024 * 1024  # 260 MiB
@@ -1897,13 +2430,195 @@ MAX_ARCHIVE_EXPANDED = 128 * 1024 * 1024  # 128 MiB
 MAX_ARCHIVE_PATH_BYTES = 4096
 MAX_MEMBERS = 4096
 
-PRODUCTION_PROFILE_ID = "task-qualification-production-profile-v1"
+# §8.2 specific bounds for production profile/pin/protected objects.
+MAX_PRODUCTION_ARTIFACTS = 4096  # bounded by MAX_ARRAY; actual per-op is exact
+MAX_PROVENANCE_ENTRIES = 4096  # bounded by MAX_ARRAY; actual is exact per-op
+MAX_PROVENANCE_ENTRY_BYTES = MAX_MEMBER_BYTES  # same as §8.2 member bound
+MAX_CHANNELS = 5  # exactly 5 FDs
+MAX_REVOCATION_HEAD_SEQUENCE = (1 << 53) - 1  # PF-JCS safe integer
+
+
+def canonical_taskqualification_large_jcs(value: object) -> bytes:
+    """Encode the §8.2 large bundle/provenance PF-JCS profile.
+
+    The shared bootstrap codec deliberately defaults to a 4 MiB root and
+    1 MiB string bound.  Task qualification explicitly permits a 260 MiB root
+    and one lowercase-hex carrier of up to twice the 64 MiB decoded member
+    bound.  Temporarily widening only those two resource constants keeps the
+    exact canonical grammar while preserving all other JSON limits.
+    """
+    old_input = _BTO.MAX_INPUT_BYTES
+    old_string = _BTO.MAX_STRING_BYTES
+    try:
+        _BTO.MAX_INPUT_BYTES = MAX_BUNDLE_CANONICAL
+        _BTO.MAX_STRING_BYTES = 2 * MAX_MEMBER_BYTES
+        return _BTO.canonical_pf_jcs(value)
+    finally:
+        _BTO.MAX_INPUT_BYTES = old_input
+        _BTO.MAX_STRING_BYTES = old_string
+
+
+def decode_taskqualification_large_jcs(payload: bytes) -> object:
+    """Decode only canonical bytes under the §8.2 large resource envelope."""
+    if type(payload) is not bytes or not 1 <= len(payload) <= MAX_BUNDLE_CANONICAL:
+        _reject("large taskqualification PF-JCS input is outside 1..260 MiB")
+    old_input = _BTO.MAX_INPUT_BYTES
+    old_string = _BTO.MAX_STRING_BYTES
+    try:
+        _BTO.MAX_INPUT_BYTES = MAX_BUNDLE_CANONICAL
+        _BTO.MAX_STRING_BYTES = 2 * MAX_MEMBER_BYTES
+        return _BTO.decode_canonical_pf_jcs(payload)
+    finally:
+        _BTO.MAX_INPUT_BYTES = old_input
+        _BTO.MAX_STRING_BYTES = old_string
+
+
 PRODUCTION_PROFILE_PIN_SCHEMA = "proof-forge.task-qualification-production-profile-pin.v1"
-PRODUCTION_PROFILE_PIN_ID = "task-qualification-production-profile-v1"
+TASKQUAL_ARTIFACT_PAYLOAD_SCHEMA = (
+    "proof-forge.task-qualification-artifact-payload.v1"
+)
 
 FIXTURE_KEYSET = "rfc8032-test-vectors"
 
 BUNDLE_SCHEMA = "proof-forge.task-qualification-content-bundle.v1"
+
+
+def task_qualification_artifact_payload_ref(
+    identifier, version, payload, /
+) -> ContentRef:
+    """Bind a raw immutable production payload to its signed id/version.
+
+    The payload remains opaque and is not canonicalized.  Its independent
+    plain SHA-256 profile pin is validated by the protected adapter rather
+    than folded into this ContentRef domain.
+    """
+    identifier = _require_ascii_text(
+        identifier, PROFILE_ID_RE, "TaskQualificationArtifactPayloadRefV1.id", 127
+    )
+    version = _require_semver(
+        version, "TaskQualificationArtifactPayloadRefV1.version"
+    )
+    if type(payload) is not bytes or not 1 <= len(payload) <= MAX_MEMBER_BYTES:
+        _reject(
+            "TaskQualificationArtifactPayloadRefV1.payload: "
+            "must be exact bytes with length 1..67108864"
+        )
+    h = hashlib.sha256()
+    h.update(DOMAIN_TASKQUAL_ARTIFACT_PAYLOAD)
+    h.update(b"\x00")
+    h.update(identifier.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(version.encode("utf-8"))
+    h.update(b"\x00")
+    h.update(payload)
+    return ContentRef(
+        schema=TASKQUAL_ARTIFACT_PAYLOAD_SCHEMA,
+        id=identifier,
+        version=version,
+        digest=Digest(algorithm="sha256", bytes=h.digest()),
+    )
+
+
+def _task_suffix(task_id: str) -> str:
+    """§8.2 lowercase task suffix from a TASK-* id."""
+    return task_id.lower().replace("task-", "")
+
+
+def _gate_set_digest_prefix48(gate_set_digest: Digest) -> str:
+    """§8.2 192-bit (48 hex char) prefix of the gateSetDigest raw bytes."""
+    return gate_set_digest.bytes.hex()[:48]
+
+
+def derive_production_profile_id(task_id: str, operation: str, gate_set_digest: Digest) -> str:
+    """§8.2 derived profile id: tq-profile-<lowercase-task-suffix>-<operation-code>-<gateSetDigest raw first 48 hex>.
+
+    The full gateSetDigest is still verified as a field; the 192-bit prefix
+    only keeps IDs bounded. Any same-prefix different-full-digest collision
+    must reject (enforced by the verifier comparing the full digest field).
+    """
+    if operation not in OPERATION_CODES:
+        _reject(f"derive_production_profile_id: unknown operation '{operation}'")
+    return (
+        f"tq-profile-{_task_suffix(task_id)}"
+        f"-{OPERATION_CODES[operation]}"
+        f"-{_gate_set_digest_prefix48(gate_set_digest)}"
+    )
+
+
+def derive_production_profile_pin_id(task_id: str, operation: str, gate_set_digest: Digest) -> str:
+    """§8.2 derived pin id: tq-pin-<lowercase-task-suffix>-<operation-code>-<gateSetDigest raw first 48 hex>."""
+    if operation not in OPERATION_CODES:
+        _reject(f"derive_production_profile_pin_id: unknown operation '{operation}'")
+    return (
+        f"tq-pin-{_task_suffix(task_id)}"
+        f"-{OPERATION_CODES[operation]}"
+        f"-{_gate_set_digest_prefix48(gate_set_digest)}"
+    )
+
+
+def build_gate_set_entries(operation: str, gate_ids: tuple) -> list:
+    """§8.2 build the closed-union gate-set entries for gateSetDigest.
+
+    Entry is ``{scope:"gate",gateId,roles:[role]}`` or
+    ``{scope:"top-level",roles:[role]}``, sorted by scope then gateId ASCII
+    ascending and unique. Each roles is the exact logical artifact role set
+    for that gate. D0-10 approval has exactly one top-level entry with six
+    roles; other operations prohibit top-level entries; receipt uses an
+    empty array.
+    """
+    if operation not in OPERATION_CODES:
+        _reject(f"build_gate_set_entries: unknown operation '{operation}'")
+    entries = []
+    # Gate-keyed entries (qualification/approval operations only).
+    if operation in ("task-qualification", "d0-10-bootstrap-approval"):
+        for gate_id in gate_ids:
+            roles = sorted(f"{r}/{gate_id}" for r in GATE_KEYED_ARTIFACT_ROLES)
+            entries.append({"scope": "gate", "gateId": gate_id, "roles": roles})
+        # D0-10 approval adds one top-level entry with exactly six roles.
+        if operation == "d0-10-bootstrap-approval":
+            entries.append({
+                "scope": "top-level",
+                "roles": list(D0_10_TOP_LEVEL_ARTIFACT_ROLES),
+            })
+    # Sort by scope then gateId ASCII ascending. top-level has no gateId;
+    # gate entries sort before top-level because "gate" < "top-level".
+    entries.sort(key=lambda e: (e["scope"], e.get("gateId", "")))
+    return entries
+
+
+def compute_gate_set_digest(operation: str, gate_ids: tuple) -> Digest:
+    """§8.2 gateSetDigest = SHA-256("pf.taskqual.gate-set.v1" || NUL || PF-JCS(entries))."""
+    entries = build_gate_set_entries(operation, gate_ids)
+    return domain_digest(DOMAIN_GATE_SET, entries)
+
+
+def operation_artifact_roles(operation: str, gate_ids: tuple) -> tuple:
+    """§8.2 the exact set of production artifact logical role strings for the
+    given operation and gateIds, ASCII ascending sorted and unique.
+
+    - task-qualification/d0-10-bootstrap-approval: per gate exactly 12
+      gate-keyed artifact roles.
+    - d0-10-bootstrap-approval: additionally exactly 6 top-level roles.
+    - task-completion/d0-10-bootstrap-receipt: empty (receipt has zero).
+    """
+    if operation not in OPERATION_CODES:
+        _reject(f"operation_artifact_roles: unknown operation '{operation}'")
+    roles = []
+    if operation in ("task-qualification", "d0-10-bootstrap-approval"):
+        for gate_id in gate_ids:
+            for prefix in GATE_KEYED_ARTIFACT_ROLES:
+                roles.append(f"{prefix}/{gate_id}")
+        if operation == "d0-10-bootstrap-approval":
+            roles.extend(D0_10_TOP_LEVEL_ARTIFACT_ROLES)
+    roles = sorted(set(roles))
+    return tuple(roles)
+
+
+@dataclass(frozen=True)
+class ProductionArtifactMappingV1:
+    role: str
+    artifact: ContentRef
+    payloadSha256: Digest
 
 
 @dataclass(frozen=True)
@@ -1913,8 +2628,13 @@ class ProductionVerificationProfileV1:
     version: str
     kind: str  # "production"
     namespace: str
+    taskId: str
+    operation: str
+    gateSetDigest: Digest
     expectedAuthorityPolicy: ContentRef
     adapter: VerifierIdentityV1
+    snapshotParser: VerifierIdentityV1
+    artifacts: Tuple[ProductionArtifactMappingV1, ...]
     signatures: Tuple[ApprovalSignatureV1, ...]
 
 
@@ -1995,9 +2715,13 @@ class ProductionVerificationProfilePinV1:
     schema: str
     id: str
     version: str
+    taskId: str
+    operation: str
+    gateSetDigest: Digest
     authorityPolicy: ContentRef
     namespace: str
     profile: ContentRef
+    expectedSnapshotParser: VerifierIdentityV1
     signatures: Tuple[ApprovalSignatureV1, ...]
 
 
@@ -2012,15 +2736,31 @@ def _require_bytes_hex(value, where, limit=MAX_MEMBER_BYTES):
     return value
 
 
+def _parse_production_artifact_mapping(obj: dict, where: str) -> ProductionArtifactMappingV1:
+    """§8.2 parse a production artifact mapping entry {role, artifact, payloadSha256}."""
+    if not isinstance(obj, dict):
+        _reject(f"{where}: artifact mapping must be object")
+    _require_closed_keys(obj, ("role", "artifact", "payloadSha256"), where)
+    role = _require_string(obj.get("role"), f"{where}.role", 4096)
+    artifact = parse_content_ref(obj.get("artifact"), f"{where}.artifact")
+    payload_digest = _require_digest(obj.get("payloadSha256"), f"{where}.payloadSha256")
+    return ProductionArtifactMappingV1(role=role, artifact=artifact, payloadSha256=payload_digest)
+
+
 def parse_production_verification_profile(obj: dict, where: str) -> ProductionVerificationProfileV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: production profile must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "kind", "namespace", "taskId",
+        "operation", "gateSetDigest", "expectedAuthorityPolicy", "adapter",
+        "snapshotParser", "artifacts", "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != PRODUCTION_PROFILE_SCHEMA:
         _reject(f"{where}.schema: must be {PRODUCTION_PROFILE_SCHEMA}")
+    # §8.2: id is derived, not a fixed global constant. The parser validates
+    # it matches the derivation from taskId/operation/gateSetDigest.
     pid = _require_safe_id(obj.get("id"), f"{where}.id")
-    if pid != PRODUCTION_PROFILE_ID:
-        _reject(f"{where}.id: must be {PRODUCTION_PROFILE_ID}")
     version = _require_semver(obj.get("version"), f"{where}.version")
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
@@ -2030,18 +2770,38 @@ def parse_production_verification_profile(obj: dict, where: str) -> ProductionVe
     namespace = obj.get("namespace")
     if namespace != FIXTURE_PRODUCTION_NAMESPACE:
         _reject(f"{where}.namespace: must be {FIXTURE_PRODUCTION_NAMESPACE}")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    operation = obj.get("operation")
+    if operation not in OPERATIONS:
+        _reject(f"{where}.operation: must be one of {OPERATIONS}")
+    gate_set_digest = _require_digest(obj.get("gateSetDigest"), f"{where}.gateSetDigest")
+    # §8.2: id must match the derived profile id.
+    expected_pid = derive_production_profile_id(task_id, operation, gate_set_digest)
+    if pid != expected_pid:
+        _reject(f"{where}.id: must be {expected_pid}, got {pid}")
     policy = parse_content_ref(obj.get("expectedAuthorityPolicy"), f"{where}.expectedAuthorityPolicy")
     adapter = parse_verifier_identity(obj.get("adapter"), f"{where}.adapter")
+    snapshot_parser = parse_verifier_identity(obj.get("snapshotParser"), f"{where}.snapshotParser")
+    # §8.2 artifacts: sorted by role ASCII ascending, unique, exact coverage.
+    artifacts_arr = _require_array(obj.get("artifacts"), f"{where}.artifacts", MAX_PRODUCTION_ARTIFACTS)
+    artifacts = tuple(
+        _parse_production_artifact_mapping(a, f"{where}.artifacts") for a in artifacts_arr
+    )
+    _require_unique_sorted(artifacts, lambda a: a.role, f"{where}.artifacts")
     sigs = _parse_dependency_signatures(obj, where)
     return ProductionVerificationProfileV1(
         schema=schema, id=pid, version=version, kind=kind, namespace=namespace,
-        expectedAuthorityPolicy=policy, adapter=adapter, signatures=sigs,
+        taskId=task_id, operation=operation, gateSetDigest=gate_set_digest,
+        expectedAuthorityPolicy=policy, adapter=adapter,
+        snapshotParser=snapshot_parser, artifacts=artifacts, signatures=sigs,
     )
 
 
 def parse_fixture_verification_profile(obj: dict, where: str) -> FixtureVerificationProfileV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: fixture profile must be object")
+    _require_closed_keys(
+        obj, ("kind", "namespace", "fixturePolicy", "keySet"), where)
     kind = obj.get("kind")
     if kind != "fixture":
         _reject(f"{where}.kind: must be 'fixture'")
@@ -2074,18 +2834,27 @@ def parse_content_member(obj: dict, where: str) -> ContentMemberV1:
     role = _require_string(obj.get("role"), f"{where}.role", 4096)
     kind = obj.get("kind")
     if kind == "typed-content":
+        _require_closed_keys(
+            obj, ("role", "kind", "content", "bytesHex"), where)
         content = parse_content_ref(obj.get("content"), f"{where}.content")
         hex_val = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex")
         return TypedContentMemberV1(role=role, kind=kind, content=content, bytesHex=hex_val)
     if kind == "raw-source":
+        _require_closed_keys(
+            obj, ("role", "kind", "raw", "bytesHex"), where)
         raw = parse_raw_document_ref(obj.get("raw"), f"{where}.raw")
         hex_val = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex")
         return RawContentMemberV1(role=role, kind=kind, raw=raw, bytesHex=hex_val)
     if kind == "archive":
+        _require_closed_keys(
+            obj, ("role", "kind", "archiveSha256", "bytesHex"), where)
         digest = _require_digest(obj.get("archiveSha256"), f"{where}.archiveSha256")
         hex_val = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex", MAX_ARCHIVE_BYTES)
         return ArchiveMemberV1(role=role, kind=kind, archiveSha256=digest, bytesHex=hex_val)
     if kind == "git-object":
+        _require_closed_keys(
+            obj, ("role", "kind", "objectId", "objectType", "bytesHex"),
+            where)
         oid = _require_git_object(obj.get("objectId"), f"{where}.objectId")
         obj_type = obj.get("objectType")
         if obj_type != "commit":
@@ -2093,6 +2862,10 @@ def parse_content_member(obj: dict, where: str) -> ContentMemberV1:
         hex_val = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex")
         return GitObjectMemberV1(role=role, kind=kind, objectId=oid, objectType=obj_type, bytesHex=hex_val)
     if kind == "review":
+        _require_closed_keys(
+            obj,
+            ("role", "kind", "reviewerId", "reportDigest", "bytesHex"),
+            where)
         reviewer_id = _require_safe_id(obj.get("reviewerId"), f"{where}.reviewerId")
         report_digest = _require_digest(obj.get("reportDigest"), f"{where}.reportDigest")
         hex_val = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex", MAX_REVIEW_REPORT)
@@ -2106,6 +2879,11 @@ def parse_content_member(obj: dict, where: str) -> ContentMemberV1:
 def parse_content_bundle(obj: dict, where: str) -> TaskQualificationContentBundleV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: content bundle must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "operation", "verificationProfile",
+        "expectedAuthorityPolicy", "verificationInstant",
+        "implementationInvocationId", "members",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != BUNDLE_SCHEMA:
         _reject(f"{where}.schema: must be {BUNDLE_SCHEMA}")
@@ -2138,28 +2916,53 @@ def parse_content_bundle(obj: dict, where: str) -> TaskQualificationContentBundl
 def parse_production_profile_pin(obj: dict, where: str) -> ProductionVerificationProfilePinV1:
     if not isinstance(obj, dict):
         _reject(f"{where}: production profile pin must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "operation", "gateSetDigest",
+        "authorityPolicy", "namespace", "profile", "expectedSnapshotParser",
+        "signatures",
+    ), where)
     schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
     if schema != PRODUCTION_PROFILE_PIN_SCHEMA:
         _reject(f"{where}.schema: must be {PRODUCTION_PROFILE_PIN_SCHEMA}")
+    # §8.2: pin id is derived from taskId/operation/gateSetDigest.
     pid = _require_safe_id(obj.get("id"), f"{where}.id")
-    if pid != PRODUCTION_PROFILE_PIN_ID:
-        _reject(f"{where}.id: must be {PRODUCTION_PROFILE_PIN_ID}")
     version = _require_semver(obj.get("version"), f"{where}.version")
     if version != "1.0.0":
         _reject(f"{where}.version: must be 1.0.0")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    operation = obj.get("operation")
+    if operation not in OPERATIONS:
+        _reject(f"{where}.operation: must be one of {OPERATIONS}")
+    gate_set_digest = _require_digest(obj.get("gateSetDigest"), f"{where}.gateSetDigest")
+    # §8.2: id must match the derived pin id.
+    expected_pid = derive_production_profile_pin_id(task_id, operation, gate_set_digest)
+    if pid != expected_pid:
+        _reject(f"{where}.id: must be {expected_pid}, got {pid}")
     policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
     namespace = obj.get("namespace")
     if namespace != FIXTURE_PRODUCTION_NAMESPACE:
         _reject(f"{where}.namespace: must be {FIXTURE_PRODUCTION_NAMESPACE}")
     profile = parse_content_ref(obj.get("profile"), f"{where}.profile")
+    expected_snapshot_parser = parse_verifier_identity(
+        obj.get("expectedSnapshotParser"), f"{where}.expectedSnapshotParser")
     sigs = _parse_dependency_signatures(obj, where)
     return ProductionVerificationProfilePinV1(
-        schema=schema, id=pid, version=version, authorityPolicy=policy,
-        namespace=namespace, profile=profile, signatures=sigs,
+        schema=schema, id=pid, version=version, taskId=task_id,
+        operation=operation, gateSetDigest=gate_set_digest,
+        authorityPolicy=policy, namespace=namespace, profile=profile,
+        expectedSnapshotParser=expected_snapshot_parser, signatures=sigs,
     )
 
 
 # Wire encoders for bundle/profile/members
+def _production_artifact_mapping_to_wire(a: ProductionArtifactMappingV1) -> dict:
+    return {
+        "role": a.role,
+        "artifact": content_ref_to_wire(a.artifact),
+        "payloadSha256": digest_to_wire(a.payloadSha256),
+    }
+
+
 def production_profile_to_wire(p: ProductionVerificationProfileV1) -> dict:
     return {
         "schema": p.schema,
@@ -2167,8 +2970,13 @@ def production_profile_to_wire(p: ProductionVerificationProfileV1) -> dict:
         "version": p.version,
         "kind": p.kind,
         "namespace": p.namespace,
+        "taskId": p.taskId,
+        "operation": p.operation,
+        "gateSetDigest": digest_to_wire(p.gateSetDigest),
         "expectedAuthorityPolicy": content_ref_to_wire(p.expectedAuthorityPolicy),
         "adapter": verifier_identity_to_wire(p.adapter),
+        "snapshotParser": verifier_identity_to_wire(p.snapshotParser),
+        "artifacts": [_production_artifact_mapping_to_wire(a) for a in p.artifacts],
         "signatures": [approval_signature_to_wire(s) for s in p.signatures],
     }
 
@@ -2268,9 +3076,13 @@ def production_profile_pin_to_wire(p: ProductionVerificationProfilePinV1) -> dic
         "schema": p.schema,
         "id": p.id,
         "version": p.version,
+        "taskId": p.taskId,
+        "operation": p.operation,
+        "gateSetDigest": digest_to_wire(p.gateSetDigest),
         "authorityPolicy": content_ref_to_wire(p.authorityPolicy),
         "namespace": p.namespace,
         "profile": content_ref_to_wire(p.profile),
+        "expectedSnapshotParser": verifier_identity_to_wire(p.expectedSnapshotParser),
         "signatures": [approval_signature_to_wire(s) for s in p.signatures],
     }
 
@@ -2285,6 +3097,110 @@ def production_profile_pin_content_ref(p: ProductionVerificationProfilePinV1) ->
     wire = production_profile_pin_to_wire(p)
     digest = domain_digest(DOMAIN_PRODUCTION_PROFILE_PIN, wire)
     return ContentRef(schema=p.schema, id=p.id, version=p.version, digest=digest)
+
+
+def join_pin_to_profile(
+    pin: ProductionVerificationProfilePinV1,
+    profile: ProductionVerificationProfileV1,
+) -> None:
+    """§8.2: verify that the pin's fields逐字段 exact-match the profile.
+
+    This is a pure structural join primitive callable by the protected adapter
+    (or any consumer) to assert:
+
+    - ``pin.taskId == profile.taskId``
+    - ``pin.operation == profile.operation``
+    - ``pin.gateSetDigest == profile.gateSetDigest``
+    - ``pin.authorityPolicy == profile.expectedAuthorityPolicy``
+    - ``pin.profile == production_profile_content_ref(profile)``
+    - ``pin.expectedSnapshotParser == profile.snapshotParser``
+
+    Raises ``Rejected`` (via ``_reject``) on any mismatch.  This is NOT a new
+    public production API — it is a private helper that the adapter module
+    imports to avoid duplicating the join logic.
+    """
+    if pin.taskId != profile.taskId:
+        _reject("join_pin_to_profile: pin.taskId != profile.taskId")
+    if pin.operation != profile.operation:
+        _reject("join_pin_to_profile: pin.operation != profile.operation")
+    if pin.gateSetDigest.bytes != profile.gateSetDigest.bytes:
+        _reject("join_pin_to_profile: pin.gateSetDigest != profile.gateSetDigest")
+    if pin.authorityPolicy != profile.expectedAuthorityPolicy:
+        _reject("join_pin_to_profile: pin.authorityPolicy != profile.expectedAuthorityPolicy")
+    expected_profile_ref = production_profile_content_ref(profile)
+    if pin.profile != expected_profile_ref:
+        _reject("join_pin_to_profile: pin.profile != recomputed profile content ref")
+    if pin.expectedSnapshotParser != profile.snapshotParser:
+        _reject("join_pin_to_profile: pin.expectedSnapshotParser != profile.snapshotParser")
+
+
+def verify_production_profile_pin_signatures(
+    pin: ProductionVerificationProfilePinV1,
+    authority_policy,
+) -> None:
+    """§8.2: verify the production profile pin signatures under the §1 fixed
+    Architecture+Quality+Security rule.
+
+    The pin unsigned statement is the pin wire with ``signatures: []``; the
+    statement domain is ``pf.taskqual.production-profile-pin-statement.v1``,
+    the signature message domain is
+    ``pf.taskqual.production-profile-pin-signature.v1``.
+
+    ``authority_policy`` must be a parsed ``BootstrapAuthorityPolicyV1`` (or
+    ``FixturePolicyV1`` for fixture tests) with a ``principals`` registry.
+    """
+    # §1: signatures count 3..256, sorted by keyId ascending, unique.
+    _enforce_pin_signature_bounds(pin.signatures)
+    # Build the unsigned statement
+    unsigned_wire = production_profile_pin_to_wire(pin)
+    unsigned_wire_copy = dict(unsigned_wire)
+    unsigned_wire_copy["signatures"] = []
+    statement_digest = domain_digest(DOMAIN_PRODUCTION_PROFILE_PIN_STATEMENT, unsigned_wire_copy)
+    message = DOMAIN_PRODUCTION_PROFILE_PIN_SIGNATURE + b"\x00" + statement_digest.bytes
+    # Build the principal registry from the policy
+    if isinstance(authority_policy, FixturePolicyV1):
+        principals = {p.keyId: p for p in authority_policy.principals}
+        rule = authority_policy.rule
+    else:
+        principals = {p.keyId: p for p in authority_policy.principals}
+        rule = ApprovalRuleV1(
+            requiredRoles=("architecture", "quality", "security"),
+            minimumDistinctSigners=3,
+        )
+    signed_roles = set()
+    signed_principal_ids = set()
+    seen_key_ids = set()
+    for sig in pin.signatures:
+        if sig.keyId in seen_key_ids:
+            _reject(f"pin.signatures: duplicate keyId '{sig.keyId}'")
+        seen_key_ids.add(sig.keyId)
+        if sig.keyId not in principals:
+            _reject(f"pin.signatures: keyId '{sig.keyId}' not in policy")
+        principal = principals[sig.keyId]
+        # Verify the Ed25519 signature
+        import bootstrap_task_producers as _BTP
+        if not _BTP.verify_ed25519(principal.publicKey, message, sig.signature):
+            _reject(f"pin.signatures: signature verification failed for keyId '{sig.keyId}'")
+        signed_roles.update(principal.roles)
+        signed_principal_ids.add(principal.principalId)
+    if not set(rule.requiredRoles).issubset(signed_roles):
+        _reject("pin.signatures: required roles not covered")
+    if len(signed_principal_ids) < rule.minimumDistinctSigners:
+        _reject("pin.signatures: minimum distinct signers not met")
+
+
+def _enforce_pin_signature_bounds(signatures: tuple) -> None:
+    """§1: signatures count 3..256, sorted by keyId ascending, unique."""
+    n = len(signatures)
+    if n < 3:
+        _reject(f"pin.signatures: count {n} < 3 (§1 minimum)")
+    if n > 256:
+        _reject(f"pin.signatures: count {n} > 256 (§1 maximum)")
+    key_ids = [s.keyId for s in signatures]
+    if key_ids != sorted(key_ids):
+        _reject("pin.signatures: keyIds not ASCII ascending sorted")
+    if len(set(key_ids)) != len(key_ids):
+        _reject("pin.signatures: duplicate keyId")
 
 
 # ---------------------------------------------------------------------------
@@ -2418,7 +3334,7 @@ def dependency_to_wire(d: DependencyCompletionRefV1) -> dict:
         return {
             "kind": d.kind,
             "taskId": d.taskId,
-            "ruling": content_ref_to_wire(d.ruling),
+            "ruling": normative_document_ref_to_wire(d.ruling),
             "completionCommit": d.completionCommit,
             "authorityPolicy": content_ref_to_wire(d.authorityPolicy),
             "objectDigest": digest_to_wire(d.objectDigest),
@@ -2656,6 +3572,366 @@ def verified_d0_10_bootstrap_completion_to_wire(v) -> dict:
         "verificationInstant": v.verificationInstant,
         "authorityClass": v.authorityClass,
     }
+
+
+# ---------------------------------------------------------------------------
+# §8.4 Protected handoff, trusted clock, provenance bundle (object authority)
+# ---------------------------------------------------------------------------
+
+# These domain constants are the §8.4 closed wire object authority for the
+# protected production adapter. They are parsing primitives only — the adapter
+# module owns the protect_taskqualification_v1 API and the acceptance builder.
+# The objects are defined here because their closed wire schemas, domains and
+# field order are part of SPEC-TASKQUAL-001 §8.4, not the adapter's policy.
+
+DOMAIN_PROTECTED_HANDOFF_STATEMENT = b"pf.taskqual.protected-handoff-statement.v1"
+DOMAIN_PROTECTED_HANDOFF_SIGNATURE = b"pf.taskqual.protected-handoff-signature.v1"
+DOMAIN_PROTECTED_HANDOFF = b"pf.taskqual.protected-handoff.v1"
+DOMAIN_TRUSTED_CLOCK_OBSERVATION_STATEMENT = b"pf.taskqual.trusted-clock-observation-statement.v1"
+DOMAIN_TRUSTED_CLOCK_OBSERVATION_SIGNATURE = b"pf.taskqual.trusted-clock-observation-signature.v1"
+DOMAIN_TRUSTED_CLOCK_OBSERVATION = b"pf.taskqual.trusted-clock-observation.v1"
+# Note: provenance bundle and authority-store-service do NOT have a normative
+# full-digest domain in SPEC-TASKQUAL-001. The provenance bundle is a closed
+# carrier channel, not an evidence root. The authority-store-service has its
+# own schema but its identity is carried as a ContentRef in the handoff, not
+# recomputed under a taskqual domain. Do not invent domains for these.
+
+PROTECTED_HANDOFF_SCHEMA = "proof-forge.task-qualification-protected-handoff.v1"
+TRUSTED_CLOCK_OBSERVATION_SCHEMA = "proof-forge.task-qualification-trusted-clock-observation.v1"
+PROVENANCE_BUNDLE_SCHEMA = "proof-forge.protected-task-qualification-provenance-bundle.v1"
+
+
+@dataclass(frozen=True)
+class TaskQualificationProtectedChannelsV1:
+    authorityPolicyFd: int
+    authorityStoreFd: int
+    candidateArchiveFd: int
+    provenanceBundleFd: int
+    trustedClockFd: int
+
+
+@dataclass(frozen=True)
+class TaskQualificationRevocationHeadV1:
+    headSequence: int
+    headDigest: Digest
+
+
+@dataclass(frozen=True)
+class TaskQualificationProtectedHandoffV1:
+    schema: str
+    id: str
+    version: str
+    taskId: str
+    operation: str
+    runId: str
+    nonce: str
+    candidate: CandidateIdentity
+    authorityPolicy: ContentRef
+    productionProfilePin: ContentRef
+    gateSetDigest: Digest
+    adapter: VerifierIdentityV1
+    snapshotParser: VerifierIdentityV1
+    authorityStoreService: ContentRef
+    trustedClockService: VerifierIdentityV1
+    revocationHead: TaskQualificationRevocationHeadV1
+    trustedInstant: str
+    channels: TaskQualificationProtectedChannelsV1
+    signatures: Tuple[ApprovalSignatureV1, ...]
+
+
+@dataclass(frozen=True)
+class TaskQualificationTrustedClockObservationV1:
+    schema: str
+    id: str
+    version: str
+    taskId: str
+    operation: str
+    runId: str
+    nonce: str
+    trustedClockService: VerifierIdentityV1
+    observedAt: str
+    clockSourceDigest: Digest
+    signatures: Tuple[ApprovalSignatureV1, ...]
+
+
+@dataclass(frozen=True)
+class ProvenanceBundleEntryV1:
+    role: str
+    bytesHex: str
+
+
+@dataclass(frozen=True)
+class ProtectedTaskQualificationProvenanceBundleV1:
+    schema: str
+    id: str
+    version: str
+    taskId: str
+    operation: str
+    runId: str
+    nonce: str
+    subjectDigest: Digest
+    candidateArchiveSha256: Digest
+    entries: Tuple[ProvenanceBundleEntryV1, ...]
+
+
+def _require_fd(value, where: str) -> int:
+    """Validate a file descriptor: non-negative integer, not bool."""
+    if not isinstance(value, int) or isinstance(value, bool):
+        _reject(f"{where}: must be integer")
+    if value < 0:
+        _reject(f"{where}: must be non-negative")
+    return value
+
+
+def parse_protected_channels(obj: dict, where: str) -> TaskQualificationProtectedChannelsV1:
+    """§8.4 parse the exactly-5 FD channels.  The object must contain exactly
+    the 5 named FD fields — no extra, no missing."""
+    if not isinstance(obj, dict):
+        _reject(f"{where}: channels must be object")
+    # §8.4: exact closed key set — exactly 5 FDs, no extra/missing.
+    expected_keys = {
+        "authorityPolicyFd", "authorityStoreFd",
+        "candidateArchiveFd", "provenanceBundleFd", "trustedClockFd",
+    }
+    actual_keys = set(obj.keys())
+    if actual_keys != expected_keys:
+        _reject(f"{where}: channels must have exactly {sorted(expected_keys)}, got {sorted(actual_keys)}")
+    ap = _require_fd(obj.get("authorityPolicyFd"), f"{where}.authorityPolicyFd")
+    asd = _require_fd(obj.get("authorityStoreFd"), f"{where}.authorityStoreFd")
+    ca = _require_fd(obj.get("candidateArchiveFd"), f"{where}.candidateArchiveFd")
+    pb = _require_fd(obj.get("provenanceBundleFd"), f"{where}.provenanceBundleFd")
+    tc = _require_fd(obj.get("trustedClockFd"), f"{where}.trustedClockFd")
+    fds = (ap, asd, ca, pb, tc)
+    if len(set(fds)) != len(fds):
+        _reject(f"{where}: FDs must be pairwise distinct")
+    return TaskQualificationProtectedChannelsV1(
+        authorityPolicyFd=ap, authorityStoreFd=asd,
+        candidateArchiveFd=ca, provenanceBundleFd=pb, trustedClockFd=tc,
+    )
+
+
+def parse_revocation_head(obj: dict, where: str) -> TaskQualificationRevocationHeadV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: revocationHead must be object")
+    _require_closed_keys(obj, ("headSequence", "headDigest"), where)
+    seq = obj.get("headSequence")
+    if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+        _reject(f"{where}.headSequence: must be non-negative integer")
+    if seq > MAX_REVOCATION_HEAD_SEQUENCE:
+        _reject(f"{where}.headSequence: exceeds {MAX_REVOCATION_HEAD_SEQUENCE}")
+    head_digest = _require_digest(obj.get("headDigest"), f"{where}.headDigest")
+    return TaskQualificationRevocationHeadV1(headSequence=seq, headDigest=head_digest)
+
+
+def parse_protected_handoff(obj: dict, where: str) -> TaskQualificationProtectedHandoffV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: protected handoff must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "operation", "runId", "nonce",
+        "candidate", "authorityPolicy", "productionProfilePin",
+        "gateSetDigest", "adapter", "snapshotParser", "authorityStoreService",
+        "trustedClockService", "revocationHead", "trustedInstant", "channels",
+        "signatures",
+    ), where)
+    schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
+    if schema != PROTECTED_HANDOFF_SCHEMA:
+        _reject(f"{where}.schema: must be {PROTECTED_HANDOFF_SCHEMA}")
+    hid = _require_safe_id(obj.get("id"), f"{where}.id")
+    # §8.4: id fixed to task-qualification-protected-handoff-<runId>.
+    run_id = _require_safe_id(obj.get("runId"), f"{where}.runId")
+    expected_id = f"task-qualification-protected-handoff-{run_id}"
+    if hid != expected_id:
+        _reject(f"{where}.id: must be {expected_id}, got {hid}")
+    version = _require_semver(obj.get("version"), f"{where}.version")
+    if version != "1.0.0":
+        _reject(f"{where}.version: must be 1.0.0")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    operation = obj.get("operation")
+    if operation not in OPERATIONS:
+        _reject(f"{where}.operation: must be one of {OPERATIONS}")
+    nonce = _require_safe_id(obj.get("nonce"), f"{where}.nonce")
+    candidate = parse_candidate_identity(obj.get("candidate"), f"{where}.candidate")
+    policy = parse_content_ref(obj.get("authorityPolicy"), f"{where}.authorityPolicy")
+    pin = parse_content_ref(obj.get("productionProfilePin"), f"{where}.productionProfilePin")
+    gate_set_digest = _require_digest(obj.get("gateSetDigest"), f"{where}.gateSetDigest")
+    adapter = parse_verifier_identity(obj.get("adapter"), f"{where}.adapter")
+    snapshot_parser = parse_verifier_identity(obj.get("snapshotParser"), f"{where}.snapshotParser")
+    store = parse_content_ref(obj.get("authorityStoreService"), f"{where}.authorityStoreService")
+    clock = parse_verifier_identity(obj.get("trustedClockService"), f"{where}.trustedClockService")
+    rev_head = parse_revocation_head(obj.get("revocationHead"), f"{where}.revocationHead")
+    trusted_instant = _require_rfc3339_utc(obj.get("trustedInstant"), f"{where}.trustedInstant")
+    channels = parse_protected_channels(obj.get("channels"), f"{where}.channels")
+    sigs = _parse_dependency_signatures(obj, where)
+    return TaskQualificationProtectedHandoffV1(
+        schema=schema, id=hid, version=version, taskId=task_id,
+        operation=operation, runId=run_id, nonce=nonce, candidate=candidate,
+        authorityPolicy=policy, productionProfilePin=pin,
+        gateSetDigest=gate_set_digest, adapter=adapter,
+        snapshotParser=snapshot_parser, authorityStoreService=store,
+        trustedClockService=clock, revocationHead=rev_head,
+        trustedInstant=trusted_instant, channels=channels, signatures=sigs,
+    )
+
+
+def parse_trusted_clock_observation(obj: dict, where: str) -> TaskQualificationTrustedClockObservationV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: trusted clock observation must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "operation", "runId", "nonce",
+        "trustedClockService", "observedAt", "clockSourceDigest", "signatures",
+    ), where)
+    schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
+    if schema != TRUSTED_CLOCK_OBSERVATION_SCHEMA:
+        _reject(f"{where}.schema: must be {TRUSTED_CLOCK_OBSERVATION_SCHEMA}")
+    cid = _require_safe_id(obj.get("id"), f"{where}.id")
+    version = _require_semver(obj.get("version"), f"{where}.version")
+    if version != "1.0.0":
+        _reject(f"{where}.version: must be 1.0.0")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    operation = obj.get("operation")
+    if operation not in OPERATIONS:
+        _reject(f"{where}.operation: must be one of {OPERATIONS}")
+    run_id = _require_safe_id(obj.get("runId"), f"{where}.runId")
+    nonce = _require_safe_id(obj.get("nonce"), f"{where}.nonce")
+    clock_service = parse_verifier_identity(obj.get("trustedClockService"), f"{where}.trustedClockService")
+    observed_at = _require_rfc3339_utc(obj.get("observedAt"), f"{where}.observedAt")
+    clock_source_digest = _require_digest(obj.get("clockSourceDigest"), f"{where}.clockSourceDigest")
+    sigs = _parse_dependency_signatures(obj, where)
+    return TaskQualificationTrustedClockObservationV1(
+        schema=schema, id=cid, version=version, taskId=task_id,
+        operation=operation, runId=run_id, nonce=nonce,
+        trustedClockService=clock_service, observedAt=observed_at,
+        clockSourceDigest=clock_source_digest, signatures=sigs,
+    )
+
+
+def _parse_provenance_entry(obj: dict, where: str) -> ProvenanceBundleEntryV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: provenance entry must be object")
+    _require_closed_keys(obj, ("role", "bytesHex"), where)
+    role = _require_string(obj.get("role"), f"{where}.role", 4096)
+    bytes_hex = _require_bytes_hex(obj.get("bytesHex"), f"{where}.bytesHex", MAX_PROVENANCE_ENTRY_BYTES)
+    return ProvenanceBundleEntryV1(role=role, bytesHex=bytes_hex)
+
+
+def parse_provenance_bundle(obj: dict, where: str) -> ProtectedTaskQualificationProvenanceBundleV1:
+    if not isinstance(obj, dict):
+        _reject(f"{where}: provenance bundle must be object")
+    _require_closed_keys(obj, (
+        "schema", "id", "version", "taskId", "operation", "runId", "nonce",
+        "subjectDigest", "candidateArchiveSha256", "entries",
+    ), where)
+    schema = _require_ascii_text(obj.get("schema"), _BTO.SCHEMA_RE, f"{where}.schema", 127)
+    if schema != PROVENANCE_BUNDLE_SCHEMA:
+        _reject(f"{where}.schema: must be {PROVENANCE_BUNDLE_SCHEMA}")
+    bid = _require_safe_id(obj.get("id"), f"{where}.id")
+    version = _require_semver(obj.get("version"), f"{where}.version")
+    if version != "1.0.0":
+        _reject(f"{where}.version: must be 1.0.0")
+    task_id = _require_task_id(obj.get("taskId"), f"{where}.taskId")
+    operation = obj.get("operation")
+    if operation not in OPERATIONS:
+        _reject(f"{where}.operation: must be one of {OPERATIONS}")
+    run_id = _require_safe_id(obj.get("runId"), f"{where}.runId")
+    nonce = _require_safe_id(obj.get("nonce"), f"{where}.nonce")
+    subject_digest = _require_digest(obj.get("subjectDigest"), f"{where}.subjectDigest")
+    archive_sha = _require_digest(obj.get("candidateArchiveSha256"), f"{where}.candidateArchiveSha256")
+    entries_arr = _require_array(obj.get("entries"), f"{where}.entries", MAX_PROVENANCE_ENTRIES)
+    entries = tuple(_parse_provenance_entry(e, f"{where}.entries") for e in entries_arr)
+    _require_unique_sorted(entries, lambda e: e.role, f"{where}.entries")
+    aggregate = sum(len(entry.bytesHex) // 2 for entry in entries)
+    if aggregate > MAX_BUNDLE_AGGREGATE:
+        _reject(
+            f"{where}.entries: decoded aggregate exceeds {MAX_BUNDLE_AGGREGATE}")
+    return ProtectedTaskQualificationProvenanceBundleV1(
+        schema=schema, id=bid, version=version, taskId=task_id,
+        operation=operation, runId=run_id, nonce=nonce,
+        subjectDigest=subject_digest, candidateArchiveSha256=archive_sha,
+        entries=entries,
+    )
+
+
+def protected_handoff_to_wire(h: TaskQualificationProtectedHandoffV1) -> dict:
+    return {
+        "schema": h.schema,
+        "id": h.id,
+        "version": h.version,
+        "taskId": h.taskId,
+        "operation": h.operation,
+        "runId": h.runId,
+        "nonce": h.nonce,
+        "candidate": candidate_identity_to_wire(h.candidate),
+        "authorityPolicy": content_ref_to_wire(h.authorityPolicy),
+        "productionProfilePin": content_ref_to_wire(h.productionProfilePin),
+        "gateSetDigest": digest_to_wire(h.gateSetDigest),
+        "adapter": verifier_identity_to_wire(h.adapter),
+        "snapshotParser": verifier_identity_to_wire(h.snapshotParser),
+        "authorityStoreService": content_ref_to_wire(h.authorityStoreService),
+        "trustedClockService": verifier_identity_to_wire(h.trustedClockService),
+        "revocationHead": {
+            "headSequence": h.revocationHead.headSequence,
+            "headDigest": digest_to_wire(h.revocationHead.headDigest),
+        },
+        "trustedInstant": h.trustedInstant,
+        "channels": {
+            "authorityPolicyFd": h.channels.authorityPolicyFd,
+            "authorityStoreFd": h.channels.authorityStoreFd,
+            "candidateArchiveFd": h.channels.candidateArchiveFd,
+            "provenanceBundleFd": h.channels.provenanceBundleFd,
+            "trustedClockFd": h.channels.trustedClockFd,
+        },
+        "signatures": [approval_signature_to_wire(s) for s in h.signatures],
+    }
+
+
+def trusted_clock_observation_to_wire(c: TaskQualificationTrustedClockObservationV1) -> dict:
+    return {
+        "schema": c.schema,
+        "id": c.id,
+        "version": c.version,
+        "taskId": c.taskId,
+        "operation": c.operation,
+        "runId": c.runId,
+        "nonce": c.nonce,
+        "trustedClockService": verifier_identity_to_wire(c.trustedClockService),
+        "observedAt": c.observedAt,
+        "clockSourceDigest": digest_to_wire(c.clockSourceDigest),
+        "signatures": [approval_signature_to_wire(s) for s in c.signatures],
+    }
+
+
+def provenance_bundle_to_wire(b: ProtectedTaskQualificationProvenanceBundleV1) -> dict:
+    return {
+        "schema": b.schema,
+        "id": b.id,
+        "version": b.version,
+        "taskId": b.taskId,
+        "operation": b.operation,
+        "runId": b.runId,
+        "nonce": b.nonce,
+        "subjectDigest": digest_to_wire(b.subjectDigest),
+        "candidateArchiveSha256": digest_to_wire(b.candidateArchiveSha256),
+        "entries": [{"role": e.role, "bytesHex": e.bytesHex} for e in b.entries],
+    }
+
+
+def protected_handoff_content_ref(h: TaskQualificationProtectedHandoffV1) -> ContentRef:
+    wire = protected_handoff_to_wire(h)
+    digest = domain_digest(DOMAIN_PROTECTED_HANDOFF, wire)
+    return ContentRef(schema=h.schema, id=h.id, version=h.version, digest=digest)
+
+
+def trusted_clock_observation_content_ref(c: TaskQualificationTrustedClockObservationV1) -> ContentRef:
+    wire = trusted_clock_observation_to_wire(c)
+    digest = domain_digest(DOMAIN_TRUSTED_CLOCK_OBSERVATION, wire)
+    return ContentRef(schema=c.schema, id=c.id, version=c.version, digest=digest)
+
+
+# Note: provenance_bundle_content_ref is intentionally absent. SPEC-TASKQUAL-001
+# does not define a normative full-digest domain for the provenance bundle. It
+# is a closed carrier channel, not an evidence root. Its identity is established
+# by exact-bytes consumption from the provenanceBundleFd, not by recomputation
+# under an invented domain.
 
 
 # ---------------------------------------------------------------------------
@@ -3052,7 +4328,9 @@ def verify_ancestry_membership(
     for sha in extra_commits:
         if sha not in graph.members:
             _reject(f"{where}: extra ancestry commit {sha} not in graph")
-    # Check that target commits are not duplicated as ancestry-commit/*
+    # Candidate/dependency targets have dedicated member roles and must not be
+    # duplicated. freezeCommit has no dedicated git-object role in §8.2, so a
+    # distinct freeze target is necessarily carried once as ancestry-commit/*.
     for target_sha, role in graph.targets.items():
-        if target_sha in extra_commits:
+        if role != "freeze-commit" and target_sha in extra_commits:
             _reject(f"{where}: target commit {target_sha} duplicated as ancestry-commit")
