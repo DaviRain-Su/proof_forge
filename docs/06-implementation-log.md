@@ -8707,3 +8707,41 @@ normative: false
   与 seeds。当前 host 仍 `eligibleForHermetic=false`，不声称 hermetic/formal evidence。
 - Next：写 `scripts/task_qualification_ceremony.py` 生产 bundle assembler，并在用户
   提供 seeds 后执行签名与关单 commit。
+
+## 2026-07-23 — TASK-D0-10 independent rejection + R2 specification blocker triage
+
+- Candidate/review：当前 HEAD `73555212daab934eb798155d11ea2a94e76ddd57`；声明的
+  implementation candidate `1e0214f95e6cb4b5c6e86875117c66e4a8768402`。独立只读对抗终审
+  invocation `019f8d64-9200-7c33-8f78-0a0296b97345` 结论 `REJECT`，确认 P0=0、P1>0：
+  §8.4 七参数 protected boundary 未实现、acceptance wire 与 accepted schema 不同、root
+  `docs_check` 发明 authority-complete 路径、public rejection 不是 exact `RejectedV1{code,stage}`。
+  旧 candidate 不得进入 bootstrap approval 或 closeout ceremony。
+- Focused verification（修改前）：
+  - `/usr/bin/python3 -I -S scripts/task_qualification_red_matrix_self_test.py` → 103/103 passed；
+  - `/usr/bin/python3 -I -S scripts/task_qualification_protected_adapter_self_test.py` → 21/21 passed；
+  - `/usr/bin/python3 -I -S scripts/docs_check_self_test.py` → `ok (204 mutations)`；
+  - exact formal Stage-0 command
+    `/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible`
+    → exit 0，profile `linux-x86_64-mint223-eligible`，`eligibleForHermetic: true`，SecureBoot enabled。
+  这些结果只证明既有 fixture/host checks；不会消除上述 production P1。
+- Additional audit：production profile/pin 缺 task/operation/gateSet/snapshotParser/artifacts 与派生 ID；
+  D0 top-level roles、closure digests、D0-07 ruling join及 fixture tree `f2` 未闭合。当前 docs checker
+  也未实现 §8.5 D/optional-P structural-only 状态机。
+- Blocking specification defect：独立 oracle invocation
+  `019f8d68-e206-7ae2-9613-e8f1b674dd69` 确认 accepted §8.4 同时要求唯一七参数 API、
+  lookup-only `authorityStoreFd` 与运行后完整 acceptance 的 Architecture+Quality+Security 会签，
+  但没有 signer seed/HSM/signing RPC 或合法 detached-signature channel。handoff/service signatures
+  因 wire、domain和quorum不同不可复用；现有 caller-injected `signing_seeds` 属规范外路径。
+- Triage：按 `GOV-TASK-FREEZE-001` R2/§5 选择 **Block**；`TASK-D0-10` 从
+  `in_progress` 暂时改为 `blocked`，冻结包字节与完成面不变，D0 保持 9/10。新增 proposed
+  `ADR-0021`，建议保留唯一七参数 API、保持 v1 lookup-only，并让 production 改用 closed
+  `pf.taskqual.authority-store.rpc.v2`：exact lookup 后只允许一次 nonce/head/session-bound terminal
+  acceptance-signing，不提供通用签名、publish、mutation 或 adapter seed injection。
+- ADR proposal review：独立 oracle invocation `019f8d90-9565-77c0-ae2f-07c7e9a60510`
+  对首版 ADR-0021 结论 `REJECT`（P0=0、P1=3、P2=2、P3=1）：v2 signer/service 相对冻结包是
+  新 production capability，必须 R3 或正式 Freeze Exception；C3 wire/state/migration 尚未 closed；
+  nonce/head/crash/partial-signature 与 authenticated adapter assertion 尚未形成原子安全语义。
+- Limitations/Next：本条不是新 EV、不是 spec acceptance、不是实现修复，也不关闭任务。保留
+  `blocked`，将首版 proposal 作为 immutable baseline；随后选择正式 Freeze Exception，冻结 exact
+  v2 wire/state/migration/custody/authorization，重审至 P0/P1=0 并取得 Architecture+Quality+Security
+  批准，方可修订 SPEC/test/trace、恢复 `in_progress` 并按 RED→GREEN 建立新 candidate。
