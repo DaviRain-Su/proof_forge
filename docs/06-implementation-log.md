@@ -8833,3 +8833,31 @@ normative: false
   经commit-bound Architecture+Quality+Security独立复审和metadata-only re-acceptance后再恢复RED→GREEN。
 - Limitation：上述probe是本机时点性Linux feasibility observation，不是Stage-0、formal EV、protected acceptance、
   production signature或closeout证据；D0仍为9/10，D1-01仍dependency-blocked。
+
+## 2026-07-23 — TASK-D0-10 capability-transition C3 proposed body（仍 blocked）
+
+- Scope：仅修订`ADR-0021`、`SPEC-TASKQUAL-001`与PHASE-5的同一normative unit，并同步document/index、
+  version-compatibility release note；三份frontmatter均转`in_review`并移除旧approval metadata。没有修改
+  Python/Lean/Zig、task frozen columns/package、TST ID、EV、authority object、seed、signature或closeout。
+- Correction：closed protocol/frame/API/custody enum与v2 major不变；`custodyCapabilities`从不可达`[19]`
+  改为exact `[8,19]` ambient static-exec bridge。pre/post-exec五组均`[8,19]`；service首段在post-exec重读
+  已打开seed FD、接收packet或检查peer前，以19→8顺序清bounding、清ambient/inheritable/SETPCAP，达到
+  `B/I/A=[] P/E=[19]`；supervisor在durable active后、exec前的seed读取保持原顺序，terminal `capset`后五组
+  全零。file capability、U-root、helper与fallback继续禁止。
+- Seccomp/group boundary：custody table只允许fixed `PR_CAPBSET_DROP`、ambient clear、`capset`及final-filter
+  overlay；final table只保留terminal drop的`capset`，filtered stage禁止全部UID/GID/group mutation。adapter先在
+  credential drop前清空bounding set；adapter和service再分别于mapped U内仍有setup authority时执行
+  `setgroups(0,NULL)→setresgid(g,g,g)→setresuid(u,u,u)`，清除real/effective/saved/fs alias并从kernel重验。
+- Compatibility：首个v2 profile/service/policy pin与acceptance均尚未签发；旧checkpoint bytes只能删除并
+  cross-reject，关联nonce spent，不做alias/migration或protocol negotiation。一旦未来v2 acceptance签发，
+  后续语义修复仍须新protocol major。
+- Governance：本次不改变existing Exception surface；task保持`blocked`。下一步须把本正文提交为immutable
+  proposed-body，取得绑定该commit的独立Architecture+Quality+Security P0/P1=0复审；之后只能用
+  metadata-only commit恢复三份`accepted`，再在expiry前以direct child只重锚freezeCommit/status。
+- Verification：`/usr/bin/python3 -I -S scripts/docs_check.py --root .`→`docs-check: ok`；
+  `scripts/docs_check_self_test.py`→`ok (204 mutations)`；`git diff --check`→exit 0。`just docs-check`中前置
+  docs/bootstrap/formal-evidence、真实`formal-clean-room-self-test: ok (16 checks)`、genesis replay与tool invocation
+  全绿，最终`bootstrap_ceremony_prep_self_test.py`的happy-chain按当前`PHASE-5=in_review`正确fail closed为
+  `PF-CEREMONY-PREREQ`；该aggregate不能写成PASS，须在metadata-only re-acceptance后重跑。尚未取得绑定
+  immutable commit的独立review或approval，corrected capability RED亦尚未提交；隔离implementation继续
+  非权威、不得合并。

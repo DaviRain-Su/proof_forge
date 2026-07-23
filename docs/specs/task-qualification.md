@@ -1,15 +1,10 @@
 ---
 id: SPEC-TASKQUAL-001
 title: TaskQualificationV1 任务作用域 formal qualification
-status: accepted
+status: in_review
 owner: quality
 updated: 2026-07-23
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-23
-reviewCommit: 3d68d8658cc26ce95201b277b10e4a94103836af
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/3d68d8658cc26ce95201b277b10e4a94103836af
-openFindings: none
 ---
 
 # SPEC-TASKQUAL-001：TaskQualificationV1
@@ -40,8 +35,9 @@ array 的 count 在第一次 entry decode/hash/curve work 前检查；标为集�
 4096；本规格更小 bound 优先。所有 digest 形式均为
 `SHA-256(ASCII(domain) || NUL || PF-JCS(value))`，除明确写 `raw bytes` 者外。
 
-本 accepted amendment 的 authorization 是 Architecture + Quality + Security。production verification
-与protected acceptance的registry **只能**是current activated `BootstrapAuthorityPolicyV1` exact bytes及其
+本 amendment 只有在ADR-0021、SPEC-TASKQUAL-001与PHASE-5经metadata-only commit共同恢复`accepted`且
+记录Architecture + Quality + Security authorization后才生效。届时production verification与protected
+acceptance的registry **只能**是current activated `BootstrapAuthorityPolicyV1` exact bytes及其
 外部 expected `ContentRef`；fixture只允许§8.2独立FixturePolicyV1且永不authoritative。production仅复用
 Bootstrap policy的principal/key/role registry；不得修改、扩展或用 D0-10 查询其恰含 D0-01..06 的
 `taskRules`。本协议的固定 `TaskQualificationAuthorityRuleV1` 为
@@ -1087,7 +1083,15 @@ handoff `(taskId,operation,gateSetDigest)`，绝不按candidate声明。以上�
 PF-JCS field order、full/signature domains、4 MiB seqpacket framing、lookup key union与exact序列、unsigned
 acceptance wire、terminal request/response、Linux U/P/A peer/custody profile、static service
 supervisor→same-PID `execveat`、seedRoot/role-key custody、durable nonce/head transaction、bounds及negative
-matrix全部以同一accepted acceptance unit中的`ADR-0021` §§2–8、§12为本规格exact normative内容。v2只允许
+matrix只在ADR-0021、SPEC-TASKQUAL-001与PHASE-5共同恢复`accepted`后，才以该同一acceptance unit中的
+`ADR-0021` §§2–8、§12为本规格exact normative内容。其中capability transition只能是ADR表列的ambient
+bridge：pre/post-exec五组均`[CAP_SETPCAP,CAP_SYS_PTRACE]`，service在任何post-exec service读取已打开
+seed FD、接收packet或检查peer前不可逆收敛为`B/I/A=[] P/E=[CAP_SYS_PTRACE]`，terminal signing前
+五组全空；adapter必须在credential drop前以setup `CAP_SETPCAP`清空bounding set，且adapter与service都须在
+mapped U内仍持有setup `CAP_SETGID`时先清空supplementary groups，再以`setresgid(g,g,g)`、
+`setresuid(u,u,u)`清除全部real/effective/saved/fs credential alias并重验，filtered
+stage禁止全部UID/GID/group mutation syscall。旧`custodyCapabilities=[19]`、file capability、U-root、helper
+或host fallback均cross-reject。v2只允许
 同一authenticated session完成全部lookup后恰一次`sign-acceptance`；adapter不得接收private key、seed、HSM
 handle、signer callback或任意message/digest signer。v1/v2 schema、socket kind、frame、descriptor与object key
 必须双向cross-reject，且新handoff.authorityStoreService必须exact指向v2 descriptor。
@@ -1188,7 +1192,9 @@ Tests、Dependencies、Prerequisites或doneWhen。amendment 经多轮 bounded in
 role/parser、fixture policy、time/revocation、Git ancestry 与 external profile pin 后，最终结论
 `SAFE TO COMMIT AMENDMENT`、P0/P1=0；该结论仍不覆盖后续 RED/GREEN implementation。
 
-2026-07-23 C3 terminal-signing amendment与`ADR-0021`、PHASE-5同一review/acceptance unit，修复七参数API、
-lookup-only v1与最终acceptance role signatures之间的不可实现闭环。该unit只在ADR-0021 accepted metadata、
-Architecture+Quality+Security批准、immutable proposed-body commit/HTTPS review及P0/P1=0全部存在后生效；
-此前TASK-D0-10保持blocked，本文workspace草案不得作为实现authority。
+2026-07-23 首次C3 terminal-signing amendment与`ADR-0021`、PHASE-5同一历史review/acceptance unit，修复
+七参数API、lookup-only v1与最终acceptance role signatures之间的不可实现闭环。activation后真实Linux probe
+又证明其capability checkpoint不可达；当前三份bytes因此共同转`in_review`，仅纠正同一v2 signer的exec
+transition，不改变TASK-D0-10完成面。当前unit只在新的immutable proposed-body commit/HTTPS review取得
+P0/P1=0，且metadata-only commit记录Architecture+Quality+Security批准后生效；此前TASK-D0-10保持blocked，
+本文workspace草案不得作为implementation authority。

@@ -1,15 +1,10 @@
 ---
 id: ADR-0021
 title: Task qualification protected acceptance 的一次性终结签名
-status: accepted
+status: in_review
 owner: architecture
 updated: 2026-07-23
 normative: true
-approvers: architecture-owner, davirain, quality-owner, security-owner
-approvedAt: 2026-07-23
-reviewCommit: 3d68d8658cc26ce95201b277b10e4a94103836af
-reviewLink: https://github.com/DaviRain-Su/proof_forge/commit/3d68d8658cc26ce95201b277b10e4a94103836af
-openFindings: none
 ---
 
 # ADR-0021：Task qualification protected acceptance 的一次性终结签名
@@ -45,6 +40,12 @@ wire、message domain和授权语义，不能复制或复用。
    不冒充三次 post-result 人工 review。
 5. 新 service/custody/durable nonce capability 相对原冻结包属于扩面；D0-10 只能经本文的正式
    Freeze Exception 路径重冻结后承载。在 exception accepted 前保持 `blocked`。
+6. activation后的真实Linux probe证明首次accepted capability checkpoint不可达：普通non-root static exec在
+   `CapInh/CapAmb=0`时清空`CapPrm/CapEff`，只持有`CAP_SYS_PTRACE`又不能执行需effective
+   `CAP_SETPCAP`的`PR_CAPBSET_DROP`。本纠错在同一v2 surface内固定`CAP_SETPCAP+CAP_SYS_PTRACE`
+   ambient exec bridge，并在service第一段受信代码内先清bounding/ambient/inheritable/SETPCAP，再允许
+   post-exec service读取已打开seed FD、接收packet或检查peer；supervisor在durable `active`后、exec前的既有
+   seed读取顺序保持不变。
 
 ## 1. 唯一 protected API
 
@@ -149,9 +150,20 @@ component、NUL或trailing slash；source由ceremony stable fstat。除pinned ex
 
 capability arrays按numeric capability升序唯一且不由实现推断“需要”：preSeedCapabilities固定为
 `[6,7,8,19,21]`（Linux `CAP_SETGID,CAP_SETUID,CAP_SETPCAP,CAP_SYS_PTRACE,CAP_SYS_ADMIN`），
-custodyCapabilities固定为`[19]`，adapterCapabilities与finalServiceCapabilities固定为空。共同U建立前的host
-mapping authority属于candidate-external ceremony，不得增加到上述U内arrays。serviceArgv恰为
-`["proof-forge-taskqualification-store-v2"]`，
+custodyCapabilities固定为`[8,19]`（`CAP_SETPCAP,CAP_SYS_PTRACE`），adapterCapabilities与
+finalServiceCapabilities固定为空。共同U建立前的host mapping authority属于candidate-external ceremony，
+不得增加到上述U内arrays。`custodyCapabilities`只表示static exec前后不可分割的短暂transition closure，
+不是steady service authority；capability五组exact checkpoints固定为：
+
+| checkpoint | CapBnd | CapPrm | CapEff | CapInh | CapAmb |
+|---|---|---|---|---|---|
+| 紧邻static `execveat`前 | `[8,19]` | `[8,19]` | `[8,19]` | `[8,19]` | `[8,19]` |
+| static exec后第一条service transition逻辑入口 | `[8,19]` | `[8,19]` | `[8,19]` | `[8,19]` | `[8,19]` |
+| transition完成、任何post-exec service seed-FD读取/packet/peer inspection前 | `[]` | `[19]` | `[19]` | `[]` | `[]` |
+| terminal role signing前 | `[]` | `[]` | `[]` | `[]` | `[]` |
+
+任一checkpoint extra/missing bit均拒绝；特别禁止把`CAP_SETPCAP`带入steady service，或在bounding set清零前
+先删除其effective bit。serviceArgv恰为`["proof-forge-taskqualification-store-v2"]`，
 serviceEnvironment恰为空array。seccompPolicies按stage恰为`adapter`、`custody-pre-exec`、`service-final`；rules
 按syscall number、arguments升序唯一，argument index `0..5`，operation只允许`eq|masked-eq`，value/mask为
 unsigned 64-bit lowercase 16-hex。三个rules arrays本身就是candidate-external Architecture+Quality+Security
@@ -160,8 +172,15 @@ syscall由defaultAction拒绝，因此两个consumer只需exact解析并加载�
 除此exact policy authority外仍有不可放宽的hard constraints：adapter和service tables不得含
 `fork|vfork|clone|clone3|dup|dup2|dup3|pidfd_getfd|sendmsg|sendmmsg|execve`；adapter与service-final也不得含
 `execveat`；custody-pre-exec的`execveat`必须是唯一exec rule且只对serviceExecutableFd/`AT_EMPTY_PATH`
-放行scalar args；proc/durable `openat` rules只能用policy fixed dirfd和本ADR scalar flags，禁止`open|openat2|creat`及
-AT_FDCWD；任何stage不得允许`ptrace|process_vm_writev|mount|umount2|pivot_root|chroot|setns|unshare`，setup动作必须在
+放行scalar args；`custody-pre-exec`必须且只可为post-exec capability收敛额外允许两次
+`prctl(PR_CAPBSET_DROP,19|8,0,0,0)`（19先于8）、一次
+`prctl(PR_CAP_AMBIENT,PR_CAP_AMBIENT_CLEAR_ALL,0,0,0)`、一次`capset`及叠加final filter所需的exact
+`seccomp` scalar rule；因为BPF不能解引用`capset`指针，pinned static code与每步后的五组kernel state exact
+recheck共同构成authority。`service-final`只可保留terminal all-zero drop所需的`capset`，不得保留上述
+bounding/ambient `prctl`。proc/durable `openat` rules只能用policy fixed dirfd和本ADR scalar flags，禁止
+`open|openat2|creat`及AT_FDCWD；任何filtered stage不得允许
+`setuid|setgid|setreuid|setregid|setresuid|setresgid|setfsuid|setfsgid|setgroups`，任何stage不得允许
+`ptrace|process_vm_writev|mount|umount2|pivot_root|chroot|setns|unshare`，setup动作必须在
 filter加载前完成。加载者按policy auditArch把syscall名解析到唯一number；unknown syscall/argument、duplicate、
 违反hard constraint或实际加载bytes与canonical table不一致均拒绝。policy canonical full digest domain固定
 `pf.taskqual.store-isolation-policy.v2`；`store-isolation-policy` provenance bytes必须exact解析并重算该ref，
@@ -257,23 +276,39 @@ supervisor是正式role-key custody TCB，不是普通launcher；其identity和�
 isolationPolicy及protected provenance四role绑定。固定启动顺序为：(1)在未打开任何seed文件时建立U/P/A、
 mounts、唯一seqpacket socketpair、同步pipe和§7 exact non-secret FDs；对两个endpoint stable-fstat并记录各自
 fixed FD number与`(dev,ino,mode)`，禁止任何duplicate；预先safe-open descriptor.verifier executable为fixed
-serviceExecutableFd，验证accepted ref/plain hash、static ELF（无`PT_INTERP`且无`DT_NEEDED`）与closure/build
-policy；(2)fork adapter child，child在setup期间只临时保留adapter endpoint、同步pipe write-end与七参数其余
-FD，关闭service endpoint及全部其他FD，进入A与readonly mount、切换adapter UID/GID、清空capability/group；
-child写入fixed one-byte ready、关闭pipe，紧邻安装adapter seccomp和exec exact adapter之前只对retained adapter
+serviceExecutableFd，验证accepted ref/plain hash、regular single-link executable、无setuid/setgid mode bit、
+`fgetxattr("security.capability")` exact为`ENODATA`、static ELF（无`PT_INTERP`且无`DT_NEEDED`）与closure/build
+policy；无法证明普通non-privileged exec语义即拒绝。(2)fork adapter child，child在setup期间只临时保留adapter endpoint、同步pipe write-end与七参数其余
+FD，关闭service endpoint及全部其他FD，进入A与readonly mount；在U内setup `CAP_SETPCAP`仍effective时
+先以`PR_CAPBSET_DROP`删除全部bounding bits（该动作不删除当前P/E setup caps）并重验CapBnd为空；随后在
+`CAP_SETGID`仍effective且`/proc/self/setgroups`允许时执行`setgroups(0,NULL)`并重验zero supplementary group，
+再依次执行`setresgid(adapterGid,adapterGid,adapterGid)`与
+`setresuid(adapterUid,adapterUid,adapterUid)`，要求
+`getresuid/getresgid`及`/proc/self/status`的real/effective/saved/fs UID/GID全都exact为descriptor值，最后
+清空五组capability、设置并验证`no_new_privs=1`；任一步失败不得写ready。child写入fixed one-byte ready、
+关闭pipe，紧邻安装adapter seccomp和exec exact adapter之前只对retained adapter
 endpoint执行一次`fcntl(F_SETFD,0)`并以`F_GETFD`确认`FD_CLOEXEC`已清除，禁止清除其他FD或使用
 `F_DUPFD*`；(3)parent只保留service endpoint，从同步pipe取得ready后等待pidfd/proc证明child已exec为exact
 adapter，再直接用kernel namespace/credential/FD facts重验
 child已完成前述隔离并且其authorityStoreFd identity等于记录的adapter endpoint，关闭同步pipe；该ready只控制
-时序，不替代service后续direct peer inspection；(4)parent设置`PR_SET_KEEPCAPS`后切换到service UID/GID，只
-保留U内`CAP_SYS_PTRACE`，并验证CapBnd/CapPrm/CapEff恰含该bit、CapInh/CapAmb为零；(5)在打开任何seed文件
+时序，不替代service后续direct peer inspection；(4)parent仍持有pre-seed capability时先把bounding set除
+`[8,19]`外全部永久删除，设置`PR_SET_KEEPCAPS`，在U的gid map已安装且`CAP_SETGID`仍effective且
+`/proc/self/setgroups`允许时执行`setgroups(0,NULL)`并重验zero supplementary group，再依次执行
+`setresgid(serviceGid,serviceGid,serviceGid)`与
+`setresuid(serviceUid,serviceUid,serviceUid)`；要求`getresuid/getresgid`及`/proc/self/status`的
+real/effective/saved/fs UID/GID全都exact为descriptor值，随后以`capset`把CapPrm/CapEff/CapInh exact设为
+`[8,19]`，按8后19的固定顺序各执行一次`PR_CAP_AMBIENT_RAISE`，验证
+CapBnd/CapPrm/CapEff/CapInh/CapAmb均exact为`[8,19]`。任何ambient raise失败、setgroups已被提前永久deny
+而无法证明零group、saved/fs identity漂移、extra/missing bit或不同顺序均在seed open前拒绝；
+(5)在打开任何seed文件
 之前，supervisor按§6用durableStateRootFd对signed handoff tuple执行唯一`absent -> active` fsync transaction；
 existing/stale state一律按§6处理并停止，reservation未commit不得继续；(6)严格按§7从与descriptor.seedRoot
 匹配的唯一pre-opened seedRootFd打开四个seed并完成权限、公钥、FD唯一性检查；(7)关闭seedRootFd、同步/setup
 FD和所有非exact pre-exec service-role FD；只对retained service endpoint执行一次`fcntl(F_SETFD,0)`并以
 `F_GETFD`确认`FD_CLOEXEC`已清除，serviceExecutableFd必须仍设置该flag；建立含两端endpoint lineage及
 serviceExecutableFd identity的sealed transition record，枚举确认U/P内除当前supervisor与既有adapter child外
-不存在其他ceremony process；(8)安装custody seccomp：永久禁止`fork/vfork/clone/clone3`、
+不存在其他ceremony process；(8)再次验证五组capability均exact为`[8,19]`后设置
+`PR_SET_NO_NEW_PRIVS=1`，再安装custody seccomp：永久禁止`fork/vfork/clone/clone3`、
 `dup/dup2/dup3`、`fcntl(F_DUPFD*)`、`pidfd_getfd`、`sendmsg/sendmmsg`和任意FD transfer；pathname open只允许
 对fixed procRootFd做readonly peer/self inspection，或对fixed durableStateRootFd做§6 exact transaction flags，
 其他`open/openat/openat2/creat`一律拒绝；`execve`永久拒绝，seccomp只按可观察scalar参数允许
@@ -282,12 +317,18 @@ argv/envp pointer；该FD必须设置`FD_CLOEXEC`；(9)不再fork，由superviso
 执行`execveat(serviceExecutableFd,"",...,AT_EMPTY_PATH)`，由kernel在成功exec时关闭serviceExecutableFd，
 同一PID从supervisor image过渡为static exact descriptor.verifier service。不存在与service并存的privileged
 seed-holder；adapter在seed打开前已进入不含seed/durable root的mount、不同UID与child PID namespace，且两侧
-seccomp禁止事后传FD。service第一条用户逻辑必须叠加拒绝全部exec的最终filter，再从pinned procRootFd读取
-`self/cmdline`与`self/environ`，要求bytes分别exact为
-`proof-forge-taskqualification-store-v2\0`与empty，随后要求自身PPid/namespace/UID/GID/FD set、sealed
-transition record与policy exact，重验record中的supervisor PID和`/proc/self/stat`start-time仍等于当前值、
-serviceExecutableFd已关闭且`/proc/self/exe` exact为record/descriptor identity，再关闭transition FD；这些检查
-全部先于post-exec seed FD读取、任何client packet及任何role signing。该record仅证明同一trusted
+seccomp禁止事后传FD。service第一条用户逻辑在继承的custody filter下先验证`no_new_privs=1`且五组
+capability均exact为`[8,19]`，再固定执行
+`PR_CAPBSET_DROP(CAP_SYS_PTRACE)`、`PR_CAPBSET_DROP(CAP_SETPCAP)`、
+`PR_CAP_AMBIENT_CLEAR_ALL`与一次`capset`，把状态不可逆收敛为
+`CapBnd/CapInh/CapAmb=[]`、`CapPrm/CapEff=[19]`；只有exact recheck成功后才叠加拒绝全部exec的
+`service-final` filter。随后从pinned procRootFd读取`self/cmdline`与`self/environ`，要求bytes分别exact为
+`proof-forge-taskqualification-store-v2\0`与empty，再要求自身PPid/namespace/UID/GID/零supplementary group/
+FD set、sealed transition record与policy exact，重验record中的supervisor PID和`/proc/self/stat`start-time
+仍等于当前值、serviceExecutableFd已关闭且`/proc/self/exe` exact为record/descriptor identity，再关闭
+transition FD；capability transition及这些检查全部先于post-exec seed FD读取、任何client packet、peer
+inspection及任何role signing。任一步失败都不得加载较宽filter、执行post-exec service seed-FD读取或返回frame。
+该record仅证明同一trusted
 supervisor process未在seed打开后fork，不是candidate launch receipt或新的授权对象。步骤(5) active commit
 之后任一root/seed/FD/public-key/transition/seccomp/exec/self-check失败，supervisor或service必须在退出前把同一
 nonce原子写`rejected`；若process在写前崩溃，下一次supervisor recovery必须先把遗留`active|signing`写
@@ -320,10 +361,11 @@ enumeration证明fork后未替换或duplicate；这里不从两个socket inode�
 readonly FDs；service同样stable-fstat读取、按各自schema/domain重算并要求exact等于handoff.adapter对应refs。
 sourceDigest直接由signed handoff identity绑定，不从pathname推导。
 
-terminal preflight完成最后一次peer FD/executable检查后，service永久drop `CAP_SYS_PTRACE`及全部capabilities，
-设置`no_new_privs`与service deny-default seccomp，并从`/proc/self/status`重验CapBnd/CapPrm/CapEff/CapInh/
-CapAmb全部为零，之后才允许任何role signing；final transaction只用已打开pidfd检查liveness，不再读peer
-`/proc`。无法证明capability所属U、最小化或成功drop即零签名拒绝。
+terminal preflight完成最后一次peer FD/executable检查后，service在既有`no_new_privs=1`与
+`service-final` deny-default filter下用唯一一次`capset`永久清空CapPrm/CapEff；此时CapBnd/CapInh/CapAmb
+必须已从service启动transition起保持为空。service从`/proc/self/status`重验五组全部为零后才允许任何role
+signing；final transaction只用已打开pidfd检查liveness，不再读peer`/proc`。无法证明capability所属U、
+transition顺序、steady最小化或terminal all-zero即零签名拒绝。
 
 service不消费candidate提供的launch receipt或self-reported peer hash；共同U的exact mapping、parent/child
 PID topology、separate Unix principals/mounts、single-PID custody-supervisor→service exec、kernel packet
@@ -619,8 +661,12 @@ final三项role signatures证明该one-shot delegation下的机器签发，不�
 | fallback/negotiation/dual reader | 禁止 | 禁止 |
 | old candidate `1e0214f9` | 不可closeout | 必须建立新candidate |
 
-本变更不修改v1 bytes/domain。v2 schema均为major `2.0.0`，domain均以`.v2`结尾。配套接受单元必须更新
-`docs/governance/version-compatibility.md`和实现日志作为release note；仓库没有已发布v2对象可迁移。
+本变更不修改v1 bytes/domain。v2 schema仍为major `2.0.0`，domain仍以`.v2`结尾；本次R2纠错发生在首个
+production profile/service/isolation-policy pin及首个v2 acceptance签发之前，closed wire字段集合、service
+protocol与custody enum均未增加，只把不可达的`custodyCapabilities=[19]`及其checkpoint修正为上述唯一
+`[8,19]` ambient transition。任何按旧checkpoint构造的未发布policy bytes必须删除并cross-reject，关联handoff
+nonce永久spent；不得把同ID/ref或“语义等价”alias迁移为新policy。配套接受单元必须更新
+`docs/governance/version-compatibility.md`和实现日志作为release note；仓库没有已发布v2对象需要data migration。
 
 rollback：首次production acceptance前可撤销v2 pin并保持TASK-D0-10 blocked；一旦v2签发，发现缺陷时立即
 撤销v2 profile/service pin及所有未消费handoff nonce，拒绝新acceptance；禁止回退v1或caller-seed adapter，
@@ -651,7 +697,8 @@ rollback：首次production acceptance前可撤销v2 pin并保持TASK-D0-10 bloc
 | rollback | 删除未签发v2 pin/objects，spend全部handoff nonce，任务回blocked；不得以v1/caller seeds降级关闭 |
 | approval record | ADR转accepted时的`approvers,approvedAt,reviewCommit,reviewLink,openFindings`同时是本Exception批准记录；approvers必须覆盖Architecture+Quality+Security，openFindings必须为none，另需独立只读安全复审P0/P1=0 |
 
-本表在ADR仍为`proposed`时不授权修改task row/freeze package或恢复实现。proposed-body阶段必须把
+本表在ADR未恢复`accepted`（包括`proposed|in_review`）时不授权修改task row/freeze package或恢复实现。
+proposed-body阶段必须把
 SPEC-TASKQUAL-001与PHASE-5显式置为`in_review`并移除旧accepted approval fields；旧批准只保留于Git历史，
 因此未经批准的v2正文不会伪装成现行accepted authority。`docs/document-status.md`同步镜像PHASE-5
 `in_review`。ADR-0021、SPEC-TASKQUAL-001与PHASE-5后续accepted amendment frontmatter的`reviewCommit`必须
@@ -669,6 +716,23 @@ metadata commit；package连同accepted ADR approval metadata才构成§8完整E
 proposal baseline、activation commit自身或非direct parent均拒绝。只有该activation commit在expiry前完成后
 TASK-D0-10才恢复`in_progress`；完成面重置后不得再次扩大。
 
+### 11.1 activation 后 capability R2 纠错
+
+首次activation后的Linux probe证明原checkpoint不可达，因此task按`GOV-TASK-FREEZE-001` R2重新
+`blocked`。本节修正仍交付同一v2 terminal signer、同一seven-argument API、同一custody backend、同一
+TST-DOC-001 subprofile及同一doneWhen，不改Output/Tests/Dependencies/Prerequisites/inScope/outOfScope，
+不是第二次Exception或完成面扩张。纠错必须形成新的immutable proposed-body commit，并由独立
+Architecture+Quality+Security复审至P0/P1=0；随后只允许metadata-only commit把ADR-0021、
+SPEC-TASKQUAL-001与PHASE-5共同恢复`accepted`且三者reviewCommit exact指向该proposed body。
+
+若metadata acceptance仍早于`2026-07-25T06:00:00Z`，其唯一direct-child reactivation只可把task
+`blocked→in_progress`，并把existing package的`freezeCommit`重锚到该metadata commit；`exceptionId`、
+`exceptionExpiresAt`及除`freezeCommit`外所有package field必须逐字不变。无论届时是否已reactivation，若
+`2026-07-25T06:00:00Z`尚未`done`，必须把任何`in_progress`原子转回`blocked`（或经批准Split），旧Exception
+不再授权继续实现、再次reactivation或延长时限；后续须按`GOV-TASK-FREEZE-001`重新取得书面Exception。
+旧`c22ed76e`只证明原accepted black-box RED；纠错accepted后必须先补提交同一TST subprofile的
+capability-transition RED，才可恢复production runtime GREEN。
+
 ## 12. 验证要求
 
 既有`TST-DOC-001/task-qualification-v1`至少覆盖：
@@ -683,10 +747,22 @@ TASK-D0-10才恢复`in_progress`；完成面重置后不得再次扩大。
   U dev/ino或uid/gid map漂移、unmapped/overflow ID、sibling user namespace、service不在P或adapter不在唯一child A、
   supervisor/isolation-policy每个closed field错配、capability所属namespace错误/过宽/未drop、supervisor与service
   并存或seed-open后fork、socketpair endpoint lineage/FD/inode/`FD_CLOEXEC`任一替换、未清除或duplicate、dynamic
-  ELF/PT_INTERP/DT_NEEDED、错误serviceExecutableFd/exec flags/argv/非空environment或execve/second-exec、
+  ELF/PT_INTERP/DT_NEEDED、setuid/setgid mode bit、任意`security.capability` xattr、错误serviceExecutableFd/
+  exec flags/argv/非空environment或execve/second-exec、
   executable相同但closure/buildPolicy bytes/ref不同及
   handoff/profile/parser/service/head任一漂移、proc path非canonical/非allowlisted/非procRootFd或flags错误均拒绝；
   unsigned launch receipt不能替代direct service observation；
+- eligible Linux kernel-backed capability matrix必须逐checkpoint读取`/proc/self/status`并用`PR_CAPBSET_READ`
+  交叉确认：旧`custodyCapabilities=[19]`、缺8或19、任一extra bit、ambient/inheritable/permitted不等、ambient raise
+  失败、`no_new_privs`或exec顺序漂移、先清SETPCAP、19/8 bounding drop反序或遗漏、steady残留8/B/I/A、terminal
+  非全零、sibling U及shared supplementary group全部零签名并durably reject；adapter/service还须覆盖
+  adapter在credential drop前清空bounding set，以及两侧`setgroups→setresgid→setresuid`顺序、
+  real/effective/saved/fs UID/GID exact与所有filtered credential mutation negatives。正例必须在ordinary
+  static `execveat`后保持五组`[8,19]`，再达到`B/I/A=[] P/E=[19]`和terminal
+  五组全零；
+- signed seccomp matrix必须拒绝缺少/增加/放宽transition `prctl`、`capset`、final-filter overlay规则，拒绝filtered
+  stage出现任何UID/GID/group mutation（含`setfsuid/setfsgid`）或第二exec；在两次bounding drop、ambient clear、steady capset任一处注入
+  crash/kill都必须由recovery把nonce永久写`rejected`，不得把host不支持ambient当PASS或fallback；
 - `SOCK_SEQPACKET` split frame、two-frames-one-packet、packet/u32 mismatch、socket buffer不足、`sendmsg/sendmmsg`
   或任意非kernel-injected ancillary data拒绝；六种frame的
   方向与domain exact；lookup missing/extra/duplicate/out-of-order、response插入及terminal
@@ -715,3 +791,7 @@ TASK-D0-10才恢复`in_progress`；完成面重置后不得再次扩大。
 3. caller/env传seeds或adapter内嵌keys：违反API/custody，拒绝。
 4. 预签acceptance、复用handoff/service signature：存在statement时序或domain/quorum错误，拒绝。
 5. generic `sign(digest)` RPC：形成三角色签名oracle，拒绝。
+6. executable file capability：引入未签`security.capability`版本/rootid、mount `nosuid`与inode metadata authority，
+   且仍不能在缺`CAP_SETPCAP`时清bounding set，拒绝。
+7. 以U内root身份exec后再切service UID/GID：需要额外root identity/map与post-exec setuid/group surface，
+   相比exact `[8,19]` ambient bridge扩大TCB，拒绝。

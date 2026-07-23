@@ -31,6 +31,11 @@ schema/profile version justification 的 golden/ABI/layout change 阻断合并�
 version negotiation、v1→v2 coercion、dual reader、best effort或fallback。
 
 迁移只适用于首次production acceptance前尚未发布的D0-10 candidate：旧candidate `1e0214f9`永久不可closeout，
-必须从accepted v2 profile/service pin建立新candidate。rollback只能撤销尚未签发的v2 pins/objects、spend
-全部handoff nonce并让TASK-D0-10回到blocked；一旦v2 acceptance签发，修复必须使用新protocol major，不能
-回退v1或caller-provided seeds。仓库没有已发布v2对象需要data migration。
+必须从accepted v2 profile/service pin建立新candidate。首个v2 pin/acceptance前的Linux feasibility纠错保持
+protocol/service/frame closed wire与`2.0.0` major不变，只把未发布isolation-policy的不可达
+`custodyCapabilities=[CAP_SYS_PTRACE]`替换为exact
+`[CAP_SETPCAP,CAP_SYS_PTRACE]` ambient exec transition；旧policy bytes/profile refs一律删除并cross-reject，
+关联nonce spent，不存在same-ID/digest alias、dual transition或runtime negotiation。rollback只能撤销尚未签发的
+v2 pins/objects、spend全部handoff nonce并让TASK-D0-10回到blocked；一旦v2 acceptance签发，修复必须使用新
+protocol major，不能回退v1、旧capability checkpoint或caller-provided seeds。仓库没有已发布v2对象需要data
+migration。
