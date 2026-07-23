@@ -28,9 +28,9 @@ normative: true
 | 商业验证 | [`00-business-validation.md`](00-business-validation.md) | `draft` | 市场假设与 Go/No-Go |
 | 产品 | [`01-prd.md`](01-prd.md) | `accepted` | 用户需求、范围、成功标准 |
 | 架构 | [`02-architecture.md`](02-architecture.md) | `accepted` | 系统边界、不变量、数据流 |
-| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | `03-technical-spec.md`及其他accepted specs的API/schema/错误/版本；当前`SPEC-TASKQUAL-001` capability-transition C3纠错为`in_review`并排除在accepted aggregate外 |
+| 技术规格 | [`03-technical-spec.md`](03-technical-spec.md) + `specs/` | `accepted` | API、schema、错误和版本；包含已批准的`SPEC-TASKQUAL-001` capability-transition C3纠错 |
 | 实施计划 | [`04-task-breakdown.md`](04-task-breakdown.md) | `accepted` | 任务顺序与任务验收 |
-| 测试 | [`05-test-spec.md`](05-test-spec.md) | `in_review` | 验收和证据要求；ADR-0021 capability-transition C3纠错审核中，旧accepted批准只保留于Git历史 |
+| 测试 | [`05-test-spec.md`](05-test-spec.md) | `accepted` | 验收和证据要求；包含已批准的ADR-0021 ambient capability-transition matrix |
 | 实现事实 | [`06-implementation-log.md`](06-implementation-log.md) | `draft` | alpha 实际命令、结果与限制 |
 | 最终评审 | [`07-review-report.md`](07-review-report.md) | `not_started` | 发布判断 |
 
@@ -46,9 +46,11 @@ verified claim → synthesis。`proposed` 文档不能覆盖已接受决策。
 `T-019f7dea-e600-77ea-8884-9f35f81f747d`。2026-07-23 首次C3 terminal-signing amendment的历史
 accepted unit为`ADR-0021`、当时的`SPEC-TASKQUAL-001`与PHASE-5，reviewCommit为
 `3d68d8658cc26ce95201b277b10e4a94103836af`；该批准只保留于Git历史。真实Linux probe随后证明其中
-capability checkpoint不可达，当前三份bytes已共同转`in_review`且不再由旧metadata授权。只有新的
-immutable proposed-body commit取得commit-bound P0/P1=0复审，并由metadata-only commit重新记录
-Architecture+Quality+Security批准后，当前bytes才可恢复`accepted`。
+capability checkpoint不可达。纠错后的immutable proposed-body commit固定为
+`d7390d472785fae533460eb96f31bdbec13ae21e`，两次fresh commit-bound复审
+`019f8f3c-ab93-7a50-a267-696a04253d76`与`019f8f3c-ab93-7a50-a267-697b0f23c2d5`均为P0=0、P1=0；
+当前三份bytes仅以metadata-only变更重新记录Architecture+Quality+Security批准并恢复`accepted`，normative
+body相对该reviewCommit零变化。
 
 ## 接受与废弃
 
