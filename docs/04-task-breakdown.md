@@ -91,7 +91,7 @@ openFindings: none
 | TASK-D0-07 | 在 current、non-revoked BootstrapApprovalSet activation 后执行正式 hermetic archive clean-room gate，并实现 formal evidence-set finalizer、freshness/private scan/revocation 与 acceptance/support-binding producer/store | TASK-D0-04 | — | TST-EVIDENCE-002, TST-ISO-002 | EV-20260720-0003 | done |
 | TASK-D0-08 | SBOM↔toolchains.lock closure 重算、release binding、per-executable/per-dylib 粒度与 TST-SBOM-001 全量语义收尾 | TASK-D0-05 | — | TST-SBOM-002 | EV-20260718-0053 | done |
 | TASK-D0-09 | Linux host profile schema v2/生成器/验证器、locked linux tool root（Tool Lock v3 per-platform 文件/elfPolicy/linux 资产）与 Stage-0 linux 分支；darwin 行为不变 | TASK-D0-03 | — | TST-HOST-002 | EV-20260718-0052 | done |
-| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | in_progress |
+| TASK-D0-10 | task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge | TASK-D0-07 | ADR-0020@accepted, GOV-TASKQUAL-BOOTSTRAP-001@accepted, SPEC-TASKQUAL-001@accepted | TST-DOC-001 | — | blocked |
 
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
@@ -131,7 +131,19 @@ v2 custody transition；不得以 file capability、U-root、额外 helper、fal
 reviewCommit 零变化。本 reactivation 是该 metadata commit 的 direct child，只把 replacement package 的
 `freezeCommit` 重锚到 exact parent 并将 TASK-D0-10 `blocked→in_progress`；其余 package 字段及冻结
 Output/Tests/Dependencies/Prerequisites/doneWhen 全部不变。旧 candidate `1e0214f9` 与旧 checkpoint RED
-`c22ed76e` 均不得复用为新实现/closeout；下一提交必须先建立 corrected capability matrix 的 tests-only RED。
+`c22ed76e` 均不得复用为新实现/closeout；corrected capability matrix 的 tests-only RED 已由
+`e574aaf11d4c829eea28e3dd993f85c6e3e28bf1` 建立。
+
+2026-07-24 artifact identity R2 triage：GREEN 审计确认 accepted `SPEC-TASKQUAL-001` §8.2/§8.4
+要求 protected adapter/service 从 payload bytes 按 original accepted schema/domain 重算 production
+artifact 及 adapter/parser/service/supervisor executable、closure、build-policy `ContentRef`；但现有
+accepted registry 只覆盖少数 typed payload，未为其余 raw executable/tool/probe/scanner/policy bytes
+定义 owning schema/domain。mapping 的 independent `payloadSha256` 只证明裸字节，不能认证另一个任意
+`ContentRef`；把它复用为 ref digest 或借用 fixture/host schema 都违反 `SPEC-COMMON-001`。按
+`GOV-TASK-FREEZE-001` §4/§5 停止 authoritative GREEN 并将任务置为 `blocked`；冻结 Output/Tests/
+Dependencies/Prerequisites/doneWhen、既有 Exception surface 与 `2026-07-25T06:00:00Z` expiry 全部不变。
+只允许先按 `GOV-CHANGE-001` 定义 exact taskqualification raw-payload identity及closed role→schema owner
+registry并重审；禁止以 generic raw hash、wrapper masquerade 或仅检查 `payloadSha256` 伪造 positive。
 
 `TASK-D0-09` 经 [`adr/0016-cross-platform-host-profile-and-linux-eligibility.md`](adr/0016-cross-platform-host-profile-and-linux-eligibility.md)
 立项（GOV-TASK-FREEZE-001 §4 R3 / §7 milestone 变更）：linux host profile 与 locked linux

@@ -8882,3 +8882,28 @@ normative: false
   closeout。旧 candidate `1e0214f9` 继续拒绝，`c22ed76e` 只证明旧 checkpoint 的 RED；下一提交必须先在
   既有 `TST-DOC-001/task-qualification-v1` 下建立 corrected capability matrix 的 tests-only RED，之后才可
   进入 authoritative GREEN implementation。
+
+## 2026-07-24 — TASK-D0-10 raw artifact ContentRef owner R2 block
+
+- Trigger：corrected tests-only RED `e574aaf11d4c829eea28e3dd993f85c6e3e28bf1` 后逐线审计当前
+  working-tree adapter 的 `_validate_provenance_source_joins`。实现只验证
+  `SHA-256(payload)==mapping.payloadSha256`，没有按 `mapping.artifact.schema` 重算并比较原始
+  `ContentRef`。
+- Normative contradiction：`SPEC-TASKQUAL-001` §8.2/§8.4 明确要求 adapter/service 对 production
+  artifact 与 adapter/parser/service/supervisor payload 按 original accepted schema/domain 重算 ref；
+  `SPEC-COMMON-001` 又明确禁止 Common 或 consumer 发明跨 schema generic content hash。当前 owner
+  实现仅能确认 private-scan policy、host observation/profile、legacy authority-store descriptor 等少数
+  schema；raw executable、closure、build-policy、resolved tool/probe/scanner 既无 accepted owning
+  schema/domain，也无 total role→owner registry。因此同一合法 payloadSha256 可与任意 signed
+  ContentRef 并存，positive 无法证明 ref identity。
+- Rejected shortcuts：不把 `payloadSha256` 当 ref digest，不使用 fixture resolved-blob schema，不把二进制
+  冒充 host/profile/private-scan payload，也不增加 unknown-schema fallback。上述做法分别违反 independent
+  hash 字段、production/fixture 分离及 schema owner 边界。
+- Triage：按 `GOV-CHANGE-001` 与 `GOV-TASK-FREEZE-001` R2 停止 authoritative implementation；
+  `TASK-D0-10` 从 `in_progress` 回到 `blocked`。冻结 Output/Tests/Dependencies/Prerequisites/doneWhen、
+  `FX-2026-07-23-D0-10` surface/expiry均不变；D0仍为9/10，D1-01仍dependency-blocked。当前六个已修改
+  Python文件和未跟踪v2 protocol草稿保留于working tree，未提交、未推送、不是candidate或review evidence。
+- Next：先形成 `ADR-0021`/`SPEC-TASKQUAL-001`/PHASE-5 的窄 proposed body：定义独立
+  `proof-forge.task-qualification-artifact-payload.v1` raw identity、exact digest preimage、closed
+  role→schema owner dispatch及unknown/masquerade negatives；取得commit-bound独立P0/P1=0复审和
+  metadata-only re-acceptance后，若仍在Exception时限内才可恢复同一GREEN。生产seed未读取、复制或输出。

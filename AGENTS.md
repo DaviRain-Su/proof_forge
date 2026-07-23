@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` capability-transition C3 纠错已 accepted 并恢复 `in_progress`；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | **TASK-D0-10**（in_progress；冻结 Output/Tests/Dependencies/Prerequisites/doneWhen 不变；pure verifier/protected adapter/authority-store v2/one-time bridge） |
-| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0）；`c22ed76e` 绑定旧不可达 checkpoint，仅为历史 tests-only RED；新候选尚未建立 |
-| Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
-| Active development slice | corrected capability-transition tests-only RED；RED 提交前禁止 authoritative runtime implementation |
-| Next development slice | 在既有 `TST-DOC-001/task-qualification-v1` 下提交 corrected exact v2 matrix RED，再并行修复 verifier/adapter、static runtime、ceremony、structural docs checker 与 D0-07 bridge；禁止触碰 D1/DSL/ProgramV1/Loader/target 范围 |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 因 production raw artifact/identity `ContentRef` owner 未定义而按 R2 暂时 `blocked`；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | 无；当前正式任务 blocked，冻结 Output/Tests/Dependencies/Prerequisites/doneWhen 与既有 Exception surface 不变 |
+| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0）；`e574aaf1` 仅为 corrected tests-only RED；当前 working tree GREEN 草稿不是 implementation/closeout candidate |
+| Next task | **TASK-D0-10**（blocked；artifact payload identity/owner registry 修订 accepted 后才可恢复；D1 仍 pending） |
+| Active development slice | 无 authoritative implementation slice；现有 verifier/adapter/runtime/ceremony 草稿保留在 working tree，不得在 R2 spec accepted 前形成候选 |
+| Next development slice | `ADR-0021`/`SPEC-TASKQUAL-001`/PHASE-5 的 raw artifact `ContentRef` owner registry proposed-body、commit-bound 独立复审与 metadata-only re-acceptance；禁止触碰 D1/DSL/ProgramV1/Loader/target 范围 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无；capability R2 已以 reviewed C3 transition 解除。正式 closeout 仍须新 RED→GREEN candidate、独立复审、生产 A+Q+S 签名与 external receipt/GBC |
+| Known blocker | **TASK-D0-10 R2**：accepted spec 要求 adapter/service 按 original schema/domain 重算 executable、closure、build-policy、tool/probe/scanner payload 的 `ContentRef`，但这些 raw payload 没有 owning schema/domain registry；`payloadSha256` 不能替代独立 `ContentRef`，且 `SPEC-COMMON-001` 禁止 generic content hash |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
