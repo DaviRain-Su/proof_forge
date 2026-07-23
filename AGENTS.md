@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 因 accepted ADR-0021 capability checkpoint 经真实 Linux probe 证明不可达而暂时 blocked；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | 无；当前正式任务 blocked，冻结 Output/Tests/Dependencies/Prerequisites/doneWhen 不变，等待 capability 规格纠错 accepted 后恢复 |
-| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0）；`c22ed76e` 仅为 tests-only RED，不是 implementation/closeout candidate；新候选尚未建立 |
-| Next task | **TASK-D0-10**（blocked；ADR-0021/SPEC-TASKQUAL-001/PHASE-5 capability 修订 accepted 后才可恢复 in_progress；D1-01 仍 pending） |
-| Active development slice | 无 authoritative implementation slice；隔离返工均不得在 corrected ADR accepted 前进入 candidate |
-| Next development slice | ADR-0021/SPEC-TASKQUAL-001/PHASE-5 的 C3 capability-transition proposed-body、commit-bound 独立复审与 metadata-only re-acceptance；禁止触碰 D1/DSL/ProgramV1/Loader/target 范围 |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` capability-transition C3 纠错已 accepted 并恢复 `in_progress`；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | **TASK-D0-10**（in_progress；冻结 Output/Tests/Dependencies/Prerequisites/doneWhen 不变；pure verifier/protected adapter/authority-store v2/one-time bridge） |
+| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0）；`c22ed76e` 绑定旧不可达 checkpoint，仅为历史 tests-only RED；新候选尚未建立 |
+| Next task | **TASK-D1-01**（pending；仍依赖 D0-10 done） |
+| Active development slice | corrected capability-transition tests-only RED；RED 提交前禁止 authoritative runtime implementation |
+| Next development slice | 在既有 `TST-DOC-001/task-qualification-v1` 下提交 corrected exact v2 matrix RED，再并行修复 verifier/adapter、static runtime、ceremony、structural docs checker 与 D0-07 bridge；禁止触碰 D1/DSL/ProgramV1/Loader/target 范围 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-10**：accepted ADR-0021 要求 static `execveat` 前 `CapBnd/CapPrm/CapEff={CAP_SYS_PTRACE}`、`CapInh/CapAmb=0`，但 Linux exec 后丢失 permitted/effective，且仅持有 `CAP_SYS_PTRACE` 无法以 `PR_CAPBSET_DROP` 清零 bounding set；须先完成同一 v2 surface 内的 C3 规格纠错 |
+| Known blocker | 无；capability R2 已以 reviewed C3 transition 解除。正式 closeout 仍须新 RED→GREEN candidate、独立复审、生产 A+Q+S 签名与 external receipt/GBC |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

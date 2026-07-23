@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "taskId": "TASK-D0-10",
   "frozenAt": "2026-07-23",
-  "freezeCommit": "0bbd1b2445622760a9c4e1b21220f53183727ce6",
+  "freezeCommit": "687d59bb229e3b0bdc3fd7bb56dd4b8a2c749753",
   "exceptionId": "FX-2026-07-23-D0-10",
   "exceptionExpiresAt": "2026-07-25T06:00:00Z",
   "output": "task-scoped formal qualification verifier + protected docs consumer + taskqualification authority-store v2 terminal signer + one-time completion bridge",

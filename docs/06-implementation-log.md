@@ -8861,3 +8861,24 @@ normative: false
   `PF-CEREMONY-PREREQ`；该aggregate不能写成PASS，须在metadata-only re-acceptance后重跑。尚未取得绑定
   immutable commit的独立review或approval，corrected capability RED亦尚未提交；隔离implementation继续
   非权威、不得合并。
+
+## 2026-07-23 — TASK-D0-10 capability correction accepted and reactivated
+
+- Review：immutable proposed-body commit `d7390d472785fae533460eb96f31bdbec13ae21e` 由 fresh
+  Architecture/Security invocation `019f8f3c-ab93-7a50-a267-696a04253d76` 与 Governance/Quality invocation
+  `019f8f3c-ab93-7a50-a267-697b0f23c2d5` 独立复审；两者均结论 P0=0、P1=0、APPROVE。
+- Acceptance：ADR-0021、SPEC-TASKQUAL-001 与 PHASE-5 只经 metadata/index commit
+  `687d59bb229e3b0bdc3fd7bb56dd4b8a2c749753` 恢复 `accepted`；三份 normative body 相对 reviewCommit
+  零变化。提交前 `/usr/bin/python3 -I -S scripts/docs_check.py --root .` 输出 `docs-check: ok`，
+  `scripts/docs_check_self_test.py` 输出 `ok (204 mutations)`，`git diff --check` 通过。
+- Full gate：reactivation worktree 上 `just docs-check` exit 0（1951.54s）；包含
+  `formal-clean-room-self-test: ok (16 checks)`（real run 304s）、genesis replay、tool invocation，以及
+  metadata re-acceptance 后的 `bootstrap-ceremony-prep-self-test: ok`。
+- Reactivation：本提交是 `687d59bb` 的 direct child；TASK-D0-10 `blocked→in_progress`，replacement package
+  的 `freezeCommit` 重锚到 exact parent。除该 anchor 外 package 其余字段逐字节不变，任务行
+  Output/Tests/Dependencies/Prerequisites/doneWhen 与 Exception surface 全部不变；仍在
+  `2026-07-25T06:00:00Z` expiry 前。
+- Boundary：没有修改 Python/Lean/Zig、TST 集合、EV、authority object、seed、signature、candidate 或
+  closeout。旧 candidate `1e0214f9` 继续拒绝，`c22ed76e` 只证明旧 checkpoint 的 RED；下一提交必须先在
+  既有 `TST-DOC-001/task-qualification-v1` 下建立 corrected capability matrix 的 tests-only RED，之后才可
+  进入 authoritative GREEN implementation。
