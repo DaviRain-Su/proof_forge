@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` 因 production raw artifact/identity `ContentRef` owner 未定义而按 R2 暂时 `blocked`；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | 无；当前正式任务 blocked，冻结 Output/Tests/Dependencies/Prerequisites/doneWhen 与既有 Exception surface 不变 |
-| D0-10 candidate | `1e0214f9` 已被独立终审拒绝（P1>0）；`e574aaf1` 仅为 corrected tests-only RED；当前 working tree GREEN 草稿不是 implementation/closeout candidate |
-| Next task | **TASK-D0-10**（blocked；artifact payload identity/owner registry 修订 accepted 后才可恢复；D1 仍 pending） |
-| Active development slice | 无 authoritative implementation slice；现有 verifier/adapter/runtime/ceremony 草稿保留在 working tree，不得在 R2 spec accepted 前形成候选 |
-| Next development slice | `ADR-0021`/`SPEC-TASKQUAL-001`/PHASE-5 的 raw artifact `ContentRef` owner registry proposed-body、commit-bound 独立复审与 metadata-only re-acceptance；禁止触碰 D1/DSL/ProgramV1/Loader/target 范围 |
+| Formal milestone | **D0：9/10 done**；`TASK-D0-10` raw artifact owner R2已按single-maintainer owner waiver批准并恢复实施；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
+| Active task | **TASK-D0-10**（in_progress；冻结完成面与既有 Exception surface不变） |
+| D0-10 candidate | `1e0214f9` 已被拒绝；`38047c1e`是focused owner tests-only RED；当前 working tree GREEN尚未形成新implementation candidate |
+| Next task | **TASK-D1-01**（pending；仍依赖D0-10正式done） |
+| Active development slice | closed raw/typed owner dispatch、protected identity joins及七参数production acceptance GREEN |
+| Next development slice | 完成authority-store v2 qualified input、生产ceremony、新C→direct-child D及证据/checkpoint；禁止触碰D1/DSL/ProgramV1/Loader/target范围 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D0-10 R2**：accepted spec 要求 adapter/service 按 original schema/domain 重算 executable、closure、build-policy、tool/probe/scanner payload 的 `ContentRef`，但这些 raw payload 没有 owning schema/domain registry；`payloadSha256` 不能替代独立 `ContentRef`，且 `SPEC-COMMON-001` 禁止 generic content hash |
+| Known blocker | 无外部blocker；authority-store v2仍需把qualified production acceptance从25/26闭合到26/26，并完成真实签名与C→D |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

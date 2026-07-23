@@ -8949,3 +8949,16 @@ normative: false
   dispatch、plain checksum独立验证、五组三件套和D0 consumer↔adapter跨carrier join后，focused matrix为
   `8/8 passed`；既有RED matrix `111/111`、protected adapter `39/39`保持通过。authority-store v2仍为`25/26`，
   唯一RED是`QUALIFIED-INTEGRATION-INPUT-ABSENT`；当前改动尚未形成implementation candidate。
+
+## 2026-07-24 — TASK-D0-10 owner-waiver acceptance + direct-child reactivation
+
+- Acceptance：包含waiver的immutable body `102342f5c89600780220e6c075f7ddac937dcf2e`由唯一维护者批准；
+  metadata-only commit `f45d1c83bc8d97b6878309a7ebd188a24332d0f6`只恢复ADR-0021、
+  SPEC-TASKQUAL-001、PHASE-5的`accepted` frontmatter及status/index mirror，三份normative body零变化。
+  `approvers: davirain`明确是owner directive，不是independent review。
+- Reactivation：本提交是`f45d1c83` direct child，只把TASK-D0-10 `blocked→in_progress`并将existing
+  replacement package的`freezeCommit`重锚到exact parent；`exceptionId`、expiry及其他package字段、冻结
+  Output/Tests/Dependencies/Prerequisites/doneWhen逐字不变，仍早于`2026-07-25T06:00:00Z`。
+- Verification：metadata acceptance前后`docs-check: ok`、`docs-check-self-test: ok (204 mutations)`、
+  `git diff --check`通过。没有seed读取、production签名、EV、candidate或closeout；下一步继续当前owner GREEN，
+  再建立新implementation candidate。
