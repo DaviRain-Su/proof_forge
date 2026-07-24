@@ -3697,6 +3697,57 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   binary、PA121/122 Python oracles、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review；不声称
   independent review，不运行完整`just ci`。只能记录development evidence，不能关闭完整golden/span面、TST-SRC-001、
   pending TASK-D1-01或下游task。
+- D1-PA-125 建立constructed validated ProgramV1的单一full-tag positive wire golden package prerequisite；它只闭合
+  production encoder/decoder/sourceHash/NodeId与不import Lean/ProofForge的Python实现之间的checked-in payload契约，
+  不声称完成含`sourceUtf8`、Lean command、Loader或span的最终`GoldenSourceProgramV1`。fixture必须经
+  `validateSourceV1`，module固定`#["Golden"]`，program identity固定`#["Golden", "FullTag"]`，case ID固定
+  `full-tag-valid-v1`。同一个ProgramV1必须覆盖closed 84 wire tags、57 node-bearing tags与63 child-edge pairs，且
+  declaration-set valid：13种ProgramItem各至少一次、恰一个init、entry/view/fn名称互异、proof引用已声明invariant，
+  每个需要nonempty的array/block均合法，所有需唯一的field/variant/parameter/name集合无重复。
+
+  fixture还必须在同一package中固定三种Visibility；UInt/Int各`8/16/32/64/128/256`；Array/Bytes length `0/4096`；
+  For bound `0/4096`；Bool `false/true`；Integer `0/(2^256-1)`；NFC Unicode Ident/String；empty/single/multiple array；
+  `Stmt.Let.typeAnn`、`Stmt.If.elseBlock`、`Stmt.Assert.error`、`Stmt.Return.value`各自的none/some；三种UnaryOp与
+  18种BinaryOp；全部Type/Stmt/Expr/Place/Pattern alternatives。decimal/hex source-spelling equivalence属于后续
+  source-bound golden，不得由constructed AST冒充。
+
+  checked-in package路径固定为：
+
+  ```text
+  testdata/golden/source-program-v1/full-tag-v1/manifest.json
+  testdata/golden/source-program-v1/full-tag-v1/canonical.bin
+  ```
+
+  manifest schema固定`proof-forge.source-program-wire-golden-prerequisite.v1`，scope固定
+  `constructed-validated-programv1-no-frontend`，并包含caseId、moduleName、programIdentity、canonicalFile、
+  `canonicalBytesSha256`、`expectedSourceHash`、ASCII unique sorted `wireTags`、ASCII unique sorted `nodeTags`、
+  按`(parentTag,fieldTag)` unique sorted `edgePairs`及canonical preorder `expectedNodePathsAndIds`；每个node row
+  exact包含`constructorTag`、path的`parentTag/fieldTag/index`和lowercase `nodeid:`。JSON必须是UTF-8、LF、
+  recursively sorted keys、two-space indent、final newline；`canonical.bin`保存raw bytes而不是hex/base64。
+  Python checker必须同时验证raw file SHA-256、domain-separated sourceHash、decode/re-encode由Lean suite闭合、
+  tag/edge closed inventory、path唯一、NodeId preimage/SHA first-16和manifest逐项相等，不能只比较最终hash。
+
+  新增`Tests.Language.SourceProgramWireGoldenV1`必须手工构造同一fixture并读取package，不从manifest/JSON decode
+  ProgramV1；它验证validated production bytes与`canonical.bin`逐byte相等、sourceHash、production root decoder
+  exact value/re-encode，以及production `assignNodeIdsV1`的每个tag/path/NodeId与manifest逐项相等。新增assert-free
+  `scripts/reference_source_program_wire_golden_v1.py`独立定义同一logical fixture、84-tag encoder、57/63 traversal与
+  PF-JCS NodeId；CLI只允许`--emit`与`--self-check`，self-check不得写文件，normal/`-O`输出同一
+  `reference_source_program_wire_golden_v1: ok 1 84 57 63`，无参数/unknown argv exit2。`--emit`只能原子重写上述
+  两个固定package files，输出前完整自验；不得生成production source、cache或第二份ProgramV1 decoder。
+
+  变更文件集精确为新增上述Lean suite/Python oracle/two-file golden package，只修改`Tests.lean`、`lakefile.lean`与
+  `SourceWireAcceptance.lean`注册。无`ProofForgeV2/**`变更，故不得机械改变70-file production manifest。
+  Lean suite≤700行、Python≤850行、manifest≤4000行且≤320KiB、raw binary≤64KiB、registrations additions≤5，
+  总text additions≤5600。明确排除source parser/command/Loader/export v2、sourceUtf8声称、negative field-count
+  mutation corpus、span/origin/SourceNodeInventory、production wire/hash/NodeId改写、legacy bridge/dual reader/
+  second quoted decoder/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因两个exact package files不存在而在direct Lean与Python self-check失败；提交前先用未提交
+  `--emit` package证明suite compile/direct与Python self-check全绿，再删除package确认missing-package RED，package
+  不得进入RED commit。GREEN只提交deterministic package files。最终运行focused suite与`SourceWireAcceptance`
+  direct、Python normal/`-O`/invalid argv、PA121/122 oracles、aggregate/test binary、最终单次`just sbom`、docs/diff与
+  main-agent self-review；不声称independent review，不运行完整`just ci`。只能记录development evidence，仍不关闭
+  source-bound/negative/span residual、完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
