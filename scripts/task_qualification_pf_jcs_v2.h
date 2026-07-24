@@ -28,6 +28,8 @@ typedef struct pf_tq_jcs_node_v2 {
     size_t raw_end;
     size_t string_start;
     size_t string_size;
+    size_t string_decoded_size;
+    int string_has_escape;
     uint64_t uint_value;
     int bool_value;
     size_t first_child;
@@ -65,13 +67,25 @@ typedef struct pf_tq_jcs_field_v2 {
 } pf_tq_jcs_field_v2;
 
 /*
- * The task-qualification v2 protocol uses only printable ASCII strings,
- * non-negative PF-JCS safe integers, bool, null, arrays and objects. This
- * parser intentionally rejects escapes, non-ASCII strings, whitespace,
- * negative numbers and floating-point forms. Object keys must already be
- * strictly ASCII-byte sorted, which simultaneously rejects duplicates.
+ * The default task-qualification v2 parser retains printable unescaped ASCII
+ * strings, non-negative PF-JCS safe integers, bool, null, arrays and closed
+ * ASCII-key objects. The explicit Unicode entrypoint below additionally allows
+ * exact RFC-8785 escapes and shortest UTF-8 values for isolation mount paths.
+ * Whitespace, negative/floating numbers, non-ASCII keys and duplicate or
+ * unsorted keys are rejected in both modes.
  */
 int pf_tq_jcs_parse_v2(
+    const unsigned char *bytes,
+    size_t size,
+    pf_tq_jcs_document_v2 *document,
+    char *error,
+    size_t error_size
+);
+
+/* Isolation-policy-only extension: values may use shortest UTF-8 and exact
+ * RFC-8785 escapes. Closed object keys remain ASCII. Existing protocol owners
+ * intentionally stay on pf_tq_jcs_parse_v2 and retain the ASCII-only surface. */
+int pf_tq_jcs_parse_unicode_v2(
     const unsigned char *bytes,
     size_t size,
     pf_tq_jcs_document_v2 *document,

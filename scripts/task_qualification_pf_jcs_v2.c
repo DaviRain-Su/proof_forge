@@ -14,6 +14,7 @@ struct pf_tq_jcs_parser {
     size_t offset;
     char *error;
     size_t error_size;
+    int unicode_strings;
 };
 
 static int pf_tq_jcs_error(
@@ -82,14 +83,64 @@ static size_t pf_tq_jcs_allocate_member(struct pf_tq_jcs_parser *parser) {
     return index;
 }
 
+static int pf_tq_jcs_string_hex_value(unsigned char character) {
+    if (character >= '0' && character <= '9') return character - '0';
+    if (character >= 'a' && character <= 'f') return character - 'a' + 10;
+    return -1;
+}
+
+static int pf_tq_jcs_utf8_sequence(
+    const unsigned char *bytes,
+    size_t size,
+    size_t offset,
+    size_t *width
+) {
+    unsigned char first = bytes[offset];
+    if (first >= 0xc2U && first <= 0xdfU) {
+        if (size - offset < 2U || bytes[offset + 1U] < 0x80U ||
+                bytes[offset + 1U] > 0xbfU) return -1;
+        *width = 2U;
+        return 0;
+    }
+    if (first >= 0xe0U && first <= 0xefU) {
+        unsigned char second;
+        if (size - offset < 3U || bytes[offset + 1U] < 0x80U ||
+                bytes[offset + 1U] > 0xbfU || bytes[offset + 2U] < 0x80U ||
+                bytes[offset + 2U] > 0xbfU) return -1;
+        second = bytes[offset + 1U];
+        if ((first == 0xe0U && second < 0xa0U) ||
+                (first == 0xedU && second > 0x9fU)) return -1;
+        *width = 3U;
+        return 0;
+    }
+    if (first >= 0xf0U && first <= 0xf4U) {
+        unsigned char second;
+        if (size - offset < 4U || bytes[offset + 1U] < 0x80U ||
+                bytes[offset + 1U] > 0xbfU || bytes[offset + 2U] < 0x80U ||
+                bytes[offset + 2U] > 0xbfU || bytes[offset + 3U] < 0x80U ||
+                bytes[offset + 3U] > 0xbfU) return -1;
+        second = bytes[offset + 1U];
+        if ((first == 0xf0U && second < 0x90U) ||
+                (first == 0xf4U && second > 0x8fU)) return -1;
+        *width = 4U;
+        return 0;
+    }
+    return -1;
+}
+
 static int pf_tq_jcs_parse_string_range(
     struct pf_tq_jcs_parser *parser,
     size_t *start,
-    size_t *size
+    size_t *size,
+    size_t *decoded_size,
+    int *has_escape,
+    int object_key
 ) {
     const unsigned char *bytes = parser->document->bytes;
     size_t input_size = parser->document->size;
     size_t begin;
+    size_t decoded = 0U;
+    int escaped = 0;
     if (parser->offset >= input_size || bytes[parser->offset] != '"') {
         return pf_tq_jcs_error(parser->error, parser->error_size,
             "PF-JCS string expected at byte %zu", parser->offset);
@@ -98,12 +149,74 @@ static int pf_tq_jcs_parse_string_range(
     begin = parser->offset;
     while (parser->offset < input_size && bytes[parser->offset] != '"') {
         unsigned char character = bytes[parser->offset];
-        if (character < 0x20U || character > 0x7eU || character == '\\') {
+        if (!parser->unicode_strings &&
+                (character == '\\' || character > 0x7eU)) {
             return pf_tq_jcs_error(parser->error, parser->error_size,
                 "PF-JCS protocol string escape/non-ASCII byte rejected at %zu",
                 parser->offset);
         }
-        ++parser->offset;
+        if (character == '\\') {
+            unsigned char escape;
+            if (object_key || input_size - parser->offset < 2U) {
+                return pf_tq_jcs_error(parser->error, parser->error_size,
+                    "PF-JCS object-key/string escape rejected at %zu",
+                    parser->offset);
+            }
+            escaped = 1;
+            escape = bytes[parser->offset + 1U];
+            if (escape == '"' || escape == '\\' || escape == 'b' ||
+                    escape == 't' || escape == 'n' || escape == 'f' ||
+                    escape == 'r') {
+                parser->offset += 2U;
+                ++decoded;
+                continue;
+            }
+            if (escape == 'u' && input_size - parser->offset >= 6U &&
+                    bytes[parser->offset + 2U] == '0' &&
+                    bytes[parser->offset + 3U] == '0') {
+                int high = pf_tq_jcs_string_hex_value(bytes[parser->offset + 4U]);
+                int low = pf_tq_jcs_string_hex_value(bytes[parser->offset + 5U]);
+                unsigned value;
+                if (high < 0 || low < 0) {
+                    return pf_tq_jcs_error(parser->error, parser->error_size,
+                        "PF-JCS unicode escape must use lowercase hex");
+                }
+                value = (unsigned)high * 16U + (unsigned)low;
+                if (value > 0x1fU || value == 0x08U || value == 0x09U ||
+                        value == 0x0aU || value == 0x0cU || value == 0x0dU) {
+                    return pf_tq_jcs_error(parser->error, parser->error_size,
+                        "PF-JCS unicode escape is not RFC-8785 minimal");
+                }
+                parser->offset += 6U;
+                ++decoded;
+                continue;
+            }
+            return pf_tq_jcs_error(parser->error, parser->error_size,
+                "PF-JCS string escape is not RFC-8785 canonical");
+        }
+        if (character < 0x20U) {
+            return pf_tq_jcs_error(parser->error, parser->error_size,
+                "PF-JCS raw control byte rejected at %zu", parser->offset);
+        }
+        if (character <= 0x7fU) {
+            ++parser->offset;
+            ++decoded;
+            continue;
+        }
+        if (object_key) {
+            return pf_tq_jcs_error(parser->error, parser->error_size,
+                "PF-JCS closed object key must be ASCII");
+        }
+        {
+            size_t width = 0U;
+            if (pf_tq_jcs_utf8_sequence(bytes, input_size,
+                    parser->offset, &width) != 0) {
+                return pf_tq_jcs_error(parser->error, parser->error_size,
+                    "PF-JCS invalid UTF-8 at byte %zu", parser->offset);
+            }
+            parser->offset += width;
+            decoded += width;
+        }
     }
     if (parser->offset >= input_size) {
         return pf_tq_jcs_error(parser->error, parser->error_size,
@@ -111,6 +224,8 @@ static int pf_tq_jcs_parse_string_range(
     }
     *start = begin;
     *size = parser->offset - begin;
+    *decoded_size = decoded;
+    *has_escape = escaped;
     ++parser->offset;
     return 0;
 }
@@ -125,7 +240,8 @@ static size_t pf_tq_jcs_parse_string_node(struct pf_tq_jcs_parser *parser) {
     node->type = PF_TQ_JCS_STRING;
     node->raw_start = parser->offset;
     if (pf_tq_jcs_parse_string_range(parser, &node->string_start,
-            &node->string_size) != 0) {
+            &node->string_size, &node->string_decoded_size,
+            &node->string_has_escape, 0) != 0) {
         return PF_TQ_JCS_NONE;
     }
     node->raw_end = parser->offset;
@@ -287,9 +403,17 @@ static size_t pf_tq_jcs_parse_object(
     for (;;) {
         size_t key_start;
         size_t key_size;
+        size_t key_decoded_size;
+        int key_has_escape;
         size_t member;
         size_t value;
-        if (pf_tq_jcs_parse_string_range(parser, &key_start, &key_size) != 0) {
+        if (pf_tq_jcs_parse_string_range(parser, &key_start, &key_size,
+                &key_decoded_size, &key_has_escape, 1) != 0) {
+            return PF_TQ_JCS_NONE;
+        }
+        if (key_decoded_size != key_size || key_has_escape) {
+            (void)pf_tq_jcs_error(parser->error, parser->error_size,
+                "PF-JCS closed object key encoding rejected");
             return PF_TQ_JCS_NONE;
         }
         if (key_size == 0U) {
@@ -367,19 +491,21 @@ static size_t pf_tq_jcs_parse_value(struct pf_tq_jcs_parser *parser, unsigned de
     return PF_TQ_JCS_NONE;
 }
 
-int pf_tq_jcs_parse_v2(
+static int pf_tq_jcs_parse_mode_v2(
     const unsigned char *bytes,
     size_t size,
     pf_tq_jcs_document_v2 *document,
+    int unicode_strings,
     char *error,
     size_t error_size
 ) {
     struct pf_tq_jcs_parser parser;
     size_t capacity;
     pf_tq_jcs_clear_error(error, error_size);
-    if (bytes == NULL || document == NULL || size == 0U || size > 4194304U) {
+    if (bytes == NULL || document == NULL || size == 0U || size > 4194304U ||
+            (unicode_strings != 0 && unicode_strings != 1)) {
         return pf_tq_jcs_error(error, error_size,
-            "PF-JCS input/size must be exact 1..4194304 bytes");
+            "PF-JCS input/size/mode must be exact");
     }
     memset(document, 0, sizeof(*document));
     capacity = size / 2U + 1U;
@@ -400,6 +526,7 @@ int pf_tq_jcs_parse_v2(
     parser.offset = 0U;
     parser.error = error;
     parser.error_size = error_size;
+    parser.unicode_strings = unicode_strings;
     document->root = pf_tq_jcs_parse_value(&parser, 0U);
     if (document->root == PF_TQ_JCS_NONE) {
         pf_tq_jcs_free_v2(document);
@@ -411,6 +538,28 @@ int pf_tq_jcs_parse_v2(
             "PF-JCS trailing bytes at %zu", parser.offset);
     }
     return 0;
+}
+
+int pf_tq_jcs_parse_v2(
+    const unsigned char *bytes,
+    size_t size,
+    pf_tq_jcs_document_v2 *document,
+    char *error,
+    size_t error_size
+) {
+    return pf_tq_jcs_parse_mode_v2(
+        bytes, size, document, 0, error, error_size);
+}
+
+int pf_tq_jcs_parse_unicode_v2(
+    const unsigned char *bytes,
+    size_t size,
+    pf_tq_jcs_document_v2 *document,
+    char *error,
+    size_t error_size
+) {
+    return pf_tq_jcs_parse_mode_v2(
+        bytes, size, document, 1, error, error_size);
 }
 
 void pf_tq_jcs_free_v2(pf_tq_jcs_document_v2 *document) {
@@ -510,17 +659,84 @@ const pf_tq_jcs_node_v2 *pf_tq_jcs_array_at_v2(
         ? NULL : &document->nodes[child];
 }
 
+static unsigned char pf_tq_jcs_escape_byte(
+    const unsigned char *bytes,
+    size_t *offset
+) {
+    unsigned char escape = bytes[*offset + 1U];
+    if (escape == '"' || escape == '\\') {
+        *offset += 2U;
+        return escape;
+    }
+    if (escape == 'b') {
+        *offset += 2U;
+        return 0x08U;
+    }
+    if (escape == 't') {
+        *offset += 2U;
+        return 0x09U;
+    }
+    if (escape == 'n') {
+        *offset += 2U;
+        return 0x0aU;
+    }
+    if (escape == 'f') {
+        *offset += 2U;
+        return 0x0cU;
+    }
+    if (escape == 'r') {
+        *offset += 2U;
+        return 0x0dU;
+    }
+    {
+        int high = pf_tq_jcs_string_hex_value(bytes[*offset + 4U]);
+        int low = pf_tq_jcs_string_hex_value(bytes[*offset + 5U]);
+        *offset += 6U;
+        return (unsigned char)((unsigned)high * 16U + (unsigned)low);
+    }
+}
+
+static int pf_tq_jcs_copy_decoded_string(
+    const pf_tq_jcs_document_v2 *document,
+    const pf_tq_jcs_node_v2 *node,
+    unsigned char *output,
+    size_t output_size
+) {
+    size_t input = 0U;
+    size_t written = 0U;
+    const unsigned char *bytes = document->bytes + node->string_start;
+    while (input < node->string_size) {
+        if (written >= output_size) return -1;
+        if (bytes[input] == '\\') {
+            output[written++] = pf_tq_jcs_escape_byte(bytes, &input);
+        } else {
+            output[written++] = bytes[input++];
+        }
+    }
+    return written == node->string_decoded_size ? 0 : -1;
+}
+
 int pf_tq_jcs_string_equal_v2(
     const pf_tq_jcs_document_v2 *document,
     const pf_tq_jcs_node_v2 *node,
     const char *expected
 ) {
     size_t expected_size;
+    size_t input = 0U;
+    size_t compared = 0U;
+    const unsigned char *bytes;
     if (document == NULL || node == NULL || expected == NULL ||
             node->type != PF_TQ_JCS_STRING) return 0;
     expected_size = strlen(expected);
-    return node->string_size == expected_size && memcmp(
-        document->bytes + node->string_start, expected, expected_size) == 0;
+    if (node->string_decoded_size != expected_size) return 0;
+    bytes = document->bytes + node->string_start;
+    while (input < node->string_size) {
+        unsigned char value = bytes[input] == '\\'
+            ? pf_tq_jcs_escape_byte(bytes, &input) : bytes[input++];
+        if (compared >= expected_size ||
+                value != (unsigned char)expected[compared++]) return 0;
+    }
+    return compared == expected_size;
 }
 
 int pf_tq_jcs_copy_string_v2(
@@ -533,12 +749,14 @@ int pf_tq_jcs_copy_string_v2(
 ) {
     if (document == NULL || node == NULL || output == NULL ||
             node->type != PF_TQ_JCS_STRING ||
-            node->string_size == 0U || node->string_size >= output_size) {
+            node->string_decoded_size == 0U ||
+            node->string_decoded_size >= output_size ||
+            pf_tq_jcs_copy_decoded_string(document, node,
+                (unsigned char *)output, output_size - 1U) != 0) {
         return pf_tq_jcs_error(error, error_size,
             "PF-JCS string copy type/size rejected");
     }
-    memcpy(output, document->bytes + node->string_start, node->string_size);
-    output[node->string_size] = '\0';
+    output[node->string_decoded_size] = '\0';
     return 0;
 }
 
@@ -701,7 +919,9 @@ int pf_tq_jcs_decode_hex_v2(
     size_t decoded_size;
     size_t index;
     if (document == NULL || node == NULL || output == NULL || written == NULL ||
-            node->type != PF_TQ_JCS_STRING || node->string_size % 2U != 0U) {
+            node->type != PF_TQ_JCS_STRING || node->string_has_escape ||
+            node->string_decoded_size != node->string_size ||
+            node->string_size % 2U != 0U) {
         return pf_tq_jcs_error(error, error_size, "PF-JCS lowercase hex rejected");
     }
     decoded_size = node->string_size / 2U;
