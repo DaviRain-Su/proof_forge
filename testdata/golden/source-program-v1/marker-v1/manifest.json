@@ -1,0 +1,25 @@
+{
+  "baseCanonicalBytesSha256": "sha256:5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce",
+  "baseCanonicalFile": "testdata/golden/source-program-v1/full-tag-v1/canonical.bin",
+  "baseCaseId": "full-tag-valid-v1",
+  "boolMutationCount": 2,
+  "boolOccurrenceCount": 25,
+  "mutationCount": 10,
+  "mutations": [
+    {"baseMarker":0,"caseId":"marker-bool-literal-bool-value-0-to-2","expectedError":"invalid bool marker","fieldName":"value","markerKind":"bool","markerOffset":2197,"mutatedMarker":2,"ownerTag":"Literal.Bool"},
+    {"baseMarker":1,"caseId":"marker-bool-literal-bool-value-1-to-2","expectedError":"invalid bool marker","fieldName":"value","markerKind":"bool","markerOffset":1541,"mutatedMarker":2,"ownerTag":"Literal.Bool"},
+    {"baseMarker":0,"caseId":"marker-option-stmt-assert-error-0-to-2","expectedError":"invalid option marker","fieldName":"error","markerKind":"option","markerOffset":2570,"mutatedMarker":2,"ownerTag":"Stmt.Assert"},
+    {"baseMarker":1,"caseId":"marker-option-stmt-assert-error-1-to-2","expectedError":"invalid option marker","fieldName":"error","markerKind":"option","markerOffset":3583,"mutatedMarker":2,"ownerTag":"Stmt.Assert"},
+    {"baseMarker":0,"caseId":"marker-option-stmt-if-elseblock-0-to-2","expectedError":"invalid option marker","fieldName":"elseBlock","markerKind":"option","markerOffset":2231,"mutatedMarker":2,"ownerTag":"Stmt.If"},
+    {"baseMarker":1,"caseId":"marker-option-stmt-if-elseblock-1-to-2","expectedError":"invalid option marker","fieldName":"elseBlock","markerKind":"option","markerOffset":2114,"mutatedMarker":2,"ownerTag":"Stmt.If"},
+    {"baseMarker":0,"caseId":"marker-option-stmt-let-typeann-0-to-2","expectedError":"invalid option marker","fieldName":"typeAnn","markerKind":"option","markerOffset":1617,"mutatedMarker":2,"ownerTag":"Stmt.Let"},
+    {"baseMarker":1,"caseId":"marker-option-stmt-let-typeann-1-to-2","expectedError":"invalid option marker","fieldName":"typeAnn","markerKind":"option","markerOffset":1422,"mutatedMarker":2,"ownerTag":"Stmt.Let"},
+    {"baseMarker":0,"caseId":"marker-option-stmt-return-value-0-to-2","expectedError":"invalid option marker","fieldName":"value","markerKind":"option","markerOffset":2147,"mutatedMarker":2,"ownerTag":"Stmt.Return"},
+    {"baseMarker":1,"caseId":"marker-option-stmt-return-value-1-to-2","expectedError":"invalid option marker","fieldName":"value","markerKind":"option","markerOffset":2066,"mutatedMarker":2,"ownerTag":"Stmt.Return"}
+  ],
+  "optionFieldCount": 4,
+  "optionMutationCount": 8,
+  "optionOccurrenceCount": 16,
+  "schema": "proof-forge.source-program-marker-golden-prerequisite.v1",
+  "scope": "pa125-base-lowest-bool-option-noncanonical-marker"
+}
