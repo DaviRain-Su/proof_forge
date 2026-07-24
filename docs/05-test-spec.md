@@ -3342,6 +3342,84 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   invalid argv、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent
   review，不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending
   TASK-D1-01或下游task。
+- D1-PA-118 是 accepted `ADR-0019` step-3 的完整 canonical root decoder slice。它只读组合 PA117
+  `decodeProgramV1`、PA92/94 source-qualified-name decoder 与 PA108 `validateSourceV1`；不修改既有
+  model/codec/decoder/validator。production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstCanonicalRootDecodeV1
+  decodeCanonicalSourceAstBytesV1 (input : ByteArray) :
+    Except String ValidatedSourceV1.ValidatedSourceV1
+  ```
+
+  root orchestration 的 exact 顺序固定为：输入 byte size 上限 → 从 offset 0 解 module
+  `SourceQualifiedNameV1`（count 1..256）→ 解 program identity `SourceQualifiedIdV1`（count 2..256）→
+  **恰好一次**创建 `{ remainingNodes := 100000 }` 并调用
+  `decodeProgramV1 256` → `finish` exact consume → `validateSourceV1`。16 MiB 精确为
+  `16 * 1024 * 1024` bytes；等于上限继续解码，首次超过在读取任何 root byte 前逐字返回
+  `source exceeds the 16 MiB limit`。module/program identity 不消耗 AST node/depth；Program 是
+  root-inclusive depth 的第一个 node。禁止 caller/CLI/source/target 注入或放宽 depth/node limit、按 item
+  重置 budget、decode 后 post-walk 计数、跳过 finish、返回 partial Program 或另建 validator/identity join。
+
+  错误优先级固定为 size cap → module QN wire → program QID wire → 完整 Program wire/depth/node → trailing
+  bytes → PA108 validation。最后一步原样保持既有 identity strict-prefix join → Program raw name equality →
+  codec-local shape → declaration-set source-order 首诊断；root decoder不得 remap child/finish/validator error。
+  因而 trailing 与 identity/name/set 同时错误时必须返回 `trailing bytes`；Program local shape 与 trailing/
+  identity 同时错误时仍由 Program child error先返回。成功只返回 private-constructor
+  `ValidatedSourceV1`，不得计算/store sourceHash、登记 environment extension或进入 D2。
+
+  Lean suite 与不 import Lean/ProofForge/既有 reference script 的 standalone Python oracle共同固定
+  **3/15**。三个 positives 为：
+
+  1. 逐字复用 PA108 的 195-byte `Root` / `Root.Demo` State→Entry canonical root，比较 decoded unit 三个
+     projections、`canonicalValidatedSourceAstBytesV1` byte-identical re-encode；
+  2. State type 为 `Option^253(Bool)` 且另含 minimal Entry 的 root，最长路径精确为
+     Program + State + 254 Type nodes = 256，成功并 byte-identical re-encode；
+  3. 单 Entry 的 Block 含 99994 个 `Stmt.Return none`，再含一个
+     `Stmt.Return (some (Expr.Literal (Literal.Bool true)))`；Program+Entry+Type.Unit+Block 固定4 nodes，
+     statements/expr固定99996 nodes，总计100000，成功并 byte-identical re-encode。
+
+  15 个 boundary slots exact 冻结如下；所有 priority 项都同时携带 hostile 后续字段，不能用 vacuous
+  truncation 冒充：
+
+  1. `16MiB+1` 个 zero bytes → size error，先于非法 module count；2. 195-byte valid root 后补 zero 至
+  恰好16MiB → `trailing bytes`，证明 equal-limit未被 cap 拒绝；3. module count0 + hostile identity/
+  Program → `source qualified name must contain 1..256 components`；4. module count1、首 component declared
+  length0 + hostile identity → `source name component must contain 1..240 UTF-8 bytes`；5. valid module 后
+  program identity count1 + hostile Program → `source qualified id must contain 2..256 components`。
+
+  6. valid module/identity 后 `bad("StateDecl")` → `unknown program tag 'StateDecl'`；7. valid names 后的
+  Entry 含 empty Block，并同时追加 trailing byte、使用 non-prefix identity →
+  `block statements must be nonempty`；8. fully decoded state-only Program同时具有 trailing byte、non-prefix
+  identity与zero-entry/view → `trailing bytes`；9. 去掉 trailing 后同时 non-prefix、wrong Program name与
+  zero-entry/view → `program identity must begin with the exact module name components`；10. valid prefix但
+  wrong Program name且zero-entry/view → `program name must equal the last program identity component`；
+  11. valid identity/name的state-only Program → `program must declare at least one entry or view`。
+
+  12. State type `Option^254(Bool)` + minimal Entry形成257-node最长路径 →
+  `depth budget exhausted`；13. 单 Entry Block含99995个Return-none再含一个Return-some-Bool，array count
+  恰等Block charge后的residual但总nodes=100001，必须在最后Expr parent charge返回
+  `node budget exhausted`，不得由count cap或fresh budget放行；14. module count257且不附components →
+  QN count error；15. valid module后identity count257且不附components → QID count error。大边界fixture不得
+  进入git；Lean/Python均在test process内确定构造，且不得通过production encoder产生cap/priority输入。
+
+  Python 必须 assert-free，normal/`-O`均通过，非精确argv输出usage且exit 2，只打印
+  `reference_source_ast_canonical_root_decode_v1: ok 3 15`。它独立实现本矩阵所需的 raw QN/QID、selected
+  Program/State/Entry/Type/Block/Return/Literal wire、fresh depth/node budget、finish、identity/name与最小
+  declaration-set validation；不得调用 Lean、production decoder/encoder或其他 reference script形成自证循环。
+
+  变更文件集：新增`ProofForgeV2/Source/AstCanonicalRootDecodeV1.lean`、
+  `Tests/Language/SourceAstCanonicalRootDecodeV1.lean`、
+  `scripts/reference_source_ast_canonical_root_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/
+  `lakefile.lean` registration与机械manifest refresh，不修改 PA92–117、ValidatedSource、root encoder或其他
+  production modules。budgets：production≤80、suite≤360、Python≤380、registrations≤5、总authored
+  additions≤825（manifest不计）。明确排除 frontend/Loader/CLI/Lean command、ProgramExport v2/
+  ProgramPayload cutover、legacy删除或bridge、dual reader、第二套quoted ProgramV1 decoder、fallback、
+  sourceHash/NodeId/stable Diagnostic/Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行
+  focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/invalid argv、package refresh后
+  最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。
+  结果只记录development evidence；即使 root API 闭合，也不能自动关闭TST-SRC-001、pending
+  TASK-D1-01或启动frontend/export cutover。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
