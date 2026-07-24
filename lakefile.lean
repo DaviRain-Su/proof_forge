@@ -132,6 +132,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceAstSpinePlaceExprDecodeV1,
     `Tests.Language.SourceAstSpineStmtDecodeV1,
     `Tests.Language.SourceAstSpineDeclDecodeV1,
+    `Tests.Language.SourceAstProgramItemDecodeV1,
     `Tests.Language.FrontendParity,
     `Tests.Language.Grouping,
     `Tests.Language.Loader,
