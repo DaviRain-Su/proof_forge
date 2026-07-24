@@ -8979,3 +8979,15 @@ normative: false
 - Limitation：26/26把真实eligible-kernel capability KAT与本地Python seqpacket signer组合；该signer不是
   ADR-0021完整static U/P/A custody supervisor或durable nonce store。本证据不是formal/hermetic，也不是
   D外reserved bootstrap Ledger projection；candidate C提交、approval、direct-child D和external R/GBC仍待执行。
+
+## 2026-07-24 — TASK-D0-10 direct-child D structural closeout
+
+- Candidate：approved implementation candidate C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；本D只允许
+  `AGENTS.md`、task row、implementation/review closeout记录与固定
+  `bootstrap-approval.json`，不修改verifier/protocol/product/test/freeze。
+- Evidence：C绑定development `EV-20260723-0001`；D row另加入signed reserved
+  `EV-20260724-0002`，该ID在D中尚无Ledger row，只能由D外receipt projection镜像。
+- Review：使用已接受的`single-maintainer-owner-waiver`；本记录不声称independent review。
+- Boundary：本地Python seqpacket ceremony是bootstrap/development路径，不是ADR-0021完整static
+  U/P/A custody、durable nonce store或formal/hermetic证据。D本身只有structural authority；external
+  receipt/GBC/projection通过后才可把D0 checkpoint写为10/10 authority-complete。

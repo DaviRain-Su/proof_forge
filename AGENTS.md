@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 done**；`TASK-D0-10` raw artifact owner R2已按single-maintainer owner waiver批准并恢复实施；既有 D0-01…09 历史关闭不变，尚未正式进入 D1 |
-| Active task | **TASK-D0-10**（in_progress；冻结完成面与既有 Exception surface不变） |
-| D0-10 candidate | `1e0214f9` 已被拒绝；`38047c1e`是focused owner tests-only RED；当前 owner GREEN/closeout builder待形成新implementation candidate C |
+| Formal milestone | **D0：9/10 authority-complete**；`TASK-D0-10` direct-child D 已完成结构收口，外部bootstrap receipt/projection待同一ceremony镜像后才更新为10/10 |
+| Active task | 无（D0-10已进入structural-only D状态；external one-time bridge completion pending） |
+| D0-10 candidate | implementation candidate C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；本提交计划为其唯一direct-child D |
 | Next task | **TASK-D1-01**（pending；仍依赖D0-10正式done） |
-| Active development slice | closed raw/typed owner dispatch、protected identity joins、七参数bootstrap-development acceptance 26/26及candidate-bound closeout builder |
-| Next development slice | 提交新C，签发candidate-owned approval，创建唯一direct-child D，再完成external receipt/GBC/Ledger projection与checkpoint；禁止触碰D1/DSL/ProgramV1/Loader/target范围 |
+| Active development slice | TASK-D0-10 candidate-owned approval与direct-child D structural closeout |
+| Next development slice | 仅完成external receipt/GBC/Ledger projection与optional P mirror；此前不得启动D1实现 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无外部blocker；本地Python ceremony明确仅为bootstrap/development、非formal/hermetic static custody，仍须完成C→D与external one-time bridge |
+| Known blocker | 无实现blocker；D0-10仍待D外签发receipt并验证one-time bridge，不把本地ceremony称为formal/hermetic |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
