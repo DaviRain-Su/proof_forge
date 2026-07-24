@@ -9010,3 +9010,14 @@ normative: false
 - Review/Evidence：main-agent逐行自审未发现P0/P1；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0003`。
 - Limitations：未运行完整`just ci`；本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。没有Program/Program array/nonempty、canonical root/exact-consume root session、frontend/Loader/CLI/Lean command/export v2、legacy adapter、dual reader、第二套quoted decoder、fallback、sourceHash/NodeId/Typed/Semantic/target变更。
 - Next：只读审计`ProgramV1` decoder residual并只选择一个最小切片；完整root decoder前继续禁止shared DSL/Loader/CLI/Lean command/export v2 cutover。
+
+## 2026-07-24 — D1 ProgramV1 tagged-value decoder prerequisite slice
+
+- Commits：D1-PA-117 freeze `75d68d96`；task pointer `0584b3ad`；tests-only RED `459f66b4`；GREEN `086e15b2`。正式 `TASK-D1-01` 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中 `Program/2` tagged value；只读复用 PA116 no-wrapper item decoder，不创建 module/program identity root 或 fresh session。
+- Changed：59-line kernel-total decoder固定 Program head→fieldCount→depth→single parent node→raw name→u32 count→nonempty→post-charge cap→source-order items。每项使用 parent `d-1`，siblings线程化同一 node residual；无 `partial`、`unsafe`、set validation、fallback或error remap。
+- Tests：164-line Lean suite与250-line standalone Python oracle固定3个 PA103 exact value/re-encode/finish/minimal-budget positives、2个 Program expected±1 field-count negatives和17个 malformed head、name、nonempty、count cap、child depth/node、source-order及trailing boundaries；state-only mechanical value继续成功，ordered/reversed exact nonalias。
+- Verification：RED focused build只因 production module缺失；GREEN focused 39 jobs、direct Lean suite、aggregate 403 jobs及test binary全绿；Python normal/`-O`均输出 `reference_source_ast_program_decode_v1: ok 3 2 17`，invalid argv exit 2；67-file package manifest重钉，SBOM self-test/generate/verify/closure与`git diff --check`全绿。总authored additions 477/700（manifest不计）。
+- Review/Evidence：main-agent逐行自审未发现P0/P1；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0004`。
+- Limitations：未运行完整`just ci`；本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。没有module/program identity join、canonical root/exact root session、frontend/Loader/CLI/Lean command/export v2、legacy adapter、dual reader、第二套quoted decoder、fallback、sourceHash/NodeId/Typed/Semantic/target变更。
+- Next：只读审计canonical root decoder residual并只选择一个最小切片；完整root decoder前继续禁止shared frontend/export cutover。
