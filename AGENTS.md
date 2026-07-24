@@ -18,8 +18,8 @@
 | Active task | 无（D0已收口；尚未激活D1任务） |
 | D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
 | Next task | **TASK-D1-01**（pending；前置依赖均已满足，但尚未自动激活） |
-| Active development slice | 无；**D1-PA-117 / TASK-D1-01 pre-acceptance** 已以 `EV-20260724-0004` 收口；正式 TASK 仍为 pending |
-| Next development slice | 未冻结；正在对 canonical root decoder residual 做只读审计并选择单一 slice。完整 root decoder 前不得切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted decoder 或 fallback |
+| Active development slice | **D1-PA-118 / TASK-D1-01 pre-acceptance**：完整 canonical root decoder 已由 `da92e548` 冻结；下一步提交只因 production module 缺失而失败的 tests-only RED；正式 TASK 仍为 pending |
+| Next development slice | 未冻结；D1-PA-118 收口后重新审计剩余正式验收缺口。root decoder 收口本身不得自动切换 shared DSL/Loader/Lean-command/export v2，不得建立 legacy→ProgramV1、dual reader、第二套 quoted decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无；D0已完成，D1尚未自动激活 |
