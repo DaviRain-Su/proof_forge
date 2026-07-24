@@ -9144,3 +9144,10 @@ normative: false
 - Review/Evidence：main-agent逐项自审确认base content binding、closed 84-tag/18-family映射、first-occurrence offsets、one-byte same-length nonalias mutations、unknown-before-preserved-fieldCount/payload、exact production diagnostics、base fixed point、self-check只读、emit fixed/per-file atomic、零production/SBOM-pin漂移及边界排除，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0015`。
 - Limitations：未运行完整`just ci`；Linux development gate不构成formal/hermetic evidence。本slice不覆盖tag length/UTF-8/ASCII、non-NFC、其他scalar/length/truncation/overflow/trailing、identity、source spelling、command/Loader、file/span或SourceNodeInventory，不能关闭完整TST-SRC-001、pending TASK-D1-01或下游task，也不授权frontend/export v2 cutover。
 - Next：回到只读审计，在其余scalar/length/truncation/trailing negative golden、source-bound positive与span/origin integration中只冻结一个最小residual；继续禁止legacy bridge、dual reader、第二套quoted decoder或fallback。
+
+## 2026-07-24 — TASK-D1-01 formal activation
+
+- DAG audit：权威任务表exact有77项，30 done、47 pending、0 in_progress/blocked；严格拓扑审计确认只有`TASK-D1-01`的全部依赖已done。14个现存freeze packages中D1-01/02/03/05与各自任务行绑定，其余任务到达前仍须逐项冻结。
+- Freeze/Activation：`TASK-D1-01`沿用2026-07-19已冻结且与任务行exact绑定的package，Output仍为`source token、span、NodeId`，Tests仍仅`TST-SRC-001/002`，Dependencies/Prerequisites/Done语义未改；任务表从pending转为全局唯一in_progress，D1-02继续pending。
+- Host/tool preflight：按AGENTS规定的direct clean-env命令执行formal Stage-0，Linux `linux-x86_64-mint223-eligible`观察为eligible且exit0。Lean/Lake/Python/Just与EVM/Solana/WABT开发工具可见；lock仍明确把Solana assembler、NEAR sandbox、Nargo/Barretenberg列为unresolved，这些是后续D5–D7必须实现并锁定的前置，不能降低证据等级绕过。
+- Next：先运行冻结的TST-SRC-001/002 production acceptance与formal qualification路径形成可归因RED；只修该package已有缺口，不并入D1-02或后续frontend/semantic/target范围。
