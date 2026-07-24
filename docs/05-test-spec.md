@@ -3791,6 +3791,52 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   argv、PA125/121/122 oracles、aggregate/test binary、最终单次`just sbom`、docs/diff与main-agent self-review；不声称
   independent review，不运行完整`just ci`。只能记录development evidence，仍不关闭source-bound/其他negative/span、
   完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-127 在PA125 immutable full-tag base上建立Bool/Option noncanonical marker negative golden descriptor；它只闭合
+  primitive `decodeBool` 与四个ProgramV1 option-bearing field对marker `2`的exact fail-closed行为，不扩大到其他scalar、
+  length/truncation/trailing、source parser或span。base固定为
+  `testdata/golden/source-program-v1/full-tag-v1/canonical.bin`，raw SHA-256必须exact为
+  `5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce`；不得修改PA125/126 package、encoder/decoder或
+  production package manifest。
+
+  独立Python model必须按PA125 logical fixture的wire encode source order记录全部marker byte offset，并证明exact存在25个
+  Bool与16个Option occurrences。Bool按base marker `0/1`各选择最低offset；Option按
+  `Stmt.Let.typeAnn`、`Stmt.If.elseBlock`、`Stmt.Assert.error`、`Stmt.Return.value`四个exact owner/field及base marker
+  `0/1`各选择最低offset。manifest必须exact包含10个mutation rows：2个Bool与8个Option，每个只把所选一字节从
+  `0/1`改为`2`。每row包含ASCII caseId、`markerKind`、`ownerTag`、`fieldName`、`markerOffset`、`baseMarker`、
+  `mutatedMarker=2`与exact `expectedError`；Bool error固定`invalid bool marker`，Option error固定
+  `invalid option marker`。offset必须unique、位于`[0,size-1]`且base byte exact为baseMarker；rows按
+  `(markerKind,ownerTag,fieldName,baseMarker)` ASCII/Numeric ascending。只存base content ref与rows，不写出10个重复binary。
+
+  checked-in descriptor固定为
+  `testdata/golden/source-program-v1/marker-v1/manifest.json`，schema固定
+  `proof-forge.source-program-marker-golden-prerequisite.v1`，scope固定
+  `pa125-base-lowest-bool-option-noncanonical-marker`，并包含baseCaseId/baseCanonicalFile/baseCanonicalBytesSha256、
+  `boolOccurrenceCount=25`、`optionOccurrenceCount=16`、`optionFieldCount=4`、`boolMutationCount=2`、
+  `optionMutationCount=8`、`mutationCount=10`与mutations。JSON沿用PA125 UTF-8/LF/recursively sorted keys/
+  two-space hierarchy/compact row/final newline，package目录只能含该manifest。
+
+  新增`Tests.Language.SourceProgramWireMarkerGoldenV1`读取PA125 raw base与descriptor，先验证metadata、closed 10-key
+  matrix、row order/uniqueness/offset/base marker与exact error；随后逐row构造fresh ByteArray one-byte mutation并调用
+  production `decodeCanonicalSourceAstBytesV1`，必须逐字得到expectedError。每次失败后base bytes保持不变，最终base仍须
+  decode成功并re-encode逐byte相等。新增assert-free
+  `scripts/reference_source_program_wire_marker_golden_v1.py`可只import同目录PA125 independent oracle，不得import
+  Lean/ProofForge；它以offset-aware encoder验证PA125 checked-in package与25/16 occurrence matrix。CLI只允许
+  `--emit`/`--self-check`，self-check不写文件，normal/`-O`同为
+  `reference_source_program_wire_marker_golden_v1: ok 10 2 8 25 16`，invalid argv exit2；emit只可per-file atomically
+  rewrite上述descriptor，输出前后完整自验。
+
+  变更文件集精确为新增上述Lean suite/Python oracle/one-file descriptor，只修改`Tests.lean`、`lakefile.lean`与
+  `SourceWireAcceptance.lean`注册。Lean≤260行、Python≤300行、manifest≤80行且≤32KiB、registrations additions≤5、
+  总text additions≤700。明确排除修改PA125/126 package、`ProofForgeV2/**`、production manifest、stored mutated
+  binaries、其他negative families、sourceUtf8/command/Loader/export v2、span/origin/inventory、legacy bridge/dual reader/
+  second quoted decoder/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因descriptor manifest不存在而在direct Lean与Python self-check失败；提交前先用未提交`--emit`
+  descriptor证明suite compile/direct与Python self-check全绿，再删除descriptor/empty dir确认missing-manifest RED；GREEN
+  只提交deterministic descriptor。最终运行deterministic double emit、focused suite与`SourceWireAcceptance` direct、
+  Python normal/`-O`/invalid argv、PA126/125/121/122 regressions、aggregate/test binary连续两次、最终单次`just sbom`、
+  docs/diff与main-agent self-review；不声称independent review，不运行完整`just ci`。只能记录development evidence，仍不
+  关闭source-bound/其他negative/span、完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
