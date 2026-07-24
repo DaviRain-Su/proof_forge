@@ -30,9 +30,12 @@ _SEEDS = {
         "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"),
     "key-quality": bytes.fromhex(
         "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"),
+    "key-release": bytes.fromhex(
+        "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"),
     "key-security": bytes.fromhex(
         "f5e5767cf153319517630f226876b86c8160cc583bc013744c6bf255f5cc0ee5"),
 }
+_HANDOFF_KEYS = ("key-architecture", "key-quality", "key-security")
 
 
 @dataclass(frozen=True)
@@ -131,7 +134,7 @@ def _signed(unsigned: dict[str, Any], *, keys: tuple[str, ...] | None = None) ->
     statement = hashlib.sha256(
         _STATEMENT_DOMAIN + b"\x00" + _canonical(unsigned)).digest()
     message = _SIGNATURE_DOMAIN + b"\x00" + statement
-    selected = tuple(sorted(_SEEDS)) if keys is None else keys
+    selected = _HANDOFF_KEYS if keys is None else keys
     result = copy.deepcopy(unsigned)
     result["signatures"] = [
         {
@@ -160,6 +163,9 @@ def _build_vectors() -> list[Vector]:
     canonical = _canonical(base)
     vectors = [
         _vector("baseline", base, True),
+        _vector("valid-extra-release-signer", _signed(
+            unsigned, keys=("key-architecture", "key-quality",
+                            "key-release", "key-security")), True),
         _vector("canonical-whitespace", canonical.replace(
             b'{"adapter"', b'{ "adapter"', 1), False),
         _vector("canonical-escape", canonical.replace(
@@ -435,6 +441,96 @@ def _matrix(binary: Path, base: Path, vectors: list[Vector], *, sanitizer: bool)
     return results
 
 
+def _special_matrix(
+    binary: Path,
+    base: Path,
+    baseline: Vector,
+    *,
+    sanitizer: bool,
+) -> list[Result]:
+    modes = (
+        "expectation-noncurrent",
+        "expectation-duplicate-public-key",
+        "expectation-count-low",
+        "expectation-owner-v1",
+        "descriptor-ref-digest",
+        "descriptor-id",
+        "descriptor-key-order",
+        "descriptor-key-unknown",
+        "descriptor-service-key-reuse",
+        "descriptor-principal-duplicate",
+        "descriptor-role-coverage",
+    )
+    payload = base / ("handoff-special-asan.json" if sanitizer else "handoff-special.json")
+    payload.write_bytes(baseline.payload)
+    full_digest, statement_digest = _domains(baseline.payload)
+    environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "TZ": "UTC"}
+    if sanitizer:
+        environment.update({
+            "ASAN_OPTIONS": "detect_leaks=1:symbolize=0:halt_on_error=1:abort_on_error=1",
+            "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=0",
+        })
+    results: list[Result] = []
+    for mode in modes:
+        completed = subprocess.run(
+            [str(binary), f"--{mode}", str(payload), full_digest, statement_digest],
+            cwd=binary.parent,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        passed = completed.returncode == 0 and not completed.stdout and not completed.stderr
+        detail = "" if passed else (
+            f"exit={completed.returncode} stdout={completed.stdout!r} stderr={completed.stderr!r}")
+        results.append(Result(("asan-" if sanitizer else "") + mode, passed, detail))
+    return results
+
+
+def _alternate_signer_result(
+    binary: Path,
+    base: Path,
+    *,
+    sanitizer: bool,
+) -> Result:
+    payload_bytes = _canonical(_signed(
+        _unsigned_baseline(),
+        keys=("key-architecture", "key-quality", "key-release")))
+    payload = base / (
+        "handoff-alternate-asan.json" if sanitizer else "handoff-alternate.json")
+    payload.write_bytes(payload_bytes)
+    full_digest, statement_digest = _domains(payload_bytes)
+    environment = {"PATH": "/usr/bin:/bin", "LC_ALL": "C", "TZ": "UTC"}
+    if sanitizer:
+        environment.update({
+            "ASAN_OPTIONS": "detect_leaks=1:symbolize=0:halt_on_error=1:abort_on_error=1",
+            "UBSAN_OPTIONS": "halt_on_error=1:print_stacktrace=0",
+        })
+    completed = subprocess.run(
+        [str(binary), "--alternate-signer-validate", str(payload),
+         full_digest, statement_digest],
+        cwd=binary.parent,
+        env=environment,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    passed = completed.returncode == 0 and not completed.stdout and not completed.stderr
+    detail = "" if passed else (
+        f"exit={completed.returncode} stdout={completed.stdout!r} stderr={completed.stderr!r}")
+    return Result(
+        ("asan-" if sanitizer else "") + "alternate-handoff-signer-policy-join",
+        passed,
+        detail,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scratch-root", type=Path)
@@ -459,6 +555,14 @@ def main() -> int:
             _analyze_sources()
             results = _matrix(binary, base, vectors, sanitizer=False)
             results.extend(_matrix(sanitizer_binary, base, vectors, sanitizer=True))
+            results.extend(_special_matrix(
+                binary, base, vectors[0], sanitizer=False))
+            results.extend(_special_matrix(
+                sanitizer_binary, base, vectors[0], sanitizer=True))
+            results.append(_alternate_signer_result(
+                binary, base, sanitizer=False))
+            results.append(_alternate_signer_result(
+                sanitizer_binary, base, sanitizer=True))
             invalid = subprocess.run(
                 [str(binary), "--invalid-input"],
                 cwd=base,
