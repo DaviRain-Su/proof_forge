@@ -27,9 +27,24 @@ _HERE = Path(__file__).resolve().parent
 _ROOT = _HERE.parent
 _MAX_U64 = (1 << 64) - 1
 _DOMAIN = b"pf.taskqual.store-isolation-policy.v2"
+_AUTHORITY_POLICY_FD = 30
+_AUTHORITY_STORE_FD = 31
+_CANDIDATE_ARCHIVE_FD = 32
+_PROVENANCE_BUNDLE_FD = 33
+_TRUSTED_CLOCK_FD = 34
+_ADAPTER_BUILD_POLICY_FD = 35
+_ADAPTER_CLOSURE_FD = 36
+_HANDOFF_FD = 37
+_ISOLATION_POLICY_FD = 38
 _PROC_ROOT_FD = 40
 _DURABLE_ROOT_FD = 41
 _SERVICE_EXECUTABLE_FD = 42
+_SEED_ROLE_0_FD = 43
+_SEED_ROLE_1_FD = 44
+_SEED_ROLE_2_FD = 45
+_SEED_SERVICE_FD = 46
+_SERVICE_ENDPOINT_FD = 47
+_TRANSITION_FD = 48
 
 _SYSCALL = {
     "capset": 126,
@@ -169,15 +184,32 @@ def _mount(target: str, device: int, inode: int) -> dict[str, Any]:
 
 
 def _fd_roles() -> list[dict[str, Any]]:
+    service = [
+        ("adapter-build-policy", _ADAPTER_BUILD_POLICY_FD),
+        ("adapter-closure", _ADAPTER_CLOSURE_FD),
+        ("authority-policy", _AUTHORITY_POLICY_FD),
+        ("durable-root", _DURABLE_ROOT_FD),
+        ("handoff", _HANDOFF_FD),
+        ("isolation-policy", _ISOLATION_POLICY_FD),
+        ("proc-root", _PROC_ROOT_FD),
+        ("seed-role-0", _SEED_ROLE_0_FD),
+        ("seed-role-1", _SEED_ROLE_1_FD),
+        ("seed-role-2", _SEED_ROLE_2_FD),
+        ("seed-service", _SEED_SERVICE_FD),
+        ("service-endpoint", _SERVICE_ENDPOINT_FD),
+    ]
     rows = [
-        ("adapter", "steady", "authority-store", 30, False),
-        ("service", "post-exec", "durable-root", 41, False),
-        ("service", "post-exec", "proc-root", 40, False),
-        ("service", "pre-exec", "durable-root", 41, False),
-        ("service", "pre-exec", "proc-root", 40, False),
-        ("service", "pre-exec", "service-executable", 42, True),
-        ("service", "steady", "durable-root", 41, False),
-        ("service", "steady", "proc-root", 40, False),
+        ("adapter", "steady", "authority-policy", _AUTHORITY_POLICY_FD, False),
+        ("adapter", "steady", "authority-store", _AUTHORITY_STORE_FD, False),
+        ("adapter", "steady", "candidate-archive", _CANDIDATE_ARCHIVE_FD, False),
+        ("adapter", "steady", "provenance-bundle", _PROVENANCE_BUNDLE_FD, False),
+        ("adapter", "steady", "trusted-clock", _TRUSTED_CLOCK_FD, False),
+        *(("service", "post-exec", role, fd, False) for role, fd in service),
+        ("service", "post-exec", "transition", _TRANSITION_FD, False),
+        *(("service", "pre-exec", role, fd, False) for role, fd in service),
+        ("service", "pre-exec", "service-executable", _SERVICE_EXECUTABLE_FD, True),
+        ("service", "pre-exec", "transition", _TRANSITION_FD, False),
+        *(("service", "steady", role, fd, False) for role, fd in service),
     ]
     return [
         {
@@ -244,6 +276,21 @@ def _baseline() -> dict[str, Any]:
         "maximumFrameBytes": 4194304,
         "maximumTerminalAcceptances": 1,
     }
+
+
+def _fd_role(
+    value: dict[str, Any], process: str, stage: str, role: str
+) -> dict[str, Any]:
+    matches = [
+        entry for entry in value["fdRoles"]
+        if entry["process"] == process and entry["stage"] == stage and
+        entry["role"] == role
+    ]
+    if len(matches) != 1:
+        raise AssertionError(
+            f"FD fixture role lookup mismatch: {process}/{stage}/{role}"
+        )
+    return matches[0]
 
 
 def _mutated(
@@ -394,10 +441,43 @@ def _build_vectors() -> list[Vector]:
         ("fd-role-stage", lambda item: item["fdRoles"][0].__setitem__("stage", "setup")),
         ("fd-role-name", lambda item: item["fdRoles"][0].__setitem__("role", "other")),
         ("fd-role-nonascii", lambda item: item["fdRoles"][0].__setitem__("role", "rôle")),
-        ("fd-role-close", lambda item: item["fdRoles"][5].__setitem__("closeOnExec", False)),
-        ("fd-role-unsafe", lambda item: item["fdRoles"][5].__setitem__("fd", 2**53)),
-        ("fd-role-int-overflow", lambda item: item["fdRoles"][5].__setitem__("fd", 2**31)),
-        ("fd-role-duplicate-number", lambda item: item["fdRoles"][4].__setitem__("fd", 41)),
+        ("fd-role-close", lambda item: _fd_role(
+            item, "service", "pre-exec", "service-executable").__setitem__(
+                "closeOnExec", False)),
+        ("fd-role-unsafe", lambda item: _fd_role(
+            item, "service", "pre-exec", "service-executable").__setitem__(
+                "fd", 2**53)),
+        ("fd-role-int-overflow", lambda item: _fd_role(
+            item, "service", "pre-exec", "service-executable").__setitem__(
+                "fd", 2**31)),
+        ("fd-role-duplicate-number", lambda item: _fd_role(
+            item, "adapter", "steady", "trusted-clock").__setitem__(
+                "fd", _PROVENANCE_BUNDLE_FD)),
+        ("fd-role-stdio-collision", lambda item: _fd_role(
+            item, "adapter", "steady", "authority-policy").__setitem__(
+                "fd", 2)),
+        ("fd-role-adapter-channel-join", lambda item: _fd_role(
+            item, "adapter", "steady", "candidate-archive").__setitem__(
+                "fd", 49)),
+        ("fd-role-pre-post-drift", lambda item: _fd_role(
+            item, "service", "post-exec", "adapter-build-policy").__setitem__(
+                "fd", 49)),
+        ("fd-role-post-steady-drift", lambda item: _fd_role(
+            item, "service", "steady", "adapter-closure").__setitem__(
+                "fd", 49)),
+        ("fd-role-transition-drift", lambda item: _fd_role(
+            item, "service", "post-exec", "transition").__setitem__(
+                "fd", 49)),
+        ("fd-role-authority-policy-fork-drift", lambda item: [
+            _fd_role(item, "service", stage, "authority-policy").__setitem__(
+                "fd", 49)
+            for stage in ("post-exec", "pre-exec", "steady")
+        ]),
+        ("fd-role-endpoint-alias", lambda item: [
+            _fd_role(item, "service", stage, "service-endpoint").__setitem__(
+                "fd", _AUTHORITY_STORE_FD)
+            for stage in ("post-exec", "pre-exec", "steady")
+        ]),
     ]
     vectors.extend(_vector(name, _mutated(base, mutate), False)
                    for name, mutate in role_mutations)
@@ -436,6 +516,7 @@ def _compile(binary: Path, *, sanitizer: bool) -> None:
     sources = [
         _HERE / "task_qualification_isolation_policy_v2_driver.c",
         _HERE / "task_qualification_isolation_policy_v2.c",
+        _HERE / "task_qualification_fd_manifest_v2.c",
         _HERE / "task_qualification_unicode_v2.c",
         _HERE / "task_qualification_seccomp_v2.c",
         _HERE / "task_qualification_pf_jcs_v2.c",
@@ -496,6 +577,7 @@ def _analyze_sources() -> None:
     sources = [
         _HERE / "task_qualification_isolation_policy_v2_driver.c",
         _HERE / "task_qualification_isolation_policy_v2.c",
+        _HERE / "task_qualification_fd_manifest_v2.c",
         _HERE / "task_qualification_unicode_v2.c",
         _HERE / "task_qualification_seccomp_v2.c",
         _HERE / "task_qualification_pf_jcs_v2.c",

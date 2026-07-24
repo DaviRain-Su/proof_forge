@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 /* Test-owned driver for the production ADR-0021 isolation-policy owner. */
+#include "task_qualification_fd_manifest_v2.h"
 #include "task_qualification_isolation_policy_v2.h"
 
 #include <errno.h>
@@ -10,17 +11,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
-static const pf_tq_isolation_fd_manifest_v2 pf_tq_test_fd_manifest[] = {
-    {"adapter", "steady", "authority-store", 0},
-    {"service", "post-exec", "durable-root", 0},
-    {"service", "post-exec", "proc-root", 0},
-    {"service", "pre-exec", "durable-root", 0},
-    {"service", "pre-exec", "proc-root", 0},
-    {"service", "pre-exec", "service-executable", 1},
-    {"service", "steady", "durable-root", 0},
-    {"service", "steady", "proc-root", 0},
-};
 
 static void pf_tq_test_fail(const char *message) {
     (void)fprintf(stderr, "PF-ISOLATION-POLICY-DRIVER:%s:errno=%d\n", message, errno);
@@ -95,17 +85,25 @@ static pf_tq_isolation_expectation_v2 pf_tq_test_expectation(
     expected.adapter_gid = 1003U;
     expected.service_uid = 1002U;
     expected.service_gid = 1004U;
-    expected.fd_manifest = pf_tq_test_fd_manifest;
-    expected.fd_manifest_count =
-        sizeof(pf_tq_test_fd_manifest) / sizeof(pf_tq_test_fd_manifest[0]);
-    expected.proc_root_role_index = 4U;
-    expected.durable_root_role_index = 3U;
-    expected.service_executable_role_index = 5U;
+    if (pf_tq_fd_manifest_bind_expectation_v2(
+            &expected, NULL, 0U) != 0) {
+        pf_tq_test_fail("fd-manifest-bind");
+    }
     expected.require_digest = 1;
     if (pf_tq_test_digest(digest_hex, expected.digest) != 0) {
         pf_tq_test_fail("digest-argument");
     }
     return expected;
+}
+
+static pf_tq_handoff_channels_v2 pf_tq_test_channels(void) {
+    pf_tq_handoff_channels_v2 channels;
+    channels.authority_policy_fd = 30;
+    channels.authority_store_fd = 31;
+    channels.candidate_archive_fd = 32;
+    channels.provenance_bundle_fd = 33;
+    channels.trusted_clock_fd = 34;
+    return channels;
 }
 
 static int pf_tq_test_result(
@@ -123,10 +121,14 @@ static int pf_tq_test_result(
             policy->gid_map[1].inside_id != 1004U ||
             policy->service_mount_count != 1U ||
             policy->adapter_mount_count != 1U ||
-            policy->fd_role_count !=
-                sizeof(pf_tq_test_fd_manifest) / sizeof(pf_tq_test_fd_manifest[0]) ||
-            policy->fd_roles[3].fd != 41 || policy->fd_roles[4].fd != 40 ||
-            policy->fd_roles[5].fd != 42 ||
+            policy->fd_role_count != PF_TQ_FD_MANIFEST_V2_COUNT ||
+            policy->fd_roles[0].fd != 30 || policy->fd_roles[1].fd != 31 ||
+            policy->fd_roles[
+                PF_TQ_FD_MANIFEST_V2_SERVICE_PRE_EXEC_DURABLE_ROOT_INDEX].fd != 41 ||
+            policy->fd_roles[
+                PF_TQ_FD_MANIFEST_V2_SERVICE_PRE_EXEC_PROC_ROOT_INDEX].fd != 40 ||
+            policy->fd_roles[
+                PF_TQ_FD_MANIFEST_V2_SERVICE_PRE_EXEC_EXECUTABLE_INDEX].fd != 42 ||
             policy->seccomp_policies[PF_TQ_SECCOMP_ADAPTER_V2].bytes == NULL ||
             policy->seccomp_policies[PF_TQ_SECCOMP_CUSTODY_PRE_EXEC_V2].bytes == NULL ||
             policy->seccomp_policies[PF_TQ_SECCOMP_SERVICE_FINAL_V2].bytes == NULL) {
@@ -152,6 +154,11 @@ static int pf_tq_test_run(
     result = pf_tq_isolation_policy_parse_v2(
         bytes, size, &expected, &policy, error, sizeof(error));
     free(bytes);
+    if (result == 0) {
+        pf_tq_handoff_channels_v2 channels = pf_tq_test_channels();
+        result = pf_tq_fd_manifest_validate_policy_v2(
+            &policy, &channels, error, sizeof(error));
+    }
     if (strcmp(mode, "--validate") == 0) {
         if (result != 0 || error[0] != '\0' ||
                 pf_tq_test_result(&policy, error, sizeof(error)) != 0) {
