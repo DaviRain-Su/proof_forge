@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 2251,
+      "bytes": 2208,
       "path": "ProofForgeV2.lean",
-      "sha256": "978abf3ffd41ec369511b142d010f8a1131ea0861d853e531b01b00ac2619e0e"
+      "sha256": "deae93a107ff8d7cc77ea5498b151ebe6058ca89e8c21407c3c4b3f9bc33b907"
     },
     {
       "bytes": 8869,
@@ -274,11 +274,6 @@
       "bytes": 1549,
       "path": "ProofForgeV2/Source/NameComponentV1.lean",
       "sha256": "54fffe732dd8e5845f86d7ab489506034c436ec361ae8bd058b04e0a03b51266"
-    },
-    {
-      "bytes": 15052,
-      "path": "ProofForgeV2/Source/NodeTraversalV1.lean",
-      "sha256": "d613455ffa5a12557d9d05c56fd9fcaac128d6e6a0b9448680a42c8fc1d54caf"
     },
     {
       "bytes": 3104,
