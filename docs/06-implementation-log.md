@@ -8999,3 +8999,14 @@ normative: false
 - Protected acceptance：SHA-256 `2122d88e0f96cfd0931d45f031c2b92f8976a249323e966efed82adee1237d7b`；reserved `EV-20260724-0002`按bootstrap projection镜像。
 - Review：`single-maintainer-owner-waiver`，owner self-review；不声称independent review。
 - Boundary：本地Python seqpacket ceremony为bootstrap/development路径，不是完整static U/P/A custody或durable nonce store；本关闭不是formal/hermetic evidence。
+
+## 2026-07-24 — D1 no-wrapper ProgramItem decoder prerequisite slice
+
+- Commits：D1-PA-116 freeze `8e487f4f`；task pointer `3b953a45`；tests-only RED `be21385f`；tests-only hardening `ffaa6163`；GREEN `2147d3d1`。正式 `TASK-D1-01` 状态未改变。
+- Authority：本切片只实现 accepted ADR-0019 step-3 root decoder prerequisite 中无 wrapper 的 13-alternative `ProgramItemV1` dispatch；只读复用 PA112/115 的完整 record decoder，不创建 Program、root 或 fresh session。
+- Changed：47-line kernel-total dispatcher先以 bounded `decodeTagV1` lookahead识别 closed route，再把原 cursor、caller depth与同一 node residual exact 委托给唯一 child并只包装 constructor。无额外 tag/fieldCount/node/depth、`partial`、`unsafe`、post-walk、fallback或error remap。
+- Tests：268-line Lean suite与250-line standalone Python oracle固定13个 PA102 exact value/re-encode/finish/minimal-budget positives、13 tags的26个 expected±1 field-count negatives及19个 malformed tag、unknown、depth/node和child-delegation priority boundaries；same-shape Event/Error及Entry/View/Fn均证明 value/bytes nonalias。
+- Verification：最初 RED focused build只因 production module缺失；GREEN首次编译暴露 RED alias loop 的 `Array.get!` 需要 `Inhabited ProgramItemV1`，由独立 tests-only hardening改为五路显式检查。最终 focused 36 jobs、direct Lean suite、aggregate 399 jobs与test binary全绿；Python normal/`-O`均输出 `reference_source_ast_program_item_decode_v1: ok 13 26 19`，invalid argv exit 2；66-file package manifest重钉，SBOM self-test/generate/verify/closure与`git diff --check`全绿。总authored additions 569/725（manifest不计）。
+- Review/Evidence：main-agent逐行自审未发现P0/P1；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0003`。
+- Limitations：未运行完整`just ci`；本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。没有Program/Program array/nonempty、canonical root/exact-consume root session、frontend/Loader/CLI/Lean command/export v2、legacy adapter、dual reader、第二套quoted decoder、fallback、sourceHash/NodeId/Typed/Semantic/target变更。
+- Next：只读审计`ProgramV1` decoder residual并只选择一个最小切片；完整root decoder前继续禁止shared DSL/Loader/CLI/Lean command/export v2 cutover。
