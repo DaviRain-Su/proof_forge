@@ -467,6 +467,14 @@ production `assignNodeIdsV1` 内部固定计算 `first-16-bytes(SHA-256(preimage
 `nodeIdPreimageV1` 构造的 canonical preimage，并返回最终 16-byte candidate；调用方不能借该 seam
 改变 preimage。该 symbol 只存在于测试构建，release binary 和 production library API 不得导出。
 
+若实现语言的opaque table constructor使独立test module不能构造`NodeOriginTableV1`，test-only entry可返回其
+唯一observable `nodeAssignmentsPreorderV1` array；positive test必须与production table projection逐项相等，故
+结果语义不变。实现可用production module导出的compile-time code-generation template共享assignment loop，前提是
+(a) production `assignNodeIdsV1`仍硬绑定SHA-256；(b) template本身不产生或替换任何runtime production symbol；
+(c) candidate/visit injection函数只在test module生成；(d) release umbrella、production package file-set、`.olean`
+API probe与release binary均证明该test symbol不可达。调用者自行生成的另一函数不能覆盖、注册或替换production
+assigner，正如复制算法不能改变产品入口。
+
 assigner 使用显式 preorder worklist，并维护 `NodeId -> exact preimage/path` map。两个不同 preimage
 得到相同 candidate 时，必须以 `PF-SRC-NODEID-COLLISION` 拒绝整个 program；不得覆盖 origin、保留
 first/last winner、登记 attribute、导出 `Source.Program`、写 CLI staging 或发布 partial table。

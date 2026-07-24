@@ -3646,6 +3646,57 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `SourceWireAcceptance` direct、aggregate/test binary、既有PA121/122 Python oracles、package refresh后最终单次
   `just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。结果只记录
   development evidence，不能关闭collision/duplicate验收、TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-124 闭合ProgramV1 NodeId forced collision/duplicate-visit与test-only seam，但不进入span/frontend。为同时
+  复用production exact loop并从release API排除callback，本slice把PA123 loop机械重构为
+  `ProofForgeV2.Source.NodeAssignmentV1`导出的compile-time term macro `source_node_assignment_loop_v1%`：macro
+  参数为module/program identity、ProgramV1、candidate closure、visit transform与finish closure；展开体唯一拥有
+  identity→traversal→preimage→candidate-size→raw-map→assignment/error顺序。production `assignNodeIdsV1`在同文件
+  用该macro生成，candidate closure仍硬调用PA122 `nodeIdV1`，visit transform为identity，finish closure才可使用
+  private table constructor。macro不是runtime function、不能覆盖已编译production symbol，也不得注册到frontend。
+
+  独立`Tests.Language.SourceNodeAssignmentCollisionV1`使用同一macro生成test-only adapter：
+
+  ```lean
+  abbrev NodeIdCandidate16V1 := ByteArray → Except String ByteArray
+
+  assignNodeIdsV1ForTestWithCandidate
+    (candidate16 : NodeIdCandidate16V1)
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (program : ProgramV1) : Except String (Array NodeIdAssignmentV1)
+  ```
+
+  Array是`nodeAssignmentsPreorderV1`的唯一observable projection，按本次normative amendment与opaque table结果语义
+  相同。public test adapter只使用identity visit transform；duplicate fixture另在同一Tests file内使用private core
+  把canonical root visit精确重放一次，不暴露第二个public seam。candidate只收到PA120 canonical preimage；返回
+  不是16 bytes时逐字失败`node id candidate must contain exactly 16 raw bytes`，其自身error逐字传播，且任何失败
+  都不返回partial array。
+
+  positives必须以`SHA-256(preimage)[0,16)` callback在至少Program→State→Type fixture上逐项等于production table
+  projection，并保持PA123 comprehensive regression。constant 16-zero-byte callback必须在第二个distinct preimage
+  稳定返回`PF-SRC-NODEID-COLLISION: distinct canonical source node preimages produced the same NodeId`；private
+  duplicate-root transform配real-SHA callback必须返回`PF-INTERNAL: duplicate-node-visit`，配constant callback仍必须
+  duplicate优先。另固定15/17-byte candidate、callback error、bad identity与candidate-never-called priority。
+
+  新增assert-free `scripts/check_source_node_assignment_test_seam.py`必须验证production package manifest不含Tests
+  module、全部70个production source与`ProofForgeV2.lean`不含test adapter symbol、Tests file恰有该definition；随后
+  以临时root-contained Lean probe只import `ProofForgeV2`并`#check`该fully-qualified test symbol，必须unknown，且
+  production `proof-forge-next` binary raw bytes不含symbol。test binary包含它不构成release泄漏。checker normal/`-O`
+  输出同一`source-node-assignment-test-seam: ok`，invalid argv exit2。
+
+  变更文件集精确为修改`ProofForgeV2/Source/NodeAssignmentV1.lean`，新增
+  `Tests/Language/SourceNodeAssignmentCollisionV1.lean`与上述checker，只修改`Tests.lean`、`lakefile.lean`及
+  `SourceWireAcceptance.lean`做registration，并机械refresh manifest。production file总行数≤180、test suite≤240、
+  checker≤140、registrations additions≤5、总authored additions≤520（manifest不计），允许删除被macro替代的PA123
+  loop行。明确排除公开runtime generic/candidate function、修改production SHA/preimage/traversal/table semantics、
+  stable Diagnostic type、span/origin/inventory、golden corpus packaging、frontend/Loader/CLI/Lean command/export v2、
+  legacy bridge/dual reader/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因production shared term macro不存在而失败；提交前以未提交nonfunctional macro stub证明suite
+  可编译且direct保持RED，再删除stub确认missing macro。GREEN运行focused collision suite与
+  `SourceWireAcceptance` direct、production release build/exclusion checker normal/`-O`/invalid argv、aggregate/test
+  binary、PA121/122 Python oracles、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review；不声称
+  independent review，不运行完整`just ci`。只能记录development evidence，不能关闭完整golden/span面、TST-SRC-001、
+  pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
