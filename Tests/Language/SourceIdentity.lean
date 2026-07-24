@@ -1,29 +1,30 @@
+import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.WireV1
 
 namespace Tests.Language.SourceIdentity
 
 open ProofForgeV2
-open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.WireV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
-private def liftStringResult (label : String) (result : Except String α) : IO α :=
+private def liftResult (label : String) (result : Except String α) : IO α :=
   match result with
   | .ok value => pure value
   | .error detail => throw <| IO.userError s!"{label}: unexpected error: {detail}"
 
-private def liftCompileResult (label : String) (result : CompileResult α) : IO α :=
+private def expectInvalid (label : String) (result : Except String α) : IO Unit :=
   match result with
-  | .ok value => pure value
-  | .error error => throw <| IO.userError s!"{label}: unexpected error: {error.render}"
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
-private def expectInvalid (label : String) (result : CompileResult α) : IO Unit :=
+private def expectError (label expected : String) (result : Except String α) : IO Unit :=
   match result with
-  | .error (.invalidProgram _) => pure ()
-  | .error error =>
-      throw <| IO.userError s!"{label}: expected invalid-program, got {error.render}"
+  | .error detail => expect (detail == expected) s!"{label}: expected {expected}, got {detail}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
 
 private def lowerHexDigit (value : Nat) : Char :=
@@ -40,6 +41,9 @@ private def rootPreimageHex : String :=
 
 private def firstItemPreimageHex : String :=
   "70662e736f757263652d6e6f64652e7631007b226d6f64756c65223a5b2244656d6f225d2c2270617468223a5b7b226669656c64546167223a226974656d73222c22696e646578223a302c22706172656e74546167223a2250726f6772616d227d5d2c2270726f6772616d223a5b2244656d6f222c22436f756e746572225d7d"
+
+private def rawEscapedPreimageHex : String :=
+  "70662e736f757263652d6e6f64652e7631007b226d6f64756c65223a5b22412e42225d2c2270617468223a5b7b226669656c64546167223a226974656d73222c22696e646578223a312c22706172656e74546167223a2250726f6772616d227d5d2c2270726f6772616d223a5b22412e42222c22505c22515c5c52225d7d"
 
 private def segment
     (parentTag fieldTag : String) (index : UInt32 := 0) : NodePathSegmentV1 := {
@@ -159,11 +163,11 @@ private def pathForPair
     pathPrefix.push (segment parentTag fieldTag index)
 
 def run : IO Unit := do
-  let moduleName ← liftStringResult "module name" (parseQualifiedName #["Demo"])
-  let programIdentity ← liftStringResult "program identity"
-    (parseQualifiedName #["Demo", "Counter"])
+  let moduleName ← liftResult "module name" (parseSourceQualifiedNameV1 #["Demo"])
+  let programIdentity ← liftResult "program identity"
+    (parseSourceQualifiedNameV1 #["Demo", "Counter"])
 
-  let rootPreimage ← liftCompileResult "root preimage"
+  let rootPreimage ← liftResult "root preimage"
     (nodeIdPreimageV1 moduleName programIdentity #[])
   expect (bytesHex rootPreimage == rootPreimageHex)
     "root NodeId preimage must match the exact cross-implementation byte vector"
@@ -172,7 +176,7 @@ def run : IO Unit := do
     "root NodeId preimage must match the SHA-256 golden"
 
   let firstItemPath := #[segment "Program" "items"]
-  let firstItemPreimage ← liftCompileResult "first item preimage"
+  let firstItemPreimage ← liftResult "first item preimage"
     (nodeIdPreimageV1 moduleName programIdentity firstItemPath)
   expect (bytesHex firstItemPreimage == firstItemPreimageHex)
     "array-child NodeId preimage must match the exact PF-JCS byte vector"
@@ -180,33 +184,73 @@ def run : IO Unit := do
       "17ac87bb9262ace7d062c77c38a17d0ddcd69fbff4e7927ed8fe9d02af454822")
     "array-child NodeId preimage must match the SHA-256 golden"
 
-  let otherIdentity ← liftStringResult "other program identity"
-    (parseQualifiedName #["Demo", "Other"])
-  let otherIdentityPreimage ← liftCompileResult "other identity preimage"
+  let otherIdentity ← liftResult "other program identity"
+    (parseSourceQualifiedNameV1 #["Demo", "Other"])
+  let otherIdentityPreimage ← liftResult "other identity preimage"
     (nodeIdPreimageV1 moduleName otherIdentity #[])
   expect (otherIdentityPreimage != rootPreimage)
     "program identity must participate in the NodeId preimage"
-  let secondItemPreimage ← liftCompileResult "second item preimage"
+  let secondItemPreimage ← liftResult "second item preimage"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "items" 1])
   expect (secondItemPreimage != firstItemPreimage)
     "array source order must participate in the NodeId preimage"
 
-  let wrongPrefix ← liftStringResult "wrong-prefix identity"
-    (parseQualifiedName #["Elsewhere", "Counter"])
-  expectInvalid "identity prefix"
+  let rawModule ← liftResult "raw module" (parseSourceQualifiedNameV1 #["A.B"])
+  let rawIdentity ← liftResult "raw identity"
+    (parseSourceQualifiedNameV1 #["A.B", "P\"Q\\R"])
+  let rawPath := #[segment "Program" "items" 1]
+  let rawPreimage ← liftResult "raw escaped preimage"
+    (nodeIdPreimageV1 rawModule rawIdentity rawPath)
+  expect (bytesHex rawPreimage == rawEscapedPreimageHex)
+    "raw dot/quote/backslash components must match the exact PF-JCS vector"
+  expect (Crypto.sha256Hex rawPreimage ==
+      "1d20bd4f37f942a52977fa9aade547fb0cbe5317f04f777ca50973de99e1e495")
+    "raw escaped NodeId preimage must match the SHA-256 golden"
+  let splitModule ← liftResult "split module" (parseSourceQualifiedNameV1 #["A", "B"])
+  let splitIdentity ← liftResult "split identity"
+    (parseSourceQualifiedNameV1 #["A", "B", "P\"Q\\R"])
+  let splitPreimage ← liftResult "split preimage"
+    (nodeIdPreimageV1 splitModule splitIdentity rawPath)
+  expect (splitPreimage != rawPreimage) "raw dotted and split components must not alias"
+
+  let stateType ← liftResult "state type path" (nodeIdPreimageV1 moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type"])
+  let constType ← liftResult "const type path" (nodeIdPreimageV1 moduleName programIdentity
+    #[segment "Program" "items", segment "ConstDecl" "type"])
+  expect (stateType != constType) "parentTag must participate in the NodeId preimage"
+  let mapKey ← liftResult "map key path" (nodeIdPreimageV1 moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "key"])
+  let mapValue ← liftResult "map value path" (nodeIdPreimageV1 moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "value"])
+  expect (mapKey != mapValue) "fieldTag must participate in the NodeId preimage"
+
+  let wrongPrefix ← liftResult "wrong-prefix identity"
+    (parseSourceQualifiedNameV1 #["Elsewhere", "Counter"])
+  expectError "identity prefix"
+    "program identity must begin with the exact module name components"
     (nodeIdPreimageV1 moduleName wrongPrefix #[])
-  expectInvalid "identity must extend module"
+  expectError "identity qid count" "source qualified id must contain 2..256 components"
     (nodeIdPreimageV1 moduleName moduleName #[])
-  expectInvalid "scalar field cannot create a path segment"
+  let twoPartModule ← liftResult "two-part module"
+    (parseSourceQualifiedNameV1 #["Demo", "Inner"])
+  expectError "identity must extend module"
+    "program identity must strictly extend the module name"
+    (nodeIdPreimageV1 twoPartModule twoPartModule #[])
+  expectError "scalar field cannot create a path segment"
+    "source node path contains an unknown constructor/field pair"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "name"])
-  expectInvalid "constructor/field pairing is closed"
+  expectError "constructor/field pairing is closed"
+    "source node path contains an unknown constructor/field pair"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "fields"])
-  expectInvalid "non-root path is impossible"
+  expectError "non-root path is impossible"
+    "non-root source node paths must begin at Program"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Type.Option" "element"])
-  expectInvalid "constructor transition is typed"
+  expectError "constructor transition is typed"
+    "source node path contains an impossible constructor transition"
     (nodeIdPreimageV1 moduleName programIdentity
       #[segment "Program" "items", segment "Type.Option" "element"])
-  expectInvalid "direct child requires index zero"
+  expectError "direct child requires index zero"
+    "direct source node path fields require index zero"
     (nodeIdPreimageV1 moduleName programIdentity
       #[segment "Program" "items", segment "StateDecl" "type" 1])
 
@@ -215,7 +259,7 @@ def run : IO Unit := do
   for pair in directPairs do
     let some indexZeroPath := pathForPair pair.1 pair.2
       | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
-    let _ ← liftCompileResult s!"direct pair {pair.1}.{pair.2}"
+    let _ ← liftResult s!"direct pair {pair.1}.{pair.2}"
       (nodeIdPreimageV1 moduleName programIdentity indexZeroPath)
     let some indexOnePath := pathForPair pair.1 pair.2 1
       | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
@@ -224,11 +268,11 @@ def run : IO Unit := do
   for pair in arrayPairs do
     let some indexZeroPath := pathForPair pair.1 pair.2
       | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
-    let _ ← liftCompileResult s!"array pair zero {pair.1}.{pair.2}"
+    let _ ← liftResult s!"array pair zero {pair.1}.{pair.2}"
       (nodeIdPreimageV1 moduleName programIdentity indexZeroPath)
     let some indexOnePath := pathForPair pair.1 pair.2 1
       | throw <| IO.userError s!"missing test prefix for {pair.1}.{pair.2}"
-    let _ ← liftCompileResult s!"array pair one {pair.1}.{pair.2}"
+    let _ ← liftResult s!"array pair one {pair.1}.{pair.2}"
       (nodeIdPreimageV1 moduleName programIdentity indexOnePath)
   let allPairs := directPairs ++ arrayPairs
   for parentSource in allPairs do
@@ -243,11 +287,11 @@ def run : IO Unit := do
   let typePrefix := #[segment "Program" "items", segment "ConstDecl" "type"]
   let atDepthLimit := typePrefix ++
     Array.replicate 253 (segment "Type.Option" "element")
-  let _ ← liftCompileResult "path at depth limit"
+  let _ ← liftResult "path at depth limit"
     (nodeIdPreimageV1 moduleName programIdentity atDepthLimit)
   let overDepthLimit := typePrefix ++
     Array.replicate 254 (segment "Type.Option" "element")
-  expectInvalid "path over depth limit"
+  expectError "path over depth limit" "source node path exceeds the nesting bound"
     (nodeIdPreimageV1 moduleName programIdentity overDepthLimit)
 
 end Tests.Language.SourceIdentity
