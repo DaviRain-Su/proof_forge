@@ -1,4 +1,5 @@
 import Lean.Util.Path
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Source.SpanV1
 
@@ -118,26 +119,48 @@ unsafe def run : IO Unit := do
   expectInvalid "out-of-order interior token"
     (originalSyntaxByteSpanV1 "abcdef" outOfOrderInterior)
 
-  let modulePrefix :=
-    "import ProofForgeV2\nopen ProofForgeV2.Language\n\n"
-  let programText :=
+  let modulePrefix := "import ProofForgeV2\nopen ProofForgeV2.Language\n"
+  let programTextA :=
     "program SpanProbe where\n  view get() : UInt64 do\n    return 0"
-  let moduleSource := modulePrefix ++ programText ++ "\n/- trailing comment -/\n"
+  let programTextB :=
+    "program SpanProbe where\n  /- layout-only comment -/\n  view get() : UInt64 do\n    return 0"
+  let sourceA := modulePrefix ++ "\n" ++ programTextA ++ "\n/- tail A -/\n"
+  let sourceB := modulePrefix ++ "\n/- lead β -/\n\n" ++
+    programTextB ++ "\n/- tail B -/\n"
+  let fileA := "/tmp/absolute-a.lean"
+  let fileB := "nested/project-b.lean"
   let environment ← parserEnvironment
-  let parsed ← Lean.Parser.testParseModule environment "<source-span>" moduleSource
-  match parsed.getArgs with
-  | #[_, commands] =>
-      match commands.getArgs.find? fun command =>
-          command.getKind == ``ProofForgeV2.Language.programDecl with
-      | some programSyntax =>
-          let parsedSpan ← liftSpan "real parser program"
-            (originalSyntaxByteSpanV1 moduleSource programSyntax)
-          expect (parsedSpan == {
-              startByte := UInt64.ofNat modulePrefix.toUTF8.size
-              endByte := UInt64.ofNat (modulePrefix ++ programText).toUTF8.size
-            })
-            "real parser span must exclude leading layout and trailing comment/newline"
-      | none => throw <| IO.userError "real parser fixture did not contain a program command"
-  | _ => throw <| IO.userError "real parser fixture returned an invalid module tree"
+  let parseProgramSyntax (label fileName source : String) : IO Lean.Syntax := do
+    let parsed ← Lean.Parser.testParseModule environment fileName source
+    match parsed.getArgs with
+    | #[_, commands] =>
+        match commands.getArgs.find? fun command =>
+            command.getKind == ``ProofForgeV2.Language.programDecl with
+        | some programSyntax => pure programSyntax
+        | none => throw <| IO.userError s!"{label}: program command missing"
+    | _ => throw <| IO.userError s!"{label}: invalid module tree"
+  let syntaxA ← parseProgramSyntax "variant A" fileA sourceA
+  let syntaxB ← parseProgramSyntax "variant B" fileB sourceB
+  let spanA ← liftSpan "variant A span" (originalSyntaxByteSpanV1 sourceA syntaxA)
+  let spanB ← liftSpan "variant B span" (originalSyntaxByteSpanV1 sourceB syntaxB)
+  expect (spanA == { startByte := 48, endByte := 109 } &&
+      spanB == { startByte := 63, endByte := 152 })
+    "real parser spans must use exact UTF-8 bytes and include only each program command"
+  expect (sourceA != sourceB && fileA != fileB && spanA != spanB)
+    "source path/comment/layout variants must produce distinct observations"
+
+  let session ← ProofForgeV2.Language.Loader.ParserSession.create
+  let programA ← match ← session.selectProgram sourceA fileA none with
+    | .ok programValue => pure programValue
+    | .error error => throw <| IO.userError s!"variant A Loader: {error.render}"
+  let programB ← match ← session.selectProgram sourceB fileB none with
+    | .ok programValue => pure programValue
+    | .error error => throw <| IO.userError s!"variant B Loader: {error.render}"
+  expect (programA == programB && programA.canonicalBytes == programB.canonicalBytes)
+    "file/span/comment/layout must not alter the decoded alpha Source.Program identity"
+  expect (programA.sourceHash == programB.sourceHash &&
+      programA.sourceHash ==
+        "UNBOUND")
+    "file/span/comment/layout must not alter the fixed alpha sourceHash"
 
 end Tests.Language.SourceSpan

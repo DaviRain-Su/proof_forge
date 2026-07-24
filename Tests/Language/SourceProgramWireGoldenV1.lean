@@ -411,4 +411,29 @@ def run : IO Unit := do
     seenPaths := seenPaths.push path
     seenIds := seenIds.push nodeId
 
+  let rebuiltModuleParts : Array String := manifest.moduleName.foldl
+    (fun parts part => parts.push part) (Array.emptyWithCapacity 257)
+  let rebuiltIdentityParts : Array String := manifest.programIdentity.foldl
+    (fun parts part => parts.push part) (Array.emptyWithCapacity 257)
+  let rebuiltItems : Array ProgramItemV1 := fixture.program.items.foldl
+    (fun items item => items.push item)
+    (Array.emptyWithCapacity (fixture.program.items.size + 64))
+  let twinModule ← liftResult "allocation-history module" (qualified rebuiltModuleParts)
+  let twinIdentity ← liftResult "allocation-history identity" (qualified rebuiltIdentityParts)
+  let twinProgram : ProgramV1 := { fixture.program with items := rebuiltItems }
+  expect (twinModule == fixture.moduleName && twinIdentity == fixture.programIdentity &&
+      twinProgram == fixture.program)
+    "allocation-history twins must retain the same logical source value"
+  let twinValidated ← liftResult "allocation-history validate"
+    (validateSourceV1 twinModule twinIdentity twinProgram)
+  let twinBytes ← liftResult "allocation-history encode"
+    (canonicalValidatedSourceAstBytesV1 twinValidated)
+  let twinHash ← liftResult "allocation-history hash" (sourceHashV1 twinValidated)
+  let twinHashText ← liftResult "allocation-history hash render" (renderDigest twinHash)
+  let twinTable ← liftResult "allocation-history node assignment"
+    (assignNodeIdsV1 twinModule twinIdentity twinProgram)
+  expect (twinBytes == canonical && twinHashText == manifest.expectedSourceHash &&
+      nodeAssignmentsPreorderV1 twinTable == assignments)
+    "array capacity/insertion history must not alter bytes, sourceHash, or NodeIds"
+
 end Tests.Language.SourceProgramWireGoldenV1
