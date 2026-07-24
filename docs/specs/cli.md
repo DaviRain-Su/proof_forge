@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-07-16
+updated: 2026-07-25
 normative: true
 ---
 
@@ -15,11 +15,11 @@ human diagnostics 到 stderr。
 ## Commands
 
 ```text
-proof-forge-next check <source> [--language-version <semver>]
+proof-forge-next check <source> --module <lean-module-name> [--language-version <semver>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
   [--format human|json]
-proof-forge-next build <source> --target <id> [--profile <id>]
+proof-forge-next build <source> --module <lean-module-name> --target <id> [--profile <id>]
   [--language-version <semver>] [--minimum-evidence <grade>]
   [--program <qualified>] [--resource-limit <stage>.<field>=<n>]...
   [--proof-bundle <dir> --proof-bundle-digest <sha256:64-lowercase-hex>]
@@ -38,6 +38,11 @@ Phase 1 required：check/build/inspect/list-targets、Noir prove/verify；deploy
 仅对通过 target dossier network gate 的 profile 开放，其他返回 stable unavailable。
 
 ## Selection Rules
+
+`check/build` 的 `--module` 必填。其值由锁定 Lean identifier parser exact-consume，必须是 pure
+`.str` chain；不得从 source path 推导或按 `.` split。`programIdentity` 为 module raw components、
+active namespace raw components 与 declaration raw components 的精确串接。`--program` 使用同一
+parser 与 raw-array equality；文件路径和 rendered dotted string 不参与 source identity/hash。
 
 一个候选自动选择；零候选 `PF-EXPORT-003`；多个候选必须 exact `--program`，否则
 `PF-EXPORT-002`。target/profile exact lookup；省略 profile 使用 registry 唯一 default。

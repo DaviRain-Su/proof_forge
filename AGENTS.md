@@ -1,7 +1,7 @@
 # AGENTS.md
 
-这是 ProofForge V2 独立工程的 agent 控制面。它只负责导航、当前检查点和工作
-协议，不替代 PRD、架构、技术规格或测试规格。
+这是 ProofForge V2 独立工程的 agent 控制面。它只负责导航、当前产品检查点和工作协议，
+不替代 PRD、架构或技术规格。当前恢复模式的详细边界见 [`RECOVERY.md`](RECOVERY.md)。
 
 ## Project Mission
 
@@ -13,43 +13,39 @@
 
 | Field | Current value |
 |---|---|
-| Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：10/10 done**；D1当前 **0/8 done、1 blocked**，尚未进入D1-02 |
-| Active task | 无（唯一已激活任务按冻结治理转为 `blocked`，没有并行启动下游任务） |
-| D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
-| Next task | **TASK-D1-01**（blocked；解除steady-state protected ceremony与独立复审前置后按原冻结包恢复） |
-| Active development slice | D1-01 candidate `d1d8a7e4187b2c8bade6114a3b49e78acb12dd75` 的冻结TST-SRC-001/002技术面已全绿；formal TaskQualification尚未签发 |
-| Next development slice | 不启动D1-02或新PA；只允许解除既有formal qualification外部前置后恢复同一冻结包。继续禁止shared DSL/Loader/Lean-command/export v2 cutover、legacy→ProgramV1、dual reader、第二套quoted decoder或fallback |
+| Program | V2 产品恢复：CLI Counter 已接通 `ProgramV1` 到 target-owned artifact |
+| Product milestone | `program` → `ValidatedSourceV1` → Typed → Semantic → EVM Plan/IR → artifact |
+| Product status | CLI `build`/`build-counter` 无 legacy fallback；旧 command/export/Loader API 待隔离清理 |
+| Active task | 无（恢复工作不再创建治理型 `TASK-*` 行） |
+| Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
+| Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |
+| Recovery authority | [`RECOVERY.md`](RECOVERY.md) |
+| Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
+| Document authority | [`docs/document-status.md`](docs/document-status.md) |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | **TASK-D1-01**：candidate-bound formal EV/TaskQualification要求steady-state v2 service/supervisor/durable custody与独立bounded review；仓库当前只有D0-10 development-only本地ceremony，且用户约束不允许调用其他agent，二者均不得伪造或降级 |
-| Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
-| Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
-检查点不是完成证据；完成必须有 `TST-*` 与 `EV-*`，并记录在实现日志中。
-当前 EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证，NEAR 的 raw-u64 Counter 和
-Accumulator 已有 `wat2wasm` 结构验证
-但没有 sandbox receipt；Solana 只有 non-executable `.sbpf-plan`+IDL；Noir 的 Counter、
-Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 source packages，manifest
-仍为 non-deployable，且没有 Nargo/ACIR/witness/proof/VK/verify。不得写成 ELF/runtime 或 proof 完成。
+`docs/04-task-breakdown.md` 与既有 evidence ledger 继续保存 D0/D1 release-qualification
+历史，但不再生成日常产品工作的完成条件。恢复期间禁止新增 `D1-PA-*`、资格协议、
+custody 服务或 formal-evidence ceremony。
+
+成熟度声明仍必须准确：EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证；NEAR
+只有 raw-u64 Counter/Accumulator 的 `wat2wasm` 结构验证；Solana 只有不可执行的
+`.sbpf-plan`+IDL；Noir 只有 target-owned Plan/typed relation IR 与 source packages。
+不得把静态制品写成部署、运行或证明完成。
 
 ## Mandatory Reading Order
 
-1. 完整阅读本文件。
-2. 运行 `git status --short` 并确认不会覆盖其他人的工作。
-3. 阅读 [`docs/document-status.md`](docs/document-status.md) 和
-   [`docs/index.md`](docs/index.md)。
-4. 阅读 [`docs/01-prd.md`](docs/01-prd.md)、
-   [`docs/02-architecture.md`](docs/02-architecture.md) 与
-   [`docs/03-technical-spec.md`](docs/03-technical-spec.md)。
-5. 阅读当前模块规格、相关 ADR、目标档案和
-   [`docs/05-test-spec.md`](docs/05-test-spec.md)。
-6. 实施前检查 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) 与
-   [`docs/governance/task-freeze.md`](docs/governance/task-freeze.md)；一次只把
-   一个任务置为 `in_progress`，且必须已有冻结完成包。
-7. 声称完成前检查 traceability、验证证据和 review report；完成面不得相对冻结包变胖。
+1. 完整阅读本文件并运行 `git status --short`，确认不会覆盖其他人的工作。
+2. 阅读 [`RECOVERY.md`](RECOVERY.md)、[`docs/document-status.md`](docs/document-status.md)
+   与 [`docs/index.md`](docs/index.md)。
+3. 阅读 [`docs/01-prd.md`](docs/01-prd.md)、[`docs/02-architecture.md`](docs/02-architecture.md)
+   与 [`docs/03-technical-spec.md`](docs/03-technical-spec.md)。
+4. 只阅读当前产品切片直接相关的模块规格、ADR、目标档案与测试规格；不要因为历史
+   qualification 引用而扩张工作面。
+5. 修改前核对真实代码和工具链；声称完成前运行聚焦测试与普通产品 CI。
 
-## Non-Negotiable Boundaries
+## Non-Negotiable Product Boundaries
 
 - 用户源码只有统一 `program Name where` 入口，不得加入用户可写顶层类别标记。
 - frontend 和 `SemanticProgram` 不依据 `TargetId` 改写语义。
@@ -58,56 +54,43 @@ Accumulator 和 PrivateSum4 只有 target-owned Plan/typed relation IR 与 sourc
 - Noir、OpenVM、Aleo、Psy 分别属于电路、zkVM、ZK 应用链边界，不共用伪通用 Plan。
 - 每项 capability/extension 必须精确版本并 fail closed；禁止 best effort 或隐式 fallback。
 - 每个 materializer 保留关联 `Plan` 和 `TargetIR` 类型；不得擦除成 `Unit`、字符串或 JSON。
-- V2 禁止依赖 `active/` 归档（旧 v1）、`ProofForge.*` import、旧制品、旧二进制、symlink 或运行时回退。
-- 仓库根即 V2 产品树；`active/` 仅为研究/参考归档，不得作为 oracle、兼容入口或失败回退。
-- **全部 `TASK-*` 遵守全局任务冻结**（`GOV-TASK-FREEZE-001`）：`in_progress`/`done` 禁止
-  扩大 Output/Tests/Dependencies/Prerequisites 或 Done 语义；新缺口只能修实现、`blocked`、
-  新任务或书面 Freeze Exception，禁止回填当前任务；不得自动递增 A0/Dx 任务行。
+- V2 禁止依赖 `active/` 归档、`ProofForge.*` import、旧制品、旧二进制、symlink 或运行时回退。
+- `ProgramV1` 产品路径必须直接从 Syntax 构造并在 Typed 边界消费；禁止新增
+  legacy→ProgramV1 adapter、产品 dual reader、第二套 ProgramV1 decoder 或 fallback。
 
-## Execution Protocol
+## Recovery Execution Protocol
 
-1. 对照代码、规格和实际工具链复核任务输入。
-2. 严格按 [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) 的依赖顺序选择任务，并且
-   只标记一个 `in_progress`；开工前写入冻结完成包（见
-   [`docs/governance/task-freeze.md`](docs/governance/task-freeze.md)）；不得仅依据本文件的
-   checkpoint 自动发散新 `TASK-A0-*` 或改胖当前任务完成面。
-3. 先提交失败的验收测试或可执行验证脚本（Tests 集合以冻结包为准，执行中不得追加 TST）。
-4. 实现满足规格的最小切片，遇到规格缺口先改规格并重新评审；规格变化不得静默扩大完成面。
-5. 运行聚焦测试；合并前运行完整 V2 gate。当前 `isolated-check`/
-   `v2-clean-room-alpha` 会隔离 HOME/cache、限制网络并拒绝父仓库访问，Lean/external tool
-   都从锁定 cache 离线物化，non-system dylib closure 已锁定；H0 会先做本地、时点性的
-   development host attestation，并已接入 deny-default materialize/core/exact-local-port
-   runtime stages；但 eligible host、formal Stage-0 handoff、process-session containment 与
-   gate-catalog-bound formal evidence 尚未闭合，所以仍不是正式
-   hermetic clean-room gate，不得混称。
-6. 检查不支持的声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
-7. 任何 `ProofForgeV2/**` 源码增删改必须同变更运行 `just sbom-package-files-refresh`
-   重新钉住 `supply-chain/lean-package-files.v1.json`（TST-SBOM-002 的已提交 pin；
-   漂移即 `PF-SBOM-CLOSURE`，两台开发机都适用）。
-8. 同一变更中更新 task、traceability、evidence、implementation log 和 checkpoint；**不得**在
-   更新 checkpoint 时追加任务完成条件。
-9. 交接时给出精确文件、命令、结果、限制和下一任务；若触碰冻结包超时阈值，先做
-   Close/Split/Block/Exception triage。
+1. 一次只推进一个可运行的产品纵切面；当前唯一切面是 Counter → EVM artifact。
+2. 先写聚焦失败测试，再实现满足现有规格的最小代码；不为恢复工作新增 `TASK-*`、
+   `TST-*`、`EV-*`、freeze package 或 qualification object。
+3. 日常反馈使用 `just dev-check`；普通合并检查使用 `just ci`。
+4. `just governance-check` 只审计历史 task/freeze/evidence 数据；
+   `just release-check` 才允许进入 eligible-host、SBOM、clean-room 与 formal qualification。
+5. development completion 与 release qualification 分开记录。普通 CI 成功不得写成
+   hermetic/formal evidence；release 主机不合格也不得反向否定已通过的产品测试。
+6. 检查 unsupported 声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
+7. 修改 `ProofForgeV2/**` 时运行相关 Lean 测试；SBOM package-file pin 在本次迁移中核对一次，
+   后续归入 `release-check`，不再作为每次源码编辑的日常完成仪式。
+8. 当前恢复工作由单一 agent 执行，不启动 subagent，也不伪造独立复审者。
+9. 交接时给出精确文件、命令、结果和限制；不提交、不推送，除非用户另行要求。
 
-正式 Stage-0 证据只能由调用者直接执行
-`/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible`。
-`just host-stage0-*` 先经过继承环境的 recipe shell，只是开发便利入口，不能作为该信任边界。
+正式 Stage-0 若用于真正的 release 判断，仍只能由调用者直接执行：
+
+`/usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible`
+
+通过 `just release-check` 运行的同类命令只是 release preflight，不自动生成正式证据。
 
 ## Documentation Protocol
 
 - 状态只使用 `draft`、`proposed`、`in_review`、`accepted`、`superseded`、
   `archived`、`not_started`。
-- 规范变更先更新 ADR/PRD/spec/test/traceability，再修改代码。
-- 调研事实必须引用 `SRC-*`；设计结论必须引用 `CLM-*` 或 `ADR-*`。
-- `06-implementation-log.md` 只追加已执行事实；`07-review-report.md` 不得预填通过。
-- 文档变更运行 `just docs-check`（脚本落地前运行等价静态检查）和
-  `git diff --check`。
-- 远程 CI：GitHub `docs` + `source-core`（`just ci`）；macOS hermetic 全量
-  `just check` / `v2-clean-room-alpha` 仍为本地/开发门禁，不得把 Linux CI 成功
-  写成 hermetic evidence。
+- 产品行为变化同步更新相关规格或架构说明；不要批量重写历史 ledger/log/review。
+- `06-implementation-log.md` 只保留已执行事实；`07-review-report.md` 不得预填通过。
+- 文档变更运行 `just docs-check` 与 `git diff --check`。
+- 不新增治理层来管理恢复工作；`RECOVERY.md` 是短期单一执行指针。
 
 ## Definition of Done
 
-任务只有在规格、测试、实现、可复现制品、目标运行/证明证据、追踪链和评审全部
-闭合时才可标为 done。缺少外部工具或网络证据时必须保留较低 maturity，不得把
-静态生成写成部署、执行或证明成功。
+开发切片完成意味着：真实产品路径可运行、聚焦测试与 `just ci` 通过、文档与成熟度声明
+准确、没有 fallback 或无关扩张。发布资格是独立的更高门槛，只能由显式
+`just release-check` 与符合资格的外部流程判断；它不是日常产品开发的完成条件。

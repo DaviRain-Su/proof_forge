@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free validation for the ProofForge V2 documentation control plane."""
+"""Dependency-free development or governance validation for ProofForge V2 docs."""
 
 from __future__ import annotations
 
@@ -3743,7 +3743,9 @@ def validate_agents_checkpoint(root: Path, tasks: list[TaskRecord]) -> None:
     checkpoint_authority_target("Document authority", "docs/document-status.md")
 
 
-def check(root: Path) -> None:
+def check(root: Path, profile: str = "governance") -> None:
+    if profile not in {"development", "governance"}:
+        raise ValueError(f"unknown docs-check profile: {profile}")
     root_input = root.expanduser().absolute()
     for component in (root_input, *root_input.parents):
         if component.is_symlink():
@@ -3754,7 +3756,12 @@ def check(root: Path) -> None:
     ensure_repository_path(root, docs_root, "docs")
     if not docs_root.is_dir():
         raise_error("PF-DOC-REQUIRED", "docs", "docs/ does not exist")
-    for required in sorted(REQUIRED):
+    required_paths = (
+        REQUIRED
+        if profile == "governance"
+        else [item for item in REQUIRED if item != "governance/task-set.lock.json"]
+    )
+    for required in sorted(required_paths):
         required_path = docs_root / required
         ensure_repository_path(root, required_path, f"docs/{required}")
         if not required_path.is_file():
@@ -3790,6 +3797,9 @@ def check(root: Path) -> None:
         documents.append(document)
 
     check_links(root, docs_root, documents, by_id)
+    if profile == "development":
+        return
+
     definitions, _tables, tasks, evidence_results = collect_definitions(
         root, documents, json_values)
     validate_claims(definitions, json_values)
@@ -3810,12 +3820,25 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="repository root containing docs/")
+    parser.add_argument(
+        "--profile",
+        choices=("development", "governance"),
+        default="development",
+        help=(
+            "development checks document structure, lifecycle, and links; "
+            "governance additionally checks task/freeze/trace/evidence state"
+        ),
+    )
     arguments = parser.parse_args()
     try:
-        check(arguments.root)
+        check(arguments.root, arguments.profile)
     except DocsCheckError as error:
         print(f"docs-check: {error.render()}", file=sys.stderr)
         raise SystemExit(1)
+    if arguments.profile == "development":
+        print("docs-check: development ok")
+        return
+
     structural = _d0_10_structural_approval(arguments.root.expanduser().absolute().resolve())
     if structural is not None:
         print(

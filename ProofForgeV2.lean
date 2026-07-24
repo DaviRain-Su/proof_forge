@@ -43,6 +43,7 @@ import ProofForgeV2.Source.AstCanonicalRootDecodeV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Core.Typed
+import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Compiler.Pipeline

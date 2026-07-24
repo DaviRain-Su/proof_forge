@@ -47,10 +47,16 @@ program Counter where
 
 ```bash
 # 安装 Lean（见 lean-toolchain）后：
-just build
-just test
-# 或本地完整 gate（含 macOS hermetic 子集，见下文）
-just ci          # 可移植 Linux / GitHub CI 子集
+just dev-check   # 快速文档检查、构建与核心产品测试
+just ci          # 普通开发机 / GitHub CI 的完整产品门禁
+
+# 仅在明确做历史治理审计或发布预检时运行：
+# just governance-check
+# just release-check
+
+# 真实 ProgramV1 CLI 路径（--module 是 canonical identity 的显式输入）：
+lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
+  --module Examples.Counter --target solana -o build/counter-solana
 ```
 
 源码 **不** 声明 “合约 / 电路 / zkVM workload” 类别；类别由 `--target` 的物化决定，
@@ -108,7 +114,7 @@ Author / CI
     ▼
 proof-forge-next
     ├─ Lean Parser + portable decoder (+ Syntax preflight)
-    │     → Source.Program
+    │     → Source.ProgramV1 → ValidatedSourceV1
     ├─ name / type / effect check
     │     → Typed.Program
     ├─ target-neutral normalization
@@ -177,32 +183,35 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | 文档导航 | [`docs/index.md`](docs/index.md) |
 | 产品需求 | [`docs/01-prd.md`](docs/01-prd.md) |
 | 系统架构 | [`docs/02-architecture.md`](docs/02-architecture.md) |
-| 任务与验收 | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
+| 当前产品恢复 | [`RECOVERY.md`](RECOVERY.md) |
+| 历史 release 任务与验收 | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
 | 实现事实日志 | [`docs/06-implementation-log.md`](docs/06-implementation-log.md) |
 | Agent 工作协议 | [`AGENTS.md`](AGENTS.md) |
 
-**权威顺序：** 已接受 ADR/PRD/架构/规格 → 可复现 gate/evidence → 当前代码与制品。  
-调研材料是证据输入，不会自动变成规范。
+**权威顺序：** 已接受 ADR/PRD/架构/规格 → 当前代码、制品与可复现产品测试 →
+显式 release qualification。调研材料是证据输入，不会自动变成规范。
 
 ---
 
 ## 开发与 CI
 
 ```bash
-just docs-check    # 文档控制面
-just build         # Lake: ProofForgeV2 + proof-forge-next
-just test          # proof-forge-next-tests
-just ci            # 可移植子集（GitHub / Woodpecker 使用）
-just check         # 完整本地 gate（含 macOS hermetic / 锁定工具链）
-just v2-clean-room-alpha   # clean-room 开发门禁（非正式 hermetic release）
+just docs-check         # 快速文档与链接/状态检查
+just test-fast          # 核心产品 smoke tests
+just dev-check          # 日常：docs-check + build + test-fast
+just test               # 全量 proof-forge-next-tests
+just ci                 # 普通主机的完整产品门禁
+just governance-check   # 显式审计历史 task/freeze/evidence
+just release-check      # 发布预检；需要 eligible host 与锁定工具链
 ```
 
 | 表面 | 命令 / 配置 | 宣称 |
 |---|---|---|
-| Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable：docs + build/test + 负例 |
-| Linux tool-root CI | `.github/workflows/ci.yml` 的 `linux-tool-root` lane | linux 资产 provision/materialize/verify 与 host profile 生成/验证闭环；development 级，非 hermetic |
+| Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable 产品检查：docs + build/test + 负例 |
+| Linux tool-root CI | `.github/workflows/ci.yml` 的 `linux-tool-root` lane | linux 资产 provision/materialize/verify 与 host profile 观察；development 级 |
 | 密钥扫描 | `secret-scan` workflow | only-verified TruffleHog |
-| 本地 hermetic | `just check` / `v2-clean-room-alpha` | 需 macOS host profile + darwin-arm64 锁定工具；**不是** release EV |
+| 历史治理审计 | `just governance-check` | task/freeze/evidence 数据自洽；不证明 release |
+| 发布预检 | `just release-check` | eligible-host、SBOM、clean-room 与锁定工具；只有外部正式流程才能生成 release EV |
 
 ### macOS / Linux 双开发机
 
@@ -211,19 +220,14 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
 - 工具锁定按平台分文件：`toolchains.lock.json`（darwin-arm64，字节冻结）与
   `toolchains-linux-x86_64.lock.json`（linux）；`justfile` 按 `uname` 选择
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
-- `just ci`、`just toolchains-*`、`just host-stage0-development` 在两个平台都可运行；
-  linux 上 clean-room 沙箱（`isolated-check`/`v2-clean-room-alpha`）显式 fail closed
-  （沙箱引擎仅 macOS，linux 化需独立任务）。
-- 两台机器都直接推 `main`：开工前 `git fetch && git status --short`，分叉时合并
-  而非重写对方提交（证据/台账按 commit 哈希引用，rebase 会打断引用）。
-- 任何 `ProofForgeV2/**` 源码变更必须在同一变更集运行
-  `just sbom-package-files-refresh` 重新钉住 `supply-chain/lean-package-files.v1.json`，
-  否则 `just ci` 的 SBOM 闭包检查以 `PF-SBOM-CLOSURE` 失败（双机通用）。
-- 当前两台开发机均 **不是 eligible host**（darwin 机 SSV seal broken、Linux 机
-  SecureBoot disabled）：一切输出均为 development 级；eligible Stage-0 handoff 与
-  formal 入口在两台机器上都 fail closed。linux 机器成为 eligible 的条件：
-  固件启用 Secure Boot、system/distro 工具按 lock 精确固定后重新生成并登记
-  host profile（见 `docs/adr/0016-cross-platform-host-profile-and-linux-eligibility.md`）。
+- `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
+  formal qualification。锁定工具与 clean-room 只由显式 `just release-check` 使用。
+- 多台开发机协作时先 `git fetch && git status --short`；不要覆盖他人的未提交文件，
+  也不要为维护历史 evidence 哈希而阻塞普通产品迭代。
+- SBOM package-file pin 与供应链闭包归入 `release-check`。本次 ProgramV1 迁移会核对一次
+  既有 pin；后续普通源码编辑不再由 SBOM ceremony 决定 development completion。
+- 当前已登记开发机均不是 eligible host；因此 `release-check` 应明确拒绝，而
+  `dev-check`/`ci` 仍应正常给出产品结论。不得把两者混写成同一失败。
 
 首次物化锁定工具（本地 hermetic，非普通 `just ci`）：
 
@@ -234,14 +238,18 @@ just toolchains-provision-external
 
 ---
 
-## 当前状态（alpha）
+## 当前状态（product recovery）
 
-V2 完成了文档/规格基线与 **不可发布** 的 alpha 骨架：独立 Lake、统一 DSL 入口、
-Core 与四目标 materializer 的最小连通性。**不等于 Phase 1 完成。**
+CLI 的 `build` 与 `build-counter` 已直接使用
+`Syntax → ValidatedSourceV1 → Typed.checkV1 → Semantic → target Plan/IR`；Counter 的 EVM
+Yul/ABI materialization 由快速产品测试固定，真实 source CLI 也已完成无 fallback 的目标制品路径。
+详情见 [`RECOVERY.md`](RECOVERY.md)。
 
-- Clean-room development gate 已可跑，但当前 host 可能 `Sealed: Broken` 等，
-  **不能**当作正式 hermetic / release evidence。
-- 详见实现日志与 document status；写 maturity 时以 **代码 + 可复现 gate** 为准。
+- Lean command quote、`proof-forge.program-export.v1` 与旧 Loader API 仍作为历史
+  `Source.Program` characterization 保留，不在 CLI 产品路径中；它们是下一轮隔离/删除对象。
+- TaskQualification/custody/formal-evidence 扩张已暂停，不再作为开发完成条件。
+- Clean-room 与 eligible-host 只属于显式 release qualification。
+- 写 maturity 时以真实代码、制品与对应产品测试为准，不能用治理对象数量代替产品进度。
 
 ---
 

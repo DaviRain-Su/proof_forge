@@ -105,8 +105,10 @@ import Tests.Language.Grouping
 import Tests.Language.Loader
 import Tests.Language.LogicalNot
 import Tests.Materialization.Targets
+import Tests.Materialization.EvmSmoke
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
+import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 
 unsafe def main : IO Unit := do
@@ -192,7 +194,9 @@ unsafe def main : IO Unit := do
   Tests.Language.Loader.run
   Tests.Language.LogicalNot.run
   Tests.Materialization.run
+  Tests.Materialization.EvmSmoke.run
   Tests.Materialization.NearHostModel.run
   Tests.Materialization.NoirRelationModel.run
+  Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   IO.println "proof-forge-next-tests: ok"

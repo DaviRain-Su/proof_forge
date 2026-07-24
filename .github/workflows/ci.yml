@@ -4,22 +4,20 @@ name: CI
 #
 # Required lanes for branch protection:
 #   docs         - documentation control-plane check
-#   source-core  - Lean build, unit tests, DSL/target negative gates
+#   source-core  - Lean build, unit tests, ProgramV1/target negative gates
 #
-# Also run here (linux, development-grade only):
-#   linux-tool-root - linux toolchain lock validation, external asset
-#   provision/materialize/verify against the locked linux tool root, and the
-#   observe-host -> validate-host-profile closed loop. It is development-level
-#   tool-root evidence only, never hermetic or formal evidence.
+# Manual audit lane:
+#   linux-tool-root - explicit toolchain lock/provision/materialize inspection.
+#   It is not part of ordinary push/PR completion and never creates formal EV.
 #
-# Not run here (macOS / hermetic toolchain host only):
-#   just check full suite, host-stage0, sandbox-policy, clean-room isolation,
-#   and target-smoke with darwin-arm64 solc/wabt/foundry. Those remain
-#   local/dev gates. See docs/governance/ci-evidence.md.
+# Not run by hosted product CI:
+#   governance-check, release-check, Stage-0, SBOM ceremony, custody,
+#   clean-room qualification, or target-smoke with locked external tools.
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -86,7 +84,8 @@ jobs:
         run: just ci
 
   linux-tool-root:
-    name: linux-tool-root
+    name: linux-tool-root (manual audit)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

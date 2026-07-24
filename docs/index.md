@@ -3,11 +3,17 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-07-17
+updated: 2026-07-25
 normative: true
 ---
 
 # 文档导航
+
+## 当前产品恢复
+
+日常产品执行以根级 [`RECOVERY.md`](../RECOVERY.md) 为指针：先完成
+`ProgramV1 → Typed → Semantic → EVM artifact` 的 Counter 纵向切面。既有 D1 与
+TaskQualification 文档保留为历史 release-qualification 资料，不再阻塞开发完成。
 
 ## 生命周期
 
@@ -17,7 +23,7 @@ normative: true
 | 1 | [PRD](01-prd.md) | `accepted` | FR/NFR/非目标/DoD 获批 |
 | 2 | [Architecture](02-architecture.md) | `accepted` | 边界、不变量、威胁模型获批 |
 | 3 | [Technical Spec](03-technical-spec.md) | `accepted` | 所有公共接口、状态、错误、版本和边界获批 |
-| 4 | [Task Breakdown](04-task-breakdown.md) | `proposed` | 任务均可在 4 小时内独立验收 |
+| 4 | [Task Breakdown](04-task-breakdown.md) | `accepted` | 历史 release-qualification 任务与验收；当前产品执行见 Recovery |
 | 5 | [Test Spec](05-test-spec.md) | `accepted` | raw artifact owner R2按single-maintainer owner waiver批准；可执行、签名与closeout门禁不变 |
 | 6 | [Implementation Log](06-implementation-log.md) | `draft` | 只记录真实执行与证据；当前为 pre-acceptance alpha |
 | 7 | [Review Report](07-review-report.md) | `not_started` | 规格、安全、依赖、性能、发布与回滚签署 |

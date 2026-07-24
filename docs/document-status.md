@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-07-19
+updated: 2026-07-25
 normative: true
 ---
 
@@ -20,6 +20,12 @@ normative: true
 | `accepted` | 有 owner、日期和批准记录，可作为规范 |
 | `superseded` | 被明确 successor 替代，保留历史路径 |
 | `archived` | 只保留证据价值，不参与当前决策 |
+
+## 当前恢复执行指针
+
+当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) 收敛到 ProgramV1 Counter → EVM
+纵向切面。下表中的 task/evidence 文档继续保存历史 release-qualification 权威，但不再
+作为 development completion 的前置条件。
 
 ## 当前索引
 

@@ -296,9 +296,13 @@ def write_corpus(root: Path, files: dict[str, str]) -> None:
         path.write_text(content, encoding="utf-8")
 
 
-def run_checker(root: Path) -> subprocess.CompletedProcess[str]:
+def run_checker(
+        root: Path, profile: str = "governance") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, "-I", "-S", str(CHECKER), "--root", str(root)],
+        [
+            sys.executable, "-I", "-S", str(CHECKER),
+            "--root", str(root), "--profile", profile,
+        ],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -1247,6 +1251,32 @@ def expect_success(name: str, mutation: Mutation) -> None:
             )
 
 
+def test_profile_split() -> None:
+    with tempfile.TemporaryDirectory(prefix="proof-forge-docs-profile-") as temporary:
+        root = Path(temporary).resolve() / "repo"
+        write_corpus(root, base_files())
+        (root / "docs/governance/task-set.lock.json").unlink()
+
+        development = run_checker(root, "development")
+        if (development.returncode != 0
+                or development.stdout != "docs-check: development ok\n"
+                or development.stderr != ""):
+            raise AssertionError(
+                "development profile unexpectedly depended on task governance; "
+                f"exit={development.returncode}\n"
+                f"stdout={development.stdout!r}\nstderr={development.stderr!r}"
+            )
+
+        governance = run_checker(root, "governance")
+        if (governance.returncode != 1
+                or "PF-DOC-REQUIRED docs/governance/task-set.lock.json" not in governance.stderr):
+            raise AssertionError(
+                "governance profile did not retain the task-set check; "
+                f"exit={governance.returncode}\n"
+                f"stdout={governance.stdout!r}\nstderr={governance.stderr!r}"
+            )
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory(prefix="proof-forge-docs-baseline-") as temporary:
         root = Path(temporary).resolve() / "repo"
@@ -1257,6 +1287,7 @@ def main() -> None:
                 f"baseline failed: exit={result.returncode}\n"
                 f"stdout={result.stdout!r}\nstderr={result.stderr!r}")
 
+    test_profile_split()
     expect_success("superseded-approval-history", lambda root: (
         (root / "docs/glossary.md").write_text(
             accepted_then_superseded(

@@ -12,13 +12,14 @@ private def usage : String :=
   "Usage:\n" ++
   "  proof-forge-next list-targets\n" ++
   "  proof-forge-next describe-target <target>\n" ++
-  "  proof-forge-next build <source.lean> --target <target> [-o <dir>] [--program <Name>] [--root <dir>]\n" ++
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>]\n" ++
   "  proof-forge-next build-counter --target <target> [-o <dir>]\n"
 
 private structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
   output : String := "build/v2"
+  moduleName : Option String := none
   programName : Option String := none
   root : String := "."
 
@@ -32,6 +33,7 @@ private partial def parseBuildArgs (args : List String) (options : BuildOptions 
   | [] => pure options
   | "--target" :: value :: rest => parseBuildArgs rest { options with target := some (← parseTarget value) }
   | "-o" :: value :: rest | "--output" :: value :: rest => parseBuildArgs rest { options with output := value }
+  | "--module" :: value :: rest => parseBuildArgs rest { options with moduleName := some value }
   | "--program" :: value :: rest => parseBuildArgs rest { options with programName := some value }
   | "--root" :: value :: rest => parseBuildArgs rest { options with root := value }
   | value :: rest =>
@@ -68,6 +70,9 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let source ← match options.source with
     | some source => pure source
     | none => throw <| IO.userError "source file is required"
+  let moduleName ← match options.moduleName with
+    | some moduleName => pure moduleName
+    | none => throw <| IO.userError "--module is required for canonical ProgramV1 identity"
   validateSourceArgument source
   let root := FilePath.mk options.root
   unless ← root.pathExists do
@@ -75,19 +80,24 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let sourcePath ← ensureContainedSource root (FilePath.mk source)
   let sourceText ← IO.FS.readFile sourcePath
   let sourceProgram ← liftCompileResult (←
-    Language.Loader.selectProgram sourceText sourcePath.toString options.programName)
-  let semanticProgram ← liftCompileResult (Compiler.compile sourceProgram)
+    Language.Loader.selectProgramV1 sourceText sourcePath.toString moduleName
+      options.programName)
+  let semanticProgram ← liftCompileResult
+    (Compiler.compileValidatedSourceV1 sourceProgram)
   let requestedOutput := FilePath.mk options.output
   let outputPath := if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
   let manifest ← emitProgram target semanticProgram outputPath
   IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
 
-private def buildCounter (options : BuildOptions) : IO Unit := do
+private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let target ← match options.target with
     | some target => pure target
     | none => throw <| IO.userError "--target is required"
   let outputDir := FilePath.mk options.output
-  let semanticProgram ← liftCompileResult (Compiler.compile Examples.counter)
+  let sourceProgram ← liftCompileResult (← Language.Loader.selectProgramV1
+    Examples.counterSourceText "<built-in-counter>" Examples.counterModuleNameV1 none)
+  let semanticProgram ← liftCompileResult
+    (Compiler.compileValidatedSourceV1 sourceProgram)
   let manifest ← emitProgram target semanticProgram outputDir
   IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
 

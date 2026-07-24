@@ -5,7 +5,7 @@ tool_root := env_var_or_default("PROOF_FORGE_TOOL_ROOT", env_var("HOME") + "/.ca
 locked_git := if os() == "macos" { "/Applications/Xcode.app/Contents/Developer/usr/bin/git" } else { "/usr/bin/git" }
 locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9" } else { "/usr/bin/python3" }
 
-default: check
+default: dev-check
 
 build:
     lake build ProofForgeV2 proof_forge_next
@@ -14,13 +14,26 @@ test:
     lake build proof_forge_next_tests
     lake env .lake/build/bin/proof-forge-next-tests
 
+test-fast:
+    lake build proof_forge_next_fast_tests
+    lake env .lake/build/bin/proof-forge-next-fast-tests
+
+dev-check: docs-check build test-fast
+
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
     lake build proof_forge_next_tests
     PROOF_FORGE_HOST_ISOLATION_TEST=1 lake env .lake/build/bin/proof-forge-next-tests
 
+# Fast product-document validation. It deliberately excludes task/evidence
+# qualification and all host ceremony.
 docs-check:
-    /usr/bin/python3 -I -S scripts/docs_check.py
+    /usr/bin/python3 -I -S scripts/docs_check.py --profile development
+
+# Historical governance audit. These checks remain available, but they are not
+# part of development completion or hosted product CI.
+governance-check:
+    /usr/bin/python3 -I -S scripts/docs_check.py --profile governance
     /usr/bin/python3 -I -S scripts/docs_check_self_test.py
     /usr/bin/python3 -I -S scripts/genesis_root_policy_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_task_objects_self_test.py
@@ -38,9 +51,6 @@ docs-check:
     /usr/bin/python3 -I -S scripts/formal_evidence_finalizer_self_test.py
     /usr/bin/python3 -I -S scripts/formal_evidence_acceptance_self_test.py
     /usr/bin/python3 -I -S scripts/sandbox_bwrap_self_test.py
-    /usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py
-    /usr/bin/python3 -I -S scripts/genesis_replay_self_test.py
-    /usr/bin/python3 -I -S scripts/tool_invocation_self_test.py
     /usr/bin/python3 -I -S scripts/bootstrap_ceremony_prep_self_test.py
 
 # TASK-D0-05 / TST-SBOM-001: deterministic license inventory + CycloneDX 1.6.
@@ -401,6 +411,8 @@ toolchains-root-negative: build
     test ! -e build/v2/root-hardlink-negative
     test ! -e build/v2/root-symlink-negative
 
+# Historical legacy Source.Program dual-entry characterization. It is retained
+# for quarantine inventory but is not a ProgramV1 product or CI gate.
 dsl-negative: build
     #!/bin/bash
     set -euo pipefail
@@ -606,6 +618,15 @@ dsl-negative: build
     rg -q "PF-SRC-INVALID.*16 MiB" build/syntax-bounds/source-over-limit.cli.log
     test ! -e build/syntax-bounds/source-over-limit-cli
 
+product-negative: build
+    rm -rf build/v2/module-required-negative build/v2/module-parse-negative
+    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi
+    rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
+    test ! -e build/v2/module-required-negative
+    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi
+    rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
+    test ! -e build/v2/module-parse-negative
+
 target-negative: build
     rm -rf build/v2/openvm-negative build/v2/tool-negative build/v2/tool-mismatch
     if lake env .lake/build/bin/proof-forge-next build-counter --target openvm -o build/v2/openvm-negative > build/openvm-negative.log 2>&1; then echo "research-only target unexpectedly built" >&2; exit 1; fi
@@ -620,15 +641,15 @@ target-negative: build
 
 target-smoke: build
     rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
-    lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --program UserStandalone.Counter --target evm -o build/v2/standalone
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target evm -o build/v2/evm
-    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --program Examples.Accumulator --target evm -o build/v2/evm-accumulator
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target solana -o build/v2/solana
-    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --program Examples.Accumulator --target solana -o build/v2/solana-accumulator
-    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target near -o build/v2/near
-    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --program Examples.Accumulator --target near -o build/v2/near-accumulator
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --program Examples.Counter --target noir -o build/v2/noir
-    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --program Examples.Accumulator --target noir -o build/v2/noir-accumulator
+    lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --module Standalone --target evm -o build/v2/standalone
+    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/evm
+    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target evm -o build/v2/evm-accumulator
+    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target solana -o build/v2/solana
+    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target solana -o build/v2/solana-accumulator
+    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/near
+    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target near -o build/v2/near-accumulator
+    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target noir -o build/v2/noir
+    lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target noir -o build/v2/noir-accumulator
     /usr/bin/python3 -I -S scripts/validate_artifacts.py build/v2
 
 output-security: build
@@ -644,7 +665,7 @@ output-security: build
     mkdir -p build/source-overlap/src
     cp testdata/valid/Standalone.lean build/source-overlap/src/Counter.lean
     printf 'preserve-me\n' > build/source-overlap/src/important.txt
-    if lake env .lake/build/bin/proof-forge-next build src/Counter.lean --root build/source-overlap --program UserStandalone.Counter --target solana -o src > build/source-overlap.log 2>&1; then echo "source directory unexpectedly replaced" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build src/Counter.lean --root build/source-overlap --module SourceOverlap --target solana -o src > build/source-overlap.log 2>&1; then echo "source directory unexpectedly replaced" >&2; exit 1; fi
     rg -q "PF-OUTPUT-COLLISION" build/source-overlap.log
     cmp testdata/valid/Standalone.lean build/source-overlap/src/Counter.lean
     test "$(cat build/source-overlap/src/important.txt)" = preserve-me
@@ -655,16 +676,29 @@ evm-runtime: target-smoke
 reproducibility: build
     bash scripts/reproducibility.sh
 
-# Portable Linux / GitHub CI subset. Explicitly excludes macOS-only hermetic
-# host attestation, locked darwin tool roots, sandbox-exec, and formal clean-room
-# isolation. `v2-isolation` below is only the focused D0 package-boundary gate.
+# Commit/archive package-boundary audit. It requires a clean committed product
+# tree, so it belongs to release preflight rather than the local product loop.
 v2-isolation:
     /usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py
     bash scripts/test_v2_isolation.sh
 
-ci: v2-isolation docs-check sbom supply-chain-core build test dsl-negative target-negative
+# Ordinary-host product gate. Release qualification is intentionally excluded.
+ci: docs-check build test product-negative target-negative
 
-check: v2-isolation docs-check sbom python-isolation-negative toolchains-validate host-stage0-development candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative build test test-host-isolation dsl-negative target-negative target-smoke output-security
+# Backward-compatible product check. Use `release-check` explicitly for host,
+# SBOM, clean-room, and qualification preflight.
+check: ci
+
+_release-host-preflight:
+    /usr/bin/env -i HOME=/var/empty PATH=/usr/bin:/bin LC_ALL=C TZ=UTC /bin/bash --noprofile --norc scripts/verify_host_stage0.sh --require-eligible
+
+# Release-only preflight. On an ineligible host this must reject before the
+# expensive qualification and clean-room checks. Passing it still does not
+# create formal evidence; the external release process owns that claim.
+release-check: _release-host-preflight governance-check ci v2-isolation sbom supply-chain-core python-isolation-negative toolchains-validate candidate-binding evidence-core sandbox-policy toolchains-verify-external toolchains-closure-negative toolchains-environment-negative toolchains-root-negative test-host-isolation target-smoke output-security
+    /usr/bin/python3 -I -S scripts/genesis_replay_self_test.py
+    /usr/bin/python3 -I -S scripts/tool_invocation_self_test.py
+    /usr/bin/python3 -I -S scripts/formal_clean_room_self_test.py
 
 isolated-check:
     bash scripts/verify_isolation.sh --development

@@ -3,7 +3,7 @@ id: GOV-CI-001
 title: CI 与证据策略
 status: proposed
 owner: quality
-updated: 2026-07-16
+updated: 2026-07-25
 normative: true
 ---
 
@@ -23,19 +23,21 @@ normative: true
 昂贵下游，不掩盖本 lane 已产生的失败 EV。required lane 不允许 continue-on-error 或 missing
 tool skip。
 
-### Current hosted subset (2026-07-16)
+### Current hosted subset (2026-07-25)
 
-Hosted GitHub/Woodpecker only enforce the portable Linux subset of lanes 1–2 via
-`just ci` (docs-check, lake build/test, DSL and target negative gates). Lanes 3–7
-and hermetic host/toolchain/clean-room evidence remain local macOS development
-gates until a linux host profile and locked external tool root exist. Do not
-treat hosted green as formal EV or hermetic qualification.
+Hosted GitHub/Woodpecker enforce the ordinary-host product subset of lanes 1–2 via
+`just ci`: development-profile documentation checks, Lake build/full unit tests,
+ProgramV1 module-identity negatives, and target/toolchain fail-closed negatives.
+Lanes 3–7, SBOM ceremony, governance qualification, host attestation and
+clean-room checks are explicit `release-check` concerns. The GitHub
+`linux-tool-root` lane is manual (`workflow_dispatch`) and is not a push/PR
+completion requirement. Do not treat hosted green as formal EV or hermetic
+qualification.
 
-Hosted `source-core` 的 20000-state / >100000-node（第 100001 节点拒绝）parser resource vectors 由
-`dsl-negative` 分别启动 Lean command 与 CLI loader 子进程；常驻 unit-test executable 不再
-重复加载该 fixture。这样每条规范路径和精确 `PF-BOUND-001` 断言仍执行，同时避免 Lean
-environment/AST 在单进程中累计到 hosted runner 的内存上限。CI 取消或 runner SIGTERM 不是
-测试通过，必须保留为失败并从实际 run log 重新分类。
+`dsl-negative` retains the historical dual-entry `Source.Program` parser resource
+matrix for characterization, but it is no longer a hosted product gate and must
+not be cited as ProgramV1 product coverage. CI cancellation or runner SIGTERM is
+still a failure, never a passing test result.
 
 ## Evidence
 

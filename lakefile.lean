@@ -148,8 +148,10 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.Loader,
     `Tests.Language.LogicalNot,
     `Tests.Materialization.Targets,
+    `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
+    `Tests.Product.CounterV1Evm,
     `Tests.CLI.Emit
   ]
 
@@ -162,4 +164,9 @@ lean_exe proof_forge_next where
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests
+  supportInterpreter := true
+
+lean_exe proof_forge_next_fast_tests where
+  exeName := "proof-forge-next-fast-tests"
+  root := `Tests.Fast
   supportInterpreter := true

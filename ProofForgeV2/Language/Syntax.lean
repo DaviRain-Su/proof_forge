@@ -2,6 +2,10 @@ import Lean
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Source
 import ProofForgeV2.Language.ProgramExport
+import ProofForgeV2.Source.AstProgramItemV1
+import ProofForgeV2.Source.AstSpineV1
+import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.ValidatedSourceV1
 import Std.Data.HashSet
 
 open Lean Parser Command
@@ -1567,6 +1571,294 @@ inductive ProgramNamespace where
   | bounded (name : Name)
   | overLimit
   deriving Inhabited
+
+namespace ProgramV1Decoder
+
+open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstProgramV1
+open ProofForgeV2.Source.AstSpineDeclV1
+open ProofForgeV2.Source.AstSpineV1
+open ProofForgeV2.Source.AstSupportV1
+open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.ValidatedSourceV1
+
+private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 := do
+  parseSourceNameComponentV1 (← decodeIdentifier stx)
+
+private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
+  match raw with
+  | "Bool" => some .bool
+  | "UInt8" => some (.uint 8)
+  | "UInt16" => some (.uint 16)
+  | "UInt32" => some (.uint 32)
+  | "UInt64" => some (.uint 64)
+  | "UInt128" => some (.uint 128)
+  | "UInt256" => some (.uint 256)
+  | "Int8" => some (.int 8)
+  | "Int16" => some (.int 16)
+  | "Int32" => some (.int 32)
+  | "Int64" => some (.int 64)
+  | "Int128" => some (.int 128)
+  | "Int256" => some (.int 256)
+  | "Unit" => some .unit
+  | "Principal" => some .principal
+  | _ => none
+
+private def decodeTypeV1Unchecked (stx : Syntax) : Except String TypeV1 := do
+  let atoms := collectTypeAtomSyntax stx
+  match atoms with
+  | #[first] =>
+      match rawIdentifierText? first >>= primitiveTypeV1 with
+      | some type => pure type
+      | none => throw "unsupported portable type"
+  | #[first, second] =>
+      match rawIdentifierText? first with
+      | some "Bytes" => pure (.bytes (← decodeBytesLengthAtom second))
+      | some "Field" =>
+          match rawIdentifierText? second with
+          | some id => .field <$> parseSourceNameComponentV1 id
+          | none => throw "unsupported portable type"
+      | some "Option" =>
+          match rawIdentifierText? second >>= primitiveTypeV1 with
+          | some element => pure (.option element)
+          | none => throw "unsupported portable type"
+      | _ => throw "unsupported portable type"
+  | _ => throw "unsupported portable type"
+
+private def decodeParamV1Unchecked : Syntax → Except String ParamV1
+  | `(pfParam| $name:ident : $type:pfType) => do
+      pure {
+        visibility := .public_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      }
+  | `(pfParam| public $name:ident : $type:pfType) => do
+      pure {
+        visibility := .public_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      }
+  | `(pfParam| private $name:ident : $type:pfType) => do
+      pure {
+        visibility := .private_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      }
+  | `(pfParam| commitment $name:ident : $type:pfType) => do
+      pure {
+        visibility := .commitment
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      }
+  | _ => throw "unsupported portable parameter"
+
+private def qualifiedV1FromStrings (parts : Array String) : Except String SourceQualifiedNameV1 :=
+  parseSourceQualifiedNameV1 parts
+
+private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
+  | `(boolTrueExpr| true) => pure (.literal (.bool true))
+  | `(boolFalseExpr| false) => pure (.literal (.bool false))
+  | `(pfExpr| $value:num) =>
+      let number := value.getNat
+      if number < 2 ^ 256 then pure (.literal (.integer number))
+      else throw "integer literal exceeds UInt256"
+  | `(pfExpr| $value:str) => pure (.literal (.string value.getString))
+  | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
+      let args ← args.getElems.mapM decodeExprV1Unchecked
+      if callee.getId.components.length == 1 then
+        pure (.localCall (← decodeNameV1 callee) args)
+      else
+        pure (.constructor
+          (← qualifiedV1FromStrings (← decodeConstructorPath callee)) args)
+  | `(pfExpr| $base:ident [$index:pfExpr]) => do
+      unless base.getId.components.length == 1 do
+        throw "index access base must be unqualified"
+      pure (.place (.index (.name (← decodeNameV1 base))
+        (← decodeExprV1Unchecked index)))
+  | `(pfExpr| $name:ident) => do
+      pure (.place (.name (← decodeNameV1 name)))
+  | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
+      pure (.binary .add (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr - $rhs:pfExpr) => do
+      pure (.binary .sub (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr * $rhs:pfExpr) => do
+      pure (.binary .mul (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr / $rhs:pfExpr) => do
+      pure (.binary .div (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr % $rhs:pfExpr) => do
+      pure (.binary .mod (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr << $rhs:pfExpr) => do
+      pure (.binary .shl (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr >> $rhs:pfExpr) => do
+      pure (.binary .shr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr == $rhs:pfExpr) => do
+      pure (.binary .eq (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr != $rhs:pfExpr) => do
+      pure (.binary .ne (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr < $rhs:pfExpr) => do
+      pure (.binary .lt (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr <= $rhs:pfExpr) => do
+      pure (.binary .le (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr > $rhs:pfExpr) => do
+      pure (.binary .gt (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr >= $rhs:pfExpr) => do
+      pure (.binary .ge (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr & $rhs:pfExpr) => do
+      pure (.binary .bitAnd (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr ^ $rhs:pfExpr) => do
+      pure (.binary .bitXor (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr | $rhs:pfExpr) => do
+      pure (.binary .bitOr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr && $rhs:pfExpr) => do
+      pure (.binary .logicalAnd (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| $lhs:pfExpr || $rhs:pfExpr) => do
+      pure (.binary .logicalOr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+  | `(pfExpr| - $operand:pfExpr) => do
+      pure (.unary .neg (← decodeExprV1Unchecked operand))
+  | `(pfExpr| ~ $operand:pfExpr) => do
+      pure (.unary .bitNot (← decodeExprV1Unchecked operand))
+  | `(pfExpr| ! $operand:pfExpr) => do
+      pure (.unary .not (← decodeExprV1Unchecked operand))
+  | `(pfExpr| ($inner:pfExpr)) => decodeExprV1Unchecked inner
+  | _ => throw "unsupported portable expression"
+
+private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
+  | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
+      pure (.let_ (← decodeNameV1 name) (some (← decodeTypeV1Unchecked type))
+        (← decodeExprV1Unchecked value))
+  | `(letStmtOmitted| let $name:ident := $value:pfExpr) => do
+      pure (.let_ (← decodeNameV1 name) none (← decodeExprV1Unchecked value))
+  | `(pfStmt| $name:ident := $value:pfExpr) => do
+      pure (.assign (.name (← decodeNameV1 name)) (← decodeExprV1Unchecked value))
+  | `(returnValueStmt| return $value:pfExpr) => do
+      pure (.return_ (some (← decodeExprV1Unchecked value)))
+  | `(pfStmt| return) => pure (.return_ none)
+  | `(pfStmt| assert $condition:pfExpr else $errorName:ident) => do
+      pure (.assert_ (← decodeExprV1Unchecked condition) (some (← decodeNameV1 errorName)))
+  | `(pfStmt| assert $condition:pfExpr) => do
+      pure (.assert_ (← decodeExprV1Unchecked condition) none)
+  | `(pfStmt| revert $errorName:ident ($args:pfExpr,*)) => do
+      pure (.revert (← decodeNameV1 errorName) (← args.getElems.mapM decodeExprV1Unchecked))
+  | `(pfStmt| revert $errorName:ident) => do
+      pure (.revert (← decodeNameV1 errorName) #[])
+  | `(pfStmt| emit $eventName:ident ($args:pfExpr,*)) => do
+      pure (.emit (← decodeNameV1 eventName) (← args.getElems.mapM decodeExprV1Unchecked))
+  | `(pfStmt| call $_callee:str) =>
+      throw "portable ProgramV1 calls require a qualified source identity"
+  | _ => throw "unsupported portable statement"
+
+private def decodeParamsV1 (params : Array Syntax) : Except String (Array ParamV1) :=
+  params.mapM decodeParamV1Unchecked
+
+private def decodeBlockV1 (statements : Array Syntax) : Except String BlockV1 := do
+  pure { statements := ← statements.mapM decodeStatementV1Unchecked }
+
+private def decodeItemV1Unchecked : Syntax → Except String ProgramItemV1
+  | `(pfItem| state $name:ident : $type:pfType) => do
+      pure (.state {
+        visibility := .public_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      })
+  | `(pfItem| state public $name:ident : $type:pfType) => do
+      pure (.state {
+        visibility := .public_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      })
+  | `(pfItem| state private $name:ident : $type:pfType) => do
+      pure (.state {
+        visibility := .private_
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      })
+  | `(pfItem| state commitment $name:ident : $type:pfType) => do
+      pure (.state {
+        visibility := .commitment
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+      })
+  | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
+      pure (.init {
+        params := ← decodeParamsV1 params
+        body := ← decodeBlockV1 statements
+      })
+  | `(pfItem| entry $name:ident ($params:pfParam,*) : $type:pfType do
+        $statements:pfStmt*) => do
+      pure (.entry {
+        name := ← decodeNameV1 name
+        params := ← decodeParamsV1 params
+        result := ← decodeTypeV1Unchecked type
+        body := ← decodeBlockV1 statements
+      })
+  | `(pfItem| entry $name:ident ($params:pfParam,*) do $statements:pfStmt*) => do
+      pure (.entry {
+        name := ← decodeNameV1 name
+        params := ← decodeParamsV1 params
+        result := .unit
+        body := ← decodeBlockV1 statements
+      })
+  | `(pfItem| view $name:ident ($params:pfParam,*) : $type:pfType do
+        $statements:pfStmt*) => do
+      pure (.view {
+        name := ← decodeNameV1 name
+        params := ← decodeParamsV1 params
+        result := ← decodeTypeV1Unchecked type
+        body := ← decodeBlockV1 statements
+      })
+  | `(pfItem| view $name:ident ($params:pfParam,*) do $statements:pfStmt*) => do
+      pure (.view {
+        name := ← decodeNameV1 name
+        params := ← decodeParamsV1 params
+        result := .unit
+        body := ← decodeBlockV1 statements
+      })
+  | _ => throw "unsupported portable program item"
+
+private def leanNameComponentsV1 (name : Name) : Except String (Array SourceNameComponentV1) := do
+  if name == .anonymous then
+    pure #[]
+  else
+    pure (NonEmptyArray.toArray (← sourceQualifiedNameV1FromLeanName name).components)
+
+private def decodeProgramV1Unchecked
+    (moduleName : SourceQualifiedNameV1) (currentNamespace : Name) : Syntax →
+    Except String ValidatedSourceV1
+  | `(program $name:ident where $items:pfItem*) => do
+      unless boundedNamePartCount 2 name.getId == some 1 do
+        throw "program name must be unqualified"
+      let shortName ← decodeNameV1 name
+      let namespaceComponents ← leanNameComponentsV1 currentNamespace
+      let moduleComponents := NonEmptyArray.toArray moduleName.components
+      let identity ← sourceQualifiedNameV1OfComponents
+        ((moduleComponents ++ namespaceComponents).push shortName)
+      let sourceProgram : ProgramV1 := {
+        name := shortName
+        items := ← items.mapM decodeItemV1Unchecked
+      }
+      validateSourceV1 moduleName identity sourceProgram
+  | _ => throw "expected a program declaration"
+
+/-- Direct recovery frontend for the supported ProgramV1 product slice. It
+constructs and validates ProgramV1 from Syntax without creating legacy source. -/
+def decodeProgramCommandV1Checked
+    (moduleName : SourceQualifiedNameV1) (currentNamespace : ProgramNamespace)
+    (stx : Syntax) : CompileResult ValidatedSourceV1 := do
+  preflightSyntax stx
+  let namespaceName ← match currentNamespace with
+    | .bounded name => pure name
+    | .overLimit => .error (.resourceBound
+        s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
+  match decodeProgramV1Unchecked moduleName namespaceName stx with
+  | .ok source => pure source
+  | .error message => .error (.invalidProgram message)
+
+end ProgramV1Decoder
+
+export ProgramV1Decoder (decodeProgramCommandV1Checked)
 
 def decodeProgramCommandChecked (currentNamespace : ProgramNamespace) (stx : Syntax) :
     CompileResult ProofForgeV2.Source.Program := do
