@@ -1,9 +1,12 @@
 import ProofForgeV2.Core.Common
-import ProofForgeV2.Core.Diagnostic
+import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 
 namespace ProofForgeV2.Source.WireV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 
 /-- One exact edge in the canonical Source.ProgramV1 node path. -/
 structure NodePathSegmentV1 where
@@ -184,56 +187,38 @@ private def permitsChildTag
   | "Place.Index", "base" => isPlaceTag childTag
   | _, _ => false
 
-private def invalidSourceIdentity (detail : String) : CompileResult α :=
-  .error (.invalidProgram detail)
+private def fail (detail : String) : Except String α :=
+  .error detail
 
-private def qualifiedNameJson
-    (name : QualifiedName) : CompileResult PfJson := do
-  let components ← match renderQualifiedNameComponents name with
-    | .ok value => pure value
-    | .error detail => invalidSourceIdentity detail
-  pure (.array (components.map PfJson.string))
-
-private def validateIdentityJoin
-    (moduleName programIdentity : QualifiedName) : CompileResult Unit := do
-  let moduleComponents ← match renderQualifiedNameComponents moduleName with
-    | .ok value => pure value
-    | .error detail => invalidSourceIdentity detail
-  let programComponents ← match renderQualifiedNameComponents programIdentity with
-    | .ok value => pure value
-    | .error detail => invalidSourceIdentity detail
-  unless moduleComponents.size < programComponents.size do
-    return ← invalidSourceIdentity
-      "program identity must extend the module identity with a declaration name"
-  unless programComponents.toList.take moduleComponents.size == moduleComponents.toList do
-    return ← invalidSourceIdentity
-      "program identity must begin with the exact module identity"
+private def sourceQualifiedNameJson (name : SourceQualifiedNameV1) : PfJson :=
+  .array ((NonEmptyArray.toArray name.components).map fun component =>
+    .string component.raw)
 
 private def pathJson
-    (path : NormalizedSyntacticPathV1) : CompileResult PfJson := do
+    (path : NormalizedSyntacticPathV1) : Except String PfJson := do
   -- The program root is depth one, so at most 255 child edges fit the
   -- root-inclusive Source.ProgramV1 nesting bound of 256.
   if path.size > 255 then
-    return ← invalidSourceIdentity "source node path exceeds the nesting bound"
+    return ← fail "source node path exceeds the nesting bound"
   let mut values := #[]
   let mut previous? : Option NodePathSegmentV1 := none
   for segment in path do
     match previous? with
     | none =>
       unless segment.parentTag == "Program" do
-        return ← invalidSourceIdentity
+        return ← fail
           "non-root source node paths must begin at Program"
     | some previous =>
       unless permitsChildTag previous.parentTag previous.fieldTag segment.parentTag do
-        return ← invalidSourceIdentity
+        return ← fail
           "source node path contains an impossible constructor transition"
     match childCardinality? segment.parentTag segment.fieldTag with
     | none =>
-        return ← invalidSourceIdentity
+        return ← fail
           "source node path contains an unknown constructor/field pair"
     | some .direct =>
         unless segment.index == 0 do
-          return ← invalidSourceIdentity
+          return ← fail
             "direct source node path fields require index zero"
     | some .array => pure ()
     values := values.push (.object #[
@@ -249,19 +234,17 @@ Canonical NodeId preimage from SPEC-SOURCE-WIRE-001. Source paths, spans,
 comments, line/column data, targets and profiles are deliberately absent.
 -/
 def nodeIdPreimageV1
-    (moduleName programIdentity : QualifiedName)
-    (path : NormalizedSyntacticPathV1) : CompileResult ByteArray := do
-  validateIdentityJoin moduleName programIdentity
-  let moduleJson ← qualifiedNameJson moduleName
-  let programJson ← qualifiedNameJson programIdentity
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (path : NormalizedSyntacticPathV1) : Except String ByteArray := do
+  validateSourceProgramIdentityV1 moduleName programIdentity
+  let moduleJson := sourceQualifiedNameJson moduleName
+  let programJson := sourceQualifiedNameJson programIdentity
   let pathValue ← pathJson path
-  let canonical ← match renderPfJcs (.object #[
-      ("module", moduleJson),
-      ("program", programJson),
-      ("path", pathValue)
-    ]) with
-    | .ok value => pure value
-    | .error detail => invalidSourceIdentity detail
+  let canonical ← renderPfJcs (.object #[
+    ("module", moduleJson),
+    ("program", programJson),
+    ("path", pathValue)
+  ])
   pure (("pf.source-node.v1".toUTF8.push 0).append canonical.toUTF8)
 
 end ProofForgeV2.Source.WireV1
