@@ -1,0 +1,17 @@
+{
+  "autoRun": {
+    "allow_instructions": [
+      "Run read-only git commands such as status, diff, log, and show inside the workspace.",
+      "Run lake build, lake test, and just docs-check or just test when working on ProofForge V2.",
+      "Run local Python self-tests under scripts/ that do not require network access."
+    ],
+    "block_instructions": [
+      "Do not start Cloud Agents, use /in-cloud, /babysit, or any cloud subagent handoff.",
+      "Do not create or edit .cursor/environment.json because that configures remote cloud VMs.",
+      "Do not push to git remotes, open pull requests, or publish branches without explicit user approval.",
+      "Do not upload workspace files, secrets, or build artifacts to external cloud storage or telemetry endpoints.",
+      "Do not modify host bootstrap locks, formal evidence receipts, or supply-chain pins without an approved task freeze.",
+      "Do not read from or depend on active/ as an oracle, fallback, or compatibility entry."
+    ]
+  }
+}

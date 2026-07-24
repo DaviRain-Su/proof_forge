@@ -1,0 +1,35 @@
+---
+description: ProofForge V2 本地 Agent 工作协议（非 Cloud Agent）
+alwaysApply: true
+---
+
+# 本地 Agent 协议
+
+你在 **本地 Cursor 桌面环境** 中运行，不在 Cloud Agent VM 上。
+
+## 运行边界
+
+1. 只在本机 workspace 与 `.cursor/sandbox.json` 允许的缓存路径内读写。
+2. 禁止启动 Cloud Agent、`/in-cloud`、`/babysit` 或任何云端子代理。
+3. 禁止创建 `.cursor/environment.json`（该文件仅用于云端 VM 环境）。
+4. 未经用户明确同意，禁止 `git push`、开 PR、或向外部服务上传仓库内容。
+5. 遵循仓库根目录 `AGENTS.md` 的全部 Non-Negotiable Boundaries 与 Execution Protocol。
+
+## 开工前
+
+1. 运行 `git status --short`，确认不会覆盖他人工作。
+2. 阅读 `docs/document-status.md`、`docs/index.md` 与当前任务相关规格。
+3. 一次只处理一个冻结任务；不得自动激活或改胖 `TASK-*` 完成面。
+
+## 常用本地命令
+
+- 构建：`just build` 或 `lake build ProofForgeV2 proof_forge_next`
+- 测试：`just test`
+- 文档检查：`just docs-check`
+- Lean 源码变更后：`just sbom-package-files-refresh`
+
+## 隔离建议
+
+- 在 Agents Window 中选择 **Local**（不要选 Cloud）。
+- 需要与主分支隔离时，使用 worktree（`/worktree`）或 Agents Window 的 worktree 模式。
+- Run Mode 建议使用 **Auto-review** 或 **Allowlist + Sandbox**，见 Cursor Settings > Agents > Approvals & Execution。

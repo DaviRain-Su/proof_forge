@@ -1,0 +1,13 @@
+# 本地 Agent 不可读/不可改路径（与 sandbox 叠加）
+active/
+build/
+.lake/
+.proof-forge-next/
+.worktrees/
+supply-chain/*.lock.json
+host-bootstrap*.lock
+host-profiles.lock.json
+toolchains*.lock.json
+**/secrets/
+**/.env
+**/.env.*

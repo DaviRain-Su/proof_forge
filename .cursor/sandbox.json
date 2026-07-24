@@ -1,0 +1,30 @@
+{
+  "networkPolicy": {
+    "default": "deny",
+    "allow": [
+      "github.com",
+      "codeload.github.com",
+      "raw.githubusercontent.com",
+      "*.githubusercontent.com",
+      "api.github.com",
+      "registry.npmjs.org",
+      "npmjs.com",
+      "npmjs.org",
+      "pypi.org",
+      "files.pythonhosted.org",
+      "crates.io",
+      "static.crates.io",
+      "index.crates.io",
+      "golang.org",
+      "proxy.golang.org",
+      "sum.golang.org",
+      "releases.lean-lang.org",
+      "leanprover-community.github.io",
+      "mcr.microsoft.com",
+      "*.docker.io",
+      "docker.io"
+    ],
+    "deny": []
+  },
+  "enableSharedBuildCache": true
+}

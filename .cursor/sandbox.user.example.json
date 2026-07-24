@@ -1,0 +1,7 @@
+{
+  "additionalReadwritePaths": [
+    "/ABSOLUTE/PATH/TO/HOME/.cache/proof-forge-v2",
+    "/ABSOLUTE/PATH/TO/HOME/.elan",
+    "/ABSOLUTE/PATH/TO/HOME/.lake"
+  ]
+}
