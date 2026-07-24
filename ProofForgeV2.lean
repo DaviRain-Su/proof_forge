@@ -32,6 +32,7 @@ import ProofForgeV2.Source.AstSpineDeclCodecV1
 import ProofForgeV2.Source.AstSpineDeclDecodeV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramItemCodecV1
+import ProofForgeV2.Source.AstProgramItemDecodeV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstProgramCodecV1
 import ProofForgeV2.Source.AstCanonicalRootV1
