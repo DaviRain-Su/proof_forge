@@ -10,12 +10,15 @@ import hashlib
 import json
 import os
 import platform
+import random
 import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+import bootstrap_task_objects as _BTO
 
 
 _HERE = Path(__file__).resolve().parent
@@ -97,6 +100,8 @@ def _build_vectors(base: dict[str, Any], canonical: bytes) -> list[Vector]:
         _vector("valid-principal-key-rotation", rotated_key, True),
         _vector("claimed-ref-digest", canonical, False,
                 driver_mode="--claimed-ref-reject"),
+        _vector("expected-ref-shape", canonical, False,
+                driver_mode="--expectation-shape-reject"),
         _vector("canonical-whitespace", canonical.replace(
             b'{"authorityStoreService"', b'{ "authorityStoreService"', 1), False),
         _vector("canonical-escape", canonical.replace(
@@ -133,6 +138,7 @@ def _build_vectors(base: dict[str, Any], canonical: bytes) -> list[Vector]:
         ("principal-public-uppercase", lambda item: item["principals"][0].__setitem__("publicKey", "AA" * 32)),
         ("principal-public-zero", lambda item: item["principals"][0].__setitem__("publicKey", "00" * 32)),
         ("principal-public-identity", lambda item: item["principals"][0].__setitem__("publicKey", "01" + "00" * 31)),
+        ("principal-public-mixed-order", lambda item: item["principals"][0].__setitem__("publicKey", "95" + "99" * 31)),
         ("principal-public-noncanonical", lambda item: item["principals"][0].__setitem__("publicKey", "ff" * 32)),
         ("principal-roles-not-array", lambda item: item["principals"][0].__setitem__("roles", "architecture")),
         ("principal-roles-empty", lambda item: item["principals"][0].__setitem__("roles", [])),
@@ -181,6 +187,8 @@ def _build_vectors(base: dict[str, Any], canonical: bytes) -> list[Vector]:
     ref_verifier_mutations: list[tuple[str, Callable[[dict[str, Any]], None]]] = [
         ("private-scan-ref-extra", lambda item: item["privateScanPolicy"].__setitem__("size", 1)),
         ("private-scan-ref-digest", lambda item: item["privateScanPolicy"].__setitem__("digest", "sha256:" + "AA" * 32)),
+        ("private-scan-document-id", lambda item: item["privateScanPolicy"].__setitem__("id", "GOV-PRIVATE-SCAN")),
+        ("authority-store-document-id", lambda item: item["authorityStoreService"].__setitem__("id", "GOV-AUTHORITY-STORE")),
         ("authority-store-schema", lambda item: item["authorityStoreService"].__setitem__(
             "schema", "proof-forge.task-qualification-authority-store-service.v2")),
         ("verifier-not-object", lambda item: item.__setitem__("verifier", [])),
@@ -195,7 +203,45 @@ def _build_vectors(base: dict[str, Any], canonical: bytes) -> list[Vector]:
     ]
     vectors.extend(_vector(name, _mutated(base, mutate), False)
                    for name, mutate in ref_verifier_mutations)
+
+    # Differentially exercise compressed-point canonical/subgroup behavior.
+    # Most arbitrary encodings are rejected; the fixed seed also yields valid
+    # prime-subgroup points, so both outcomes are covered without host RNG.
+    generator = random.Random(0xA0172101)
+    for index in range(64):
+        public_key = bytes(generator.getrandbits(8) for _ in range(32)).hex()
+        candidate = _mutated(
+            base, lambda item, key=public_key: item["principals"][0].__setitem__(
+                "publicKey", key))
+        payload = _canonical(candidate)
+        try:
+            _BTO.parse_bootstrap_authority_policy(payload)
+            accepted = True
+        except Exception:
+            accepted = False
+        vectors.append(_vector(
+            f"public-key-differential-{index:02d}", payload, accepted))
     return vectors
+
+
+def _check_python_oracle(vectors: list[Vector]) -> None:
+    external_ref_only = {
+        "claimed-ref-digest", "expected-ref-shape", "id-expected-ref"
+    }
+    mismatches: list[str] = []
+    for vector in vectors:
+        try:
+            _BTO.parse_bootstrap_authority_policy(vector.payload)
+            accepted = True
+        except Exception:
+            accepted = False
+        expected = vector.accepted or vector.name in external_ref_only
+        if accepted != expected:
+            mismatches.append(
+                f"{vector.name}: python={accepted} expected={expected}")
+    if mismatches:
+        raise AssertionError(
+            "authority policy vector/oracle disagreement: " + "; ".join(mismatches))
 
 
 def _full_digest(payload: bytes) -> str:
@@ -345,6 +391,10 @@ def main() -> int:
     if _canonical(base) != canonical:
         print("[FAIL] committed authority policy is not canonical PF-JCS")
         return 1
+    if _full_digest(canonical) != (
+            "f02f603904e2cee2198afa5474a9ba667ebba541b73306f1f3c3dcffa7ebb0e1"):
+        print("[FAIL] committed activated authority policy domain digest drift")
+        return 1
     parent = arguments.scratch_root
     if parent is not None:
         parent.mkdir(parents=True, exist_ok=True)
@@ -357,6 +407,7 @@ def main() -> int:
         sanitizer_binary = work / "pf-taskqualification-authority-policy-v2-asan"
         try:
             vectors = _build_vectors(base, canonical)
+            _check_python_oracle(vectors)
             _compile(binary, sanitizer=False)
             _inspect_static(binary)
             _compile(sanitizer_binary, sanitizer=True)

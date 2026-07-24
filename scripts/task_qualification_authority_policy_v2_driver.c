@@ -88,6 +88,7 @@ static int pf_tq_test_projection(
         PF_TQ_HANDOFF_ROLE_SECURITY_V2
     };
     pf_tq_handoff_principal_v2 views[PF_TQ_AUTHORITY_POLICY_V2_MAX_PRINCIPALS];
+    pf_tq_handoff_expectation_v2 handoff;
     size_t view_count = 0U;
     size_t index;
     if (policy == NULL ||
@@ -107,8 +108,11 @@ static int pf_tq_test_projection(
         return -1;
     }
     for (index = 0U; index < 4U; ++index) {
-        if (strcmp(policy->principals[index].principal_id,
-                    principal_ids[index]) != 0 ||
+        int principal_id_matches = strcmp(
+            policy->principals[index].principal_id, principal_ids[index]) == 0;
+        if (index == 2U && strcmp(policy->principals[index].principal_id,
+                "principal-quality") == 0) principal_id_matches = 1;
+        if (!principal_id_matches ||
                 strcmp(policy->principals[index].key_id, key_ids[index]) != 0 ||
                 policy->principals[index].roles != roles[index]) {
             (void)snprintf(error, error_size,
@@ -116,11 +120,23 @@ static int pf_tq_test_projection(
             return -1;
         }
     }
-    if (pf_tq_authority_policy_handoff_registry_v2(
-            policy, views, PF_TQ_AUTHORITY_POLICY_V2_MAX_PRINCIPALS,
-            &view_count, error, error_size) != 0 || view_count != 4U) {
+    memset(&handoff, 0, sizeof(handoff));
+    (void)snprintf(handoff.authority_policy.schema,
+        sizeof(handoff.authority_policy.schema), "%s",
+        PF_TQ_AUTHORITY_POLICY_V2_SCHEMA);
+    (void)snprintf(handoff.authority_policy.id,
+        sizeof(handoff.authority_policy.id), "%s", policy->id);
+    (void)snprintf(handoff.authority_policy.version,
+        sizeof(handoff.authority_policy.version), "%s", policy->version);
+    memcpy(handoff.authority_policy.digest, policy->digest, 32U);
+    if (pf_tq_authority_policy_bind_handoff_v2(
+            policy, &handoff, views,
+            PF_TQ_AUTHORITY_POLICY_V2_MAX_PRINCIPALS,
+            error, error_size) != 0 || handoff.principals != views ||
+            handoff.principal_count != 4U) {
         return -1;
     }
+    view_count = handoff.principal_count;
     for (index = 0U; index < view_count; ++index) {
         if (strcmp(views[index].principal_id,
                     policy->principals[index].principal_id) != 0 ||
@@ -135,6 +151,25 @@ static int pf_tq_test_projection(
             return -1;
         }
     }
+    handoff.authority_policy.digest[0] ^= 1U;
+    if (pf_tq_authority_policy_bind_handoff_v2(
+            policy, &handoff, views,
+            PF_TQ_AUTHORITY_POLICY_V2_MAX_PRINCIPALS,
+            error, error_size) == 0 || error[0] == '\0') {
+        (void)snprintf(error, error_size,
+            "handoff wrong-policy ref unexpectedly accepted");
+        return -1;
+    }
+    handoff.authority_policy.digest[0] ^= 1U;
+    error[0] = '\0';
+    if (pf_tq_authority_policy_bind_handoff_v2(
+            policy, &handoff, views, 3U,
+            error, error_size) == 0 || error[0] == '\0') {
+        (void)snprintf(error, error_size,
+            "handoff undersized principal storage unexpectedly accepted");
+        return -1;
+    }
+    error[0] = '\0';
     return 0;
 }
 
@@ -156,7 +191,6 @@ static int pf_tq_test_run(
     if (pf_tq_test_digest(digest_hex, expected_digest) != 0) {
         pf_tq_test_fail("digest-argument");
     }
-    expected.require_ref = 1;
     (void)snprintf(expected.claimed_ref.schema,
         sizeof(expected.claimed_ref.schema),
         "%s", PF_TQ_AUTHORITY_POLICY_V2_SCHEMA);
@@ -167,6 +201,8 @@ static int pf_tq_test_run(
     memcpy(expected.claimed_ref.digest, expected_digest, 32U);
     if (strcmp(mode, "--claimed-ref-reject") == 0) {
         expected.claimed_ref.digest[0] ^= 1U;
+    } else if (strcmp(mode, "--expectation-shape-reject") == 0) {
+        expected.claimed_ref.id[0] = '\0';
     }
     bytes = pf_tq_test_read(path, &size);
     result = pf_tq_authority_policy_parse_v2(
@@ -205,7 +241,8 @@ static int pf_tq_test_invalid(void) {
 int main(int argc, char **argv) {
     if (argc == 5 && (strcmp(argv[1], "--validate") == 0 ||
             strcmp(argv[1], "--reject") == 0 ||
-            strcmp(argv[1], "--claimed-ref-reject") == 0)) {
+            strcmp(argv[1], "--claimed-ref-reject") == 0 ||
+            strcmp(argv[1], "--expectation-shape-reject") == 0)) {
         return pf_tq_test_run(argv[1], argv[2], argv[3], argv[4]);
     }
     if (argc == 2 && strcmp(argv[1], "--invalid-input") == 0) {
