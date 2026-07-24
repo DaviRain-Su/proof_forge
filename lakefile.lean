@@ -111,6 +111,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceProgramWireFieldCountGoldenV1,
     `Tests.Language.SourceProgramWireGoldenV1,
     `Tests.Language.SourceProgramWireMarkerGoldenV1,
+    `Tests.Language.SourceProgramWireUnknownTagGoldenV1,
     `Tests.Language.SourceSpan,
     `Tests.Language.SourceWireAcceptance,
     `Tests.Language.SourceBoundsAcceptance,

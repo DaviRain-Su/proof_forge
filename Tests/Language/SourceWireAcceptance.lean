@@ -4,6 +4,7 @@ import Tests.Language.SourceNodeTraversalV1
 import Tests.Language.SourceProgramWireFieldCountGoldenV1
 import Tests.Language.SourceProgramWireGoldenV1
 import Tests.Language.SourceProgramWireMarkerGoldenV1
+import Tests.Language.SourceProgramWireUnknownTagGoldenV1
 import Tests.Language.SourceSpan
 
 namespace Tests.Language.SourceWireAcceptance
@@ -16,6 +17,7 @@ unsafe def run : IO Unit := do
   Tests.Language.SourceProgramWireGoldenV1.run
   Tests.Language.SourceProgramWireFieldCountGoldenV1.run
   Tests.Language.SourceProgramWireMarkerGoldenV1.run
+  Tests.Language.SourceProgramWireUnknownTagGoldenV1.run
   Tests.Language.SourceSpan.run
 
 end Tests.Language.SourceWireAcceptance
