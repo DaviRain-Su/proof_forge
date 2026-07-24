@@ -3420,6 +3420,45 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。
   结果只记录development evidence；即使 root API 闭合，也不能自动关闭TST-SRC-001、pending
   TASK-D1-01或启动frontend/export cutover。
+- D1-PA-119 是 PA118 exact 100000-node positive 暴露的 canonical encoder wide-array stack-safety
+  prerequisite。它只把 `AstPatternCodecV1` 的 `encodePatternListV1` 与 `AstSpineCodecV1` 的
+  `encodeExprListV1`、`encodeExprMatchArmListV1`、`encodeStmtMatchArmListV1`、`encodeStmtListV1` 从
+  cons-after-recursion 改为结构递减的 tail accumulator；全部 public encoder API、constructor dispatch、
+  validation/error priority与canonical bytes必须逐字不变，不新增production public symbol。
+
+  五个private array wrapper仍从底层List结构取得source order，但必须以empty `Array ByteArray` accumulator
+  调用各自helper；每个helper严格执行 head encoder → `chunks.push headBytes` → 对tail做tail-position recursive
+  call，empty list返回accumulator。禁止reverse、先编码tail、`partial`、`unsafe`、post-hoc reorder、调大
+  `--tstack`、改变wire helper、跳过child validation或把全局node limit塞进encoder。此切片只移除array-width
+  导致的host stack dependence；AST nesting仍由既有结构递归与PA118 decoder的256 depth约束拥有。
+
+  Lean tests固定 **5/10**，并使用test-owned primitive wire builders比较完整bytes，不以production encoder生成
+  expected。五个wide positives都位于100000-node root-session上限内且必须在默认direct runner中成功：
+
+  1. `Pattern.Constructor`含99999个Wildcard args，总node=100000；
+  2. `Expr.Constructor`含99999个Bool-literal Expr args，总node=100000；
+  3. `Expr.Match`含一个Bool scrutinee与33332个`Wildcard→Bool` ExprMatchArm，总node=99998；
+  4. `Stmt.Match`含一个Bool scrutinee与24999个`Wildcard→Block(Return none)` StmtMatchArm，总node=99998；
+  5. `Block`含99999个`Return none` statements，总node=100000。
+
+  每例production bytes必须等于手工`tag/fieldCount/u32 count/repeated child`组合，因而同时固定count、child
+  source order与无遗漏/重复。10个dual-fault order negatives按每个helper各一对正反数组固定head-before-tail：
+  Pattern bad one-component QID vs bad u256 literal分别返回
+  `source qualified id must contain 2..256 components`/`u256 magnitude exceeds 2^256-1`；Expr bad u256 vs bad
+  QID同理；ExprMatchArm bad-pattern-QID vs bad-value-u256；StmtMatchArm bad-pattern-QID vs empty Block（后者
+  `block statements must be nonempty`）；Block statements invalid For bound vs empty Stmt.Match arms，分别返回
+  `for bound must be 0..4096`/`stmt match arms must be nonempty`。每对交换后错误必须随第一个child变化。
+
+  变更文件集精确为修改`ProofForgeV2/Source/AstPatternCodecV1.lean`与
+  `ProofForgeV2/Source/AstSpineCodecV1.lean`，新增`Tests/Language/SourceAstWideEncoderV1.lean`，只做
+  `Tests.lean`/`lakefile.lean` registration与机械manifest refresh。production additions≤45、suite≤300、
+  registrations≤3、总authored additions≤348（manifest不计）；允许删除被替代的private helper行，净行数不作为
+  绕过addition budget。明确排除model/decoder/validator/root API、wire schema/error、frontend/Loader/CLI/
+  Lean command/export v2、legacy bridge/dual reader/fallback、sourceHash/NodeId/stable Diagnostic/Typed/Semantic/
+  target。tests-only RED必须在默认direct runner中以既有deep-recursion失败；GREEN运行focused+direct+
+  aggregate/test binary、PA118 direct regression、package refresh后最终单次`just sbom`、docs/diff与main-agent
+  self-review，不声称independent review，不运行完整`just ci`。结果只记录development evidence，不能关闭
+  PA118、TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
