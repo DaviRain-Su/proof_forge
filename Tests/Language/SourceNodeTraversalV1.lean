@@ -1,4 +1,5 @@
 import ProofForgeV2.Source.AstDeclV1
+import ProofForgeV2.Source.AstPatternV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineDeclV1
@@ -14,6 +15,7 @@ namespace Tests.Language.SourceNodeTraversalV1
 
 open ProofForgeV2
 open ProofForgeV2.Source.AstDeclV1
+open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
@@ -45,11 +47,11 @@ private structure FixtureNames where
 private structure ExprInventory where
   literal : ExprV1
   place : ExprV1
-  constructor : ExprV1
+  constructorExpr : ExprV1
   unary : ExprV1
   binary : ExprV1
-  local : ExprV1
-  match_ : ExprV1
+  localCall : ExprV1
+  matchExpr : ExprV1
 
 private def exprLeaf : ExprV1 :=
   .literal (.integer 1)
@@ -60,7 +62,7 @@ private def returnBlock (present : Bool := true) : BlockV1 := {
 
 private def typeInventory (names : FixtureNames) : Array TypeV1 := #[
   .bool, .uint 8, .int 8, .principal, .unit, .named names.name,
-  .array .bool 1,
+  .array (.bool) 1,
   .map (.uint 8) (.int 8),
   .option .principal,
   .bytes 1,
@@ -81,21 +83,21 @@ private def placeTree (names : FixtureNames) : PlaceV1 :=
 private def expressionInventory (names : FixtureNames) : ExprInventory :=
   let literal := exprLeaf
   let place := ExprV1.place (placeTree names)
-  let constructor := ExprV1.constructor names.qualified #[
+  let constructorExpr := ExprV1.constructor names.qualified #[
     exprLeaf, .place (.name names.name)
   ]
   let unary := ExprV1.unary .neg exprLeaf
   let binary := ExprV1.binary .add exprLeaf exprLeaf
-  let local := ExprV1.localCall names.name #[exprLeaf, unary]
-  let match_ := ExprV1.match_ exprLeaf #[
+  let localCall := ExprV1.localCall names.name #[exprLeaf, unary]
+  let matchExpr := ExprV1.match_ exprLeaf #[
     { pattern := richPattern names, value := binary },
     { pattern := .wildcard, value := .localCall names.name #[] }
   ]
-  { literal, place, constructor, unary, binary, local, match_ }
+  { literal, place, constructorExpr, unary, binary, localCall, matchExpr }
 
 private def allExpressions (values : ExprInventory) : Array ExprV1 := #[
-  values.literal, values.place, values.constructor, values.unary,
-  values.binary, values.local, values.match_
+  values.literal, values.place, values.constructorExpr, values.unary,
+  values.binary, values.localCall, values.matchExpr
 ]
 
 private def richBlock (names : FixtureNames) : BlockV1 :=
@@ -113,7 +115,7 @@ private def richBlock (names : FixtureNames) : BlockV1 :=
   ]
   {
     statements := #[
-      .let_ names.name (some (.option .bool)) values.constructor,
+      .let_ names.name (some (.option .bool)) values.constructorExpr,
       .assign (placeTree names) values.binary,
       .if_ exprLeaf returnBlock (some (returnBlock false)),
       matchStmt,
@@ -121,8 +123,8 @@ private def richBlock (names : FixtureNames) : BlockV1 :=
         statements := #[.emit names.name #[exprLeaf, values.unary]]
       },
       .assert_ values.place none,
-      .revert names.name #[exprLeaf, values.constructor],
-      .emit names.name #[values.local, values.match_],
+      .revert names.name #[exprLeaf, values.constructorExpr],
+      .emit names.name #[values.localCall, values.matchExpr],
       .return_ (some values.unary),
       .call externalAll,
       .schedule { callee := names.qualified, args := #[exprLeaf] }
@@ -139,32 +141,49 @@ private def comprehensiveProgram (names : FixtureNames) : ProgramV1 :=
   {
     name := names.name
     items := #[
-      .state { visibility := .public_, name := names.name,
-        type_ := .array .bool 1 },
+      .state { visibility := .public_, name := names.name, type_ := .array (.bool) 1 },
       .struct { name := names.name, fields := #[field .bool, field mapType] },
       .enum { name := names.name, variants := #[
         { name := names.name, payloadTypes := typeInventory names },
         { name := names.name, payloadTypes := #[] }
       ] },
-      .const { name := names.name, type_ := .option .bool, value := values.match_ },
+      .const { name := names.name, type_ := .option .bool, value := values.matchExpr },
       .event { name := names.name, params := #[
         param .public_ .bool,
         param .private_ (.array (.uint 8) 1)
       ] },
       .error { name := names.name, params := #[param .commitment mapType] },
-      .init { params := #[
-        param .public_ (.named names.name),
-        param .private_ .principal
-      ], body := richBlock names },
-      .entry { name := names.name, params := #[param .public_ .bool],
-        result := mapType, body := returnBlock },
-      .view { name := names.name, params := #[param .public_ .unit],
-        result := .option .bool, body := returnBlock false },
-      .fn { name := names.name, params := #[param .public_ (.field names.name)],
-        result := .bytes 1, body := returnBlock },
+      .init {
+        params := #[
+          param .public_ (.named names.name),
+          param .private_ .principal
+        ]
+        body := richBlock names
+      },
+      .entry {
+        name := names.name
+        params := #[param .public_ .bool]
+        result := mapType
+        body := returnBlock
+      },
+      .view {
+        name := names.name
+        params := #[param .public_ .unit]
+        result := .option .bool
+        body := returnBlock false
+      },
+      .fn {
+        name := names.name
+        params := #[param .public_ (.field names.name)]
+        result := .bytes 1
+        body := returnBlock
+      },
       .invariant { name := names.name, predicate := values.place },
-      .extensionReq { id := names.qualified, version := "1.0.0",
-        digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000" },
+      .extensionReq {
+        id := names.qualified
+        version := "1.0.0"
+        digest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+      },
       .proof { invariant := names.name, theorem_ := names.qualified }
     ]
   }
@@ -256,7 +275,7 @@ private def simpleOrderProgram (names : FixtureNames) : ProgramV1 := {
   name := names.name
   items := #[.const {
     name := names.name
-    type_ := .map .bool (.uint 8)
+    type_ := .map (.bool) (.uint 8)
     value := .binary .add exprLeaf exprLeaf
   }]
 }
@@ -287,6 +306,14 @@ def run : IO Unit := do
     expect (nodeTags.contains visit.constructorTag) s!"unknown tag {visit.constructorTag}"
   for pair in edgePairs do
     expect (hasPair visits pair) s!"missing edge {pair.1}.{pair.2}"
+  expect (visits.any fun visit => visit.path.any fun segment =>
+      segment.parentTag == "Program" && segment.fieldTag == "items" &&
+        segment.index == 12)
+    "root item source-order index 12 must be preserved"
+  expect (visits.any fun visit => visit.path.any fun segment =>
+      segment.parentTag == "StructDecl" && segment.fieldTag == "fields" &&
+        segment.index == 1)
+    "nested array source-order index 1 must be preserved"
   for visit in visits do
     for segment in visit.path do
       expect (edgePairs.contains (segment.parentTag, segment.fieldTag))
@@ -323,7 +350,27 @@ def run : IO Unit := do
     (canonicalNodeVisitsV1 (scalarTwinProgram names .public_ 8))
   let scalarB ← liftResult "scalar twin B"
     (canonicalNodeVisitsV1 (scalarTwinProgram names .commitment 256))
-  expect (scalarA == scalarB) "visibility, names, widths and operators are not visits"
+  expect (scalarA == scalarB) "visibility and integer width are not visits"
+
+  let stateItem := ProgramItemV1.state {
+    visibility := VisibilityV1.public_
+    name := names.name
+    type_ := TypeV1.bool
+  }
+  let proofItem := ProgramItemV1.proof {
+    invariant := names.name
+    theorem_ := names.qualified
+  }
+  let orderA ← liftResult "source order A"
+    (canonicalNodeVisitsV1 { name := names.name, items := #[stateItem, proofItem] })
+  let orderB ← liftResult "source order B"
+    (canonicalNodeVisitsV1 { name := names.name, items := #[proofItem, stateItem] })
+  expect (orderA.map (·.constructorTag) ==
+      #["Program", "StateDecl", "Type.Bool", "ProofDecl"])
+    "source-order twin A"
+  expect (orderB.map (·.constructorTag) ==
+      #["Program", "ProofDecl", "StateDecl", "Type.Bool"])
+    "source-order twin B"
 
   let atDepth ← liftResult "depth 256"
     (canonicalNodeVisitsV1 (nestedOptionProgram names 253))
