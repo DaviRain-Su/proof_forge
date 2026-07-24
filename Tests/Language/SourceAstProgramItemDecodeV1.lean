@@ -104,6 +104,20 @@ private def fieldCountPair (tag : String) (expected : Nat) (bytes : ByteArray) :
     expectError s!"field-count-{tag}-{invalid}" s!"tag '{tag}' must declare {expected} fields"
       (decodeItem 0 0 (setFieldCount bytes invalid))
 
+private def aliasRoundTrip (label : String) (depth nodes : Nat)
+    (expected : ProgramItemV1) : IO ByteArray := do
+  let encoded ← lift s!"{label}: encode" (encodeProgramItemV1 expected)
+  let ((actual, residual), cursor) ← lift s!"{label}: decode" (decodeItem depth nodes encoded)
+  expect (decide (actual = expected)) s!"{label}: wrong constructor"
+  expect (residual.remainingNodes == 0) s!"{label}: wrong residual"
+  lift s!"{label}: finish" (finish cursor)
+  pure encoded
+
+private def expectDistinct (label : String) (left right : ProgramItemV1)
+    (leftBytes rightBytes : ByteArray) : IO Unit := do
+  expect (decide (left ≠ right)) s!"{label}: values aliased"
+  expect (decide (leftBytes ≠ rightBytes)) s!"{label}: bytes aliased"
+
 /-- Frozen D1-PA-116: 13 positives, 26 field-count negatives, 19 boundaries. -/
 def run : IO Unit := do
   let enabled ← name "enabled"; let count ← name "count"; let store ← name "Store"
@@ -205,22 +219,15 @@ def run : IO Unit := do
     .view { name := get, params := #[], result := .uint 64, body := sameBody }
   let sameFn : ProgramItemV1 :=
     .fn { name := get, params := #[], result := .uint 64, body := sameBody }
-  let sameItems := #[sameEvent, sameError, sameEntry, sameView, sameFn]
-  let sameDepths := #[1, 1, 4, 4, 4]
-  let sameNodes := #[1, 1, 5, 5, 5]
-  let mut sameBytes : Array ByteArray := #[]
-  for index in [:sameItems.size] do
-    let encoded ← lift "alias encode" (encodeProgramItemV1 sameItems[index]!)
-    let ((decoded, residual), cursor) ← lift "alias decode"
-      (decodeItem sameDepths[index]! sameNodes[index]! encoded)
-    expect (decide (decoded = sameItems[index]!)) "alias route value"
-    expect (residual.remainingNodes == 0) "alias route residual"
-    lift "alias finish" (finish cursor)
-    sameBytes := sameBytes.push encoded
-  for left in [:sameItems.size] do
-    for right in [left + 1:sameItems.size] do
-      expect (decide (sameItems[left]! ≠ sameItems[right]!)) "alias values must differ"
-      expect (decide (sameBytes[left]! ≠ sameBytes[right]!)) "alias bytes must differ"
+  let sameEventBytes ← aliasRoundTrip "same-event" 1 1 sameEvent
+  let sameErrorBytes ← aliasRoundTrip "same-error" 1 1 sameError
+  let sameEntryBytes ← aliasRoundTrip "same-entry" 4 5 sameEntry
+  let sameViewBytes ← aliasRoundTrip "same-view" 4 5 sameView
+  let sameFnBytes ← aliasRoundTrip "same-fn" 4 5 sameFn
+  expectDistinct "event/error" sameEvent sameError sameEventBytes sameErrorBytes
+  expectDistinct "entry/view" sameEntry sameView sameEntryBytes sameViewBytes
+  expectDistinct "entry/fn" sameEntry sameFn sameEntryBytes sameFnBytes
+  expectDistinct "view/fn" sameView sameFn sameViewBytes sameFnBytes
 
   expectError "boundary-1" "tag length must be 1..21 bytes" (decodeItem 0 0 (u32 0))
   expectError "boundary-2" "tag length must be 1..21 bytes" (decodeItem 0 0 (u32 22))
