@@ -335,14 +335,15 @@ def run : IO Unit := do
 
   let table ← liftResult "comprehensive assignment"
     (assignNodeIdsV1 moduleName qualified (comprehensiveProgram names))
-  expect (table.assignments.size == 214)
-    s!"comprehensive assignment count: {table.assignments.size}"
-  expect (table.assignments.map (fun assignment =>
+  let assignments := nodeAssignmentsPreorderV1 table
+  expect (assignments.size == 214)
+    s!"comprehensive assignment count: {assignments.size}"
+  expect (assignments.map (fun assignment =>
       (assignment.constructorTag, assignment.path)) ==
     visits.map (fun visit => (visit.constructorTag, visit.path)))
     "assignment table must preserve canonical visit preorder"
   let mut seenNodeIds : Array ByteArray := #[]
-  for assignment in table.assignments do
+  for assignment in assignments do
     let expected ← liftResult s!"assignment {assignment.constructorTag}"
       (nodeIdV1 moduleName qualified assignment.path)
     expect (decide (assignment.nodeId = expected))
@@ -350,7 +351,7 @@ def run : IO Unit := do
     expect (!seenNodeIds.contains assignment.nodeId.bytes)
       s!"duplicate production NodeId at {pathText assignment.path}"
     seenNodeIds := seenNodeIds.push assignment.nodeId.bytes
-  match table.assignments.toList with
+  match assignments.toList with
   | root :: _ =>
       let rendered ← liftResult "assigned root render" (renderNodeId root.nodeId)
       expect (root.constructorTag == "Program" && root.path.isEmpty &&
@@ -407,10 +408,10 @@ def run : IO Unit := do
     (assignNodeIdsV1 moduleName qualified orderProgramA)
   let orderTableB ← liftResult "source order table B"
     (assignNodeIdsV1 moduleName qualified orderProgramB)
-  expect (orderTableA.assignments.map (·.constructorTag) ==
+  expect ((nodeAssignmentsPreorderV1 orderTableA).map (·.constructorTag) ==
       #["Program", "StateDecl", "Type.Bool", "ProofDecl"])
     "assignment source-order twin A"
-  expect (orderTableB.assignments.map (·.constructorTag) ==
+  expect ((nodeAssignmentsPreorderV1 orderTableB).map (·.constructorTag) ==
       #["Program", "ProofDecl", "StateDecl", "Type.Bool"])
     "assignment source-order twin B"
 
