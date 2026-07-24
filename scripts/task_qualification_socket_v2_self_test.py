@@ -124,6 +124,18 @@ def _inspect_static(binary: Path) -> None:
         raise AssertionError("socket driver contains PT_INTERP or DT_NEEDED")
 
 
+def _inspect_source_contract() -> None:
+    source = (_HERE / "task_qualification_socket_v2.c").read_text(encoding="ascii")
+    if source.count("socketpair(") != 1:
+        raise AssertionError("socket owner does not contain exactly one socketpair call")
+    for forbidden in (
+        "dup(", "dup2(", "dup3(", "F_DUPFD", "bind(", "connect(",
+        "accept(", "accept4(", "SCM_RIGHTS", "pidfd_getfd",
+    ):
+        if forbidden in source:
+            raise AssertionError(f"socket owner contains forbidden fallback: {forbidden}")
+
+
 def _analyze_sources() -> None:
     completed = subprocess.run(
         [
@@ -197,6 +209,7 @@ def main() -> int:
         binary = base / "pf-taskqualification-socket-v2-test"
         sanitizer_binary = base / "pf-taskqualification-socket-v2-asan"
         try:
+            _inspect_source_contract()
             _compile(binary, sanitizer=False)
             _inspect_static(binary)
             _compile(sanitizer_binary, sanitizer=True)

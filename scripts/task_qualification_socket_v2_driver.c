@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -316,15 +317,20 @@ static int pf_tq_test_observe_adapter(
     return 0;
 }
 
-static int pf_tq_test_observe_adapter_set(int proc_root_fd, pid_t pid) {
-    static const int expected[] = {0, 1, 2, 4, 10, 11, 12, 13};
+static int pf_tq_test_observe_adapter_set(
+    int proc_root_fd,
+    pid_t pid,
+    const pf_tq_transition_fd_role_v2 *expected,
+    size_t expected_count
+) {
     unsigned char seen[8] = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U};
     unsigned char buffer[4096];
     char path[64];
     int directory_fd;
     size_t index;
     int rendered = snprintf(path, sizeof(path), "%ld/fd", (long)pid);
-    if (rendered <= 0 || (size_t)rendered >= sizeof(path)) return -1;
+    if (expected == NULL || expected_count != sizeof(seen) ||
+            rendered <= 0 || (size_t)rendered >= sizeof(path)) return -1;
     directory_fd = openat(proc_root_fd, path,
         O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (directory_fd < 0) return -1;
@@ -363,13 +369,22 @@ static int pf_tq_test_observe_adapter_set(int proc_root_fd, pid_t pid) {
                 (void)close(directory_fd);
                 return -1;
             }
-            for (index = 0U; index < sizeof(expected) / sizeof(expected[0]); ++index) {
-                if (number == expected[index]) break;
+            for (index = 0U; index < expected_count; ++index) {
+                if (number == expected[index].fd) break;
             }
-            if (index == sizeof(expected) / sizeof(expected[0]) ||
-                    seen[index] != 0U) {
+            if (index == expected_count || seen[index] != 0U) {
                 (void)close(directory_fd);
                 return -1;
+            }
+            {
+                int close_on_exec = -1;
+                if (pf_tq_test_read_fd_flags(proc_root_fd, pid,
+                        (int)number, &close_on_exec) != 0 ||
+                        close_on_exec !=
+                            (expected[index].fd_flags == FD_CLOEXEC)) {
+                    (void)close(directory_fd);
+                    return -1;
+                }
             }
             seen[index] = 1U;
             offset += entry->d_reclen;
@@ -423,33 +438,40 @@ static int pf_tq_test_positive(const char *self_path) {
     pf_tq_socket_pair_v2 pair;
     pf_tq_transition_fd_identity_v2 service_identity;
     pf_tq_transition_fd_identity_v2 adapter_observed;
+    pf_tq_transition_fd_role_v2 adapter_roles[
+        PF_TQ_FD_MANIFEST_V2_ADAPTER_STEADY_COUNT + 3U];
+    size_t adapter_role_count = 0U;
     char error[PF_TQ_SOCKET_V2_ERROR_BYTES];
-    int sync_pipe[2];
     int proc_root_fd;
     int executable_fd;
     int filler_fd;
     int channel_fd;
     int status = 0;
     pid_t child;
-    unsigned char sync = 0x33U;
     unsigned char ack = 0xa1U;
     pf_tq_test_close_all();
     proc_root_fd = open("/proc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
     if (proc_root_fd != 3) pf_tq_test_die("positive-proc-root");
     pf_tq_test_policy(&policy, roles);
-    if (pf_tq_socket_pair_create_v2(
-            &policy, &channels, &pair, error, sizeof(error)) != 0 ||
+    if (pf_tq_fd_manifest_project_v2(&policy, &channels,
+            "adapter", "steady", adapter_roles,
+            sizeof(adapter_roles) / sizeof(adapter_roles[0]),
+            &adapter_role_count, error, sizeof(error)) != 0 ||
+            error[0] != '\0' ||
+            adapter_role_count != sizeof(adapter_roles) / sizeof(adapter_roles[0]) ||
+            pf_tq_socket_pair_create_v2(
+                &policy, &channels, &pair, error, sizeof(error)) != 0 ||
             error[0] != '\0' || pair.adapter_fd != PF_TQ_TEST_ADAPTER_FD ||
             pair.service_fd != PF_TQ_TEST_SERVICE_FD) {
         pf_tq_test_die("positive-create");
     }
     executable_fd = open(self_path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
-    if (executable_fd != 6 || pipe2(sync_pipe, O_CLOEXEC) != 0 ||
-            sync_pipe[0] != 7 || sync_pipe[1] != 8) {
-        pf_tq_test_die("positive-exec-sync");
+    if (executable_fd != 6) pf_tq_test_die("positive-executable");
+    for (filler_fd = 7; filler_fd <= 9; ++filler_fd) {
+        if (open("/dev/null", O_RDONLY | O_CLOEXEC) != filler_fd) {
+            pf_tq_test_die("positive-filler");
+        }
     }
-    filler_fd = open("/dev/null", O_RDONLY | O_CLOEXEC);
-    if (filler_fd != 9) pf_tq_test_die("positive-filler");
     for (channel_fd = 10; channel_fd <= 13; ++channel_fd) {
         if (open("/dev/null", O_RDONLY) != channel_fd) {
             pf_tq_test_die("positive-channel-fd");
@@ -461,20 +483,20 @@ static int pf_tq_test_positive(const char *self_path) {
         char *const arguments[] = {(char *)self_path, "--adapter-exec", NULL};
         char *const environment[] = {NULL};
         pf_tq_transition_fd_identity_v2 adapter_identity;
-        if (close(sync_pipe[1]) != 0 || read(sync_pipe[0], &sync, 1U) != 1 ||
-                close(sync_pipe[0]) != 0 ||
-                pf_tq_socket_pair_select_v2(&pair, PF_TQ_SOCKET_ADAPTER_V2,
-                    error, sizeof(error)) != 0 ||
+        if (pf_tq_socket_pair_select_v2(&pair, PF_TQ_SOCKET_ADAPTER_V2,
+                error, sizeof(error)) != 0 ||
                 pf_tq_socket_endpoint_prepare_exec_v2(
                     &pair, PF_TQ_SOCKET_ADAPTER_V2, &adapter_identity,
-                    error, sizeof(error)) != 0 || error[0] != '\0') {
+                    error, sizeof(error)) != 0 || error[0] != '\0' ||
+                raise(SIGSTOP) != 0) {
             _exit(121);
         }
         (void)syscall(SYS_execveat, executable_fd, "",
             arguments, environment, AT_EMPTY_PATH);
         _exit(122);
     }
-    if (close(sync_pipe[0]) != 0 ||
+    if (waitpid(child, &status, WUNTRACED) != child ||
+            !WIFSTOPPED(status) || WSTOPSIG(status) != SIGSTOP ||
             pf_tq_socket_pair_select_v2(&pair, PF_TQ_SOCKET_SERVICE_V2,
                 error, sizeof(error)) != 0 ||
             pf_tq_socket_endpoint_prepare_exec_v2(
@@ -482,18 +504,22 @@ static int pf_tq_test_positive(const char *self_path) {
                 error, sizeof(error)) != 0 || error[0] != '\0' ||
             pf_tq_socket_service_enable_credentials_v2(
                 PF_TQ_TEST_SERVICE_FD, &service_identity,
-                error, sizeof(error)) != 0 || error[0] != '\0' ||
-            write(sync_pipe[1], &sync, 1U) != 1 || close(sync_pipe[1]) != 0) {
+                error, sizeof(error)) != 0 || error[0] != '\0') {
         pf_tq_test_die("positive-parent-prepare");
     }
-    if (close(executable_fd) != 0 || close(filler_fd) != 0) {
-        pf_tq_test_die("positive-parent-setup-close");
+    if (close(executable_fd) != 0) {
+        pf_tq_test_die("positive-parent-executable-close");
+    }
+    for (filler_fd = 7; filler_fd <= 9; ++filler_fd) {
+        if (close(filler_fd) != 0) pf_tq_test_die("positive-parent-filler-close");
     }
     for (channel_fd = 10; channel_fd <= 13; ++channel_fd) {
         if (close(channel_fd) != 0) pf_tq_test_die("positive-parent-channel-close");
     }
+    if (kill(child, SIGCONT) != 0) pf_tq_test_die("positive-child-continue");
     if (pf_tq_test_receive_ready(PF_TQ_TEST_SERVICE_FD, child) != 0 ||
-            pf_tq_test_observe_adapter_set(proc_root_fd, child) != 0 ||
+            pf_tq_test_observe_adapter_set(proc_root_fd, child,
+                adapter_roles, adapter_role_count) != 0 ||
             pf_tq_test_observe_adapter(
                 proc_root_fd, child, &adapter_observed) != 0 ||
             pf_tq_socket_lineage_validate_v2(&pair,
