@@ -3274,6 +3274,74 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/invalid argv、package refresh后
   最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。
   结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-117 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  `ProgramV1` tagged-value decoder slice。它只读复用 PA116 `decodeProgramItemV1`；不修改 Program model/
+  codec、任一 item/child decoder或 validator。moduleName/programIdentity 与 canonical root 继续排除。
+  production public API 精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramDecodeV1
+  decodeProgramV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstProgramV1.ProgramV1 × DecodeBudgetV1)
+  ```
+
+  decoder 固定执行 tag `Program`→closed-family unknown→fieldCount `2`→depth→Program parent node charge→
+  raw name→u32 item count→nonempty→post-charge count cap→source-order items。`d=0` 仍先验证 exact head；
+  成功分支每个 item 接收 parent `d-1` 与前一 sibling 返回的同一 session-wide node residual。
+  count cap针对 Program charge后的 residual，必须在首个 item decode/allocation前执行；count0先返回
+  `program items must be nonempty`。unknown逐字为 `unknown program tag '<tag>'`。禁止 fresh
+  `256/100000` budget、default root helper、重复/跳过 Program node、预先做 child validation、post-walk、
+  declaration-set validation、fallback、error remap、`partial` 或 `unsafe`。
+
+  Lean suite 与不 import Lean/ProofForge/既有 reference script 的 standalone Python oracle共同固定
+  **3/2/17**。三个 positive逐字复用 PA103 checked-in literals并比较 exact Program value、
+  exact-consume/`finish`、byte-identical `encodeProgramV1`、node residual=0：`prog_state_only d=3,n=3`、
+  `prog_two_order d=3,n=6`、`prog_two_reversed d=3,n=6`。后两者必须证明 item source order的 value/bytes
+  nonalias；state-only mechanical value必须成功，不得在 decoder混入 zero-entry/view 等 set validation。
+  两个 field-count negatives把 Program/2改为1与3，均以`d=0,n=0`返回
+  `tag 'Program' must declare 2 fields`，证明 fieldCount先于depth/node。
+
+  17 个 boundary slots exact 冻结如下；`bad("X")`是合法 bounded ASCII tag且故意不带fieldCount，
+  `head(Tag,fc)`是tag+fieldCount而无payload，`STATE`/`CONST`逐字使用 PA103 item bytes；每个
+  A-before-B项必须同时携带 hostile B：
+
+  1. declared tag length0 → `tag length must be 1..21 bytes`；2. length1 byte `ff` →
+  `invalid UTF-8 tag`；3. `bad("StateDecl")` → `unknown program tag 'StateDecl'`；4. exact Program/2
+  head、`d=0,n=0` → `depth budget exhausted`；5. 同一head、`d=1,n=0` →
+  `node budget exhausted`。
+
+  6. Program name declared length0 + hostile count →
+  `source name component must contain 1..240 UTF-8 bytes`；7. valid `Demo` + count0 →
+  `program items must be nonempty`；8. `Demo` + count2、`d=2,n=2` → Program charge后的
+  `array count exceeds caller limit`；9. count `0xffffffff`、`d=2,n=100` →同一 cap，且不得分配；
+  10. count1+`bad("BogusItem")` → `unknown program-item tag 'BogusItem'`；11. count1+
+  `bad("Type.Bool")` → `unknown program-item tag 'Type.Bool'`。
+
+  12. full `prog_state_only`、`d=2,n=3` → child `depth budget exhausted`；13. 同一bytes、
+  `d=3,n=2` → child `node budget exhausted`；14. count2+`STATE`+`bad("BogusItem")` → second-item
+  unknown；15. count2+`STATE`+Struct valid name/count0 → second-item
+  `struct fields must be nonempty`；16. count2+Const valid name+`bad("BogusType")`+hostile value+
+  `STATE` → first-item `unknown type tag 'BogusType'`，不得访问第二项；17. `prog_state_only || 00`
+  以`d=3,n=3`解出value后`finish` → `trailing bytes`。10–16使用足够但不重置的caller budget，
+  child错误全部逐字透传。
+
+  Python 必须 assert-free，normal/`-O`均通过，非精确argv输出usage且exit 2，只打印
+  `reference_source_ast_program_decode_v1: ok 3 2 17`。它独立实现 Program head/name/count/nonempty/cap、
+  caller-budget threading与可注入 item stubs，直接持有三个 fixed bytes；不得调用 Lean、production
+  decoder或其他 reference script形成自证循环。
+
+  变更文件集：新增`ProofForgeV2/Source/AstProgramDecodeV1.lean`、
+  `Tests/Language/SourceAstProgramDecodeV1.lean`、`scripts/reference_source_ast_program_decode_v1.py`；
+  只做`ProofForgeV2.lean`/`Tests.lean`/`lakefile.lean` registration与机械manifest refresh，不修改
+  PA93–116 model/codec/decoder、WireDecode、ValidatedSource或其他production modules。budgets：
+  production≤100、suite≤300、Python≤280、registrations≤5、总authored additions≤700（manifest不计）。
+  明确排除 canonical root/module/program identity join、root exact-consume API、fresh session/16MiB、
+  declaration-set validation、frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/第二
+  quoted decoder/fallback、sourceHash/NodeId/stable Diagnostic/Typed/Semantic/target。RED必须只因production
+  module缺失；GREEN只运行focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/
+  invalid argv、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent
+  review，不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending
+  TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
