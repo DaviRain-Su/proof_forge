@@ -35,6 +35,7 @@ import ProofForgeV2.Source.AstProgramItemCodecV1
 import ProofForgeV2.Source.AstProgramItemDecodeV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstProgramCodecV1
+import ProofForgeV2.Source.AstProgramDecodeV1
 import ProofForgeV2.Source.AstCanonicalRootV1
 import ProofForgeV2.Source.AstProgramValidateV1
 import ProofForgeV2.Source.ValidatedSourceV1
