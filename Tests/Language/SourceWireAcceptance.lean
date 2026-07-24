@@ -1,4 +1,5 @@
 import Tests.Language.SourceIdentity
+import Tests.Language.SourceNodeAssignmentCollisionV1
 import Tests.Language.SourceNodeTraversalV1
 import Tests.Language.SourceSpan
 
@@ -8,6 +9,7 @@ namespace Tests.Language.SourceWireAcceptance
 unsafe def run : IO Unit := do
   Tests.Language.SourceIdentity.run
   Tests.Language.SourceNodeTraversalV1.run
+  Tests.Language.SourceNodeAssignmentCollisionV1.run
   Tests.Language.SourceSpan.run
 
 end Tests.Language.SourceWireAcceptance
