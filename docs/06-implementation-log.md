@@ -9029,3 +9029,13 @@ normative: false
 - Probe：未提交的32-line最小root orchestration按冻结顺序编译成功；direct Lean suite在100000-node合法positive的PA108 `validateSourceV1` re-encode阶段触发 interpreter deep recursion。stacktrace定位到既有 `AstSpineCodecV1.encodeStmtListV1` 的非尾递归cons-after-recursion路径，而非root decoder、node counter或fixture构造。
 - Triage：PA118冻结文件集明确禁止修改既有codec，故撤回未提交production probe并把PA118标为blocked；不以调大`--tstack`冒充产品修复。只读审计同时确认 `AstPatternCodecV1` 一个及`AstSpineCodecV1`四个array helper采用同一递归List形态，均位于完整root validation可达面。
 - Next：单独冻结 byte/API/error/order 完全不变的 wide-array stack-safety prerequisite，将五个helper改为结构递减的tail accumulator并用全局node-limit内的wide vectors验证；闭合后恢复原PA118冻结包。不得借此切换frontend/export或激活formal task。
+
+## 2026-07-24 — D1 canonical encoder wide-array stack-safety prerequisite
+
+- Commits：D1-PA-119 freeze `be5fcd6c`；task pointer `80d3b49f`；tests-only runtime RED `400a0887`；GREEN `92ab620f`。正式 `TASK-D1-01` 状态未改变，PA118只恢复原冻结完成面。
+- Changed：`AstPatternCodecV1`一个与`AstSpineCodecV1`四个private List helper改为结构递减的Array accumulator；每步先编码head、push、再tail-position递归tail。public encoder API、tag/field order/error与bytes不变；无`partial`/`unsafe`、reverse、post-hoc reorder、tstack放宽或node-policy下沉。production additions 33/45。
+- Tests：154-line Lean suite固定5个global-node-limit内wide exact-byte positives：Pattern/Expr args分别100000 nodes、Expr/Stmt match分别99998 nodes、Block 100000 nodes；test-owned primitive builders比较完整bytes。五个helper各有一对正反dual-fault数组，共10个head-before-tail exact error negatives。
+- Verification：tests-only RED在默认`lean --run`首个99999-arg Pattern上稳定报告`deep recursion`及`encodePatternListV1`；GREEN focused 20 jobs、默认direct 5/10、既有Pattern/Spine codec suites全绿。未提交的exact PA118 frozen probe下，PA118 3/15 direct regression与409-job aggregate/test binary通过，probe随后删除；67-file manifest重钉，最终SBOM self-test/generate/verify/closure、docs与diff全绿。总authored additions 190/348（manifest不计）。
+- Review/Evidence：main-agent逐行自审确认五个helper均为head-before-tail且tail call、无public symbol或wire diff，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0005`。
+- Limitations：未运行完整`just ci`；aggregate需要临时PA118 probe仅因main上已提交的PA118 RED故意引用尚缺root module，未把probe计入PA119候选或SBOM。此证据只闭合stack-safety prerequisite，不关闭PA118、TST-SRC-001、pending TASK-D1-01或任何frontend/export cutover。
+- Next：恢复PA118既有freeze，提交单一root orchestration production module并重新在最终候选上运行3/15、aggregate与SBOM。
