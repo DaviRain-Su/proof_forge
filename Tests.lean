@@ -81,6 +81,7 @@ import Tests.Language.SourceAstProgramItemV1
 import Tests.Language.SourceAstProgramV1
 import Tests.Language.SourceAstCanonicalRootV1
 import Tests.Language.SourceAstProgramValidateV1
+import Tests.Language.SourceAstWideEncoderV1
 import Tests.Language.SourceAstScalarDecodeV1
 import Tests.Language.SourceAstTypeDecodeV1
 import Tests.Language.SourceAstPatternDecodeV1
@@ -167,6 +168,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceAstProgramV1.run
   Tests.Language.SourceAstCanonicalRootV1.run
   Tests.Language.SourceAstProgramValidateV1.run
+  Tests.Language.SourceAstWideEncoderV1.run
   Tests.Language.SourceAstScalarDecodeV1.run
   Tests.Language.SourceAstTypeDecodeV1.run
   Tests.Language.SourceAstPatternDecodeV1.run
