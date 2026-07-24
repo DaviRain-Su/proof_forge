@@ -18,8 +18,8 @@
 | Active task | 无（D0已收口；尚未激活D1任务） |
 | D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
 | Next task | **TASK-D1-01**（pending；前置依赖均已满足，但尚未自动激活） |
-| Active development slice | **D1-PA-128 / TASK-D1-01 pre-acceptance prerequisite**（in_progress；冻结commit `a5034939`）；PA125 base的84-tag/18-family unknown-tag negative descriptor，正式 TASK仍pending |
-| Next development slice | 未选择；PA128收口前不得并入其他residual。不得自动切换shared DSL/Loader/Lean-command/export v2，不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback |
+| Active development slice | 无；**D1-PA-128 / TASK-D1-01 pre-acceptance prerequisite** 已以 `EV-20260724-0015` 收口；PA125 base的84-tag/18-family unknown-tag negative descriptor闭合，正式 TASK仍pending |
+| Next development slice | 未冻结；回到source-bound/其余scalar/length/truncation/trailing negative golden与span/origin residual只读审计，只选择一个最小slice。不得自动切换shared DSL/Loader/Lean-command/export v2，不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无；D0已完成，D1尚未自动激活 |
