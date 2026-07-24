@@ -18,11 +18,11 @@
 | Active task | 无（D0已收口；尚未激活D1任务） |
 | D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
 | Next task | **TASK-D1-01**（pending；前置依赖均已满足，但尚未自动激活） |
-| Active development slice | **D1-PA-118 / TASK-D1-01 pre-acceptance** 已恢复：PA119 stack-safety prerequisite 以 `EV-20260724-0005` 收口；下一步只提交原冻结root production GREEN；正式 TASK 仍为 pending |
-| Next development slice | PA118 收口后重新只读审计正式验收剩余缺口，不自动切换 shared DSL/Loader/Lean-command/export v2，不建立 legacy→ProgramV1、dual reader、第二套 quoted decoder 或 fallback |
+| Active development slice | 无；**D1-PA-118 / TASK-D1-01 pre-acceptance** 已以 `EV-20260724-0006` 收口，完整 canonical root decoder development prerequisite闭合；正式 TASK 仍为 pending |
+| Next development slice | 未冻结；重新只读审计正式 `TASK-D1-01`/TST-SRC-001/002 剩余验收缺口并只选择一个slice。不得由root decoder完成自动切换 shared DSL/Loader/Lean-command/export v2，不建立 legacy→ProgramV1、dual reader、第二套 quoted decoder 或 fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无 formal task blocker；PA118 的 development prerequisite 已在 active/next slice 与实现日志中单独记录 |
+| Known blocker | 无；D0已完成，D1尚未自动激活 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 

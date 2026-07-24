@@ -9039,3 +9039,13 @@ normative: false
 - Review/Evidence：main-agent逐行自审确认五个helper均为head-before-tail且tail call、无public symbol或wire diff，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0005`。
 - Limitations：未运行完整`just ci`；aggregate需要临时PA118 probe仅因main上已提交的PA118 RED故意引用尚缺root module，未把probe计入PA119候选或SBOM。此证据只闭合stack-safety prerequisite，不关闭PA118、TST-SRC-001、pending TASK-D1-01或任何frontend/export cutover。
 - Next：恢复PA118既有freeze，提交单一root orchestration production module并重新在最终候选上运行3/15、aggregate与SBOM。
+
+## 2026-07-24 — D1 complete canonical root decoder slice
+
+- Commits：D1-PA-118 freeze `da92e548`；task pointer `dca086a5`；tests-only RED `aeb366ca`；blocker triage `8895eb1f`；GREEN `4384d876`。PA119/`EV-20260724-0005`只闭合冻结外的既有encoder prerequisite；正式 `TASK-D1-01` 状态未改变。
+- Changed：32-line root API先以exact `16 * 1024 * 1024` byte cap拒绝over-limit，再依次解module QN、program QID，恰创建一次`depth=256`/`remainingNodes=100000` Program session，随后`finish`，最后调用唯一PA108 `validateSourceV1`返回private validated unit。无caller override、budget reset、post-walk、error remap、hash/store或第二validator。
+- Tests：213-line Lean suite与363-line standalone Python oracle固定3个PA108 literal/exact-depth/exact-node positives及15个size/module/identity/Program/local-shape/trailing/validation/resource boundaries；fixed root三projection与byte-identical re-encode、256 path、100000 nodes、equal-16MiB继续decode，257/100001/+1拒绝。Python独立实现selected wire/session/validation且assert-free。
+- Verification：focused build 43 jobs与direct 3/15全绿；Python normal/`-O`均输出`reference_source_ast_canonical_root_decode_v1: ok 3 15`，invalid argv exit 2；最终候选409-job aggregate与test binary全绿。68-file package manifest重钉，最终SBOM self-test/generate/verify/closure、docs与diff全绿。总authored additions612/825（manifest不计）。
+- Review/Evidence：main-agent逐行自审确认cap与cursor前置、QN/QID顺序、single session、finish-before-validation及无frontend/export/legacy路径，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0006`。
+- Limitations：未运行完整`just ci`；本证据闭合ADR-0019 step-3 root decoder的development prerequisite，但不能关闭完整TST-SRC-001/002、pending `TASK-D1-01`或下游task，也不授权shared DSL/Loader/Lean command/export v2 cutover。
+- Next：回到只读审计，针对formal TASK/TST冻结面选择单一剩余slice；不得因root API存在而自动激活任务或扩大完成面。
