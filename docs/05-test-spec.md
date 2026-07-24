@@ -3837,6 +3837,55 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   Python normal/`-O`/invalid argv、PA126/125/121/122 regressions、aggregate/test binary连续两次、最终单次`just sbom`、
   docs/diff与main-agent self-review；不声称independent review，不运行完整`just ci`。只能记录development evidence，仍不
   关闭source-bound/其他negative/span、完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-128 在PA125 immutable full-tag base上建立closed unknown-tag negative golden descriptor；它只闭合
+  `SPEC-SOURCE-WIRE-001`的84个canonical tag各自在真实root上下文中的unknown-constructor immediate rejection，
+  不扩大到tag length/UTF-8/ASCII、field-count、其他scalar/truncation/trailing、source parser或span。base固定为
+  `testdata/golden/source-program-v1/full-tag-v1/canonical.bin`，raw SHA-256必须exact为
+  `5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce`；不得修改PA125/126/127 package、
+  encoder/decoder或production package manifest。
+
+  独立Python model必须按PA125 logical fixture的wire encode source order记录每次Tagged value的tag-content byte offset，
+  并为closed 84-tag inventory各选择首个（最低）offset。每row只把该tag首个ASCII byte改为`X`/`0x58`，保留原u32
+  tag length、其余tag bytes、field count与payload；v1 inventory没有以`X`开头的tag，因此84个mutated tags必须全部
+  nonalias。diagnostic family必须exact闭合18类：BinaryOp/Visibility/UnaryOp/Literal/Type/Pattern/Place/Expr/Stmt分别为
+  `binary-op`/`visibility`/`unary-op`/`literal`/`type`/`pattern`/`place`/`expr`/`stmt`；`Program`为`program`；
+  13个ProgramItem tag均在dispatch层为`program-item`；Param/FieldDecl/EnumVariant/Block/StmtMatchArm/ExprMatchArm/
+  ExternalCallExpr分别为`param`/`field-decl`/`enum-variant`/`block`/`stmt-match-arm`/`expr-match-arm`/`external-call`。
+
+  manifest必须exact包含84个按`originalTag` ASCII ascending的mutation rows。每row包含ASCII `caseId`、
+  `diagnosticFamily`、`originalTag`、`mutatedTag`、`tagByteOffset`、`originalFirstByte`、`mutatedFirstByte=88`与
+  `expectedError = "unknown <diagnosticFamily> tag '<mutatedTag>'"`。offset必须unique、位于base内，且从该offset读取
+  `originalTag` exact bytes；mutatedTag必须与originalTag等长、首byte为`X`且后续bytes逐byte相同。descriptor由base
+  content ref与one-byte rows共同定义84个logical negative binaries，不写出重复binary。
+
+  checked-in descriptor固定为
+  `testdata/golden/source-program-v1/unknown-tag-v1/manifest.json`，schema固定
+  `proof-forge.source-program-unknown-tag-golden-prerequisite.v1`，scope固定
+  `pa125-base-first-occurrence-one-byte-unknown-tag`，并包含baseCaseId/baseCanonicalFile/baseCanonicalBytesSha256、
+  exact sorted `diagnosticFamilies`、`diagnosticFamilyCount=18`、`tagCount=84`、`mutationCount=84`与mutations。JSON沿用
+  PA125 UTF-8/LF/recursively sorted keys/two-space hierarchy/compact row/final newline，package目录只能含该manifest。
+
+  新增`Tests.Language.SourceProgramWireUnknownTagGoldenV1`读取PA125 raw base与descriptor，先验证metadata、closed
+  84-tag/18-family mapping、row/case/offset uniqueness、order、base/mutated tag bytes与exact error；随后逐row构造fresh
+  ByteArray one-byte mutation并调用production `decodeCanonicalSourceAstBytesV1`，必须逐字得到expectedError，证明unknown
+  dispatch先于保留的fieldCount/payload。每次失败后base bytes保持不变，最终base仍须decode成功并re-encode逐byte相等。
+  新增assert-free `scripts/reference_source_program_wire_unknown_tag_golden_v1.py`可只import同目录PA125 independent
+  oracle，不得import Lean/ProofForge或PA126/127 scripts；CLI只允许`--emit`/`--self-check`，self-check不写文件，normal/
+  `-O`同为`reference_source_program_wire_unknown_tag_golden_v1: ok 84 18`，invalid argv exit2；emit只可per-file
+  atomically rewrite上述descriptor，输出前后完整自验。
+
+  变更文件集精确为新增上述Lean suite/Python oracle/one-file descriptor，只修改`Tests.lean`、`lakefile.lean`与
+  `SourceWireAcceptance.lean`注册。Lean≤300行、Python≤300行、manifest≤120行且≤96KiB、registrations additions≤5、
+  总text additions≤900。明确排除修改PA125/126/127 package、`ProofForgeV2/**`、production manifest、stored mutated
+  binaries、其他negative families、sourceUtf8/command/Loader/export v2、span/origin/inventory、legacy bridge/dual reader/
+  second quoted decoder/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因descriptor manifest不存在而在direct Lean与Python self-check失败；提交前先用未提交`--emit`
+  descriptor证明suite compile/direct与Python self-check全绿，再删除descriptor/empty dir确认missing-manifest RED；GREEN
+  只提交deterministic descriptor。最终运行deterministic double emit、focused suite与`SourceWireAcceptance` direct、
+  Python normal/`-O`/invalid argv、PA127/126/125/121/122 regressions、aggregate/test binary、最终单次`just sbom`、
+  full docs/diff与main-agent self-review；不声称independent review，不运行完整`just ci`。只能记录development evidence，
+  仍不关闭source-bound/其他negative/span、完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
