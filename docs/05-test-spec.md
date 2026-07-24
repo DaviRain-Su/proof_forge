@@ -3748,6 +3748,49 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   direct、Python normal/`-O`/invalid argv、PA121/122 oracles、aggregate/test binary、最终单次`just sbom`、docs/diff与
   main-agent self-review；不声称independent review，不运行完整`just ci`。只能记录development evidence，仍不关闭
   source-bound/negative/span residual、完整TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-126 在PA125 immutable full-tag base上建立closed field-count negative golden descriptor package；它只闭合
+  `SPEC-SOURCE-WIRE-001`要求的每个positive-field-count constructor `n-1/n+1`及每个nullary constructor `0→1`，
+  不扩大到unknown tag、scalar/truncation/trailing、source parser或span。base固定为
+  `testdata/golden/source-program-v1/full-tag-v1/canonical.bin`，raw SHA-256必须exact为
+  `5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce`；不得修改PA125 manifest/binary、
+  encoder/decoder或production package manifest。
+
+  独立Python model按PA125 logical fixture的wire encode source order记录每个tag的首个（最低）field-count byte offset。
+  closed 84 tags中必须exact有28个count0与56个count>0；因此manifest必须exact包含140个mutation rows：count0仅`1`，
+  count>0依次`n-1`与`n+1`。每row包含ASCII caseId、tag、`fieldCountOffset`、`expectedCount`、`mutatedCount`与
+  `expectedError = "tag '<tag>' must declare <n> fields"`。offset指向base内u16le count首字节，必须unique于
+  `(tag,mutatedCount)`、位于`[0,size-2]`且base两字节exact为expected；mutation只替换该u16le，不写出140个重复binary。
+  rows按`(tag,mutatedCount)` ASCII/Numeric ascending，descriptor由base content ref与rows共同定义每个checked-in
+  logical negative golden；只存最终error hash或运行时重新选择另一occurrence都不满足。
+
+  checked-in descriptor固定为
+  `testdata/golden/source-program-v1/field-count-v1/manifest.json`，schema固定
+  `proof-forge.source-program-field-count-golden-prerequisite.v1`，scope固定
+  `pa125-base-first-occurrence-exact-field-count`，并包含baseCaseId/baseCanonicalFile/baseCanonicalBytesSha256、
+  `tagCount=84`、`nullaryTagCount=28`、`positiveFieldTagCount=56`、`mutationCount=140`与mutations。JSON沿用PA125
+  UTF-8/LF/recursively sorted keys/two-space hierarchy/compact row/final newline，package目录只能含该manifest。
+
+  新增`Tests.Language.SourceProgramWireFieldCountGoldenV1`读取PA125 raw base与descriptor，先验证metadata、84-tag
+  exact coverage、28/56/140 partition、row order/uniqueness/offset/base count；随后逐row构造fresh ByteArray mutation并调用
+  production `decodeCanonicalSourceAstBytesV1`，必须逐字得到expectedError。每次失败后base bytes保持不变，最终base仍须
+  decode成功并re-encode逐byte相等。新增assert-free
+  `scripts/reference_source_program_wire_field_count_golden_v1.py`可只import同目录PA125 independent oracle，不得import
+  Lean/ProofForge；它独立记录offset并验证PA125 checked-in package。CLI只允许`--emit`/`--self-check`，self-check不写文件，
+  normal/`-O`同为`reference_source_program_wire_field_count_golden_v1: ok 140 84 28 56`，invalid argv exit2；emit只可
+  per-file atomically rewrite上述descriptor，输出前后完整自验。
+
+  变更文件集精确为新增上述Lean suite/Python oracle/one-file descriptor，只修改`Tests.lean`、`lakefile.lean`与
+  `SourceWireAcceptance.lean`注册。Lean≤320行、Python≤360行、manifest≤300行且≤128KiB、registrations additions≤5、
+  总text additions≤1000。明确排除修改PA125 package、`ProofForgeV2/**`、production manifest、stored mutated binaries、
+  其他negative families、sourceUtf8/command/Loader/export v2、span/origin/inventory、legacy bridge/dual reader/second
+  quoted decoder/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因descriptor manifest不存在而在direct Lean与Python self-check失败；提交前先用未提交`--emit`
+  descriptor证明suite compile/direct与Python self-check全绿，再删除descriptor/empty dir确认missing-manifest RED；GREEN
+  只提交deterministic descriptor。最终运行focused suite与`SourceWireAcceptance` direct、Python normal/`-O`/invalid
+  argv、PA125/121/122 oracles、aggregate/test binary、最终单次`just sbom`、docs/diff与main-agent self-review；不声称
+  independent review，不运行完整`just ci`。只能记录development evidence，仍不关闭source-bound/其他negative/span、
+  完整TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
