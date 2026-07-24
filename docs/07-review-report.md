@@ -49,3 +49,16 @@ quality 和 security 三方签署。
 - Blocking findings recorded by the owner: none.
 - Limitation: this task closeout does not change the Phase 7 release decision and does not
   claim formal or hermetic static custody evidence.
+
+## TASK-D1-01 technical candidate self-review and formal block
+
+- Candidate: `d1d8a7e4187b2c8bade6114a3b49e78acb12dd75`.
+- Review mode: main-agent self-review only; **not** an independent review.
+- Technical result: frozen `TST-SRC-001/002` build, aggregate, 67-case independent boundary checker,
+  real-parser span/source identity checks and `just dsl-negative` all passed; technical P0/P1 found: none.
+- Formal result: not approved. No candidate-bound formal EV, signed `TaskQualificationV1`, protected
+  steady-state acceptance, independent immutable review report or C→D completion receipt exists.
+- Blocking findings: the checked-in v2 module is client-only and the current ceremony is explicitly
+  D0-10/development-only; the required qualified integration remains RED 25/26. User policy also
+  forbids invoking another agent, so this session cannot manufacture the required independent review.
+- Decision: keep `TASK-D1-01` blocked and keep the Phase 7 release decision `not_ready`.
