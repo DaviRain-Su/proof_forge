@@ -18,8 +18,8 @@
 | Active task | 无（D0已收口；尚未激活D1任务） |
 | D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
 | Next task | **TASK-D1-01**（pending；前置依赖均已满足，但尚未自动激活） |
-| Active development slice | 无；**D1-PA-122 / TASK-D1-01 pre-acceptance prerequisite** 已以 `EV-20260724-0009` 收口；production NodeId现固定为canonical preimage的SHA-256 first 16 raw bytes，正式 TASK仍pending |
-| Next development slice | 未冻结；只读审计`NodeOriginTableV1` observable carrier/order及collision/duplicate-visit test-only seam，选择单一最小slice。不得自动切换shared DSL/Loader/Lean-command/export v2，不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback |
+| Active development slice | **D1-PA-123 / TASK-D1-01 pre-acceptance prerequisite**：opaque canonical-preorder `NodeOriginTableV1`与production assigner success path 已由 `3985569d` 冻结；下一步提交missing-module/API tests-only RED；正式 TASK仍pending |
+| Next development slice | PA123收口后只读解决collision/duplicate-visit test-build-only seam，不把span/inventory/frontend join塞入；不得自动切换shared DSL/Loader/Lean-command/export v2，不建立legacy→ProgramV1、dual reader、第二套quoted decoder或fallback |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
 | Known blocker | 无；D0已完成，D1尚未自动激活 |
