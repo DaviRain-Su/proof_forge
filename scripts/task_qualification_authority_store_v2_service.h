@@ -59,6 +59,7 @@ typedef struct pf_tq_store_v2_signer {
 typedef int (*pf_tq_store_v2_peer_check_fn)(
     void *opaque,
     pid_t peer_pid,
+    int peer_pidfd,
     unsigned checkpoint,
     char *error,
     size_t error_size

@@ -348,6 +348,7 @@ static int terminal_socket_fd = -1;
 static unsigned head_calls;
 static unsigned peer_counts[5];
 static unsigned lockdown_calls;
+static int observed_pidfd = -1;
 
 static int peer_check(void *opaque, pid_t pid, int pidfd, unsigned checkpoint,
                       char *error, size_t error_size) {{
@@ -355,6 +356,11 @@ static int peer_check(void *opaque, pid_t pid, int pidfd, unsigned checkpoint,
     if (pid <= 0 || pidfd < 0 || fcntl(pidfd, F_GETFD) != FD_CLOEXEC ||
             checkpoint < 1 || checkpoint > 4) {{
         snprintf(error, error_size, "peer callback tuple rejected");
+        return -1;
+    }}
+    if (observed_pidfd < 0) observed_pidfd = pidfd;
+    if (observed_pidfd != pidfd) {{
+        snprintf(error, error_size, "peer callback pidfd changed");
         return -1;
     }}
     ++peer_counts[checkpoint];

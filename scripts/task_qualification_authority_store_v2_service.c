@@ -548,6 +548,10 @@ static int pf_tq_peer_observe(
                 return pf_tq_store_error(error, error_size,
                     "pidfd_open failed: %s", strerror(errno));
             }
+            if (fcntl(peer->pidfd, F_GETFD) != FD_CLOEXEC) {
+                return pf_tq_store_error(error, error_size,
+                    "pidfd_open result is not FD_CLOEXEC");
+            }
         }
         peer->initialized = 1;
     } else if (peer->pid != credentials->pid || peer->uid != credentials->uid ||
@@ -557,7 +561,7 @@ static int pf_tq_peer_observe(
     }
     if (pf_tq_pidfd_alive(peer, error, error_size) != 0) return -1;
     if (context->peer_check != NULL && context->peer_check(
-            context->peer_check_opaque, peer->pid, checkpoint,
+            context->peer_check_opaque, peer->pid, peer->pidfd, checkpoint,
             error, error_size) != 0) return -1;
     return pf_tq_pidfd_alive(peer, error, error_size);
 }
@@ -574,7 +578,7 @@ static int pf_tq_peer_checkpoint(
             "terminal peer checkpoint lacks an alive authenticated peer");
     }
     if (context->peer_check != NULL && context->peer_check(
-            context->peer_check_opaque, peer->pid, checkpoint,
+            context->peer_check_opaque, peer->pid, peer->pidfd, checkpoint,
             error, error_size) != 0) return -1;
     return pf_tq_pidfd_alive(peer, error, error_size);
 }
