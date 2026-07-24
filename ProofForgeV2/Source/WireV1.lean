@@ -247,4 +247,14 @@ def nodeIdPreimageV1
   ])
   pure (("pf.source-node.v1".toUTF8.push 0).append canonical.toUTF8)
 
+/-- Fixed production NodeId: first 16 raw bytes of SHA-256(canonical preimage). -/
+def nodeIdV1
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (path : NormalizedSyntacticPathV1) : Except String NodeId := do
+  let preimage ← nodeIdPreimageV1 moduleName programIdentity path
+  let digest := ProofForgeV2.Crypto.sha256 preimage
+  let nodeId : NodeId := { bytes := digest.extract 0 16 }
+  validateNodeId nodeId
+  pure nodeId
+
 end ProofForgeV2.Source.WireV1
