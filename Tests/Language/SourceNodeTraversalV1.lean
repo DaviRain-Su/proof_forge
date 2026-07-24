@@ -7,6 +7,7 @@ import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.WireV1
@@ -14,6 +15,7 @@ import ProofForgeV2.Source.WireV1
 namespace Tests.Language.SourceNodeTraversalV1
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstProgramItemV1
@@ -23,6 +25,7 @@ open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.NodeTraversalV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.WireV1
@@ -330,6 +333,31 @@ def run : IO Unit := do
         "Program must be the empty-path first visit"
   | [] => throw <| IO.userError "comprehensive traversal returned no root"
 
+  let table ← liftResult "comprehensive assignment"
+    (assignNodeIdsV1 moduleName qualified (comprehensiveProgram names))
+  expect (table.assignments.size == 214)
+    s!"comprehensive assignment count: {table.assignments.size}"
+  expect (table.assignments.map (fun assignment =>
+      (assignment.constructorTag, assignment.path)) ==
+    visits.map (fun visit => (visit.constructorTag, visit.path)))
+    "assignment table must preserve canonical visit preorder"
+  let mut seenNodeIds : Array ByteArray := #[]
+  for assignment in table.assignments do
+    let expected ← liftResult s!"assignment {assignment.constructorTag}"
+      (nodeIdV1 moduleName qualified assignment.path)
+    expect (decide (assignment.nodeId = expected))
+      s!"assignment NodeId mismatch at {pathText assignment.path}"
+    expect (!seenNodeIds.contains assignment.nodeId.bytes)
+      s!"duplicate production NodeId at {pathText assignment.path}"
+    seenNodeIds := seenNodeIds.push assignment.nodeId.bytes
+  match table.assignments.toList with
+  | root :: _ =>
+      let rendered ← liftResult "assigned root render" (renderNodeId root.nodeId)
+      expect (root.constructorTag == "Program" && root.path.isEmpty &&
+          rendered == "nodeid:4f5e39282b8397030068bc51210cd28c")
+        s!"assigned root mismatch: {rendered}"
+  | [] => throw <| IO.userError "assignment table returned no root"
+
   let simple ← liftResult "simple order" (canonicalNodeVisitsV1 (simpleOrderProgram names))
   expect (simple.map (·.constructorTag) == #[
     "Program", "ConstDecl", "Type.Map", "Type.Bool", "Type.UInt",
@@ -361,22 +389,43 @@ def run : IO Unit := do
     invariant := names.name
     theorem_ := names.qualified
   }
-  let orderA ← liftResult "source order A"
-    (canonicalNodeVisitsV1 { name := names.name, items := #[stateItem, proofItem] })
-  let orderB ← liftResult "source order B"
-    (canonicalNodeVisitsV1 { name := names.name, items := #[proofItem, stateItem] })
+  let orderProgramA : ProgramV1 := {
+    name := names.name, items := #[stateItem, proofItem]
+  }
+  let orderProgramB : ProgramV1 := {
+    name := names.name, items := #[proofItem, stateItem]
+  }
+  let orderA ← liftResult "source order A" (canonicalNodeVisitsV1 orderProgramA)
+  let orderB ← liftResult "source order B" (canonicalNodeVisitsV1 orderProgramB)
   expect (orderA.map (·.constructorTag) ==
       #["Program", "StateDecl", "Type.Bool", "ProofDecl"])
     "source-order twin A"
   expect (orderB.map (·.constructorTag) ==
       #["Program", "ProofDecl", "StateDecl", "Type.Bool"])
     "source-order twin B"
+  let orderTableA ← liftResult "source order table A"
+    (assignNodeIdsV1 moduleName qualified orderProgramA)
+  let orderTableB ← liftResult "source order table B"
+    (assignNodeIdsV1 moduleName qualified orderProgramB)
+  expect (orderTableA.assignments.map (·.constructorTag) ==
+      #["Program", "StateDecl", "Type.Bool", "ProofDecl"])
+    "assignment source-order twin A"
+  expect (orderTableB.assignments.map (·.constructorTag) ==
+      #["Program", "ProofDecl", "StateDecl", "Type.Bool"])
+    "assignment source-order twin B"
 
   let atDepth ← liftResult "depth 256"
     (canonicalNodeVisitsV1 (nestedOptionProgram names 253))
   expect (atDepth.size == 256) s!"depth-limit visit count: {atDepth.size}"
   expectError "depth 257" "source node traversal exceeds the nesting bound"
     (canonicalNodeVisitsV1 (nestedOptionProgram names 254))
+  let wrongIdentity ← liftResult "wrong identity"
+    (parseSourceQualifiedNameV1 #["Elsewhere", "n"])
+  expectError "assignment identity before depth"
+    "program identity must begin with the exact module name components"
+    (assignNodeIdsV1 moduleName wrongIdentity (nestedOptionProgram names 254))
+  expectError "assignment depth 257" "source node traversal exceeds the nesting bound"
+    (assignNodeIdsV1 moduleName qualified (nestedOptionProgram names 254))
 
   let atNodes ← liftResult "nodes 100000"
     (canonicalNodeVisitsV1 (wideProgram names 99999))
