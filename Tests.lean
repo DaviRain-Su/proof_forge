@@ -65,6 +65,7 @@ import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceNodeAssignmentCollisionV1
 import Tests.Language.SourceNodeTraversalV1
+import Tests.Language.SourceProgramWireGoldenV1
 import Tests.Language.SourceSpan
 import Tests.Language.SourceWireAcceptance
 import Tests.Language.SourceBoundsAcceptance

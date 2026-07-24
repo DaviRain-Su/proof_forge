@@ -108,6 +108,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceIdentity,
     `Tests.Language.SourceNodeAssignmentCollisionV1,
     `Tests.Language.SourceNodeTraversalV1,
+    `Tests.Language.SourceProgramWireGoldenV1,
     `Tests.Language.SourceSpan,
     `Tests.Language.SourceWireAcceptance,
     `Tests.Language.SourceBoundsAcceptance,
