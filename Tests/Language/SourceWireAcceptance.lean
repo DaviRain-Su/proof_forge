@@ -1,6 +1,7 @@
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceNodeAssignmentCollisionV1
 import Tests.Language.SourceNodeTraversalV1
+import Tests.Language.SourceProgramWireFieldCountGoldenV1
 import Tests.Language.SourceProgramWireGoldenV1
 import Tests.Language.SourceSpan
 
@@ -12,6 +13,7 @@ unsafe def run : IO Unit := do
   Tests.Language.SourceNodeTraversalV1.run
   Tests.Language.SourceNodeAssignmentCollisionV1.run
   Tests.Language.SourceProgramWireGoldenV1.run
+  Tests.Language.SourceProgramWireFieldCountGoldenV1.run
   Tests.Language.SourceSpan.run
 
 end Tests.Language.SourceWireAcceptance
