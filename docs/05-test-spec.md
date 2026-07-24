@@ -3617,8 +3617,9 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `SourceOrigin`或Semantic `SourceNodeInventoryV1`。后续frontend可按preorder join immutable syntax span，只有构造
   inventory时才按NodeId raw bytes排序；不得反向改变table order。
 
-  assigner先且只调用`validateSourceProgramIdentityV1`一次完成identity fail-fast，再调用PA121 traversal；它不重复
-  Program/declaration/codec validation。随后按visit order构造canonical preimage与fixed production NodeId，并以
+  assigner先直接调用`validateSourceProgramIdentityV1`一次完成identity fail-fast，再调用PA121 traversal；它不重复
+  Program/declaration/codec validation。逐项复用PA120/122 public helper时保留其defensive identity/path validation，
+  不得复制或绕过helper来伪造“只验证一次”。随后按visit order构造canonical preimage与fixed production NodeId，并以
   `Std.HashMap ByteArray`按16 raw candidate bytes维护internal exact `{preimage,path}`。首次candidate插入并append
   assignment；existing candidate若preimage byte-equal，逐字失败`PF-INTERNAL: duplicate-node-visit`；否则逐字失败
   `PF-SRC-NODEID-COLLISION: distinct canonical source node preimages produced the same NodeId`。internal preimage/map
