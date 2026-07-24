@@ -9070,3 +9070,13 @@ normative: false
 - Review/Evidence：main-agent逐分支自审确认57 tag与63 edge exact inventory、ordered-field reverse push、depth/node fail-closed、无递归AST walker、无target/profile/legacy/frontend/export路径，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0008`。
 - Limitations：未运行完整`just ci`；本切片不计算preimage/SHA-256/NodeId，不定义`NodeOriginTableV1`、candidate injection、collision/duplicate-visit诊断或span/origin join，也不做完整golden packaging，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - Next：回到只读审计，先唯一化`NodeOriginTableV1` observable carrier/order与test-build-only seam边界，再冻结production SHA truncation或collision handling中的一个最小slice；继续禁止frontend/export自动切换。
+
+## 2026-07-24 — D1 fixed production NodeId truncation prerequisite
+
+- Commits：D1-PA-122 freeze `6a0e2cfd`；task pointer `3f2ea7e8`；tests-only RED `799d2996`；GREEN `138ea353`。正式 `TASK-D1-01` 状态未改变。
+- Changed：`WireV1.nodeIdV1`只调用既有source-raw `nodeIdPreimageV1`，随后以锁定`Crypto.sha256`计算32-byte digest并取`extract 0 16`构造Common `NodeId`，返回前运行`validateNodeId`；API没有preimage/digest/candidate/env/target参数，preimage identity/path错误原样传播。
+- Tests：`SourceIdentity`新增root/item/raw exact renders `nodeid:58c75af894b6f832163564705c9f23ef`、`nodeid:17ac87bb9262ace7d062c77c38a17d0d`与`nodeid:1d20bd4f37f942a52977fa9aade547fb`，逐例验证16 raw bytes与Common parse/render，并固定program identity、array index、raw split、parentTag、fieldTag candidate sensitivity及identity/path error parity。existing independent Python oracle增加`digest()[:16]`同值检查，4/9摘要不变。
+- Verification：tests-only RED只报告三个`nodeIdV1` unknown identifier；focused build 28 jobs、PA122 direct与`SourceWireAcceptance` direct全绿；Python normal/`-O`均输出`reference_source_node_id_preimage_v1: ok 4 9`，invalid argv exit2；413-job aggregate与test binary全绿。69-file package manifest重钉；首次final `just sbom`前三阶段通过而closure的locked `jv`远程JSF schema读取瞬时EOF，未改代码/输入即完整重跑后self-test/generate/verify/closure全绿；docs与diff全绿。production10、Lean51、Python16，总authored additions77/120（manifest不计）。
+- Review/Evidence：main-agent逐行自审确认canonical preimage单一入口、SHA-256 exact raw truncation、Common 16-byte validation、无hex round-trip/替换算法/fallback/target branch，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0009`。
+- Limitations：未运行完整`just ci`；本切片不实现assigner、`NodeOriginTableV1`、candidate injection、collision/duplicate-visit、span/origin join或完整golden packaging，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。SBOM首轮EOF也再次说明本地development gate不是formal hermetic evidence。
+- Next：只读唯一化`NodeOriginTableV1` entry carrier/output order与collision/duplicate-visit test-only seam；下一slice不得把table、seam和frontend join一次性扩胖。
