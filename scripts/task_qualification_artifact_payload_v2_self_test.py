@@ -193,7 +193,9 @@ def _invoke(
     *,
     sanitizer: bool,
 ) -> Result:
-    path = _path_for(base, vector)
+    vector_base = base / ("asan-vectors" if sanitizer else "static-vectors")
+    vector_base.mkdir(exist_ok=True)
+    path = _path_for(vector_base, vector)
     ref_payload = vector.payload if vector.ref_payload is None else vector.ref_payload
     ref_digest = _ref_digest(vector.identifier, vector.version, ref_payload)
     plain_digest = hashlib.sha256(vector.payload).hexdigest()
