@@ -3593,6 +3593,55 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   normal/`-O`/invalid argv、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称
   independent review，不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending
   TASK-D1-01或下游task。
+- D1-PA-123 是完整 ProgramV1 NodeId assigner 的 opaque table与production success-path prerequisite，并同步
+  澄清`SPEC-SOURCE-WIRE-001`中此前未展开的`NodeOriginTableV1` observable carrier/order。冻结API为：
+
+  ```lean
+  structure NodeIdAssignmentV1 where
+    constructorTag : String
+    path : NormalizedSyntacticPathV1
+    nodeId : NodeId
+
+  structure NodeOriginTableV1 where
+    private mk ::
+    assignments : Array NodeIdAssignmentV1
+
+  assignNodeIdsV1
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (program : ProgramV1) : Except String NodeOriginTableV1
+  ```
+
+  `assignments`必须与PA121 `canonicalNodeVisitsV1`逐项相同的canonical preorder；root index0、每个visit恰一项，
+  constructorTag/path原样复制，nodeId逐项等于PA122 `nodeIdV1(moduleName,programIdentity,path)`。table constructor
+  private，失败不返回partial table；table是pre-span carrier，不含source path/span/sourceHash，也不是Common
+  `SourceOrigin`或Semantic `SourceNodeInventoryV1`。后续frontend可按preorder join immutable syntax span，只有构造
+  inventory时才按NodeId raw bytes排序；不得反向改变table order。
+
+  assigner先且只调用`validateSourceProgramIdentityV1`一次完成identity fail-fast，再调用PA121 traversal；它不重复
+  Program/declaration/codec validation。随后按visit order构造canonical preimage与fixed production NodeId，并以
+  `Std.HashMap ByteArray`按16 raw candidate bytes维护internal exact `{preimage,path}`。首次candidate插入并append
+  assignment；existing candidate若preimage byte-equal，逐字失败`PF-INTERNAL: duplicate-node-visit`；否则逐字失败
+  `PF-SRC-NODEID-COLLISION: distinct canonical source node preimages produced the same NodeId`。internal preimage/map
+  不进入table，不依赖map iteration order；禁止hex key、first/last winner、partial prefix、salt/fallback或target branch。
+
+  `SourceNodeTraversalV1`在既有214-visit comprehensive fixture上必须证明table size214、每个assignment的tag/path与
+  visit exact相等、每个NodeId与`nodeIdV1` exact相等、path和NodeId均唯一、root fixed ID不变；另固定root items
+  source-order twin table顺序。bad identity与over-depth Program同时存在时必须先返回identity detail，证明identity
+  fail-fast；合法identity+over-depth保留PA121 traversal error。本slice只验证真实SHA success path和可达错误顺序；
+  forced collision/duplicate branch的test-build-only candidate/traversal seam明确留给下一独立slice，不能据此声称
+  collision acceptance闭合。
+
+  变更文件集精确为新增`ProofForgeV2/Source/NodeAssignmentV1.lean`，修改
+  `Tests/Language/SourceNodeTraversalV1.lean`，只在`ProofForgeV2.lean`增加registration并机械刷新manifest；不新增
+  test module/Python/runner registration。production≤150行、Lean additions≤100、registration additions≤1、
+  总authored additions≤270（manifest不计）。明确排除修改PA120/121/122逻辑、candidate callback/test seam、
+  forced collision/duplicate fixture、stable Diagnostic type、span/origin/inventory join、golden corpus packaging、
+  frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因新production module/API不存在而失败；GREEN运行focused module/suite与
+  `SourceWireAcceptance` direct、aggregate/test binary、既有PA121/122 Python oracles、package refresh后最终单次
+  `just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。结果只记录
+  development evidence，不能关闭collision/duplicate验收、TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical

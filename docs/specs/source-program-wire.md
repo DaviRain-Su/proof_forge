@@ -3,7 +3,7 @@ id: SPEC-SOURCE-WIRE-001
 title: Source.ProgramV1 Canonical AST 与 Wire 规格
 status: proposed
 owner: frontend
-updated: 2026-07-19
+updated: 2026-07-24
 normative: true
 ---
 
@@ -442,6 +442,25 @@ assignNodeIdsV1ForTestWithCandidate(
   program
 ) -> Except Diagnostic NodeOriginTableV1
 ```
+
+`NodeOriginTableV1` 是pre-span assignment carrier，不是Common `SourceOrigin`或
+`SourceNodeInventoryV1`。其唯一observable projection是canonical preorder的closed array：
+
+```text
+NodeIdAssignmentV1 {
+  constructorTag : exact wire constructor tag,
+  path           : NormalizedSyntacticPathV1,
+  nodeId         : NodeId
+}
+
+nodeAssignmentsPreorderV1(NodeOriginTableV1) -> Array<NodeIdAssignmentV1>
+```
+
+array必须与本节node-bearing traversal逐项一一对应，root为index 0，且每个path/nodeId唯一；table constructor
+不得公开，失败时不存在partial table。exact preimage只保留在assigner内部collision map，不进入table projection，
+避免形成第二份持久化identity；调用者可从固定module/program/path重新构造它。frontend后续按该preorder把同一
+immutable syntax snapshot的span接入，构造`SourceNodeInventoryV1`前再按NodeId raw bytes排序；不得把后者的
+排序反向改写本table的preorder。
 
 production `assignNodeIdsV1` 内部固定计算 `first-16-bytes(SHA-256(preimage))`；它没有 digest/candidate
 参数，且不能从 CLI、source、extension、environment 或 target 替换。test-only entry 只接收已经由
