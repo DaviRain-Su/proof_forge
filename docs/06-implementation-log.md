@@ -8991,3 +8991,11 @@ normative: false
 - Boundary：本地Python seqpacket ceremony是bootstrap/development路径，不是ADR-0021完整static
   U/P/A custody、durable nonce store或formal/hermetic证据。D本身只有structural authority；external
   receipt/GBC/projection通过后才可把D0 checkpoint写为10/10 authority-complete。
+
+## 2026-07-24 — TASK-D0-10 external receipt and D0 closeout
+
+- Candidate chain：C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1` → unique direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；D diff与signed allowed patch exact。
+- External objects：receipt `00e06ba11714c42fe8044169cbefa09108d303922ad7cdcc77af9737a03561e1`、GovernanceBootstrapCompletion `09f306e082fa7023d6289bb78f05716ffc4eed2d39d35f741172418c3c74b412`、Ledger projection `6d692443f23c138230b81b507462e9639a78e75a8fcbb17bd35f4316e7b2bf3e`。
+- Protected acceptance：SHA-256 `2122d88e0f96cfd0931d45f031c2b92f8976a249323e966efed82adee1237d7b`；reserved `EV-20260724-0002`按bootstrap projection镜像。
+- Review：`single-maintainer-owner-waiver`，owner self-review；不声称independent review。
+- Boundary：本地Python seqpacket ceremony为bootstrap/development路径，不是完整static U/P/A custody或durable nonce store；本关闭不是formal/hermetic evidence。

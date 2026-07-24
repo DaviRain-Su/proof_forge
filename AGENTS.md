@@ -14,15 +14,15 @@
 | Field | Current value |
 |---|---|
 | Program | V2 独立编译管线 alpha：Lean syntax 到 target-owned Plan/IR |
-| Formal milestone | **D0：9/10 authority-complete**；`TASK-D0-10` direct-child D 已完成结构收口，外部bootstrap receipt/projection待同一ceremony镜像后才更新为10/10 |
-| Active task | 无（D0-10已进入structural-only D状态；external one-time bridge completion pending） |
-| D0-10 candidate | implementation candidate C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；本提交计划为其唯一direct-child D |
-| Next task | **TASK-D1-01**（pending；仍依赖D0-10正式done） |
-| Active development slice | TASK-D0-10 candidate-owned approval与direct-child D structural closeout |
-| Next development slice | 仅完成external receipt/GBC/Ledger projection与optional P mirror；此前不得启动D1实现 |
+| Formal milestone | **D0：10/10 done**；`TASK-D0-10` one-time bootstrap receipt已完成，不声称formal/hermetic static custody；D1尚未自动激活 |
+| Active task | 无（D0已收口；尚未激活D1任务） |
+| D0-10 candidate | C `e310c53e4fe9a3cc5a0f133dd2380f87dca14af1`；direct-child D `f216ad6a3ac4155eb565f1be64186cec55f11913`；external protected receipt `sha256:a94b57673714fc33720cc97979fb72e6fc7efdde7e313f6bcf660f1c73de670c` |
+| Next task | **TASK-D1-01**（pending；前置依赖均已满足，但尚未自动激活） |
+| Active development slice | 无；D0 external receipt/GBC/Ledger projection已完成并由P镜像 |
+| Next development slice | 未冻结；继续只读审计`ProgramItemV1` decoder residual并选择单一slice，不得由checkpoint自动递增任务 |
 | Phase 1 targets | `evm`, `solana`, `near`, `noir` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm`, `aleo`, `psy` |
-| Known blocker | 无实现blocker；D0-10仍待D外签发receipt并验证one-time bridge，不把本地ceremony称为formal/hermetic |
+| Known blocker | 无；D0已完成，D1尚未自动激活 |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)；本文件只镜像当前指针，不生成任务 |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 
