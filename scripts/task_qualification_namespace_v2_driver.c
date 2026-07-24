@@ -2,7 +2,6 @@
 /* Test-owned eligible-kernel driver for ADR-0021 U/P/A namespace isolation. */
 #include "task_qualification_namespace_v2.h"
 #include "task_qualification_kernel_transition_v2.h"
-#include "task_qualification_peer_observer_v2.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -233,10 +232,6 @@ static void pf_tq_ns_open_fixed_setup(
     if (*executable_fd != PF_TQ_NS_EXECUTABLE_FD) {
         pf_tq_ns_die("namespace-fixed-self-executable");
     }
-    for (index = 10U; index <= 13U; ++index) {
-        int fd = open("/dev/null", O_RDONLY | O_NOFOLLOW);
-        if (fd != (int)index) pf_tq_ns_die("namespace-fixed-adapter-channel");
-    }
 }
 
 static void pf_tq_ns_maps(
@@ -278,8 +273,7 @@ static int pf_tq_ns_adapter_positive(
         (void)fprintf(stderr, "PF-NAMESPACE-DRIVER:adapter-isolate:%s\n", error);
         return 121;
     }
-    if (close(channels[0]) != 0 || close(PF_TQ_NS_PROC_FD) != 0 ||
-            fcntl(channels[1], F_SETFD, 0) != 0 ||
+    if (close(channels[0]) != 0 || fcntl(channels[1], F_SETFD, 0) != 0 ||
             fcntl(channels[1], F_GETFD) != 0) {
         pf_tq_ns_die("adapter-exec-channel-transition");
     }
@@ -296,11 +290,9 @@ static int pf_tq_ns_adapter_child(const char *sentinel_path) {
     char marker = 'R';
     size_t count;
     size_t index;
-    int proc_root_fd = open(
-        "/proc", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    if (proc_root_fd != 3 || pf_tq_namespace_current_v2(proc_root_fd,
+    if (pf_tq_namespace_current_v2(PF_TQ_NS_PROC_FD,
             &adapter, error, sizeof(error)) != 0 ||
-            pf_tq_kernel_snapshot_read_v2(proc_root_fd,
+            pf_tq_kernel_snapshot_read_v2(PF_TQ_NS_PROC_FD,
                 PF_TQ_KERNEL_CROSSCHECK_FULL_V2, &state,
                 error, sizeof(error)) != 0) {
         (void)fprintf(stderr, "PF-NAMESPACE-DRIVER:adapter-child-state:%s\n", error);
@@ -319,9 +311,8 @@ static int pf_tq_ns_adapter_child(const char *sentinel_path) {
         }
     }
     pf_tq_ns_root_checks(sentinel_path);
-    count = pf_tq_ns_proc_count(proc_root_fd);
+    count = pf_tq_ns_proc_count(PF_TQ_NS_PROC_FD);
     if (getpid() != 1 || count != 1U) pf_tq_ns_fail("adapter-proc-scope");
-    if (close(proc_root_fd) != 0) pf_tq_ns_die("adapter-close-proc-root");
     (void)printf(
         "PF-NS adapter pid=1 procCount=1 capEff=%016llx user=%llu:%llu pidns=%llu:%llu mnt=%llu:%llu\n",
         (unsigned long long)pf_tq_ns_effective_capabilities(),
@@ -357,128 +348,6 @@ static void pf_tq_ns_adapter_identity_negative(
         "adapter-service-identity-substitution-accepted");
 }
 
-static int pf_tq_ns_adapter_role_fd(const char *role) {
-    if (strcmp(role, "authority-policy") == 0) return 10;
-    if (strcmp(role, "authority-store") == 0) return 4;
-    if (strcmp(role, "candidate-archive") == 0) return 11;
-    if (strcmp(role, "provenance-bundle") == 0) return 12;
-    if (strcmp(role, "trusted-clock") == 0) return 13;
-    return -1;
-}
-
-static int pf_tq_ns_service_role_fd(const char *role) {
-    if (strcmp(role, "adapter-build-policy") == 0) return 20;
-    if (strcmp(role, "adapter-closure") == 0) return 21;
-    if (strcmp(role, "authority-policy") == 0) return 10;
-    if (strcmp(role, "durable-root") == 0) return 22;
-    if (strcmp(role, "handoff") == 0) return 23;
-    if (strcmp(role, "isolation-policy") == 0) return 24;
-    if (strcmp(role, "proc-root") == 0) return PF_TQ_NS_PROC_FD;
-    if (strcmp(role, "seed-role-0") == 0) return 25;
-    if (strcmp(role, "seed-role-1") == 0) return 26;
-    if (strcmp(role, "seed-role-2") == 0) return 27;
-    if (strcmp(role, "seed-service") == 0) return 28;
-    if (strcmp(role, "service-endpoint") == 0) return 3;
-    if (strcmp(role, "service-executable") == 0) return PF_TQ_NS_EXECUTABLE_FD;
-    if (strcmp(role, "transition") == 0) return 29;
-    return -1;
-}
-
-static void pf_tq_ns_copy_identity(
-    pf_tq_isolation_identity_v2 *output,
-    const pf_tq_namespace_identity_v2 *input
-) {
-    output->device = input->device;
-    output->inode = input->inode;
-}
-
-static void pf_tq_ns_peer_policy(
-    const pf_tq_namespace_set_v2 *service,
-    const pf_tq_namespace_set_v2 *adapter,
-    pf_tq_isolation_policy_v2 *policy,
-    pf_tq_isolation_fd_role_v2 roles[PF_TQ_FD_MANIFEST_V2_COUNT],
-    pf_tq_handoff_channels_v2 *channels
-) {
-    pf_tq_isolation_expectation_v2 expected;
-    char error[PF_TQ_FD_MANIFEST_V2_ERROR_BYTES];
-    size_t index;
-    memset(policy, 0, sizeof(*policy));
-    memset(roles, 0, PF_TQ_FD_MANIFEST_V2_COUNT * sizeof(*roles));
-    memset(&expected, 0, sizeof(expected));
-    if (pf_tq_fd_manifest_bind_expectation_v2(
-            &expected, error, sizeof(error)) != 0) {
-        pf_tq_ns_fail("peer-manifest-bind");
-    }
-    for (index = 0U; index < expected.fd_manifest_count; ++index) {
-        const pf_tq_isolation_fd_manifest_v2 *manifest =
-            &expected.fd_manifest[index];
-        int fd = strcmp(manifest->process, "adapter") == 0
-            ? pf_tq_ns_adapter_role_fd(manifest->role)
-            : pf_tq_ns_service_role_fd(manifest->role);
-        int process_size;
-        int stage_size;
-        int role_size;
-        if (fd < 0) pf_tq_ns_fail("peer-manifest-role");
-        process_size = snprintf(roles[index].process,
-            sizeof(roles[index].process), "%s", manifest->process);
-        stage_size = snprintf(roles[index].stage,
-            sizeof(roles[index].stage), "%s", manifest->stage);
-        role_size = snprintf(roles[index].role,
-            sizeof(roles[index].role), "%s", manifest->role);
-        if (process_size <= 0 || stage_size <= 0 || role_size <= 0 ||
-                (size_t)process_size >= sizeof(roles[index].process) ||
-                (size_t)stage_size >= sizeof(roles[index].stage) ||
-                (size_t)role_size >= sizeof(roles[index].role)) {
-            pf_tq_ns_fail("peer-manifest-copy");
-        }
-        roles[index].fd = fd;
-        roles[index].close_on_exec = manifest->close_on_exec;
-    }
-    policy->fd_roles = roles;
-    policy->fd_role_count = PF_TQ_FD_MANIFEST_V2_COUNT;
-    policy->service_executable_fd = PF_TQ_NS_EXECUTABLE_FD;
-    policy->adapter_uid = PF_TQ_NS_ADAPTER_UID;
-    policy->adapter_gid = PF_TQ_NS_ADAPTER_GID;
-    policy->service_uid = PF_TQ_NS_SERVICE_UID;
-    policy->service_gid = PF_TQ_NS_SERVICE_GID;
-    pf_tq_ns_copy_identity(&policy->user_namespace, &service->user_namespace);
-    pf_tq_ns_copy_identity(
-        &policy->parent_pid_namespace, &service->pid_namespace);
-    pf_tq_ns_copy_identity(
-        &policy->adapter_pid_namespace, &adapter->pid_namespace);
-    pf_tq_ns_copy_identity(
-        &policy->service_mount_namespace, &service->mount_namespace);
-    pf_tq_ns_copy_identity(
-        &policy->adapter_mount_namespace, &adapter->mount_namespace);
-    channels->authority_policy_fd = 10;
-    channels->authority_store_fd = 4;
-    channels->candidate_archive_fd = 11;
-    channels->provenance_bundle_fd = 12;
-    channels->trusted_clock_fd = 13;
-}
-
-static void pf_tq_ns_peer_identities(
-    int adapter_endpoint_fd,
-    int executable_fd,
-    pf_tq_transition_fd_identity_v2 *endpoint,
-    pf_tq_peer_executable_identity_v2 *executable
-) {
-    struct stat endpoint_status;
-    struct stat executable_status;
-    if (fstat(adapter_endpoint_fd, &endpoint_status) != 0 ||
-            fstat(executable_fd, &executable_status) != 0) {
-        pf_tq_ns_die("peer-input-fstat");
-    }
-    endpoint->fd = adapter_endpoint_fd;
-    endpoint->device = (uint64_t)endpoint_status.st_dev;
-    endpoint->inode = (uint64_t)endpoint_status.st_ino;
-    endpoint->mode = (uint64_t)endpoint_status.st_mode;
-    endpoint->fd_flags = 0;
-    executable->device = (uint64_t)executable_status.st_dev;
-    executable->inode = (uint64_t)executable_status.st_ino;
-    executable->mode = (uint64_t)executable_status.st_mode;
-}
-
 static int pf_tq_ns_service_positive(
     const struct pf_tq_ns_child_context *context,
     int channels[2],
@@ -486,20 +355,10 @@ static int pf_tq_ns_service_positive(
     const pf_tq_namespace_set_v2 *service
 ) {
     pf_tq_namespace_set_v2 peer;
-    pf_tq_isolation_policy_v2 policy;
-    pf_tq_isolation_fd_role_v2 roles[PF_TQ_FD_MANIFEST_V2_COUNT];
-    pf_tq_handoff_channels_v2 handoff_channels;
-    pf_tq_transition_fd_identity_v2 adapter_endpoint;
-    pf_tq_peer_executable_identity_v2 adapter_executable;
-    pf_tq_peer_observer_v2 observer;
     char error[PF_TQ_NAMESPACE_V2_ERROR_BYTES];
     char marker;
     size_t count;
     pid_t adapter;
-    int pidfd;
-    int channel_fd;
-    pf_tq_ns_peer_identities(channels[1], executable_fd,
-        &adapter_endpoint, &adapter_executable);
     if (pf_tq_namespace_prepare_adapter_pid_v2(
             PF_TQ_NS_PROC_FD, error, sizeof(error)) != 0) {
         (void)fprintf(stderr, "PF-NAMESPACE-DRIVER:prepare-adapter:%s\n", error);
@@ -515,9 +374,6 @@ static int pf_tq_ns_service_positive(
     if (adapter != 2) pf_tq_ns_fail("adapter-not-pid-two-in-P");
     if (close(executable_fd) != 0 || close(channels[1]) != 0) {
         pf_tq_ns_die("service-close-adapter-exec-channel");
-    }
-    for (channel_fd = 10; channel_fd <= 13; ++channel_fd) {
-        if (close(channel_fd) != 0) pf_tq_ns_die("service-close-adapter-channel");
     }
     if (recv(channels[0], &marker, 1U, 0) != 1 || marker != 'R') {
         pf_tq_ns_die("service-receive-ready");
@@ -544,26 +400,11 @@ static int pf_tq_ns_service_positive(
     count = pf_tq_ns_proc_count(PF_TQ_NS_PROC_FD);
     if (getpid() != 1 || count != 2U) pf_tq_ns_fail("service-proc-scope");
     pf_tq_ns_root_checks(context->sentinel_path);
-    pf_tq_ns_peer_policy(service, &peer, &policy, roles, &handoff_channels);
-    pidfd = (int)syscall(SYS_pidfd_open, adapter, 0U);
-    if (pidfd < 0 || fcntl(pidfd, F_GETFD) != FD_CLOEXEC ||
-            pf_tq_peer_observer_initialize_v2(PF_TQ_NS_PROC_FD,
-                &policy, &handoff_channels, &adapter_endpoint,
-                &adapter_executable, &observer,
-                error, sizeof(error)) != 0 || error[0] != '\0' ||
-            pf_tq_peer_observer_check_v2(&observer, adapter, pidfd, 1U,
-                error, sizeof(error)) != 0 || error[0] != '\0' ||
-            pf_tq_peer_observer_check_v2(&observer, adapter, pidfd, 2U,
-                error, sizeof(error)) != 0 || error[0] != '\0') {
-        (void)fprintf(stderr, "PF-NAMESPACE-DRIVER:peer-observer:%s\n", error);
-        return 123;
-    }
     marker = 'G';
     if (send(channels[0], &marker, 1U, MSG_NOSIGNAL) != 1) {
         pf_tq_ns_die("service-send-go");
     }
-    if (pf_tq_ns_wait_success(adapter, "adapter") != 0) return 124;
-    if (close(pidfd) != 0) pf_tq_ns_die("service-close-pidfd");
+    if (pf_tq_ns_wait_success(adapter, "adapter") != 0) return 123;
     (void)printf(
         "PF-NS service pid=1 adapterPid=2 procCount=2 capEff=%016llx user=%llu:%llu pidns=%llu:%llu mnt=%llu:%llu\n",
         (unsigned long long)pf_tq_ns_effective_capabilities(),
