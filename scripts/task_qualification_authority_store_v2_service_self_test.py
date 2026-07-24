@@ -349,10 +349,11 @@ static unsigned head_calls;
 static unsigned peer_counts[5];
 static unsigned lockdown_calls;
 
-static int peer_check(void *opaque, pid_t pid, unsigned checkpoint,
+static int peer_check(void *opaque, pid_t pid, int pidfd, unsigned checkpoint,
                       char *error, size_t error_size) {{
     (void)opaque;
-    if (pid <= 0 || checkpoint < 1 || checkpoint > 4) {{
+    if (pid <= 0 || pidfd < 0 || fcntl(pidfd, F_GETFD) != FD_CLOEXEC ||
+            checkpoint < 1 || checkpoint > 4) {{
         snprintf(error, error_size, "peer callback tuple rejected");
         return -1;
     }}
