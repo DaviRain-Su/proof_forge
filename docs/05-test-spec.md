@@ -3506,6 +3506,57 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `SourceIdentity`与`SourceWireAcceptance`、aggregate/test binary、Python normal/`-O`/invalid argv、package
   refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整
   `just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-121 是完整 ProgramV1 NodeId assigner 的 canonical node-visit prerequisite。它只新增
+  `ProofForgeV2.Source.NodeTraversalV1`，把已经由`SPEC-SOURCE-WIRE-001`冻结的57个node-bearing constructor
+  与63个node-bearing child pair物化为显式worklist preorder；不计算preimage/hash/NodeId，也不定义
+  `NodeOriginTableV1`或collision seam。冻结public carrier/API为：
+
+  ```lean
+  structure NodeVisitV1 where
+    constructorTag : String
+    path : NormalizedSyntacticPathV1
+
+  canonicalNodeVisitsV1
+    (program : ProgramV1) : Except String (Array NodeVisitV1)
+  ```
+
+  root必须首先产生`{constructorTag := "Program", path := #[]}`。随后按每个wire constructor的ordered fields
+  只遍历node-bearing child：direct child与present option child追加`index=0`，array child按source-order index；
+  absent option、empty array、Visibility、Literal、UnaryOp、BinaryOp、Ident/QID与其他scalar不产生visit或path
+  segment。每段的`parentTag`/`fieldTag`必须逐byte等于wire表；visit的`constructorTag`必须等于实际child的wire
+  tag。实现必须使用显式LIFO worklist，按reverse field/source order push以获得canonical preorder；禁止递归
+  walker、allocator/address/hash-map iteration或任何target/profile分支。helper只枚举调用方已完成shape validation的
+  ProgramV1，不重复identity、declaration-set、codec或semantic validation，也不重排/修复invalid direct value。
+
+  traversal自身固定root-inclusive最多256 levels与最多100000 visits，全量成功后才返回Array；第257层逐字失败
+  `source node traversal exceeds the nesting bound`，第100001个visit逐字失败
+  `source node traversal exceeds the node limit`，不得返回partial prefix。任何待push array若已单独超过100000 children
+  可直接返回同一node-limit error，从而在UInt32 index转换前fail closed；成功路径的index因此必在`0..99999`。
+  nesting与node同时越界时按actual canonical worklist推进所得首错，不增加stable Diagnostic code；正式
+  `PF-BOUND-001`/`PF-INTERNAL`映射仍留给完整assigner/frontend边界。
+
+  Lean suite必须包含一个独立手写comprehensive ProgramV1 fixture，固定完整visit inventory text的SHA-256与
+  visit count，并证明57/57 constructor tags、63/63 parent/field pairs、root/items及多元素array index全部exact
+  覆盖；每个产出path必须经既有source-raw `nodeIdPreimageV1`接受，且path在同一遍历中唯一。另以小型fixture
+  逐项固定mixed direct-field order、present/absent option、empty/nonempty array、scalar exclusion及source-order
+  twins；253/254层Option chain分别闭合256/257 root-inclusive边界，99999/100000个leaf items分别闭合
+  100000/100001 visit边界。standalone assert-free Python oracle必须以不共享Lean代码的generic tagged-node
+  worklist重建同一comprehensive inventory digest与边界，normal/`-O`输出同一固定`ok P N`摘要，invalid argv
+  usage+exit2；不得import Lean/ProofForge或其他reference script。
+
+  变更文件集精确为新增`ProofForgeV2/Source/NodeTraversalV1.lean`、
+  `Tests/Language/SourceNodeTraversalV1.lean`与`scripts/reference_source_node_traversal_v1.py`，只修改
+  `ProofForgeV2.lean`、`Tests.lean`、`lakefile.lean`及`Tests/Language/SourceWireAcceptance.lean`做registration，
+  并机械刷新`supply-chain/lean-package-files.v1.json`。production≤360行、Lean suite≤450行、Python≤320行、
+  registrations additions≤8、总authored additions≤1150（manifest不计）。明确排除module/program identity、
+  preimage逻辑修改、production SHA-256 truncation、NodeId/NodeOriginTable、candidate injection、collision/
+  duplicate-visit seam或诊断、span/origin integration、完整golden corpus packaging、frontend/Loader/CLI/Lean
+  command/export v2、legacy bridge/dual reader/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因新production module/API不存在而失败，且Python oracle先独立通过；GREEN运行focused
+  module/suite与`SourceWireAcceptance` direct、aggregate/test binary、Python normal/`-O`/invalid argv、package
+  refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整
+  `just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
