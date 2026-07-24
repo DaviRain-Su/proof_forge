@@ -63,6 +63,7 @@ import Tests.Language.ValueLessReturns
 import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
+import Tests.Language.SourceNodeTraversalV1
 import Tests.Language.SourceSpan
 import Tests.Language.SourceWireAcceptance
 import Tests.Language.SourceBoundsAcceptance

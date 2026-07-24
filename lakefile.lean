@@ -106,6 +106,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.PrimitiveDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
+    `Tests.Language.SourceNodeTraversalV1,
     `Tests.Language.SourceSpan,
     `Tests.Language.SourceWireAcceptance,
     `Tests.Language.SourceBoundsAcceptance,
