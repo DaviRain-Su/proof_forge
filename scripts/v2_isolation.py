@@ -36,6 +36,9 @@ FORBIDDEN_PRODUCT_SUFFIXES = {
     ".a", ".bin", ".dylib", ".exe", ".ilean", ".o", ".olean",
     ".pyc", ".so", ".wasm",
 }
+ALLOWED_GOLDEN_BINARIES = frozenset({
+    "testdata/golden/source-program-v1/full-tag-v1/canonical.bin",
+})
 TOOLCHAIN_RE = re.compile(r"leanprover/lean4:v[0-9]+\.[0-9]+\.[0-9]+\n")
 LEGACY_NAME_RE = re.compile(r"\bProofForge(?!(?:V2(?:\.|\b)|V2Tests\b))")
 ACTIVE_IMPORT_RE = re.compile(
@@ -371,8 +374,11 @@ def check_product_tree(root: Path, forbidden_checkout: str) -> None:
         if relative not in exact_files:
             fail("PF-ISO-REQUIRED", f"missing canonical product file: {relative}")
     for path in files:
+        relative = path.relative_to(root).as_posix()
         if path.suffix.lower() in FORBIDDEN_PRODUCT_SUFFIXES:
-            fail("PF-ISO-BINARY", f"product snapshot contains built binary: {path.relative_to(root)}")
+            if relative in ALLOWED_GOLDEN_BINARIES:
+                continue
+            fail("PF-ISO-BINARY", f"product snapshot contains built binary: {relative}")
 
     _check_lakefile(root)
     _check_manifest(root)

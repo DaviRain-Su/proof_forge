@@ -38,6 +38,9 @@ jobs:
         with:
           tool: just@1.48.0
 
+      - name: Install bubblewrap
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Documentation control plane
         run: just docs-check
 

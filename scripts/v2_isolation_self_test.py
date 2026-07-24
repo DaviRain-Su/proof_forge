@@ -178,6 +178,7 @@ def main() -> int:
         ("lake cache leakage", lambda root: write(root / ".lake/build/cache", "old\n")),
         ("build output leakage", lambda root: write(root / "build/old.olean", "old\n")),
         ("old binary leakage", lambda root: write(root / "ProofForgeV2/old.wasm", "old\n")),
+        ("unallowlisted binary leakage", lambda root: (root / "ProofForgeV2/old.bin").write_bytes(b"bad")),
         ("absolute checkout path", lambda root: write(root / "ProofForgeV2/Path.lean", f'def oldRoot := "{FORBIDDEN_CHECKOUT}/active"\n')),
         ("absolute checkout path in justfile", lambda root: write(root / "justfile", f'build:\n    lake --dir {FORBIDDEN_CHECKOUT} build\n')),
     )
