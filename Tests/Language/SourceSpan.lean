@@ -160,7 +160,7 @@ unsafe def run : IO Unit := do
     "file/span/comment/layout must not alter the decoded alpha Source.Program identity"
   expect (programA.sourceHash == programB.sourceHash &&
       programA.sourceHash ==
-        "UNBOUND")
+        "92bf1352f87b2475cdd1f3fbe440ae24ace1c4995d82bd5cea23e1e5fa04eeaf")
     "file/span/comment/layout must not alter the fixed alpha sourceHash"
 
 end Tests.Language.SourceSpan
