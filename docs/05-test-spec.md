@@ -3191,6 +3191,89 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/invalid argv、package refresh后
   最终单次`just sbom`、docs/diff与independent review，不运行完整`just ci`。结果只记录development evidence，
   不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-116 是 accepted `ADR-0019` step-3 完整 root decoder prerequisite 的 complete
+  no-wrapper `ProgramItemV1` decoder dispatch slice。它只读复用 PA112 的 State/Struct/Enum/Event/Error/
+  ExtensionReq/Proof decoder 与 PA115 的 Const/Invariant/Init/Entry/View/Fn decoder；不修改任一 child
+  decoder、model 或 codec。`ProgramV1`、canonical root 与 frontend 继续排除。production public API
+  精确冻结为：
+
+  ```lean
+  namespace ProofForgeV2.Source.AstProgramItemDecodeV1
+  decodeProgramItemV1 (d : Nat) (budget : DecodeBudgetV1) :
+    WireDecodeV1.DecoderV1 (AstProgramItemV1.ProgramItemV1 × DecodeBudgetV1)
+  ```
+
+  `ProgramItemV1` 没有 wrapper tag、field count、独立 node 或独立 depth。decoder 只对 caller cursor 做
+  bounded tag lookahead；13 个已知 tag 必须把**原始 cursor**、同一 `d` 与同一 `budget` 恰好委托给对应
+  record decoder，再仅包装返回 constructor。禁止消费 lookahead 后的 cursor再调用 child、重复/跳过 node
+  charge、创建 fresh budget、预先做 fieldCount/depth/node/child validation、post-walk、fallback、error remap、
+  `partial` 或 `unsafe`。unknown 必须在读取 fieldCount 前逐字返回
+  `unknown program-item tag '<tag>'`；tag length/truncation/UTF-8/ASCII错误原样来自 `decodeTagV1`。
+
+  13 路映射 exact 为：`StateDecl→state`、`StructDecl→struct`、`EnumDecl→enum`、
+  `ConstDecl→const`、`EventDecl→event`、`ErrorDecl→error`、`InitDecl→init`、
+  `EntryDecl→entry`、`ViewDecl→view`、`FnDecl→fn`、`InvariantDecl→invariant`、
+  `ExtensionReq→extensionReq`、`ProofDecl→proof`。已知 route 的 fieldCount、depth、node、wire-order、
+  local invariant与child errors必须逐字由对应 PA112/115 decoder决定。
+
+  Lean suite 与不 import Lean/ProofForge/既有 reference script 的 standalone Python oracle 必须共同固定
+  **13/26/19**。13 个 positive逐字复用 PA102 checked-in item literals，比较 exact ProgramItem value、
+  exact-consume/`finish`、byte-identical `encodeProgramItemV1`，并以最小 root-inclusive depth 与恰好 node
+  budget成功且 residual=0：`item_state d=2,n=2`、`item_struct d=3,n=3`、
+  `item_enum d=3,n=5`、`item_const d=2,n=3`、`item_event d=1,n=1`、
+  `item_error d=1,n=1`、`item_init d=4,n=9`、`item_entry d=5,n=12`、
+  `item_view d=4,n=5`、`item_fn d=5,n=9`、`item_invariant d=4,n=5`、
+  `item_extension_req d=1,n=1`、`item_proof d=1,n=1`。相同 payload shape 的 Event/Error 与
+  Entry/View/Fn 必须证明返回 constructor和bytes pairwise nonalias，但不重复计为 positive。
+
+  26 个 exhaustive field-count negatives 是每个 route 的 expected-1/expected+1，均使用 `d=0,n=0`
+  证明 dispatcher 已识别 route 且 child fieldCount先于 depth/node：State `2/4`、Struct `1/3`、
+  Enum `1/3`、Const `2/4`、Event `1/3`、Error `1/3`、Init `1/3`、Entry `3/5`、
+  View `3/5`、Fn `3/5`、Invariant `1/3`、ExtensionReq `2/4`、Proof `1/3`；错误逐字为
+  `tag '<tag>' must declare <expected> fields`。
+
+  19 个 boundary slots exact 冻结如下；`bad("X")` 是合法 bounded ASCII tag `X` 且故意不带
+  fieldCount，`head(Tag,fc)` 是 tag+exact fieldCount而无 payload，所有 A-before-B 项必须同时携带
+  hostile B，禁止 vacuous placeholder：
+
+  1. declared tag length `0` → `tag length must be 1..21 bytes`；2. length `22` →同一错误；
+  3. declared length `4` 但只有 `Bo` → `truncated`；4. length1 byte `ff` →
+  `invalid UTF-8 tag`；5. UTF-8 `é` → `tag must be ASCII`；6. `bad("BogusItem")` →
+  `unknown program-item tag 'BogusItem'`；7. `bad("Type.Bool")` →
+  `unknown program-item tag 'Type.Bool'`。上述均 `d=0,n=0`。
+
+  8. `head(StateDecl,3)`、`d=0,n=0` → `depth budget exhausted`；9. 同一 head、
+  `d=1,n=0` → `node budget exhausted`；10. State 的 visibility=`Type.Bool` 且后续 hostile →
+  `unknown visibility tag 'Type.Bool'`；11. Struct valid name+count0 →
+  `struct fields must be nonempty`；12. Enum valid name+count0 →
+  `enum variants must be nonempty`；13. Event valid name+count2、`d=2,n=1` → parent charge后的
+  `array count exceeds caller limit`；14. Error count1+`bad("BogusParam")` →
+  `unknown param tag 'BogusParam'`。
+
+  15. Const valid name+`bad("BogusType")`+hostile value → `unknown type tag 'BogusType'`；
+  16. Init count0+empty Block → `block statements must be nonempty`；17. ExtensionReq one-component
+  QID+hostile version/digest → `source qualified id must contain 2..256 components`；18. Proof valid
+  invariant+one-component theorem →同一 QID error；19. full `item_state || 00` 以 `d=2,n=2`
+  解出 value 后 `finish` → `trailing bytes`。10–18 使用足够但不重置的 caller budget，并断言 child
+  error逐字透传。
+
+  Python 必须 assert-free，normal/`-O` 都通过，非精确 argv 输出 usage 且 exit 2，只打印
+  `reference_source_ast_program_item_decode_v1: ok 13 26 19`。它独立实现 bounded tag lookahead、
+  closed route/field-count table和上述 malformed/unknown priority，并直接持有13个 fixed bytes；不得调用
+  Lean、production decoder或其他 reference script形成自证循环。
+
+  变更文件集：新增`ProofForgeV2/Source/AstProgramItemDecodeV1.lean`、
+  `Tests/Language/SourceAstProgramItemDecodeV1.lean`、
+  `scripts/reference_source_ast_program_item_decode_v1.py`；只做`ProofForgeV2.lean`/`Tests.lean`/
+  `lakefile.lean` registration与机械manifest refresh，不修改 PA93–115 model/codec/decoder、WireDecode、
+  ValidatedSource或其他production modules。budgets：production≤100、suite≤360、Python≤260、
+  registrations≤5、总authored additions≤725（manifest不计）。明确排除 Program/Program array/nonempty、
+  canonical root/exact-consume root API、fresh `256/100000` session、16MiB、declaration-set validation、
+  frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/第二 quoted decoder/fallback、
+  sourceHash/NodeId/stable Diagnostic/Typed/Semantic/target。RED必须只因production module缺失；GREEN只运行
+  focused+aggregate build/test binary、direct Lean suite、Python normal/`-O`/invalid argv、package refresh后
+  最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整`just ci`。
+  结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
