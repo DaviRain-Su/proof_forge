@@ -3604,14 +3604,17 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
 
   structure NodeOriginTableV1 where
     private mk ::
-    assignments : Array NodeIdAssignmentV1
+    private assignments : Array NodeIdAssignmentV1
+
+  nodeAssignmentsPreorderV1
+    (table : NodeOriginTableV1) : Array NodeIdAssignmentV1
 
   assignNodeIdsV1
     (moduleName programIdentity : SourceQualifiedNameV1)
     (program : ProgramV1) : Except String NodeOriginTableV1
   ```
 
-  `assignments`必须与PA121 `canonicalNodeVisitsV1`逐项相同的canonical preorder；root index0、每个visit恰一项，
+  `nodeAssignmentsPreorderV1`结果必须与PA121 `canonicalNodeVisitsV1`逐项相同的canonical preorder；root index0、每个visit恰一项，
   constructorTag/path原样复制，nodeId逐项等于PA122 `nodeIdV1(moduleName,programIdentity,path)`。table constructor
   private，失败不返回partial table；table是pre-span carrier，不含source path/span/sourceHash，也不是Common
   `SourceOrigin`或Semantic `SourceNodeInventoryV1`。后续frontend可按preorder join immutable syntax span，只有构造
