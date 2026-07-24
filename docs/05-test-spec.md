@@ -3459,6 +3459,53 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   aggregate/test binary、PA118 direct regression、package refresh后最终单次`just sbom`、docs/diff与main-agent
   self-review，不声称independent review，不运行完整`just ci`。结果只记录development evidence，不能关闭
   PA118、TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-120 是完整 ProgramV1 NodeId assigner 的 source-identity/preimage prerequisite。它只纠正既有
+  `ProofForgeV2.Source.WireV1.nodeIdPreimageV1`：module/program identity 从 Common `QualifiedName`
+  rendered component carrier迁移为 `SourceQualifiedNameV1` raw component array，返回面从alpha
+  `CompileResult`收敛为本层既有`Except String`；`NodePathSegmentV1`、`NormalizedSyntacticPathV1`与closed
+  parentTag/fieldTag/cardinality/transition inventory保持public形状和语义不变。冻结API为：
+
+  ```lean
+  nodeIdPreimageV1
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (path : NormalizedSyntacticPathV1) : Except String ByteArray
+  ```
+
+  实现必须先调用`validateSourceProgramIdentityV1`，再把两个identity逐component直接投影
+  `SourceNameComponentV1.raw`为PF-JCS string array；禁止`Name.toString`、
+  `renderSourceNameComponentV1`、Common `QualifiedName` render/validation、dot split/join或guillemet spelling。
+  path仍先固定root-inclusive最多255 edges，再按source order验证首segment从Program开始、前一edge允许当前
+  parent constructor、closed 63-pair inventory与direct index=0，随后输出JCS object；PF-JCS key order和domain
+  精确为`ASCII("pf.source-node.v1") || 00 || JCS({module,program,path})`。identity错误先于path/JCS，path按
+  array order返回首错；错误detail不包alpha `CompileError`且不得remap。
+
+  既有`Tests.Language.SourceIdentity`的63-pair（44 direct/19 array）全成员、cross-pair nonmember、255/256
+  edge与root/first-item literal vectors必须原样保留并迁移到source carrier。新增固定 raw-JCS vector使用
+  module `#["A.B"]`、program `#["A.B", "P\"Q\\R"]`及Program.items index1，逐字比较preimage bytes与
+  SHA-256；它必须与component-split twin `#["A","B"]`/`#["A","B","P\"Q\\R"]` nonalias，证明raw dot、
+  quote与backslash经JCS转义但不经Lean renderer。另固定三个合法path twins使parentTag、fieldTag、index任一
+  改变都改变preimage；API结构上不得接受path/span/file/comment/container参数。
+
+  exact negatives至少固定：program identity count1、module=program但二者count2、non-prefix identity、
+  Program.name scalar pair、unknown constructor/field pair、non-Program first edge、impossible transition、
+  direct index1与256-edge over-depth；前三者逐字使用`source qualified id must contain 2..256 components`、
+  `program identity must strictly extend the module name`、
+  `program identity must begin with the exact module name components`，其余沿用既有path detail。
+  standalone assert-free Python oracle必须独立实现raw identity join、closed selected path validation与JCS，固定
+  4个positive/9个negative并只输出`reference_source_node_id_preimage_v1: ok 4 9`；normal/`-O`均通过，
+  invalid argv usage+exit2，不得import Lean/ProofForge或其他reference script。
+
+  变更文件集精确为修改`ProofForgeV2/Source/WireV1.lean`与
+  `Tests/Language/SourceIdentity.lean`，新增`scripts/reference_source_node_id_preimage_v1.py`，机械刷新
+  `supply-chain/lean-package-files.v1.json`；不新增Lean registration或public module。production additions≤90、
+  Lean additions≤100、Python≤260、总authored additions≤450（manifest不计），允许删除alpha Common/Diagnostic
+  adapter行。明确排除ProgramV1 traversal/assigner、NodeOriginTable、production SHA truncation、test candidate
+  injection、collision/duplicate-visit、span/origin integration、golden corpus packaging、frontend/Loader/CLI/
+  Lean command/export v2、legacy bridge/dual reader/fallback、stable Diagnostic/Typed/Semantic/target。
+  tests-only RED必须只因旧production API仍要求Common carrier/CompileResult而失败；GREEN运行focused
+  `SourceIdentity`与`SourceWireAcceptance`、aggregate/test binary、Python normal/`-O`/invalid argv、package
+  refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整
+  `just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
