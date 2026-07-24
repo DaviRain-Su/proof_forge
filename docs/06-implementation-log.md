@@ -9049,3 +9049,13 @@ normative: false
 - Review/Evidence：main-agent逐行自审确认cap与cursor前置、QN/QID顺序、single session、finish-before-validation及无frontend/export/legacy路径，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0006`。
 - Limitations：未运行完整`just ci`；本证据闭合ADR-0019 step-3 root decoder的development prerequisite，但不能关闭完整TST-SRC-001/002、pending `TASK-D1-01`或下游task，也不授权shared DSL/Loader/Lean command/export v2 cutover。
 - Next：回到只读审计，针对formal TASK/TST冻结面选择单一剩余slice；不得因root API存在而自动激活任务或扩大完成面。
+
+## 2026-07-24 — D1 source-raw NodeId preimage prerequisite
+
+- Commits：D1-PA-120 freeze `37671200`；task pointer `af2e15b1`；tests-only API RED `ff7cb811`；GREEN `5e83b18e`。正式 `TASK-D1-01` 状态未改变。
+- Changed：`WireV1.nodeIdPreimageV1`的两个identity参数从Common `QualifiedName`迁移为`SourceQualifiedNameV1`，逐component只读取raw并直接构造PF-JCS；复用`validateSourceProgramIdentityV1`，返回面收敛为`Except String`。63-pair path inventory、transition/cardinality/depth逻辑与domain bytes不变；删除alpha CompileError/render adapter。
+- Tests：`SourceIdentity`保留root/first-item literal、44 direct/19 array全成员、cross-pair nonmember与255/256 edge，新增`#["A.B"]`/`#["A.B","P\"Q\\R"]` literal preimage+SHA、split-component nonalias及parentTag/fieldTag/index sensitivity；identity/path errors改为exact string。176-line standalone Python oracle独立固定4 positives/9 negatives。
+- Verification：tests-only RED只报告`SourceQualifiedNameV1`不能传给旧Common `QualifiedName` API；GREEN focused 17 jobs与`SourceWireAcceptance` direct全绿，409-job aggregate/test binary全绿；Python normal/`-O`均输出`reference_source_node_id_preimage_v1: ok 4 9`，invalid argv exit2。68-file manifest重钉，最终SBOM self-test/generate/verify/closure、docs与diff全绿。production additions25、Lean additions76、Python176，总authored additions277/450（manifest不计）。
+- Review/Evidence：main-agent逐行自审确认identity-before-path、raw-only projection、PF-JCS/domain不变且无Common renderer残留，P0/P1=0；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0007`。
+- Limitations：未运行完整`just ci`；本切片不含ProgramV1 traversal、NodeOriginTable、production SHA truncation、candidate injection、collision/duplicate-visit、span/origin integration或golden packaging，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- Next：只读审计完整ProgramV1 explicit-preorder assigner及collision/duplicate-visit test seam，选择单一依赖闭合slice；继续禁止frontend/export自动切换。
