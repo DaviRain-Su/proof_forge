@@ -9021,3 +9021,11 @@ normative: false
 - Review/Evidence：main-agent逐行自审未发现P0/P1；按用户要求未调用其他agent，不声称independent review。development evidence为`EV-20260724-0004`。
 - Limitations：未运行完整`just ci`；本证据不能关闭pending `TASK-D1-01`、`TST-SRC-001` formal完成面或下游task。没有module/program identity join、canonical root/exact root session、frontend/Loader/CLI/Lean command/export v2、legacy adapter、dual reader、第二套quoted decoder、fallback、sourceHash/NodeId/Typed/Semantic/target变更。
 - Next：只读审计canonical root decoder residual并只选择一个最小切片；完整root decoder前继续禁止shared frontend/export cutover。
+
+## 2026-07-24 — D1 canonical root decoder blocker triage
+
+- Commits：D1-PA-118 freeze `da92e548`；task pointer `dca086a5`；tests-only RED `aeb366ca`。正式 `TASK-D1-01` 状态未改变。
+- RED：213-line Lean suite与363-line standalone Python oracle固定3个 valid/exact-depth/exact-node positives及15个 cap/root/finish/validation/resource boundaries；focused RED仅报告缺失 `ProofForgeV2.Source.AstCanonicalRootDecodeV1`，Python normal/`-O`均输出 `ok 3 15`且invalid argv exit 2。
+- Probe：未提交的32-line最小root orchestration按冻结顺序编译成功；direct Lean suite在100000-node合法positive的PA108 `validateSourceV1` re-encode阶段触发 interpreter deep recursion。stacktrace定位到既有 `AstSpineCodecV1.encodeStmtListV1` 的非尾递归cons-after-recursion路径，而非root decoder、node counter或fixture构造。
+- Triage：PA118冻结文件集明确禁止修改既有codec，故撤回未提交production probe并把PA118标为blocked；不以调大`--tstack`冒充产品修复。只读审计同时确认 `AstPatternCodecV1` 一个及`AstSpineCodecV1`四个array helper采用同一递归List形态，均位于完整root validation可达面。
+- Next：单独冻结 byte/API/error/order 完全不变的 wide-array stack-safety prerequisite，将五个helper改为结构递减的tail accumulator并用全局node-limit内的wide vectors验证；闭合后恢复原PA118冻结包。不得借此切换frontend/export或激活formal task。
