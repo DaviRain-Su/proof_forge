@@ -39,6 +39,7 @@ import ProofForgeV2.Source.AstProgramDecodeV1
 import ProofForgeV2.Source.AstCanonicalRootV1
 import ProofForgeV2.Source.AstProgramValidateV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Source.AstCanonicalRootDecodeV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.Semantics
