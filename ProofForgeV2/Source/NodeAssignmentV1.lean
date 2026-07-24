@@ -29,50 +29,59 @@ def nodeAssignmentsPreorderV1 (table : NodeOriginTableV1) :
     Array NodeIdAssignmentV1 :=
   table.assignments
 
-private structure SeenNodeV1 where
-  canonicalPreimage : ByteArray
-  path : NormalizedSyntacticPathV1
+/-- Compile-time shared assignment loop; runtime production remains fixed to `nodeIdV1`. -/
+syntax "source_node_assignment_loop_v1% " term:arg " | " term:arg " | " term:arg
+  " | " term:arg " | " term:arg " | " term:arg : term
 
-private def fail (detail : String) : Except String α :=
-  .error detail
+macro_rules
+  | `(source_node_assignment_loop_v1% $moduleName:term | $programIdentity:term |
+        $sourceProgram:term | $candidate:term | $visitTransform:term | $finish:term) =>
+      `(do
+        validateSourceProgramIdentityV1 $moduleName $programIdentity
+        let canonicalVisits ← canonicalNodeVisitsV1 $sourceProgram
+        let visits := ($visitTransform) canonicalVisits
+        let mut seen : Std.HashMap ByteArray
+            (ByteArray × NormalizedSyntacticPathV1) :=
+          Std.HashMap.emptyWithCapacity visits.size
+        let mut assignments : Array NodeIdAssignmentV1 := #[]
+        for visit in visits do
+          let preimage ← nodeIdPreimageV1 $moduleName $programIdentity visit.path
+          let candidateBytes ← ($candidate) preimage visit.path
+          unless candidateBytes.size == 16 do
+            throw "node id candidate must contain exactly 16 raw bytes"
+          let nodeId : NodeId := { bytes := candidateBytes }
+          validateNodeId nodeId
+          let observed := (preimage, visit.path)
+          let (previous?, updated) :=
+            seen.getThenInsertIfNew? candidateBytes observed
+          match previous? with
+          | none =>
+              seen := updated
+              assignments := assignments.push {
+                constructorTag := visit.constructorTag
+                path := visit.path
+                nodeId
+              }
+          | some previous =>
+              if previous.1 == preimage then
+                throw "PF-INTERNAL: duplicate-node-visit"
+              else
+                throw "PF-SRC-NODEID-COLLISION: distinct canonical source node preimages produced the same NodeId"
+        return ← ($finish) assignments)
 
-private def duplicateVisit : Except String α :=
-  fail "PF-INTERNAL: duplicate-node-visit"
-
-private def candidateCollision : Except String α :=
-  fail "PF-SRC-NODEID-COLLISION: distinct canonical source node preimages produced the same NodeId"
+private def productionCandidate16
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (_preimage : ByteArray) (path : NormalizedSyntacticPathV1) :
+    Except String ByteArray := do
+  let nodeId ← nodeIdV1 moduleName programIdentity path
+  pure nodeId.bytes
 
 /-- Assign fixed production NodeIds without exposing candidate replacement. -/
 def assignNodeIdsV1
     (moduleName programIdentity : SourceQualifiedNameV1)
-    (program : ProgramV1) : Except String NodeOriginTableV1 := do
-  validateSourceProgramIdentityV1 moduleName programIdentity
-  let visits ← canonicalNodeVisitsV1 program
-  let mut seen : Std.HashMap ByteArray SeenNodeV1 :=
-    Std.HashMap.emptyWithCapacity visits.size
-  let mut assignments : Array NodeIdAssignmentV1 := #[]
-  for visit in visits do
-    let canonicalPreimage ← nodeIdPreimageV1 moduleName programIdentity visit.path
-    let nodeId ← nodeIdV1 moduleName programIdentity visit.path
-    let observed : SeenNodeV1 := {
-      canonicalPreimage
-      path := visit.path
-    }
-    let (previous?, updated) :=
-      seen.getThenInsertIfNew? nodeId.bytes observed
-    match previous? with
-    | none =>
-        seen := updated
-        assignments := assignments.push {
-          constructorTag := visit.constructorTag
-          path := visit.path
-          nodeId
-        }
-    | some previous =>
-        if previous.canonicalPreimage == canonicalPreimage then
-          return ← duplicateVisit
-        else
-          return ← candidateCollision
-  pure ⟨assignments⟩
+    (program : ProgramV1) : Except String NodeOriginTableV1 :=
+  source_node_assignment_loop_v1% moduleName | programIdentity | program |
+    (productionCandidate16 moduleName programIdentity) | id |
+    (fun assignments => pure ⟨assignments⟩)
 
 end ProofForgeV2.Source.NodeAssignmentV1
