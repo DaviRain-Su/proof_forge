@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Independent source-raw NodeId preimage oracle for D1-PA-120."""
+"""Independent source-raw NodeId preimage/truncation oracle for D1-PA-120/122."""
 
 import hashlib
 import json
@@ -76,6 +76,10 @@ def node_id_preimage(module_name, program_identity, path):
     return DOMAIN + canonical
 
 
+def node_id_text(preimage):
+    return "nodeid:" + hashlib.sha256(preimage).digest()[:16].hex()
+
+
 def edge(parent_tag, field_tag, index=0):
     return {"parentTag": parent_tag, "fieldTag": field_tag, "index": index}
 
@@ -99,6 +103,8 @@ def self_check():
     require(hashlib.sha256(root).hexdigest() ==
             "58c75af894b6f832163564705c9f23ef3a02df045126baf9492f89844f7ef08f",
             "positive-1: root hash")
+    require(node_id_text(root) == "nodeid:58c75af894b6f832163564705c9f23ef",
+            "positive-1: root NodeId")
 
     item_hex = (
         "70662e736f757263652d6e6f64652e7631007b226d6f64756c65223a5b2244656d6f"
@@ -111,6 +117,8 @@ def self_check():
     require(hashlib.sha256(item).hexdigest() ==
             "17ac87bb9262ace7d062c77c38a17d0ddcd69fbff4e7927ed8fe9d02af454822",
             "positive-2: item hash")
+    require(node_id_text(item) == "nodeid:17ac87bb9262ace7d062c77c38a17d0d",
+            "positive-2: item NodeId")
 
     raw_hex = (
         "70662e736f757263652d6e6f64652e7631007b226d6f64756c65223a5b22412e4222"
@@ -123,6 +131,8 @@ def self_check():
     require(hashlib.sha256(raw).hexdigest() ==
             "1d20bd4f37f942a52977fa9aade547fb0cbe5317f04f777ca50973de99e1e495",
             "positive-3: raw escaped hash")
+    require(node_id_text(raw) == "nodeid:1d20bd4f37f942a52977fa9aade547fb",
+            "positive-3: raw escaped NodeId")
 
     split = node_id_preimage(["A", "B"], ["A", "B", 'P"Q\\R'], raw_path)
     parent_a = node_id_preimage(["Demo"], ["Demo", "Counter"],
@@ -135,6 +145,11 @@ def self_check():
         [edge("Program", "items"), edge("StateDecl", "type"), edge("Type.Map", "value")])
     require(raw != split and parent_a != parent_b and field_a != field_b and item != raw,
             "positive-4: raw/parent/field/index sensitivity")
+    require(node_id_text(raw) != node_id_text(split) and
+            node_id_text(parent_a) != node_id_text(parent_b) and
+            node_id_text(field_a) != node_id_text(field_b) and
+            node_id_text(item) != node_id_text(raw),
+            "positive-4: candidate sensitivity")
 
     expect_error("negative-1", "source qualified id must contain 2..256 components",
                  lambda: node_id_preimage(["Demo"], ["Demo"], []))

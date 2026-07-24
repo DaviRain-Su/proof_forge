@@ -5,6 +5,7 @@ import ProofForgeV2.Source.WireV1
 namespace Tests.Language.SourceIdentity
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.WireV1
@@ -26,6 +27,14 @@ private def expectError (label expected : String) (result : Except String α) : 
   match result with
   | .error detail => expect (detail == expected) s!"{label}: expected {expected}, got {detail}"
   | .ok _ => throw <| IO.userError s!"{label}: unexpectedly succeeded"
+
+private def nodeIdText
+    (label : String) (moduleName programIdentity : SourceQualifiedNameV1)
+    (path : NormalizedSyntacticPathV1) : IO String := do
+  let nodeId ← liftResult label (nodeIdV1 moduleName programIdentity path)
+  let _ ← liftResult s!"{label} validation" (validateNodeId nodeId)
+  expect (nodeId.bytes.size == 16) s!"{label}: candidate must contain 16 bytes"
+  liftResult s!"{label} render" (renderNodeId nodeId)
 
 private def lowerHexDigit (value : Nat) : Char :=
   if value < 10 then Char.ofNat ('0'.toNat + value)
@@ -174,6 +183,12 @@ def run : IO Unit := do
   expect (Crypto.sha256Hex rootPreimage ==
       "58c75af894b6f832163564705c9f23ef3a02df045126baf9492f89844f7ef08f")
     "root NodeId preimage must match the SHA-256 golden"
+  let rootNodeId ← nodeIdText "root NodeId" moduleName programIdentity #[]
+  expect (rootNodeId == "nodeid:58c75af894b6f832163564705c9f23ef")
+    s!"root NodeId truncation mismatch: {rootNodeId}"
+  let rootRoundTrip ← liftResult "root NodeId round-trip" (parseNodeId rootNodeId)
+  let rootRoundTripText ← liftResult "root NodeId re-render" (renderNodeId rootRoundTrip)
+  expect (rootRoundTripText == rootNodeId) "root Common NodeId round-trip"
 
   let firstItemPath := #[segment "Program" "items"]
   let firstItemPreimage ← liftResult "first item preimage"
@@ -183,6 +198,10 @@ def run : IO Unit := do
   expect (Crypto.sha256Hex firstItemPreimage ==
       "17ac87bb9262ace7d062c77c38a17d0ddcd69fbff4e7927ed8fe9d02af454822")
     "array-child NodeId preimage must match the SHA-256 golden"
+  let firstItemNodeId ← nodeIdText "first item NodeId"
+    moduleName programIdentity firstItemPath
+  expect (firstItemNodeId == "nodeid:17ac87bb9262ace7d062c77c38a17d0d")
+    s!"first item NodeId truncation mismatch: {firstItemNodeId}"
 
   let otherIdentity ← liftResult "other program identity"
     (parseSourceQualifiedNameV1 #["Demo", "Other"])
@@ -190,10 +209,18 @@ def run : IO Unit := do
     (nodeIdPreimageV1 moduleName otherIdentity #[])
   expect (otherIdentityPreimage != rootPreimage)
     "program identity must participate in the NodeId preimage"
+  let otherIdentityNodeId ← nodeIdText "other identity NodeId" moduleName otherIdentity #[]
+  expect (otherIdentityNodeId != rootNodeId)
+    "program identity must participate in the production NodeId"
+  let secondItemPath := #[segment "Program" "items" 1]
   let secondItemPreimage ← liftResult "second item preimage"
-    (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "items" 1])
+    (nodeIdPreimageV1 moduleName programIdentity secondItemPath)
   expect (secondItemPreimage != firstItemPreimage)
     "array source order must participate in the NodeId preimage"
+  let secondItemNodeId ← nodeIdText "second item NodeId"
+    moduleName programIdentity secondItemPath
+  expect (secondItemNodeId != firstItemNodeId)
+    "array source order must participate in the production NodeId"
 
   let rawModule ← liftResult "raw module" (parseSourceQualifiedNameV1 #["A.B"])
   let rawIdentity ← liftResult "raw identity"
@@ -206,29 +233,49 @@ def run : IO Unit := do
   expect (Crypto.sha256Hex rawPreimage ==
       "1d20bd4f37f942a52977fa9aade547fb0cbe5317f04f777ca50973de99e1e495")
     "raw escaped NodeId preimage must match the SHA-256 golden"
+  let rawNodeId ← nodeIdText "raw escaped NodeId" rawModule rawIdentity rawPath
+  expect (rawNodeId == "nodeid:1d20bd4f37f942a52977fa9aade547fb")
+    s!"raw escaped NodeId truncation mismatch: {rawNodeId}"
   let splitModule ← liftResult "split module" (parseSourceQualifiedNameV1 #["A", "B"])
   let splitIdentity ← liftResult "split identity"
     (parseSourceQualifiedNameV1 #["A", "B", "P\"Q\\R"])
   let splitPreimage ← liftResult "split preimage"
     (nodeIdPreimageV1 splitModule splitIdentity rawPath)
   expect (splitPreimage != rawPreimage) "raw dotted and split components must not alias"
+  let splitNodeId ← nodeIdText "split NodeId" splitModule splitIdentity rawPath
+  expect (splitNodeId != rawNodeId) "raw dotted and split component NodeIds must not alias"
 
   let stateType ← liftResult "state type path" (nodeIdPreimageV1 moduleName programIdentity
     #[segment "Program" "items", segment "StateDecl" "type"])
   let constType ← liftResult "const type path" (nodeIdPreimageV1 moduleName programIdentity
     #[segment "Program" "items", segment "ConstDecl" "type"])
   expect (stateType != constType) "parentTag must participate in the NodeId preimage"
+  let stateTypeNodeId ← nodeIdText "state type NodeId" moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type"]
+  let constTypeNodeId ← nodeIdText "const type NodeId" moduleName programIdentity
+    #[segment "Program" "items", segment "ConstDecl" "type"]
+  expect (stateTypeNodeId != constTypeNodeId)
+    "parentTag must participate in the production NodeId"
   let mapKey ← liftResult "map key path" (nodeIdPreimageV1 moduleName programIdentity
     #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "key"])
   let mapValue ← liftResult "map value path" (nodeIdPreimageV1 moduleName programIdentity
     #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "value"])
   expect (mapKey != mapValue) "fieldTag must participate in the NodeId preimage"
+  let mapKeyNodeId ← nodeIdText "map key NodeId" moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "key"]
+  let mapValueNodeId ← nodeIdText "map value NodeId" moduleName programIdentity
+    #[segment "Program" "items", segment "StateDecl" "type", segment "Type.Map" "value"]
+  expect (mapKeyNodeId != mapValueNodeId)
+    "fieldTag must participate in the production NodeId"
 
   let wrongPrefix ← liftResult "wrong-prefix identity"
     (parseSourceQualifiedNameV1 #["Elsewhere", "Counter"])
   expectError "identity prefix"
     "program identity must begin with the exact module name components"
     (nodeIdPreimageV1 moduleName wrongPrefix #[])
+  expectError "NodeId identity prefix"
+    "program identity must begin with the exact module name components"
+    (nodeIdV1 moduleName wrongPrefix #[])
   expectError "identity qid count" "source qualified id must contain 2..256 components"
     (nodeIdPreimageV1 moduleName moduleName #[])
   let twoPartModule ← liftResult "two-part module"
@@ -239,6 +286,9 @@ def run : IO Unit := do
   expectError "scalar field cannot create a path segment"
     "source node path contains an unknown constructor/field pair"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "name"])
+  expectError "NodeId scalar field cannot create a path segment"
+    "source node path contains an unknown constructor/field pair"
+    (nodeIdV1 moduleName programIdentity #[segment "Program" "name"])
   expectError "constructor/field pairing is closed"
     "source node path contains an unknown constructor/field pair"
     (nodeIdPreimageV1 moduleName programIdentity #[segment "Program" "fields"])
