@@ -3557,6 +3557,42 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   module/suite与`SourceWireAcceptance` direct、aggregate/test binary、Python normal/`-O`/invalid argv、package
   refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称independent review，不运行完整
   `just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending TASK-D1-01或下游task。
+- D1-PA-122 是完整 ProgramV1 NodeId assigner 的 fixed production SHA-256 truncation prerequisite。它只在
+  `ProofForgeV2.Source.WireV1`新增以下API，不修改PA120 preimage/path逻辑：
+
+  ```lean
+  nodeIdV1
+    (moduleName programIdentity : SourceQualifiedNameV1)
+    (path : NormalizedSyntacticPathV1) : Except String NodeId
+  ```
+
+  `nodeIdV1`必须且只调用既有`nodeIdPreimageV1`取得canonical preimage，随后使用锁定
+  `ProofForgeV2.Crypto.sha256`对exact bytes计算32-byte digest，并取offset `[0,16)`原始bytes构造Common
+  `NodeId`；返回前调用`validateNodeId`证明恰好16 bytes。它不得接受preimage、digest/candidate callback、
+  CLI/environment/extension/target/profile参数，不得使用hex string round-trip、last 16 bytes、重排、重新加盐、
+  扩宽或fallback。identity/path错误必须逐字原样传播且先于hash；本API不维护table或检测collision。
+
+  `SourceIdentity`必须在既有root、first-item与raw escaped三个literal preimage/full-SHA vectors上分别固定
+  `nodeid:58c75af894b6f832163564705c9f23ef`、
+  `nodeid:17ac87bb9262ace7d062c77c38a17d0d`、
+  `nodeid:1d20bd4f37f942a52977fa9aade547fb`，同时检查raw bytes size16、Common validate/render round-trip，及
+  split-component、parentTag、fieldTag、index known twins的candidate nonalias。至少一个identity error与一个
+  path error必须证明`nodeIdV1`和`nodeIdPreimageV1` detail相同。既有standalone assert-free Python oracle在
+  4 positives/9 negatives与full SHA不变的前提下增加`digest()[:16]`和`nodeid:` fixed checks；normal/`-O`
+  仍只输出`reference_source_node_id_preimage_v1: ok 4 9`，invalid argv usage+exit2。
+
+  变更文件集精确为修改`ProofForgeV2/Source/WireV1.lean`、`Tests/Language/SourceIdentity.lean`与
+  `scripts/reference_source_node_id_preimage_v1.py`，并机械刷新`supply-chain/lean-package-files.v1.json`；
+  不新增module/registration。production additions≤24、Lean additions≤60、Python additions≤30、总authored
+  additions≤120（manifest不计）。明确排除ProgramV1 traversal修改、assigner/`NodeOriginTableV1`、map/order、
+  test candidate injection、collision/duplicate-visit、stable Diagnostic、span/origin join、golden corpus packaging、
+  frontend/Loader/CLI/Lean command/export v2、legacy bridge/dual reader/fallback、Typed/Semantic/target。
+
+  tests-only RED必须只因`nodeIdV1` production identifier不存在而失败，且Python oracle先独立通过；GREEN运行
+  focused `WireV1`/`SourceIdentity`与`SourceWireAcceptance` direct、aggregate/test binary、Python
+  normal/`-O`/invalid argv、package refresh后最终单次`just sbom`、docs/diff与main-agent self-review，不声称
+  independent review，不运行完整`just ci`。结果只记录development evidence，不能关闭TST-SRC-001、pending
+  TASK-D1-01或下游task。
 - D1-PA-20 的 alpha `let` tests 只接受 initializer/callable body 内同一行 `let name := Expr` 与
   `let name : Type := Expr`。positive 覆盖 initializer、entry、view、fn 的 annotated/omitted type
   statement，并固定 Lean command/ParserSession 的 Source AST/sourceHash parity。Source canonical
