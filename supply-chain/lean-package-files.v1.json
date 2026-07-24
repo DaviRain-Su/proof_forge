@@ -141,9 +141,9 @@
       "sha256": "802c5b0a8359dcd63d7bb634f46daafd41a5af1fb5e16c0de854001c44ae2ea4"
     },
     {
-      "bytes": 1597,
+      "bytes": 1638,
       "path": "ProofForgeV2/Source/AstPatternCodecV1.lean",
-      "sha256": "f61dd570a23f965949ed227264e0df72f8503761f572cd6d8f9fd72cd59383a0"
+      "sha256": "dbef02da39aa5c6b5b70be8cb2821f0acdde1cf8879d68c9965bc6f9857db1fa"
     },
     {
       "bytes": 2811,
@@ -196,9 +196,9 @@
       "sha256": "2ec102f30689531752ae876e02f3d281d4831c6ffed182d93ac1aff52836be23"
     },
     {
-      "bytes": 8155,
+      "bytes": 8307,
       "path": "ProofForgeV2/Source/AstSpineCodecV1.lean",
-      "sha256": "eb364fe8a86174b1887f0d2430ec0e0a156ad6e82fc3c80ee64052a9bfa1d2ad"
+      "sha256": "de8b137bddab3f9868ed527eecef7fc25df8d5e078d552203318bff529aabd80"
     },
     {
       "bytes": 2151,

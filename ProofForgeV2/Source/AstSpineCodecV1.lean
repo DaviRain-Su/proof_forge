@@ -73,14 +73,15 @@ mutual
     termination_by structural e => e
 
   private def encodeExprArrayV1 : Array ExprV1 → Except String (Array ByteArray)
-    | ⟨xs⟩ => do
-        pure (← encodeExprListV1 xs).toArray
+    | ⟨xs⟩ => encodeExprListV1 xs #[]
     termination_by structural a => a
 
-  private def encodeExprListV1 : List ExprV1 → Except String (List ByteArray)
-    | [] => pure []
-    | x :: xs => do
-        pure ((← encodeExprV1 x) :: (← encodeExprListV1 xs))
+  private def encodeExprListV1 :
+      List ExprV1 → Array ByteArray → Except String (Array ByteArray)
+    | [], chunks => pure chunks
+    | x :: xs, chunks => do
+        let chunk ← encodeExprV1 x
+        encodeExprListV1 xs (chunks.push chunk)
     termination_by structural xs => xs
 
   def encodeExprMatchArmV1 : ExprMatchArmV1 → Except String ByteArray
@@ -92,15 +93,15 @@ mutual
 
   private def encodeExprMatchArmArrayV1 :
       Array ExprMatchArmV1 → Except String (Array ByteArray)
-    | ⟨xs⟩ => do
-        pure (← encodeExprMatchArmListV1 xs).toArray
+    | ⟨xs⟩ => encodeExprMatchArmListV1 xs #[]
     termination_by structural a => a
 
   private def encodeExprMatchArmListV1 :
-      List ExprMatchArmV1 → Except String (List ByteArray)
-    | [] => pure []
-    | x :: xs => do
-        pure ((← encodeExprMatchArmV1 x) :: (← encodeExprMatchArmListV1 xs))
+      List ExprMatchArmV1 → Array ByteArray → Except String (Array ByteArray)
+    | [], chunks => pure chunks
+    | x :: xs, chunks => do
+        let chunk ← encodeExprMatchArmV1 x
+        encodeExprMatchArmListV1 xs (chunks.push chunk)
     termination_by structural xs => xs
 
   def encodeExternalCallExprV1 : ExternalCallExprV1 → Except String ByteArray
@@ -128,15 +129,15 @@ mutual
 
   private def encodeStmtMatchArmArrayV1 :
       Array StmtMatchArmV1 → Except String (Array ByteArray)
-    | ⟨xs⟩ => do
-        pure (← encodeStmtMatchArmListV1 xs).toArray
+    | ⟨xs⟩ => encodeStmtMatchArmListV1 xs #[]
     termination_by structural a => a
 
   private def encodeStmtMatchArmListV1 :
-      List StmtMatchArmV1 → Except String (List ByteArray)
-    | [] => pure []
-    | x :: xs => do
-        pure ((← encodeStmtMatchArmV1 x) :: (← encodeStmtMatchArmListV1 xs))
+      List StmtMatchArmV1 → Array ByteArray → Except String (Array ByteArray)
+    | [], chunks => pure chunks
+    | x :: xs, chunks => do
+        let chunk ← encodeStmtMatchArmV1 x
+        encodeStmtMatchArmListV1 xs (chunks.push chunk)
     termination_by structural xs => xs
 
   def encodeStmtV1 : StmtV1 → Except String ByteArray
@@ -203,14 +204,15 @@ mutual
     termination_by structural s => s
 
   private def encodeStmtArrayV1 : Array StmtV1 → Except String (Array ByteArray)
-    | ⟨xs⟩ => do
-        pure (← encodeStmtListV1 xs).toArray
+    | ⟨xs⟩ => encodeStmtListV1 xs #[]
     termination_by structural a => a
 
-  private def encodeStmtListV1 : List StmtV1 → Except String (List ByteArray)
-    | [] => pure []
-    | x :: xs => do
-        pure ((← encodeStmtV1 x) :: (← encodeStmtListV1 xs))
+  private def encodeStmtListV1 :
+      List StmtV1 → Array ByteArray → Except String (Array ByteArray)
+    | [], chunks => pure chunks
+    | x :: xs, chunks => do
+        let chunk ← encodeStmtV1 x
+        encodeStmtListV1 xs (chunks.push chunk)
     termination_by structural xs => xs
 end
 

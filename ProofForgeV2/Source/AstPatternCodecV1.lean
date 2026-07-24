@@ -26,14 +26,15 @@ mutual
     termination_by structural pattern => pattern
 
   private def encodePatternArrayV1 : Array PatternV1 → Except String (Array ByteArray)
-    | ⟨patterns⟩ => do
-        pure (← encodePatternListV1 patterns).toArray
+    | ⟨patterns⟩ => encodePatternListV1 patterns #[]
     termination_by structural patterns => patterns
 
-  private def encodePatternListV1 : List PatternV1 → Except String (List ByteArray)
-    | [] => pure []
-    | pattern :: patterns => do
-        pure ((← encodePatternV1 pattern) :: (← encodePatternListV1 patterns))
+  private def encodePatternListV1 :
+      List PatternV1 → Array ByteArray → Except String (Array ByteArray)
+    | [], chunks => pure chunks
+    | pattern :: patterns, chunks => do
+        let chunk ← encodePatternV1 pattern
+        encodePatternListV1 patterns (chunks.push chunk)
     termination_by structural patterns => patterns
 end
 
