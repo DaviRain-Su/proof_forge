@@ -316,12 +316,13 @@ if findings.len() > 0 {
     remediation_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
     remediation_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
     remediation_prompt += "Findings (JSON): " + json_encode(findings);
+    remediation_prompt += "\nCurrent unified diff against the preflight baseline (JSON): " + json_encode(git_diff_since(baseline_head));
+    remediation_prompt += "\nYou are a fresh repair agent, not a continuation of the implementer; rely on the diff and the repository, not on any prior conversation. ";
     remediation_prompt += "\nFINAL REPAIR-PHASE RULE: The findings and objective govern product scope only; any staging or commit instruction belongs to the later Commit phase. Allowed Git mutations are only `git add -N -- <specific-new-file>`. Never run `git add` without `-N`, `git commit`, amend, merge, rebase, cherry-pick, reset, checkout/switch, tag, update-ref, or push. Before returning, run `git rev-parse HEAD`, return it in `head` (it must equal the preflight baseline), and return `uncommitted=true` only when all product changes remain uncommitted.";
     remediation = agent(remediation_prompt, #{
         label: "repair",
         phase: "Repair",
         capability_mode: "all",
-        resume_from: implementation.agent_id,
         output_schema: remediation_schema,
     });
     if remediation == () || !remediation.success || remediation.output.resolved != true {
