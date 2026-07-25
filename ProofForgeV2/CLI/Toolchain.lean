@@ -146,6 +146,23 @@ private def validateLockClosure (lock : LockFile) : IO Unit := do
           file.path.startsWith (subdir ++ "/") do
         mismatch s!"{tool.id} runtime library directory has no locked runtime file"
 
+private def requiredBundlePathsFor (lock : LockFile) (tool : LockedTool) :
+    Except String (Array String) := do
+  let declared := #[tool.executable] ++ tool.runtimeFiles.map (·.path)
+  let selected := lock.bundleFiles.filter fun file => declared.contains file.path
+  unless selected.size == declared.size do
+    throw s!"locked closure for tool '{tool.id}' is missing or repeats a bundle path"
+  pure (selected.map (·.path))
+
+/-- Exact executable/runtime closure needed by one locked product tool. This is
+smaller than the release bundle when unrelated tools share the same lock. -/
+def requiredBundlePaths (id : String) : Except String (Array String) := do
+  let lock ← loadLock
+  let tool ← match lock.tools.find? (·.id == id) with
+    | some tool => pure tool
+    | none => throw s!"unknown locked tool '{id}'"
+  requiredBundlePathsFor lock tool
+
 private def defaultPath (tool : LockedTool) : IO FilePath := do
   if tool.defaultPath.startsWith "~/" then
     let home ← IO.getEnv "HOME"
@@ -410,8 +427,8 @@ private partial def verifyBundleDirectory (statTool : VerifiedSystemTool) (root 
       | none => mismatch s!"unexpected node '{childRelative}' in tool bundle"
   return observed
 
-private def verifyBundleRoot (statTool : VerifiedSystemTool) (root : FilePath)
-    (files : Array LockedBundleFile) : IO Unit := do
+private def verifyToolBundleRoot (statTool : VerifiedSystemTool) (root : FilePath)
+    (knownFiles : Array LockedBundleFile) (requiredPaths : Array String) : IO Unit := do
   unless root.isAbsolute do mismatch "tool bundle root must be absolute"
   let rootMetadata ← root.symlinkMetadata
   unless rootMetadata.type == .dir do
@@ -419,10 +436,13 @@ private def verifyBundleRoot (statTool : VerifiedSystemTool) (root : FilePath)
   let realRoot ← IO.FS.realPath root
   unless realRoot == root do
     mismatch "tool bundle root cannot contain a symlink or unresolved component"
-  let directories ← expectedDirectories files
-  let observed ← verifyBundleDirectory statTool root root "" files directories
-  unless observed.size == files.size && files.all fun file => observed.contains file.path do
-    mismatch "tool bundle is missing one or more locked files"
+  let directories ← expectedDirectories knownFiles
+  -- Every file that is present must still be a fully verified member of the
+  -- platform lock. Product execution only requires the selected tool closure;
+  -- release verification separately requires the complete global bundle.
+  let observed ← verifyBundleDirectory statTool root root "" knownFiles directories
+  unless requiredPaths.all observed.contains do
+    mismatch "tool bundle is missing one or more files required by the selected tool"
 
 private def validateProcessEnvironment (environment : Array (String × String)) : IO Unit := do
   let mut keys : Array String := #[]
@@ -474,7 +494,10 @@ def VerifiedTool.run (tool : VerifiedTool) (args : Array String)
   let root := executable.parent.getD "."
   unless executable == root / locked.executable do
     mismatch s!"{tool.id} executable is not at its locked bundle path"
-  verifyBundleRoot statTool root lock.bundleFiles
+  let requiredPaths ← match requiredBundlePathsFor lock locked with
+    | .ok paths => pure paths
+    | .error message => mismatch message
+  verifyToolBundleRoot statTool root lock.bundleFiles requiredPaths
   let expectedEnvironment ← lockedProcessEnvironment locked executable
   unless expectedEnvironment == tool.processEnvironment do
     mismatch s!"{tool.id} process environment disagrees with the embedded lock"

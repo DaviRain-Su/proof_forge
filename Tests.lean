@@ -110,6 +110,7 @@ import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
+import Tests.CLI.ToolchainPolicy
 
 unsafe def main : IO Unit := do
   Tests.Core.Common.run
@@ -199,4 +200,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NoirRelationModel.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
+  Tests.CLI.ToolchainPolicy.run
   IO.println "proof-forge-next-tests: ok"

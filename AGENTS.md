@@ -13,9 +13,9 @@
 
 | Field | Current value |
 |---|---|
-| Program | V2 产品恢复：CLI Counter 已接通 `ProgramV1` 到 target-owned artifact |
-| Product milestone | `program` → `ValidatedSourceV1` → Typed → Semantic → EVM Plan/IR → artifact |
-| Product status | CLI `build`/`build-counter` 无 legacy fallback；旧 command/export/Loader API 待隔离清理 |
+| Program | V2 产品恢复桥：`ProgramV1` 子集已接通既有 alpha EVM backend |
+| Product milestone | 当前工程纵切面为 `ValidatedSourceV1` → alpha Typed/Semantic → alpha EVM Plan/IR → locked `solc` bytecode |
+| Product status | D1–D4 formal 仍为 0/27 done；当前 bytecode 结果不代表 `SemanticProgramV1`、正式 resolver 或 `OutputSetV1` 已完成 |
 | Active task | 无（恢复工作不再创建治理型 `TASK-*` 行） |
 | Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
 | Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |

@@ -37,6 +37,11 @@ program source
   `Typed.checkV1` 直接消费 ProgramV1，不构造 legacy `Source.Program`。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
+- 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成
+  EVM bytecode；product runtime 只要求所选工具的 executable/runtime exact closure，无关 `jv`
+  缺失不再阻塞 EVM，而 release checker 继续要求完整 global bundle。这仍是 alpha
+  Typed/Semantic/Plan/Output 路径，不代表正式 D1–D4 contract 或 task completion；本切片也未新增
+  Anvil runtime 结论。
 - 旧 Lean command/export/Loader API 仍仅供历史 characterization tests，未被产品 CLI 调用；
   是否搬迁或删除将在清单完成后单独确认。
 - [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 已确认 qualification 子系统为

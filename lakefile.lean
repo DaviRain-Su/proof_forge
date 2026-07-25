@@ -152,7 +152,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Product.CounterV1Evm,
-    `Tests.CLI.Emit
+    `Tests.CLI.Emit,
+    `Tests.CLI.ToolchainPolicy
   ]
 
 lean_exe proof_forge_next where

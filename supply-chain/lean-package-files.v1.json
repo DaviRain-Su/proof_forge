@@ -16,9 +16,9 @@
       "sha256": "6c88f01af70832c7ec631756ee2f62f0adc78aa71efe561a5fbb496497a57356"
     },
     {
-      "bytes": 23889,
+      "bytes": 25165,
       "path": "ProofForgeV2/CLI/Toolchain.lean",
-      "sha256": "921056f9f71ce519b5bb10f7e24ede2c880462cd9d62dba20b677dbed6ebb159"
+      "sha256": "d0176a9cb9c67db56d1d4dbe7fb7e40509a90f4de8fdd296c0c7aa181278c70b"
     },
     {
       "bytes": 1852,

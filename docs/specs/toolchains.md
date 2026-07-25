@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-07-17
+updated: 2026-07-25
 normative: true
 ---
 
@@ -212,9 +212,17 @@ cache root → canonical regular executable → SHA-256 → 安全 runtime libra
 version probe → `VerifiedToolchain`。所有工具通过 host profile 中 hash-locked `/usr/bin/env -i`
 启动，同时 spawn 使用 `inheritEnv=false`，只注入固定 locale/timezone 以及该工具锁定的 runtime
 library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
-每次 spawn 前递归验证 exact bundle tree、regular file、single link、size/hash/mode 和目录
-不可 group/world writable；不搜索 cwd、父目录或 PATH。WABT 仅可使用 tool root 内锁定的 `libcrypto`，sandbox
-同时拒绝 `/opt/homebrew`，并以实际 loaded-library observation 证明未回退。
+每次 product spawn 前先由 `tools[].executable + tools[].runtimeFiles[]` 计算选中工具的
+exact closure。该 closure 的每个成员都必须存在且验证 regular file、single link、size/hash/mode；
+tool root 中实际出现的其他文件必须仍是当前平台 `bundleFiles[]` 的已知成员并通过同样的
+file checks，unknown/symlink/special node 一律拒绝，但未被选中工具引用的缺失成员不得阻塞
+产品执行。例如 EVM `solc` 不依赖 SBOM validator `jv`。不搜索 cwd、父目录或 PATH。WABT
+仍只能使用 tool root 内锁定的
+`libcrypto`。
+
+上述 product per-tool closure 不替代 release exact-set：`toolchain_assets.py verify-external`、
+clean-room 与 `release-check` 继续要求完整全局 bundle，并执行 Mach-O/ELF static/runtime closure
+和 loaded-library observation。development 与 release 两种结论不得混写。
 
 ## Supply-chain inventory
 

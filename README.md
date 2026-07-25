@@ -57,6 +57,13 @@ just ci          # 普通开发机 / GitHub CI 的完整产品门禁
 # 真实 ProgramV1 CLI 路径（--module 是 canonical identity 的显式输入）：
 lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
   --module Examples.Counter --target solana -o build/counter-solana
+
+# 可选：显式联网 provision 一次，再离线物化锁定工具并生成 EVM bytecode。
+just toolchains-provision-external
+just toolchains-materialize-external "$PWD/build/dev-tool-root"
+PROOF_FORGE_TOOL_ROOT="$PWD/build/dev-tool-root" \
+  lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
+    --module Examples.Counter --target evm -o build/counter-evm
 ```
 
 源码 **不** 声明 “合约 / 电路 / zkVM workload” 类别；类别由 `--target` 的物化决定，
@@ -221,7 +228,8 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   `toolchains-linux-x86_64.lock.json`（linux）；`justfile` 按 `uname` 选择
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
 - `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
-  formal qualification。锁定工具与 clean-room 只由显式 `just release-check` 使用。
+  formal qualification。显式 EVM/NEAR build 可使用锁定的 per-tool development closure；
+  完整 tool-root exact-set、clean-room 与 host qualification 仍只属于 `release-check`。
 - 多台开发机协作时先 `git fetch && git status --short`；不要覆盖他人的未提交文件，
   也不要为维护历史 evidence 哈希而阻塞普通产品迭代。
 - SBOM package-file pin 与供应链闭包归入 `release-check`。本次 ProgramV1 迁移会核对一次
@@ -241,8 +249,10 @@ just toolchains-provision-external
 ## 当前状态（product recovery）
 
 CLI 的 `build` 与 `build-counter` 已直接使用
-`Syntax → ValidatedSourceV1 → Typed.checkV1 → Semantic → target Plan/IR`；Counter 的 EVM
-Yul/ABI materialization 由快速产品测试固定，真实 source CLI 也已完成无 fallback 的目标制品路径。
+`Syntax → ValidatedSourceV1 → Typed.checkV1 → alpha Semantic → alpha target Plan/IR`；Counter 的
+EVM Yul/ABI materialization 由快速产品测试固定，真实 Counter/Accumulator source 也已通过锁定
+`solc` 生成 EVM bytecode。产品只要求所选工具的 exact closure；无关 `jv` 不再阻塞 EVM。
+这是恢复纵切面，不表示正式 `SemanticProgramV1`、D3 resolver/`OutputSetV1` 或 D1–D4 task 已完成。
 详情见 [`RECOVERY.md`](RECOVERY.md)。
 
 - Lean command quote、`proof-forge.program-export.v1` 与旧 Loader API 仍作为历史

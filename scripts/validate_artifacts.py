@@ -739,7 +739,7 @@ def main() -> None:
         "increment",
         "delta",
         "get",
-        "58b2284d251426cbf9e6aa8201a851fdcb473f2b4458d50b35c87d6817360e44",
+        "14a6bda584fb67c86589e45245f3389b025d26553968404b6f3bd3f2a226527d",
         (("EVM", manifests["evm"]), ("Solana", manifests["solana"]), ("NEAR", manifests["near"])),
     )
     evm_accumulator = validate_evm_accumulator(root)
@@ -754,7 +754,7 @@ def main() -> None:
         "add",
         "amount",
         "current",
-        "974f2a6a94109b982215b6aae0df34accc454674807748c69c466c0127d67917",
+        "311b8842b65701161db35039958ea11174ef572a0c4723560bff7539bd23fbc3",
         (
             ("EVM", evm_accumulator),
             ("Solana", solana_accumulator),
