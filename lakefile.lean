@@ -104,6 +104,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1PlaceSuffixes,
     `Tests.Language.ProgramV1RevertEmitStatements,
     `Tests.Language.ProgramV1StringLiterals,
+    `Tests.Language.ProgramV1TypeSurface,
     `Tests.Language.ShiftLeft,
     `Tests.Language.ShiftRight,
     `Tests.Language.Equal,

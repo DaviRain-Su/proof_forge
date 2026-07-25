@@ -61,6 +61,7 @@ import Tests.Language.ProgramV1IndexedPlaces
 import Tests.Language.ProgramV1PlaceSuffixes
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
+import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
 import Tests.Language.Equal
@@ -181,6 +182,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1PlaceSuffixes.run
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Language.ProgramV1StringLiterals.run
+  Tests.Language.ProgramV1TypeSurface.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
   Tests.Language.Equal.run

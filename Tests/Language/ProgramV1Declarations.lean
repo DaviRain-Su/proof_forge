@@ -44,9 +44,8 @@ private def source : String :=
   "  error Failed\n" ++
   "  init(seed : UInt64) do\n" ++
   "    total := seed\n" ++
-  "  entry add(amount : UInt64) : UInt64 do\n" ++
-  "    total := total + amount\n" ++
-  "    return total\n" ++
+  "  entry add(amount : Map UInt64 Bool) : Map UInt64 Bool do\n" ++
+  "    return amount\n" ++
   "  view current() : UInt64 do\n" ++
   "    return total\n" ++
   "  fn identity(value : UInt64) : UInt64 do\n" ++
@@ -186,9 +185,13 @@ unsafe def run : IO Unit := do
 
   match items[7]?, items[8]? with
   | some (ProgramItemV1.entry entryDecl), some (ProgramItemV1.view viewDecl) =>
-      expect (entryDecl.name.raw == "add" && entryDecl.result == .uint 64 &&
+      let paramOk := match entryDecl.params.toList with
+        | [param] => param.type_ == .map (.uint 64) .bool
+        | _ => false
+      expect (entryDecl.name.raw == "add" && entryDecl.result == .map (.uint 64) .bool &&
+          paramOk &&
           viewDecl.name.raw == "current" && viewDecl.result == .uint 64)
-        "entry/view declarations did not retain result types"
+        "entry/view declarations did not retain result/param types"
   | entryItem, viewItem =>
       throw <| IO.userError s!"items 7/8 are not Entry/View: {repr entryItem}, {repr viewItem}"
 
