@@ -3,7 +3,7 @@
 本文件是 **engineering fact snapshot**，不是 task completion ledger，也不是 formal evidence。
 
 - Snapshot date: `2026-07-25`
-- Snapshot commit: `e3e9af3731c2bc37896372f27414ab0c92f3cada`
+- Snapshot commit: `b9adad305b1c914bf5b39b1ef96bfce925ad2c14`
 - Formal task source: [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md)
 - Test requirement source: [`docs/05-test-spec.md`](docs/05-test-spec.md)
 - Product migration decision: [`docs/adr/0019-single-programv1-source-authority.md`](docs/adr/0019-single-programv1-source-authority.md)
