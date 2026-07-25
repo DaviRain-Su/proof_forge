@@ -5,6 +5,7 @@ import Tests.Language.ProgramV1ControlFlow
 import Tests.Language.ProgramV1ExpressionForms
 import Tests.Language.ProgramV1UnaryExpressions
 import Tests.Language.ProgramV1ArithmeticExpressions
+import Tests.Language.ProgramV1ShiftExpressions
 import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Product.CounterV1Evm
@@ -19,6 +20,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1ExpressionForms.run
   Tests.Language.ProgramV1UnaryExpressions.run
   Tests.Language.ProgramV1ArithmeticExpressions.run
+  Tests.Language.ProgramV1ShiftExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Product.CounterV1Evm.run
