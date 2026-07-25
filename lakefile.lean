@@ -96,6 +96,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1BitwiseExpressions,
     `Tests.Language.ProgramV1LogicalExpressions,
     `Tests.Language.ProgramV1CoreStatements,
+    `Tests.Language.ProgramV1MatchStatements,
     `Tests.Language.ProgramV1FieldPlaces,
     `Tests.Language.ProgramV1IndexedPlaces,
     `Tests.Language.ProgramV1PlaceSuffixes,
