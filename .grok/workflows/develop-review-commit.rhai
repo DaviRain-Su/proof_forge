@@ -188,7 +188,8 @@ let implementation_prompt = "Implement the bounded repository objective below in
 implementation_prompt += "First read all governing instruction files and inspect the actual code. Stay strictly inside the hard allowed path prefixes; ";
 implementation_prompt += "if any required edit falls outside them, stop and report a blocker instead of expanding scope. ";
 implementation_prompt += "Do not read secrets, use the network, install or downgrade dependencies, delete unrelated files, run destructive git commands, commit, amend, or push. ";
-implementation_prompt += "Write focused tests before or with the fix, preserve unrelated work, run safe focused checks, and leave the changes uncommitted for review.\n";
+implementation_prompt += "Write focused tests before or with the fix, preserve unrelated work, run safe focused checks, and leave the changes uncommitted for review. ";
+implementation_prompt += "For every newly created repository file, run `git add -N -- <specific-path>` after writing it so the baseline diff includes its full content; this intent-to-add operation is the only permitted index change, and you must not stage file contents.\n";
 implementation_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
 implementation_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
 implementation_prompt += "Required verification commands (JSON): " + json_encode(verification_commands) + "\n";
@@ -228,6 +229,7 @@ for dimension in dimensions {
     let review_prompt = "Review the complete change against the preflight baseline for " + dimension.focus + ". Work read-only. ";
     review_prompt += "Run `git status --short`, run `git rev-parse HEAD`, return that exact hash in `head`, and inspect the supplied baseline diff plus surrounding source files; do not trust the implementation summary alone. ";
     review_prompt += "The current HEAD must still equal the preflight baseline; if it does not, report a blocker because implementation-stage commits are forbidden. ";
+    review_prompt += "Require every path from `git status --short`, including new files, to appear with full content in the supplied baseline diff; otherwise report a blocker. ";
     review_prompt += "Do not modify files, read secrets, use the network, commit, or push. Every finding must cite concrete file-level evidence and a specific fix. ";
     review_prompt += "An empty findings list is valid only after inspecting the shipped code and tests. Report at most 8 findings.\n";
     review_prompt += "Preflight baseline HEAD (JSON): " + json_encode(baseline_head) + "\n";
@@ -286,6 +288,7 @@ if findings.len() > 0 {
     let remediation_prompt = "Address the concrete review findings below in the same working tree. ";
     remediation_prompt += "Re-read the affected code and verify each claim before editing. Fix blocker/bug findings; apply suggestions only when they are in scope and reduce risk. ";
     remediation_prompt += "Stay inside the original hard allowed path prefixes, do not expand the objective, do not read secrets, use the network, run destructive git commands, commit, amend, or push. ";
+    remediation_prompt += "For every newly created repository file, run only `git add -N -- <specific-path>` to expose its full content to the baseline diff; do not stage contents. ";
     remediation_prompt += "Run focused checks and set resolved=false if any real finding remains.\n";
     remediation_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
     remediation_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
@@ -317,7 +320,7 @@ if final_diff == "" {
 }
 let verification_prompt = "Independently verify the complete change against the preflight baseline. Do not modify source files and do not commit or push. ";
 verification_prompt += "Run `git rev-parse HEAD`, return that exact hash in `head`, and fail unless it still equals the preflight baseline. ";
-verification_prompt += "Inspect `git status --short`, the supplied full baseline diff, and surrounding code. Confirm every changed file is inside the hard allowed prefixes, no pre-existing or unrelated change is present, ";
+verification_prompt += "Inspect `git status --short`, the supplied full baseline diff, and surrounding code. Confirm every changed file is inside the hard allowed prefixes, every status path (including new files) appears with full content in that diff, and no pre-existing or unrelated change is present, ";
 verification_prompt += "no legacy fallback or security regression was introduced, and review findings are resolved. Run every user-required verification command and `git diff --check`; ";
 verification_prompt += "you may add only safe, local, non-destructive project checks. Never read secrets, use the network, install dependencies, delete source, or alter git history. ";
 verification_prompt += "Set passed=true only when HEAD is unchanged, reviewer coverage is complete, scope_ok/tests_ok/diff_clean are all true, changed_files is non-empty, and unresolved is empty.\n";
@@ -335,8 +338,22 @@ let verification = agent(verification_prompt, #{
     capability_mode: "execute",
     output_schema: verification_schema,
 });
+let diff_covers_files = false;
+if verification != () && verification.success {
+    diff_covers_files = true;
+    for changed_file in verification.output.changed_files {
+        let plus_marker = "+++ b/" + changed_file;
+        let minus_marker = "--- a/" + changed_file;
+        if !final_diff.contains(plus_marker) && !final_diff.contains(minus_marker) {
+            diff_covers_files = false;
+            log("Verified status path is absent from the baseline diff: " + changed_file);
+        }
+    }
+}
 let verified = reviewers_ok;
 if verification == () || !verification.success {
+    verified = false;
+} else if !diff_covers_files {
     verified = false;
 } else if verification.output.head != baseline_head {
     verified = false;
