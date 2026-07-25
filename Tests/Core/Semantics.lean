@@ -1,16 +1,17 @@
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Core
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 def run : IO Unit := do
-  let counter ← match Compiler.compile Examples.counter with
+  let counter ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"Counter compile failed: {error.render}"
   let initial := Semantics.initializeProgram counter #[7]

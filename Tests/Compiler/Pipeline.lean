@@ -1,10 +1,10 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Examples.PrivateSum4
+import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Compiler
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -31,7 +31,7 @@ private def mkEntry (name : String) (params : Array Source.Param)
 }
 
 def run : IO Unit := do
-  let counter ← match Compiler.compile Examples.counter with
+  let counter ← match Compiler.compile counterQualified with
     | .ok counter => pure counter
     | .error error => throw <| IO.userError s!"Counter compile failed: {error.render}"
   expect (counter.qualifiedName == "ProofForgeV2.Examples.Counter")
@@ -63,10 +63,10 @@ def run : IO Unit := do
     "checkedAdd must explicitly require checked arithmetic and rollback"
   expect (!counter.requirements.contains .callerContext)
     "requirements absent from checked semantic operations must not be invented"
-  expect (counter.sourceHash == Examples.counter.sourceHash)
+  expect (counter.sourceHash == counterQualified.sourceHash)
     "semantic provenance must retain the decoded Source AST hash"
 
-  let counterAgain ← match Compiler.compile Examples.counter with
+  let counterAgain ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (counter.semanticHash == counterAgain.semanticHash && counter.semanticHash.length == 64)
@@ -74,21 +74,21 @@ def run : IO Unit := do
   expect (counter.semanticHash ==
       "c3b58be1a12e9d4f87a7e4730746b1b4f538d6a9e971a637f92cd508349ebcf8")
     "Counter semantic serialization must match its canonical SHA-256 golden"
-  let renamed := { Examples.counter with qualifiedName := "Other.Counter" }
+  let renamed := { counterQualified with qualifiedName := "Other.Counter" }
   let renamed ← match Compiler.compile renamed with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (counter.semanticHash != renamed.semanticHash)
     "qualified identity must participate in semantic hashing"
 
-  let synchronous ← match Compiler.compile Examples.counterWithSynchronousCall with
+  let synchronous ← match Compiler.compile counterWithSynchronousCall with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (synchronous.requirements.contains .synchronousCall &&
       synchronous.requirements.contains .transactionalRollback)
     "synchronous calls must explicitly require call support and rollback"
 
-  let privateSum ← match Compiler.compile Examples.privateSum4 with
+  let privateSum ← match Compiler.compile privateSum4Qualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (privateSum.requirements.contains .privateWitness)

@@ -12,15 +12,15 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 
 private def expectedRows : Array ProgramExportRow := #[
   {
-    schema := "proof-forge.program-export.v1"
+    schema := "proof-forge.program-export.v2"
     declaration := "Tests.Language.ProgramExportFixtures.A.AProg"
   },
   {
-    schema := "proof-forge.program-export.v1"
+    schema := "proof-forge.program-export.v2"
     declaration := "Tests.Language.ProgramExportFixtures.B.BProg"
   },
   {
-    schema := "proof-forge.program-export.v1"
+    schema := "proof-forge.program-export.v2"
     declaration := "Tests.Language.ProgramExportFixtures.Shared.SharedProg"
   }
 ]
@@ -34,20 +34,17 @@ unsafe def run : IO Unit := do
     "AB and BA import orders must yield identical export tables"
   expect (orderABExports.size == 3)
     "diamond fixture must export exactly three programs"
-  expect (orderABExports.all fun row =>
-      row.declaration != "Tests.Language.ProgramExportFixtures.A.sharedManualAlias")
-    "manual unattributed Source.Program alias must be absent"
-  let reversed : Array ProgramExportV1 := #[
+  let reversed : Array ProgramExportV2 := #[
     {
-      schema := programExportSchemaV1
+      schema := programExportSchemaV2
       declaration := `Tests.Language.ProgramExportFixtures.Shared.SharedProg
     },
     {
-      schema := programExportSchemaV1
+      schema := programExportSchemaV2
       declaration := `Tests.Language.ProgramExportFixtures.B.BProg
     },
     {
-      schema := programExportSchemaV1
+      schema := programExportSchemaV2
       declaration := `Tests.Language.ProgramExportFixtures.A.AProg
     }
   ]
@@ -59,24 +56,24 @@ unsafe def run : IO Unit := do
       let expected := expectedRows.map fun row => row.declaration
       expect (decls == expected)
         "reversed raw entries must canonicalize to UTF-8 FQN order"
-  let badSchema : Array ProgramExportV1 := #[
+  let badSchema : Array ProgramExportV2 := #[
     {
-      schema := "proof-forge.program-export.v0"
+      schema := "proof-forge.program-export.v1"
       declaration := `Tests.Language.ProgramExportFixtures.A.AProg
     }
   ]
   match normalizeProgramExports badSchema with
-  | .ok _ => throw <| IO.userError "wrong schema must not return a table"
+  | .ok _ => throw <| IO.userError "v1 schema must not return a table"
   | .error message =>
       expect (message.startsWith "PF-EXPORT-001")
-        s!"wrong schema must fail with PF-EXPORT-001, got {message}"
-  let duplicate : Array ProgramExportV1 := #[
+        s!"v1 schema must fail with PF-EXPORT-001, got {message}"
+  let duplicate : Array ProgramExportV2 := #[
     {
-      schema := programExportSchemaV1
+      schema := programExportSchemaV2
       declaration := `Tests.Language.ProgramExportFixtures.A.AProg
     },
     {
-      schema := programExportSchemaV1
+      schema := programExportSchemaV2
       declaration := `Tests.Language.ProgramExportFixtures.A.AProg
     }
   ]

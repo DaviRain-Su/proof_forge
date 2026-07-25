@@ -1,10 +1,11 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Targets.Registry
+import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Materialization.EvmSmoke
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -15,7 +16,7 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
 def run : IO Unit := do
-  let semantic ← liftResult "compile Counter" <| Compiler.compile Examples.counter
+  let semantic ← liftResult "compile Counter" <| Compiler.compile counterQualified
   let resolved ← liftResult "resolve EVM" <| Targets.resolve Targets.Evm.descriptor semantic
   let plan ← liftResult "plan EVM" <| Targets.Evm.makePlan resolved
   expect (plan.objectName == "Counter" && plan.storageLayout.map (·.name) == #["count"])

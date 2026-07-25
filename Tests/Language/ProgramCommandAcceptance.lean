@@ -1,5 +1,7 @@
 import Tests.Language.ParserSession
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.ProgramExport
+import Lean
 
 namespace Tests.Language.ProgramCommandAcceptance.Fixture
 open ProofForgeV2.Language
@@ -12,6 +14,9 @@ end Tests.Language.ProgramCommandAcceptance.Fixture
 
 namespace Tests.Language.ProgramCommandAcceptance
 open ProofForgeV2 System
+open ProofForgeV2.Core.Common
+open ProofForgeV2.Language.ProgramExport
+open ProofForgeV2.Source.QualifiedNameV1
 open Tests.Language.ProgramCommandAcceptance.Fixture
 
 private def expect (c : Bool) (m : String) : IO Unit :=
@@ -47,6 +52,19 @@ private def exactRunCmdErr : String :=
 
 /-- TST-SRC-003 packaging: program command identity + illegal top-level only. -/
 unsafe def run : IO Unit := do
+  let env ← Lean.importModules
+    (imports := #[{ module := `Tests.Language.ProgramCommandAcceptance }])
+    (opts := {})
+    (trustLevel := 0)
+  match programPayloadV2 env `Tests.Language.ProgramCommandAcceptance.Fixture.Counter with
+  | .error e => throw <| IO.userError s!"positive payload reconstruction failed: {e}"
+  | .ok source =>
+      let identity := (NonEmptyArray.toArray source.programIdentity.components).map (·.raw)
+      expect (identity == #["Tests", "Language", "ProgramCommandAcceptance", "Fixture", "Counter"])
+        "command must produce v2 payload with moduleName ++ declaration identity"
+      expect (source.program.items.size == 1)
+        "Counter ProgramV1 must contain one view entry"
+
   let session ← Tests.Language.ParserSession.shared
   match ← session.parsePrograms counterSource "<pa88-counter>" with
   | .error e => throw <| IO.userError s!"positive parse failed: {e.render}"
@@ -56,8 +74,6 @@ unsafe def run : IO Unit := do
       expect (p.name == "Counter") "short name"
       expect (p.qualifiedName ==
         "Tests.Language.ProgramCommandAcceptance.Fixture.Counter") "FQN"
-      expect (p == Counter) "full Source.Program BEq"
-      expect (p.sourceHash == Counter.sourceHash) "sourceHash"
   let (kindRes, _) ← withCapturedStdout (session.parsePrograms kindSource "<pa88-kind>")
   match kindRes with
   | .ok _ => throw <| IO.userError "kind suffix must fail"

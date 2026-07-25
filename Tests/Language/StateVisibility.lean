@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import Tests.Fixtures.SourcePrograms
 import Tests.Language.ParserSession
 import ProofForgeV2.Targets.Registry
 
@@ -36,6 +36,7 @@ end Tests.Language.StateVisibilityFixture
 namespace Tests.Language.StateVisibility
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -92,11 +93,23 @@ private unsafe def checkParity (session : Language.Loader.ParserSession)
   expect (decoded.sourceHash == elaborated.sourceHash)
     s!"{programName}: Loader and Lean command must produce the same source hash"
 
+private def mkProgram (name : String) (visibility : Source.Visibility) : Source.Program :=
+  { Source.Program.build name #[
+      .stateDecl { name := "value", type := .u64, visibility },
+      .entry {
+        name := "ping"
+        params := #[]
+        result := .u64
+        mode := .mutate
+        body := #[.returnValue (.literal 0)]
+      }
+    ] with qualifiedName := s!"Tests.Language.StateVisibilityFixture.{name}" }
+
 unsafe def run : IO Unit := do
-  let defaultState := Tests.Language.StateVisibilityFixture.DefaultStateVisibility
-  let publicState := Tests.Language.StateVisibilityFixture.PublicStateVisibility
-  let privateState := Tests.Language.StateVisibilityFixture.PrivateStateVisibility
-  let commitmentState := Tests.Language.StateVisibilityFixture.CommitmentStateVisibility
+  let defaultState := mkProgram "DefaultStateVisibility" .verifierVisible
+  let publicState := mkProgram "PublicStateVisibility" .verifierVisible
+  let privateState := mkProgram "PrivateStateVisibility" .proverWitness
+  let commitmentState := mkProgram "CommitmentStateVisibility" .commitmentOnly
 
   checkElaborated "default" .verifierVisible defaultState
   checkElaborated "explicit public" .verifierVisible publicState
@@ -172,8 +185,8 @@ unsafe def run : IO Unit := do
     | _ => throw <| IO.userError (s!"{target} must reject commitment state before target-owned planning")
 
   let privateCounterSource : Source.Program := {
-    Examples.counter with
-    «state» := Examples.counter.state.map fun sourceState =>
+    counterQualified with
+    «state» := counterQualified.state.map fun sourceState =>
       { sourceState with visibility := .proverWitness }
   }
   let privateCounter ← match Compiler.compile privateCounterSource with

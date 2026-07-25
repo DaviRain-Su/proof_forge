@@ -10,7 +10,10 @@ import Std.Data.HashSet
 
 open Lean Parser Command
 open ProofForgeV2
+open ProofForgeV2.Language.ProgramExport
 open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Language
 
@@ -323,10 +326,12 @@ numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. 
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
+    checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayArrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
+    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
+    checkLinebreakBefore)
 @[pfAggregateMember_parser default+1] def arrayAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
@@ -998,12 +1003,6 @@ private def decodeTypeUnchecked (stx : Syntax) : Except String ProofForgeV2.Sour
     decodeOptionArrayArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionArrayArrayType then
     decodeOptionArrayArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
-  else if stx.isOfKind ``optionArrayType then
-    decodeOptionArrayValueTypeFromAtoms (collectTypeAtomSyntax stx)
-  else if stx.isOfKind ``optionArrayFieldType then
-    decodeOptionArrayFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
-  else if stx.isOfKind ``optionBytesType then
-    decodeOptionBytesValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionFieldType then
     decodeNestedOptionFieldValueTypeFromAtoms (collectTypeAtomSyntax stx)
   else if stx.isOfKind ``optionOptionBytesType then
@@ -2294,6 +2293,8 @@ end ProgramV1Decoder
 
 export ProgramV1Decoder (decodeProgramCommandV1Checked)
 
+/-- Legacy command decoder retained for the legacy Loader API. The Lean command
+elaborator uses `decodeProgramCommandV1Checked` directly and emits a v2 payload. -/
 def decodeProgramCommandChecked (currentNamespace : ProgramNamespace) (stx : Syntax) :
     CompileResult ProofForgeV2.Source.Program := do
   preflightSyntax stx
@@ -2315,385 +2316,32 @@ def decodeProgramCommand (currentNamespace : Name) (stx : Syntax) :
     Except String ProofForgeV2.Source.Program :=
   (decodeProgramCommandChecked (.bounded currentNamespace) stx).mapError CompileError.render
 
-private def quoteValueType : ProofForgeV2.Source.ValueType → MacroM (TSyntax `term)
-  | .u64 => `(ProofForgeV2.Source.ValueType.u64)
-  | .bool => `(ProofForgeV2.Source.ValueType.bool)
-  | .field => `(ProofForgeV2.Source.ValueType.field)
-  | .u8 => `(ProofForgeV2.Source.ValueType.u8)
-  | .u16 => `(ProofForgeV2.Source.ValueType.u16)
-  | .u32 => `(ProofForgeV2.Source.ValueType.u32)
-  | .u128 => `(ProofForgeV2.Source.ValueType.u128)
-  | .u256 => `(ProofForgeV2.Source.ValueType.u256)
-  | .i8 => `(ProofForgeV2.Source.ValueType.i8)
-  | .i16 => `(ProofForgeV2.Source.ValueType.i16)
-  | .i32 => `(ProofForgeV2.Source.ValueType.i32)
-  | .i64 => `(ProofForgeV2.Source.ValueType.i64)
-  | .i128 => `(ProofForgeV2.Source.ValueType.i128)
-  | .i256 => `(ProofForgeV2.Source.ValueType.i256)
-  | .unit => `(ProofForgeV2.Source.ValueType.unit)
-  | .principal => `(ProofForgeV2.Source.ValueType.principal)
-  | .option element => do
-      let elementExpr ← quoteValueType element
-      `(ProofForgeV2.Source.ValueType.option $elementExpr)
-  | .bytes length =>
-      let n := length.toNat
-      `(ProofForgeV2.Source.ValueType.bytes (UInt32.ofNat $(quote n)))
-  | .array element length => do
-      let elementExpr ← quoteValueType element
-      `(ProofForgeV2.Source.ValueType.array $elementExpr $(quote length.val))
-
-private def quoteVisibility : ProofForgeV2.Source.Visibility → MacroM (TSyntax `term)
-  | .verifierVisible => `(ProofForgeV2.Source.Visibility.verifierVisible)
-  | .proverWitness => `(ProofForgeV2.Source.Visibility.proverWitness)
-  | .commitmentOnly => `(ProofForgeV2.Source.Visibility.commitmentOnly)
-
-private def quoteParam (param : ProofForgeV2.Source.Param) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit param.name
-  let typeExpr ← quoteValueType param.type
-  let visibility ← quoteVisibility param.visibility
-  `(ProofForgeV2.Source.Param.mk $name $typeExpr $visibility)
-
-private def quoteParams (params : Array ProofForgeV2.Source.Param) : MacroM (TSyntax `term) := do
-  let values ← params.mapM quoteParam
-  `(#[$[$values],*])
-
-private def quoteStateDecl (sourceState : ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceState.name
-  let typeExpr ← quoteValueType sourceState.type
-  let visibility ← quoteVisibility sourceState.visibility
-  `(ProofForgeV2.Source.StateDecl.mk $name $typeExpr $visibility)
-
-private def quoteState (states : Array ProofForgeV2.Source.StateDecl) : MacroM (TSyntax `term) := do
-  let values ← states.mapM quoteStateDecl
-  `(#[$[$values],*])
-
-private def quoteFieldDecl (field : ProofForgeV2.Source.FieldDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit field.name
-  let typeExpr ← quoteValueType field.type
-  `(ProofForgeV2.Source.FieldDecl.mk $name $typeExpr)
-
-private def quoteStructDecl (sourceStruct : ProofForgeV2.Source.StructDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceStruct.name
-  let fields ← sourceStruct.fields.mapM quoteFieldDecl
-  `(ProofForgeV2.Source.StructDecl.mk $name #[$[$fields],*])
-
-private def quoteStructs (structs : Array ProofForgeV2.Source.StructDecl) : MacroM (TSyntax `term) := do
-  let values ← structs.mapM quoteStructDecl
-  `(#[$[$values],*])
-
-private def quoteEnumVariant (variant : ProofForgeV2.Source.EnumVariant) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit variant.name
-  let payloadTypes ← variant.payloadTypes.mapM quoteValueType
-  `(ProofForgeV2.Source.EnumVariant.mk $name #[$[$payloadTypes],*])
-
-private def quoteEnumDecl (sourceEnum : ProofForgeV2.Source.EnumDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceEnum.name
-  let variants ← sourceEnum.variants.mapM quoteEnumVariant
-  `(ProofForgeV2.Source.EnumDecl.mk $name #[$[$variants],*])
-
-private def quoteEnums (enums : Array ProofForgeV2.Source.EnumDecl) : MacroM (TSyntax `term) := do
-  let values ← enums.mapM quoteEnumDecl
-  `(#[$[$values],*])
-
-private def quoteEventDecl (sourceEvent : ProofForgeV2.Source.EventDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceEvent.name
-  let params ← quoteParams sourceEvent.params
-  `(ProofForgeV2.Source.EventDecl.mk $name $params)
-
-private def quoteEvents (events : Array ProofForgeV2.Source.EventDecl) : MacroM (TSyntax `term) := do
-  let values ← events.mapM quoteEventDecl
-  `(#[$[$values],*])
-
-private def quoteErrorDecl (sourceError : ProofForgeV2.Source.ErrorDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceError.name
-  let params ← quoteParams sourceError.params
-  `(ProofForgeV2.Source.ErrorDecl.mk $name $params)
-
-private def quoteErrors (errors : Array ProofForgeV2.Source.ErrorDecl) : MacroM (TSyntax `term) := do
-  let values ← errors.mapM quoteErrorDecl
-  `(#[$[$values],*])
-
-private partial def quoteExpr : ProofForgeV2.Source.Expr → MacroM (TSyntax `term)
-  | .literal value =>
-      let value := Syntax.mkNumLit (toString value.toNat)
-      `(ProofForgeV2.Source.Expr.literal (UInt64.ofNat $value))
-  | .stringLiteral value =>
-      let value := Syntax.mkStrLit value
-      `(ProofForgeV2.Source.Expr.stringLiteral $value)
-  | .localFnCall callee args => do
-      let callee := Syntax.mkStrLit callee
-      let args ← args.mapM quoteExpr
-      `(ProofForgeV2.Source.Expr.localFnCall $callee #[$[$args],*])
-  | .constructorExpr path args => do
-      let path := path.map Syntax.mkStrLit
-      let args ← args.mapM quoteExpr
-      `(ProofForgeV2.Source.Expr.constructorExpr #[$[$path],*] #[$[$args],*])
-  | .indexAccess base index => do
-      let base := Syntax.mkStrLit base
-      let index ← quoteExpr index
-      `(ProofForgeV2.Source.Expr.indexAccess $base $index)
-  | .variable value =>
-      let value := Syntax.mkStrLit value
-      `(ProofForgeV2.Source.Expr.variable $value)
-  | .state value =>
-      let value := Syntax.mkStrLit value
-      `(ProofForgeV2.Source.Expr.state $value)
-  | .checkedAdd lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedAdd $lhs $rhs)
-  | .boolLiteral true => `(ProofForgeV2.Source.Expr.boolLiteral true)
-  | .boolLiteral false => `(ProofForgeV2.Source.Expr.boolLiteral false)
-  | .checkedSub lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedSub $lhs $rhs)
-  | .checkedMul lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedMul $lhs $rhs)
-  | .checkedDiv lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedDiv $lhs $rhs)
-  | .checkedMod lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.checkedMod $lhs $rhs)
-  | .shiftLeft lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.shiftLeft $lhs $rhs)
-  | .shiftRight lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.shiftRight $lhs $rhs)
-  | .equal lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.equal $lhs $rhs)
-  | .notEqual lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.notEqual $lhs $rhs)
-  | .lessThan lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.lessThan $lhs $rhs)
-  | .lessEqual lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.lessEqual $lhs $rhs)
-  | .greaterThan lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.greaterThan $lhs $rhs)
-  | .greaterEqual lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.greaterEqual $lhs $rhs)
-  | .bitwiseAnd lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.bitwiseAnd $lhs $rhs)
-  | .bitwiseXor lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.bitwiseXor $lhs $rhs)
-  | .bitwiseOr lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.bitwiseOr $lhs $rhs)
-  | .logicalAnd lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.logicalAnd $lhs $rhs)
-  | .logicalOr lhs rhs => do
-      let lhs ← quoteExpr lhs
-      let rhs ← quoteExpr rhs
-      `(ProofForgeV2.Source.Expr.logicalOr $lhs $rhs)
-  | .checkedNeg operand => do
-      let operand ← quoteExpr operand
-      `(ProofForgeV2.Source.Expr.checkedNeg $operand)
-  | .bitwiseNot operand => do
-      let operand ← quoteExpr operand
-      `(ProofForgeV2.Source.Expr.bitwiseNot $operand)
-  | .logicalNot operand => do
-      let operand ← quoteExpr operand
-      `(ProofForgeV2.Source.Expr.logicalNot $operand)
-
-private def quoteConstDecl (sourceConst : ProofForgeV2.Source.ConstDecl) :
-    MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceConst.name
-  let typeExpr ← quoteValueType sourceConst.type
-  let value ← quoteExpr sourceConst.value
-  `(ProofForgeV2.Source.ConstDecl.mk $name $typeExpr $value)
-
-private def quoteConsts (consts : Array ProofForgeV2.Source.ConstDecl) : MacroM (TSyntax `term) := do
-  let values ← consts.mapM quoteConstDecl
-  `(#[$[$values],*])
-
-private def quoteStatement : ProofForgeV2.Source.Statement → MacroM (TSyntax `term)
-  | .assign stateName value => do
-      let stateName := Syntax.mkStrLit stateName
-      let value ← quoteExpr value
-      `(ProofForgeV2.Source.Statement.assign $stateName $value)
-  | .returnValue value => do
-      let value ← quoteExpr value
-      `(ProofForgeV2.Source.Statement.returnValue $value)
-  | .returnUnit => `(ProofForgeV2.Source.Statement.returnUnit)
-  | .synchronousCall callee =>
-      let callee := Syntax.mkStrLit callee
-      `(ProofForgeV2.Source.Statement.synchronousCall $callee)
-  | .letDecl name typeAnn value => do
-      let name := Syntax.mkStrLit name
-      let value ← quoteExpr value
-      match typeAnn with
-      | none =>
-          `(ProofForgeV2.Source.Statement.letDecl $name (Option.none) $value)
-      | some type => do
-          let typeExpr ← quoteValueType type
-          `(ProofForgeV2.Source.Statement.letDecl $name (Option.some $typeExpr) $value)
-  | .assertStmt condition => do
-      let condition ← quoteExpr condition
-      `(ProofForgeV2.Source.Statement.assertStmt $condition)
-  | .assertErrorStmt condition errorName => do
-      let condition ← quoteExpr condition
-      let errorName := Syntax.mkStrLit errorName
-      `(ProofForgeV2.Source.Statement.assertErrorStmt $condition $errorName)
-  | .revertStmt errorName args => do
-      let errorName := Syntax.mkStrLit errorName
-      let args ← args.mapM quoteExpr
-      `(ProofForgeV2.Source.Statement.revertStmt $errorName #[$[$args],*])
-  | .emitStmt eventName args => do
-      let eventName := Syntax.mkStrLit eventName
-      let args ← args.mapM quoteExpr
-      `(ProofForgeV2.Source.Statement.emitStmt $eventName #[$[$args],*])
-  | .ifStmt condition thenBody elseBody => do
-      let condition ← quoteExpr condition
-      let thenBody ← thenBody.mapM quoteStatement
-      let elseBody ← match elseBody with
-        | none => `(Option.none)
-        | some body => do
-            let body ← body.mapM quoteStatement
-            `(Option.some #[$[$body],*])
-      `(ProofForgeV2.Source.Statement.ifStmt $condition #[$[$thenBody],*] $elseBody)
-  | .forStmt iterator start stopExclusive maxIterations body => do
-      let iterator := Syntax.mkStrLit iterator
-      let start ← quoteExpr start
-      let stopExclusive ← quoteExpr stopExclusive
-      let body ← body.mapM quoteStatement
-      `(ProofForgeV2.Source.Statement.forStmt $iterator $start $stopExclusive
-        $(quote maxIterations.val) #[$[$body],*])
-
-private def quoteStatements (statements : Array ProofForgeV2.Source.Statement) :
-    MacroM (TSyntax `term) := do
-  let values ← statements.mapM quoteStatement
-  `(#[$[$values],*])
-
-private def quoteInitializer (initializer : ProofForgeV2.Source.Initializer) :
-    MacroM (TSyntax `term) := do
-  let params ← quoteParams initializer.params
-  let body ← quoteStatements initializer.body
-  `(ProofForgeV2.Source.Initializer.mk $params $body)
-
-private def quoteInitializer? : Option ProofForgeV2.Source.Initializer → MacroM (TSyntax `term)
-  | none => `(Option.none)
-  | some initializer => do
-      let initializer ← quoteInitializer initializer
-      `(Option.some $initializer)
-
-private def quoteEntryMode : ProofForgeV2.Source.EntryMode → MacroM (TSyntax `term)
-  | .mutate => `(ProofForgeV2.Source.EntryMode.mutate)
-  | .view => `(ProofForgeV2.Source.EntryMode.view)
-
-private def quoteEntry (sourceEntry : ProofForgeV2.Source.Entry) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceEntry.name
-  let params ← quoteParams sourceEntry.params
-  let result ← quoteValueType sourceEntry.result
-  let mode ← quoteEntryMode sourceEntry.mode
-  let body ← quoteStatements sourceEntry.body
-  `(ProofForgeV2.Source.Entry.mk $name $params $result $mode $body)
-
-private def quoteEntries (entries : Array ProofForgeV2.Source.Entry) : MacroM (TSyntax `term) := do
-  let values ← entries.mapM quoteEntry
-  `(#[$[$values],*])
-
-private def quoteFnDecl (sourceFn : ProofForgeV2.Source.FnDecl) : MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceFn.name
-  let params ← quoteParams sourceFn.params
-  let result ← quoteValueType sourceFn.result
-  let body ← quoteStatements sourceFn.body
-  `(ProofForgeV2.Source.FnDecl.mk $name $params $result $body)
-
-private def quoteFunctions (functions : Array ProofForgeV2.Source.FnDecl) :
-    MacroM (TSyntax `term) := do
-  let values ← functions.mapM quoteFnDecl
-  `(#[$[$values],*])
-
-private def quoteInvariantDecl (sourceInvariant : ProofForgeV2.Source.InvariantDecl) :
-    MacroM (TSyntax `term) := do
-  let name := Syntax.mkStrLit sourceInvariant.name
-  let predicate ← quoteExpr sourceInvariant.predicate
-  `(ProofForgeV2.Source.InvariantDecl.mk $name $predicate)
-
-private def quoteInvariants (invariants : Array ProofForgeV2.Source.InvariantDecl) :
-    MacroM (TSyntax `term) := do
-  let values ← invariants.mapM quoteInvariantDecl
-  `(#[$[$values],*])
-
-private def quoteExtensionReq (requirement : ProofForgeV2.Source.ExtensionReq) :
-    MacroM (TSyntax `term) := do
-  let id := Syntax.mkStrLit requirement.id
-  let version := Syntax.mkStrLit requirement.version
-  let digest := Syntax.mkStrLit requirement.digest
-  `(ProofForgeV2.Source.ExtensionReq.mk $id $version $digest)
-
-private def quoteExtensionRequirements (requirements : Array ProofForgeV2.Source.ExtensionReq) :
-    MacroM (TSyntax `term) := do
-  let values ← requirements.mapM quoteExtensionReq
-  `(#[$[$values],*])
-
-private def quoteProofDecl (proofReference : ProofForgeV2.Source.ProofDecl) :
-    MacroM (TSyntax `term) := do
-  let invariant := Syntax.mkStrLit proofReference.invariant
-  let theoremComponents := proofReference.«theorem».map Syntax.mkStrLit
-  `(ProofForgeV2.Source.ProofDecl.mk $invariant #[$[$theoremComponents],*])
-
-private def quoteProofReferences (proofReferences : Array ProofForgeV2.Source.ProofDecl) :
-    MacroM (TSyntax `term) := do
-  let values ← proofReferences.mapM quoteProofDecl
-  `(#[$[$values],*])
-
-/-- Quote an already decoded source value without reinterpreting raw grammar. -/
-private def quoteProgram (sourceProgram : ProofForgeV2.Source.Program) : MacroM (TSyntax `term) := do
-  let qualifiedName := Syntax.mkStrLit sourceProgram.qualifiedName
-  let name := Syntax.mkStrLit sourceProgram.name
-  let stateExpr ← quoteState sourceProgram.state
-  let structs ← quoteStructs sourceProgram.structs
-  let enums ← quoteEnums sourceProgram.enums
-  let consts ← quoteConsts sourceProgram.consts
-  let events ← quoteEvents sourceProgram.events
-  let errors ← quoteErrors sourceProgram.errors
-  let initializer ← quoteInitializer? sourceProgram.initializer
-  let entries ← quoteEntries sourceProgram.entries
-  let functions ← quoteFunctions sourceProgram.functions
-  let invariants ← quoteInvariants sourceProgram.invariants
-  let extensionRequirements ← quoteExtensionRequirements sourceProgram.extensionRequirements
-  let proofReferences ← quoteProofReferences sourceProgram.proofReferences
-  `(ProofForgeV2.Source.Program.mk $qualifiedName $name $stateExpr $structs $enums $consts $events
-      $errors $initializer $entries $functions $invariants $extensionRequirements $proofReferences)
+private def quoteByteArray (bytes : ByteArray) : MacroM (TSyntax `term) := do
+  let hex := bytes.foldl (fun acc byte =>
+    (acc.push (Nat.digitChar (byte.toNat / 16))).push (Nat.digitChar (byte.toNat % 16))) ""
+  `(ProofForgeV2.Language.ProgramExport.programExportBytesFromHex $(quote hex))
 
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
+      let env ← getEnv
+      let moduleName ← match sourceQualifiedNameV1FromLeanName env.mainModule with
+        | .ok value => pure value
+        | .error message => throwError message
       let currentNamespace ← getCurrNamespace
+      let relativeNamespace := currentNamespace.replacePrefix env.mainModule .anonymous
       let commandStx ← `(program $name:ident where $items:pfItem*)
-      let decoded ← match decodeProgramCommand currentNamespace commandStx with
-      | .error message => throwError message
-      | .ok decoded => pure decoded
-      let programExpr ← Lean.Elab.liftMacroM <| quoteProgram decoded
-      let expanded ← `(@[proof_forge_program] def $name : ProofForgeV2.Source.Program :=
-          $programExpr)
+      let source ← match decodeProgramCommandV1Checked moduleName (.bounded relativeNamespace) commandStx with
+        | .error error => throwError error.render
+        | .ok source => pure source
+      let bytes ← match canonicalValidatedSourceAstBytesV1 source with
+        | .error message => throwError message
+        | .ok bytes => pure bytes
+      let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray bytes
+      let expanded ← `(@[proof_forge_program]
+        def $name : ProgramExportPayloadV2 := {
+          schema := $(Syntax.mkStrLit programExportSchemaV2),
+          bytes := $bytesExpr
+        })
       Lean.Elab.Command.elabCommand expanded
 
 end ProofForgeV2.Language

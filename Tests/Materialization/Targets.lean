@@ -1,6 +1,4 @@
-import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Examples.Accumulator
-import ProofForgeV2.Examples.PrivateSum4
+import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Targets.Registry
@@ -8,6 +6,7 @@ import ProofForgeV2.Targets.Registry
 namespace Tests.Materialization
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -60,19 +59,19 @@ private partial def nestedNoirPlanExpr : Nat → Targets.Noir.Expr
 
 set_option maxRecDepth 10000 in
 def run : IO Unit := do
-  let counter ← match Compiler.compile Examples.counter with
+  let counter ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let counterWithCall ← match Compiler.compile Examples.counterWithSynchronousCall with
+  let counterWithCall ← match Compiler.compile counterQualifiedWithSynchronousCall with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let differentLogic ← match Compiler.compile Examples.counterWithDifferentBusinessLogic with
+  let differentLogic ← match Compiler.compile counterQualifiedWithDifferentBusinessLogic with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let privateSum ← match Compiler.compile Examples.privateSum4 with
+  let privateSum ← match Compiler.compile privateSum4Qualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let accumulator ← match Compiler.compile Examples.accumulator with
+  let accumulator ← match Compiler.compile accumulatorQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (Targets.Evm.Keccak.keccak256Hex ByteArray.empty ==
@@ -102,7 +101,7 @@ def run : IO Unit := do
   for target in [TargetId.evm, .solana, .near, .noir] do
     let output ← Targets.materialize target counter
     expect (!output.files.isEmpty) s!"{target} must emit at least one artifact"
-    expect (output.manifest.sourceHash == Examples.counter.sourceHash)
+    expect (output.manifest.sourceHash == counterQualified.sourceHash)
       "manifest must bind the decoded source"
     expect (output.manifest.semanticHash == counter.semanticHash)
       "manifest must bind the canonical semantics"

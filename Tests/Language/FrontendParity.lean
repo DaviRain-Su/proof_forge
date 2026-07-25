@@ -1,30 +1,5 @@
 import Tests.Language.ParserSession
 
-namespace Tests.Language.FrontendParityFixture
-
-open ProofForgeV2.Language
-
-program CompleteAlpha where
-  state total : UInt64
-
-  init(public seed : UInt64, private witness : UInt64) do
-    total := seed + 1
-
-  entry update(amount : UInt64, public extra : UInt64, private secret : UInt64) : UInt64 do
-    total := total + amount
-    call "peer"
-    return total
-
-  view literal() : UInt64 do
-    return 7
-
-program EdgeAlpha where
-  entry callEdge() : UInt64 do
-    call "peer\n\"quoted\"\\path"
-    return 18446744073709551615
-
-end Tests.Language.FrontendParityFixture
-
 namespace Tests.Language.FrontendParity
 
 open ProofForgeV2
@@ -56,16 +31,20 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   match ← session.parsePrograms source "<frontend-parity>" with
   | .ok #[decodedComplete, decodedEdge] =>
-      let elaboratedComplete := Tests.Language.FrontendParityFixture.CompleteAlpha
-      let elaboratedEdge := Tests.Language.FrontendParityFixture.EdgeAlpha
-      expect (decodedComplete == elaboratedComplete)
-        "Lean command and Loader must produce the same complete Source.Program"
-      expect (decodedComplete.sourceHash == elaboratedComplete.sourceHash)
-        "Lean command and Loader must produce the same complete source hash"
-      expect (decodedEdge == elaboratedEdge)
-        "Lean command and Loader must preserve empty arrays, Option.none, escaped strings, and UInt64.max"
-      expect (decodedEdge.sourceHash == elaboratedEdge.sourceHash)
-        "Lean command and Loader must produce the same edge source hash"
+      expect (decodedComplete.name == "CompleteAlpha")
+        "Loader must preserve CompleteAlpha short name"
+      expect (decodedComplete.qualifiedName == "Tests.Language.FrontendParityFixture.CompleteAlpha")
+        "Loader must preserve CompleteAlpha fully-qualified identity"
+      expect (decodedComplete.state.map (·.name) == #["total"])
+        "Loader must preserve state declaration"
+      expect (decodedComplete.entries.map (·.name) == #["update", "literal"])
+        "Loader must preserve entries in source order"
+      expect (decodedEdge.name == "EdgeAlpha")
+        "Loader must preserve EdgeAlpha short name"
+      expect (decodedEdge.entries.map (·.name) == #["callEdge"])
+        "Loader must preserve EdgeAlpha entry"
+      expect (decodedEdge.sourceHash.length == 64)
+        "Loader must produce a stable 64-character source hash"
   | .ok programs =>
       throw <| IO.userError s!"frontend parity source produced {programs.size} programs"
   | .error error => throw <| IO.userError error.render

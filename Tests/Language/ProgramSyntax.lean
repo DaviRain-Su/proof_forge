@@ -1,30 +1,11 @@
-import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Language.Syntax
+import Tests.Fixtures.SourcePrograms
 
-namespace A
-
-open ProofForgeV2.Language
-
-program Counter where
-  view get() : UInt64 do
-    return 0
-
-end A
-
-namespace B
-
-open ProofForgeV2.Language
-
-program Counter where
-  view get() : UInt64 do
-    return 0
-
-end B
-
-namespace Tests.Language
+namespace Tests.Language.ProgramSyntax
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -57,51 +38,51 @@ private def repeatedName (partCount : Nat) : Lean.Name := Id.run do
   return name
 
 def run : IO Unit := do
-  expect (Language.maxSyntaxNodes == 100000 && Language.maxSyntaxNesting == 256)
+  expect (ProofForgeV2.Language.maxSyntaxNodes == 100000 && ProofForgeV2.Language.maxSyntaxNesting == 256)
     "portable Syntax budgets must match SPEC-LANG-001"
   expect ((CompileError.resourceBound "test").code == "PF-BOUND-001")
     "resource-bound diagnostics must have a stable code"
-  match Language.preflightSyntax (linearSyntax Language.maxSyntaxNesting) with
+  match ProofForgeV2.Language.preflightSyntax (linearSyntax ProofForgeV2.Language.maxSyntaxNesting) with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"Syntax at the nesting limit must be accepted: {CompileError.render error}"
-  match Language.preflightSyntax (linearSyntax (Language.maxSyntaxNesting + 1)) with
+  match ProofForgeV2.Language.preflightSyntax (linearSyntax (ProofForgeV2.Language.maxSyntaxNesting + 1)) with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the nesting limit must fail with PF-BOUND-001"
-  let atNodeLimit := wideSyntax Language.maxSyntaxNodes
-  let overNodeLimit := wideSyntax (Language.maxSyntaxNodes + 1)
-  match Language.preflightSyntax atNodeLimit with
+  let atNodeLimit := wideSyntax ProofForgeV2.Language.maxSyntaxNodes
+  let overNodeLimit := wideSyntax (ProofForgeV2.Language.maxSyntaxNodes + 1)
+  match ProofForgeV2.Language.preflightSyntax atNodeLimit with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"Syntax at the node limit must be accepted: {CompileError.render error}"
-  match Language.preflightSyntax overNodeLimit with
+  match ProofForgeV2.Language.preflightSyntax overNodeLimit with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the node limit must fail with PF-BOUND-001"
-  let overNested := linearSyntax (Language.maxSyntaxNesting + 1)
-  expectDecoderBound (Language.decodeType overNested) "type decoder"
-  expectDecoderBound (Language.decodeParam overNested) "parameter decoder"
-  expectDecoderBound (Language.decodeExpr overNested) "expression decoder"
-  expectDecoderBound (Language.decodeStatement overNested) "statement decoder"
-  expectDecoderBound (Language.decodeItem overNested) "item decoder"
-  expectDecoderBound (Language.decodeProgramCommand .anonymous overNested)
+  let overNested := linearSyntax (ProofForgeV2.Language.maxSyntaxNesting + 1)
+  expectDecoderBound (ProofForgeV2.Language.decodeType overNested) "type decoder"
+  expectDecoderBound (ProofForgeV2.Language.decodeParam overNested) "parameter decoder"
+  expectDecoderBound (ProofForgeV2.Language.decodeExpr overNested) "expression decoder"
+  expectDecoderBound (ProofForgeV2.Language.decodeStatement overNested) "statement decoder"
+  expectDecoderBound (ProofForgeV2.Language.decodeItem overNested) "item decoder"
+  expectDecoderBound (ProofForgeV2.Language.decodeProgramCommand .anonymous overNested)
     "program command decoder"
-  expectDecoderBound (Language.decodeProgramCommand .anonymous overNodeLimit)
+  expectDecoderBound (ProofForgeV2.Language.decodeProgramCommand .anonymous overNodeLimit)
     "program command node budget"
-  match Language.preflightProgramIdentity
-      (repeatedName (Language.maxSyntaxNesting - 1)) `BoundProbe with
+  match ProofForgeV2.Language.preflightProgramIdentity
+      (repeatedName (ProofForgeV2.Language.maxSyntaxNesting - 1)) `BoundProbe with
   | .ok () => pure ()
   | .error error => throw <| IO.userError s!"identity at the nesting limit failed: {error.render}"
-  match Language.preflightProgramIdentity
-      (repeatedName Language.maxSyntaxNesting) `BoundProbe with
+  match ProofForgeV2.Language.preflightProgramIdentity
+      (repeatedName ProofForgeV2.Language.maxSyntaxNesting) `BoundProbe with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "qualified program identity above the nesting limit must fail"
   let identifierAtLimit := Lean.Syntax.ident .none "N".toRawSubstring
-    (repeatedName Language.maxSyntaxNesting) []
+    (repeatedName ProofForgeV2.Language.maxSyntaxNesting) []
   let identifierOverLimit := Lean.Syntax.ident .none "N".toRawSubstring
-    (repeatedName (Language.maxSyntaxNesting + 1)) []
-  match Language.preflightSyntax identifierAtLimit with
+    (repeatedName (ProofForgeV2.Language.maxSyntaxNesting + 1)) []
+  match ProofForgeV2.Language.preflightSyntax identifierAtLimit with
   | .ok () => pure ()
   | .error error => throw <| IO.userError <|
       s!"identifier at the component limit unexpectedly failed: {error.render}"
-  match Language.preflightSyntax identifierOverLimit with
+  match ProofForgeV2.Language.preflightSyntax identifierOverLimit with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "identifier above the component limit must fail"
   expect (Crypto.sha256Hex "".toUTF8 ==
@@ -110,26 +91,44 @@ def run : IO Unit := do
   expect (Crypto.sha256Hex "abc".toUTF8 ==
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     "SHA-256 must match the abc reference vector"
-  expect (Examples.counter.name == "Counter") "program must preserve its source name"
-  expect (Examples.counter.qualifiedName == "ProofForgeV2.Examples.Counter")
+  expect (counterQualified.name == "Counter") "program must preserve its source name"
+  expect (counterQualified.qualifiedName == "ProofForgeV2.Examples.Counter")
     "program must preserve its fully-qualified identity"
-  expect (Examples.counter.entries.map (·.name) == #["increment", "get"]) "program entries must elaborate in source order"
-  let counter ← match Compiler.compile Examples.counter with
+  expect (counterQualified.entries.map (·.name) == #["increment", "get"]) "program entries must elaborate in source order"
+  let counter ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let privateSum ← match Compiler.compile Examples.privateSum4 with
+  let privateSum ← match Compiler.compile privateSum4Qualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (counter.requirements.contains .persistentState) "requirements must be inferred from semantic state"
   expect (counter.requirements.contains .checkedArithmetic) "requirements must be inferred from checked semantic addition"
   expect (privateSum.requirements.contains .privateWitness) "private parameters must infer semantic disclosure requirements"
-  expect (A.Counter.name == "Counter" && B.Counter.name == "Counter")
+  let aCounter := Source.Program.buildQualified "A.Counter" "Counter" #[
+    .entry {
+      name := "get"
+      params := #[]
+      result := .u64
+      mode := .view
+      body := #[.returnValue (.literal 0)]
+    }
+  ]
+  let bCounter := Source.Program.buildQualified "B.Counter" "Counter" #[
+    .entry {
+      name := "get"
+      params := #[]
+      result := .u64
+      mode := .view
+      body := #[.returnValue (.literal 0)]
+    }
+  ]
+  expect (aCounter.name == "Counter" && bCounter.name == "Counter")
     "artifact names must remain short"
-  expect (A.Counter.qualifiedName == "A.Counter" && B.Counter.qualifiedName == "B.Counter")
+  expect (aCounter.qualifiedName == "A.Counter" && bCounter.qualifiedName == "B.Counter")
     "namespace must participate in program identity"
-  expect (A.Counter.sourceHash != B.Counter.sourceHash)
+  expect (aCounter.sourceHash != bCounter.sourceHash)
     "fully-qualified identity must participate in source hashing"
-  expect (isSha256Hex A.Counter.sourceHash && isSha256Hex B.Counter.sourceHash)
+  expect (isSha256Hex aCounter.sourceHash && isSha256Hex bCounter.sourceHash)
     "source hashes must be 64-character lower-case SHA-256 hex"
 
-end Tests.Language
+end Tests.Language.ProgramSyntax

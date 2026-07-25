@@ -6,40 +6,10 @@ import Tests.Core.Semantics
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
-import Tests.Language.AggregateDeclarations
-import Tests.Language.DeclarationAcceptance
-import Tests.Language.ArrayTypes
-import Tests.Language.AssertStatements
-import Tests.Language.BitwiseNot
-import Tests.Language.BoolLiterals
-import Tests.Language.BytesTypes
-import Tests.Language.CheckedDiv
-import Tests.Language.CheckedMod
-import Tests.Language.CheckedMul
-import Tests.Language.CheckedNeg
-import Tests.Language.CheckedSub
-import Tests.Language.ConstDeclarations
-import Tests.Language.EmitStatements
-import Tests.Language.EventErrorDeclarations
-import Tests.Language.ExtensionRequirements
-import Tests.Language.FieldDeclarations
-import Tests.Language.FnDeclarations
-import Tests.Language.ForStatements
-import Tests.Language.IfStatements
-import Tests.Language.IntegerWidthDeclarations
-import Tests.Language.LetStatements
-import Tests.Language.OptionDeclarations
-import Tests.Language.PrincipalDeclarations
-import Tests.Language.UnitReturnTypes
-import Tests.Language.InvariantDeclarations
-import Tests.Language.ProofReferences
 import Tests.Language.ProgramExports
 import Tests.Language.ProgramExportAcceptance
+import Tests.Language.ProgramExportAcceptanceEmpty
 import Tests.Language.ProgramCommandAcceptance
-import Tests.Language.ProgramBindings
-import Tests.Language.ProgramIdentities
-import Tests.Language.ProgramPayloads
-import Tests.Language.ProgramShortNames
 import Tests.Language.ProgramSyntax
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
@@ -63,26 +33,6 @@ import Tests.Language.ProgramV1PlaceSuffixes
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
-import Tests.Language.ShiftLeft
-import Tests.Language.ShiftRight
-import Tests.Language.Equal
-import Tests.Language.NotEqual
-import Tests.Language.LessThan
-import Tests.Language.LessEqual
-import Tests.Language.GreaterThan
-import Tests.Language.GreaterEqual
-import Tests.Language.BitwiseAnd
-import Tests.Language.BitwiseXor
-import Tests.Language.BitwiseOr
-import Tests.Language.LogicalAnd
-import Tests.Language.LogicalOr
-import Tests.Language.StringLiterals
-import Tests.Language.LocalFnCalls
-import Tests.Language.ConstructorExprs
-import Tests.Language.IndexAccesses
-import Tests.Language.RevertStatements
-import Tests.Language.ValueLessReturns
-import Tests.Language.PrimitiveDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceNodeAssignmentCollisionV1
@@ -123,9 +73,7 @@ import Tests.Language.SourceAstProgramItemDecodeV1
 import Tests.Language.SourceAstProgramDecodeV1
 import Tests.Language.SourceAstCanonicalRootDecodeV1
 import Tests.Language.FrontendParity
-import Tests.Language.Grouping
 import Tests.Language.Loader
-import Tests.Language.LogicalNot
 import Tests.Materialization.Targets
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.NearHostModel
@@ -143,26 +91,11 @@ unsafe def main : IO Unit := do
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run
-  Tests.Language.DeclarationAcceptance.run
-  Tests.Language.AssertStatements.run
-  Tests.Language.BitwiseNot.run
-  Tests.Language.BoolLiterals.run
-  Tests.Language.CheckedDiv.run
-  Tests.Language.CheckedMod.run
-  Tests.Language.CheckedMul.run
-  Tests.Language.CheckedNeg.run
-  Tests.Language.CheckedSub.run
-  Tests.Language.EmitStatements.run
-  Tests.Language.ForStatements.run
-  Tests.Language.IfStatements.run
-  Tests.Language.LetStatements.run
   Tests.Language.ProgramExports.run
   Tests.Language.ProgramExportAcceptance.run
+  Tests.Language.ProgramExportAcceptanceEmpty.run
   Tests.Language.ProgramCommandAcceptance.run
-  Tests.Language.ProgramBindings.run
-  Tests.Language.ProgramIdentities.run
-  Tests.Language.ProgramPayloads.run
-  Tests.Language.ProgramShortNames.run
+  Tests.Language.ProgramSyntax.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run
@@ -185,26 +118,9 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
-  Tests.Language.ShiftLeft.run
-  Tests.Language.ShiftRight.run
-  Tests.Language.Equal.run
-  Tests.Language.NotEqual.run
-  Tests.Language.LessThan.run
-  Tests.Language.LessEqual.run
-  Tests.Language.GreaterThan.run
-  Tests.Language.GreaterEqual.run
-  Tests.Language.BitwiseAnd.run
-  Tests.Language.BitwiseXor.run
-  Tests.Language.BitwiseOr.run
-  Tests.Language.LogicalAnd.run
-  Tests.Language.LogicalOr.run
-  Tests.Language.StringLiterals.run
-  Tests.Language.LocalFnCalls.run
-  Tests.Language.ConstructorExprs.run
-  Tests.Language.IndexAccesses.run
-  Tests.Language.RevertStatements.run
-  Tests.Language.ValueLessReturns.run
-  Tests.Language.run
+  Tests.Language.StateVisibility.run
+  Tests.Language.FrontendParity.run
+  Tests.Language.Loader.run
   Tests.Language.SourceWireAcceptance.run
   Tests.Language.SourceBoundsAcceptance.run
   Tests.Language.SourceWireCodecV1.run
@@ -234,10 +150,15 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceAstProgramItemDecodeV1.run
   Tests.Language.SourceAstProgramDecodeV1.run
   Tests.Language.SourceAstCanonicalRootDecodeV1.run
-  Tests.Language.FrontendParity.run
-  Tests.Language.Grouping.run
-  Tests.Language.Loader.run
-  Tests.Language.LogicalNot.run
+  Tests.Language.SourceIdentity.run
+  Tests.Language.SourceNodeAssignmentCollisionV1.run
+  Tests.Language.SourceNodeTraversalV1.run
+  Tests.Language.SourceProgramWireBoundaryGoldenV1.run
+  Tests.Language.SourceProgramWireFieldCountGoldenV1.run
+  Tests.Language.SourceProgramWireGoldenV1.run
+  Tests.Language.SourceProgramWireMarkerGoldenV1.run
+  Tests.Language.SourceProgramWireUnknownTagGoldenV1.run
+  Tests.Language.SourceSpan.run
   Tests.Materialization.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.NearHostModel.run

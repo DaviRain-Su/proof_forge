@@ -1,10 +1,11 @@
 import Tests.Language.ParserSession
-import ProofForgeV2.Examples.Counter
+import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Compiler.Pipeline
 
 namespace Tests.Language.Loader
 
 open ProofForgeV2 System
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -70,8 +71,8 @@ unsafe def run : IO Unit := do
   let decoded ← session.selectProgram counterSource "<counter>" (some "ProofForgeV2.Examples.Counter")
   match decoded with
   | .ok contractProgram =>
-      expect (contractProgram == Examples.counter)
-        s!"Lean parser decoding and command elaboration must produce the same source AST\ndecoded={repr contractProgram}\nelaborated={repr Examples.counter}"
+      expect (contractProgram == counterQualified)
+        s!"Lean parser decoding and command elaboration must produce the same source AST\ndecoded={repr contractProgram}\nelaborated={repr counterQualified}"
   | .error error => throw <| IO.userError error.render
 
   let marker := FilePath.mk "build/v2/loader-must-not-execute"

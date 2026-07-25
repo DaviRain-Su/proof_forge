@@ -1,12 +1,11 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Accumulator
-import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Examples.PrivateSum4
+import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Targets.Noir
 
 namespace Tests.Materialization.NoirRelationModel
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private abbrev U64 := _root_.UInt64
 
@@ -242,7 +241,7 @@ private def checkStatefulLifecycle (test : StatefulCase) : IO Unit := do
   expectReject s!"{test.label} view with wrong result" viewRelation viewWrongResult
 
 private def checkPrivateSum4 : IO Unit := do
-  let ir ← compileIr Examples.privateSum4
+  let ir ← compileIr privateSum4Qualified
   let relation ← findRelation ir "sum"
   let parameterBindings := relation.sourceRelation.inputs.filter fun binding =>
     match binding.role with
@@ -265,13 +264,13 @@ private def checkPrivateSum4 : IO Unit := do
 def run : IO Unit := do
   checkStatefulLifecycle {
     label := "Counter"
-    sourceProgram := Examples.counter
+    sourceProgram := counterQualified
     mutateName := "increment"
     viewName := "get"
   }
   checkStatefulLifecycle {
     label := "Accumulator"
-    sourceProgram := Examples.accumulator
+    sourceProgram := accumulatorQualified
     mutateName := "add"
     viewName := "current"
   }

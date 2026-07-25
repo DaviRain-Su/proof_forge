@@ -1,16 +1,17 @@
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import Tests.Fixtures.SourcePrograms
 
 namespace Tests.CLI.Emit
 
 open ProofForgeV2 System
+open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 def run : IO Unit := do
-  let counter ← match Compiler.compile Examples.counter with
+  let counter ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   let unsafeProgram := { counter with name := "../escaped" }

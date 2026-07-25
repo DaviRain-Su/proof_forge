@@ -1,10 +1,11 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Accumulator
+import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Targets.Near
 
 namespace Tests.Materialization.NearHostModel
 
 open ProofForgeV2
+open Tests.Fixtures.SourcePrograms
 
 private abbrev HostStorage := Array (String × ByteArray)
 private abbrev U64 := _root_.UInt64
@@ -210,7 +211,7 @@ private def storedUInt64? (storage : HostStorage) (key : String) : Option U64 :=
   storageLookup? storage key >>= decodeUInt64LE
 
 def run : IO Unit := do
-  let semanticProgram ← liftResult <| Compiler.compile Examples.accumulator
+  let semanticProgram ← liftResult <| Compiler.compile accumulatorQualified
   let resolved ← liftResult <| Targets.resolve Targets.Near.descriptor semanticProgram
   let plan ← liftResult <| Targets.Near.makePlan resolved
   let ir ← liftResult <| Targets.Near.lower plan
