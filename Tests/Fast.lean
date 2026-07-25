@@ -11,6 +11,7 @@ import Tests.Language.ProgramV1OrderingComparisons
 import Tests.Language.ProgramV1BitwiseExpressions
 import Tests.Language.ProgramV1LogicalExpressions
 import Tests.Language.ProgramV1CoreStatements
+import Tests.Language.ProgramV1FieldPlaces
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Product.CounterV1Evm
@@ -31,6 +32,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1BitwiseExpressions.run
   Tests.Language.ProgramV1LogicalExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
+  Tests.Language.ProgramV1FieldPlaces.run
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Product.CounterV1Evm.run

@@ -1603,6 +1603,39 @@ private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 :=
     throw s!"reserved portable identifier '{component.raw}'"
   pure component
 
+private def beginsWithAsciiUpperV1 (raw : String) : Bool :=
+  match raw.toList with
+  | c :: _ => 0x41 ≤ c.val && c.val ≤ 0x5A
+  | [] => false
+
+private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 := do
+  let rec collectPureStrChain (name : Name) (remaining : Nat) :
+      Except String (Array String) :=
+    match name with
+    | .anonymous => pure #[]
+    | .str pre value => do
+        if remaining == 0 then
+          throw "source qualified name must contain 1..256 components"
+        let preRaws ← collectPureStrChain pre (remaining - 1)
+        pure (preRaws.push value)
+    | .num _ _ => throw "source qualified name requires a pure .str Lean name chain"
+  let raws ← collectPureStrChain stx.getId 256
+  let mut components : Array SourceNameComponentV1 := #[]
+  for raw in raws do
+    let component ← parseSourceNameComponentV1 raw
+    if isReservedPortableIdentifierV1 component.raw then
+      throw s!"reserved portable identifier '{component.raw}'"
+    components := components.push component
+  match components[0]? with
+  | none => throw "source qualified name must contain 1..256 components"
+  | some root =>
+      if components.size > 1 && beginsWithAsciiUpperV1 root.raw then
+        throw "source name component must contain exactly one Lean Name component"
+      let mut place : PlaceV1 := .name root
+      for component in components.extract 1 components.size do
+        place := .field place component
+      pure place
+
 private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
   match raw with
   | "Bool" => some .bool
@@ -1772,7 +1805,7 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
       pure (.place (.index (.name (← decodeNameV1 base))
         (← decodeExprV1Unchecked index)))
   | `(pfExpr| $name:ident) => do
-      pure (.place (.name (← decodeNameV1 name)))
+      pure (.place (← decodePlaceV1 name))
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
       pure (.binary .add (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
   | `(pfExpr| $lhs:pfExpr - $rhs:pfExpr) => do
@@ -1834,7 +1867,7 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
   | `(letStmtOmitted| let $name:ident := $value:pfExpr) => do
       pure (.let_ (← decodeNameV1 name) none (← decodeExprV1Unchecked value))
   | `(pfStmt| $name:ident := $value:pfExpr) => do
-      pure (.assign (.name (← decodeNameV1 name)) (← decodeExprV1Unchecked value))
+      pure (.assign (← decodePlaceV1 name) (← decodeExprV1Unchecked value))
   | `(returnValueStmt| return $value:pfExpr) => do
       pure (.return_ (some (← decodeExprV1Unchecked value)))
   | `(pfStmt| return) => pure (.return_ none)
