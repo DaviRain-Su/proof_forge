@@ -190,6 +190,7 @@ Higher priority than generic identifier; no low fallback. -/
 
 declare_syntax_cat pfStmt
 syntax ident " := " pfExpr : pfStmt
+syntax ident "[" pfExpr "]" " := " pfExpr : pfStmt
 @[pfStmt_parser default+1] def returnValueStmt := leading_parser
   withPosition ("return " >> (checkLineEq <|> checkColGt) >> categoryParser `pfExpr 0)
 syntax "return" : pfStmt
@@ -1793,10 +1794,8 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
         let ctor ← decodePortableQualifiedIdV1 callee
         pure (.constructor ctor (← args.getElems.mapM decodeExprV1Unchecked))
   | `(pfExpr| $base:ident [$index:pfExpr]) => do
-      unless base.getId.components.length == 1 do
-        throw "index access base must be unqualified"
-      pure (.place (.index (.name (← decodeNameV1 base))
-        (← decodeExprV1Unchecked index)))
+      let base ← decodePlaceV1 base
+      pure (.place (.index base (← decodeExprV1Unchecked index)))
   | `(pfExpr| $name:ident) => do
       pure (.place (← decodePlaceV1 name))
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
@@ -1861,6 +1860,10 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
       pure (.let_ (← decodeNameV1 name) none (← decodeExprV1Unchecked value))
   | `(pfStmt| $name:ident := $value:pfExpr) => do
       pure (.assign (← decodePlaceV1 name) (← decodeExprV1Unchecked value))
+  | `(pfStmt| $base:ident [$index:pfExpr] := $value:pfExpr) => do
+      let target ← decodePlaceV1 base
+      let index ← decodeExprV1Unchecked index
+      pure (.assign (.index target index) (← decodeExprV1Unchecked value))
   | `(returnValueStmt| return $value:pfExpr) => do
       pure (.return_ (some (← decodeExprV1Unchecked value)))
   | `(pfStmt| return) => pure (.return_ none)

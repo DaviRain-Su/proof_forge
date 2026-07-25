@@ -287,11 +287,12 @@ unsafe def run : IO Unit := do
       (session.parsePrograms source s!"<idx-{label}>")
     expectParserRejected label source result
 
-  -- Indexed assignment must fail closed (not bare-ident assign).
+  -- Legacy Source reader must fail closed on indexed assignment even though ProgramV1 accepts it.
   let assignSource := assignProgramSource "RejectedAssign" "x[0] := 1"
   let (_, assignResult) ← IO.FS.withIsolatedStreams
     (session.parsePrograms assignSource "<idx-assign>")
-  expectParserRejected "indexed assignment" assignSource assignResult
+  expectExactInvalid "indexed assignment legacy fail-closed" assignSource
+    "unsupported portable statement" assignResult
 
   -- Qualified base before index decode (Bool index must not preempt).
   let qualifiedSource := returnProgramSource "RejectedQualified" "A.B[true]"

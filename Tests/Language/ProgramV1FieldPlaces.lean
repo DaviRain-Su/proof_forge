@@ -245,7 +245,11 @@ unsafe def run : IO Unit := do
   expectRejectBody session "assign-target-before-rhs"
     "    account.balance := «if»\n    return 0\n"
     "reserved portable identifier 'if'"
-  expectRejectExpr session "qualified-index-base" "A.B[«if»]"
-    "index access base must be unqualified"
+  match ← decodeReturnExpr session "qualified-index-base" "A.B[0]" with
+  | .place (.index (.field (.name root) field) index) => do
+      expect (root.raw == "A") "qualified index base root raw changed"
+      expect (field.raw == "B") "qualified index base field raw changed"
+      expectLiteral index 0 "qualified index literal changed"
+  | other => throw <| IO.userError s!"qualified index base shape changed: {repr other}"
 
 end Tests.Language.ProgramV1FieldPlaces

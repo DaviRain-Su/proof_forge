@@ -196,8 +196,12 @@ unsafe def run : IO Unit := do
     "reserved portable identifier 'if'"
   expectReject session "reserved-index-base-before-index" "«if»[«else»]"
     "reserved portable identifier 'if'"
-  expectReject session "qualified-index-base" "A.B[«if»]"
-    "index access base must be unqualified"
+  match ← decodeReturnExpr session "qualified-index-base" "A.B[0]" with
+  | .place (.index (.field (.name root) field) index) =>
+      expect (root.raw == "A") "qualified index base root raw changed"
+      expect (field.raw == "B") "qualified index base field raw changed"
+      expectLiteral index 0 "qualified index literal changed"
+  | other => throw <| IO.userError s!"qualified index base shape changed: {repr other}"
   expectReject session "ctor-over-max-components" (constructorExprSource (qualifiedPath 257))
     "limit 256"
 
