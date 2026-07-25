@@ -1736,6 +1736,19 @@ private def qualifiedV1FromStrings (parts : Array String) : Except String Source
       throw s!"reserved portable identifier '{part}'"
   parseSourceQualifiedNameV1 parts
 
+private def decodeQualifiedIdV1 (stx : Syntax) : Except String SourceQualifiedNameV1 := do
+  let qualified ← sourceQualifiedNameV1FromLeanName stx.getId
+  validateSourceQualifiedIdV1 qualified
+  pure qualified
+
+private def decodePortableQualifiedIdV1
+    (stx : Syntax) : Except String SourceQualifiedNameV1 := do
+  let qualified ← decodeQualifiedIdV1 stx
+  for component in NonEmptyArray.toArray qualified.components do
+    if isReservedPortableIdentifierV1 component.raw then
+      throw s!"reserved portable identifier '{component.raw}'"
+  pure qualified
+
 private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(boolTrueExpr| true) => pure (.literal (.bool true))
   | `(boolFalseExpr| false) => pure (.literal (.bool false))
@@ -1745,12 +1758,12 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
       else throw "integer literal exceeds UInt256"
   | `(pfExpr| $value:str) => pure (.literal (.string value.getString))
   | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
-      let args ← args.getElems.mapM decodeExprV1Unchecked
       if callee.getId.components.length == 1 then
-        pure (.localCall (← decodeNameV1 callee) args)
+        let callee ← decodeNameV1 callee
+        pure (.localCall callee (← args.getElems.mapM decodeExprV1Unchecked))
       else
-        pure (.constructor
-          (← qualifiedV1FromStrings (← decodeConstructorPath callee)) args)
+        let ctor ← decodePortableQualifiedIdV1 callee
+        pure (.constructor ctor (← args.getElems.mapM decodeExprV1Unchecked))
   | `(pfExpr| $base:ident [$index:pfExpr]) => do
       unless base.getId.components.length == 1 do
         throw "index access base must be unqualified"
@@ -1803,18 +1816,10 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(pfExpr| ($inner:pfExpr)) => decodeExprV1Unchecked inner
   | _ => throw "unsupported portable expression"
 
-private def decodeQualifiedIdV1 (stx : Syntax) : Except String SourceQualifiedNameV1 := do
-  let qualified ← sourceQualifiedNameV1FromLeanName stx.getId
-  validateSourceQualifiedIdV1 qualified
-  pure qualified
-
 private def decodeExternalCallV1Unchecked
     (calleeSyntax : Syntax) (argsSyntax : TSyntaxArray `pfExpr) :
     Except String ExternalCallExprV1 := do
-  let callee ← decodeQualifiedIdV1 calleeSyntax
-  for component in NonEmptyArray.toArray callee.components do
-    if isReservedPortableIdentifierV1 component.raw then
-      throw s!"reserved portable identifier '{component.raw}'"
+  let callee ← decodePortableQualifiedIdV1 calleeSyntax
   pure {
     callee := callee
     args := ← argsSyntax.mapM decodeExprV1Unchecked
