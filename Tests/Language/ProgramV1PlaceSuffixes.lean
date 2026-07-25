@@ -161,6 +161,22 @@ unsafe def run : IO Unit := do
   expectPlaceExprShape (← decodeReturnExpr session "nested-index-expr" "account.items[1 + 2].owner[3]")
     "account.items[1+2].owner[3]" "nested index expression rvalue"
 
+  match ← decodeReturnExpr session "dotted-suffix-after-index" "x[0].a.b" with
+  | .place (.field (.field (.index (.name root) (.literal (.integer 0))) first) second) => do
+      expect (root.raw == "x") "dotted suffix root raw changed"
+      expect (first.raw == "a") "dotted suffix first component raw changed"
+      expect (second.raw == "b") "dotted suffix second component raw changed"
+  | other => throw <| IO.userError s!"dotted suffix after index must decompose like a dotted root: {repr other}"
+  match ← decodeReturnExpr session "escaped-dotted-suffix" "x[0].«a.b»" with
+  | .place (.field (.index (.name root) (.literal (.integer 0))) field) => do
+      expect (root.raw == "x") "escaped dotted suffix root raw changed"
+      expect (field.raw == "a.b") "whole-escaped dotted suffix must stay one raw component"
+  | other => throw <| IO.userError s!"escaped dotted suffix shape changed: {repr other}"
+  expectDifferentProgramBytesAndHash
+    (← decodeSource session "split-dotted-suffix" (returnSource "x[0].a.b"))
+    (← decodeSource session "escaped-dotted-suffix-hash" (returnSource "x[0].«a.b»"))
+    "split dotted suffix components must not alias one whole-escaped component"
+
   for (label, target, expected) in [
       ("assign-double-index", "x[0][1]", "x[0][1]"),
       ("assign-qualified-double-index", "account.items[0][1]", "account.items[0][1]"),
@@ -219,6 +235,9 @@ unsafe def run : IO Unit := do
     "reserved portable identifier 'return'"
   expectRejectBody session "index-before-rhs"
     "    x[0].field[«if»] := «return»\n    return 0\n"
+    "reserved portable identifier 'if'"
+  expectRejectBody session "dotted-suffix-first-component-before-second"
+    "    x[0].«if».«return» := «struct»\n    return 0\n"
     "reserved portable identifier 'if'"
 
 end Tests.Language.ProgramV1PlaceSuffixes

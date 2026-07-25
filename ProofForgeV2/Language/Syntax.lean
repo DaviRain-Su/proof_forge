@@ -1620,7 +1620,11 @@ private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 :=
     throw s!"reserved portable identifier '{component.raw}'"
   pure component
 
-private def decodeIdentPlaceV1 (stx : Syntax) : Except String PlaceV1 := do
+/-- Collect every raw component of a (possibly dotted) source identifier in
+root-to-leaf order, validating each component and rejecting reserved portable
+identifiers at the first offending component. -/
+private def decodeIdentComponentsV1 (stx : Syntax) :
+    Except String (Array SourceNameComponentV1) := do
   let rec collectPureStrChain (name : Name) (remaining : Nat) :
       Except String (Array String) :=
     match name with
@@ -1638,6 +1642,12 @@ private def decodeIdentPlaceV1 (stx : Syntax) : Except String PlaceV1 := do
     if isReservedPortableIdentifierV1 component.raw then
       throw s!"reserved portable identifier '{component.raw}'"
     components := components.push component
+  if components.size == 0 then
+    throw "source qualified name must contain 1..256 components"
+  pure components
+
+private def decodeIdentPlaceV1 (stx : Syntax) : Except String PlaceV1 := do
+  let components ← decodeIdentComponentsV1 stx
   match components[0]? with
   | none => throw "source qualified name must contain 1..256 components"
   | some root =>
@@ -1650,7 +1660,9 @@ private partial def decodePlaceV1With
     (decodeExpr : Syntax → Except String ExprV1) : Syntax → Except String PlaceV1
   | `(pfPlace| $name:ident) => decodeIdentPlaceV1 name
   | `(pfPlace| $base:pfPlace . $field:ident) => do
-      pure (.field (← decodePlaceV1With decodeExpr base) (← decodeNameV1 field))
+      let placeBase ← decodePlaceV1With decodeExpr base
+      let components ← decodeIdentComponentsV1 field
+      pure (components.foldl (fun place component => .field place component) placeBase)
   | `(pfPlace| $base:pfPlace [$index:pfExpr]) => do
       pure (.index (← decodePlaceV1With decodeExpr base) (← decodeExpr index))
   | _ => throw "unsupported portable place"
