@@ -9,6 +9,7 @@ import Tests.Language.ProgramV1ShiftExpressions
 import Tests.Language.ProgramV1EqualityExpressions
 import Tests.Language.ProgramV1OrderingComparisons
 import Tests.Language.ProgramV1BitwiseExpressions
+import Tests.Language.ProgramV1LogicalExpressions
 import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Product.CounterV1Evm
@@ -27,6 +28,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1EqualityExpressions.run
   Tests.Language.ProgramV1OrderingComparisons.run
   Tests.Language.ProgramV1BitwiseExpressions.run
+  Tests.Language.ProgramV1LogicalExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Product.CounterV1Evm.run
