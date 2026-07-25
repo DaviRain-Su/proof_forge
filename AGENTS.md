@@ -18,7 +18,7 @@
 | Product milestone | 当前工程纵切面为 `ValidatedSourceV1` → alpha Typed/Semantic → alpha EVM Plan/IR → locked `solc` bytecode |
 | Product status | D1–D4 formal 仍为 0/27 done；当前 bytecode 结果不代表 `SemanticProgramV1`、正式 resolver 或 `OutputSetV1` 已完成 |
 | Engineering matrix | [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)：D1 wire地基较强，D2/D3正式contract缺失，D4 backend为可复用alpha |
-| Engineering slice | 完整迁移 ProgramV1 declaration decoder；替代验证后按层删除旧代码 |
+| Engineering slice | 下一步迁移 ProgramV1 statement/expression/call/schedule；declaration decoder 仍需旧测试迁移与 negatives 收尾后再删旧代码 |
 | Active task | 无（工程迁移不伪造 formal `TASK-*` 状态） |
 | Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
 | Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |
@@ -75,7 +75,8 @@ custody 服务或 formal-evidence ceremony。
 6. 检查 unsupported 声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
 7. 修改 `ProofForgeV2/**` 时运行相关 Lean 测试，并执行 `just sbom-package-files-refresh`
    保持 committed package-file pin 精确；这只是供应链闭包一致性，不代表 formal qualification。
-8. 当前恢复工作由单一 agent 执行，不启动 subagent，也不伪造独立复审者。
+8. 实现可交给 Grok Build worker；主代理必须独立审计 diff、产品边界和门禁结果。
+   worker 自检不得冒充 release/formal 独立复审。
 9. 交接时给出精确文件、命令、结果和限制；不提交、不推送，除非用户另行要求。
 
 正式 Stage-0 若用于真正的 release 判断，仍只能由调用者直接执行：

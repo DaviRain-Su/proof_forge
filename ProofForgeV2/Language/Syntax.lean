@@ -1585,8 +1585,19 @@ open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
+private def isReservedPortableIdentifierV1 (raw : String) : Bool :=
+  #["program", "where", "state", "struct", "enum", "const", "event", "error",
+    "init", "entry", "view", "fn", "invariant", "requires", "extension",
+    "version", "digest", "proof", "using", "do", "let", "if", "then", "else",
+    "match", "with", "for", "in", "bounded", "assert", "revert", "emit",
+    "return", "call", "schedule", "public", "private", "commitment", "true",
+    "false"].contains raw
+
 private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 := do
-  parseSourceNameComponentV1 (← decodeIdentifier stx)
+  let component ← sourceNameComponentV1FromLeanName stx.getId
+  if isReservedPortableIdentifierV1 component.raw then
+    throw s!"reserved portable identifier '{component.raw}'"
+  pure component
 
 private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
   match raw with
@@ -1607,26 +1618,88 @@ private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
   | "Principal" => some .principal
   | _ => none
 
-private def decodeTypeV1Unchecked (stx : Syntax) : Except String TypeV1 := do
-  let atoms := collectTypeAtomSyntax stx
-  match atoms with
-  | #[first] =>
-      match rawIdentifierText? first >>= primitiveTypeV1 with
-      | some type => pure type
-      | none => throw "unsupported portable type"
-  | #[first, second] =>
-      match rawIdentifierText? first with
-      | some "Bytes" => pure (.bytes (← decodeBytesLengthAtom second))
-      | some "Field" =>
-          match rawIdentifierText? second with
-          | some id => .field <$> parseSourceNameComponentV1 id
-          | none => throw "unsupported portable type"
-      | some "Option" =>
-          match rawIdentifierText? second >>= primitiveTypeV1 with
-          | some element => pure (.option element)
-          | none => throw "unsupported portable type"
-      | _ => throw "unsupported portable type"
-  | _ => throw "unsupported portable type"
+private def isTypeConstructorNameV1 (raw : String) : Bool :=
+  (primitiveTypeV1 raw).isSome || #["Option", "Array", "Map", "Bytes", "Field"].contains raw
+
+private def typeConstructorAtomTextV1? : Syntax → Option String
+  | .atom _ value =>
+      if #["Option", "Array", "Map", "Bytes", "Field"].contains value then
+        some value
+      else
+        none
+  | _ => none
+
+private def typeTokenTextV1? (stx : Syntax) : Option String :=
+  rawIdentifierText? stx <|> typeConstructorAtomTextV1? stx
+
+/-- V1-only type token collector. Legacy decoding intentionally omits contextual
+constructor atoms from `collectTypeAtomSyntax`; ProgramV1 needs them to preserve
+prefix constructors parsed as `Syntax.atom` nodes. -/
+private partial def collectTypeAtomSyntaxV1 (stx : Syntax) : Array Syntax :=
+  if stx.isIdent || stx.isOfKind numLitKind || (typeConstructorAtomTextV1? stx).isSome then
+    #[stx]
+  else
+    stx.getArgs.flatMap collectTypeAtomSyntaxV1
+
+/-- Decode the prefix atom form of the recursive ProgramV1 type grammar. The
+syntax parser has already bounded the tree; `fuel` additionally guarantees that
+malformed constructor prefixes cannot recurse without consuming an atom. -/
+private def decodeTypeV1At :
+    (fuel : Nat) → (atoms : Array Syntax) → (index : Nat) →
+      Except String (TypeV1 × Nat)
+  | 0, _, _ => .error "unsupported portable type"
+  | fuel + 1, atoms, index => do
+      let atom ← match atoms[index]? with
+        | some atom => pure atom
+        | none => throw "unsupported portable type"
+      let raw ← match typeTokenTextV1? atom with
+        | some raw => pure raw
+        | none => throw "unsupported portable type"
+      match primitiveTypeV1 raw with
+      | some type => pure (type, index + 1)
+      | none =>
+          match raw with
+          | "Option" => do
+              let (element, next) ← decodeTypeV1At fuel atoms (index + 1)
+              pure (.option element, next)
+          | "Array" => do
+              let (element, next) ← decodeTypeV1At fuel atoms (index + 1)
+              let lengthSyntax ← match atoms[next]? with
+                | some length => pure length
+                | none => throw "unsupported portable type"
+              pure (.array element (← decodeBytesLengthAtom lengthSyntax), next + 1)
+          | "Map" => do
+              let (key, next) ← decodeTypeV1At fuel atoms (index + 1)
+              let (value, finish) ← decodeTypeV1At fuel atoms next
+              pure (.map key value, finish)
+          | "Bytes" => do
+              let lengthSyntax ← match atoms[index + 1]? with
+                | some length => pure length
+                | none => throw "unsupported portable type"
+              pure (.bytes (← decodeBytesLengthAtom lengthSyntax), index + 2)
+          | "Field" => do
+              let fieldSyntax ← match atoms[index + 1]? with
+                | some field => pure field
+                | none => throw "unsupported portable type"
+              unless rawIdentifierText? fieldSyntax == some "bn254_fr" do
+                throw "unsupported portable type"
+              pure (.field (← sourceNameComponentV1FromLeanName fieldSyntax.getId), index + 2)
+          | _ => do
+              unless atom.getId.components.length == 1 do
+                throw "unsupported portable type"
+              let name ← decodeNameV1 atom
+              if isTypeConstructorNameV1 name.raw then
+                throw "unsupported portable type"
+              pure (.named name, index + 1)
+
+private def decodeTypeV1FromAtoms (atoms : Array Syntax) : Except String TypeV1 := do
+  let (type, next) ← decodeTypeV1At (atoms.size + 1) atoms 0
+  unless next == atoms.size do
+    throw "unsupported portable type"
+  pure type
+
+private def decodeTypeV1Unchecked (stx : Syntax) : Except String TypeV1 :=
+  decodeTypeV1FromAtoms (collectTypeAtomSyntaxV1 stx)
 
 private def decodeParamV1Unchecked : Syntax → Except String ParamV1
   | `(pfParam| $name:ident : $type:pfType) => do
@@ -1655,7 +1728,10 @@ private def decodeParamV1Unchecked : Syntax → Except String ParamV1
       }
   | _ => throw "unsupported portable parameter"
 
-private def qualifiedV1FromStrings (parts : Array String) : Except String SourceQualifiedNameV1 :=
+private def qualifiedV1FromStrings (parts : Array String) : Except String SourceQualifiedNameV1 := do
+  for part in parts do
+    if isReservedPortableIdentifierV1 part then
+      throw s!"reserved portable identifier '{part}'"
   parseSourceQualifiedNameV1 parts
 
 private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
@@ -1756,6 +1832,39 @@ private def decodeParamsV1 (params : Array Syntax) : Except String (Array ParamV
 private def decodeBlockV1 (statements : Array Syntax) : Except String BlockV1 := do
   pure { statements := ← statements.mapM decodeStatementV1Unchecked }
 
+private def decodeStructFieldV1Unchecked (stx : Syntax) : Except String FieldDeclV1 := do
+  let atoms := collectTypeAtomSyntaxV1 stx
+  let nameSyntax ← match atoms[0]? with
+    | some name => pure name
+    | none => throw "unsupported portable struct field"
+  let typeAtoms := atoms.extract 1 atoms.size
+  unless !typeAtoms.isEmpty do
+    throw "unsupported portable struct field"
+  pure {
+    name := ← decodeNameV1 nameSyntax
+    type_ := ← decodeTypeV1FromAtoms typeAtoms
+  }
+
+private def decodeEnumVariantV1Unchecked : Syntax → Except String EnumVariantV1
+  | `(pfAggregateMember| | $name:ident
+      ) => do
+      pure { name := ← decodeNameV1 name, payloadTypes := #[] }
+  | `(pfAggregateMember| | $name:ident ($payloadTypes:pfType,*)
+      ) => do
+      let payloadTypes := payloadTypes.getElems
+      if payloadTypes.isEmpty then
+        throw s!"enum variant '{(← decodeNameV1 name).raw}' payload must contain at least one type"
+      pure {
+        name := ← decodeNameV1 name
+        payloadTypes := ← payloadTypes.mapM decodeTypeV1Unchecked
+      }
+  | _ => .error "unsupported portable enum variant"
+
+private def decodeQualifiedIdV1 (stx : Syntax) : Except String SourceQualifiedNameV1 := do
+  let qualified ← sourceQualifiedNameV1FromLeanName stx.getId
+  validateSourceQualifiedIdV1 qualified
+  pure qualified
+
 private def decodeItemV1Unchecked : Syntax → Except String ProgramItemV1
   | `(pfItem| state $name:ident : $type:pfType) => do
       pure (.state {
@@ -1781,6 +1890,96 @@ private def decodeItemV1Unchecked : Syntax → Except String ProgramItemV1
         name := ← decodeNameV1 name
         type_ := ← decodeTypeV1Unchecked type
       })
+  | `(constDecl| const $name:ident : $type:pfType := $value:pfExpr) => do
+      pure (.const {
+        name := ← decodeNameV1 name
+        type_ := ← decodeTypeV1Unchecked type
+        value := ← decodeExprV1Unchecked value
+      })
+  | `(unsupportedConstLikeDecl| $_kind:ident $_name:ident : $_type:pfType :=
+        $_value:pfExpr) =>
+      throw "unsupported portable program item"
+  | `(invariantDecl| invariant $name:ident : $predicate:pfExpr) => do
+      pure (.invariant {
+        name := ← decodeNameV1 name
+        predicate := ← decodeExprV1Unchecked predicate
+      })
+  | `(unsupportedInvariantLikeDecl| $_kind:ident $_name:ident : $_predicate:pfExpr
+      ) =>
+      throw "unsupported portable program item"
+  | `(extensionReq| requires extension $id:ident version $version:str
+        digest $digest:str) => do
+      let _ ← decodeExtensionId id
+      pure (.extensionReq {
+        id := ← decodeQualifiedIdV1 id
+        version := ← decodeExtensionVersion version
+        digest := ← decodeExtensionDigest digest
+      })
+  | `(unsupportedExtensionLikeReq| $_requires:ident $_extension:ident $_id:ident $_versionKeyword:ident $_version:str
+        $_digestKeyword:ident $_digest:str) =>
+      throw "unsupported portable program item"
+  | `(proofDecl| proof $invariant:ident using $theoremName:ident) => do
+      let theoremParts ← decodeProofTheorem theoremName
+      pure (.proof {
+        invariant := ← decodeNameV1 invariant
+        theorem_ := ← qualifiedV1FromStrings theoremParts
+      })
+  | `(unsupportedProofIntroducer| $_proof:ident $_invariant:ident using $_theoremName:ident) =>
+      throw "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident ($params:pfParam,*) : $result:pfType do
+        $body:pfStmt*) =>
+      match rawIdentifierText? kind with
+      | some "fn" => do
+          pure (.fn {
+            name := ← decodeNameV1 name
+            params := ← decodeParamsV1 params
+            result := ← decodeTypeV1Unchecked result
+            body := ← decodeBlockV1 body
+          })
+      | _ => throw "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident ($params:pfParam,*) do
+        $body:pfStmt*) =>
+      match rawIdentifierText? kind with
+      | some "fn" => do
+          pure (.fn {
+            name := ← decodeNameV1 name
+            params := ← decodeParamsV1 params
+            result := .unit
+            body := ← decodeBlockV1 body
+          })
+      | _ => throw "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident where $members:pfAggregateMember*) =>
+      match rawIdentifierText? kind with
+      | some "struct" => do
+          pure (.struct {
+            name := ← decodeNameV1 name
+            fields := ← members.mapM decodeStructFieldV1Unchecked
+          })
+      | some "enum" => do
+          pure (.enum {
+            name := ← decodeNameV1 name
+            variants := ← members.mapM decodeEnumVariantV1Unchecked
+          })
+      | _ => throw "unsupported portable program item"
+  | `(pfItem| $kind:ident $name:ident ($params:pfParam,*)) =>
+      match rawIdentifierText? kind with
+      | some "event" => do
+          pure (.event {
+            name := ← decodeNameV1 name
+            params := ← decodeParamsV1 params
+          })
+      | some "error" => do
+          pure (.error {
+            name := ← decodeNameV1 name
+            params := ← decodeParamsV1 params
+          })
+      | _ => throw "unsupported portable program item"
+  | `(bareErrorDecl| error $name:ident
+      ) => do
+      pure (.error { name := ← decodeNameV1 name, params := #[] })
+  | `(unsupportedBareItemDecl| $_kind:ident $_name:ident
+      ) =>
+      throw "unsupported portable program item"
   | `(pfItem| init ($params:pfParam,*) do $statements:pfStmt*) => do
       pure (.init {
         params := ← decodeParamsV1 params

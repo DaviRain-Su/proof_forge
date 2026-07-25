@@ -84,6 +84,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramShortNameFixtures.Snapshot,
     `Tests.Language.ProgramShortNames,
     `Tests.Language.ProgramSyntax,
+    `Tests.Language.ProgramV1Declarations,
     `Tests.Language.ShiftLeft,
     `Tests.Language.ShiftRight,
     `Tests.Language.Equal,
