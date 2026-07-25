@@ -219,14 +219,18 @@ unsafe def run : IO Unit := do
     ] do
     expectRejectExpr session label expr "failed to parse file"
 
-  expectRejectExpr session "uppercase-qualified-rvalue" "A.x"
-    "source name component must contain exactly one Lean Name component"
-  expectRejectBody session "uppercase-qualified-assign"
-    "    A.x := 1\n    return 0\n"
-    "source name component must contain exactly one Lean Name component"
-  expectRejectBody session "uppercase-qualified-assign-before-rhs"
+  expectPlaceExprParts (← decodeReturnExpr session "uppercase-root-rvalue" "A.x")
+    #["A", "x"] "uppercase-root rvalue field place"
+  let (uppercaseTarget, uppercaseValue) ← decodeAssign session "uppercase-root-assign" "A.x" "1"
+  expectPlaceParts uppercaseTarget #["A", "x"] "uppercase-root assignment field target"
+  expectLiteral uppercaseValue 1 "uppercase-root assignment rhs literal"
+  expectDifferentProgramBytesAndHash
+    (← decodeSource session "uppercase-root" (returnSource "A.x"))
+    (← decodeSource session "lowercase-root" (returnSource "a.x"))
+    "field root case must be hash-bound"
+  expectRejectBody session "uppercase-root-assign-before-rhs"
     "    A.x := «if»\n    return 0\n"
-    "source name component must contain exactly one Lean Name component"
+    "reserved portable identifier 'if'"
   expectRejectExpr session "reserved-root-before-field" "«if».balance"
     "reserved portable identifier 'if'"
   expectRejectExpr session "reserved-field-component" "account.«return».id"

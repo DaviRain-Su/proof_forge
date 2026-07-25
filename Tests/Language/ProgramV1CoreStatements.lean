@@ -173,8 +173,8 @@ unsafe def run : IO Unit := do
   expectReject session "assert-condition-before-error"
     "    assert «if» else A.Err\n"
     "reserved portable identifier 'if'"
-  expectReject session "assert-qualified-condition-before-error"
-    "    assert A.x else A.Err\n"
-    "source name component must contain exactly one Lean Name component"
+  expectReject session "assert-invalid-field-condition-before-error"
+    "    assert A.«return» else A.Err\n"
+    "reserved portable identifier 'return'"
 
 end Tests.Language.ProgramV1CoreStatements

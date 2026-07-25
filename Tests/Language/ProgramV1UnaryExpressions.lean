@@ -201,12 +201,12 @@ unsafe def run : IO Unit := do
     ] do
     expectReject session label expr "failed to parse file"
 
-  expectReject session "qualified-neg-child" "-A.x"
-    "source name component must contain exactly one Lean Name component"
+  expectReject session "invalid-field-neg-child" "-A.«return»"
+    "reserved portable identifier 'return'"
   expectReject session "reserved-not-child" "!«if»"
     "reserved portable identifier 'if'"
-  expectReject session "nested-child-left-first" "-(A.x + «if»)"
-    "source name component must contain exactly one Lean Name component"
+  expectReject session "nested-child-left-first" "-(A.«return» + «if»)"
+    "reserved portable identifier 'return'"
   expectReject session "nested-child-left-before-right" "!(«if» + A.x)"
     "reserved portable identifier 'if'"
 

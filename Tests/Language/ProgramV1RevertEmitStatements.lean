@@ -217,23 +217,27 @@ unsafe def run : IO Unit := do
   expectRejectWithout session "emit-name-before-args" "    emit A.Event(«if»)\n"
     "source name component must contain exactly one Lean Name component"
     #["reserved portable identifier 'if'"]
-  expectRejectWithout session "revert-reserved-name-before-args" "    revert «revert»(A.x)\n"
+  expectRejectWithout session "revert-reserved-name-before-args" "    revert «revert»(A.«return»)\n"
     "reserved portable identifier 'revert'"
-    #["source name component must contain exactly one Lean Name component"]
-  expectRejectWithout session "emit-reserved-name-before-args" "    emit «emit»(A.x)\n"
+    #["reserved portable identifier 'return'"]
+  expectRejectWithout session "emit-reserved-name-before-args" "    emit «emit»(A.«return»)\n"
     "reserved portable identifier 'emit'"
-    #["source name component must contain exactly one Lean Name component"]
-  expectRejectWithout session "revert-args-left-to-right-qualified-first" "    revert Err(A.x, «if»)\n"
-    "source name component must contain exactly one Lean Name component"
+    #["reserved portable identifier 'return'"]
+  expectRejectWithout session "revert-args-left-to-right-invalid-field-first"
+    "    revert Err(A.«return», «if»)\n"
+    "reserved portable identifier 'return'"
     #["reserved portable identifier 'if'"]
-  expectRejectWithout session "emit-args-left-to-right-qualified-first" "    emit Event(A.x, «if»)\n"
-    "source name component must contain exactly one Lean Name component"
+  expectRejectWithout session "emit-args-left-to-right-invalid-field-first"
+    "    emit Event(A.«return», «if»)\n"
+    "reserved portable identifier 'return'"
     #["reserved portable identifier 'if'"]
-  expectRejectWithout session "revert-args-left-to-right-reserved-first" "    revert Err(«if», A.x)\n"
+  expectRejectWithout session "revert-args-left-to-right-reserved-first"
+    "    revert Err(«if», A.«return»)\n"
     "reserved portable identifier 'if'"
-    #["source name component must contain exactly one Lean Name component"]
-  expectRejectWithout session "emit-args-left-to-right-reserved-first" "    emit Event(«if», A.x)\n"
+    #["reserved portable identifier 'return'"]
+  expectRejectWithout session "emit-args-left-to-right-reserved-first"
+    "    emit Event(«if», A.«return»)\n"
     "reserved portable identifier 'if'"
-    #["source name component must contain exactly one Lean Name component"]
+    #["reserved portable identifier 'return'"]
 
 end Tests.Language.ProgramV1RevertEmitStatements

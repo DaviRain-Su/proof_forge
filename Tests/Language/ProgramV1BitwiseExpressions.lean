@@ -307,11 +307,11 @@ unsafe def run : IO Unit := do
   expectPlaceName logicalOrLhs "flag" "logical-or lhs"
   expectPlaceName logicalOrRhs "other" "logical-or rhs"
 
-  expectReject session "hostile-qualified-lhs" "A.x & «if»"
-    "source name component must contain exactly one Lean Name component"
+  expectReject session "invalid-field-lhs-before-rhs" "A.«return» & «if»"
+    "reserved portable identifier 'return'"
   expectReject session "hostile-reserved-lhs-before-rhs" "«if» & A.x"
     "reserved portable identifier 'if'"
-  expectReject session "hostile-valid-lhs-before-rhs" "x | A.y"
-    "source name component must contain exactly one Lean Name component"
+  expectReject session "valid-lhs-before-invalid-field-rhs" "x | A.«return»"
+    "reserved portable identifier 'return'"
 
 end Tests.Language.ProgramV1BitwiseExpressions

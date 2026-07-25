@@ -1603,11 +1603,6 @@ private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 :=
     throw s!"reserved portable identifier '{component.raw}'"
   pure component
 
-private def beginsWithAsciiUpperV1 (raw : String) : Bool :=
-  match raw.toList with
-  | c :: _ => 0x41 ≤ c.val && c.val ≤ 0x5A
-  | [] => false
-
 private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 := do
   let rec collectPureStrChain (name : Name) (remaining : Nat) :
       Except String (Array String) :=
@@ -1629,8 +1624,6 @@ private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 := do
   match components[0]? with
   | none => throw "source qualified name must contain 1..256 components"
   | some root =>
-      if components.size > 1 && beginsWithAsciiUpperV1 root.raw then
-        throw "source name component must contain exactly one Lean Name component"
       let mut place : PlaceV1 := .name root
       for component in components.extract 1 components.size do
         place := .field place component
