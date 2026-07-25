@@ -269,6 +269,9 @@ unsafe def run : IO Unit := do
   expectReject session "missing-do" ("    match flag with\n" ++
     "    | _ =>\n" ++
     "      return 0\n") "failed to parse file"
+  expectReject session "bare-expression-body"
+    ("    match flag with\n" ++
+     "    | _ => return 0\n") "failed to parse file"
   expectReject session "zero-arms" "    match flag with\n" "failed to parse file"
   expectReject session "empty-arm-block" ("    match flag with\n" ++
     "    | _ => do\n") "failed to parse file"

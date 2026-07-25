@@ -12,6 +12,7 @@ import Tests.Language.ProgramV1BitwiseExpressions
 import Tests.Language.ProgramV1LogicalExpressions
 import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ProgramV1MatchStatements
+import Tests.Language.ProgramV1MatchExpressions
 import Tests.Language.ProgramV1ConstructorPatterns
 import Tests.Language.ProgramV1FieldPlaces
 import Tests.Language.ProgramV1IndexedPlaces
@@ -37,6 +38,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1LogicalExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ProgramV1MatchStatements.run
+  Tests.Language.ProgramV1MatchExpressions.run
   Tests.Language.ProgramV1ConstructorPatterns.run
   Tests.Language.ProgramV1FieldPlaces.run
   Tests.Language.ProgramV1IndexedPlaces.run

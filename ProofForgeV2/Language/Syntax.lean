@@ -196,6 +196,12 @@ Higher priority than generic identifier; no low fallback. -/
 Higher priority than generic identifier; no low fallback. -/
 @[pfExpr_parser default+1] def boolFalseExpr := leading_parser
   nonReservedSymbol "false" (includeIdent := true)
+/-- Expression-level match: `match Expr with | Pattern => Expr ...`. Leading
+precedence 0 prevents it from becoming a binary/unary operand without grouping;
+arms must start on a new line aligned with `match`. -/
+@[pfExpr_parser] def matchExpr := leading_parser:0 withPosition (
+  "match " >> categoryParser `pfExpr 0 >> " with" >>
+  checkLinebreakBefore >> checkColEq >> many1Indent (categoryParser `pfExprMatchArm 0))
 
 declare_syntax_cat pfPattern
 syntax "_" : pfPattern
@@ -211,8 +217,15 @@ syntax:max ident "(" pfPattern,* ")" : pfPattern
 @[pfPattern_parser default+1] def boolFalsePattern := leading_parser
   nonReservedSymbol "false" (includeIdent := true)
 
+declare_syntax_cat pfExprMatchArm
+/-- One expression match arm: `| Pattern => Expr`. The value is a full
+precedence-0 expression, so nested match expressions and grouped operands are
+legal; `do` blocks are rejected here because this is the expression-level arm. -/
+@[pfExprMatchArm_parser default+1] def exprMatchArm := leading_parser withPosition (
+  "| " >> categoryParser `pfPattern 0 >> " => " >> categoryParser `pfExpr 0)
+
 declare_syntax_cat pfStmtMatchArm
-/-- One match arm: `| Pattern => do` plus an indented nonempty block. Mirrors
+/-- One statement match arm: `| Pattern => do` plus an indented nonempty block. Mirrors
 ifStmt/forStmt indentation discipline; the bar column is owned by the enclosing
 match, the body must be strictly deeper. -/
 @[pfStmtMatchArm_parser default+1] def stmtMatchArm := leading_parser withPosition (
@@ -1852,6 +1865,22 @@ private def decodePortableQualifiedIdV1
       throw s!"reserved portable identifier '{component.raw}'"
   pure qualified
 
+private partial def decodePatternV1Unchecked : Syntax → Except String PatternV1
+  | `(pfPattern| _) => pure .wildcard
+  | `(boolTruePattern| true) => pure (.literal (.bool true))
+  | `(boolFalsePattern| false) => pure (.literal (.bool false))
+  | `(pfPattern| $value:num) =>
+      let number := value.getNat
+      if number < 2 ^ 256 then pure (.literal (.integer number))
+      else throw "integer literal exceeds UInt256"
+  | `(pfPattern| $value:str) => pure (.literal (.string value.getString))
+  | `(pfPattern| $ctor:ident ($args:pfPattern,*)) => do
+      let ctor ← decodePortableQualifiedIdV1 ctor
+      pure (.constructor ctor (← args.getElems.mapM decodePatternV1Unchecked))
+  | `(pfPattern| $name:ident) => do
+      pure (.bind (← decodeNameV1 name))
+  | _ => throw "unsupported portable pattern"
+
 private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(boolTrueExpr| true) => pure (.literal (.bool true))
   | `(boolFalseExpr| false) => pure (.literal (.bool false))
@@ -1911,13 +1940,25 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
       pure (.unary .not (← decodeExprV1Unchecked operand))
   | `(pfExpr| ($inner:pfExpr)) => decodeExprV1Unchecked inner
   | stx =>
-      if stx.getKind == `ProofForgeV2.Language.bitOrExpr then
-        match stx.getArgs with
-        | #[lhs, .atom _ "|", rhs] =>
-            return (.binary .bitOr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
-        | _ => throw "unsupported portable expression"
-      else
-        throw "unsupported portable expression"
+      match stx.getKind, stx.getArgs with
+      | `ProofForgeV2.Language.matchExpr, #[.atom _ "match", scrutinee, .atom _ "with",
+          .node _ `null arms] => do
+          unless !arms.isEmpty do throw "unsupported portable expression"
+          let scrutinee ← decodeExprV1Unchecked scrutinee
+          let decodedArms ← arms.mapM fun arm => do
+            unless arm.getKind == `ProofForgeV2.Language.exprMatchArm do
+              throw "unsupported portable expression"
+            match arm.getArgs with
+            | #[.atom _ "|", pattern, .atom _ "=>", value] => do
+                pure ({
+                  pattern := ← decodePatternV1Unchecked pattern
+                  value := ← decodeExprV1Unchecked value
+                } : ExprMatchArmV1)
+            | _ => throw "unsupported portable expression"
+          pure (.match_ scrutinee decodedArms)
+      | `ProofForgeV2.Language.bitOrExpr, #[lhs, .atom _ "|", rhs] =>
+          return (.binary .bitOr (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
+      | _, _ => throw "unsupported portable expression"
 
 private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 :=
   decodePlaceV1With decodeExprV1Unchecked stx
@@ -1930,22 +1971,6 @@ private def decodeExternalCallV1Unchecked
     callee := callee
     args := ← argsSyntax.mapM decodeExprV1Unchecked
   }
-
-private partial def decodePatternV1Unchecked : Syntax → Except String PatternV1
-  | `(pfPattern| _) => pure .wildcard
-  | `(boolTruePattern| true) => pure (.literal (.bool true))
-  | `(boolFalsePattern| false) => pure (.literal (.bool false))
-  | `(pfPattern| $value:num) =>
-      let number := value.getNat
-      if number < 2 ^ 256 then pure (.literal (.integer number))
-      else throw "integer literal exceeds UInt256"
-  | `(pfPattern| $value:str) => pure (.literal (.string value.getString))
-  | `(pfPattern| $ctor:ident ($args:pfPattern,*)) => do
-      let ctor ← decodePortableQualifiedIdV1 ctor
-      pure (.constructor ctor (← args.getElems.mapM decodePatternV1Unchecked))
-  | `(pfPattern| $name:ident) => do
-      pure (.bind (← decodeNameV1 name))
-  | _ => throw "unsupported portable pattern"
 
 private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
