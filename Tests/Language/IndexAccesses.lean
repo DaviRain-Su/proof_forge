@@ -279,13 +279,19 @@ unsafe def run : IO Unit := do
       ("missing base", "[0]"),
       ("extra payload", "x[0] 1"),
       ("grouped base", "(x)[0]"),
-      ("call base", "f()[0]"),
-      ("chained index", "x[0][1]")
+      ("call base", "f()[0]")
     ] do
     let source := returnProgramSource "RejectedIdx" expr
     let (_, result) ← IO.FS.withIsolatedStreams
       (session.parsePrograms source s!"<idx-{label}>")
     expectParserRejected label source result
+
+  -- The shared grammar now parses chained ProgramV1 places, but the legacy Source reader still fails closed.
+  let chainedSource := returnProgramSource "RejectedChainedIdx" "x[0][1]"
+  let (_, chainedResult) ← IO.FS.withIsolatedStreams
+    (session.parsePrograms chainedSource "<idx-chained>")
+  expectExactInvalid "chained index legacy fail-closed" chainedSource
+    "unsupported portable expression" chainedResult
 
   -- Legacy Source reader must fail closed on indexed assignment even though ProgramV1 accepts it.
   let assignSource := assignProgramSource "RejectedAssign" "x[0] := 1"

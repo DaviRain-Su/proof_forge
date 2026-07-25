@@ -179,8 +179,7 @@ unsafe def run : IO Unit := do
       ("ctor-trailing-comma", "A.B(1,)"),
       ("ctor-double-comma", "A.B(1,,2)"),
       ("index-missing-close", "x[0"),
-      ("index-empty", "x[]"),
-      ("index-chained", "x[0][1]")
+      ("index-empty", "x[]")
     ] do
     expectReject session label expr "failed to parse file"
 

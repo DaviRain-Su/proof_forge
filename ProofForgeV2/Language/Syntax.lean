@@ -150,11 +150,14 @@ syntax "private " ident " : " pfType : pfParam
 syntax "commitment " ident " : " pfType : pfParam
 
 declare_syntax_cat pfExpr
+declare_syntax_cat pfPlace
+syntax ident : pfPlace
+syntax:max pfPlace "." ident : pfPlace
+syntax:max pfPlace "[" pfExpr "]" : pfPlace
 syntax num : pfExpr
 syntax str : pfExpr
-syntax ident : pfExpr
+syntax pfPlace : pfExpr
 syntax:max ident "(" pfExpr,* ")" : pfExpr
-syntax:max ident "[" pfExpr "]" : pfExpr
 syntax:75 "-" pfExpr:75 : pfExpr
 syntax:75 "~" pfExpr:75 : pfExpr
 syntax:75 "!" pfExpr:75 : pfExpr
@@ -189,8 +192,7 @@ Higher priority than generic identifier; no low fallback. -/
   nonReservedSymbol "false" (includeIdent := true)
 
 declare_syntax_cat pfStmt
-syntax ident " := " pfExpr : pfStmt
-syntax ident "[" pfExpr "]" " := " pfExpr : pfStmt
+syntax pfPlace " := " pfExpr : pfStmt
 @[pfStmt_parser default+1] def returnValueStmt := leading_parser
   withPosition ("return " >> (checkLineEq <|> checkColGt) >> categoryParser `pfExpr 0)
 syntax "return" : pfStmt
@@ -895,6 +897,20 @@ def decodeParam (stx : Syntax) : Except String ProofForgeV2.Source.Param := do
   preflightForDecoder stx
   decodeParamUnchecked stx
 
+mutual
+
+private partial def decodeLegacyPlaceExprUnchecked : Syntax → Except String ProofForgeV2.Source.Expr
+  | `(pfPlace| $name:ident) => do
+      return .variable (← decodeIdentifier name)
+  | `(pfPlace| $base:pfPlace [$index:pfExpr]) => do
+      match base with
+      | `(pfPlace| $name:ident) => do
+          unless name.getId.components.length == 1 do
+            throw "index access base must be unqualified"
+          return .indexAccess (← decodeIdentifier name) (← decodeExprUnchecked index)
+      | _ => throw "unsupported portable expression"
+  | _ => throw "unsupported portable expression"
+
 private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.Source.Expr
   | `(boolTrueExpr| true) => .ok (.boolLiteral true)
   | `(boolFalseExpr| false) => .ok (.boolLiteral false)
@@ -911,12 +927,7 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
         return .localFnCall callee (← args.getElems.mapM decodeExprUnchecked)
       let path ← decodeConstructorPath callee
       return .constructorExpr path (← args.getElems.mapM decodeExprUnchecked)
-  | `(pfExpr| $base:ident [$index:pfExpr]) => do
-      unless base.getId.components.length == 1 do
-        throw "index access base must be unqualified"
-      return .indexAccess (← decodeIdentifier base) (← decodeExprUnchecked index)
-  | `(pfExpr| $name:ident) => do
-      return .variable (← decodeIdentifier name)
+  | `(pfExpr| $place:pfPlace) => decodeLegacyPlaceExprUnchecked place
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
       return .checkedAdd (← decodeExprUnchecked lhs) (← decodeExprUnchecked rhs)
   | `(pfExpr| $lhs:pfExpr - $rhs:pfExpr) => do
@@ -962,6 +973,8 @@ private partial def decodeExprUnchecked : Syntax → Except String ProofForgeV2.
   | `(pfExpr| ($inner:pfExpr)) => decodeExprUnchecked inner
   | _ => .error "unsupported portable expression"
 
+end
+
 def decodeExpr (stx : Syntax) : Except String ProofForgeV2.Source.Expr := do
   preflightForDecoder stx
   decodeExprUnchecked stx
@@ -977,8 +990,11 @@ private partial def decodeStatementUnchecked : Syntax → Except String ProofFor
         (← decodeExprUnchecked value)
   | `(letStmtOmitted| let $name:ident := $value:pfExpr) => do
       return .letDecl (← decodeIdentifier name) none (← decodeExprUnchecked value)
-  | `(pfStmt| $name:ident := $value:pfExpr) => do
-      return .assign (← decodeIdentifier name) (← decodeExprUnchecked value)
+  | `(pfStmt| $target:pfPlace := $value:pfExpr) => do
+      match target with
+      | `(pfPlace| $name:ident) =>
+          return .assign (← decodeIdentifier name) (← decodeExprUnchecked value)
+      | _ => throw "unsupported portable statement"
   | `(returnValueStmt| return $value:pfExpr) => do
       return .returnValue (← decodeExprUnchecked value)
   | `(pfStmt| return) => .ok .returnUnit
@@ -1604,7 +1620,7 @@ private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 :=
     throw s!"reserved portable identifier '{component.raw}'"
   pure component
 
-private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 := do
+private def decodeIdentPlaceV1 (stx : Syntax) : Except String PlaceV1 := do
   let rec collectPureStrChain (name : Name) (remaining : Nat) :
       Except String (Array String) :=
     match name with
@@ -1629,6 +1645,15 @@ private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 := do
       for component in components.extract 1 components.size do
         place := .field place component
       pure place
+
+private partial def decodePlaceV1With
+    (decodeExpr : Syntax → Except String ExprV1) : Syntax → Except String PlaceV1
+  | `(pfPlace| $name:ident) => decodeIdentPlaceV1 name
+  | `(pfPlace| $base:pfPlace . $field:ident) => do
+      pure (.field (← decodePlaceV1With decodeExpr base) (← decodeNameV1 field))
+  | `(pfPlace| $base:pfPlace [$index:pfExpr]) => do
+      pure (.index (← decodePlaceV1With decodeExpr base) (← decodeExpr index))
+  | _ => throw "unsupported portable place"
 
 private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
   match raw with
@@ -1793,11 +1818,8 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
       else
         let ctor ← decodePortableQualifiedIdV1 callee
         pure (.constructor ctor (← args.getElems.mapM decodeExprV1Unchecked))
-  | `(pfExpr| $base:ident [$index:pfExpr]) => do
-      let base ← decodePlaceV1 base
-      pure (.place (.index base (← decodeExprV1Unchecked index)))
-  | `(pfExpr| $name:ident) => do
-      pure (.place (← decodePlaceV1 name))
+  | `(pfExpr| $place:pfPlace) => do
+      pure (.place (← decodePlaceV1With decodeExprV1Unchecked place))
   | `(pfExpr| $lhs:pfExpr + $rhs:pfExpr) => do
       pure (.binary .add (← decodeExprV1Unchecked lhs) (← decodeExprV1Unchecked rhs))
   | `(pfExpr| $lhs:pfExpr - $rhs:pfExpr) => do
@@ -1843,6 +1865,9 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(pfExpr| ($inner:pfExpr)) => decodeExprV1Unchecked inner
   | _ => throw "unsupported portable expression"
 
+private def decodePlaceV1 (stx : Syntax) : Except String PlaceV1 :=
+  decodePlaceV1With decodeExprV1Unchecked stx
+
 private def decodeExternalCallV1Unchecked
     (calleeSyntax : Syntax) (argsSyntax : TSyntaxArray `pfExpr) :
     Except String ExternalCallExprV1 := do
@@ -1858,12 +1883,8 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
         (← decodeExprV1Unchecked value))
   | `(letStmtOmitted| let $name:ident := $value:pfExpr) => do
       pure (.let_ (← decodeNameV1 name) none (← decodeExprV1Unchecked value))
-  | `(pfStmt| $name:ident := $value:pfExpr) => do
-      pure (.assign (← decodePlaceV1 name) (← decodeExprV1Unchecked value))
-  | `(pfStmt| $base:ident [$index:pfExpr] := $value:pfExpr) => do
-      let target ← decodePlaceV1 base
-      let index ← decodeExprV1Unchecked index
-      pure (.assign (.index target index) (← decodeExprV1Unchecked value))
+  | `(pfStmt| $target:pfPlace := $value:pfExpr) => do
+      pure (.assign (← decodePlaceV1 target) (← decodeExprV1Unchecked value))
   | `(returnValueStmt| return $value:pfExpr) => do
       pure (.return_ (some (← decodeExprV1Unchecked value)))
   | `(pfStmt| return) => pure (.return_ none)

@@ -201,8 +201,6 @@ unsafe def run : IO Unit := do
   | other => throw <| IO.userError s!"constructor classification changed: {repr other}"
 
   for (label, expr) in [
-      ("chained-index", "x[0][1]"),
-      ("field-after-index", "x[0].field"),
       ("grouped-base", "(x)[0]"),
       ("call-base", "f()[0]")
     ] do
