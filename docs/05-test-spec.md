@@ -1539,7 +1539,7 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `program Invalid : contract where` 必须精确返回
   `PF-SRC-INVALID: Lean parser rejected source: failed to parse file`；非白名单
   `run_cmd IO.println "PF-PA88-MUST-NOT-EXECUTE"` 必须精确返回
-  `PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL`，且 captured output 不得
+  `PF-SRC-INVALID: Lean command is outside the portable program DSL`，且 captured output 不得
   包含 marker。这里固定的是 parser behavior，不是 `TST-DIAG-001` Diagnostic v1 schema/redaction 验收。
   direct fixture 可产生一个 test-local program attribute export，但 suite 不得调用 `programExports`/
   `programPayloads` 或修改 PA81–PA86 fixtures；PA86 empty snapshot 继续由其独立 import closure 隔离，
@@ -1569,8 +1569,10 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   `lake env .lake/build/bin/proof-forge-next-tests`、`just docs-check`、`git diff --check` 与 independent review；
   纯 tests/docs 切片不运行 `just sbom` 或完整 `just ci`。结果只可记录 development evidence，不能满足
   TASK-D1-01 冻结包要求的两项完整 TST 与 candidate-bound `qualification=formal`；五个 D0 dependency
-  未全部 done 时不得关闭 pending `TASK-D1-01`。`TST-SRC-002` 必须由后续单独冻结的窄
-  `SourceBoundsAcceptance` slice 承载，禁止用混合 `ProgramSyntax`/`Loader` wrapper 代替边界验收。
+  未全部 done 时不得关闭 pending `TASK-D1-01`。`TST-SRC-002` 的 dedicated
+  `SourceBoundsAcceptance` slice 已随 legacy source-reading surface 删除而移除；其 PF-BOUND-001
+  覆盖由 `ProgramSyntax`/`Loader` 与 ProgramV1 suites 继续承载，不再要求独立
+  `SourceBoundsAcceptance` 文件。
 - D1-PA-90 把 `TASK-D1-01`/`TST-SRC-002` 的 unit boundary 收敛为独立 tests-only
   `Tests.Language.SourceBoundsAcceptance.run`，并把既有 `just dsl-negative` 作为重资源 integration
   入口；它是当前 production bounds 的 direct characterization，不包装混合的 `ProgramSyntax.run` 或

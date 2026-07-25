@@ -52,19 +52,6 @@ private unsafe def expectReject
         throw <| IO.userError
           s!"negative '{label}' expected '{expected}', got '{rendered}'"
 
-private unsafe def expectLegacyReject
-    (session : ProofForgeV2.Language.Loader.ParserSession)
-    (label body expected : String) : IO Unit := do
-  match ← session.selectProgram (source body)
-      ("<legacy-match-statements-negative-" ++ label ++ ">") none with
-  | .ok value =>
-      throw <| IO.userError s!"legacy negative '{label}' unexpectedly decoded: {repr value}"
-  | .error error =>
-      let rendered := error.render
-      unless rendered.contains expected do
-        throw <| IO.userError
-          s!"legacy negative '{label}' expected '{expected}', got '{rendered}'"
-
 private def canonicalBytes (source : ValidatedSourceV1) (label : String) : IO ByteArray :=
   match canonicalValidatedSourceAstBytesV1 source with
   | .ok bytes => pure bytes
@@ -292,8 +279,5 @@ unsafe def run : IO Unit := do
     "    | «let» => do\n" ++
     "      return 0\n") "reserved portable identifier 'if'"
 
-  expectLegacyReject session "legacy-source-reader" ("    match flag with\n" ++
-    "    | _ => do\n" ++
-    "      return 0\n") "unsupported portable statement"
 
 end Tests.Language.ProgramV1MatchStatements

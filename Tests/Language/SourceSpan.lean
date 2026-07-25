@@ -2,11 +2,13 @@ import Lean.Util.Path
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Source.SpanV1
+import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace Tests.Language.SourceSpan
 
 open ProofForgeV2
 open ProofForgeV2.Source.SpanV1
+open ProofForgeV2.Source.ValidatedSourceV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -150,17 +152,31 @@ unsafe def run : IO Unit := do
     "source path/comment/layout variants must produce distinct observations"
 
   let session ← ProofForgeV2.Language.Loader.ParserSession.create
-  let programA ← match ← session.selectProgram sourceA fileA none with
-    | .ok programValue => pure programValue
-    | .error error => throw <| IO.userError s!"variant A Loader: {error.render}"
-  let programB ← match ← session.selectProgram sourceB fileB none with
-    | .ok programValue => pure programValue
-    | .error error => throw <| IO.userError s!"variant B Loader: {error.render}"
-  expect (programA == programB && programA.canonicalBytes == programB.canonicalBytes)
-    "file/span/comment/layout must not alter the decoded alpha Source.Program identity"
-  expect (programA.sourceHash == programB.sourceHash &&
-      programA.sourceHash ==
-        "92bf1352f87b2475cdd1f3fbe440ae24ace1c4995d82bd5cea23e1e5fa04eeaf")
-    "file/span/comment/layout must not alter the fixed alpha sourceHash"
+  let loadVariant (label fileName source : String) : IO ValidatedSourceV1 := do
+    match ← session.parseProgramsV1 source fileName "Tests.Language.SourceSpan" with
+    | .ok #[p] => pure p
+    | .ok programs =>
+        throw <| IO.userError s!"{label}: expected one program, got {programs.size}"
+    | .error error => throw <| IO.userError s!"{label}: {error.render}"
+  let programA ← loadVariant "variant A" fileA sourceA
+  let programB ← loadVariant "variant B" fileB sourceB
+  expect (programA.program == programB.program)
+    "file path, comments, and layout must not alter the decoded ProgramV1 AST"
+  let bytesA ← match canonicalValidatedSourceAstBytesV1 programA with
+    | .ok bytes => pure bytes
+    | .error message => throw <| IO.userError s!"variant A canonical bytes: {message}"
+  let bytesB ← match canonicalValidatedSourceAstBytesV1 programB with
+    | .ok bytes => pure bytes
+    | .error message => throw <| IO.userError s!"variant B canonical bytes: {message}"
+  expect (bytesA == bytesB)
+    "file path, comments, and layout must not alter the canonical ProgramV1 bytes"
+  let hashA ← match sourceHashV1 programA with
+    | .ok digest => pure digest
+    | .error message => throw <| IO.userError s!"variant A source hash: {message}"
+  let hashB ← match sourceHashV1 programB with
+    | .ok digest => pure digest
+    | .error message => throw <| IO.userError s!"variant B source hash: {message}"
+  expect (hashA == hashB)
+    "file path, comments, and layout must not alter the ProgramV1 source hash"
 
 end Tests.Language.SourceSpan

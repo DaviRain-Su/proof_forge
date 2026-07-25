@@ -16,6 +16,7 @@ namespace Tests.Language.ProgramCommandAcceptance
 open ProofForgeV2 System
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Language.ProgramExport
+open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open Tests.Language.ProgramCommandAcceptance.Fixture
 
@@ -48,7 +49,7 @@ private def exactKindErr : String :=
   "PF-SRC-INVALID: Lean parser rejected source: failed to parse file"
 
 private def exactRunCmdErr : String :=
-  "PF-SRC-INVALID: Lean command 'Lean.runCmd' is outside the portable program DSL"
+  "PF-SRC-INVALID: Lean command is outside the portable program DSL"
 
 /-- TST-SRC-003 packaging: program command identity + illegal top-level only. -/
 unsafe def run : IO Unit := do
@@ -66,19 +67,22 @@ unsafe def run : IO Unit := do
         "Counter ProgramV1 must contain one view entry"
 
   let session ← Tests.Language.ParserSession.shared
-  match ← session.parsePrograms counterSource "<pa88-counter>" with
+  match ← session.parseProgramsV1 counterSource "<pa88-counter>"
+      "Tests.Language.ProgramCommandAcceptance" with
   | .error e => throw <| IO.userError s!"positive parse failed: {e.render}"
   | .ok programs => do
       expect (programs.size == 1) s!"expected one program, got {programs.size}"
       let some p := programs[0]? | throw <| IO.userError "missing program"
-      expect (p.name == "Counter") "short name"
-      expect (p.qualifiedName ==
-        "Tests.Language.ProgramCommandAcceptance.Fixture.Counter") "FQN"
-  let (kindRes, _) ← withCapturedStdout (session.parsePrograms kindSource "<pa88-kind>")
+      expect (p.program.name.raw == "Counter") "short name"
+      expect ((NonEmptyArray.toArray p.programIdentity.components).map (·.raw) ==
+        #["Tests", "Language", "ProgramCommandAcceptance", "Fixture", "Counter"]) "FQN"
+  let (kindRes, _) ← withCapturedStdout
+      (session.parseProgramsV1 kindSource "<pa88-kind>" "InvalidModule")
   match kindRes with
   | .ok _ => throw <| IO.userError "kind suffix must fail"
   | .error e => expect (e.render == exactKindErr) s!"kind: {e.render}"
-  let (cmdRes, cmdOut) ← withCapturedStdout (session.parsePrograms runCmdSource "<pa88-runcmd>")
+  let (cmdRes, cmdOut) ← withCapturedStdout
+      (session.parseProgramsV1 runCmdSource "<pa88-runcmd>" "RunCmd")
   match cmdRes with
   | .ok _ => throw <| IO.userError "run_cmd must fail"
   | .error e => expect (e.render == exactRunCmdErr) s!"run_cmd: {e.render}"

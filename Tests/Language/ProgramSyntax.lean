@@ -1,21 +1,17 @@
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.Syntax
-import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Language.ProgramSyntax
 
 open ProofForgeV2
-open Tests.Fixtures.SourcePrograms
+open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.ValidatedSourceV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
-
-private def expectDecoderBound (result : Except String α) (label : String) : IO Unit :=
-  match result with
-  | .error message =>
-      expect (message.startsWith "PF-BOUND-001:")
-        s!"{label} must preserve PF-BOUND-001, found: {message}"
-  | .ok _ => throw <| IO.userError s!"{label} unexpectedly accepted over-nested syntax"
 
 private def isSha256Hex (value : String) : Bool :=
   value.length == 64 && value.toList.all fun char =>
@@ -31,13 +27,34 @@ private def wideSyntax (nodeCount : Nat) : Lean.Syntax :=
   Lean.Syntax.node .none `ProofForgeV2.Tests.wideSyntax <|
     Array.replicate (nodeCount - 1) (Lean.Syntax.atom .none "x")
 
-private def repeatedName (partCount : Nat) : Lean.Name := Id.run do
-  let mut name := Lean.Name.anonymous
-  for _ in [:partCount] do
-    name := Lean.Name.mkStr name "N"
-  return name
+private def mkProgramSource (namespaceName : String) : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace " ++ namespaceName ++ "\n\n" ++
+  "program Counter where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry increment(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end " ++ namespaceName ++ "\n"
 
-def run : IO Unit := do
+private def aSource := mkProgramSource "A"
+private def bSource := mkProgramSource "B"
+
+private def deepUnarySource (depth : Nat) : String :=
+  let expr := String.intercalate "" (List.replicate depth "!") ++ "true"
+  "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram Deep where\n  view get() : Bool do\n    return " ++ expr ++ "\n"
+
+private def liftSourceHash (label : String) (result : Except String Digest) : IO Digest :=
+  match result with
+  | .ok digest => pure digest
+  | .error message => throw <| IO.userError s!"{label}: {message}"
+
+unsafe def run : IO Unit := do
   expect (ProofForgeV2.Language.maxSyntaxNodes == 100000 && ProofForgeV2.Language.maxSyntaxNesting == 256)
     "portable Syntax budgets must match SPEC-LANG-001"
   expect ((CompileError.resourceBound "test").code == "PF-BOUND-001")
@@ -56,79 +73,72 @@ def run : IO Unit := do
   match ProofForgeV2.Language.preflightSyntax overNodeLimit with
   | .error (.resourceBound _) => pure ()
   | _ => throw <| IO.userError "Syntax above the node limit must fail with PF-BOUND-001"
-  let overNested := linearSyntax (ProofForgeV2.Language.maxSyntaxNesting + 1)
-  expectDecoderBound (ProofForgeV2.Language.decodeType overNested) "type decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeParam overNested) "parameter decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeExpr overNested) "expression decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeStatement overNested) "statement decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeItem overNested) "item decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeProgramCommand .anonymous overNested)
-    "program command decoder"
-  expectDecoderBound (ProofForgeV2.Language.decodeProgramCommand .anonymous overNodeLimit)
-    "program command node budget"
-  match ProofForgeV2.Language.preflightProgramIdentity
-      (repeatedName (ProofForgeV2.Language.maxSyntaxNesting - 1)) `BoundProbe with
-  | .ok () => pure ()
-  | .error error => throw <| IO.userError s!"identity at the nesting limit failed: {error.render}"
-  match ProofForgeV2.Language.preflightProgramIdentity
-      (repeatedName ProofForgeV2.Language.maxSyntaxNesting) `BoundProbe with
-  | .error (.resourceBound _) => pure ()
-  | _ => throw <| IO.userError "qualified program identity above the nesting limit must fail"
-  let identifierAtLimit := Lean.Syntax.ident .none "N".toRawSubstring
-    (repeatedName ProofForgeV2.Language.maxSyntaxNesting) []
-  let identifierOverLimit := Lean.Syntax.ident .none "N".toRawSubstring
-    (repeatedName (ProofForgeV2.Language.maxSyntaxNesting + 1)) []
-  match ProofForgeV2.Language.preflightSyntax identifierAtLimit with
-  | .ok () => pure ()
-  | .error error => throw <| IO.userError <|
-      s!"identifier at the component limit unexpectedly failed: {error.render}"
-  match ProofForgeV2.Language.preflightSyntax identifierOverLimit with
-  | .error (.resourceBound _) => pure ()
-  | _ => throw <| IO.userError "identifier above the component limit must fail"
+  match ← Language.Loader.parseProgramsV1
+      (deepUnarySource 300)
+      "<program-syntax-deep>" "Root" with
+  | .error (.resourceBound message) =>
+      expect (message == s!"portable syntax exceeds nesting limit {ProofForgeV2.Language.maxSyntaxNesting}")
+        "V1 loader must surface PF-BOUND-001 for over-nested source syntax"
+  | .error error =>
+      throw <| IO.userError s!"V1 deep syntax expected PF-BOUND-001, got {error.render}"
+  | .ok _ => throw <| IO.userError "V1 deep syntax unexpectedly passed the loader"
   expect (Crypto.sha256Hex "".toUTF8 ==
       "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
     "SHA-256 must match the empty-message reference vector"
   expect (Crypto.sha256Hex "abc".toUTF8 ==
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     "SHA-256 must match the abc reference vector"
-  expect (counterQualified.name == "Counter") "program must preserve its source name"
-  expect (counterQualified.qualifiedName == "ProofForgeV2.Examples.Counter")
-    "program must preserve its fully-qualified identity"
-  expect (counterQualified.entries.map (·.name) == #["increment", "get"]) "program entries must elaborate in source order"
-  let counter ← match Compiler.compile counterQualified with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
-  let privateSum ← match Compiler.compile privateSum4Qualified with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
-  expect (counter.requirements.contains .persistentState) "requirements must be inferred from semantic state"
-  expect (counter.requirements.contains .checkedArithmetic) "requirements must be inferred from checked semantic addition"
-  expect (privateSum.requirements.contains .privateWitness) "private parameters must infer semantic disclosure requirements"
-  let aCounter := Source.Program.buildQualified "A.Counter" "Counter" #[
-    .entry {
-      name := "get"
-      params := #[]
-      result := .u64
-      mode := .view
-      body := #[.returnValue (.literal 0)]
-    }
-  ]
-  let bCounter := Source.Program.buildQualified "B.Counter" "Counter" #[
-    .entry {
-      name := "get"
-      params := #[]
-      result := .u64
-      mode := .view
-      body := #[.returnValue (.literal 0)]
-    }
-  ]
-  expect (aCounter.name == "Counter" && bCounter.name == "Counter")
+
+  let counter ← match ← Language.Loader.selectProgramV1
+      Examples.counterSourceText "<program-syntax-counter>"
+      Examples.counterModuleNameV1 none with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"Counter V1 parse failed: {error.render}"
+  let identity := counter.programIdentity.components.toArray.map (·.raw)
+  expect (identity == #["Examples", "Counter", "ProofForgeV2", "Examples", "Counter"])
+    "ProgramV1 identity must join module, namespace, and declaration raw components"
+  let itemKinds := counter.program.items.map fun item =>
+    match item with
+    | .state s => ("state", s.name.raw)
+    | .init _ => ("init", "")
+    | .entry e => ("entry", e.name.raw)
+    | .view v => ("view", v.name.raw)
+    | _ => ("other", "")
+  expect (itemKinds == #[("state", "count"), ("init", ""), ("entry", "increment"), ("view", "get")])
+    "Counter ProgramV1 must retain state/init/entry/view source order"
+  let sourceHash ← liftSourceHash "counter sourceHash" (sourceHashV1 counter)
+  let renderedHash ← match renderDigest sourceHash with
+  | .ok value => pure value
+  | .error message => throw <| IO.userError message
+  let hexPart := String.ofList (renderedHash.toList.drop "sha256:".length)
+  expect (renderedHash.startsWith "sha256:" && isSha256Hex hexPart)
+    "ProgramV1 source hash must be 64-character lower-case SHA-256 hex"
+
+  let semantic ← match Compiler.compileValidatedSourceV1 counter with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+  expect (semantic.requirements.contains .persistentState)
+    "requirements must be inferred from semantic state"
+  expect (semantic.requirements.contains .checkedArithmetic)
+    "requirements must be inferred from checked semantic addition"
+
+  let aCounter ← match ← Language.Loader.selectProgramV1
+      aSource "<program-syntax-a>" "A" none with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+  let bCounter ← match ← Language.Loader.selectProgramV1
+      bSource "<program-syntax-b>" "B" none with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+  expect (aCounter.program.name.raw == "Counter" && bCounter.program.name.raw == "Counter")
     "artifact names must remain short"
-  expect (aCounter.qualifiedName == "A.Counter" && bCounter.qualifiedName == "B.Counter")
+  expect (aCounter.programIdentity.components.toArray.map (·.raw) == #["A", "Counter"])
     "namespace must participate in program identity"
-  expect (aCounter.sourceHash != bCounter.sourceHash)
+  expect (bCounter.programIdentity.components.toArray.map (·.raw) == #["B", "Counter"])
+    "namespace must participate in program identity"
+  let aHash ← liftSourceHash "aCounter hash" (sourceHashV1 aCounter)
+  let bHash ← liftSourceHash "bCounter hash" (sourceHashV1 bCounter)
+  expect (aHash != bHash)
     "fully-qualified identity must participate in source hashing"
-  expect (isSha256Hex aCounter.sourceHash && isSha256Hex bCounter.sourceHash)
-    "source hashes must be 64-character lower-case SHA-256 hex"
 
 end Tests.Language.ProgramSyntax

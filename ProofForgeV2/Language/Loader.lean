@@ -63,69 +63,6 @@ private def validateHeader (header : Syntax) : Except CompileError Unit := do
       | _ => throw <| invalid "public/meta/import-all forms are not allowed in program source"
   | _ => throw <| invalid "invalid Lean module header"
 
-private def processCommands (commands : Array Syntax) :
-    Except CompileError (Array Source.Program) := do
-  let mut scopes : Array NamespaceFrame := #[]
-  -- Keep a materialized namespace only while it can still form a legal
-  -- portable program identity. Lean permits deeper transient namespace scopes,
-  -- so an overflow state must be restorable instead of rejected eagerly.
-  let mut namespaceState : NamespaceState := .bounded .anonymous 0
-  let mut programs : Array Source.Program := #[]
-  let mut programNames : Std.HashSet String := {}
-  for command in commands do
-    if command.isOfKind ``Parser.Command.eoi then
-      continue
-    match command with
-    | `(program $_name:ident where $_items:pfItem*) =>
-        let currentNamespace := match namespaceState with
-          | .bounded name _ => Language.ProgramNamespace.bounded name
-          | .overLimit _ _ => Language.ProgramNamespace.overLimit
-        let contractProgram ←
-          Language.decodeProgramCommandChecked currentNamespace command
-        let (alreadyPresent, updatedNames) :=
-          programNames.containsThenInsert contractProgram.qualifiedName
-        if alreadyPresent then
-          throw <| invalid s!"duplicate program '{contractProgram.qualifiedName}'"
-        programNames := updatedNames
-        programs := programs.push contractProgram
-    | `(command| open ProofForgeV2.Language) => pure ()
-    | `(command| namespace $name:ident) =>
-        let declared := name.getId
-        scopes := scopes.push {
-          declared
-          previous := namespaceState
-        }
-        match namespaceState with
-        | .bounded currentName currentParts =>
-            match Language.boundedNamePartCount
-                (Language.maxSyntaxNesting - currentParts) declared with
-            | some addedParts =>
-                namespaceState := .bounded
-                  (currentName ++ declared) (currentParts + addedParts)
-            | none =>
-                namespaceState := .overLimit currentName currentParts
-        | .overLimit currentName currentParts =>
-            namespaceState := .overLimit currentName currentParts
-    | `(command| end) =>
-        if scopes.isEmpty then
-          throw <| invalid "unmatched namespace end"
-        let frame := scopes.back!
-        scopes := scopes.pop
-        namespaceState := frame.previous
-    | `(command| end $name:ident) =>
-        if scopes.isEmpty then
-          throw <| invalid "unmatched namespace end"
-        let frame := scopes.back!
-        unless namesEqual name.getId frame.declared do
-          throw <| invalid "namespace end does not match the active namespace"
-        scopes := scopes.pop
-        namespaceState := frame.previous
-    | _ =>
-        throw <| invalid s!"Lean command '{command.getKind}' is outside the portable program DSL"
-  unless scopes.isEmpty do
-    throw <| invalid "unterminated namespace"
-  return programs
-
 private def sourceQualifiedKey (name : SourceQualifiedNameV1) : String :=
   String.intercalate "\u0000"
     ((NonEmptyArray.toArray name.components).map (·.raw) |>.toList)
@@ -133,6 +70,10 @@ private def sourceQualifiedKey (name : SourceQualifiedNameV1) : String :=
 private def renderSourceQualified (name : SourceQualifiedNameV1) : String :=
   (NonEmptyArray.toArray name.components).foldl
     (fun acc component => Name.str acc component.raw) .anonymous |>.toString
+
+private def sourceQualifiedNameV1ToLeanName (name : SourceQualifiedNameV1) : Name :=
+  (NonEmptyArray.toArray name.components).foldl
+    (fun acc component => Name.str acc component.raw) .anonymous
 
 private def parseSourceQualifiedInput (environment : Environment)
     (label value : String) : Except CompileError SourceQualifiedNameV1 := do
@@ -145,8 +86,7 @@ private def parseSourceQualifiedInput (environment : Environment)
   | .ok name => pure name
   | .error message => throw <| invalid s!"invalid {label}: {message}"
 
-/-- ProgramV1 product command walker. The legacy walker above is retained only
-for characterization tests; this path never falls back to it. -/
+/- ProgramV1 product command walker. -/
 private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
     (commands : Array Syntax) : Except CompileError (Array ValidatedSourceV1) := do
   let mut scopes : Array NamespaceFrame := #[]
@@ -158,8 +98,9 @@ private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
       continue
     match command with
     | `(program $_name:ident where $_items:pfItem*) =>
+        let moduleNameLean := sourceQualifiedNameV1ToLeanName moduleName
         let currentNamespace := match namespaceState with
-          | .bounded name _ => Language.ProgramNamespace.bounded name
+          | .bounded name _ => Language.ProgramNamespace.bounded (name.replacePrefix moduleNameLean .anonymous)
           | .overLimit _ _ => Language.ProgramNamespace.overLimit
         let source ←
           Language.decodeProgramCommandV1Checked moduleName currentNamespace command
@@ -199,7 +140,7 @@ private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
         scopes := scopes.pop
         namespaceState := frame.previous
     | _ =>
-        throw <| invalid s!"Lean command '{command.getKind}' is outside the portable program DSL"
+        throw <| invalid "Lean command is outside the portable program DSL"
   unless scopes.isEmpty do
     throw <| invalid "unterminated namespace"
   pure programs
@@ -215,21 +156,6 @@ private def checkSourceSize (source : String) : Except CompileError Unit :=
     .error <| invalid "source exceeds the 16 MiB limit"
   else
     .ok ()
-
-private unsafe def parseProgramsWithEnvironment (environment : Environment)
-    (source fileName : String) : IO (Except CompileError (Array Source.Program)) := do
-  if let .error error := checkSourceSize source then
-    return .error error
-  try
-    let parsedSyntax ← Parser.testParseModule environment fileName source
-    match parsedSyntax.getArgs with
-    | #[header, commands] =>
-        return do
-          validateHeader header
-          processCommands commands.getArgs
-    | _ => return .error <| invalid "Lean parser returned an invalid module syntax tree"
-  catch error =>
-    return .error <| invalid s!"Lean parser rejected source: {error}"
 
 private unsafe def parseProgramsV1WithEnvironment (environment : Environment)
     (source fileName moduleInput : String) :
@@ -249,20 +175,6 @@ private unsafe def parseProgramsV1WithEnvironment (environment : Environment)
     | _ => return .error <| invalid "Lean parser returned an invalid module syntax tree"
   catch error =>
     return .error <| invalid s!"Lean parser rejected source: {error}"
-
-private def selectParsedProgram (parsed : Except CompileError (Array Source.Program))
-    (requested : Option String) : Except CompileError Source.Program :=
-  parsed >>= fun programs =>
-    match requested with
-    | some name =>
-        match programs.find? (·.qualifiedName == name) with
-        | some contractProgram => .ok contractProgram
-        | none => .error <| invalid s!"program '{name}' was not found"
-    | none =>
-        match programs with
-        | #[contractProgram] => .ok contractProgram
-        | #[] => .error <| invalid "source contains no program"
-        | _ => .error <| invalid "source contains multiple programs; pass --program <qualified-name>"
 
 private def selectParsedProgramV1 (environment : Environment)
     (parsed : Except CompileError (Array ValidatedSourceV1))
@@ -292,14 +204,6 @@ namespace ParserSession
 unsafe def create : IO ParserSession :=
   return { environment := ← parserEnvironment }
 
-unsafe def parsePrograms (session : ParserSession) (source fileName : String) :
-    IO (Except CompileError (Array Source.Program)) :=
-  parseProgramsWithEnvironment session.environment source fileName
-
-unsafe def selectProgram (session : ParserSession) (source fileName : String)
-    (requested : Option String) : IO (Except CompileError Source.Program) := do
-  return selectParsedProgram (← session.parsePrograms source fileName) requested
-
 unsafe def parseProgramsV1 (session : ParserSession) (source fileName moduleName : String) :
     IO (Except CompileError (Array ValidatedSourceV1)) :=
   parseProgramsV1WithEnvironment session.environment source fileName moduleName
@@ -311,17 +215,6 @@ unsafe def selectProgramV1 (session : ParserSession)
     (← session.parseProgramsV1 source fileName moduleName) requested
 
 end ParserSession
-
-unsafe def parsePrograms (source fileName : String) :
-    IO (Except CompileError (Array Source.Program)) := do
-  if let .error error := checkSourceSize source then
-    return .error error
-  let session ← ParserSession.create
-  session.parsePrograms source fileName
-
-unsafe def selectProgram (source fileName : String) (requested : Option String) :
-    IO (Except CompileError Source.Program) := do
-  return selectParsedProgram (← parsePrograms source fileName) requested
 
 unsafe def parseProgramsV1 (source fileName moduleName : String) :
     IO (Except CompileError (Array ValidatedSourceV1)) := do

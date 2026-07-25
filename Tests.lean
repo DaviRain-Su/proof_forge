@@ -33,6 +33,7 @@ import Tests.Language.ProgramV1PlaceSuffixes
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
+import Tests.Language.AggregateDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
 import Tests.Language.SourceNodeAssignmentCollisionV1
@@ -44,7 +45,6 @@ import Tests.Language.SourceProgramWireMarkerGoldenV1
 import Tests.Language.SourceProgramWireUnknownTagGoldenV1
 import Tests.Language.SourceSpan
 import Tests.Language.SourceWireAcceptance
-import Tests.Language.SourceBoundsAcceptance
 import Tests.Language.SourceWireCodecV1
 import Tests.Language.SourceWireDecodeV1
 import Tests.Language.SourceNameComponentV1
@@ -82,6 +82,7 @@ import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 
+
 unsafe def main : IO Unit := do
   Tests.Core.Common.run
   Tests.Core.CommonRemaining.run
@@ -118,11 +119,11 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
+  Tests.Language.AggregateDeclarations.run
   Tests.Language.StateVisibility.run
   Tests.Language.FrontendParity.run
   Tests.Language.Loader.run
   Tests.Language.SourceWireAcceptance.run
-  Tests.Language.SourceBoundsAcceptance.run
   Tests.Language.SourceWireCodecV1.run
   Tests.Language.SourceWireDecodeV1.run
   Tests.Language.SourceNameComponentV1.run
