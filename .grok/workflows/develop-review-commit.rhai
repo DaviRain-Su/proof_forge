@@ -155,7 +155,7 @@ preflight_prompt += "allowed_files must contain only repository-relative files u
 let preflight = agent(preflight_prompt, #{
     label: "preflight-plan",
     phase: "Plan",
-    capability_mode: "read-only",
+    capability_mode: "execute",
     output_schema: preflight_schema,
 });
 if preflight == () || !preflight.success {
