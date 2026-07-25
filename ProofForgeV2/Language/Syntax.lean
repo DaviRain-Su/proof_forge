@@ -193,6 +193,8 @@ syntax ident " := " pfExpr : pfStmt
 @[pfStmt_parser default+1] def returnValueStmt := leading_parser
   withPosition ("return " >> (checkLineEq <|> checkColGt) >> categoryParser `pfExpr 0)
 syntax "return" : pfStmt
+syntax "call " ident "(" pfExpr,* ")" : pfStmt
+syntax "schedule " ident "(" pfExpr,* ")" : pfStmt
 syntax "call " str : pfStmt
 syntax "assert " pfExpr " else " ident : pfStmt
 syntax "assert " pfExpr : pfStmt
@@ -1801,6 +1803,23 @@ private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(pfExpr| ($inner:pfExpr)) => decodeExprV1Unchecked inner
   | _ => throw "unsupported portable expression"
 
+private def decodeQualifiedIdV1 (stx : Syntax) : Except String SourceQualifiedNameV1 := do
+  let qualified ← sourceQualifiedNameV1FromLeanName stx.getId
+  validateSourceQualifiedIdV1 qualified
+  pure qualified
+
+private def decodeExternalCallV1Unchecked
+    (calleeSyntax : Syntax) (argsSyntax : TSyntaxArray `pfExpr) :
+    Except String ExternalCallExprV1 := do
+  let callee ← decodeQualifiedIdV1 calleeSyntax
+  for component in NonEmptyArray.toArray callee.components do
+    if isReservedPortableIdentifierV1 component.raw then
+      throw s!"reserved portable identifier '{component.raw}'"
+  pure {
+    callee := callee
+    args := ← argsSyntax.mapM decodeExprV1Unchecked
+  }
+
 private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
   | `(letStmtAnnotated| let $name:ident : $type:pfType := $value:pfExpr) => do
       pure (.let_ (← decodeNameV1 name) (some (← decodeTypeV1Unchecked type))
@@ -1822,6 +1841,10 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
       pure (.revert (← decodeNameV1 errorName) #[])
   | `(pfStmt| emit $eventName:ident ($args:pfExpr,*)) => do
       pure (.emit (← decodeNameV1 eventName) (← args.getElems.mapM decodeExprV1Unchecked))
+  | `(pfStmt| call $callee:ident ($args:pfExpr,*)) => do
+      pure (.call (← decodeExternalCallV1Unchecked callee args))
+  | `(pfStmt| schedule $callee:ident ($args:pfExpr,*)) => do
+      pure (.schedule (← decodeExternalCallV1Unchecked callee args))
   | `(pfStmt| call $_callee:str) =>
       throw "portable ProgramV1 calls require a qualified source identity"
   | _ => throw "unsupported portable statement"
@@ -1859,11 +1882,6 @@ private def decodeEnumVariantV1Unchecked : Syntax → Except String EnumVariantV
         payloadTypes := ← payloadTypes.mapM decodeTypeV1Unchecked
       }
   | _ => .error "unsupported portable enum variant"
-
-private def decodeQualifiedIdV1 (stx : Syntax) : Except String SourceQualifiedNameV1 := do
-  let qualified ← sourceQualifiedNameV1FromLeanName stx.getId
-  validateSourceQualifiedIdV1 qualified
-  pure qualified
 
 private def decodeItemV1Unchecked : Syntax → Except String ProgramItemV1
   | `(pfItem| state $name:ident : $type:pfType) => do

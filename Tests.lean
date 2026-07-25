@@ -42,6 +42,7 @@ import Tests.Language.ProgramPayloads
 import Tests.Language.ProgramShortNames
 import Tests.Language.ProgramSyntax
 import Tests.Language.ProgramV1Declarations
+import Tests.Language.ProgramV1ExternalStatements
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
 import Tests.Language.Equal
@@ -143,6 +144,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramPayloads.run
   Tests.Language.ProgramShortNames.run
   Tests.Language.ProgramV1Declarations.run
+  Tests.Language.ProgramV1ExternalStatements.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
   Tests.Language.Equal.run
