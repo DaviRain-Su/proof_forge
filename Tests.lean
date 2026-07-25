@@ -54,6 +54,7 @@ import Tests.Language.ProgramV1BitwiseExpressions
 import Tests.Language.ProgramV1LogicalExpressions
 import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ProgramV1RevertEmitStatements
+import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
 import Tests.Language.Equal
@@ -167,6 +168,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1LogicalExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ProgramV1RevertEmitStatements.run
+  Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
   Tests.Language.Equal.run

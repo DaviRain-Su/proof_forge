@@ -97,6 +97,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1LogicalExpressions,
     `Tests.Language.ProgramV1CoreStatements,
     `Tests.Language.ProgramV1RevertEmitStatements,
+    `Tests.Language.ProgramV1StringLiterals,
     `Tests.Language.ShiftLeft,
     `Tests.Language.ShiftRight,
     `Tests.Language.Equal,
