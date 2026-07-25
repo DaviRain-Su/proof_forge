@@ -42,6 +42,7 @@ import Tests.Language.ProgramPayloads
 import Tests.Language.ProgramShortNames
 import Tests.Language.ProgramSyntax
 import Tests.Language.ProgramV1Declarations
+import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
 import Tests.Language.ProgramV1ControlFlow
 import Tests.Language.ProgramV1ExpressionForms
@@ -163,6 +164,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramPayloads.run
   Tests.Language.ProgramShortNames.run
   Tests.Language.ProgramV1Declarations.run
+  Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run
   Tests.Language.ProgramV1ControlFlow.run
   Tests.Language.ProgramV1ExpressionForms.run

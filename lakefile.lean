@@ -85,6 +85,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramShortNames,
     `Tests.Language.ProgramSyntax,
     `Tests.Language.ProgramV1Declarations,
+    `Tests.Language.ProgramV1DeclarationNegatives,
     `Tests.Language.ProgramV1ExternalStatements,
     `Tests.Language.ProgramV1ControlFlow,
     `Tests.Language.ProgramV1ExpressionForms,

@@ -1,5 +1,6 @@
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Language.ProgramV1Declarations
+import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
 import Tests.Language.ProgramV1ControlFlow
 import Tests.Language.ProgramV1ExpressionForms
@@ -27,6 +28,7 @@ import Tests.CLI.ToolchainPolicy
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Language.ProgramV1Declarations.run
+  Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run
   Tests.Language.ProgramV1ControlFlow.run
   Tests.Language.ProgramV1ExpressionForms.run
