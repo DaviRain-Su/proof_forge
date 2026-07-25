@@ -48,6 +48,7 @@ import Tests.Language.ProgramV1ExpressionForms
 import Tests.Language.ProgramV1UnaryExpressions
 import Tests.Language.ProgramV1ArithmeticExpressions
 import Tests.Language.ProgramV1ShiftExpressions
+import Tests.Language.ProgramV1EqualityExpressions
 import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ShiftLeft
@@ -157,6 +158,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1UnaryExpressions.run
   Tests.Language.ProgramV1ArithmeticExpressions.run
   Tests.Language.ProgramV1ShiftExpressions.run
+  Tests.Language.ProgramV1EqualityExpressions.run
   Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ProgramV1RevertEmitStatements.run
   Tests.Language.ShiftLeft.run

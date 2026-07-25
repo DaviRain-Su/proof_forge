@@ -91,6 +91,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1UnaryExpressions,
     `Tests.Language.ProgramV1ArithmeticExpressions,
     `Tests.Language.ProgramV1ShiftExpressions,
+    `Tests.Language.ProgramV1EqualityExpressions,
     `Tests.Language.ProgramV1CoreStatements,
     `Tests.Language.ProgramV1RevertEmitStatements,
     `Tests.Language.ShiftLeft,
