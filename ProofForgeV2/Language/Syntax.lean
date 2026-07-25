@@ -1847,7 +1847,38 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
       pure (.schedule (← decodeExternalCallV1Unchecked callee args))
   | `(pfStmt| call $_callee:str) =>
       throw "portable ProgramV1 calls require a qualified source identity"
-  | _ => throw "unsupported portable statement"
+  | stx => do
+      match stx.getKind, stx.getArgs with
+      | `ProofForgeV2.Language.ifStmt, #[.atom _ "if", condition, .atom _ "then",
+          .node _ `null thenSyntax, .node _ `null elseSyntax] => do
+          unless !thenSyntax.isEmpty do throw "unsupported portable statement"
+          let condition ← decodeExprV1Unchecked condition
+          let thenBlock := { statements := ← thenSyntax.mapM decodeStatementV1Unchecked }
+          let elseBlock ←
+            if elseSyntax.isEmpty then
+              pure none
+            else
+              match elseSyntax with
+              | #[.atom _ "else", .node _ `null body] => do
+                  if body.isEmpty then throw "unsupported portable statement"
+                  else pure (some { statements := ← body.mapM decodeStatementV1Unchecked })
+              | _ => throw "unsupported portable statement"
+          pure (.if_ condition thenBlock elseBlock)
+      | `ProofForgeV2.Language.forStmt, #[.atom _ "for", iterator, .atom _ "in", start,
+          .atom _ "..<", stopExclusive, .atom _ "bounded", bound, .atom _ "do",
+          .node _ `null body] => do
+          unless !body.isEmpty do throw "unsupported portable statement"
+          unless iterator.getId.components.length == 1 do
+            throw "unsupported portable statement"
+          let binder ← decodeNameV1 iterator
+          let start ← decodeExprV1Unchecked start
+          let stopExclusive ← decodeExprV1Unchecked stopExclusive
+          let bound ← match decodeBytesLengthAtom bound with
+            | .ok value => pure value
+            | .error _ => throw "unsupported portable statement"
+          pure (.for_ binder start stopExclusive bound
+            { statements := ← body.mapM decodeStatementV1Unchecked })
+      | _, _ => throw "unsupported portable statement"
 
 private def decodeParamsV1 (params : Array Syntax) : Except String (Array ParamV1) :=
   params.mapM decodeParamV1Unchecked
