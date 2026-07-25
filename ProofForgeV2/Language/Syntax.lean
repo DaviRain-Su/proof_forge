@@ -202,6 +202,10 @@ syntax "_" : pfPattern
 syntax ident : pfPattern
 syntax num : pfPattern
 syntax str : pfPattern
+/-- Constructor pattern: `QualifiedId(PatternList?)`. Max precedence leading form so
+bare `ident` remains a bind pattern and call-like shapes route here only when followed
+by `(`; empty argument lists decode to `#[]`. -/
+syntax:max ident "(" pfPattern,* ")" : pfPattern
 @[pfPattern_parser default+1] def boolTruePattern := leading_parser
   nonReservedSymbol "true" (includeIdent := true)
 @[pfPattern_parser default+1] def boolFalsePattern := leading_parser
@@ -1927,7 +1931,7 @@ private def decodeExternalCallV1Unchecked
     args := ← argsSyntax.mapM decodeExprV1Unchecked
   }
 
-private def decodePatternV1Unchecked : Syntax → Except String PatternV1
+private partial def decodePatternV1Unchecked : Syntax → Except String PatternV1
   | `(pfPattern| _) => pure .wildcard
   | `(boolTruePattern| true) => pure (.literal (.bool true))
   | `(boolFalsePattern| false) => pure (.literal (.bool false))
@@ -1936,6 +1940,9 @@ private def decodePatternV1Unchecked : Syntax → Except String PatternV1
       if number < 2 ^ 256 then pure (.literal (.integer number))
       else throw "integer literal exceeds UInt256"
   | `(pfPattern| $value:str) => pure (.literal (.string value.getString))
+  | `(pfPattern| $ctor:ident ($args:pfPattern,*)) => do
+      let ctor ← decodePortableQualifiedIdV1 ctor
+      pure (.constructor ctor (← args.getElems.mapM decodePatternV1Unchecked))
   | `(pfPattern| $name:ident) => do
       pure (.bind (← decodeNameV1 name))
   | _ => throw "unsupported portable pattern"

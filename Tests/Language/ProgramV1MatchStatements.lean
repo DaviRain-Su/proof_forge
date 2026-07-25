@@ -249,7 +249,7 @@ unsafe def run : IO Unit := do
 
   expectReject session "constructor-pattern" ("    match flag with\n" ++
     "    | Some(value) => do\n" ++
-    "      return 0\n") "failed to parse file"
+    "      return 0\n") "source qualified id must contain 2..256 components"
   expectReject session "qualified-bind" ("    match flag with\n" ++
     "    | A.x => do\n" ++
     "      return 0\n") "source name component must contain exactly one Lean Name component"
