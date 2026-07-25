@@ -11,9 +11,10 @@ normative: true
 
 ## 当前产品恢复
 
-日常产品执行以根级 [`RECOVERY.md`](../RECOVERY.md) 为指针：先完成
-`ProgramV1 → Typed → Semantic → EVM artifact` 的 Counter 纵向切面。既有 D1 与
-TaskQualification 文档保留为历史 release-qualification 资料，不再阻塞开发完成。
+日常产品执行以根级 [`RECOVERY.md`](../RECOVERY.md) 为边界，并以
+[`MIGRATION_MATRIX.md`](../MIGRATION_MATRIX.md) 的27行事实矩阵按 D1 → D2 → D3 → D4
+迁移。当前 Counter/Accumulator 只是 ProgramV1→alpha downstream恢复桥；既有formal task与
+TaskQualification资料继续如实保留，但不冒充工程实现完成度。
 
 ## 生命周期
 

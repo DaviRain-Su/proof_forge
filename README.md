@@ -253,7 +253,8 @@ CLI 的 `build` 与 `build-counter` 已直接使用
 EVM Yul/ABI materialization 由快速产品测试固定，真实 Counter/Accumulator source 也已通过锁定
 `solc` 生成 EVM bytecode。产品只要求所选工具的 exact closure；无关 `jv` 不再阻塞 EVM。
 这是恢复纵切面，不表示正式 `SemanticProgramV1`、D3 resolver/`OutputSetV1` 或 D1–D4 task 已完成。
-详情见 [`RECOVERY.md`](RECOVERY.md)。
+迁移顺序、27项要求/代码完成度和旧代码删除门槛见
+[`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)；执行边界见 [`RECOVERY.md`](RECOVERY.md)。
 
 - Lean command quote、`proof-forge.program-export.v1` 与旧 Loader API 仍作为历史
   `Source.Program` characterization 保留，不在 CLI 产品路径中；它们是下一轮隔离/删除对象。

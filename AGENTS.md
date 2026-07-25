@@ -1,7 +1,8 @@
 # AGENTS.md
 
 这是 ProofForge V2 独立工程的 agent 控制面。它只负责导航、当前产品检查点和工作协议，
-不替代 PRD、架构或技术规格。当前恢复模式的详细边界见 [`RECOVERY.md`](RECOVERY.md)。
+不替代 PRD、架构或技术规格。恢复边界见 [`RECOVERY.md`](RECOVERY.md)，D1–D4 的
+设计要求/代码事实/删除门槛见 [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)。
 
 ## Project Mission
 
@@ -16,7 +17,9 @@
 | Program | V2 产品恢复桥：`ProgramV1` 子集已接通既有 alpha EVM backend |
 | Product milestone | 当前工程纵切面为 `ValidatedSourceV1` → alpha Typed/Semantic → alpha EVM Plan/IR → locked `solc` bytecode |
 | Product status | D1–D4 formal 仍为 0/27 done；当前 bytecode 结果不代表 `SemanticProgramV1`、正式 resolver 或 `OutputSetV1` 已完成 |
-| Active task | 无（恢复工作不再创建治理型 `TASK-*` 行） |
+| Engineering matrix | [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)：D1 wire地基较强，D2/D3正式contract缺失，D4 backend为可复用alpha |
+| Engineering slice | 完整迁移 ProgramV1 declaration decoder；替代验证后按层删除旧代码 |
+| Active task | 无（工程迁移不伪造 formal `TASK-*` 状态） |
 | Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
 | Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |
 | Recovery authority | [`RECOVERY.md`](RECOVERY.md) |
@@ -37,8 +40,8 @@ custody 服务或 formal-evidence ceremony。
 ## Mandatory Reading Order
 
 1. 完整阅读本文件并运行 `git status --short`，确认不会覆盖其他人的工作。
-2. 阅读 [`RECOVERY.md`](RECOVERY.md)、[`docs/document-status.md`](docs/document-status.md)
-   与 [`docs/index.md`](docs/index.md)。
+2. 阅读 [`RECOVERY.md`](RECOVERY.md)、[`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)、
+   [`docs/document-status.md`](docs/document-status.md) 与 [`docs/index.md`](docs/index.md)。
 3. 阅读 [`docs/01-prd.md`](docs/01-prd.md)、[`docs/02-architecture.md`](docs/02-architecture.md)
    与 [`docs/03-technical-spec.md`](docs/03-technical-spec.md)。
 4. 只阅读当前产品切片直接相关的模块规格、ADR、目标档案与测试规格；不要因为历史
@@ -60,7 +63,8 @@ custody 服务或 formal-evidence ceremony。
 
 ## Recovery Execution Protocol
 
-1. 一次只推进一个可运行的产品纵切面；当前唯一切面是 Counter → EVM artifact。
+1. 一次只推进一个矩阵中的 bounded migration slice；顺序为 D1 → D2 → D3 → D4，
+   shared core切换时机械迁移四个target consumer，不顺带提高D5–D7 maturity。
 2. 先写聚焦失败测试，再实现满足现有规格的最小代码；不为恢复工作新增 `TASK-*`、
    `TST-*`、`EV-*`、freeze package 或 qualification object。
 3. 日常反馈使用 `just dev-check`；普通合并检查使用 `just ci`。
@@ -69,8 +73,8 @@ custody 服务或 formal-evidence ceremony。
 5. development completion 与 release qualification 分开记录。普通 CI 成功不得写成
    hermetic/formal evidence；release 主机不合格也不得反向否定已通过的产品测试。
 6. 检查 unsupported 声明、`active/`/v1 泄漏、非确定制品、无关变更和生成垃圾。
-7. 修改 `ProofForgeV2/**` 时运行相关 Lean 测试；SBOM package-file pin 在本次迁移中核对一次，
-   后续归入 `release-check`，不再作为每次源码编辑的日常完成仪式。
+7. 修改 `ProofForgeV2/**` 时运行相关 Lean 测试，并执行 `just sbom-package-files-refresh`
+   保持 committed package-file pin 精确；这只是供应链闭包一致性，不代表 formal qualification。
 8. 当前恢复工作由单一 agent 执行，不启动 subagent，也不伪造独立复审者。
 9. 交接时给出精确文件、命令、结果和限制；不提交、不推送，除非用户另行要求。
 

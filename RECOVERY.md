@@ -1,15 +1,19 @@
 # ProofForge V2 Product Recovery
 
-ProofForge V2 当前只推进一个产品里程碑：让真实 CLI 的 Counter 源码完成
+ProofForge V2 已完成第一个恢复纵切面，现在按
+[`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 迁移 D1–D4：
 
 ```text
-program source
-  → ValidatedSourceV1
-  → Typed.Program
-  → Semantic.Program
-  → EVM-owned Plan / TargetIR
-  → deterministic artifacts
+ValidatedSourceV1
+  → complete Typed checker
+  → SemanticProgramV1 + SemanticProvenanceV1
+  → ProgramRequirementsV1 + exact resolver
+  → target-owned Plan / TargetIR
+  → OutputSetV1
 ```
+
+当前可运行的 Counter/Accumulator 路径仍经过 alpha Typed/Semantic/D3 output；它是迁移起点，
+不是上述目标链已经完成。
 
 ## 为什么重基线
 
@@ -24,10 +28,14 @@ program source
 
 ## 当前范围
 
-1. 建立快速且普通主机可运行的 `docs-check`、`test-fast`、`dev-check` 与 `ci`。
-2. 把历史治理审计和正式发布检查隔离到 `governance-check`、`release-check`。
-3. 直接接通 Syntax/Loader → `ProgramV1` → Typed/Semantic → EVM Counter。
-4. 产品纵切面稳定后，再盘点 qualification 代码；未经确认不删除或大规模搬迁。
+1. 保持普通主机可运行的 `docs-check`、`test-fast`、`dev-check` 与 `ci`，继续隔离
+   `governance-check`/`release-check`。
+2. 以 27 行矩阵区分 formal task状态、实际代码地基、产品接线和缺口，不使用虚假百分比。
+3. 按 D1 → D2 → D3 → D4 把 alpha carrier/protocol迁到新设计；shared core切换时直接迁移
+   EVM/Solana/NEAR/Noir consumers。
+4. 每层替代实现成为唯一产品路径并通过门禁后，删除对应旧代码、旧schema和旧tests；不保留fallback。
+5. qualification代码继续按 [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 隔离，
+   不混入产品迁移。
 
 ## 当前结果
 
@@ -43,7 +51,9 @@ program source
   Typed/Semantic/Plan/Output 路径，不代表正式 D1–D4 contract 或 task completion；本切片也未新增
   Anvil runtime 结论。
 - 旧 Lean command/export/Loader API 仍仅供历史 characterization tests，未被产品 CLI 调用；
-  是否搬迁或删除将在清单完成后单独确认。
+  它们已列入矩阵的D1退役清单，只有ProgramV1替代门禁通过后才删除。
+- [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 已逐项记录 D1–D4 的 requirement、实现文件、
+  产品接线、测试事实、缺口和删除门槛；formal仍为0/27 done。
 - [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 已确认 qualification 子系统为
   84 个文件、58,429 行；ordinary product gate 无直接依赖，本轮未移动或删除任何文件。
 
@@ -51,7 +61,7 @@ program source
 
 - 新 `TASK-*`、`D1-PA-*`、`EV-*`、freeze package 或资格对象；
 - TaskQualification service/supervisor、durable custody 与 formal-evidence 协议扩张；
-- 新 target、更多 DSL 构造或大范围规格补齐；
+- D1–D4 accepted/proposed设计范围之外的新 target、DSL constructor或协议扩张；
 - 产品路径中的 legacy→ProgramV1 adapter、dual reader、第二套 ProgramV1 decoder 与任何 fallback；
 - 为了让历史表格显得“完成”而回填或降级证据。
 
@@ -69,7 +79,8 @@ just release-check      # 发布预检；非 eligible 主机应明确拒绝
 
 ## 完成条件
 
-恢复里程碑只有在 CLI 的 Counter 不经 legacy fallback，真实走完
-`ValidatedSourceV1 → Typed → Semantic → EVM Plan/IR → artifact`，且 `just dev-check`
-与 `just ci` 通过后才完成。随后再决定 legacy frontend 与 qualification machinery 的
-删除/搬迁，不在本阶段提前做破坏性清理。
+每一层只有在新实现成为唯一产品入口、旧consumer引用归零、已有测试迁到新carrier、
+`just dev-check`/`just ci`和该层聚焦门禁通过后，才进入紧随其后的删除提交。最终目标是
+CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → OutputSetV1`，并让EVM在
+该唯一路径上完成locked solc与Anvil differential。formal task状态与release qualification仍按
+各自真实条件变化，不由本恢复文档代签。
