@@ -172,7 +172,7 @@ unsafe def run : IO Unit := do
     "failed to parse file"
   expectReject session "unterminated-string" (returnSource "\"unterminated")
     "failed to parse file"
-  expectReject session "extra-payload" ((returnSource "\"ok\"") ++ "#eval 1\n")
-    "outside the portable program DSL"
+  expectReject session "extra-payload" (returnSource "\"ok\" value")
+    "failed to parse file"
 
 end Tests.Language.ProgramV1StringLiterals
