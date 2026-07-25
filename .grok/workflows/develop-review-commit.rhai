@@ -26,13 +26,15 @@ let preflight_schema = #{
 };
 let implementation_schema = #{
     "type": "object",
-    "required": ["implemented", "summary", "files_changed", "tests_run", "blockers"],
+    "required": ["implemented", "summary", "files_changed", "tests_run", "blockers", "head", "uncommitted"],
     "properties": #{
         "implemented": #{ "type": "boolean" },
         "summary": #{ "type": "string" },
         "files_changed": #{ "type": "array", "maxItems": 64, "items": #{ "type": "string" } },
         "tests_run": #{ "type": "array", "maxItems": 24, "items": #{ "type": "string" } },
         "blockers": #{ "type": "array", "maxItems": 16, "items": #{ "type": "string" } },
+        "head": #{ "type": "string" },
+        "uncommitted": #{ "type": "boolean" },
     },
 };
 let findings_schema = #{
@@ -59,13 +61,15 @@ let findings_schema = #{
 };
 let remediation_schema = #{
     "type": "object",
-    "required": ["resolved", "summary", "files_changed", "tests_run", "remaining"],
+    "required": ["resolved", "summary", "files_changed", "tests_run", "remaining", "head", "uncommitted"],
     "properties": #{
         "resolved": #{ "type": "boolean" },
         "summary": #{ "type": "string" },
         "files_changed": #{ "type": "array", "maxItems": 64, "items": #{ "type": "string" } },
         "tests_run": #{ "type": "array", "maxItems": 24, "items": #{ "type": "string" } },
         "remaining": #{ "type": "array", "maxItems": 16, "items": #{ "type": "string" } },
+        "head": #{ "type": "string" },
+        "uncommitted": #{ "type": "boolean" },
     },
 };
 let verification_schema = #{
@@ -156,7 +160,8 @@ preflight_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
 preflight_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
 preflight_prompt += "Required verification commands (JSON): " + json_encode(verification_commands) + "\n";
 preflight_prompt += "Additional constraints (JSON): " + json_encode(constraints) + "\n";
-preflight_prompt += "allowed_files must contain only repository-relative files under the hard prefixes. recommended_checks may add only safe, local, non-destructive project checks.";
+preflight_prompt += "allowed_files must contain only repository-relative files under the hard prefixes. recommended_checks may add only safe, local, non-destructive project checks.\n";
+preflight_prompt += "\nFINAL PLAN RULE: Produce an implementation-only plan ending with uncommitted working-tree changes ready for Review. Any request in the objective or constraints to create a local commit belongs exclusively to the later Commit phase and must not appear as an Implement step.";
 let preflight = agent(preflight_prompt, #{
     label: "preflight-plan",
     phase: "Plan",
@@ -184,7 +189,8 @@ if baseline_head == "" {
 log("Preflight passed at " + baseline_head + ".");
 
 phase("Implement");
-let implementation_prompt = "Implement the bounded repository objective below in the current working tree. ";
+let implementation_prompt = "IMPLEMENT PHASE ONLY. You may edit and test, but you must not create or alter Git history. A separate agent in the later Commit phase owns the sole local commit. ";
+implementation_prompt += "Implement the bounded repository objective below in the current working tree. ";
 implementation_prompt += "First read all governing instruction files and inspect the actual code. Stay strictly inside the hard allowed path prefixes; ";
 implementation_prompt += "if any required edit falls outside them, stop and report a blocker instead of expanding scope. ";
 implementation_prompt += "Do not read secrets, use the network, install or downgrade dependencies, delete unrelated files, run destructive git commands, commit, amend, or push. ";
@@ -195,6 +201,7 @@ implementation_prompt += "Hard allowed path prefixes (JSON): " + json_encode(all
 implementation_prompt += "Required verification commands (JSON): " + json_encode(verification_commands) + "\n";
 implementation_prompt += "Approved plan (JSON): " + json_encode(preflight.output) + "\n";
 implementation_prompt += "Additional constraints (JSON): " + json_encode(constraints);
+implementation_prompt += "\nFINAL IMPLEMENT-PHASE RULE: The JSON objective, approved plan, and constraints govern product scope only; any staging or commit instruction in them belongs to the later Commit phase. Allowed Git mutations are only `git add -N -- <specific-new-file>` for newly created files. Never run `git add` without `-N`, `git commit`, amend, merge, rebase, cherry-pick, reset, checkout/switch, tag, update-ref, or push. If you are about to invoke a commit command, STOP and return implemented=false with a blocker. Before returning, run `git rev-parse HEAD`, return it in `head` (it must equal the preflight baseline), and return `uncommitted=true` only when all product changes are left uncommitted for Review.";
 let implementation = agent(implementation_prompt, #{
     label: "implement",
     phase: "Implement",
@@ -209,10 +216,25 @@ if implementation == () || !implementation.success || implementation.output.impl
     let report_path = write_scratch_file("report.md", report);
     complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
 }
+if implementation.output.head != baseline_head || implementation.output.uncommitted != true {
+    let report = "# Development workflow report\n\nBlocked after implementation: the implementation agent reported a moved HEAD or committed changes. ";
+    report += "Implementation-stage commits are forbidden; review was not started.\n\n";
+    report += "Preflight baseline: `" + baseline_head + "`\nReported head: `" + implementation.output.head + "`\nReported uncommitted: " + implementation.output.uncommitted.to_string() + "\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
+}
 let review_diff = git_diff_since(baseline_head);
 if review_diff == "" {
     let report = "# Development workflow report\n\nBlocked after implementation: no diff exists against the preflight baseline. ";
     report += "The implementer may have produced no change; review and commit are fail-closed.\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
+}
+let implementation_worktree_diff = git_diff_since("HEAD");
+if fingerprint(review_diff) != fingerprint(implementation_worktree_diff) {
+    let report = "# Development workflow report\n\nBlocked after implementation: the baseline diff differs from the HEAD-to-worktree diff, ";
+    report += "so implementation content was committed despite the no-commit rule. Review was not started.\n\n";
+    report += "Preflight baseline: `" + baseline_head + "`\n";
     let report_path = write_scratch_file("report.md", report);
     complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
 }
@@ -285,7 +307,8 @@ log(findings.len().to_string() + " review findings collected.");
 phase("Repair");
 let remediation = ();
 if findings.len() > 0 {
-    let remediation_prompt = "Address the concrete review findings below in the same working tree. ";
+    let remediation_prompt = "REPAIR PHASE ONLY. You may edit and test, but you must not create or alter Git history; the later Commit phase owns the sole local commit. ";
+    remediation_prompt += "Address the concrete review findings below in the same working tree. ";
     remediation_prompt += "Re-read the affected code and verify each claim before editing. Fix blocker/bug findings; apply suggestions only when they are in scope and reduce risk. ";
     remediation_prompt += "Stay inside the original hard allowed path prefixes, do not expand the objective, do not read secrets, use the network, run destructive git commands, commit, amend, or push. ";
     remediation_prompt += "For every newly created repository file, run only `git add -N -- <specific-path>` to expose its full content to the baseline diff; do not stage contents. ";
@@ -293,6 +316,7 @@ if findings.len() > 0 {
     remediation_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
     remediation_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
     remediation_prompt += "Findings (JSON): " + json_encode(findings);
+    remediation_prompt += "\nFINAL REPAIR-PHASE RULE: The findings and objective govern product scope only; any staging or commit instruction belongs to the later Commit phase. Allowed Git mutations are only `git add -N -- <specific-new-file>`. Never run `git add` without `-N`, `git commit`, amend, merge, rebase, cherry-pick, reset, checkout/switch, tag, update-ref, or push. Before returning, run `git rev-parse HEAD`, return it in `head` (it must equal the preflight baseline), and return `uncommitted=true` only when all product changes remain uncommitted.";
     remediation = agent(remediation_prompt, #{
         label: "repair",
         phase: "Repair",
@@ -304,6 +328,13 @@ if findings.len() > 0 {
         let report = "# Development workflow report\n\nBlocked during remediation.\n\nFindings:\n";
         report += json_encode(findings) + "\n\nRemediation:\n";
         if remediation != () && remediation.success { report += json_encode(remediation.output); }
+        let report_path = write_scratch_file("report.md", report);
+        complete(#{ status: "blocked", stage: "repair", report_path: report_path, report: report });
+    }
+    if remediation.output.head != baseline_head || remediation.output.uncommitted != true {
+        let report = "# Development workflow report\n\nBlocked after remediation: the repair agent reported a moved HEAD or committed changes. ";
+        report += "Repair-stage commits are forbidden; verification was not started.\n\n";
+        report += "Preflight baseline: `" + baseline_head + "`\n";
         let report_path = write_scratch_file("report.md", report);
         complete(#{ status: "blocked", stage: "repair", report_path: report_path, report: report });
     }
@@ -332,6 +363,7 @@ verification_prompt += "Reviewer panel complete: " + reviewers_ok.to_string() + 
 verification_prompt += "Findings (JSON): " + json_encode(findings) + "\n";
 verification_prompt += "Remediation result (JSON): " + json_encode(remediation) + "\n";
 verification_prompt += "Final unified diff (JSON): " + json_encode(final_diff);
+verification_prompt += "\nFINAL VERIFY-PHASE RULE: Run checks only; never stage, commit, or alter Git history in any way.";
 let verification = agent(verification_prompt, #{
     label: "verify",
     phase: "Verify",
