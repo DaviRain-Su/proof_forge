@@ -1596,6 +1596,8 @@ private def isReservedPortableIdentifierV1 (raw : String) : Bool :=
     "false"].contains raw
 
 private def decodeNameV1 (stx : Syntax) : Except String SourceNameComponentV1 := do
+  unless stx.getId.components.length == 1 do
+    throw "source name component must contain exactly one Lean Name component"
   let component ← sourceNameComponentV1FromLeanName stx.getId
   if isReservedPortableIdentifierV1 component.raw then
     throw s!"reserved portable identifier '{component.raw}'"
@@ -1685,7 +1687,7 @@ private def decodeTypeV1At :
                 | none => throw "unsupported portable type"
               unless rawIdentifierText? fieldSyntax == some "bn254_fr" do
                 throw "unsupported portable type"
-              pure (.field (← sourceNameComponentV1FromLeanName fieldSyntax.getId), index + 2)
+              pure (.field (← decodeNameV1 fieldSyntax), index + 2)
           | _ => do
               unless atom.getId.components.length == 1 do
                 throw "unsupported portable type"

@@ -88,6 +88,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1ExternalStatements,
     `Tests.Language.ProgramV1ControlFlow,
     `Tests.Language.ProgramV1ExpressionForms,
+    `Tests.Language.ProgramV1CoreStatements,
     `Tests.Language.ShiftLeft,
     `Tests.Language.ShiftRight,
     `Tests.Language.Equal,

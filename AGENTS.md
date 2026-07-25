@@ -18,7 +18,7 @@
 | Product milestone | 当前工程纵切面为 `ValidatedSourceV1` → alpha Typed/Semantic → alpha EVM Plan/IR → locked `solc` bytecode |
 | Product status | D1–D4 formal 仍为 0/27 done；当前 bytecode 结果不代表 `SemanticProgramV1`、正式 resolver 或 `OutputSetV1` 已完成 |
 | Engineering matrix | [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)：D1 wire地基较强，D2/D3正式contract缺失，D4 backend为可复用alpha |
-| Engineering slice | structured `call QualifiedId(args)` / `schedule QualifiedId(args)`、direct `.if_` / bounded `.for_`、以及 local function call / qualified constructor expression / bare-base index access 已进入 ProgramV1 Loader；下一步仍是 match/field-place/pattern、剩余 expression/place forms 和旧 statement/operator tests 迁移；替代验证前不删旧代码 |
+| Engineering slice | structured `call QualifiedId(args)` / `schedule QualifiedId(args)`、direct `.if_` / bounded `.for_`、local function call / qualified constructor expression / bare-base index access、以及 ProgramV1 core statements（let/assign/return/assert）已进入 ProgramV1 Loader；bare `A.x` expression/assignment 在 field-place 迁移前 fail closed；下一步仍是 match/field-place/pattern、剩余 expression/place forms 和旧 statement/operator tests 迁移；替代验证前不删旧代码 |
 | Active task | 无（工程迁移不伪造 formal `TASK-*` 状态） |
 | Next task | **TASK-D1-01**（历史 release-qualification 序列的下一行；恢复期间暂停，不是产品开发前置） |
 | Known blocker | **TASK-D1-01** 的 formal TaskQualification/eligible-host 前置仍未满足；该阻塞只影响 release qualification，不阻塞产品开发 |

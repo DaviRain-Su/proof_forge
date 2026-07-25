@@ -45,6 +45,7 @@ import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1ExternalStatements
 import Tests.Language.ProgramV1ControlFlow
 import Tests.Language.ProgramV1ExpressionForms
+import Tests.Language.ProgramV1CoreStatements
 import Tests.Language.ShiftLeft
 import Tests.Language.ShiftRight
 import Tests.Language.Equal
@@ -149,6 +150,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1ExternalStatements.run
   Tests.Language.ProgramV1ControlFlow.run
   Tests.Language.ProgramV1ExpressionForms.run
+  Tests.Language.ProgramV1CoreStatements.run
   Tests.Language.ShiftLeft.run
   Tests.Language.ShiftRight.run
   Tests.Language.Equal.run
