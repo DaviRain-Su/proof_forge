@@ -37,8 +37,9 @@ let implementation_schema = #{
 };
 let findings_schema = #{
     "type": "object",
-    "required": ["findings"],
+    "required": ["head", "findings"],
     "properties": #{
+        "head": #{ "type": "string" },
         "findings": #{
             "type": "array",
             "maxItems": 8,
@@ -69,9 +70,10 @@ let remediation_schema = #{
 };
 let verification_schema = #{
     "type": "object",
-    "required": ["passed", "summary", "scope_ok", "tests_ok", "diff_clean", "changed_files", "commands", "unresolved"],
+    "required": ["passed", "summary", "head", "scope_ok", "tests_ok", "diff_clean", "changed_files", "commands", "unresolved"],
     "properties": #{
         "passed": #{ "type": "boolean" },
+        "head": #{ "type": "string" },
         "summary": #{ "type": "string" },
         "scope_ok": #{ "type": "boolean" },
         "tests_ok": #{ "type": "boolean" },
@@ -94,10 +96,13 @@ let verification_schema = #{
 };
 let commit_schema = #{
     "type": "object",
-    "required": ["committed", "commit", "summary", "files", "worktree_clean"],
+    "required": ["committed", "commit", "head_before", "head_after", "parent", "summary", "files", "worktree_clean"],
     "properties": #{
         "committed": #{ "type": "boolean" },
         "commit": #{ "type": "string" },
+        "head_before": #{ "type": "string" },
+        "head_after": #{ "type": "string" },
+        "parent": #{ "type": "string" },
         "summary": #{ "type": "string" },
         "files": #{ "type": "array", "maxItems": 64, "items": #{ "type": "string" } },
         "worktree_clean": #{ "type": "boolean" },
@@ -169,7 +174,14 @@ if preflight.output.ready != true {
     let report_path = write_scratch_file("report.md", report);
     complete(#{ status: "blocked", stage: "plan", report_path: report_path, report: report });
 }
-log("Preflight passed at " + preflight.output.head + ".");
+let baseline_head = preflight.output.head;
+baseline_head.trim();
+if baseline_head == "" {
+    let report = "# Development workflow report\n\nBlocked during preflight: the baseline HEAD is empty.\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "plan", report_path: report_path, report: report });
+}
+log("Preflight passed at " + baseline_head + ".");
 
 phase("Implement");
 let implementation_prompt = "Implement the bounded repository objective below in the current working tree. ";
@@ -196,8 +208,14 @@ if implementation == () || !implementation.success || implementation.output.impl
     let report_path = write_scratch_file("report.md", report);
     complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
 }
-let review_diff = git_diff_since("HEAD");
-log("Implementation completed; diff fingerprint " + fingerprint(review_diff) + ".");
+let review_diff = git_diff_since(baseline_head);
+if review_diff == "" {
+    let report = "# Development workflow report\n\nBlocked after implementation: no diff exists against the preflight baseline. ";
+    report += "The implementer may have produced no change; review and commit are fail-closed.\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "implement", report_path: report_path, report: report });
+}
+log("Implementation completed; baseline diff fingerprint " + fingerprint(review_diff) + ".");
 
 phase("Review");
 let dimensions = [
@@ -207,10 +225,12 @@ let dimensions = [
 ];
 let review_jobs = [];
 for dimension in dimensions {
-    let review_prompt = "Review the current uncommitted change for " + dimension.focus + ". Work read-only. ";
-    review_prompt += "Run `git status --short` and inspect the actual diff and surrounding source files; do not trust the implementation summary alone. ";
+    let review_prompt = "Review the complete change against the preflight baseline for " + dimension.focus + ". Work read-only. ";
+    review_prompt += "Run `git status --short`, run `git rev-parse HEAD`, return that exact hash in `head`, and inspect the supplied baseline diff plus surrounding source files; do not trust the implementation summary alone. ";
+    review_prompt += "The current HEAD must still equal the preflight baseline; if it does not, report a blocker because implementation-stage commits are forbidden. ";
     review_prompt += "Do not modify files, read secrets, use the network, commit, or push. Every finding must cite concrete file-level evidence and a specific fix. ";
     review_prompt += "An empty findings list is valid only after inspecting the shipped code and tests. Report at most 8 findings.\n";
+    review_prompt += "Preflight baseline HEAD (JSON): " + json_encode(baseline_head) + "\n";
     review_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
     review_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
     review_prompt += "Implementation report (JSON): " + json_encode(implementation.output) + "\n";
@@ -225,20 +245,34 @@ for dimension in dimensions {
 }
 let review_results = parallel(review_jobs);
 let reviewers_ok = true;
+let history_ok = true;
 let findings = [];
 let dropped_findings = 0;
 for result in review_results {
     if result == () || !result.success {
         reviewers_ok = false;
-    } else if result.output.findings != () {
-        for finding in result.output.findings {
-            if findings.len() < 12 {
-                findings.push(finding);
-            } else {
-                dropped_findings += 1;
+    } else {
+        if result.output.head != baseline_head {
+            reviewers_ok = false;
+            history_ok = false;
+        }
+        if result.output.findings != () {
+            for finding in result.output.findings {
+                if findings.len() < 12 {
+                    findings.push(finding);
+                } else {
+                    dropped_findings += 1;
+                }
             }
         }
     }
+}
+if !history_ok {
+    let report = "# Development workflow report\n\nBlocked during review: HEAD changed after preflight. ";
+    report += "Implementation-stage commits are forbidden, so repair, verification, and commit were not run.\n\n";
+    report += "Preflight baseline: `" + baseline_head + "`\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "review", report_path: report_path, report: report });
 }
 if dropped_findings > 0 {
     reviewers_ok = false;
@@ -275,12 +309,19 @@ if findings.len() > 0 {
 }
 
 phase("Verify");
-let final_diff = git_diff_since("HEAD");
-let verification_prompt = "Independently verify the current uncommitted change. Do not modify source files and do not commit or push. ";
-verification_prompt += "Inspect `git status --short`, the full diff, and surrounding code. Confirm every changed file is inside the hard allowed prefixes, no pre-existing or unrelated change is present, ";
+let final_diff = git_diff_since(baseline_head);
+if final_diff == "" {
+    let report = "# Development workflow report\n\nBlocked before verification: the final diff against the preflight baseline is empty.\n";
+    let report_path = write_scratch_file("report.md", report);
+    complete(#{ status: "blocked", stage: "verify", report_path: report_path, report: report });
+}
+let verification_prompt = "Independently verify the complete change against the preflight baseline. Do not modify source files and do not commit or push. ";
+verification_prompt += "Run `git rev-parse HEAD`, return that exact hash in `head`, and fail unless it still equals the preflight baseline. ";
+verification_prompt += "Inspect `git status --short`, the supplied full baseline diff, and surrounding code. Confirm every changed file is inside the hard allowed prefixes, no pre-existing or unrelated change is present, ";
 verification_prompt += "no legacy fallback or security regression was introduced, and review findings are resolved. Run every user-required verification command and `git diff --check`; ";
 verification_prompt += "you may add only safe, local, non-destructive project checks. Never read secrets, use the network, install dependencies, delete source, or alter git history. ";
-verification_prompt += "Set passed=true only when reviewer coverage is complete, scope_ok/tests_ok/diff_clean are all true, and unresolved is empty.\n";
+verification_prompt += "Set passed=true only when HEAD is unchanged, reviewer coverage is complete, scope_ok/tests_ok/diff_clean are all true, changed_files is non-empty, and unresolved is empty.\n";
+verification_prompt += "Preflight baseline HEAD (JSON): " + json_encode(baseline_head) + "\n";
 verification_prompt += "Objective (JSON): " + json_encode(objective) + "\n";
 verification_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
 verification_prompt += "Required verification commands (JSON): " + json_encode(verification_commands) + "\n";
@@ -297,9 +338,11 @@ let verification = agent(verification_prompt, #{
 let verified = reviewers_ok;
 if verification == () || !verification.success {
     verified = false;
+} else if verification.output.head != baseline_head {
+    verified = false;
 } else if verification.output.passed != true || verification.output.scope_ok != true || verification.output.tests_ok != true || verification.output.diff_clean != true {
     verified = false;
-} else if verification.output.unresolved.len() != 0 {
+} else if verification.output.changed_files.len() == 0 || verification.output.unresolved.len() != 0 {
     verified = false;
 }
 if !verified {
@@ -312,11 +355,13 @@ if !verified {
 log("Independent verification passed.");
 
 phase("Commit");
-let commit_prompt = "Create one local git commit for the independently verified change. Never push. ";
-commit_prompt += "First inspect `git status --short` and the staged/unstaged diff. Require every changed path to be listed by verification and under the hard allowed prefixes; ";
-commit_prompt += "if there is any unexpected, pre-existing, generated, secret-bearing, or out-of-scope path, do not commit and report failure. ";
+let commit_prompt = "Create exactly one local git commit for the independently verified change. Never push. ";
+commit_prompt += "First run `git rev-parse HEAD` and require it to equal the preflight baseline, then inspect `git status --short` and the staged/unstaged diff. Require every changed path to be listed by verification and under the hard allowed prefixes; ";
+commit_prompt += "if HEAD changed or there is any unexpected, pre-existing, generated, secret-bearing, or out-of-scope path, do not commit and report failure. ";
 commit_prompt += "Stage exact files one at a time with `git add -- <specific-path>`; never use `git add -A` or `git add .`. Run `git diff --cached --check`, inspect the staged diff, then commit with the exact provided message. ";
-commit_prompt += "Never use reset --hard, checkout --, amend, force, hook bypass, or any push command. If hooks fail or modify source, stop without amending. Return the commit hash and final `git status --short`.\n";
+commit_prompt += "Never use reset --hard, checkout --, amend, force, hook bypass, or any push command. If hooks fail or modify source, stop without amending. ";
+commit_prompt += "Return `head_before`, `head_after`, and the new commit's first parent from git, plus the commit hash and final `git status --short`.\n";
+commit_prompt += "Preflight baseline HEAD (JSON): " + json_encode(baseline_head) + "\n";
 commit_prompt += "Hard allowed path prefixes (JSON): " + json_encode(allowed_paths) + "\n";
 commit_prompt += "Verified changed files (JSON): " + json_encode(verification.output.changed_files) + "\n";
 commit_prompt += "Commit message, treated as literal text (JSON): " + json_encode(commit_message) + "\n";
@@ -334,9 +379,22 @@ if commit_result == () || !commit_result.success || commit_result.output.committ
     complete(#{ status: "blocked", stage: "commit", report_path: report_path, report: report });
 }
 
-let post_commit_diff = git_diff_since("HEAD");
+let head_worktree_diff = git_diff_since("HEAD");
+let commit_worktree_diff = git_diff_since(commit_result.output.commit);
+let committed_range_diff = git_diff_since(baseline_head);
+let chain_ok = commit_result.output.head_before == baseline_head
+    && commit_result.output.head_after == commit_result.output.commit
+    && commit_result.output.parent == baseline_head;
+let content_ok = fingerprint(committed_range_diff) == fingerprint(final_diff);
+let worktree_ok = commit_result.output.worktree_clean == true
+    && head_worktree_diff == ""
+    && commit_worktree_diff == "";
 let final_status = "committed";
-if commit_result.output.worktree_clean != true || post_commit_diff != "" {
+if !chain_ok {
+    final_status = "committed-invalid-chain";
+} else if !content_ok {
+    final_status = "committed-diff-mismatch";
+} else if !worktree_ok {
     final_status = "committed-with-residual-changes";
 }
 let report = "# Development workflow report\n\n";
@@ -347,7 +405,9 @@ report += "## Implementation\n\n" + json_encode(implementation.output) + "\n\n";
 report += "## Review findings\n\n" + json_encode(findings) + "\n\n";
 report += "## Verification\n\n" + json_encode(verification.output) + "\n\n";
 report += "## Commit\n\n" + json_encode(commit_result.output) + "\n\n";
-report += "Tracked diff remaining after commit: " + fingerprint(post_commit_diff) + "\n";
+report += "Commit chain valid: " + chain_ok.to_string() + "\n\n";
+report += "Committed content matches verified diff: " + content_ok.to_string() + "\n\n";
+report += "Tracked HEAD/worktree diff after commit: " + fingerprint(head_worktree_diff) + "\n";
 let report_path = write_scratch_file("report.md", report);
 complete(#{
     status: final_status,
