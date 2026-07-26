@@ -3,6 +3,7 @@ import Tests.Core.CommonRemaining
 import Tests.Core.CommonScalars
 import Tests.Core.Unicode
 import Tests.Core.Semantics
+import Tests.Core.DiagnosticV1
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
@@ -90,6 +91,7 @@ unsafe def main : IO Unit := do
   Tests.Core.CommonScalars.run
   Tests.Core.Unicode.run
   Tests.Core.run
+  Tests.Core.DiagnosticV1.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run

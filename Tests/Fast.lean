@@ -22,6 +22,7 @@ import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ProgramV1SpanJoin
+import Tests.Core.DiagnosticV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
@@ -51,6 +52,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
   Tests.Language.ProgramV1SpanJoin.run
+  Tests.Core.DiagnosticV1.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run

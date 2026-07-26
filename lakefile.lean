@@ -101,7 +101,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NoirRelationModel,
     `Tests.Product.CounterV1Evm,
     `Tests.CLI.Emit,
-    `Tests.CLI.ToolchainPolicy
+    `Tests.CLI.ToolchainPolicy,
+    `Tests.Core.DiagnosticV1
   ]
 
 lean_exe proof_forge_next where
