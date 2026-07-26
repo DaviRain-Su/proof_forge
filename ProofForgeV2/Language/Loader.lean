@@ -36,14 +36,7 @@ private def toCompileError (err : LoaderError) : CompileError :=
   | .parserBoundary message _ =>
       .invalidProgram s!"Lean parser rejected source: {message}"
   | .invalidProgram message => .invalidProgram message
-  | .resourceBound message =>
-      -- Source-size over-limit is classified as a resource bound in the typed
-      -- diagnostic API, but the legacy `selectProgramV1`/`parseProgramsV1` and
-      -- CLI must continue to emit `PF-SRC-INVALID` to stay byte-identical.
-      if message == "source exceeds the 16 MiB limit" then
-        .invalidProgram message
-      else
-        .resourceBound message
+  | .resourceBound message => .resourceBound message
   | .duplicateProgram name _ =>
       .invalidProgram s!"duplicate program '{renderSourceQualified name}'"
 
@@ -128,9 +121,6 @@ private def compileErrorToLoaderError (err : CompileError) : LoaderError :=
 
 private def invalidL (message : String) : LoaderError :=
   .invalidProgram message
-
-private def resourceL (message : String) : LoaderError :=
-  .resourceBound message
 
 private inductive NamespaceState where
   | bounded (name : Name) (parts : Nat)
@@ -278,7 +268,9 @@ private unsafe def parserEnvironment : IO Environment := do
 
 private def checkSourceSize (source : String) : Except LoaderError Unit :=
   if source.toUTF8.size > 16 * 1024 * 1024 then
-    .error <| resourceL "source exceeds the 16 MiB limit"
+    -- SPEC-DIAG-001 assigns the 16 MiB source cap to `PF-SRC-INVALID`; the typed
+    -- diagnostics API must stay byte-identical with the legacy loader here.
+    .error <| invalidL "source exceeds the 16 MiB limit"
   else
     .ok ()
 

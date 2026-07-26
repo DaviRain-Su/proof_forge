@@ -101,9 +101,9 @@
       "sha256": "f9bc683db6d6709d4572a5aa1d70faa5e7147906dc91304fccb51e8e5d97cd2a"
     },
     {
-      "bytes": 21294,
+      "bytes": 21023,
       "path": "ProofForgeV2/Language/Loader.lean",
-      "sha256": "73066e006d4694bb3972b5a45b17b56bd3afea27d15d3062451558803de488da"
+      "sha256": "13d4a157774e54258d9b85df3182c1e4ababff41982a4daec7ad09daeff03d84"
     },
     {
       "bytes": 13320,

@@ -85,16 +85,16 @@ private unsafe def runResourceBoundTest : IO DiagnosticV1 := do
   | .error diagnostics =>
       expect (diagnostics.size == 1) "resource-bound error must return exactly one diagnostic"
       let diag := diagnostics[0]!
-      expect (diag.code.wire == "PF-BOUND-001")
-        "oversized source diagnostic code must be PF-BOUND-001"
+      expect (diag.code.wire == "PF-SRC-INVALID")
+        "oversized source diagnostic code must stay PF-SRC-INVALID per SPEC-DIAG-001"
       expect (diag.message == "source exceeds the 16 MiB limit")
-        "resource-bound diagnostic message mismatch"
+        "source-size diagnostic message mismatch"
       expect (diag.origins == #[])
-        "resource-bound diagnostic must carry no origins"
+        "source-size diagnostic must carry no origins"
       expect (legacyCode == "PF-SRC-INVALID")
         "legacy loader must preserve PF-SRC-INVALID for source-size over-limit"
       expect (legacyMessage == diag.message)
-        "resource-bound diagnostic message must match legacy message body"
+        "source-size diagnostic message must match legacy message body"
       pure diag
   | .ok _ =>
       throw <| IO.userError "oversized source unexpectedly passed diagnostics loader"
