@@ -63,7 +63,13 @@ def resolveConstructorName (tables : TypedDeclTablesV1) (ctor : SourceQualifiedN
   let comps := NonEmptyArray.toArray ctor.components
   match comps with
   | #[name] =>
-      if tables.struct.find? name |>.isSome then
+      let structPresent := tables.struct.find? name |>.isSome
+      let hasEnumVariant :=
+        tables.enum.toArray.any fun (_, _, enumDecl) =>
+          enumDecl.variants.any (·.name == name)
+      if structPresent && hasEnumVariant then
+        emit (ambiguousNameDiagnostic name "constructor")
+      else if structPresent then
         pure ()
       else
         let variantCount := tables.enum.toArray.foldl (fun acc (_, _, enumDecl) =>

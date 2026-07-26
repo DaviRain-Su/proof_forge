@@ -21,45 +21,78 @@
     * unary operators (`neg`, `bitNot` require integer; `not` requires `bool`)
     * binary operators (arithmetic, shift, bitwise, equality, ordering,
       logical)
+    * constructor expressions (struct and enum-variant constructors checked
+      against declaration order field/payload types)
+    * local function calls (checked against `fn` parameter count and types)
 
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
-    * constructor expressions, local function calls, expression-level `match`,
-      and statement forms/effects/requirements.
+    * expression-level `match` and statement forms/effects/requirements.
 -/import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Source.AstDeclV1
+import ProofForgeV2.Source.AstSpineDeclV1
+import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 
 namespace ProofForgeV2.Typed.TypeCheckV1
 
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Source.AstDeclV1
+open ProofForgeV2.Source.AstSpineDeclV1
+open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 
 instance : Inhabited TypeV1 := ⟨.unit⟩
 
-/-- Local type-checking scope: source-order name-to-type bindings.
-    Resolution priority is the order of the list (locals shadow params, etc.). -/
+/-- Local type-checking scope: source-order name-to-type bindings with a
+    category tag so that locals and params can be distinguished from
+    state/const bindings for local-call diagnostics. -/
+inductive BindingKindV1 where
+  | local
+  | param
+  | state
+  | const
+deriving BEq, DecidableEq
+
 structure TypeCheckScopeV1 where
-  bindings : List (SourceNameComponentV1 × TypeV1)
+  bindings : List (SourceNameComponentV1 × TypeV1 × BindingKindV1)
 
 def emptyScope : TypeCheckScopeV1 := ⟨[]⟩
 
 def addBinding (scope : TypeCheckScopeV1) (name : SourceNameComponentV1)
     (type_ : TypeV1) : TypeCheckScopeV1 :=
-  ⟨ (name, type_) :: scope.bindings ⟩
+  ⟨ (name, type_, .local) :: scope.bindings ⟩
+
+def addParam (scope : TypeCheckScopeV1) (name : SourceNameComponentV1)
+    (type_ : TypeV1) : TypeCheckScopeV1 :=
+  ⟨ (name, type_, .param) :: scope.bindings ⟩
+
+def addStateConst (scope : TypeCheckScopeV1) (name : SourceNameComponentV1)
+    (type_ : TypeV1) (kind : BindingKindV1) : TypeCheckScopeV1 :=
+  ⟨ (name, type_, kind) :: scope.bindings ⟩
 
 def lookupType (scope : TypeCheckScopeV1) (name : SourceNameComponentV1) :
     Option TypeV1 :=
-  match scope.bindings.find? (fun (n, _) => n == name) with
-  | some (_, type_) => some type_
+  match scope.bindings.find? (fun (n, _, _) => n == name) with
+  | some (_, type_, _) => some type_
   | none => none
+
+private def isLocalOrParam (scope : TypeCheckScopeV1)
+    (name : SourceNameComponentV1) : Option BindingKindV1 :=
+  match scope.bindings.find? (fun (n, _, _) => n == name) with
+  | some (_, _, .local) => some .local
+  | some (_, _, .param) => some .param
+  | _ => none
 
 /-- Result of type-checking an expression: an inferred type and any diagnostics.
     The inferred type may be a placeholder (e.g. `Unit`) when diagnostics are
@@ -148,6 +181,66 @@ private def isEqualityOp : BinaryOpV1 → Bool
 private def isLogicalOp : BinaryOpV1 → Bool
   | .logicalAnd | .logicalOr => true
   | _ => false
+
+/-- Resolve a constructor path to its result type and expected argument types.
+    Mirrors `NameResolutionV1.resolveConstructorName`. -/
+def resolveConstructorType (tables : TypedDeclTablesV1)
+    (ctor : SourceQualifiedNameV1) :
+    Except DiagnosticV1 (TypeV1 × Array TypeV1) :=
+  let comps := ctor.components.toArray
+  match comps with
+  | #[name] =>
+      let hasEnumVariant :=
+        tables.enum.toArray.any fun (_, _, enumDecl) =>
+          enumDecl.variants.any (·.name == name)
+      if let some (_, structDecl) := tables.struct.find? name then
+        if hasEnumVariant then
+          .error (ambiguousNameDiagnostic name "constructor")
+        else
+          pure (.named structDecl.name, structDecl.fields.map (·.type_))
+      else
+        let candidateMatches :=
+          tables.enum.toArray.foldl (fun acc (_, _, enumDecl) =>
+            match enumDecl.variants.find? (·.name == name) with
+            | some variant => acc.push (enumDecl, variant)
+            | none => acc) #[]
+        match candidateMatches.toList with
+        | [(enumDecl, variant)] =>
+            pure (.named enumDecl.name, variant.payloadTypes)
+        | _ :: _ :: _ =>
+            .error (ambiguousNameDiagnostic name "constructor")
+        | _ =>
+            match findFirstMatchingKind tables name with
+            | some (kind, _) => .error (wrongCategoryDiagnostic name kind "constructor")
+            | none => .error (unknownNameDiagnostic name "constructor")
+  | #[enumName, variantName] =>
+      match tables.enum.find? enumName with
+      | some (_, enumDecl) =>
+          match enumDecl.variants.find? (·.name == variantName) with
+          | some variant => pure (.named enumDecl.name, variant.payloadTypes)
+          | none => .error (unknownNameDiagnostic variantName "constructor variant")
+      | none =>
+          match findFirstMatchingKind tables enumName with
+          | some (kind, _) => .error (wrongCategoryDiagnostic enumName kind "constructor")
+          | none => .error (unknownNameDiagnostic enumName "constructor enum")
+  | _ =>
+      .error (unknownQualifiedNameDiagnostic ctor "constructor")
+
+/-- Resolve a local callee to a `fn` declaration, using the same precedence as
+    `NameResolutionV1.resolveLocalCall`. -/
+def resolveLocalCallType (scope : TypeCheckScopeV1)
+    (tables : TypedDeclTablesV1) (callee : SourceNameComponentV1) :
+    Except DiagnosticV1 FnDeclV1 :=
+  match isLocalOrParam scope callee with
+  | some .local => .error (localAsFunctionDiagnostic callee "local")
+  | some .param => .error (localAsFunctionDiagnostic callee "parameter")
+  | _ =>
+      if let some (_, decl) := tables.fn.find? callee then
+        .ok decl
+      else
+        match findFirstMatchingKind tables callee with
+        | some (kind, _) => .error (wrongCategoryDiagnostic callee kind "function")
+        | none => .error (unknownNameDiagnostic callee "function")
 
 mutual
   /-- Infer/check the type of a place.  Struct field chains and `Array`/`Map`
@@ -410,21 +503,57 @@ mutual
         else
           result .unit #[expectedActualDiagnostic (typeName (expected?.getD .unit))
             "binary expression"]
-    | .constructor _ _ =>
-        result .unit #[expectedActualDiagnostic
-          (typeName (expected?.getD .unit)) "constructor expression"]
-    | .localCall _ _ =>
-        result .unit #[expectedActualDiagnostic
-          (typeName (expected?.getD .unit)) "local call expression"]
+    | .constructor ctor args =>
+        let pathRes := resolveConstructorType tables ctor
+        match pathRes with
+        | .error diag =>
+            let argDiags := args.foldl (fun acc arg =>
+              acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[diag]
+            result (expected?.getD .unit) argDiags
+        | .ok (resType, expectedTypes) =>
+            let diags : Array DiagnosticV1 := #[]
+            let diags :=
+              if expectedTypes.size == args.size then diags
+              else diags.push (expectedActualDiagnostic
+                s!"{expectedTypes.size} constructor arguments"
+                s!"{args.size} constructor arguments")
+            let diags :=
+              if expectedTypes.size == args.size then
+                (expectedTypes.zip args).foldl (fun acc (expectedType, arg) =>
+                  acc ++ (typeCheckExpr scope tables (some expectedType) arg).diagnostics) diags
+              else diags
+            let (type_, diags) := checkExpected resType expected? diags
+            result type_ diags
+    | .localCall callee args =>
+        match resolveLocalCallType scope tables callee with
+        | .error diag =>
+            let argDiags := args.foldl (fun acc arg =>
+              acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[diag]
+            result (expected?.getD .unit) argDiags
+        | .ok fnDecl =>
+            let diags : Array DiagnosticV1 := #[]
+            let diags :=
+              if fnDecl.params.size == args.size then diags
+              else diags.push (expectedActualDiagnostic
+                s!"{fnDecl.params.size} arguments" s!"{args.size} arguments")
+            let diags :=
+              if fnDecl.params.size == args.size then
+                (fnDecl.params.zip args).foldl (fun acc (param, arg) =>
+                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
+              else diags
+            let (type_, diags) := checkExpected fnDecl.result expected? diags
+            result type_ diags
     | .match_ _ _ =>
         result .unit #[expectedActualDiagnostic
           (typeName (expected?.getD .unit)) "match expression"]
 end
 
 def scopeFromTables (tables : TypedDeclTablesV1) : TypeCheckScopeV1 :=
-  let stateBindings := tables.state.entries.map fun (n, _, d) => (n, d.type_)
-  let constBindings := tables.const.entries.map fun (n, _, d) => (n, d.type_)
-  ⟨ stateBindings.toList ++ constBindings.toList ⟩
+  let base := emptyScope
+  let base := tables.state.entries.foldl
+    (fun acc (n, _, d) => addStateConst acc n d.type_ .state) base
+  tables.const.entries.foldl
+    (fun acc (n, _, d) => addStateConst acc n d.type_ .const) base
 
 /-- Build a scope containing all state/const bindings plus the parameters of a
     named callable (`fn`/`entry`/`view`).  Used by tests and future consumers
@@ -440,10 +569,8 @@ def scopeFromCallable (tables : TypedDeclTablesV1)
       pure decl.2.params
     else
       .error s!"no callable named '{renderSourceNameComponentV1 name}'"
-  let stateBindings := tables.state.entries.map fun (n, _, d) => (n, d.type_)
-  let constBindings := tables.const.entries.map fun (n, _, d) => (n, d.type_)
-  let paramBindings := params.map (fun p => (p.name, p.type_))
-  let bindings := paramBindings.toList ++ stateBindings.toList ++ constBindings.toList
-  pure ⟨ bindings ⟩
+  let base := scopeFromTables tables
+  let base := params.foldl (fun acc p => addParam acc p.name p.type_) base
+  pure base
 
 end ProofForgeV2.Typed.TypeCheckV1

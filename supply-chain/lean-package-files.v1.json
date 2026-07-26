@@ -366,14 +366,14 @@
       "sha256": "e4d10843d36b9760b184d91783ce4c756a21e22d9288136c79fb79bf2b858e9c"
     },
     {
-      "bytes": 15833,
+      "bytes": 16117,
       "path": "ProofForgeV2/Typed/NameResolutionV1.lean",
-      "sha256": "8352305252a6e86e2dbd0f5146aaeb265680eaccf549bc88f5b856484b99b4e6"
+      "sha256": "57082fdafc6df249348153a1415cffd555a4d659652f0e5b3b28c654bea9b0cd"
     },
     {
-      "bytes": 19417,
+      "bytes": 25139,
       "path": "ProofForgeV2/Typed/TypeCheckV1.lean",
-      "sha256": "6b9491391399f77ac41fa4b35f43cec1a92bc15a01fb4b34dd054bbbb29ca6d7"
+      "sha256": "887a6ab1f5c52cff2955b0051a7f29992c1bdad1deef849ec68dd4e07a3309a2"
     }
   ],
   "schema": "proof-forge.lean-package-files.v1"
