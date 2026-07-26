@@ -1,5 +1,6 @@
 /-
-  ProofForgeV2.Typed.TypeCheckV1 — D2-01 core expression type-checking slice.
+  ProofForgeV2.Typed.TypeCheckV1 — D2-01 expression and statement/body
+  type-checking slice.
 
   Runs after `NameResolutionV1` and assumes every name has already been
   resolved; unresolved names are never reported again from this layer.
@@ -25,11 +26,29 @@
       against declaration order field/payload types)
     * local function calls (checked against `fn` parameter count and types)
 
+  Covered statement/body forms:
+    * `let` (annotation takes precedence, otherwise inferred from value)
+    * `assign` (target type must agree with value)
+    * `return` (value must agree with declared result; bare `return` is
+      allowed only when the result type is `Unit`)
+    * `assert` (condition must be `Bool`)
+    * `revert` / `emit` (arguments checked against declared param types)
+    * `if` (condition `Bool`, branches checked in the same result context)
+    * `for` (endpoints must be the same integer width, binder is scoped to
+      the body and does not leak)
+    * `call` / `schedule` (argument expressions are type-checked with no
+      expected type)
+    * declaration bodies wired for `const`, `init` (unit result), `entry`,
+      `view`, `fn`, and `invariant` (bool predicate)
+
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
-    * expression-level `match` and statement forms/effects/requirements.
+    * expression-level and statement-level `match`
+    * effects and requirements.
 -/import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Source.AstDeclV1
+import ProofForgeV2.Source.AstProgramItemV1
+import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
@@ -43,6 +62,8 @@ namespace ProofForgeV2.Typed.TypeCheckV1
 
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.AstDeclV1
+open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
@@ -111,6 +132,12 @@ def expectedActualDiagnostic (expected actual : String) : DiagnosticV1 :=
   { code := .sourceInvalid,
     message := s!"type mismatch: expected {expected}, got {actual}",
     origins := emptyOrigins }
+
+/-- Defensive internal diagnostic for invariant violations inside the type
+    checker.  Should be unreachable when called from `typeCheckProgramV1`
+    because name resolution is performed first. -/
+private def internalDiagnostic (message : String) : DiagnosticV1 :=
+  { code := .internal, message := message, origins := emptyOrigins }
 
 /-- Render a type for diagnostics.  This is human-readable only and does not
     enter wire/hash identity. -/
@@ -572,5 +599,187 @@ def scopeFromCallable (tables : TypedDeclTablesV1)
   let base := scopeFromTables tables
   let base := params.foldl (fun acc p => addParam acc p.name p.type_) base
   pure base
+
+/-- Result of type-checking a whole ProgramV1 source unit. -/
+structure TypeCheckProgramResultV1 where
+  diagnostics : Array DiagnosticV1
+  ok : Bool
+  deriving Repr, Inhabited
+
+private def emptyTypeCheckProgramResult : TypeCheckProgramResultV1 :=
+  { diagnostics := #[], ok := true }
+
+private def resultRequiredDiagnostic (expected : TypeV1) : DiagnosticV1 :=
+  expectedActualDiagnostic (typeName expected) "empty return"
+
+mutual
+  /-- Type-check a statement inside a declared result-type context.
+      Returns the updated scope (bindings introduced by this statement that are
+      visible to later statements) and any diagnostics in source order.
+
+      Precondition: name resolution has already succeeded, so every referenced
+      error/event name is present in `tables`.  The `none` branches below are
+      defensive and emit an internal diagnostic. -/
+  partial def typeCheckStmt (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
+      (result : TypeV1) (stmt : StmtV1) : TypeCheckScopeV1 × Array DiagnosticV1 :=
+    match stmt with
+    | .let_ name typeAnn value =>
+        match typeAnn with
+        | some ann =>
+            let valueRes := typeCheckExpr scope tables (some ann) value
+            (addBinding scope name ann, valueRes.diagnostics)
+        | none =>
+            let valueRes := typeCheckExpr scope tables none value
+            (addBinding scope name valueRes.type, valueRes.diagnostics)
+    | .assign target value =>
+        let targetRes := typeCheckPlace scope tables target
+        let valueExpected? := if targetRes.diagnostics.isEmpty then some targetRes.type else none
+        let valueRes := typeCheckExpr scope tables valueExpected? value
+        let diags := targetRes.diagnostics ++ valueRes.diagnostics
+        let diags :=
+          if targetRes.diagnostics.isEmpty && targetRes.type != valueRes.type then
+            diags.push (expectedActualDiagnostic (typeName targetRes.type) (typeName valueRes.type))
+          else
+            diags
+        (scope, diags)
+    | .return_ (some value) =>
+        let valueRes := typeCheckExpr scope tables (some result) value
+        let diags :=
+          if valueRes.diagnostics.isEmpty && valueRes.type != result then
+            valueRes.diagnostics.push (expectedActualDiagnostic (typeName result) (typeName valueRes.type))
+          else
+            valueRes.diagnostics
+        (scope, diags)
+    | .return_ none =>
+        let diags :=
+          if result == .unit then #[]
+          else #[resultRequiredDiagnostic result]
+        (scope, diags)
+    | .assert_ condition error? =>
+        let condRes := typeCheckExpr scope tables (some .bool) condition
+        let diags :=
+          if condRes.diagnostics.isEmpty && condRes.type != .bool then
+            condRes.diagnostics.push (expectedActualDiagnostic "Bool" (typeName condRes.type))
+          else
+            condRes.diagnostics
+        let _ := error?
+        (scope, diags)
+    | .revert name args =>
+        match tables.error.find? name with
+        | none =>
+            (scope, #[internalDiagnostic s!"unresolved error name '{name.raw}' in revert"])
+        | some (_, decl) =>
+            let diags : Array DiagnosticV1 :=
+              if decl.params.size == args.size then #[]
+              else #[expectedActualDiagnostic
+                s!"{decl.params.size} arguments" s!"{args.size} arguments"]
+            let diags :=
+              if decl.params.size == args.size then
+                (decl.params.zip args).foldl (fun acc (param, arg) =>
+                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
+              else
+                args.foldl (fun acc arg =>
+                  acc ++ (typeCheckExpr scope tables none arg).diagnostics) diags
+            (scope, diags)
+    | .emit name args =>
+        match tables.event.find? name with
+        | none =>
+            (scope, #[internalDiagnostic s!"unresolved event name '{name.raw}' in emit"])
+        | some (_, decl) =>
+            let diags : Array DiagnosticV1 :=
+              if decl.params.size == args.size then #[]
+              else #[expectedActualDiagnostic
+                s!"{decl.params.size} arguments" s!"{args.size} arguments"]
+            let diags :=
+              if decl.params.size == args.size then
+                (decl.params.zip args).foldl (fun acc (param, arg) =>
+                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
+              else
+                args.foldl (fun acc arg =>
+                  acc ++ (typeCheckExpr scope tables none arg).diagnostics) diags
+            (scope, diags)
+    | .if_ condition thenBlock elseBlock? =>
+        let condRes := typeCheckExpr scope tables (some .bool) condition
+        let condDiags :=
+          if condRes.diagnostics.isEmpty && condRes.type != .bool then
+            condRes.diagnostics.push (expectedActualDiagnostic "Bool" (typeName condRes.type))
+          else
+            condRes.diagnostics
+        let thenDiags := typeCheckBlock scope tables result thenBlock
+        let elseDiags := match elseBlock? with
+          | some elseBlock => typeCheckBlock scope tables result elseBlock
+          | none => #[]
+        (scope, condDiags ++ thenDiags ++ elseDiags)
+    | .for_ binder start endExclusive _ body =>
+        let startRes := typeCheckExpr scope tables none start
+        let (startDiags, startType) :=
+          if isIntegerType startRes.type then
+            (startRes.diagnostics, startRes.type)
+          else
+            (startRes.diagnostics.push (expectedActualDiagnostic "integer type" (typeName startRes.type)), .unit)
+        let endExpected? := if startType == .unit then none else some startType
+        let endRes := typeCheckExpr scope tables endExpected? endExclusive
+        let endDiags :=
+          if endRes.diagnostics.isEmpty && !isIntegerType endRes.type then
+            endRes.diagnostics.push (expectedActualDiagnostic "integer type" (typeName endRes.type))
+          else
+            endRes.diagnostics
+        let widthDiags :=
+          if isIntegerType startRes.type && isIntegerType endRes.type && startRes.type != endRes.type then
+            #[expectedActualDiagnostic (typeName startRes.type) (typeName endRes.type)]
+          else
+            #[]
+        let iterType := if isIntegerType startType then startType else .unit
+        let bodyDiags := typeCheckBlock (addBinding scope binder iterType) tables result body
+        (scope, startDiags ++ endDiags ++ widthDiags ++ bodyDiags)
+    | .call externalCall | .schedule externalCall =>
+        let diags := externalCall.args.foldl (fun acc arg =>
+          acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[]
+        (scope, diags)
+    | .match_ _ _ =>
+        (scope, #[expectedActualDiagnostic (typeName result) "match statement"])
+
+  /-- Type-check a block of statements in source order, threading scope through. -/
+  partial def typeCheckBlock (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
+      (result : TypeV1) (block : BlockV1) : Array DiagnosticV1 :=
+    let (_, diags) := block.statements.foldl (fun (accScope, accDiags) stmt =>
+      let (nextScope, stmtDiags) := typeCheckStmt accScope tables result stmt
+      (nextScope, accDiags ++ stmtDiags)) (scope, #[])
+    diags
+end
+
+/-- Build a scope from state/const bindings plus a callable's parameters.
+    Shared by `init`, `entry`, `view`, and `fn` body checking. -/
+private def scopeFromCallableParams (tables : TypedDeclTablesV1)
+    (params : Array ParamV1) : TypeCheckScopeV1 :=
+  params.foldl (fun acc p => addParam acc p.name p.type_) (scopeFromTables tables)
+
+/-- Type-check a single top-level declaration body.  State/struct/enum/event/error
+    declarations need no expression typing here; const/init/entry/view/fn/invariant
+    bodies are checked against their declared types. -/
+def typeCheckItem (tables : TypedDeclTablesV1) (item : ProgramItemV1) :
+    Array DiagnosticV1 :=
+  match item with
+  | .const decl =>
+      (typeCheckExpr (scopeFromTables tables) tables (some decl.type_) decl.value).diagnostics
+  | .init decl =>
+      typeCheckBlock (scopeFromCallableParams tables decl.params) tables .unit decl.body
+  | .entry decl | .view decl | .fn decl =>
+      typeCheckBlock (scopeFromCallableParams tables decl.params) tables decl.result decl.body
+  | .invariant decl =>
+      (typeCheckExpr (scopeFromTables tables) tables (some .bool) decl.predicate).diagnostics
+  | _ => #[]
+
+/-- Type-check a fully name-resolved ProgramV1 source unit.
+    If name resolution produced diagnostics, those are returned verbatim and body
+    type checking is skipped to avoid cascading errors. -/
+def typeCheckProgramV1 (program : ProgramV1) (resolved : NameResolutionResultV1) :
+    TypeCheckProgramResultV1 :=
+  if !resolved.ok then
+    { diagnostics := resolved.diagnostics, ok := false }
+  else
+    let diags := program.items.foldl (fun acc item =>
+      acc ++ typeCheckItem resolved.tables item) resolved.diagnostics
+    { diagnostics := diags, ok := diags.isEmpty }
 
 end ProofForgeV2.Typed.TypeCheckV1
