@@ -20,6 +20,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.TypedNameIndex,
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Typed.NameResolutionV1,
+    `Tests.Typed.TypeCheckExpressionsV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
     `Tests.Language.ProgramExportFixtures.B,

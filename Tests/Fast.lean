@@ -1,5 +1,6 @@
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Typed.NameResolutionV1
+import Tests.Typed.TypeCheckExpressionsV1
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
@@ -32,6 +33,7 @@ import Tests.CLI.ToolchainPolicy
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Typed.NameResolutionV1.run
+  Tests.Typed.TypeCheckExpressionsV1.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run
