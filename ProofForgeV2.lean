@@ -41,6 +41,7 @@ import ProofForgeV2.Source.AstProgramValidateV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.AstCanonicalRootDecodeV1
 import ProofForgeV2.Source.NodeTraversalV1
+import ProofForgeV2.Source.SpanJoinV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.TypedV1

@@ -2,6 +2,7 @@ import Lean.Parser.Module
 import Lean.Util.Path
 import Std.Data.HashSet
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Source.SpanJoinV1
 
 namespace ProofForgeV2.Language.Loader
 
@@ -9,7 +10,10 @@ open Lean Parser ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.SpanJoinV1
+open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Source.WireV1
 
 private def invalid (message : String) : CompileError :=
   .invalidProgram message
@@ -86,12 +90,12 @@ private def parseSourceQualifiedInput (environment : Environment)
   | .ok name => pure name
   | .error message => throw <| invalid s!"invalid {label}: {message}"
 
-/- ProgramV1 product command walker. -/
-private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
-    (commands : Array Syntax) : Except CompileError (Array ValidatedSourceV1) := do
+/- ProgramV1 product command walker, retaining the original command syntax for span joining. -/
+private def processCommandsV1WithSyntax (moduleName : SourceQualifiedNameV1)
+    (commands : Array Syntax) : Except CompileError (Array (ValidatedSourceV1 × Syntax)) := do
   let mut scopes : Array NamespaceFrame := #[]
   let mut namespaceState : NamespaceState := .bounded .anonymous 0
-  let mut programs : Array ValidatedSourceV1 := #[]
+  let mut programs : Array (ValidatedSourceV1 × Syntax) := #[]
   let mut programKeys : Std.HashSet String := {}
   for command in commands do
     if command.isOfKind ``Parser.Command.eoi then
@@ -109,7 +113,7 @@ private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
         if alreadyPresent then
           throw <| invalid s!"duplicate program '{renderSourceQualified source.programIdentity}'"
         programKeys := updatedKeys
-        programs := programs.push source
+        programs := programs.push (source, command)
     | `(command| open ProofForgeV2.Language) => pure ()
     | `(command| namespace $name:ident) =>
         let declared := name.getId
@@ -144,6 +148,11 @@ private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
   unless scopes.isEmpty do
     throw <| invalid "unterminated namespace"
   pure programs
+
+private def processCommandsV1 (moduleName : SourceQualifiedNameV1)
+    (commands : Array Syntax) : Except CompileError (Array ValidatedSourceV1) := do
+  let programs ← processCommandsV1WithSyntax moduleName commands
+  pure (programs.map Prod.fst)
 
 private unsafe def parserEnvironment : IO Environment := do
   enableInitializersExecution
@@ -193,6 +202,42 @@ private def selectParsedProgramV1 (environment : Environment)
       | _ => throw <| invalid (
           "source contains multiple programs; pass --program <qualified-name>")
 
+private def selectParsedProgramV1WithSyntax (environment : Environment)
+    (parsed : Except CompileError (Array (ValidatedSourceV1 × Syntax)))
+    (requested : Option String) : Except CompileError (ValidatedSourceV1 × Syntax) := do
+  let programs ← parsed
+  match requested with
+  | some input =>
+      let requestedName ← parseSourceQualifiedInput environment "--program" input
+      match programs.find? (·.1.programIdentity == requestedName) with
+      | some source => pure source
+      | none => throw <| invalid s!"program '{input}' was not found"
+  | none =>
+      match programs with
+      | #[source] => pure source
+      | #[] => throw <| invalid "source contains no program"
+      | _ => throw <| invalid (
+          "source contains multiple programs; pass --program <qualified-name>")
+
+private unsafe def parseProgramsV1WithEnvironmentWithSyntax (environment : Environment)
+    (source fileName moduleInput : String) :
+    IO (Except CompileError (Array (ValidatedSourceV1 × Syntax))) := do
+  if let .error error := checkSourceSize source then
+    return .error error
+  let moduleName ← match parseSourceQualifiedInput environment "--module" moduleInput with
+    | .ok moduleName => pure moduleName
+    | .error error => return .error error
+  try
+    let parsedSyntax ← Parser.testParseModule environment fileName source
+    match parsedSyntax.getArgs with
+    | #[header, commands] =>
+        return do
+          validateHeader header
+          processCommandsV1WithSyntax moduleName commands.getArgs
+    | _ => return .error <| invalid "Lean parser returned an invalid module syntax tree"
+  catch error =>
+    return .error <| invalid s!"Lean parser rejected source: {error}"
+
 /-- Immutable locked Lean parser environment for parsing multiple independent
 sources without repeatedly importing the frontend module. Create a session on
 one control thread before sharing/reusing it; concurrent creation is unsupported. -/
@@ -214,6 +259,20 @@ unsafe def selectProgramV1 (session : ParserSession)
   return selectParsedProgramV1 session.environment
     (← session.parseProgramsV1 source fileName moduleName) requested
 
+unsafe def selectProgramV1WithSpans (session : ParserSession)
+    (source fileName moduleName : String) (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))) := do
+  let parsed ← parseProgramsV1WithEnvironmentWithSyntax session.environment source fileName moduleName
+  match parsed with
+  | .error error => return .error error
+  | .ok programs =>
+      match selectParsedProgramV1WithSyntax session.environment (.ok programs) requested with
+      | .error error => return .error error
+      | .ok (src, commandStx) =>
+          match spanJoinV1 source commandStx src.program with
+          | .ok spans => return .ok (src, spans)
+          | .error message => return .error <| invalid message
+
 end ParserSession
 
 unsafe def parseProgramsV1 (source fileName moduleName : String) :
@@ -227,5 +286,11 @@ unsafe def selectProgramV1 (source fileName moduleName : String)
     (requested : Option String) : IO (Except CompileError ValidatedSourceV1) := do
   let session ← ParserSession.create
   session.selectProgramV1 source fileName moduleName requested
+
+unsafe def selectProgramV1WithSpans (source fileName moduleName : String)
+    (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))) := do
+  let session ← ParserSession.create
+  session.selectProgramV1WithSpans source fileName moduleName requested
 
 end ProofForgeV2.Language.Loader
