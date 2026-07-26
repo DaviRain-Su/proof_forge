@@ -47,6 +47,7 @@ import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Typed.TypeCheckV1
+import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Core.SemanticIR

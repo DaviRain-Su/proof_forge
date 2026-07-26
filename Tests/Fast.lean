@@ -4,6 +4,7 @@ import Tests.Typed.TypeCheckExpressionsV1
 import Tests.Typed.TypeCheckCallsV1
 import Tests.Typed.TypeCheckStatementsV1
 import Tests.Typed.TypeCheckMatchV1
+import Tests.Typed.CallGraphV1
 import Tests.Language.ProgramV1Declarations
 import Tests.Language.ProgramV1DeclarationNegatives
 import Tests.Language.ProgramV1ExternalStatements
@@ -40,6 +41,7 @@ unsafe def main : IO Unit := do
   Tests.Typed.TypeCheckCallsV1.run
   Tests.Typed.TypeCheckStatementsV1.run
   Tests.Typed.TypeCheckMatchV1.run
+  Tests.Typed.CallGraphV1.run
   Tests.Language.ProgramV1Declarations.run
   Tests.Language.ProgramV1DeclarationNegatives.run
   Tests.Language.ProgramV1ExternalStatements.run

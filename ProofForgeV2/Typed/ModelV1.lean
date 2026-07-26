@@ -78,6 +78,14 @@ def toArray (table : DeclTableV1 K V) : Array (K × Nat × V) := table.entries
 
 def size (table : DeclTableV1 K V) : Nat := table.entries.size
 
+/-- True iff any key appears more than once in source order. -/
+def hasDuplicateKey (table : DeclTableV1 K V) : Bool :=
+  go table.entries.toList []
+where
+  go : List (K × Nat × V) → List K → Bool
+    | [], _ => false
+    | (k, _, _) :: rest, seen => if seen.contains k then true else go rest (k :: seen)
+
 end DeclTableV1
 
 /-- Typed declaration skeletons directly over ProgramV1, one table per kind. -/

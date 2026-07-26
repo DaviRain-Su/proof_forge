@@ -24,6 +24,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Typed.TypeCheckCallsV1,
     `Tests.Typed.TypeCheckStatementsV1,
     `Tests.Typed.TypeCheckMatchV1,
+    `Tests.Typed.CallGraphV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
     `Tests.Language.ProgramExportFixtures.B,
