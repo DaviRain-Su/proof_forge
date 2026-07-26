@@ -11,14 +11,28 @@
   comparison or canonical serialization, so two diagnostics that differ only
   by origin order or duplicate origins compare equal and serialize identically.
 
-  The carrier is intentionally not wired into any producer yet; that migration
-  is a later bounded slice.
+  The carrier is now wired into `ProofForgeV2.Language.Loader` for error-time
+  origins on parser-boundary and duplicate-program failures; all other producers
+  remain on `CompileError` until their bounded migration slices.  Error-time
+  origins use `errorSentinelNodeId` when a trustworthy source position exists but
+  a canonical traversal `NodeId` has not been assigned.  The sentinel is the
+  16-zero-byte value, which is valid per `validateNodeId` and cannot collide
+  with real canonical NodeIds because those are derived from cryptographic
+  hashes.  Origins are omitted (empty array) when no trustworthy position is
+  available.
 -/
 import ProofForgeV2.Core.Common
 
 open ProofForgeV2.Core.Common
 
 namespace ProofForgeV2.Core.DiagnosticV1
+
+/-- Documented zero-filled 16-byte sentinel used for error-time origins when a
+    canonical traversal `NodeId` has not been assigned.  It is valid per
+    `validateNodeId` and never collides with real NodeIds, which are derived from
+    cryptographic hashes. -/
+def errorSentinelNodeId : NodeId where
+  bytes := ByteArray.mk (Array.replicate 16 (0 : UInt8))
 
 /-- `Array.qsort`/`get!` on `SourceOrigin` arrays need an `Inhabited` instance. -/
 instance : Inhabited SourceOrigin where

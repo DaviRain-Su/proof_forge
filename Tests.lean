@@ -35,6 +35,7 @@ import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ProgramV1SpanJoin
+import Tests.Language.ProgramV1Diagnostics
 import Tests.Language.AggregateDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -123,6 +124,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
   Tests.Language.ProgramV1SpanJoin.run
+  Tests.Language.ProgramV1Diagnostics.run
   Tests.Language.AggregateDeclarations.run
   Tests.Language.StateVisibility.run
   Tests.Language.FrontendParity.run
