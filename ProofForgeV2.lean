@@ -44,6 +44,8 @@ import ProofForgeV2.Source.AstCanonicalRootDecodeV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.SpanJoinV1
 import ProofForgeV2.Source.NodeAssignmentV1
+import ProofForgeV2.Typed.ModelV1
+import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Core.SemanticIR

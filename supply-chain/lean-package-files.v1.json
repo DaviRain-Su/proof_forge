@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 2404,
+      "bytes": 2481,
       "path": "ProofForgeV2.lean",
-      "sha256": "d7da02dcc6cfe3ccda1def85101a200f0f5852c4cb3471641f13f0269363e0a4"
+      "sha256": "1863da74c51702db8fcadf5413bd533d4e4d8d77b3b5ae9efcb310015abf5bcb"
     },
     {
       "bytes": 8869,
@@ -359,6 +359,16 @@
       "bytes": 42372,
       "path": "ProofForgeV2/Targets/Solana.lean",
       "sha256": "dea220e24b4e22b6a8dae9d0b37123e89bb93fb52fc3cd710d124e0016138cec"
+    },
+    {
+      "bytes": 5282,
+      "path": "ProofForgeV2/Typed/ModelV1.lean",
+      "sha256": "e4d10843d36b9760b184d91783ce4c756a21e22d9288136c79fb79bf2b858e9c"
+    },
+    {
+      "bytes": 15833,
+      "path": "ProofForgeV2/Typed/NameResolutionV1.lean",
+      "sha256": "8352305252a6e86e2dbd0f5146aaeb265680eaccf549bc88f5b856484b99b4e6"
     }
   ],
   "schema": "proof-forge.lean-package-files.v1"
