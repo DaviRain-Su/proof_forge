@@ -1,5 +1,4 @@
 import Tests.Language.ParserSession
-import ProofForgeV2.Source.AstPatternV1
 import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstV1
@@ -13,7 +12,6 @@ import ProofForgeV2.Typed.TypeCheckV1
 namespace Tests.Typed.TypeCheckCallsV1
 
 open ProofForgeV2
-open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstV1
@@ -437,14 +435,6 @@ private unsafe def testSourceOrderArgsEarlierBeforeLater
   unless msgs[1]! == "type mismatch: expected UInt64, got UInt32" do
     throw <| IO.userError s!"args-order: second diag mismatch, got {msgs}"
 
-private unsafe def testMatchExpressionStillFailsClosed
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let resolved ← resolveProgram session "match-expr" ""
-  let arm : ExprMatchArmV1 := { pattern := .wildcard, value := u 1 }
-  let expr := ExprV1.match_ (b true) #[arm]
-  let res := typeCheckExpr emptyScope resolved.tables (some (.uint 64)) expr
-  expectExprDiag "match-expr" res "match expression"
-
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testEnumVariantWithPayload session
@@ -474,7 +464,6 @@ unsafe def run : IO Unit := do
   testSourceOrderConstructorPathBeforeArgs session
   testSourceOrderCalleeBeforeArgs session
   testSourceOrderArgsEarlierBeforeLater session
-  testMatchExpressionStillFailsClosed session
   IO.println "Tests.Typed.TypeCheckCallsV1: ok"
 
 end Tests.Typed.TypeCheckCallsV1

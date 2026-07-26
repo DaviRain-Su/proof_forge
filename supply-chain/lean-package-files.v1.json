@@ -371,9 +371,9 @@
       "sha256": "57082fdafc6df249348153a1415cffd555a4d659652f0e5b3b28c654bea9b0cd"
     },
     {
-      "bytes": 35497,
+      "bytes": 44213,
       "path": "ProofForgeV2/Typed/TypeCheckV1.lean",
-      "sha256": "be084cf5689bd23141058f21f548835b72f9cd98dd9a1c6b6267a41db012461d"
+      "sha256": "0eb9960de4aba1413212e02dbb0e34ae5358ce4959d4035ac482a9d2a36db4e7"
     }
   ],
   "schema": "proof-forge.lean-package-files.v1"

@@ -25,6 +25,8 @@
     * constructor expressions (struct and enum-variant constructors checked
       against declaration order field/payload types)
     * local function calls (checked against `fn` parameter count and types)
+    * expression- and statement-level `match` (pattern typing, arm unification,
+      result-context checking, enum exhaustiveness)
 
   Covered statement/body forms:
     * `let` (annotation takes precedence, otherwise inferred from value)
@@ -43,9 +45,9 @@
 
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
-    * expression-level and statement-level `match`
     * effects and requirements.
--/import ProofForgeV2.Core.DiagnosticV1
+-/
+import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
@@ -67,6 +69,7 @@ open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -157,6 +160,42 @@ partial def typeName : TypeV1 → String
 def isIntegerType : TypeV1 → Bool
   | .uint _ | .int _ => true
   | _ => false
+
+/-- Diagnostic emitted when a string literal is used as a pattern.  The
+    surface syntax allows string patterns, but `TypeV1` has no `String`
+    type, so they are fail-closed here. -/
+def stringPatternDiagnostic : DiagnosticV1 :=
+  { code := .sourceInvalid,
+    message := "string patterns are not supported (String is not a TypeV1)",
+    origins := emptyOrigins }
+
+/-- Diagnostic emitted when a later match arm value does not agree with the
+    first arm's result type.  The `armIndex` is 0-based and names the arm
+    where the mismatch was first observed. -/
+def armTypeMismatchDiagnostic (armIndex : Nat) (expected actual : String) : DiagnosticV1 :=
+  { code := .sourceInvalid,
+    message := s!"match arm {armIndex}: type mismatch: expected {expected}, got {actual}",
+    origins := emptyOrigins }
+
+/-- Diagnostic emitted when a match is not exhaustive.  For enum-typed
+    scrutinees, `missing` lists the variant raw names in declaration order. -/
+def nonExhaustiveDiagnostic (missing : List String) : DiagnosticV1 :=
+  { code := .sourceInvalid,
+    message :=
+      if missing.isEmpty then "match is not exhaustive"
+      else "match is not exhaustive; missing variants: " ++ String.intercalate ", " missing,
+    origins := emptyOrigins }
+
+/-- Result of checking a pattern against a scrutinee type: the binders
+    introduced into the arm scope and any diagnostics in source order. -/
+structure PatternCheckResultV1 where
+  bindings : List (SourceNameComponentV1 × TypeV1)
+  diagnostics : Array DiagnosticV1
+  deriving Inhabited
+
+def patternResult (bindings : List (SourceNameComponentV1 × TypeV1))
+    (diagnostics : Array DiagnosticV1) : PatternCheckResultV1 :=
+  { bindings := bindings, diagnostics := diagnostics }
 
 /-- Maximum magnitude allowed for an integer literal of `type_`.
     `isNegated` is true for literals immediately under unary `neg`. -/
@@ -268,6 +307,114 @@ def resolveLocalCallType (scope : TypeCheckScopeV1)
         match findFirstMatchingKind tables callee with
         | some (kind, _) => .error (wrongCategoryDiagnostic callee kind "function")
         | none => .error (unknownNameDiagnostic callee "function")
+
+/-- Add pattern binders to the arm-local scope. -/
+private def addBindings (scope : TypeCheckScopeV1)
+    (bindings : List (SourceNameComponentV1 × TypeV1)) : TypeCheckScopeV1 :=
+  bindings.foldl (fun acc (name, type_) => addBinding acc name type_) scope
+
+/-- Check a pattern against a scrutinee type, returning the binders introduced
+    into the arm scope and diagnostics in source order. -/
+partial def typeCheckPattern (tables : TypedDeclTablesV1)
+    (scrutineeType : TypeV1) (pattern : PatternV1) : PatternCheckResultV1 :=
+  match pattern with
+  | .wildcard => patternResult [] #[]
+  | .bind name => patternResult [(name, scrutineeType)] #[]
+  | .literal (.bool _) =>
+      if scrutineeType == .bool then
+        patternResult [] #[]
+      else
+        patternResult [] #[expectedActualDiagnostic "Bool" (typeName scrutineeType)]
+  | .literal (.integer magnitude) =>
+      if isIntegerType scrutineeType then
+        match integerLiteralBound scrutineeType false with
+        | some bound =>
+            if magnitude <= bound then
+              patternResult [] #[]
+            else
+              patternResult [] #[integerLiteralDiagnostic scrutineeType magnitude false]
+        | none =>
+            patternResult [] #[expectedActualDiagnostic (typeName scrutineeType) "integer literal"]
+      else
+        patternResult [] #[expectedActualDiagnostic (typeName scrutineeType) "integer literal"]
+  | .literal (.string _) =>
+      patternResult [] #[stringPatternDiagnostic]
+  | .constructor ctor args =>
+      match resolveConstructorType tables ctor with
+      | .error diag => patternResult [] #[diag]
+      | .ok (ctorResultType, expectedTypes) =>
+          let typeDiag :=
+            if ctorResultType != scrutineeType then
+              #[expectedActualDiagnostic (typeName scrutineeType) (typeName ctorResultType)]
+            else #[]
+          let arityDiag :=
+            if expectedTypes.size != args.size then
+              #[expectedActualDiagnostic
+                s!"{expectedTypes.size} constructor arguments"
+                s!"{args.size} constructor arguments"]
+            else #[]
+          let baseDiags := typeDiag ++ arityDiag
+          let (bindings, subDiags) := (List.range args.size).foldl
+            (fun (bs, ds) i =>
+              match args[i]? with
+              | none => (bs, ds)
+              | some sub =>
+                let expectedType? := if i < expectedTypes.size then some expectedTypes[i]! else none
+                let subRes :=
+                  match expectedType? with
+                  | some expectedType => typeCheckPattern tables expectedType sub
+                  | none => typeCheckPattern tables .unit sub
+                (bs ++ subRes.bindings, ds ++ subRes.diagnostics))
+            ([], #[])
+          patternResult bindings (baseDiags ++ subDiags)
+
+/-- True for wildcard or bind patterns, which make any match exhaustive. -/
+private def isCatchAll : PatternV1 → Bool
+  | .wildcard | .bind _ => true
+  | _ => false
+
+/-- If `pattern` is a constructor pattern resolving to a variant of `enumName`,
+    return that variant name. -/
+private def coveredEnumVariant (tables : TypedDeclTablesV1)
+    (enumName : SourceNameComponentV1) (pattern : PatternV1) :
+    Option SourceNameComponentV1 :=
+  match pattern with
+  | .constructor ctor _ =>
+      match resolveConstructorType tables ctor with
+      | .ok (.named name, _) =>
+          if name == enumName then
+            let comps := ctor.components.toArray
+            comps[comps.size - 1]?
+          else none
+      | _ => none
+  | _ => none
+
+/-- Check match exhaustiveness and return either an empty array or a single
+    diagnostic naming the missing variants (in declaration order for enums).
+    A wildcard or bind arm makes any scrutinee exhaustive. -/
+def checkExhaustiveness (tables : TypedDeclTablesV1) (scrutineeType : TypeV1)
+    (patterns : Array PatternV1) : Array DiagnosticV1 :=
+  if patterns.any isCatchAll then #[]
+  else
+    match scrutineeType with
+    | .named enumName =>
+        match tables.enum.find? enumName with
+        | some (_, enumDecl) =>
+            let covered := patterns.foldl (fun acc p =>
+              match coveredEnumVariant tables enumName p with
+              | some v => acc.push v
+              | none => acc) #[]
+            let coveredList := covered.toList
+            let missing := enumDecl.variants.filter (fun v => !coveredList.contains v.name)
+            if missing.isEmpty then #[]
+            else #[nonExhaustiveDiagnostic (missing.map (·.name.raw)).toList]
+        | none =>
+            -- Named scrutinee that is not an enum (e.g. struct) or unknown:
+            -- without a catch-all it cannot be exhaustive.
+            #[nonExhaustiveDiagnostic []]
+    | _ =>
+        -- Non-enum scrutinees require a catch-all arm.
+        #[nonExhaustiveDiagnostic []]
 
 mutual
   /-- Infer/check the type of a place.  Struct field chains and `Array`/`Map`
@@ -570,9 +717,32 @@ mutual
               else diags
             let (type_, diags) := checkExpected fnDecl.result expected? diags
             result type_ diags
-    | .match_ _ _ =>
-        result .unit #[expectedActualDiagnostic
-          (typeName (expected?.getD .unit)) "match expression"]
+    | .match_ scrutinee arms =>
+        match arms.toList with
+        | [] =>
+            result (expected?.getD .unit) #[internalDiagnostic "empty match expression"]
+        | firstArm :: restArms =>
+            let scrutineeRes := typeCheckExpr scope tables none scrutinee
+            let scrutineeType := scrutineeRes.type
+            let firstPatternRes := typeCheckPattern tables scrutineeType firstArm.pattern
+            let firstArmScope := addBindings scope firstPatternRes.bindings
+            let firstValueRes := typeCheckExpr firstArmScope tables expected? firstArm.value
+            let firstArmType := firstValueRes.type
+            let (restDiags, _) := restArms.foldl
+              (fun (acc, i) arm =>
+                let patternRes := typeCheckPattern tables scrutineeType arm.pattern
+                let armScope := addBindings scope patternRes.bindings
+                let valueRes := typeCheckExpr armScope tables expected? arm.value
+                let typeDiag :=
+                  if valueRes.type == firstArmType then #[]
+                  else #[armTypeMismatchDiagnostic i (typeName firstArmType) (typeName valueRes.type)]
+                (acc ++ patternRes.diagnostics ++ valueRes.diagnostics ++ typeDiag, i + 1))
+              (#[], 1)
+            let armDiags := scrutineeRes.diagnostics ++ firstPatternRes.diagnostics ++
+              firstValueRes.diagnostics ++ restDiags
+            let exhaustDiags := checkExhaustiveness tables scrutineeType (arms.map (·.pattern))
+            let (type_, diags) := checkExpected firstArmType expected? armDiags
+            result type_ (diags ++ exhaustDiags)
 end
 
 def scopeFromTables (tables : TypedDeclTablesV1) : TypeCheckScopeV1 :=
@@ -736,8 +906,16 @@ mutual
         let diags := externalCall.args.foldl (fun acc arg =>
           acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[]
         (scope, diags)
-    | .match_ _ _ =>
-        (scope, #[expectedActualDiagnostic (typeName result) "match statement"])
+    | .match_ scrutinee arms =>
+        let scrutineeRes := typeCheckExpr scope tables none scrutinee
+        let scrutineeType := scrutineeRes.type
+        let armDiags := arms.foldl (fun acc arm =>
+          let patternRes := typeCheckPattern tables scrutineeType arm.pattern
+          let armScope := addBindings scope patternRes.bindings
+          let bodyDiags := typeCheckBlock armScope tables result arm.body
+          acc ++ patternRes.diagnostics ++ bodyDiags) scrutineeRes.diagnostics
+        let exhaustDiags := checkExhaustiveness tables scrutineeType (arms.map (·.pattern))
+        (scope, armDiags ++ exhaustDiags)
 
   /-- Type-check a block of statements in source order, threading scope through. -/
   partial def typeCheckBlock (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
