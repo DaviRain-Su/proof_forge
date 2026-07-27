@@ -1407,6 +1407,34 @@ private def testCallableKindNamePresence : IO Unit := do
     #[badCfgCallable]
   expectCfgErr "N7 signature before def-site TypeId" n7
 
+/-- SPEC-SEM-WIRE-001 §6 initializer cardinality: a program contains zero or
+    one initializer, never two. Result shape remains a separate slice. -/
+private def testInitializerCardinality : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let p0 ← programWithTypes "InitCountP0None" boolUnitTypes
+  expectCfgOk "P0 zero initializer" p0
+  let p1 ← programWithTypes "InitCountP1One" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1]
+  expectCfgOk "P1 one initializer" p1
+  let entry1 : CallableV1 := { (cfgCallableKindName .entry (some "run")) with id := 1 }
+  let p2 ← programWithTypes "InitCountP2InitEntry" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1, entry1]
+  expectCfgOk "P2 initializer plus entry" p2
+  let init1 : CallableV1 := { (cfgCallableKindName .initializer none 1) with id := 1 }
+  let n1 ← programWithTypes "InitCountN1Two" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1, init1]
+  expectCfgErr "N1 two initializers" n1
+  let badInit1 : CallableV1 := {
+    init1 with blocks := #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)]
+  }
+  let n2 ← programWithTypes "InitCountN2BeforeCfg" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1, badInit1]
+  expectCfgErr "N2 initializer count before CFG" n2
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -4260,6 +4288,7 @@ def run : IO Unit := do
   testValueBytesNegatives
   testValueBytesTransportRegression
   testCallableKindNamePresence
+  testInitializerCardinality
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

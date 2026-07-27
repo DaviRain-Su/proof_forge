@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 initializer cardinality (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 initializer 零或一个，不实现 Unit/public result。
+- RED/Changed：tests-first。`testInitializerCardinality` 固定 0/1、initializer+entry 正向，double initializer 与 double initializer+later def-site TypeId OOR 负向；实现前 N1 被接受。
+- Production：新增 source-order `validateInitializerCardinalityV1`，第二个 initializer 返回 `.badCfg`；接线于 kind/name presence 后、CFG 前。
+- Verification：三路只读 review 一致 approved、无 findings；聚焦 harness、`just dev-check`、SBOM refresh、docs/diff 与普通 `just ci` 均通过。
+- Boundary：initializer result、name uniqueness、invariant join、entry/view existence及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 callable kind/name presence (signature step 4.25, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6/§6.2 的 callable kind/name Option presence，不实现 name grammar/uniqueness、initializer cardinality/result、invariant join或产品接线。

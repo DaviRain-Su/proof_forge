@@ -1666,8 +1666,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
-    (Constant / Op.Literal / SwitchCase) → callable kind/name presence → CFG
-    → requirements.
+    (Constant / Op.Literal / SwitchCase) → callable kind/name presence →
+    initializer cardinality → CFG → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -3363,6 +3363,17 @@ private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     | _, _ => return ← err .badCfg
   pure ()
 
+/-- At most one initializer callable may occur in source order (SPEC §6).
+    Unit/public result validation remains a separate signature slice. -/
+private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut seen : Bool := false
+  for callable in callables do
+    if callable.kind == .initializer then
+      if seen then return ← err .badCfg
+      seen := true
+  pure ()
+
 private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "value" || domain == "control" || domain == "state" ||
   domain == "effect" || domain == "context" || domain == "disclosure" ||
@@ -3496,8 +3507,8 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
 /-- Post-wire structural subset: program root qualifiedName has at least two
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
     Map-key (SPEC §5), canonical valueBytes (Constant /
-    Op.Literal / SwitchCase), callable kind/name presence, per-callable CFG
-    shape + reachability from entry
+    Op.Literal / SwitchCase), callable kind/name presence, initializer
+    cardinality, per-callable CFG shape + reachability from entry
     + Switch cases nonempty with unique `(typeId,valueBytes)` constants
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
@@ -3573,6 +3584,8 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallablesValueBytesV1 data.types data.callables
   -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
   validateCallableKindNamePresenceV1 data.callables
+  -- 4.3) Initializer cardinality (zero or one), still before CFG.
+  validateInitializerCardinalityV1 data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data
