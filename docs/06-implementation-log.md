@@ -12,6 +12,68 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 CFG per-op type/result contract (structure gate step j)
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  step i（terminator typing）之后新增 step j（per-op §5.1 type/result
+  contract，structure-gate-only，不改 wire tag/field-count/encoder/decoder/
+  schema）。新增 `checkOpTyping (instr)(defTypes)(data)`（复用 step h 的
+  `defTypes` ValueId→TypeId 表与 `data` 声明表）与 shape-resolving helper
+  `uint32TypeId`/`uint8TypeId`/`optionTypeId`（平行 `boolTypeId`）和
+  `serializableType` predicate（eq/ne operand 合法性：bool/uint/int/
+  principal/bytes/field/struct·enum-of-serializable，非 array/map/option/
+  unit，fuel=`types.size`）。覆盖 value-producing ops：literal（result.typeId
+  == op.typeId）、constant（constantId in range → result==constants[cid].
+  typeId）、stateLoad（stateId in range → result==logicalState[sid].typeId）、
+  construct（解析 Struct/Enum/Array/Option/Unit/empty-Map shape；primitives/
+  Bytes/Principal/Field/uint/int/bool reject；arg count/type 逐位匹配；
+  result==op.typeId）、fieldGet（base 经 defTypes 解析 Struct、fieldIndex<
+  fields.size、result==fields[i].typeId）、indexGet（Array→UInt32 index+
+  element result、Bytes→UInt32 index+UInt8 result、Map→key-type index+
+  Option(value) result）、unary（neg→Int|Field、not→Bool、bitNot→UInt|Int；
+  result==operand type）、binary（arithmetic add/sub/mul/div/mod 同 UInt/Int，
+  Field 仅 add/sub/mul/div 非 mod；eq/ne 同 serializable→Bool；lt/le/gt/ge
+  同 UInt/Int→Bool；and/or 同 Bool→Bool；bitAnd/bitOr/bitXor 同 UInt/Int；
+  shl/shr lhs UInt/Int + rhs UInt32；result==lhs type）、pureCall（calleeId
+  in range、callee.kind==.pureFn、arg count==params.size、arg type==
+  params[i].typeId、result==callee.result.typeId）。void/side-effecting ops
+  （result:=none）跳过；全失败 `.badCfg`。重构 `validateCallableCfgShape`
+  签名为 `(c)(typeCount)(types)(data)`，step 4.5 调用点传入 `data`；step j
+  复用 step h 的 `defTypes`。更新 module header 'Not yet' 行、step j section
+  banner、`validateSemanticProgramStructureV1` structure-order docstring
+  （列出 j、'Not' 改为 revert·emit·externalCall·schedule arg typing/
+  void-op result-presence/TypeKey/provenance join/normalizer）。`Tests/Semantic/
+  WireV1.lean` 增 `cfgOpTypes`（8 类型：Bool/UInt8/UInt32/Option<UInt8>/
+  Struct{a,b:UInt8}/Enum{V(UInt8)}/Map<UInt8,UInt8>/Bytes(4)）、`arrTypes`
+  （含 Array<UInt8,2>）、`programWithState`、`stateRow`、`cfgPureFn1`/
+  `cfgEntry0`、`cfgUInt32Lit`/`cfgUInt32ValueDef` 与 `testCfgOpTyping`
+  （register 于 `run` 中 `testCfgBlockParamTypeAndTerminatorTyping` 之后）：
+  P1 literal、P2 constant load、P3 stateLoad、P4 construct Struct、P5
+  fieldGet Struct、P6 indexGet Array(UInt32 index)、P7 unary not Bool→Bool、
+  P8 binary add UInt8+UInt8→UInt8、P9 pureCall pureFn arg match；N1 construct
+  arg count、N2 construct arg type、N3 fieldGet non-struct、N4 fieldGet OOR、
+  N5 indexGet Array wrong index type、N6 indexGet Map result not Option、N7
+  unary neg UInt8、N8 binary add operand mismatch、N9 binary eq result not
+  Bool、N10 binary shift rhs not UInt32、N11 pureCall non-pureFn callee、
+  N12 pureCall arg type mismatch；全 structure+encode 双路径 `.badCfg`。既有
+  `testCfgValueIdSsa` P4 binary `.add` 在 Bool 上改为 `.and`（满足新 contract）。
+  更新 `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_fast_tests && lake env .lake/build/bin/proof-forge-next-fast-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite、`just dev-check` 与 `just ci`（含
+  `Tests.Semantic.WireV1: ok`）通过；`supply-chain/lean-package-files.v1.json`
+  仅刷新 `ProofForgeV2/Semantic/WireV1.lean` 的 hash/bytes；不记 formal
+  TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Limitations：Not yet: void-op result-presence contract、revert/emit/
+  externalCall/schedule argument typing、contextRead/commit/checkedCast/
+  variantTag/variantPayload typing（later slice）、TypeKey anonymous
+  ranking/interning、provenance source/NodeId join、ProgramV1→Semantic
+  normalizer、product wire。本切片只加宽 structure gate，不改 wire
+  bytes/codec/schema；transport decode 仍 structure-free；不接线
+  Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称 formal
+  TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 CFG def-site TypeId range + terminator typing (structure gate step h/i)
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

@@ -67,14 +67,16 @@ import ProofForgeV2.Core.Unicode
   * Not yet: full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
-    valueBytes. (CFG shape + reachability from entry, jump/branch/switch
-    target arg arity == target block params, loopBounds back-edge
-    coverage, ValueId SSA definition-table / exactly-once /
-    use-existence, dominance-of-use, def-site TypeId range, and terminator
-    typing are now covered; per-op type/result contracts, revert/emit/
-    externalCall/schedule argument typing, TypeKey anonymous ranking,
-    provenance inventory join, ProgramV1 normalizer, and product wire
-    remain out of scope pending later slices.)
+    the §5.1 value-producing subset. (CFG shape + reachability from entry,
+    jump/branch/switch target arg arity == target block params, loopBounds
+    back-edge coverage, ValueId SSA definition-table / exactly-once /
+    use-existence, dominance-of-use, def-site TypeId range, terminator
+    typing, and the per-op §5.1 type/result contract for value-producing ops
+    are now covered; revert/emit/externalCall/schedule argument typing,
+    void-op result-presence, contextRead/commit/checkedCast/variantTag/
+    variantPayload typing, TypeKey anonymous ranking, provenance inventory
+    join, ProgramV1 normalizer, and product wire remain out of scope pending
+    later slices.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -2250,15 +2252,368 @@ def checkTerminatorTyping (c : CallableV1)
     | .return_ none | .revert _ _ | .trap _ => pure ()
   pure ()
 
+/-! ### Per-op type/result contract (SPEC-SEM-WIRE-001 §5.1 — CFG layer j)
+
+    Step j: every value-producing op (literal/constant/stateLoad/construct/
+    fieldGet/indexGet/unary/binary/pureCall) must produce a result whose
+    declared TypeId matches the op's type contract, and any ValueId operand
+    types must match the declared operand contract. Void/side-effecting ops
+    with `result := none` are skipped this slice (a void op carrying a
+    spurious `result := some _` is out of scope for the void-op contract
+    slice). All step j failures → `.badCfg`. Bounded, non-recursive, total.
+    Out of scope: stateStore/fieldSet/indexSet/variantTag/variantPayload/
+    checkedCast/contextRead/commit/assert_/emit/externalCall/schedule typing,
+    TypeKey anonymous ranking/interning, provenance join, normalizer, product
+    wire. -/
+
+/-- First TypeId whose shape is `.uint 32`, if any. Bounded, non-recursive.
+    Parallel to `boolTypeId`. -/
+def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
+  let mut r : Option TypeIdV1 := none
+  let mut i : Nat := 0
+  for t in types do
+    if r.isNone then
+      match t.shape with
+      | .uint 32 => r := some (UInt32.ofNat i)
+      | _ => pure ()
+    i := i + 1
+  pure r
+
+/-- First TypeId whose shape is `.uint 8`, if any. Bounded, non-recursive.
+    Parallel to `boolTypeId`. -/
+def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
+  let mut r : Option TypeIdV1 := none
+  let mut i : Nat := 0
+  for t in types do
+    if r.isNone then
+      match t.shape with
+      | .uint 8 => r := some (UInt32.ofNat i)
+      | _ => pure ()
+    i := i + 1
+  pure r
+
+/-- First TypeId whose shape is `.option element` with the given element
+    TypeId, if any. Bounded, non-recursive. Used by `indexGet` on Map to
+    resolve the unique `Option(map.value)` result TypeId. -/
+def optionTypeId (types : Array TypeDeclV1) (element : TypeIdV1) :
+    Option TypeIdV1 := Id.run do
+  let mut r : Option TypeIdV1 := none
+  let mut i : Nat := 0
+  for t in types do
+    if r.isNone then
+      match t.shape with
+      | .option e => if e == element then r := some (UInt32.ofNat i) else pure ()
+      | _ => pure ()
+    i := i + 1
+  pure r
+
+/-- Whether a TypeId resolves to a shape that is a valid `eq`/`ne` operand
+    (SPEC §5.1 'serializable'): Bool/UInt/Int/Principal/Bytes/Field, or a
+    Struct/Enum whose recursively-referenced types are all serializable.
+    Array/Map/Option/Unit are NOT serializable. Bounded, fuel-bounded
+    recursion (fuel = types.size). Out-of-range TypeId → false (caller owns
+    range via step h). -/
+private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
+    (fuel : Nat) → Bool
+  | 0 => false
+  | fuel + 1 =>
+    match types[typeId.toNat]? with
+    | none => false
+    | some decl =>
+      match decl.shape with
+      | .bool | .uint _ | .int _ | .principal | .bytes _ | .field _ => true
+      | .struct fields =>
+          fields.all (fun f => serializableType types f.typeId fuel)
+      | .enum variants =>
+          variants.all (fun v =>
+            v.payloadTypes.all (fun t => serializableType types t fuel))
+      | .array _ _ | .map _ _ | .option _ | .unit => false
+
+/-- Step j: per-op type/result contract for one instruction. `defTypes` is the
+    ValueId→TypeId def-site table (exactly-once by step f). `data` provides
+    declaration tables for constant/stateLoad/construct/pureCall resolution.
+    Void ops (`result := none`) are skipped. All failures → `.badCfg`.
+    Bounded, non-recursive (serializableType is fuel-bounded). -/
+def checkOpTyping (instr : InstructionV1)
+    (defTypes : Array (ValueIdV1 × TypeIdV1)) (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let types := data.types
+  let typeCount := types.size
+  -- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f).
+  let typeOf (vid : ValueIdV1) : Option TypeIdV1 := Id.run do
+    let mut r : Option TypeIdV1 := none
+    for (v, t) in defTypes do
+      if v == vid then
+        r := some t
+        break
+    pure r
+  -- Shape of a TypeId, if in range.
+  let shapeOf (tid : TypeIdV1) : Option TypeShapeV1 := Id.run do
+    let mut r : Option TypeShapeV1 := none
+    let n := tid.toNat
+    if n < typeCount then
+      match types[n]? with
+      | some d => r := some d.shape
+      | none => pure ()
+    pure r
+  -- The declared result TypeId of this instruction (only when result=some).
+  let resultTypeId : Option TypeIdV1 :=
+    match instr.result with
+    | some vdef => some vdef.typeId
+    | none => none
+  -- Helper: require result present and equal to `tid`; missing result is
+  --   out of scope for the void-op contract slice, so we only check when
+  --   a result is declared. If a result IS declared, it must equal `tid`.
+  let requireResult (tid : TypeIdV1) : Except SemanticWireErrorV1 Unit :=
+    match resultTypeId with
+    | some rT => unless rT == tid do err .badCfg
+    | none => pure ()
+  -- Helper: resolve a ValueId operand's TypeId (missing def → .badCfg).
+  let requireOperandType (vid : ValueIdV1) :
+      Except SemanticWireErrorV1 TypeIdV1 :=
+    match typeOf vid with
+    | none => err .badCfg
+    | some t => pure t
+  -- Helper: positional arg type check against an expected TypeId list.
+  let checkArgTypes (args : Array ValueIdV1) (expected : Array TypeIdV1) :
+      Except SemanticWireErrorV1 Unit := do
+    unless args.size == expected.size do
+      return ← err .badCfg
+    let mut i : Nat := 0
+    while i < args.size do
+      let argT ← requireOperandType args[i]!
+      match expected[i]? with
+      | none => return ← err .badCfg
+      | some expT => unless argT == expT do return ← err .badCfg
+      i := i + 1
+    pure ()
+  match instr.op with
+  | .literal tid _ =>
+      -- result.typeId == op.typeId; no ValueId uses.
+      requireResult tid
+  | .constant cid =>
+      -- constantId in range → result.typeId == constants[cid].typeId.
+      match data.constants[cid.toNat]? with
+      | none => err .badCfg
+      | some c => requireResult c.typeId
+  | .stateLoad sid =>
+      -- stateId in range → result.typeId == logicalState[sid].typeId.
+      match data.logicalState[sid.toNat]? with
+      | none => err .badCfg
+      | some s => requireResult s.typeId
+  | .construct tid ctorIdx args =>
+      -- op.typeId in range; resolve type shape; reject primitives that
+      -- cannot be Constructed.
+      match shapeOf tid with
+      | none => err .badCfg
+      | some shape =>
+        match shape with
+        | .struct fields =>
+            unless ctorIdx == 0 do return ← err .badCfg
+            unless args.size == fields.size do return ← err .badCfg
+            let expected := fields.map (·.typeId)
+            checkArgTypes args expected
+            requireResult tid
+        | .enum variants =>
+            unless ctorIdx.toNat < variants.size do return ← err .badCfg
+            match variants[ctorIdx.toNat]? with
+            | none => err .badCfg
+            | some v =>
+                unless args.size == v.payloadTypes.size do return ← err .badCfg
+                checkArgTypes args v.payloadTypes
+                requireResult tid
+        | .array element length =>
+            unless ctorIdx == 0 do return ← err .badCfg
+            unless args.size == length.toNat do return ← err .badCfg
+            let expected := Array.mk (List.replicate args.size element)
+            checkArgTypes args expected
+            requireResult tid
+        | .option element =>
+            match ctorIdx.toNat with
+            | 0 =>
+                -- none: args == #[]
+                unless args.size == 0 do return ← err .badCfg
+                requireResult tid
+            | 1 =>
+                -- some: args.count == 1, arg type == element
+                unless args.size == 1 do return ← err .badCfg
+                checkArgTypes args #[element]
+                requireResult tid
+            | _ => err .badCfg
+        | .unit =>
+            -- Unit/empty Map shape: constructorIndex==0, args==#[].
+            -- (`.map` with nonempty cannot be Constructed; empty Map uses
+            -- constructorIndex 0, args #[] — handled under .map below.)
+            unless ctorIdx == 0 do return ← err .badCfg
+            unless args.size == 0 do return ← err .badCfg
+            requireResult tid
+        | .map _ _ =>
+            -- Only the empty Map (constructorIndex 0, args #[]) can be
+            -- Constructed this slice; nonempty Map construction is out of
+            -- scope. constructorIndex != 0 → .badCfg.
+            unless ctorIdx == 0 do return ← err .badCfg
+            unless args.size == 0 do return ← err .badCfg
+            requireResult tid
+        | .bool | .uint _ | .int _ | .principal | .bytes _ | .field _ =>
+            -- primitives/Bytes/Principal/Field/uint/int/bool cannot be Constructed
+            err .badCfg
+  | .fieldGet base fieldIdx =>
+      -- base ValueId type resolves to Struct via defTypes; fieldIndex < fields.size;
+      -- result.typeId == fields[fieldIdx].typeId.
+    match requireOperandType base with
+    | .error e => err e
+    | .ok baseT =>
+        match shapeOf baseT with
+        | none => err .badCfg
+        | some (.struct fields) =>
+            unless fieldIdx.toNat < fields.size do return ← err .badCfg
+            match fields[fieldIdx.toNat]? with
+            | none => err .badCfg
+            | some f => requireResult f.typeId
+        | some _ => err .badCfg
+  | .indexGet base index =>
+      -- base ValueId type resolves to Array/Bytes/Map; index type and result
+      --   depend on base kind.
+    let baseT ← requireOperandType base
+    let idxT ← requireOperandType index
+    match shapeOf baseT with
+    | none => err .badCfg
+    | some (.array element _length) =>
+        -- index must be the unique UInt32 TypeId; result == element.
+        match uint32TypeId types with
+        | none => err .badCfg
+        | some u32 =>
+            unless idxT == u32 do return ← err .badCfg
+            requireResult element
+    | some (.bytes _length) =>
+        -- index UInt32; result == unique UInt8 TypeId.
+        match uint32TypeId types, uint8TypeId types with
+        | some u32, some u8 =>
+            unless idxT == u32 do return ← err .badCfg
+            requireResult u8
+        | _, _ => err .badCfg
+    | some (.map key value) =>
+        -- index type == map.key TypeId; result == unique Option(map.value).
+        unless idxT == key do return ← err .badCfg
+        match optionTypeId types value with
+        | none => err .badCfg
+        | some optT => requireResult optT
+    | some _ => err .badCfg
+  | .unary op operand =>
+      let opT ← requireOperandType operand
+      match op with
+      | .neg =>
+          -- operand type Int or Field; result == operand type.
+          match shapeOf opT with
+          | some (.int _) | some (.field _) => requireResult opT
+          | _ => err .badCfg
+      | .not =>
+          -- operand type Bool; result == Bool.
+          match shapeOf opT with
+          | some .bool => requireResult opT
+          | _ => err .badCfg
+      | .bitNot =>
+          -- operand type UInt or Int; result == operand type.
+          match shapeOf opT with
+          | some (.uint _) | some (.int _) => requireResult opT
+          | _ => err .badCfg
+  | .binary op lhs rhs =>
+      let lhsT ← requireOperandType lhs
+      let rhsT ← requireOperandType rhs
+      match op with
+      | .add | .sub | .mul | .div | .mod =>
+          -- arithmetic: lhs==rhs same UInt/Int (Field only add/sub/mul/div);
+          --   result == lhs type.
+          let lhsShape := shapeOf lhsT
+          let okArith : Bool :=
+            lhsT == rhsT &&
+            (match lhsShape with
+             | some (.uint _) | some (.int _) => true
+             | some (.field _) =>
+                 -- Field allows add/sub/mul/div but NOT mod.
+                 match op with | .mod => false | _ => true
+             | _ => false)
+          unless okArith do return ← err .badCfg
+          requireResult lhsT
+      | .eq | .ne =>
+          -- lhs==rhs same serializable type; result == Bool.
+          unless lhsT == rhsT do return ← err .badCfg
+          unless serializableType types lhsT typeCount do return ← err .badCfg
+          match boolTypeId types with
+          | none => err .badCfg
+          | some boolT => requireResult boolT
+      | .lt | .le | .gt | .ge =>
+          -- lhs==rhs same UInt/Int; result == Bool.
+          let sameInt : Bool := lhsT == rhsT &&
+            (match shapeOf lhsT with
+             | some (.uint _) | some (.int _) => true
+             | _ => false)
+          unless sameInt do return ← err .badCfg
+          match boolTypeId types with
+          | none => err .badCfg
+          | some boolT => requireResult boolT
+      | .and | .or =>
+          -- lhs==rhs Bool; result == Bool.
+          let bothBool : Bool := lhsT == rhsT &&
+            (match shapeOf lhsT with | some .bool => true | _ => false)
+          unless bothBool do return ← err .badCfg
+          match boolTypeId types with
+          | none => err .badCfg
+          | some boolT => requireResult boolT
+      | .bitAnd | .bitOr | .bitXor =>
+          -- lhs==rhs same UInt/Int; result == lhs type.
+          let sameInt : Bool := lhsT == rhsT &&
+            (match shapeOf lhsT with
+             | some (.uint _) | some (.int _) => true
+             | _ => false)
+          unless sameInt do return ← err .badCfg
+          requireResult lhsT
+      | .shl | .shr =>
+          -- lhs UInt/Int, rhs UInt32; result == lhs type.
+          let lhsInt : Bool :=
+            match shapeOf lhsT with
+            | some (.uint _) | some (.int _) => true
+            | _ => false
+          unless lhsInt do return ← err .badCfg
+          match uint32TypeId types with
+          | none => err .badCfg
+          | some u32 =>
+              unless rhsT == u32 do return ← err .badCfg
+              requireResult lhsT
+  | .pureCall calleeId args =>
+      -- calleeId in range, callee.kind == .pureFn, args count == params size,
+      --   each arg type == params[i].typeId; result == callee.result.typeId.
+    match data.callables[calleeId.toNat]? with
+    | none => err .badCfg
+    | some callee =>
+        unless callee.kind == .pureFn do return ← err .badCfg
+        unless args.size == callee.params.size do return ← err .badCfg
+        let expected := callee.params.map (·.typeId)
+        checkArgTypes args expected
+        requireResult callee.result.typeId
+  -- Void / side-effecting ops not in this slice's value-producing contract:
+  --   stateStore/fieldSet/indexSet/variantTag/variantPayload/checkedCast/
+  --   contextRead/commit/assert_/emit/externalCall/schedule. A void op with
+  --   `result := none` is skipped; a spurious `result := some _` on a void
+  --   op is out of scope for the void-op contract slice.
+  | .stateStore _ _ | .fieldSet _ _ _ | .indexSet _ _ _
+  | .variantTag _ | .variantPayload _ _ _ | .checkedCast _ _
+  | .contextRead _ | .commit _ | .assert_ _ _ _ | .emit _ _ _
+  | .externalCall _ _ _ | .schedule _ _ _ => pure ()
+
 /-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
-    + dominance-of-use + def-site TypeId range + terminator typing.
-    Deterministic, bounded. Steps a–e are CFG shape/reachability/arity/
-    loopBounds; step f runs the ValueId SSA def-table (exactly-once def +
-    use-existence); step g runs dominance-of-use; step h runs def-site TypeId
-    range (`.badReference`); step i runs terminator typing (`.badCfg`). The
-    reachability array computed in step d is shared with step g. -/
+    + dominance-of-use + def-site TypeId range + terminator typing + per-op
+    type/result contract. Deterministic, bounded. Steps a–e are CFG shape/
+    reachability/arity/loopBounds; step f runs the ValueId SSA def-table
+    (exactly-once def + use-existence); step g runs dominance-of-use;
+    step h runs def-site TypeId range (`.badReference`); step i runs
+    terminator typing (`.badCfg`); step j runs the per-op type/result
+    contract (§5.1, `.badCfg`) for value-producing ops. The reachability
+    array computed in step d is shared with step g; the `defTypes` table
+    built in step h is shared with steps i and j. -/
 private def validateCallableCfgShape (c : CallableV1)
-    (typeCount : Nat) (types : Array TypeDeclV1) :
+    (typeCount : Nat) (types : Array TypeDeclV1)
+    (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
   -- a) entryBlock == 0
@@ -2312,8 +2667,17 @@ private def validateCallableCfgShape (c : CallableV1)
   -- i) terminator typing (SPEC §6.2): branch cond Bool, switch case type ==
   --   scrutinee type, jump/branch/switch target arg types == target block
   --   param types positionally, return (some v) type == result type. All
-  --   `.badCfg`. Per-op type/result contracts remain out of scope.
+  --   `.badCfg`.
   checkTerminatorTyping c defTypes types
+  -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §5.1): every
+  --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
+  --   indexGet/unary/binary/pureCall) must produce a result whose declared
+  --   TypeId matches the op's type contract, and ValueId operand types must
+  --   match the declared operand contract. Void ops with `result := none`
+  --   are skipped. All failures → `.badCfg`. Reuses `defTypes` from step h.
+  for b in c.blocks do
+    for instr in b.instructions do
+      checkOpTyping instr defTypes data
 
 private def checkCallableIdInRange (callableId : CallableIdV1) (callableCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
@@ -2781,14 +3145,17 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     + terminator typing (branch cond Bool, switch case == scrutinee,
       target arg types == target block param types positional,
       return (some v) == result type)
+    + per-op type/result contract (§5.1: literal/constant/stateLoad/
+      construct/fieldGet/indexGet/unary/binary/pureCall result types and
+      operand types)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
-    def-table/dominance-of-use/def-site TypeId range/terminator typing — NOT
-    per-op type/result contracts (§5.1), revert/emit/externalCall/schedule
-    argument typing, TypeKey anonymous ranking/interning, provenance inventory
-    join, or ProgramV1 normalizer. -/
+    def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
+    type/result contract — NOT revert/emit/externalCall/schedule argument
+    typing, void-op result-presence, TypeKey anonymous ranking/interning,
+    provenance inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
@@ -2827,7 +3194,7 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallablesValueBytesV1 data.types data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
-    validateCallableCfgShape c typeCount data.types
+    validateCallableCfgShape c typeCount data.types data
   -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 
