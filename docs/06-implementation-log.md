@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-root direct Schedule prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Schedule` 加入既有 direct forbidden-op gate；不实现 argument serializability、transitive pureFn closure、exact steps、DAG、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantRootScheduleProhibited`，固定 entry direct Schedule 双路径正向、invariant direct Schedule 双路径负向、void-result/EffectId/callee-shape/SSA-existence/dominance generic failures 先于 closure，以及 closure 先于 fuel/requirements；实现前 N1 被 structure gate 接受；三路审查指出的 Schedule argument SSA/dominance precedence 缺口已补齐。
+- Production：扩展 bounded `validateInvariantRootDirectOpsV1`，按 invariant callable/block/instruction source order拒绝 direct `.schedule`；既有 forbidden families、StateLoad 与稳定 phase order 不变，失败仍为 `.badCfg`。
+- Verification：聚焦 production/test build、真实 harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-57` 的 Schedule argument SSA/dominance precedence findings 已修复，`proof-forge-one-slice-58` 三路复审 approved。
+- Boundary：ExternalCall/Schedule argument serializability、transitive pureFn closure、exact steps、DAG、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root direct ExternalCall prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.ExternalCall` 加入既有 direct forbidden-op gate；不实现 argument serializability、transitive pureFn closure、Schedule、exact steps、DAG、interpreter或产品接线。

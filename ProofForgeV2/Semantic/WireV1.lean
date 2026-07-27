@@ -56,8 +56,8 @@ import ProofForgeV2.Core.Unicode
       invariant root, plus exact source-order InvariantDecl callableId/kind/name
       join (`.badCfg`)
     - post-CFG invariant roots reject direct `Op.StateStore`, `Op.ContextRead`,
-      `Op.Commit`, `Op.Emit`, and `Op.ExternalCall` while retaining direct
-      `Op.StateLoad`; other closure op families remain deferred (`.badCfg`)
+      `Op.Commit`, `Op.Emit`, `Op.ExternalCall`, and `Op.Schedule` while
+      retaining direct `Op.StateLoad` (`.badCfg`)
     - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
       before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
@@ -3591,7 +3591,7 @@ private def validateInvariantRootStepsPresenceV1
 
 /-- SPEC §8 bounded direct-op subset for invariant roots. After generic
     CFG/op typing, reject direct logical-state writes, context reads,
-    commitment creation, event emission, and external calls.
+    commitment creation, event emission, external calls, and scheduling.
     StateLoad remains allowed; transitive pureFn closure and the remaining
     forbidden op families are separate slices. -/
 private def validateInvariantRootDirectOpsV1
@@ -3606,6 +3606,7 @@ private def validateInvariantRootDirectOpsV1
           | .commit _ => return ← err .badCfg
           | .emit _ _ _ => return ← err .badCfg
           | .externalCall _ _ _ => return ← err .badCfg
+          | .schedule _ _ _ => return ← err .badCfg
           | _ => pure ()
   pure ()
 

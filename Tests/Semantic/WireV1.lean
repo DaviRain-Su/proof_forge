@@ -4172,6 +4172,126 @@ private def testInvariantRootExternalCallProhibited : IO Unit := do
   }
   expectCfgErr "N6 ExternalCall before requirements" n6
 
+/-- SPEC §8 bounded invariant-root direct-op slice for Schedule. Generic
+    EffectId, callee-shape, void-result, SSA-existence, and dominance checks run
+    first; argument serializability and transitive pureFn closure remain
+    deferred. -/
+private def testInvariantRootScheduleProhibited : IO Unit := do
+  let callee ← match parseQualifiedName #["mod", "workflow"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let shortCallee ← match parseQualifiedName #["workflow"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let forbiddenRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.schedule 0 callee #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 4
+  }
+  let n1Base ← programWithTypes "InvScheduleN1Root" cfgBoolTypes #[] #[forbiddenRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct Schedule forbidden" n1
+  expectCfgInvariantPhase "N1 Schedule closure phase"
+    .invariantClosure .badCfg n1
+  let entrySchedule : CallableV1 := {
+    forbiddenRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p1 ← programWithTypes "InvScheduleP1Entry" cfgBoolTypes #[] #[entrySchedule]
+  expectCfgOk "P1 entry direct Schedule remains allowed" p1
+  let badResultRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr (some (cfgValueDef 1)) (.schedule 0 callee #[])]
+        (.return_ (some 0))]
+  }
+  let n2Base ← programWithTypes "InvScheduleN2Result" cfgBoolTypes #[] #[badResultRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 Schedule result before closure" .badCfg n2
+  expectCfgInvariantPhase "N2 Schedule result phase wins" .cfg .badCfg n2
+  let badEffectRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.schedule 1 callee #[])]
+        (.return_ (some 0))]
+  }
+  let n3Base ← programWithTypes "InvScheduleN3Effect" cfgBoolTypes #[] #[badEffectRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 Schedule EffectId before closure" .badCfg n3
+  expectCfgInvariantPhase "N3 Schedule EffectId phase wins" .cfg .badCfg n3
+  let badCalleeRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.schedule 0 shortCallee #[])]
+        (.return_ (some 0))]
+  }
+  let n4Base ← programWithTypes "InvScheduleN4Callee" cfgBoolTypes #[] #[badCalleeRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 Schedule callee before closure" .badCfg n4
+  expectCfgInvariantPhase "N4 Schedule callee phase wins" .cfg .badCfg n4
+  let undefinedArgRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.schedule 0 callee #[99])]
+        (.return_ (some 0))]
+  }
+  let n5Base ← programWithTypes "InvScheduleN5UndefinedArg"
+    cfgBoolTypes #[] #[undefinedArgRoot]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N5 Schedule undefined arg before closure" .badCfg n5
+  expectCfgInvariantPhase "N5 Schedule undefined arg phase wins" .cfg .badCfg n5
+  let nonDominatingArgRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[
+        cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+          (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+        cfgBlockInstrs 1
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0)]
+          (.jump (cfgJumpTarget 3)),
+        cfgBlock 2 (.jump (cfgJumpTarget 3)),
+        cfgBlockInstrs 3
+          #[cfgInstr none (.schedule 0 callee #[1])]
+          (.return_ (some 0))]
+  }
+  let n6Base ← programWithTypes "InvScheduleN6NonDominatingArg"
+    cfgBoolTypes #[] #[nonDominatingArgRoot]
+  let n6 : SemanticProgramDataV1 := {
+    n6Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N6 Schedule non-dominating arg before closure" .badCfg n6
+  expectCfgInvariantPhase "N6 Schedule non-dominating arg phase wins" .cfg .badCfg n6
+  let n7 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N7 Schedule before fuel" .badCfg n7
+  expectCfgInvariantPhase "N7 Schedule closure phase wins"
+    .invariantClosure .badCfg n7
+  let n8 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-schedule"] }
+  }
+  expectCfgErr "N8 Schedule before requirements" n8
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -6075,6 +6195,7 @@ def run : IO Unit := do
   testInvariantRootCommitProhibited
   testInvariantRootEmitProhibited
   testInvariantRootExternalCallProhibited
+  testInvariantRootScheduleProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
