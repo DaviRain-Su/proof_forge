@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 Constant-name uniqueness (name step 4.2, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 constants table 内 Constant name 的 exact String 唯一，不实现 Constant identifier grammar/NFC、state/event/error/type 等其他 declaration table name uniqueness、entry/view existence或产品接线。
+- RED/Changed：tests-first。新增 `testConstantNameUniqueness`，固定 empty、distinct、case-sensitive 正向，duplicate 负向，以及 shallow Constant TypeId range → canonical Constant/callable valueBytes → Constant-name uniqueness → callable signature → per-callable CFG phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded `validateConstantNameUniquenessV1`，将 Constant names 复制到 private array，按 UTF-8 byte order qsort 后比较 adjacent exact String；重复 fail closed 为 `.duplicate`，不改变 constants source order。接线于全部 canonical value sites 后、interface-field/callable signatures 与 CFG 前，并同步 stable-order 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` 的 bytes/hash；`proof-forge-one-slice-37` 三路只读 review 一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：Constant/declaration identifier grammar/NFC、state/event/error/type 等其他 table name uniqueness、invariant closure/fuel 与 `invariantSteps`、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 event/error interface-field name uniqueness (name step 4.25, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实每个 EventDecl/ErrorDecl 内 InterfaceField name 的 exact String 唯一，不实现 interface/declaration identifier grammar/NFC、顶层 declaration name uniqueness、entry/view existence或产品接线。

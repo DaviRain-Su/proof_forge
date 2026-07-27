@@ -1559,6 +1559,60 @@ private def testCallableParameterNameUniqueness : IO Unit := do
     #[badCfgCallable]
   expectCfgErr "N5 parameter names before def-site TypeId" n5
 
+/-- SPEC-SEM-WIRE-001 §6 Constant names are exact-string unique within
+    the constants table. Identifier grammar/NFC and other declaration tables
+    remain separate gates. -/
+private def testConstantNameUniqueness : IO Unit := do
+  let p0 ← programWithTypes "ConstantNameP0Empty" cfgBoolTypes
+  expectCfgOk "P0 empty constants table" p0
+  let p1 ← programWithTypes "ConstantNameP1Distinct" cfgBoolTypes
+    #[constOf 0 "x" 0 (ByteArray.mk #[0]),
+      constOf 1 "y" 0 (ByteArray.mk #[1]),
+      constOf 2 "X" 0 (ByteArray.mk #[0])]
+  expectCfgOk "P1 distinct case-sensitive constant names" p1
+  let duplicateConstants : Array ConstantV1 :=
+    #[constOf 0 "x" 0 (ByteArray.mk #[0]),
+      constOf 1 "x" 0 (ByteArray.mk #[1])]
+  let n1 ← programWithTypes "ConstantNameN1Duplicate" cfgBoolTypes
+    duplicateConstants
+  expectCfgErrCode "N1 duplicate constant names" .duplicate n1
+  -- Shallow Constant TypeId range validation precedes name uniqueness.
+  let n2 ← programWithTypes "ConstantNameN2ReferenceFirst" cfgBoolTypes
+    #[constOf 0 "x" 0 (ByteArray.mk #[0]),
+      constOf 1 "x" 99 (ByteArray.mk #[1])]
+  expectCfgErrCode "N2 Constant TypeId before names" .badReference n2
+  -- Canonical Constant valueBytes validation precedes name uniqueness.
+  let n3 ← programWithTypes "ConstantNameN3ValueFirst" cfgBoolTypes
+    #[constOf 0 "x" 0 (ByteArray.mk #[0]),
+      constOf 1 "x" 0 (ByteArray.mk #[2])]
+  expectCfgErrCode "N3 Constant value before names" .nonCanonical n3
+  -- Canonical callable valueBytes also precede Constant-name uniqueness.
+  let badValueCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 })
+        (.literal 0 (ByteArray.mk #[2]))]
+      (.return_ none)] with
+      id := 0
+  }
+  let n4 ← programWithTypes "ConstantNameN4CallableValueFirst" cfgBoolTypes
+    duplicateConstants #[badValueCallable]
+  expectCfgErrCode "N4 callable value before constant names" .nonCanonical n4
+  -- Constant-name uniqueness precedes callable signature validation.
+  let badSignatureCallable := cfgCallableKindName .pureFn none
+  let n5 ← programWithTypes "ConstantNameN5BeforeSignature" cfgBoolTypes
+    duplicateConstants #[badSignatureCallable]
+  expectCfgErrCode "N5 constant names before callable signature" .duplicate n5
+  -- Constant-name uniqueness also precedes per-callable CFG validation.
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+  }
+  let n6 ← programWithTypes "ConstantNameN6BeforeCfg" cfgBoolTypes
+    duplicateConstants #[badCfgCallable]
+  expectCfgErrCode "N6 constant names before CFG" .duplicate n6
+
 /-- SPEC-SEM-WIRE-001 §6 event/error interface-field names are exact-string
     unique within each declaration. Different declarations and declaration
     kinds may reuse a field name; identifier grammar/NFC remains separate. -/
@@ -4951,6 +5005,7 @@ def run : IO Unit := do
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
+  testConstantNameUniqueness
   testInterfaceFieldNameUniqueness
   testInitializerCardinality
   testInitializerResultShape
