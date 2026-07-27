@@ -1231,6 +1231,15 @@ private def cfgBlock (id : BlockIdV1) (terminator : TerminatorV1) :
 private def cfgJumpTarget (blockId : BlockIdV1) : JumpTargetV1 :=
   { blockId, args := #[] }
 
+/-- Callable whose sole block is a valid self back-edge with its exact bound. -/
+private def cfgCallableKindNameLoop (kind : CallableKindV1) (name : Option String)
+    (resultTypeId : TypeIdV1 := 0) : CallableV1 :=
+  {
+    (cfgCallable #[cfgBlock 0 (.jump (cfgJumpTarget 0))]
+      (loopBounds := #[cfgLoopBound 0 0 1])) with
+      kind, name, result := { typeId := resultTypeId, visibility := .public_ }
+  }
+
 private def cfgCallableKindName (kind : CallableKindV1) (name : Option String)
     (resultTypeId : TypeIdV1 := 0) : CallableV1 :=
   { (cfgCallable #[cfgBlock 0 (.return_ none)]) with
@@ -1806,6 +1815,73 @@ private def testInvariantDeclarationJoin : IO Unit := do
   let n8 ← programWithTypes "InvJoinN8JoinFirst" cfgBoolTypes #[]
     #[badCfgInvariant]
   expectCfgErr "N8 invariant join before def-site TypeId" n8
+
+/-- SPEC-SEM-WIRE-001 §8 invariant root shape: invariant callables have
+    loopBounds = #[]. Other callable kinds retain generic bounded loops. -/
+private def testInvariantLoopBoundsShape : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let p0 ← programWithTypes "InvLoopP0Initializer" boolUnitTypes #[]
+    #[cfgCallableKindNameLoop .initializer none 1]
+  expectCfgOk "P0 initializer may carry bounded loop" p0
+  let p1 ← programWithTypes "InvLoopP1Entry" boolUnitTypes #[]
+    #[cfgCallableKindNameLoop .entry (some "run")]
+  expectCfgOk "P1 entry may carry bounded loop" p1
+  let p2 ← programWithTypes "InvLoopP2View" boolUnitTypes #[]
+    #[cfgCallableKindNameLoop .view (some "read")]
+  expectCfgOk "P2 view may carry bounded loop" p2
+  let p3 ← programWithTypes "InvLoopP3PureFn" boolUnitTypes #[]
+    #[cfgCallableKindNameLoop .pureFn (some "f")]
+  expectCfgOk "P3 pureFn may carry bounded loop" p3
+  let invariantNoLoop := cfgCallableKindName .invariant (some "safe")
+  let p4Base ← programWithTypes "InvLoopP4Empty" boolUnitTypes #[]
+    #[invariantNoLoop]
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P4 invariant loopBounds empty" p4
+  let invariantWithLoop := cfgCallableKindNameLoop .invariant (some "safe")
+  let n1Base ← programWithTypes "InvLoopN1BoundedBackEdge" boolUnitTypes #[]
+    #[invariantWithLoop]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant bounded back edge" n1
+  -- Canonical value validation precedes invariant loopBounds shape.
+  let badValueInvariant : CallableV1 := {
+    invariantWithLoop with
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        terminator := .jump (cfgJumpTarget 0)
+      }]
+  }
+  let n2Base ← programWithTypes "InvLoopN2ValueFirst" boolUnitTypes #[]
+    #[badValueInvariant]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 canonical value before invariant loopBounds" .nonCanonical n2
+  -- Invariant loopBounds shape precedes CFG def-site TypeId range.
+  let badCfgInvariant : CallableV1 := {
+    invariantWithLoop with
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[cfgInstr (some { valueId := 0, typeId := 99 })
+          (cfgBoolLit 0)]
+        terminator := .jump (cfgJumpTarget 0)
+      }]
+  }
+  let n3Base ← programWithTypes "InvLoopN3SignatureFirst" boolUnitTypes #[]
+    #[badCfgInvariant]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N3 invariant loopBounds before def-site TypeId" n3
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -4665,6 +4741,7 @@ def run : IO Unit := do
   testInvariantResultShape
   testInvariantParameterShape
   testInvariantDeclarationJoin
+  testInvariantLoopBoundsShape
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
