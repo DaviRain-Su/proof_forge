@@ -32,8 +32,8 @@ import ProofForgeV2.Core.Unicode
         · Bytes/Array length ≤ 4096 (`.badType`)
         · FieldSpec catalog: only `proof-forge.field.bn254-fr.v1` with
           exact 32-byte modulusBE (`bn254FrFieldSpecV1`; `.badType`)
-        · unique struct field / enum variant names within one decl
-          (`.duplicate`)
+        · unique struct field / enum variant names within one decl and unique
+          exact names across named Struct/Enum TypeDecls (`.duplicate`)
         · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of
           recursively legal keys; reject Option/Array/Map/Enum/Unit/Field
           (`.badType`; recursion fuel = types.size)
@@ -1677,8 +1677,9 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     does not (transport only). See module header API contracts.
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
-    declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
-    (Constant / Op.Literal / SwitchCase) → grouped same-error duplicate phase
+    declaration refs → type-shape/FieldSpec/Map-key → named TypeDecl-name
+    uniqueness → canonical valueBytes (Constant / Op.Literal / SwitchCase) →
+    grouped same-error duplicate phase
     {Constant-name, logicalState-name, EventDecl/ErrorDecl-name,
     per-declaration interface-field-name uniqueness} → callable kind/name
     presence → named
@@ -3380,6 +3381,17 @@ private def checkUniqueDeclarationNamesV1 (names : Array String) :
     index := index + 1
   pure ()
 
+/-- Named Struct/Enum TypeDecl names are exact-string unique (SPEC §5/§6).
+    Full named-prefix/TypeKey closure and identifier grammar/NFC are separate. -/
+private def validateNamedTypeNameUniquenessV1 (types : Array TypeDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut names : Array String := #[]
+  for decl in types do
+    match decl.name with
+    | some name => names := names.push name
+    | none => pure ()
+  checkUniqueDeclarationNamesV1 names
+
 /-- Constant names are exact-string unique within the constants table (SPEC
     §6). Identifier grammar/NFC remains a separate gate. -/
 private def validateConstantNameUniquenessV1 (constants : Array ConstantV1) :
@@ -3761,8 +3773,10 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     checkTypeIdInRange c.result.typeId typeCount
   for inv in data.invariants do
     checkCallableIdInRange inv.callableId callableCount
-  -- 3) Type-shape / FieldSpec catalog / Map-key legality (SPEC §5)
+  -- 3) Type-shape / FieldSpec catalog / Map-key legality, then named
+  --   Struct/Enum TypeDecl exact-name uniqueness (SPEC §5/§6).
   validateTypesStructureV1 data.types
+  validateNamedTypeNameUniquenessV1 data.types
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables

@@ -1559,6 +1559,99 @@ private def testCallableParameterNameUniqueness : IO Unit := do
     #[badCfgCallable]
   expectCfgErr "N5 parameter names before def-site TypeId" n5
 
+/-- SPEC-SEM-WIRE-001 §5/§6 named Struct/Enum TypeDecl names are
+    exact-string unique within the named-type namespace. Full TypeKey closure,
+    identifier grammar/NFC, and anonymous type interning remain separate. -/
+private def testNamedTypeNameUniqueness : IO Unit := do
+  let p0 ← programWithTypes "NamedTypeNameP0Anonymous" cfgBoolTypes
+  expectCfgOk "P0 anonymous-only type table" p0
+  let orderedTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "a", typeId := 3 }] },
+    { id := 1, name := some "E",
+      shape := .enum #[{ name := "v", payloadTypes := #[3] }] },
+    { id := 2, name := some "s",
+      shape := .struct #[{ name := "b", typeId := 3 }] },
+    { id := 3, name := none, shape := .bool }
+  ]
+  let p1 ← programWithTypes "NamedTypeNameP1Distinct" orderedTypes
+  expectCfgOk "P1 distinct case-sensitive named type names" p1
+  let p1Bytes ← expectOk "P1 named type order encode"
+    (encodeSemanticProgramDataV1 p1)
+  let p1Decoded ← expectOk "P1 named type order decode"
+    (decodeSemanticProgramDataV1 p1Bytes)
+  expect (p1Decoded.types == orderedTypes)
+    "P1 named TypeDecl source order survives wire round-trip"
+  let duplicateStruct : TypeDeclV1 := {
+    id := 0, name := some "Dup",
+    shape := .struct #[{ name := "a", typeId := 2 }]
+  }
+  let duplicateEnum : TypeDeclV1 := {
+    id := 1, name := some "Dup",
+    shape := .enum #[{ name := "v", payloadTypes := #[2] }]
+  }
+  let anonymousBool : TypeDeclV1 := { id := 2, name := none, shape := .bool }
+  let duplicateTypes := #[duplicateStruct, duplicateEnum, anonymousBool]
+  let n1 ← programWithTypes "NamedTypeNameN1Duplicate" duplicateTypes
+  expectCfgErrCode "N1 duplicate named types across Struct/Enum" .duplicate n1
+  -- Shallow TypeId range validation precedes named-type uniqueness.
+  let badRefTypes : Array TypeDeclV1 := #[
+    duplicateStruct,
+    { id := 1, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[99] }] },
+    anonymousBool
+  ]
+  let n2 ← programWithTypes "NamedTypeNameN2ReferenceFirst" badRefTypes
+  expectCfgErrCode "N2 named type child ref before names" .badReference n2
+  -- Per-declaration type-shape validity precedes named-type uniqueness.
+  let badShapeTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Dup", shape := .struct #[] },
+    duplicateEnum, anonymousBool
+  ]
+  let n3 ← programWithTypes "NamedTypeNameN3ShapeFirst" badShapeTypes
+  expectCfgErrCode "N3 type shape before named type names" .badType n3
+  -- Named-type uniqueness precedes every canonical valueBytes site.
+  let n4 ← programWithTypes "NamedTypeNameN4ConstantLater" duplicateTypes
+    #[constOf 0 "bad" 2 (ByteArray.mk #[2])]
+  expectCfgErrCode "N4 named types before Constant value" .duplicate n4
+  let badValueCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 })
+        (.literal 0 (ByteArray.mk #[2]))]
+      (.return_ none)] with
+      id := 0
+  }
+  let n5 ← programWithTypes "NamedTypeNameN5LiteralLater" duplicateTypes #[]
+    #[badValueCallable]
+  expectCfgErrCode "N5 named types before Op.Literal value" .duplicate n5
+  let badSwitchCallable := cfgCallable #[
+    cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+      (.switch 0 #[{
+        typeId := 0
+        valueBytes := ByteArray.mk #[2]
+        target := cfgJumpTarget 1
+      }] none),
+    cfgBlock 1 (.return_ (some 0))
+  ]
+  let n6 ← programWithTypes "NamedTypeNameN6SwitchLater" duplicateTypes #[]
+    #[badSwitchCallable]
+  expectCfgErrCode "N6 named types before SwitchCase value" .duplicate n6
+  -- Named-type uniqueness also precedes callable signature and CFG phases.
+  let badSignatureCallable := cfgCallableKindName .pureFn none
+  let n7 ← programWithTypes "NamedTypeNameN7SignatureLater" duplicateTypes #[]
+    #[badSignatureCallable]
+  expectCfgErrCode "N7 named types before callable signature" .duplicate n7
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+  }
+  let n8 ← programWithTypes "NamedTypeNameN8CfgLater" duplicateTypes #[]
+    #[badCfgCallable]
+  expectCfgErrCode "N8 named types before CFG" .duplicate n8
+
 /-- SPEC-SEM-WIRE-001 §6 Constant names are exact-string unique within
     the constants table. Identifier grammar/NFC and other declaration tables
     remain separate gates. -/
@@ -5231,6 +5324,7 @@ def run : IO Unit := do
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
+  testNamedTypeNameUniqueness
   testConstantNameUniqueness
   testLogicalStateNameUniqueness
   testEventNameUniqueness

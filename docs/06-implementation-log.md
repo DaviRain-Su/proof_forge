@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 named TypeDecl-name uniqueness (type-shape step 3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 named Struct/Enum TypeDecl 的 exact String 名称唯一，不实现 identifier grammar/NFC、named-prefix rank、anonymous TypeKey closure/interning或产品接线。
+- RED/Changed：tests-first。新增 `testNamedTypeNameUniqueness`，固定 anonymous-only、Struct/Enum distinct、case-sensitive 与 exact types encode/decode source-order round-trip 正向，Struct↔Enum duplicate 负向，以及 shallow child TypeId range → per-declaration type-shape validity → named-type uniqueness → canonical Constant/Op.Literal/SwitchCase valueBytes → callable signature → CFG precedence；修正夹具避免 `TypeDeclV1` 非 Inhabited 的 `get!` 后，实现前 N1 被 structure gate 接受。
+- Production：新增 bounded `validateNamedTypeNameUniquenessV1`，收集所有 `some name` 后复用 shared private UTF-8 qsort + adjacent exact equality checker，重复 fail closed 为 `.duplicate` 且不改变 types source order。接线于完整 type-shape/FieldSpec/Map-key 检查后、全部 canonical valueBytes 前；不实现 TypeKey/prefix closure。同步 stable-order 与 module boundary 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` 的 bytes/hash；`proof-forge-one-slice-43` 三路只读 review 一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：TypeDecl identifier grammar/NFC、named-prefix rank、anonymous TypeKey closure/interning、invariant closure/fuel、entry/view existence、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 ErrorDecl-name uniqueness (name step 4.2, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 errors table 内 ErrorDecl name 的 exact String 唯一，不实现 ErrorDecl identifier grammar/NFC、named type 等其他 declaration table name uniqueness、entry/view existence或产品接线。
