@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 event/error interface-field name uniqueness (name step 4.25, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实每个 EventDecl/ErrorDecl 内 InterfaceField name 的 exact String 唯一，不实现 interface/declaration identifier grammar/NFC、顶层 declaration name uniqueness、entry/view existence或产品接线。
+- RED/Changed：tests-first。新增 `testInterfaceFieldNameUniqueness`，固定 distinct、per-declaration reset、event/error cross-kind reuse、case-sensitive 正向，event/error duplicate 负向，以及 shallow interface-field TypeId range → canonical constant value → field-name uniqueness → callable signature → per-callable CFG phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded `validateInterfaceFieldNameUniquenessV1`，按 events 后 errors 的公开 table order遍历；每个 declaration 将 field names 复制到 private array，按 UTF-8 byte order qsort 后比较 adjacent exact String，重复 fail closed 为 `.duplicate`，不改变 field source order。接线于 canonical values 后、callable signatures 与 CFG 前，并同步 stable-order 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；首次三路只读 review 提出的 callable-signature precedence 覆盖与 O(n²) field-name scan findings 已修复，修复后完整 harness 通过；`proof-forge-one-slice-36` 三路复审一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：interface/callable/declaration identifier grammar/NFC、constant/state/event/error 等顶层 table name uniqueness、invariant closure/fuel 与 `invariantSteps`、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 per-callable parameter-name uniqueness (signature step 4.25, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实每个 callable 内 parameter name 的 exact String 唯一，不实现 parameter identifier grammar/NFC、其他 field/declaration names、entry/view existence或产品接线。

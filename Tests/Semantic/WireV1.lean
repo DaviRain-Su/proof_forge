@@ -1559,6 +1559,76 @@ private def testCallableParameterNameUniqueness : IO Unit := do
     #[badCfgCallable]
   expectCfgErr "N5 parameter names before def-site TypeId" n5
 
+/-- SPEC-SEM-WIRE-001 §6 event/error interface-field names are exact-string
+    unique within each declaration. Different declarations and declaration
+    kinds may reuse a field name; identifier grammar/NFC remains separate. -/
+private def testInterfaceFieldNameUniqueness : IO Unit := do
+  let fieldX : InterfaceFieldV1 := {
+    name := "x", typeId := 0, visibility := .public_
+  }
+  let fieldY : InterfaceFieldV1 := {
+    name := "y", typeId := 0, visibility := .public_
+  }
+  let fieldUpperX : InterfaceFieldV1 := {
+    name := "X", typeId := 0, visibility := .public_
+  }
+  let event0 : EventDeclV1 := {
+    id := 0, name := "E0", fields := #[fieldX, fieldY]
+  }
+  let event1 : EventDeclV1 := {
+    id := 1, name := "E1", fields := #[fieldX]
+  }
+  let error0 : ErrorDeclV1 := {
+    id := 0, name := "R0", fields := #[fieldX, fieldUpperX]
+  }
+  let error1 : ErrorDeclV1 := {
+    id := 1, name := "R1", fields := #[fieldX]
+  }
+  let base ← programWithTypes "InterfaceFieldNameBase" cfgBoolTypes
+  let p0 := { base with events := #[event0], errors := #[error0] }
+  expectCfgOk "P0 distinct case-sensitive interface field names" p0
+  let p1 := { base with events := #[event0, event1], errors := #[error0, error1] }
+  expectCfgOk "P1 interface field scope resets per declaration" p1
+  let duplicateEvent : EventDeclV1 := {
+    id := 0, name := "E", fields := #[fieldX, fieldX]
+  }
+  let n1 := { base with events := #[duplicateEvent] }
+  expectCfgErrCode "N1 duplicate event field names" .duplicate n1
+  let duplicateError : ErrorDeclV1 := {
+    id := 0, name := "R", fields := #[fieldX, fieldX]
+  }
+  let n2 := { base with errors := #[duplicateError] }
+  expectCfgErrCode "N2 duplicate error field names" .duplicate n2
+  -- Shallow interface-field TypeId range validation precedes name uniqueness.
+  let badRefField : InterfaceFieldV1 := { fieldX with typeId := 99 }
+  let badRefEvent : EventDeclV1 := {
+    duplicateEvent with fields := #[fieldX, badRefField]
+  }
+  let n3 := { base with events := #[badRefEvent] }
+  expectCfgErrCode "N3 interface field TypeId before names" .badReference n3
+  -- Canonical valueBytes validation precedes interface-field name uniqueness.
+  let n4 := {
+    base with
+      constants := #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+      events := #[duplicateEvent]
+  }
+  expectCfgErrCode "N4 canonical value before interface field names" .nonCanonical n4
+  -- Interface-field uniqueness precedes callable signature validation.
+  let badSignatureCallable := cfgCallableKindName .pureFn none
+  let n5 := {
+    base with events := #[duplicateEvent], callables := #[badSignatureCallable]
+  }
+  expectCfgErrCode "N5 interface field names before callable signature" .duplicate n5
+  -- Interface-field uniqueness also precedes per-callable CFG validation.
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+  }
+  let n6 := { base with events := #[duplicateEvent], callables := #[badCfgCallable] }
+  expectCfgErrCode "N6 interface field names before CFG" .duplicate n6
+
 /-- SPEC-SEM-WIRE-001 §6 initializer cardinality: a program contains zero or
     one initializer, never two. Result shape is tested separately below. -/
 private def testInitializerCardinality : IO Unit := do
@@ -4881,6 +4951,7 @@ def run : IO Unit := do
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
+  testInterfaceFieldNameUniqueness
   testInitializerCardinality
   testInitializerResultShape
   testInvariantResultShape

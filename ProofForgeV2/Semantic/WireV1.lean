@@ -41,7 +41,8 @@ import ProofForgeV2.Core.Unicode
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
-    - callable signature subset after canonical values and before CFG:
+    - declaration/signature name subset after canonical values and before CFG:
+      per-event/per-error exact interface-field-name uniqueness, callable
       kind/name Option presence, exact named-callable uniqueness,
       per-callable exact parameter-name uniqueness, zero-or-one initializer,
       initializer result
@@ -3359,6 +3360,33 @@ private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
       validateTerminatorValueBytesV1 types block.terminator
   pure ()
 
+/-- Check one event/error field namespace without reordering its public
+    source-order array. The private UTF-8 sort avoids a quadratic duplicate
+    scan at the wire array limit. -/
+private def checkUniqueInterfaceFieldNamesV1
+    (fields : Array InterfaceFieldV1) : Except SemanticWireErrorV1 Unit := do
+  let names := fields.map (·.name)
+  let sorted := names.qsort fun left right =>
+    compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
+  let mut index : Nat := 1
+  while index < sorted.size do
+    if sorted[index - 1]! == sorted[index]! then
+      return ← err .duplicate
+    index := index + 1
+  pure ()
+
+/-- Event/error interface-field names are exact-string unique within each
+    declaration (SPEC §6). Each declaration gets an independent namespace;
+    identifier grammar/NFC remains a separate gate. -/
+private def validateInterfaceFieldNameUniquenessV1
+    (events : Array EventDeclV1) (errors : Array ErrorDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  for eventDecl in events do
+    checkUniqueInterfaceFieldNamesV1 eventDecl.fields
+  for errorDecl in errors do
+    checkUniqueInterfaceFieldNamesV1 errorDecl.fields
+  pure ()
+
 /-- Callable signature name presence (SPEC §6): initializer is the only
     anonymous callable kind; entry/view/pureFn/invariant must carry `some`
     name. String grammar/NFC remains a separate gate. Runs after canonical
@@ -3709,7 +3737,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
-  -- 4.25) Callable name presence/uniqueness + per-callable param-name uniqueness.
+  -- 4.25) Per-declaration interface-field uniqueness, then callable name
+  --   presence/uniqueness and per-callable parameter-name uniqueness.
+  validateInterfaceFieldNameUniquenessV1 data.events data.errors
   validateCallableKindNamePresenceV1 data.callables
   validateCallableNameUniquenessV1 data.callables
   validateCallableParameterNameUniquenessV1 data.callables
