@@ -4299,7 +4299,8 @@ private def testInvariantRootScheduleProhibited : IO Unit := do
 
 /-- SPEC §8 exact transitive pureFn closure-membership metadata slice. A
     pureFn carries `invariantSteps=some` iff reachable by `Op.PureCall` from an
-    invariant root; other pureFns carry none. DAG validation, closure op
+    invariant root; other pureFns carry none. Reachable call-graph DAG
+    validation is a separate post-membership gate; closure-CFG back edges, op
     allowlists, and exact step computation remain deferred. -/
 private def testInvariantPureFnClosureMembership : IO Unit := do
   let leaf : CallableV1 := {
@@ -4378,43 +4379,6 @@ private def testInvariantPureFnClosureMembership : IO Unit := do
       { id := 1, name := "rightSafe", callableId := 3 }]
   }
   expectCfgOk "P3 every invariant root seeds its disjoint closure" p3
-  let cycleA : CallableV1 := {
-    middle with
-      id := 0
-      name := some "cycleA"
-      blocks := #[cfgBlockInstrs 0
-        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
-        (.return_ (some 0))]
-      invariantSteps := some 3
-  }
-  let cycleB : CallableV1 := {
-    middle with
-      id := 1
-      name := some "cycleB"
-      blocks := #[cfgBlockInstrs 0
-        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
-        (.return_ (some 0))]
-      invariantSteps := some 3
-  }
-  let cycleRoot : CallableV1 := {
-    root with
-      blocks := #[cfgBlockInstrs 0
-        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
-        (.return_ (some 0))]
-  }
-  let p4Base ← programWithTypes "InvClosureMembershipP4CycleDeferred"
-    cfgBoolTypes #[] #[cycleA, cycleB, cycleRoot]
-  -- §8 DAG rejection is deliberately a later slice. A bad requirement proves
-  -- both shipped gates traverse this finite reachable cycle, accept membership
-  -- metadata for both pureFns, and continue past closure/fuel without claiming
-  -- the cyclic carrier is a complete valid SemanticProgramV1.
-  let p4 : SemanticProgramDataV1 := {
-    p4Base with
-      invariants := #[{ id := 0, name := "safe", callableId := 2 }]
-      requirements := { items := #[req "notadomain.after-cycle-membership"] }
-  }
-  expectCfgErrCode "P4 reachable pureFn cycle reaches later requirements"
-    .badRequirement p4
   let n1 : SemanticProgramDataV1 := {
     p2 with callables := #[{ unused with invariantSteps := some 3 }, literalRoot]
   }
@@ -4455,6 +4419,145 @@ private def testInvariantPureFnClosureMembership : IO Unit := do
   expectCfgErr "N5 membership before requirements" n5
   expectCfgInvariantPhase "N5 closure membership before requirements"
     .invariantClosure .badCfg n5
+
+/-- SPEC §8 reachable invariant-closure `Op.PureCall` graph must be a
+    DAG. This slice rejects self and multi-node cycles only when reachable from
+    an invariant root; closure-CFG back edges, op allowlists, and exact checked
+    step computation remain separate. -/
+private def testInvariantPureFnClosureDag : IO Unit := do
+  let leaf : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "leaf"
+      invariantSteps := some 3
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let p1Base ← programWithTypes "InvClosureDagP1Acyclic"
+    cfgBoolTypes #[] #[leaf, root]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 acyclic invariant PureCall closure" p1
+  let unreachableA : CallableV1 := {
+    leaf with
+      name := some "unreachableA"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := none
+  }
+  let unreachableB : CallableV1 := {
+    unreachableA with
+      id := 1
+      name := some "unreachableB"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p2Base ← programWithTypes "InvClosureDagP2UnreachableCycle"
+    cfgBoolTypes #[] #[unreachableA, unreachableB, literalRoot]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgOk "P2 unreachable pureFn cycle outside invariant closure" p2
+  let duplicateEdgeRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[]),
+          cfgInstr (some (cfgValueDef 1)) (.pureCall 0 #[])]
+        (.return_ (some 1))]
+      invariantSteps := some 10
+  }
+  let p3Base ← programWithTypes "InvClosureDagP3DuplicateEdges"
+    cfgBoolTypes #[] #[leaf, duplicateEdgeRoot]
+  let p3 : SemanticProgramDataV1 := {
+    p3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P3 duplicate static PureCall edges counted independently" p3
+  let selfCycle : CallableV1 := {
+    leaf with
+      name := some "selfCycle"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+  }
+  let n1Base ← programWithTypes "InvClosureDagN1SelfCycle"
+    cfgBoolTypes #[] #[selfCycle, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn self-cycle" n1
+  expectCfgInvariantPhase "N1 self-cycle closure phase"
+    .invariantClosure .badCfg n1
+  let cycleA : CallableV1 := {
+    leaf with
+      name := some "cycleA"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+  }
+  let cycleB : CallableV1 := {
+    cycleA with
+      id := 1
+      name := some "cycleB"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+  }
+  let cycleRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 9
+  }
+  let n2Base ← programWithTypes "InvClosureDagN2TwoCycle"
+    cfgBoolTypes #[] #[cycleA, cycleB, cycleRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 reachable two-pureFn cycle" n2
+  expectCfgInvariantPhase "N2 two-cycle closure phase"
+    .invariantClosure .badCfg n2
+  let n3 : SemanticProgramDataV1 := {
+    n2 with callables := #[cycleA, cycleB,
+      { cycleRoot with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N3 cycle before intrinsic fuel" .badCfg n3
+  expectCfgInvariantPhase "N3 cycle closure phase wins"
+    .invariantClosure .badCfg n3
+  let badCfgA : CallableV1 := {
+    cycleA with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 99 #[])]
+        (.return_ (some 0))]
+  }
+  let n4Base ← programWithTypes "InvClosureDagN4CfgFirst"
+    cfgBoolTypes #[] #[badCfgA, cycleB, cycleRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErrCode "N4 malformed PureCall before closure DAG" .badCfg n4
+  expectCfgInvariantPhase "N4 generic CFG phase wins" .cfg .badCfg n4
 
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
@@ -6361,6 +6464,7 @@ def run : IO Unit := do
   testInvariantRootExternalCallProhibited
   testInvariantRootScheduleProhibited
   testInvariantPureFnClosureMembership
+  testInvariantPureFnClosureDag
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
