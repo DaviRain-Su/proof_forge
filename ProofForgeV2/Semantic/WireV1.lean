@@ -50,9 +50,9 @@ import ProofForgeV2.Core.Unicode
       per-callable exact parameter-name uniqueness, zero-or-one initializer,
       initializer result
       resolving to Unit/public, invariant root with zero parameters,
-      `loopBounds=[]`, and a result resolving to Bool/public, plus exact
-      source-order InvariantDecl
-      callableId/kind/name join (`.badCfg`)
+      `loopBounds=[]`, and a result resolving to Bool/public,
+      `invariantSteps=none` for initializer/entry/view, plus exact source-order
+      InvariantDecl callableId/kind/name join (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -78,8 +78,9 @@ import ProofForgeV2.Core.Unicode
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
   * Not yet: full TypeKey
-    anonymous ranking/interning, provenance inventory join, ProgramV1
-    normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
+    anonymous ranking/interning, invariant closure/DAG/exact step computation
+    and fuel ceiling, provenance inventory join, ProgramV1 normalizer, product
+    CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
     back-edge coverage, per-callable EffectId contiguous canonical assignment,
@@ -3541,6 +3542,22 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
       return ← err .badCfg
   pure ()
 
+/-- Callable kinds that are disjoint from every invariant closure carry no
+    invariant fuel metadata (SPEC §8). Initializer/entry/view cannot be an
+    invariant root and cannot be reached by `Op.PureCall`, whose callee must be
+    a pureFn. PureFn closure membership, invariant-root exact step computation,
+    closure DAG validation, and the intrinsic ceiling remain separate gates. -/
+private def validateNonClosureCallableInvariantStepsV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    match callable.kind with
+    | .initializer | .entry | .view =>
+        match callable.invariantSteps with
+        | none => pure ()
+        | some _ => return ← err .badCfg
+    | .pureFn | .invariant => pure ()
+  pure ()
+
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
     latter's filtered source order (SPEC §6): exact callableId, invariant kind,
     and name. Table-id and callableId range checks run in earlier phases. -/
@@ -3796,13 +3813,15 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallableParameterNameUniquenessV1 data.callables
   -- 4.3) Special callable signatures: initializer is zero-or-one with a
   --   Unit/public result; invariant has zero params, empty loopBounds, a
-  --   Bool/public result, and one source-order exact InvariantDecl row. These
-  --   checks still precede per-callable CFG validation.
+  --   Bool/public result, and one source-order exact InvariantDecl row;
+  --   initializer/entry/view carry no invariantSteps metadata. These checks
+  --   still precede per-callable CFG validation.
   validateInitializerCardinalityV1 data.callables
   validateInitializerResultShapeV1 data.types data.callables
   validateInvariantResultShapeV1 data.types data.callables
   validateInvariantParameterShapeV1 data.callables
   validateInvariantLoopBoundsShapeV1 data.callables
+  validateNonClosureCallableInvariantStepsV1 data.callables
   validateInvariantDeclarationJoinV1 data.callables data.invariants
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do

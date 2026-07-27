@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 non-closure invariantSteps absence (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实按 callable kind 可证明不属于 invariant closure 的 initializer/entry/view 必须 `invariantSteps=none`，不实现 pureFn closure membership、invariant root exact step computation、DAG/op closure、10M ceiling、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testNonClosureCallableInvariantSteps`，固定 initializer/entry/view 的 `none` 正向，三种 kind 的 `some 1`/`some 0`/`some UInt64.max` 负向，以及 canonical valueBytes 早于 fuel metadata 的 `.nonCanonical` precedence；修正 Lean 夹具常量 spelling 后，实现前 N1 被 structure gate 接受。`proof-forge-one-slice-44` test review 要求防止 scope broadening 并固定 pre-CFG order，已补一个实际 pureFn→invariant closure（exact steps 3/6）`some` 双路径正向和 `invariantSteps some` + instruction-result TypeId OOR 的 `.badCfg` before `.badReference` 混合负例。
+- Production：新增 bounded `validateNonClosureCallableInvariantStepsV1`，仅按 kind 拒绝 initializer/entry/view 的任意 `some`，失败为 `.badCfg`；pureFn/invariant 暂不在该 helper 内推断 closure 或验证 step 值。接线于 invariant result/parameter/loopBounds signature 后、InvariantDecl join 与 CFG 前，并同步 module boundary 注释。
+- Verification：聚焦 production/test build 与真实 `proof-forge-next-tests` harness 已通过；`proof-forge-one-slice-44` 的 2 项测试 findings 已修复并由真实 harness 验证，`proof-forge-one-slice-45` 三路只读复审一致 approved、无 findings；`just dev-check`、SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：pureFn closure membership、invariant root exact steps、closure DAG/op allowlist、checked UInt64/10M ceiling、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 named TypeDecl-name uniqueness (type-shape step 3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 named Struct/Enum TypeDecl 的 exact String 名称唯一，不实现 identifier grammar/NFC、named-prefix rank、anonymous TypeKey closure/interning或产品接线。

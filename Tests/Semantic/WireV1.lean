@@ -2469,6 +2469,86 @@ private def testInvariantLoopBoundsShape : IO Unit := do
   }
   expectCfgErr "N3 invariant loopBounds before def-site TypeId" n3
 
+/-- SPEC-SEM-WIRE-001 §8 invariant fuel metadata, bounded kind-disjoint
+    subset: initializer/entry/view can never belong to an invariant closure,
+    so their `invariantSteps` must be `none`. A valid pureFn→invariant closure
+    with `some` values pins that this gate does not broaden to those kinds;
+    full membership/exact computation, DAG validation, and the 10M ceiling
+    remain separate slices. Every case drives the structure and encoder gates. -/
+private def testNonClosureCallableInvariantSteps : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let p1 ← programWithTypes "InvStepsP1InitializerNone" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1]
+  expectCfgOk "P1 initializer invariantSteps none" p1
+  let p2 ← programWithTypes "InvStepsP2EntryNone" boolUnitTypes #[]
+    #[cfgCallableKindName .entry (some "run")]
+  expectCfgOk "P2 entry invariantSteps none" p2
+  let p3 ← programWithTypes "InvStepsP3ViewNone" boolUnitTypes #[]
+    #[cfgCallableKindName .view (some "read")]
+  expectCfgOk "P3 view invariantSteps none" p3
+  -- P4 is a valid two-callable invariant closure. The pureFn has one literal
+  -- plus one terminator, so steps=1+(1+1)=3. The invariant has one PureCall
+  -- plus one terminator and includes its callee, so steps=1+(1+1)+3=6.
+  -- Both `some` values must survive this bounded kind-disjoint gate.
+  let closurePureFn : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      name := some "helper"
+      invariantSteps := some 3
+  }
+  let closureInvariant : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let p4Base ← programWithTypes "InvStepsP4ClosureSome" boolUnitTypes #[]
+    #[closurePureFn, closureInvariant]
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P4 pureFn/invariant closure invariantSteps some" p4
+  let initializerWithSteps : CallableV1 := {
+    (cfgCallableKindName .initializer none 1) with invariantSteps := some 1
+  }
+  let n1 ← programWithTypes "InvStepsN1InitializerSome" boolUnitTypes #[]
+    #[initializerWithSteps]
+  expectCfgErr "N1 initializer invariantSteps some" n1
+  let entryWithSteps : CallableV1 := {
+    (cfgCallableKindName .entry (some "run")) with invariantSteps := some 0
+  }
+  let n2 ← programWithTypes "InvStepsN2EntrySome" boolUnitTypes #[]
+    #[entryWithSteps]
+  expectCfgErr "N2 entry invariantSteps some" n2
+  let viewWithSteps : CallableV1 := {
+    (cfgCallableKindName .view (some "read")) with
+      invariantSteps := some (18446744073709551615 : UInt64)
+  }
+  let n3 ← programWithTypes "InvStepsN3ViewSome" boolUnitTypes #[]
+    #[viewWithSteps]
+  expectCfgErr "N3 view invariantSteps some" n3
+  -- Canonical value validation remains earlier than callable fuel metadata.
+  let n4 ← programWithTypes "InvStepsN4ValueFirst" boolUnitTypes
+    #[constOf 0 "bad" 0 (ByteArray.mk #[2])] #[entryWithSteps]
+  expectCfgErrCode "N4 canonical value before invariantSteps" .nonCanonical n4
+  -- Fuel metadata validation precedes per-callable CFG def-site TypeId range.
+  -- Without this gate the instruction result below would be `.badReference`.
+  let entryWithStepsBadDef : CallableV1 := {
+    entryWithSteps with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n5 ← programWithTypes "InvStepsN5SignatureFirst" boolUnitTypes #[]
+    #[entryWithStepsBadDef]
+  expectCfgErr "N5 invariantSteps before def-site TypeId" n5
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -5336,6 +5416,7 @@ def run : IO Unit := do
   testInvariantParameterShape
   testInvariantDeclarationJoin
   testInvariantLoopBoundsShape
+  testNonClosureCallableInvariantSteps
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
