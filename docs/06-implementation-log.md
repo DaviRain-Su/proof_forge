@@ -12,6 +12,64 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 ValueId SSA definition-table + uniqueness + use-existence
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  现有 loopBounds 相位（step e）之后新增 step f：调用新
+  `validateCallableValueIdSsa`，实现 SPEC §6.2 的 ValueId SSA
+  definition-table / exactly-once / use-existence 层（structure-gate-only）。
+  新增 6 个函数（除 `validateCallableValueIdSsa` 为 def 外其余均为 def）：
+  `collectValueDefSites`（按 callable params @ entryBlock、block params @
+  block.id、instruction result @ block.id 的 source order 收集
+  `(ValueIdV1 × BlockIdV1)` def sites，bounded、非递归）、
+  `checkValueIdDefUniqueness`（接受预计算 defSites，Array membership scan，
+  duplicate ValueId → `.badCfg`）、`opValueUses`（全 `SemanticOpV1` ValueId 引用：literal/
+  constant/stateLoad/contextRead→`#[]`、stateStore→value、construct→args、
+  fieldGet→base、fieldSet→base+value、variantTag→base、variantPayload→base、
+  indexGet→base+index、indexSet→base+index+value、checkedCast→value、
+  unary→operand、binary→lhs+rhs、pureCall→args、commit→value、assert_→cond+args、
+  emit/externalCall/schedule→args）、`terminatorValueUses`（jump→target.args、
+  branch→cond+then.args+else.args、switch→scrut+cases.args+default.args、
+  return_→value?、revert→args、trap→`#[]`）、`checkValueIdUsesExist`（每
+  op/terminator use 必须在 def set 中，missing → `.badCfg`）、
+  `validateCallableValueIdSsa`（先计算 defSites 一次，复用于 uniqueness 与
+  use-existence 两个子检查）。未改动任何 wire tag/field-count/encoder/decoder
+  （structure-gate-only）；transport decode `decodeSemanticProgramDataV1`
+  仍 structure-free。更新 module header 'Not yet' 列表（移除
+  'ValueId SSA definition-table / exactly-once / use-existence'，保留
+  dominance-of-use/block-param TYPE/terminator typing/TypeKey/provenance
+  join/normalizer/product wire）、`validateCallableCfgShape` 与
+  `validateSemanticProgramStructureV1` docstring（提及新 step f SSA 层）、
+  `checkJumpTargetArity` 注释（block-param TYPE 仍 Not yet，use-existence
+  已由 step f 拥有）。`Tests/Semantic/WireV1.lean` 增 `testCfgValueIdSsa`：
+  新增 helpers `cfgValueDef`/`cfgInstr`/`cfgBoolLit`/`cfgBlockInstrs`/
+  `cfgCallableWithParams`；6 个正例（P1 single-block def+use、P2 callable
+  param def+use、P3 block param+jump arg、P4 two defs+binary use、P5 branch
+  condition use、P6 switch scrutinee+case arg，distinct ValueIds 避免跨
+  callable/block-param 重复）与 8 个负例（N1 duplicate instr result、N2
+  duplicate block param+instr、N3 undefined op use、N4 undefined return、
+  N5 undefined branch cond、N6 undefined jump arg、N7 undefined switch
+  scrut、N8 duplicate callable param+block param），均校验 structure gate
+  与 encode 双路径、全 `.badCfg`；register 于 `run` 中 `testCfgLoopBounds`
+  之后。既有 `testCfgShapeAndReachability`/`testCfgBlockParamArity`/
+  `testCfgLoopBounds` positives 与 `minimalCallableSwitch` 已补 ValueId def
+  以满足新 use-existence gate（distinct ValueIds 避免与 block params 重复）；
+  negatives 仍在 step c/c.5/e 失败，无新 false positive。更新
+  `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_fast_tests && lake env .lake/build/bin/proof-forge-next-fast-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite、`just dev-check` 与 `just ci`（含 `Tests.Semantic.WireV1: ok`）
+  通过；`supply-chain/lean-package-files.v1.json` 仅刷新
+  `ProofForgeV2/Semantic/WireV1.lean` 的 hash/bytes；不记
+  formal TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Limitations：Not yet: dominance-of-use、block-param TYPE、terminator
+  typing、TypeKey anonymous ranking/interning、provenance source/NodeId join、
+  ProgramV1→Semantic normalizer、product wire。本切片只加宽 structure gate，
+  不改 wire bytes/codec；transport decode 仍 structure-free；不接线
+  Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称 formal
+  TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 CFG loopBounds back-edge coverage
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

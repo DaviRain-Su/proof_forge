@@ -834,7 +834,10 @@ private def minimalCallableSwitch (typeId : TypeIdV1) (valueBytes : ByteArray) :
     blocks := #[{
       id := 0
       params := #[]
-      instructions := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId }
+        op := .literal typeId valueBytes
+      }]
       terminator := .switch 0 #[{
         typeId
         valueBytes
@@ -1162,6 +1165,40 @@ private def cfgJumpTargetWithArgs (blockId : BlockIdV1)
 private def cfgBoolParam (valueId : ValueIdV1) : BlockParameterV1 :=
   { valueId, typeId := 0 }
 
+/-- ValueDef at `valueId` with typeId 0 (Bool in cfgBoolTypes). -/
+private def cfgValueDef (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 0 }
+
+/-- Instruction with optional result and given op. -/
+private def cfgInstr (result? : Option ValueDefV1) (op : SemanticOpV1) :
+    InstructionV1 :=
+  { result := result?, op }
+
+/-- Bool literal op at typeId 0 with a single 0/1 byte (no ValueId uses). -/
+private def cfgBoolLit (byte : UInt8) : SemanticOpV1 :=
+  .literal 0 (ByteArray.mk #[byte])
+
+/-- Block with explicit instructions plus terminator. -/
+private def cfgBlockInstrs (id : BlockIdV1) (instructions : Array InstructionV1)
+    (terminator : TerminatorV1) : BlockV1 :=
+  { id, params := #[], instructions, terminator }
+
+/-- Callable with explicit params (for SSA callable-param tests). -/
+private def cfgCallableWithParams (params : Array ParameterV1)
+    (blocks : Array BlockV1) (entryBlock : BlockIdV1 := 0)
+    (loopBounds : Array LoopBoundV1 := #[]) : CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "f"
+    params
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock
+    blocks
+    loopBounds
+    invariantSteps := none
+  }
+
 private def expectCfgOk (label : String) (data : SemanticProgramDataV1) :
     IO Unit := do
   expectOk s!"{label} structure" (validateSemanticProgramStructureV1 data)
@@ -1175,8 +1212,11 @@ private def expectCfgErr (label : String) (data : SemanticProgramDataV1) :
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
+  --   Defines ValueId 0 via a literal instruction so the return use is covered.
   let p1 ← programWithTypes "CfgSingle" cfgBoolTypes #[]
-    #[cfgCallable #[cfgBlock 0 (.return_ (some 0))]]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.return_ (some 0))]]
   expectCfgOk "single-block return" p1
   -- Positive 2: two-block jump, both reachable.
   let p2 ← programWithTypes "CfgJump" cfgBoolTypes #[]
@@ -1187,19 +1227,25 @@ private def testCfgShapeAndReachability : IO Unit := do
   expectCfgOk "two-block jump" p2
   -- Positive 3: branch reachability (self-jump to entry allowed as target);
   --   the self-target is a back edge 0→0, declared in loopBounds.
+  --   Defines ValueId 0 (branch condition) via a literal instruction.
   let p3 ← programWithTypes "CfgBranch" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
       cfgBlock 1 (.return_ none)
     ] (loopBounds := #[cfgLoopBound 0 0 1])]
   expectCfgOk "branch reachability" p3
   -- Positive 4: switch reachability with default target.
+  --   Defines ValueId 0 (scrutinee) via a literal instruction.
   let p4 ← programWithTypes "CfgSwitch" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.switch 0
-        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
-            target := cfgJumpTarget 1 }]
-        (some (cfgJumpTarget 1))),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 }]
+          (some (cfgJumpTarget 1))),
       cfgBlock 1 (.return_ none)
     ]]
   expectCfgOk "switch reachability" p4
@@ -1250,37 +1296,56 @@ private def testCfgShapeAndReachability : IO Unit := do
 
 private def testCfgBlockParamArity : IO Unit := do
   -- Positive 1: jump to a 2-param block passing 2 args.
+  --   Defines ValueIds 2 and 3 in block 0 (distinct from block 1 params 0,1
+  --   so the exactly-once def gate holds) and passes them as jump args.
   let p1 ← programWithTypes "CfgArityJump2" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0, 1])),
+      cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1) ]
+        (.jump (cfgJumpTargetWithArgs 1 #[2, 3])),
       cfgBlockWithParams 1 #[cfgBoolParam 0, cfgBoolParam 1]
         (.return_ (some 0))
     ]]
   expectCfgOk "jump arity 2==2" p1
   -- Positive 2: branch then/else both targeting 1-param blocks, 1 arg each.
+  --   Defines ValueId 0 (branch condition) and ValueIds 2, 3 (jump args,
+  --   distinct from block 1/2 params 4,5) in block 0.
   let p2 ← programWithTypes "CfgArityBranch1" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0
-        (cfgJumpTargetWithArgs 1 #[0])
-        (cfgJumpTargetWithArgs 2 #[1])),
-      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
-      cfgBlockWithParams 2 #[cfgBoolParam 1] (.return_ (some 1))
+      cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1) ]
+        (.branch 0
+          (cfgJumpTargetWithArgs 1 #[2])
+          (cfgJumpTargetWithArgs 2 #[3])),
+      cfgBlockWithParams 1 #[cfgBoolParam 4] (.return_ (some 4)),
+      cfgBlockWithParams 2 #[cfgBoolParam 5] (.return_ (some 5))
     ]]
   expectCfgOk "branch arity 1==1" p2
   -- Positive 3: switch case target 1-param (1 arg), default 0-param (0 args).
+  --   Defines ValueId 0 (scrutinee) and ValueId 2 (case arg, distinct from
+  --   block 1 param 4) in block 0.
   let p3 ← programWithTypes "CfgAritySwitch" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.switch 0
-        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
-            target := cfgJumpTargetWithArgs 1 #[0] }]
-        (some (cfgJumpTarget 2))),
-      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
+      cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0) ]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTargetWithArgs 1 #[2] }]
+          (some (cfgJumpTarget 2))),
+      cfgBlockWithParams 1 #[cfgBoolParam 4] (.return_ (some 4)),
       cfgBlock 2 (.return_ none)
     ]]
   expectCfgOk "switch arity case 1 / default 0" p3
   -- Positive 4: regression — single-block return (0 args, 0 params) still ok.
+  --   Defines ValueId 0 via a literal so the return use is covered.
   let p4 ← programWithTypes "CfgArityReturn0" cfgBoolTypes #[]
-    #[cfgCallable #[cfgBlock 0 (.return_ (some 0))]]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.return_ (some 0))]]
   expectCfgOk "return 0==0 regression" p4
   -- Negative 1: jump to 2-param block with 1 arg (arity mismatch).
   let n1 ← programWithTypes "CfgArityJumpShort" cfgBoolTypes #[]
@@ -1340,17 +1405,24 @@ private def testCfgBlockParamArity : IO Unit := do
 
 private def testCfgLoopBounds : IO Unit := do
   -- POSITIVES (all reachable, entry==0, id==index, arity ok).
+  --   Each branch/switch scrutinee ValueId is defined via a literal in block 0
+  --   so the ValueId SSA use-existence gate (step f) is satisfied; dominance
+  --   is out of scope so a single def anywhere in the callable suffices.
   -- Positive 1: single self-back-edge loop, header==backEdgeFrom==0, maxIter 10.
   let p1 ← programWithTypes "CfgLoopSelf" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
       cfgBlock 1 (.return_ none)
     ] (loopBounds := #[cfgLoopBound 0 0 10])]
   expectCfgOk "self back-edge loop" p1
   -- Positive 2: two-block loop with back edge 1->0, maxIter 4096.
   let p2 ← programWithTypes "CfgLoop2Block" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.jump (cfgJumpTarget 1)),
       cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
       cfgBlock 2 (.return_ none)
     ] (loopBounds := #[cfgLoopBound 0 1 4096])]
@@ -1359,7 +1431,9 @@ private def testCfgLoopBounds : IO Unit := do
   --   one back edge, maxIter 1.
   let p3 ← programWithTypes "CfgLoopForwardTail" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
       cfgBlock 1 (.jump (cfgJumpTarget 0)),
       cfgBlock 2 (.return_ none)
     ] (loopBounds := #[cfgLoopBound 0 1 1])]
@@ -1368,7 +1442,9 @@ private def testCfgLoopBounds : IO Unit := do
   --   finite; SPEC only caps upper bound at 4096).
   let p4 ← programWithTypes "CfgLoopZeroIter" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
       cfgBlock 1 (.return_ none)
     ] (loopBounds := #[cfgLoopBound 0 0 0])]
   expectCfgOk "zero-iter loop legal" p4
@@ -1383,7 +1459,9 @@ private def testCfgLoopBounds : IO Unit := do
   --   block 0 self-loop plus 1->0; loopBounds sorted [(0,0),(0,1)].
   let p6 ← programWithTypes "CfgLoopTwoBackSorted" cfgBoolTypes #[]
     #[cfgCallable #[
-      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
       cfgBlock 1 (.jump (cfgJumpTarget 0))
     ] (loopBounds := #[cfgLoopBound 0 0 5, cfgLoopBound 0 1 5])]
   expectCfgOk "two back edges sorted ascending" p6
@@ -1466,6 +1544,125 @@ private def testCfgLoopBounds : IO Unit := do
       (loopBounds := #[cfgLoopBound 0 0 5])]
   expectCfgErr "no self edge single block" n10
 
+/-! ### ValueId SSA definition-table + exactly-once + use-existence (D2-06 §6.2)
+
+    Implements the 'each ValueId is defined exactly once' portion plus
+    use-existence (every used ValueId has a def site). Dominance-of-use,
+    block-param TYPE, and terminator typing remain explicitly out of scope
+    (later slices). All SSA-def-table failures use `.badCfg`. -/
+
+private def testCfgValueIdSsa : IO Unit := do
+  -- POSITIVES (each via programWithTypes + expectCfgOk, structure + encode).
+  -- P1 single-block: instr result 0 := literal, terminator return (some 0).
+  let p1 ← programWithTypes "SsaP1Single" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.return_ (some 0))]]
+  expectCfgOk "P1 single-block def+use" p1
+  -- P2 callable param: param valueId 0, block 0 return (some 0).
+  let p2 ← programWithTypes "SsaP2Param" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[cfgBlock 0 (.return_ (some 0))]]
+  expectCfgOk "P2 callable param def+use" p2
+  -- P3 block param + jump arg: block 0 jump args #[0], block 1 param 0
+  --   return (some 0). No back edge → loopBounds := #[].
+  let p3 ← programWithTypes "SsaP3BlockParam" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0))
+    ]]
+  expectCfgOk "P3 block param + jump arg" p3
+  -- P4 two defs + binary use: result 0 := lit, result 1 := lit,
+  --   result 2 := binary add 0 1, return (some 2).
+  let p4 ← programWithTypes "SsaP4Binary" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+           cfgInstr (some (cfgValueDef 2)) (.binary .add 0 1) ]
+        (.return_ (some 2))]]
+  expectCfgOk "P4 two defs + binary use" p4
+  -- P5 branch condition use: block 0 instr result 0 := lit, then branch 0.
+  let p5 ← programWithTypes "SsaP5BranchCond" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+      cfgBlock 1 (.return_ none),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgOk "P5 branch condition use" p5
+  -- P6 switch scrutinee + case arg: block 0 result 0 := lit, result 1 := lit,
+  --   switch scrut 0, case target args #[1]; block 1 param 2 return (some 2);
+  --   block 2 return none. Distinct ValueIds 0,1 @ block0 and 2 @ block1.
+  let p6 ← programWithTypes "SsaP6Switch" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1) ]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTargetWithArgs 1 #[1] }]
+          (some (cfgJumpTarget 2))),
+      cfgBlockWithParams 1 #[cfgBoolParam 2] (.return_ (some 2)),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgOk "P6 switch scrutinee + case arg" p6
+  -- NEGATIVES (each via expectCfgErr .badCfg, structure + encode).
+  -- N1 duplicate def: two instrs both result 0 := literal.
+  let n1 ← programWithTypes "SsaN1DupDef" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+           cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1) ]
+        (.return_ (some 0))]]
+  expectCfgErr "N1 duplicate instr result" n1
+  -- N2 duplicate across block param and instr result: block 0 param 0,
+  --   instr result 0 := literal.
+  let n2 ← programWithTypes "SsaN2DupBlockParamInstr" cfgBoolTypes #[]
+    #[cfgCallable #[{
+      id := 0
+      params := #[cfgBoolParam 0]
+      instructions := #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+      terminator := .return_ (some 0)
+    }]]
+  expectCfgErr "N2 duplicate block param + instr" n2
+  -- N3 undefined use in op: instr result 0 := unary not 99 (no def for 99).
+  let n3 ← programWithTypes "SsaN3UndefOp" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.unary .not 99)]
+        (.return_ (some 0))]]
+  expectCfgErr "N3 undefined use in op" n3
+  -- N4 undefined use in return: block 0 return (some 99), no defs.
+  let n4 ← programWithTypes "SsaN4UndefReturn" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.return_ (some 99))]]
+  expectCfgErr "N4 undefined use in return" n4
+  -- N5 undefined use in branch condition: branch 99, no defs.
+  let n5 ← programWithTypes "SsaN5UndefBranchCond" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 99 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+      cfgBlock 1 (.return_ none),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgErr "N5 undefined use in branch cond" n5
+  -- N6 undefined use in jump arg: jump args #[99], no defs.
+  let n6 ← programWithTypes "SsaN6UndefJumpArg" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[99])),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "N6 undefined use in jump arg" n6
+  -- N7 undefined use in switch scrutinee: switch 99 [] none (single block,
+  --   no back edge, reachability ok).
+  let n7 ← programWithTypes "SsaN7UndefSwitchScrut" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.switch 99 #[] none)]]
+  expectCfgErr "N7 undefined use in switch scrut" n7
+  -- N8 duplicate callable param vs block param: param 0, block 0 param 0.
+  let n8 ← programWithTypes "SsaN8DupCallableBlockParam" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[cfgBlockWithParams 0 #[cfgBoolParam 0] (.return_ (some 0))]]
+  expectCfgErr "N8 duplicate callable param + block param" n8
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1490,6 +1687,7 @@ def run : IO Unit := do
   testCfgShapeAndReachability
   testCfgBlockParamArity
   testCfgLoopBounds
+  testCfgValueIdSsa
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

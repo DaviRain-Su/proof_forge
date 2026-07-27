@@ -64,13 +64,14 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: dominance/ValueId SSA, full TypeKey
+  * Not yet: dominance-of-use, full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
     valueBytes. (CFG shape + reachability from entry, jump/branch/switch
-    target arg arity == target block params, and loopBounds back-edge
-    coverage are now covered; block-param TYPE remains out of scope pending
-    the ValueId-definition table.)
+    target arg arity == target block params, loopBounds back-edge
+    coverage, and ValueId SSA definition-table / exactly-once /
+    use-existence are now covered; dominance-of-use, block-param TYPE,
+    and terminator typing remain out of scope pending later slices.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -1670,12 +1671,13 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
-/-! ### CFG shape + reachability + block-param arity + loopBounds (SPEC §6.2 — CFG layers)
+/-! ### CFG shape + reachability + block-param arity + loopBounds + ValueId SSA def-table (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
     range, jump/branch/switch target arg arity == target block params, total
-    reachability from entry, and loopBounds back-edge coverage. All CFG-shape
-    failures use `.badCfg`. NOT dominance, ValueId SSA, block-param TYPE,
+    reachability from entry, loopBounds back-edge coverage, and ValueId SSA
+    definition-table / exactly-once / use-existence. All CFG-shape
+    failures use `.badCfg`. NOT dominance-of-use, block-param TYPE,
     or terminator typing (separate later slices). Reachability is total and
     non-recursive (worklist) to stay within nesting/stack limits. -/
 
@@ -1689,8 +1691,8 @@ private def checkBlockIdInRange (blockId : BlockIdV1) (blockCount : Nat) :
     Only runs when the target blockId is in range — the existing terminator
     target range pass (step c) owns out-of-range reporting, so this helper
     stays silent on OOR to avoid double-reporting. Arity mismatch → `.badCfg`.
-    Arg ValueId→type resolution is out of scope (needs the ValueId-definition
-    table from the dominance/SSA slice). -/
+    Arg ValueId→type resolution is out of scope (needs block-param TYPE from
+    a later slice; ValueId use-existence is now owned by step f). -/
 private def checkJumpTargetArity (blocks : Array BlockV1) (blockCount : Nat)
     (target : JumpTargetV1) : Except SemanticWireErrorV1 Unit := do
   let bid := target.blockId.toNat
@@ -1831,7 +1833,123 @@ private def validateCallableLoopBounds (c : CallableV1) :
       return ← err .badCfg
   pure ()
 
-/-- Per-callable CFG shape + reachability + loopBounds. Deterministic, bounded. -/
+/-! ### ValueId SSA definition-table (SPEC §6.2 — exactly-once + use-existence)
+
+    Implements the 'each ValueId is defined exactly once' portion plus
+    use-existence (every used ValueId has a def site). Dominance-of-use
+    remains explicitly 'Not yet'. All SSA-def-table failures use `.badCfg`.
+    Bounded, non-recursive, total. -/
+
+/-- Collect every ValueId definition site in source order: callable params
+    (defBlockId := entryBlock, i.e. 0), then per block in `c.blocks`: block
+    params (defBlockId := block.id), then each instruction with
+    `result := some vdef` (defBlockId := block.id). Returns `(valueId, blockId)`
+    pairs in source order. Bounded, non-recursive. -/
+def collectValueDefSites (c : CallableV1) : Array (ValueIdV1 × BlockIdV1) :=
+  Id.run do
+    let mut sites : Array (ValueIdV1 × BlockIdV1) := #[]
+    -- callable params: defined at entry block (SPEC §6.2 param order first).
+    let entryBlock := c.entryBlock
+    for p in c.params do
+      sites := sites.push (p.valueId, entryBlock)
+    -- block params + instruction results, in block array order.
+    for b in c.blocks do
+      for bp in b.params do
+        sites := sites.push (bp.valueId, b.id)
+      for instr in b.instructions do
+        match instr.result with
+        | some vdef => sites := sites.push (vdef.valueId, b.id)
+        | none => pure ()
+    pure sites
+
+/-- Check that every ValueId is defined exactly once across the supplied def
+    sites (callable params + block params + instruction results, as produced
+    by `collectValueDefSites`). Duplicate → `.badCfg`. Uses a bounded Array
+    membership scan; callable value count is bounded by maxArrayElements per
+    block and maxTableElements callables. Accepting a precomputed sites array
+    lets the caller build the def table once and reuse it for both
+    exactly-once and use-existence checks. -/
+def checkValueIdDefUniqueness (defSites : Array (ValueIdV1 × BlockIdV1)) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut seen : Array ValueIdV1 := #[]
+  for (vid, _) in defSites do
+    if seen.any (· == vid) then
+      return ← err .badCfg
+    seen := seen.push vid
+  pure ()
+
+/-- Every ValueId referenced by a `SemanticOpV1` (uses only; defs are owned by
+    `collectValueDefSites`). Bounded, total. -/
+def opValueUses (op : SemanticOpV1) : Array ValueIdV1 :=
+  match op with
+  | .literal _ _ | .constant _ | .stateLoad _ | .contextRead _ => #[]
+  | .stateStore _ v => #[v]
+  | .construct _ _ args => args
+  | .fieldGet base _ => #[base]
+  | .fieldSet base _ value => #[base, value]
+  | .variantTag base => #[base]
+  | .variantPayload base _ _ => #[base]
+  | .indexGet base index => #[base, index]
+  | .indexSet base index value => #[base, index, value]
+  | .checkedCast value _ => #[value]
+  | .unary _ operand => #[operand]
+  | .binary _ lhs rhs => #[lhs, rhs]
+  | .pureCall _ args => args
+  | .commit value => #[value]
+  | .assert_ cond _ args => #[cond] ++ args
+  | .emit _ _ args => args
+  | .externalCall _ _ args => args
+  | .schedule _ _ args => args
+
+/-- Every ValueId referenced by a `TerminatorV1` (condition / scrutinee /
+    return / revert args / jump-target args). Leaf `trap` returns empty.
+    Bounded, total. -/
+def terminatorValueUses (term : TerminatorV1) : Array ValueIdV1 :=
+  match term with
+  | .jump target => target.args
+  | .branch cond thenTarget elseTarget =>
+      #[cond] ++ thenTarget.args ++ elseTarget.args
+  | .switch scrut cases default =>
+      let caseArgs := cases.flatMap (·.target.args)
+      let defArgs := match default with
+        | some t => t.args
+        | none => #[]
+      #[scrut] ++ caseArgs ++ defArgs
+  | .return_ (some v) => #[v]
+  | .return_ none => #[]
+  | .revert _ args => args
+  | .trap _ => #[]
+
+/-- Check that every ValueId use (in ops and terminators) has a corresponding
+    def site. Missing def → `.badCfg`. Bounded, total. -/
+def checkValueIdUsesExist (c : CallableV1)
+    (defSites : Array (ValueIdV1 × BlockIdV1)) :
+    Except SemanticWireErrorV1 Unit := do
+  let defIds : Array ValueIdV1 := defSites.map (·.1)
+  let isDef (vid : ValueIdV1) : Bool := defIds.any (· == vid)
+  for b in c.blocks do
+    for instr in b.instructions do
+      for use in opValueUses instr.op do
+        unless isDef use do
+          return ← err .badCfg
+    for use in terminatorValueUses b.terminator do
+      unless isDef use do
+        return ← err .badCfg
+  pure ()
+
+/-- Per-callable ValueId SSA def-table: exactly-once def + use-existence.
+    Builds `defSites` once via `collectValueDefSites`, runs
+    `checkValueIdDefUniqueness` on it, then runs `checkValueIdUsesExist` with
+    the same array. Dominance-of-use remains out of scope. -/
+def validateCallableValueIdSsa (c : CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let defSites := collectValueDefSites c
+  checkValueIdDefUniqueness defSites
+  checkValueIdUsesExist c defSites
+
+/-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table.
+    Deterministic, bounded. Steps a–e are CFG shape/reachability/arity/loopBounds;
+    step f runs `validateCallableValueIdSsa` (exactly-once def + use-existence). -/
 private def validateCallableCfgShape (c : CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
@@ -1868,6 +1986,10 @@ private def validateCallableCfgShape (c : CallableV1) :
     pure ()
   -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
   validateCallableLoopBounds c
+  -- f) ValueId SSA definition-table: exactly-once def + use-existence
+  --   (SPEC §6.2). Dominance-of-use, block-param TYPE, and terminator typing
+  --   remain out of scope (later slices).
+  validateCallableValueIdSsa c
 
 private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
@@ -2335,11 +2457,12 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
+    + ValueId SSA definition-table / exactly-once / use-existence
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
-    only for valueBytes sites and CFG shape/reachability/arity/loopBounds —
-    NOT dominance, ValueId SSA, block-param TYPE, or terminator typing. -/
+    only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
+    def-table — NOT dominance-of-use, block-param TYPE, or terminator typing. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
