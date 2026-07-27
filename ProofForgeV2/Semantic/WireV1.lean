@@ -42,9 +42,9 @@ import ProofForgeV2.Core.Unicode
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - declaration/signature name subset after canonical values and before CFG:
-      exact Constant-name uniqueness within the constants table, exact
-      StateDecl-name uniqueness within logicalState, per-event/per-error exact
-      interface-field-name uniqueness, callable
+      exact Constant-name uniqueness within constants, exact StateDecl-name
+      uniqueness within logicalState, exact EventDecl-name uniqueness within
+      events, per-event/per-error exact interface-field-name uniqueness, callable
       kind/name Option presence, exact named-callable uniqueness,
       per-callable exact parameter-name uniqueness, zero-or-one initializer,
       initializer result
@@ -1678,8 +1678,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
     (Constant / Op.Literal / SwitchCase) → grouped same-error duplicate phase
-    {Constant-name uniqueness, logicalState-name uniqueness} →
-    interface-field-name uniqueness → callable kind/name presence → named
+    {Constant-name, logicalState-name, EventDecl-name, per-declaration
+    interface-field-name uniqueness} → callable kind/name presence → named
     callable uniqueness → per-callable parameter-name uniqueness →
     initializer cardinality → initializer Unit/public result → invariant
     Bool/public result → invariant zero parameters → invariant empty loopBounds
@@ -3390,6 +3390,12 @@ private def validateLogicalStateNameUniquenessV1
     (logicalState : Array StateDeclV1) : Except SemanticWireErrorV1 Unit :=
   checkUniqueDeclarationNamesV1 (logicalState.map (·.name))
 
+/-- EventDecl names are exact-string unique within events (SPEC §6).
+    Identifier grammar/NFC remains a separate gate. -/
+private def validateEventNameUniquenessV1 (events : Array EventDeclV1) :
+    Except SemanticWireErrorV1 Unit :=
+  checkUniqueDeclarationNamesV1 (events.map (·.name))
+
 /-- Event/error interface-field names are exact-string unique within each
     declaration (SPEC §6). Each declaration gets an independent namespace;
     identifier grammar/NFC remains a separate gate. -/
@@ -3752,14 +3758,15 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
-  -- 4.2) Constant and logicalState names form one same-error `.duplicate`
-  --   phase after canonical values. Calls retain declaration-table order, but
-  --   the closed public error value intentionally exposes no intra-phase rank.
+  -- 4.2) Constant, logicalState, EventDecl, and per-declaration interface-field
+  --   names form one same-error `.duplicate` phase after canonical values.
+  --   Calls retain table/field order, but the closed public error value
+  --   intentionally exposes no intra-phase rank.
   validateConstantNameUniquenessV1 data.constants
   validateLogicalStateNameUniquenessV1 data.logicalState
-  -- 4.25) Per-declaration interface-field uniqueness, then callable name
-  --   presence/uniqueness and per-callable parameter-name uniqueness.
+  validateEventNameUniquenessV1 data.events
   validateInterfaceFieldNameUniquenessV1 data.events data.errors
+  -- 4.25) Callable name presence/uniqueness and per-callable parameter names.
   validateCallableKindNamePresenceV1 data.callables
   validateCallableNameUniquenessV1 data.callables
   validateCallableParameterNameUniquenessV1 data.callables

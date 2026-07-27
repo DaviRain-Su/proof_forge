@@ -1683,6 +1683,84 @@ private def testLogicalStateNameUniqueness : IO Unit := do
   }
   expectCfgErrCode "N6 state names before CFG" .duplicate n6
 
+/-- SPEC-SEM-WIRE-001 §6 EventDecl names are exact-string unique within
+    the events table. Identifier grammar/NFC and other declaration tables
+    remain separate gates. -/
+private def testEventNameUniqueness : IO Unit := do
+  let eventX0 : EventDeclV1 := { id := 0, name := "x", fields := #[] }
+  let eventY1 : EventDeclV1 := { id := 1, name := "y", fields := #[] }
+  let eventUpperX2 : EventDeclV1 := { id := 2, name := "X", fields := #[] }
+  let base ← programWithTypes "EventNameBase" cfgBoolTypes
+  let p0 := { base with events := #[] }
+  expectCfgOk "P0 empty events table" p0
+  let orderedEvents := #[eventX0, eventY1, eventUpperX2]
+  let p1 := { base with events := orderedEvents }
+  expectCfgOk "P1 distinct case-sensitive event names" p1
+  let p1Bytes ← expectOk "P1 events order encode"
+    (encodeSemanticProgramDataV1 p1)
+  let p1Decoded ← expectOk "P1 events order decode"
+    (decodeSemanticProgramDataV1 p1Bytes)
+  expect (p1Decoded.events == orderedEvents)
+    "P1 EventDecl source order survives wire round-trip"
+  let eventX1 : EventDeclV1 := { eventX0 with id := 1 }
+  let duplicateEvents := #[eventX0, eventX1]
+  let n1 := { base with events := duplicateEvents }
+  expectCfgErrCode "N1 duplicate EventDecl names" .duplicate n1
+  -- Shallow InterfaceField TypeId range validation precedes name uniqueness.
+  let badRefField : InterfaceFieldV1 := {
+    name := "payload", typeId := 99, visibility := .public_
+  }
+  let badRefEventX1 : EventDeclV1 := { eventX1 with fields := #[badRefField] }
+  let n2 := { base with events := #[eventX0, badRefEventX1] }
+  expectCfgErrCode "N2 Event field TypeId before names" .badReference n2
+  -- Canonical Constant valueBytes validation precedes the duplicate-name phase.
+  let n3 := {
+    base with
+      constants := #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+      events := duplicateEvents
+  }
+  expectCfgErrCode "N3 Constant value before event names" .nonCanonical n3
+  -- Canonical callable valueBytes also precede the duplicate-name phase.
+  let badValueCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 })
+        (.literal 0 (ByteArray.mk #[2]))]
+      (.return_ none)] with
+      id := 0
+  }
+  let n4 := { base with events := duplicateEvents, callables := #[badValueCallable] }
+  expectCfgErrCode "N4 callable value before event names" .nonCanonical n4
+  -- Canonical SwitchCase valueBytes also precede the duplicate-name phase.
+  let badSwitchCallable := cfgCallable #[
+    cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+      (.switch 0 #[{
+        typeId := 0
+        valueBytes := ByteArray.mk #[2]
+        target := cfgJumpTarget 1
+      }] none),
+    cfgBlock 1 (.return_ (some 0))
+  ]
+  let n5 := {
+    base with events := duplicateEvents, callables := #[badSwitchCallable]
+  }
+  expectCfgErrCode "N5 SwitchCase value before event names" .nonCanonical n5
+  -- The grouped duplicate-name phase precedes callable signature validation.
+  let badSignatureCallable := cfgCallableKindName .pureFn none
+  let n6 := {
+    base with events := duplicateEvents, callables := #[badSignatureCallable]
+  }
+  expectCfgErrCode "N6 event names before callable signature" .duplicate n6
+  -- The grouped duplicate-name phase also precedes per-callable CFG validation.
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+  }
+  let n7 := { base with events := duplicateEvents, callables := #[badCfgCallable] }
+  expectCfgErrCode "N7 event names before CFG" .duplicate n7
+
 /-- SPEC-SEM-WIRE-001 §6 event/error interface-field names are exact-string
     unique within each declaration. Different declarations and declaration
     kinds may reuse a field name; identifier grammar/NFC remains separate. -/
@@ -5077,6 +5155,7 @@ def run : IO Unit := do
   testCallableParameterNameUniqueness
   testConstantNameUniqueness
   testLogicalStateNameUniqueness
+  testEventNameUniqueness
   testInterfaceFieldNameUniqueness
   testInitializerCardinality
   testInitializerResultShape

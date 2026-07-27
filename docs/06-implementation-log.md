@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 EventDecl-name uniqueness (name step 4.2, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 events table 内 EventDecl name 的 exact String 唯一，不实现 EventDecl identifier grammar/NFC、ErrorDecl/type 等其他 declaration table name uniqueness、entry/view existence或产品接线。
+- RED/Changed：tests-first。新增 `testEventNameUniqueness`，固定 empty、distinct、case-sensitive 与 exact encode/decode source-order round-trip 正向，duplicate 负向，以及 shallow InterfaceField TypeId range → canonical Constant/Op.Literal/SwitchCase valueBytes → grouped duplicate-name phase → callable signature → per-callable CFG precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded `validateEventNameUniquenessV1`，复用 shared private UTF-8 qsort + adjacent exact equality checker；接线进 canonical values 后、callable signatures 与 CFG 前的 same-error `.duplicate` phase，该 phase 现包含 Constant/StateDecl/EventDecl/per-declaration interface-field names，内部保留 table/field call order但 closed public error 不暴露组内 rank。公开 events source order不改变。同步 stable-order 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` 的 bytes/hash；首次三路只读 review 提出的 malformed reachable SwitchCase valueBytes precedence finding 已补双路径回归，修复后完整 harness 通过；`proof-forge-one-slice-41` 三路复审一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：EventDecl/declaration identifier grammar/NFC、ErrorDecl/type 等其他 table name uniqueness、invariant closure/fuel 与 `invariantSteps`、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 logicalState-name uniqueness (name step 4.2, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 logicalState table 内 StateDecl name 的 exact String 唯一，不实现 StateDecl identifier grammar/NFC、event/error/type 等其他 declaration table name uniqueness、entry/view existence或产品接线。
