@@ -12,6 +12,46 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 value-producing Instruction.result presence (step j extension, structure-gate-only)
+
+- RED/Changed：tests-first。`Tests/Semantic/WireV1.lean` 新增 `testCfgValueOpResultPresence`
+  （复用 `cfgOpTypes`/`arrTypes`/`programWithTypes`/`programWithState`/`stateRow`/`constOf`/
+  `cfgInstr`/`cfgCallableResult`/`cfgUint8ValueDef`/`cfgValueDef`/`cfgUint8Lit`/`cfgBoolLit`/
+  `cfgUInt32Lit`/`cfgUInt32ValueDef`/`cfgPureFn1`/`cfgCalleeName`）：P1–P9 正向（typed 9 family
+  Literal/Constant/StateLoad/Construct/FieldGet/IndexGet/Unary/Binary/PureCall 携带
+  `result := some _` 且 result.typeId 匹配 → `expectCfgOk`）、P10–P16 正向（7 deferred family
+  FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/ContextRead/Commit 携带
+  `result := some _`（in-range typeId）→ `expectCfgOk`，presence-only、exact typing 不查）、
+  N1–N16 负向（每个 value-producing op `result := none` → `expectCfgErr ... .badCfg`，
+  structure+encode 双路径；operands 先用 literal-with-result 定义使 steps a–i 全通过，
+  仅 step j result-presence 失败）、5 个 void result-none 回归（StateStore/Assert/Emit/
+  ExternalCall/Schedule `result := none` 仍 `expectCfgOk`，证明 void 规则不被本切片回归）。
+  register 于 `run` 中 `testCfgVoidOpResultPresence` 之后。
+- Production：`ProofForgeV2/Semantic/WireV1.lean` `checkOpTyping` 内 `requireResult` 改为
+  missing result → `err .badCfg`（此前 typed family 的 missing result 被静默接受，现 fail closed；
+  result 存在时仍要求 result.typeId == op exact result type）。新增 `requireResultPresent`
+  helper，7 deferred family（FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/
+  ContextRead/Commit）从 `pure ()` 改为 `requireResultPresent`（presence-only；exact input/
+  result typing 仍跳过）。void 规则（StateStore/Assert/Emit/ExternalCall/Schedule => result none）
+  不变。同步更新 module header 'Not yet' 行、step j section banner、`checkOpTyping` doc、
+  `validateCallableCfgShape` step j 注释、`validateSemanticProgramStructureV1` structure-order
+  docstring（列出 value-producing result-presence + 7 deferred family presence-only + void-op
+  result-presence；'Not' 改为 7 deferred family 的 exact result-typing）。不改 wire
+  tag/field-count/encoder/decoder/schema；transport decode 仍 structure-free。
+- Commands：`lake build ProofForgeV2.Semantic.WireV1`；`lake build Tests.Semantic.WireV1`；
+  `lake env .lake/build/bin/proof-forge-next-fast-tests`；`just sbom-package-files-refresh`；
+  `git diff --check`；`just ci`。
+- Results：聚焦 suite、fast tests 与 `just ci`（含 `Tests.Semantic.WireV1: ok`）通过；
+  `supply-chain/lean-package-files.v1.json` 仅刷新 `ProofForgeV2/Semantic/WireV1.lean` 的
+  hash/bytes；不记 formal TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Boundary：formal D2-06 仍 pending；value-producing result-presence（typed 9 family 的
+  presence+exact TypeId 与 7 deferred family 的 presence-only）已覆盖；void-op result-presence
+  已覆盖；revert/emit/externalCall/schedule argument typing + 7 deferred family 的 exact
+  result-typing + TypeKey/provenance/normalizer/product wire 仍 'Not yet'。不声称 formal
+  evidence、release/governance 或独立 review。本切片只加宽 structure gate，不改 wire
+  bytes/codec/schema；不接线 Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称
+  formal TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 CFG per-op type/result contract (structure gate step j)
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

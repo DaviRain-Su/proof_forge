@@ -71,13 +71,15 @@ import ProofForgeV2.Core.Unicode
     jump/branch/switch target arg arity == target block params, loopBounds
     back-edge coverage, ValueId SSA definition-table / exactly-once /
     use-existence, dominance-of-use, def-site TypeId range, terminator
-    typing, the per-op §5.1 type/result contract for value-producing ops,
-    and void-op result-presence for StateStore/Assert/Emit/ExternalCall/
-    Schedule are now covered; revert/emit/externalCall/schedule argument
-    typing, FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/
-    ContextRead/Commit result-typing, TypeKey anonymous ranking, provenance
-    inventory join, ProgramV1 normalizer, and product wire remain out of
-    scope pending later slices.)
+    typing, the per-op §4.3/§5.1 type/result contract for value-producing ops
+    (incl. exact result presence for Literal/Constant/StateLoad/Construct/
+    FieldGet/IndexGet/Unary/Binary/PureCall), presence-only result for
+    FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/ContextRead/
+    Commit, and void-op result-presence for StateStore/Assert/Emit/
+    ExternalCall/Schedule are now covered; revert/emit/externalCall/schedule
+    argument typing, the exact result-typing for the seven presence-only
+    families, TypeKey anonymous ranking, provenance inventory join, ProgramV1
+    normalizer, and product wire remain out of scope pending later slices.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -2253,19 +2255,22 @@ def checkTerminatorTyping (c : CallableV1)
     | .return_ none | .revert _ _ | .trap _ => pure ()
   pure ()
 
-/-! ### Per-op type/result contract (SPEC-SEM-WIRE-001 §5.1 — CFG layer j)
+/-! ### Per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1 — CFG layer j)
 
-    Step j: every value-producing op (literal/constant/stateLoad/construct/
-    fieldGet/indexGet/unary/binary/pureCall) must produce a result whose
-    declared TypeId matches the op's type contract, and any ValueId operand
-    types must match the declared operand contract. The five void ops
-    (StateStore/Assert/Emit/ExternalCall/Schedule) MUST carry `result := none`;
-    a spurious result is an invalid Core trap → `.badCfg`. All step j
-    failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
-    revert/emit/externalCall/schedule argument typing, FieldSet/VariantTag/
-    VariantPayload/IndexSet/CheckedCast/ContextRead/Commit result-typing,
-    TypeKey anonymous ranking/interning, provenance join, normalizer,
-    product wire. -/
+    Step j: every value-producing op MUST carry `result := some _`
+    (SPEC §4.3). The typed families (literal/constant/stateLoad/construct/
+    fieldGet/indexGet/unary/binary/pureCall) must additionally have a result
+    TypeId matching the op's exact type contract, with ValueId operand types
+    matching the declared operand contract. The seven deferred families
+    (FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/ContextRead/
+    Commit) carry presence-only result this slice; their exact result-type
+    contracts are deferred. The five void ops (StateStore/Assert/Emit/
+    ExternalCall/Schedule) MUST carry `result := none`; a spurious result or a
+    missing result on a value-producing op is an invalid Core trap → `.badCfg`.
+    All step j failures → `.badCfg`. Bounded, non-recursive, total. Out of
+    scope: revert/emit/externalCall/schedule argument typing, the exact
+    result-typing for the seven presence-only families, TypeKey anonymous
+    ranking/interning, provenance join, normalizer, product wire. -/
 
 /-- First TypeId whose shape is `.uint 32`, if any. Bounded, non-recursive.
     Parallel to `boolTypeId`. -/
@@ -2333,11 +2338,16 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
 /-- Step j: per-op type/result contract for one instruction. `defTypes` is the
     ValueId→TypeId def-site table (exactly-once by step f). `data` provides
     declaration tables for constant/stateLoad/construct/pureCall resolution.
-    Void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/`Schedule`) MUST
-    carry `result := none`; a spurious result is an invalid Core trap →
-    `.badCfg`. The remaining side-effecting-but-result-producing ops
-    (`FieldSet`/`VariantTag`/`VariantPayload`/`IndexSet`/`CheckedCast`/
-    `ContextRead`/`Commit`) are skipped this slice (result-typing deferred).
+    Value-producing ops (`Literal`/`Constant`/`StateLoad`/`Construct`/`FieldGet`/
+    `IndexGet`/`Unary`/`Binary`/`PureCall`) MUST carry `result := some _` and
+    the result TypeId must equal the op's exact result type; a missing result
+    or mismatched TypeId is `.badCfg` (SPEC-SEM-WIRE-001 §4.3/§5.1). Void ops
+    (`StateStore`/`Assert`/`Emit`/`ExternalCall`/`Schedule`) MUST carry
+    `result := none`; a spurious result is `.badCfg`. The remaining
+    side-effecting-but-result-producing ops (`FieldSet`/`VariantTag`/
+    `VariantPayload`/`IndexSet`/`CheckedCast`/`ContextRead`/`Commit`) MUST
+    carry `result := some _` (presence-only this slice; their exact
+    result-type contracts are deferred to a later step-j extension).
     All failures → `.badCfg`. Bounded, non-recursive (serializableType is
     fuel-bounded). -/
 def checkOpTyping (instr : InstructionV1)
@@ -2367,13 +2377,25 @@ def checkOpTyping (instr : InstructionV1)
     match instr.result with
     | some vdef => some vdef.typeId
     | none => none
-  -- Helper: require result present and equal to `tid`; missing result is
-  --   out of scope for the void-op contract slice, so we only check when
-  --   a result is declared. If a result IS declared, it must equal `tid`.
+  -- Helper: require result present and equal to `tid`. SPEC-SEM-WIRE-001
+  --   §4.3/§5.1: every value-producing op carries exactly one result
+  --   (`Instruction.result = some ValueDefV1`); a missing result on a
+  --   value-producing op is an invalid Core trap → `.badCfg`. When present,
+  --   the result TypeId must equal the op's exact result type `tid`.
   let requireResult (tid : TypeIdV1) : Except SemanticWireErrorV1 Unit :=
     match resultTypeId with
     | some rT => unless rT == tid do err .badCfg
-    | none => pure ()
+    | none => err .badCfg
+  -- Helper: require result present for the seven value-producing families
+  --   whose exact input/result typing is deferred to a later step-j
+  --   extension (FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/
+  --   ContextRead/Commit). SPEC §4.3/§5.1 mandates they each carry a result;
+  --   a missing result is `.badCfg`. The declared result TypeId is NOT
+  --   checked against a contract here (deferred).
+  let requireResultPresent : Except SemanticWireErrorV1 Unit :=
+    match instr.result with
+    | some _ => pure ()
+    | none => err .badCfg
   -- Helper: resolve a ValueId operand's TypeId (missing def → .badCfg).
   let requireOperandType (vid : ValueIdV1) :
       Except SemanticWireErrorV1 TypeIdV1 :=
@@ -2609,11 +2631,12 @@ def checkOpTyping (instr : InstructionV1)
       | none => pure ()
   -- Remaining side-effecting-but-result-producing ops (FieldSet/VariantTag/
   --   VariantPayload/IndexSet/CheckedCast/ContextRead/Commit) DO produce a
-  --   result per SPEC §5.1, but their result-type contracts belong to a
-  --   later step-j extension; result-typing is skipped this slice.
+  --   result per SPEC §4.3/§5.1 and MUST carry `Instruction.result = some _`
+  --   (presence-only; `.badCfg` if missing). Their exact result-type
+  --   contracts belong to a later step-j extension and are NOT checked here.
   | .fieldSet _ _ _ | .indexSet _ _ _
   | .variantTag _ | .variantPayload _ _ _ | .checkedCast _ _
-  | .contextRead _ | .commit _ => pure ()
+  | .contextRead _ | .commit _ => requireResultPresent
 
 /-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
     + dominance-of-use + def-site TypeId range + terminator typing + per-op
@@ -2683,15 +2706,17 @@ private def validateCallableCfgShape (c : CallableV1)
   --   param types positionally, return (some v) type == result type. All
   --   `.badCfg`.
   checkTerminatorTyping c defTypes types
-  -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §5.1): every
+  -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1): every
   --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
-  --   indexGet/unary/binary/pureCall) must produce a result whose declared
-  --   TypeId matches the op's type contract, and ValueId operand types must
-  --   match the declared operand contract. Void ops (StateStore/Assert/Emit/
-  --   ExternalCall/Schedule) MUST carry `result := none`; a spurious result
-  --   is an invalid Core trap → `.badCfg`. FieldSet/VariantTag/VariantPayload/
-  --   IndexSet/CheckedCast/ContextRead/Commit result-typing remains out of
-  --   scope. All failures → `.badCfg`. Reuses `defTypes` from step h.
+  --   indexGet/unary/binary/pureCall) must carry `result := some _` whose
+  --   declared TypeId matches the op's type contract, and ValueId operand
+  --   types must match the declared operand contract. Void ops
+  --   (StateStore/Assert/Emit/ExternalCall/Schedule) MUST carry
+  --   `result := none`; a spurious result is `.badCfg`. The seven families
+  --   FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/ContextRead/
+  --   Commit must each carry `result := some _` (presence-only); their exact
+  --   result-type contracts remain out of scope. All failures → `.badCfg`.
+  --   Reuses `defTypes` from step h.
   for b in c.blocks do
     for instr in b.instructions do
       checkOpTyping instr defTypes data
@@ -3162,19 +3187,21 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     + terminator typing (branch cond Bool, switch case == scrutinee,
       target arg types == target block param types positional,
       return (some v) == result type)
-    + per-op type/result contract (§5.1: literal/constant/stateLoad/
-      construct/fieldGet/indexGet/unary/binary/pureCall result types and
-      operand types; void-op result-presence for StateStore/Assert/Emit/
-      ExternalCall/Schedule)
+    + per-op type/result contract (§4.3/§5.1: literal/constant/stateLoad/
+      construct/fieldGet/indexGet/unary/binary/pureCall result presence and
+      exact result/operand types; presence-only result for FieldSet/VariantTag/
+      VariantPayload/IndexSet/CheckedCast/ContextRead/Commit; void-op
+      result-presence for StateStore/Assert/Emit/ExternalCall/Schedule)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
-    type/result contract (incl. void-op result-presence) — NOT revert/emit/
-    externalCall/schedule argument typing, FieldSet/VariantTag/VariantPayload/
-    IndexSet/CheckedCast/ContextRead/Commit result-typing, TypeKey anonymous
-    ranking/interning, provenance inventory join, or ProgramV1 normalizer. -/
+    type/result contract (incl. value-producing result-presence and void-op
+    result-presence) — NOT revert/emit/externalCall/schedule argument typing,
+    FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/ContextRead/Commit
+    exact result-typing, TypeKey anonymous ranking/interning, provenance
+    inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index

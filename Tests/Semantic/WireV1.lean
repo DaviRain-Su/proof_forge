@@ -8,6 +8,9 @@
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
   CFG shape/reachability pinned; dominance/ValueId SSA/provenance join/normalizer/product wire still pending.
+  Step j covers per-op type/result contract: typed 9 family result+operand typing,
+  void-op result-presence, and value-producing result-presence (typed 9 family
+  presence+exact TypeId, 7 deferred family presence-only).
   Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -2423,6 +2426,404 @@ private def testCfgVoidOpResultPresence : IO Unit := do
       ] 0]
   expectCfgErr "N5 schedule spurious result" n5
 
+/-! ### step j extension: value-producing result presence (SPEC-SEM-WIRE-001
+    §4.3/§5.1)
+
+    Every value-producing op MUST carry `Instruction.result = some _`. The
+    typed families (Literal/Constant/StateLoad/Construct/FieldGet/IndexGet/
+    Unary/Binary/PureCall) already required an exact result TypeId; this
+    slice additionally makes a missing result `.badCfg` (previously silently
+    ignored). The seven deferred families (FieldSet/VariantTag/VariantPayload/
+    IndexSet/CheckedCast/ContextRead/Commit) get presence-only validation
+    this slice; their exact input/result typing stays deferred. The void
+    rule (StateStore/Assert/Emit/ExternalCall/Schedule => result none) is
+    unchanged. Uses the same 8-type `cfgOpTypes` fixture. -/
+
+private def testCfgValueOpResultPresence : IO Unit := do
+  let calleeName ← cfgCalleeName
+  -- POSITIVES (result := some _ on each value-producing op; expectCfgOk,
+  --   structure+encode dual path). For the seven deferred families the
+  --   result ValueDef uses an in-range typeId (1 = UInt8); their exact
+  --   result-type contract is NOT checked this slice, so any in-range
+  --   typeId is accepted. Operands are defined as UInt8 literals so that
+  --   steps a–i (use-existence, def-site range, dominance, terminator
+  --   typing) all pass and ONLY step j is exercised.
+  -- P1: Literal with result present (typed family — exact typeId already
+  --   covered by testCfgOpTyping P1; here re-pinned for the presence slice).
+  let p1 ← programWithTypes "PresP1Lit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7)]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgOk "P1 literal result present" p1
+  -- P2: Constant with result present.
+  let p2 ← programWithTypes "PresP2Const" cfgOpTypes
+    #[constOf 0 "c" 1 (ByteArray.mk #[3])]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (.constant 0)]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgOk "P2 constant result present" p2
+  -- P3: StateLoad with result present.
+  let p3 ← programWithState "PresP3State" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (.stateLoad 0)]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgOk "P3 stateLoad result present" p3
+  -- P4: Construct (Struct) with result present.
+  let p4 ← programWithTypes "PresP4Construct" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.construct 4 0 #[1, 2]) ]
+          (.return_ (some 3))
+      ] 4]
+  expectCfgOk "P4 construct result present" p4
+  -- P5: FieldGet with result present.
+  let p5 ← programWithTypes "PresP5FieldGet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (.fieldGet 1 1) ]
+          (.return_ (some 2))
+      ] 1]
+  expectCfgOk "P5 fieldGet result present" p5
+  -- P6: IndexGet (Array) with result present.
+  let arrTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := none, shape := .uint 32 },
+      { id := 3, name := none, shape := .array 1 2 },
+      { id := 4, name := none, shape := .option 1 }]
+  let p6 ← programWithTypes "PresP6IndexGet" arrTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 0 #[10, 11]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 3)) (.indexGet 1 2) ]
+          (.return_ (some 3))
+      ] 1]
+  expectCfgOk "P6 indexGet result present" p6
+  -- P7: Unary (not Bool) with result present.
+  let p7 ← programWithTypes "PresP7Unary" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+             cfgInstr (some (cfgValueDef 2)) (.unary .not 1) ]
+          (.return_ (some 2))
+      ] 0]
+  expectCfgOk "P7 unary result present" p7
+  -- P8: Binary (add UInt8) with result present.
+  let p8 ← programWithTypes "PresP8Binary" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .add 1 2) ]
+          (.return_ (some 3))
+      ] 1]
+  expectCfgOk "P8 binary result present" p8
+  -- P9: PureCall with result present.
+  let p9 ← programWithTypes "PresP9PureCall" cfgOpTypes #[]
+    #[ cfgCallableResult
+          #[ cfgBlockInstrs 0
+              #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
+                 cfgInstr (some (cfgUint8ValueDef 2)) (.pureCall 1 #[1]) ]
+              (.return_ (some 2))
+          ] 1,
+      cfgPureFn1 ]
+  expectCfgOk "P9 pureCall result present" p9
+  -- P10: FieldSet (deferred family) with result present. base/value are
+  --   defined UInt8 literals; result ValueId 3 typeId 1 (in range). Input
+  --   typing is NOT checked this slice.
+  let p10 ← programWithTypes "PresP10FieldSet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr (some (cfgUint8ValueDef 3)) (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P10 fieldSet result present" p10
+  -- P11: VariantTag (deferred family) with result present.
+  let p11 ← programWithTypes "PresP11VariantTag" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P11 variantTag result present" p11
+  -- P12: VariantPayload (deferred family) with result present.
+  let p12 ← programWithTypes "PresP12VariantPayload" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2))
+               (.variantPayload 1 0 0) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P12 variantPayload result present" p12
+  -- P13: IndexSet (deferred family) with result present.
+  let p13 ← programWithTypes "PresP13IndexSet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr (some (cfgUint8ValueDef 3)) (.indexSet 1 1 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P13 indexSet result present" p13
+  -- P14: CheckedCast (deferred family) with result present.
+  let p14 ← programWithTypes "PresP14CheckedCast" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P14 checkedCast result present" p14
+  -- P15: ContextRead (deferred family) with result present. The key is a
+  --   valid SchemaId; result ValueId 1 typeId 1 (in range).
+  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
+    | .ok k => pure k
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let p15 ← programWithTypes "PresP15ContextRead" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (.contextRead ctxKey) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P15 contextRead result present" p15
+  -- P16: Commit (deferred family) with result present.
+  let p16 ← programWithTypes "PresP16Commit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (.commit 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P16 commit result present" p16
+  -- NEGATIVES (result := none on each value-producing op; expectCfgErr
+  --   .badCfg, structure+encode dual path). Each op's ValueId operands are
+  --   defined by a preceding literal-with-result instruction so that steps
+  --   a–i all pass and ONLY step j result-presence fails. The terminator
+  --   returns none (or a separately-defined ValueId) so terminator typing
+  --   and use-existence are unaffected by the missing result.
+  -- N1: Literal with result none.
+  let n1 ← programWithTypes "PresN1Lit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr none (cfgUint8Lit 7)]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N1 literal result none" n1
+  -- N2: Constant with result none.
+  let n2 ← programWithTypes "PresN2Const" cfgOpTypes
+    #[constOf 0 "c" 1 (ByteArray.mk #[3])]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr none (.constant 0)]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N2 constant result none" n2
+  -- N3: StateLoad with result none.
+  let n3 ← programWithState "PresN3State" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr none (.stateLoad 0)]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N3 stateLoad result none" n3
+  -- N4: Construct with result none (operands defined first).
+  let n4 ← programWithTypes "PresN4Construct" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr none (.construct 4 0 #[1, 2]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N4 construct result none" n4
+  -- N5: FieldGet with result none (base defined first).
+  let n5 ← programWithTypes "PresN5FieldGet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr none (.fieldGet 1 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N5 fieldGet result none" n5
+  -- N6: IndexGet with result none (base + index defined first).
+  let n6 ← programWithTypes "PresN6IndexGet" arrTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 0 #[10, 11]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 1),
+             cfgInstr none (.indexGet 1 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N6 indexGet result none" n6
+  -- N7: Unary with result none (operand defined first).
+  let n7 ← programWithTypes "PresN7Unary" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+             cfgInstr none (.unary .not 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N7 unary result none" n7
+  -- N8: Binary with result none (operands defined first).
+  let n8 ← programWithTypes "PresN8Binary" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr none (.binary .add 1 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N8 binary result none" n8
+  -- N9: PureCall with result none (arg defined first).
+  let n9 ← programWithTypes "PresN9PureCall" cfgOpTypes #[]
+    #[ cfgCallableResult
+          #[ cfgBlockInstrs 0
+              #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
+                 cfgInstr none (.pureCall 1 #[1]) ]
+              (.return_ none)
+          ] 0,
+      cfgPureFn1 ]
+  expectCfgErr "N9 pureCall result none" n9
+  -- N10: FieldSet with result none (deferred family now enforced).
+  let n10 ← programWithTypes "PresN10FieldSet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr none (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N10 fieldSet result none" n10
+  -- N11: VariantTag with result none.
+  let n11 ← programWithTypes "PresN11VariantTag" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr none (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N11 variantTag result none" n11
+  -- N12: VariantPayload with result none.
+  let n12 ← programWithTypes "PresN12VariantPayload" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr none (.variantPayload 1 0 0) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N12 variantPayload result none" n12
+  -- N13: IndexSet with result none.
+  let n13 ← programWithTypes "PresN13IndexSet" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+             cfgInstr none (.indexSet 1 1 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N13 indexSet result none" n13
+  -- N14: CheckedCast with result none.
+  let n14 ← programWithTypes "PresN14CheckedCast" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr none (.checkedCast 1 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N14 checkedCast result none" n14
+  -- N15: ContextRead with result none.
+  let n15 ← programWithTypes "PresN15ContextRead" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr none (.contextRead ctxKey) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N15 contextRead result none" n15
+  -- N16: Commit with result none.
+  let n16 ← programWithTypes "PresN16Commit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr none (.commit 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N16 commit result none" n16
+  -- REGRESSION: the void rule is unchanged — every void family with
+  --   result := none remains accepted. (P1–P5 of testCfgVoidOpResultPresence
+  --   already pin StateStore/Assert/Emit/ExternalCall/Schedule result none
+  --   as expectCfgOk; re-asserted here so the presence slice does not
+  --   silently regress the void rule.)
+  let r1 ← programWithState "PresRegStateStore" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+             cfgInstr none (.stateStore 0 0) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "Reg stateStore result none still accepted" r1
+  let r2 ← programWithTypes "PresRegAssert" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.assert_ 0 none #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "Reg assert result none still accepted" r2
+  let r3 ← programWithTypes "PresRegEmit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.emit 0 0 #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "Reg emit result none still accepted" r3
+  let r4 ← programWithTypes "PresRegExternalCall" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.externalCall 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "Reg externalCall result none still accepted" r4
+  let r5 ← programWithTypes "PresRegSchedule" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.schedule 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "Reg schedule result none still accepted" r5
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -2452,6 +2853,7 @@ def run : IO Unit := do
   testCfgBlockParamTypeAndTerminatorTyping
   testCfgOpTyping
   testCfgVoidOpResultPresence
+  testCfgValueOpResultPresence
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
