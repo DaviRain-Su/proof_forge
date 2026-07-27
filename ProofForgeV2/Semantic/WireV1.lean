@@ -64,13 +64,13 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: dominance-of-use, full TypeKey
+  * Not yet: block-param TYPE, terminator typing, full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
     valueBytes. (CFG shape + reachability from entry, jump/branch/switch
     target arg arity == target block params, loopBounds back-edge
-    coverage, and ValueId SSA definition-table / exactly-once /
-    use-existence are now covered; dominance-of-use, block-param TYPE,
+    coverage, ValueId SSA definition-table / exactly-once /
+    use-existence, and dominance-of-use are now covered; block-param TYPE
     and terminator typing remain out of scope pending later slices.)
 -/
 
@@ -1671,13 +1671,13 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
-/-! ### CFG shape + reachability + block-param arity + loopBounds + ValueId SSA def-table (SPEC §6.2 — CFG layers)
+/-! ### CFG shape + reachability + block-param arity + loopBounds + ValueId SSA def-table + dominance-of-use (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
     range, jump/branch/switch target arg arity == target block params, total
-    reachability from entry, loopBounds back-edge coverage, and ValueId SSA
-    definition-table / exactly-once / use-existence. All CFG-shape
-    failures use `.badCfg`. NOT dominance-of-use, block-param TYPE,
+    reachability from entry, loopBounds back-edge coverage, ValueId SSA
+    definition-table / exactly-once / use-existence, and dominance-of-use.
+    All CFG-shape failures use `.badCfg`. NOT block-param TYPE,
     or terminator typing (separate later slices). Reachability is total and
     non-recursive (worklist) to stay within nesting/stack limits. -/
 
@@ -1833,12 +1833,12 @@ private def validateCallableLoopBounds (c : CallableV1) :
       return ← err .badCfg
   pure ()
 
-/-! ### ValueId SSA definition-table (SPEC §6.2 — exactly-once + use-existence)
+/-! ### ValueId SSA definition-table + dominance-of-use (SPEC §6.2)
 
     Implements the 'each ValueId is defined exactly once' portion plus
-    use-existence (every used ValueId has a def site). Dominance-of-use
-    remains explicitly 'Not yet'. All SSA-def-table failures use `.badCfg`.
-    Bounded, non-recursive, total. -/
+    use-existence (every used ValueId has a def site) plus dominance-of-use
+    (every use is in a block dominated by its def's block). All SSA-def-table
+    and dominance failures use `.badCfg`. Bounded, non-recursive, total. -/
 
 /-- Collect every ValueId definition site in source order: callable params
     (defBlockId := entryBlock, i.e. 0), then per block in `c.blocks`: block
@@ -1940,16 +1940,181 @@ def checkValueIdUsesExist (c : CallableV1)
 /-- Per-callable ValueId SSA def-table: exactly-once def + use-existence.
     Builds `defSites` once via `collectValueDefSites`, runs
     `checkValueIdDefUniqueness` on it, then runs `checkValueIdUsesExist` with
-    the same array. Dominance-of-use remains out of scope. -/
+    the same array. Dominance-of-use is owned by `validateCallableDominanceOfUse`
+    (step g in `validateCallableCfgShape`); this helper keeps the def-table-only
+    contract for callers that do not yet need dominance. -/
 def validateCallableValueIdSsa (c : CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let defSites := collectValueDefSites c
   checkValueIdDefUniqueness defSites
   checkValueIdUsesExist c defSites
 
-/-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table.
-    Deterministic, bounded. Steps a–e are CFG shape/reachability/arity/loopBounds;
-    step f runs `validateCallableValueIdSsa` (exactly-once def + use-existence). -/
+/-! ### Dominance-of-use (SPEC §6.2 — CFG layer g)
+
+    A block D dominates block B iff every path from entry (block 0) to B
+    passes through D. After step f (ValueId SSA def-table: exactly-once +
+    use-existence), enforce that every ValueId USE is in a block dominated by
+    the def's block. Failure → `.badCfg`. Bounded, non-recursive, total.
+    Block-param TYPE and terminator typing remain out of scope. -/
+
+/-- For each block id b in [0, blockCount), the sorted-ascending unique list of
+    predecessor block ids whose terminator lists b as an in-range successor
+    (uses `terminatorSuccessors`). Bounded, non-recursive. -/
+private def cfgPredecessors (blocks : Array BlockV1) (blockCount : Nat) :
+    Array (Array Nat) := Id.run do
+  let mut preds : Array (Array Nat) := Array.mk (List.replicate blockCount #[])
+  let mut i : Nat := 0
+  for b in blocks do
+    for succ in terminatorSuccessors (BlockV1.terminator b) do
+      let s := succ.toNat
+      if s < blockCount then
+        match preds[s]? with
+        | some ps =>
+            -- dedup + keep ascending (i is monotonically increasing, so a
+            -- fresh predecessor is always larger than any already recorded;
+            -- a single linear scan preserves uniqueness + ordering).
+            unless ps.any (· == i) do
+              preds := preds.set! s (ps.push i)
+        | none => pure ()
+    i := i + 1
+  pure preds
+
+/-- Iterative dataflow dominator computation. `dom[0] = {0}` if `reachable[0]`.
+    For reachable b != 0: `dom[b]` initialized to all-true, then fixed-point
+    `dom[b] = {b} ∪ (∩ over reachable preds p of dom[p])`. For unreachable b:
+    `dom[b] = all-false`. Iterates up to `blockCount+1` passes or until stable.
+    Bounded, non-recursive. -/
+private def computeDominators (blocks : Array BlockV1) (blockCount : Nat)
+    (reachable : Array Bool) : Array (Array Bool) := Id.run do
+  if blockCount == 0 then pure #[] else do
+    let preds := cfgPredecessors blocks blockCount
+    -- Initial dominator sets (each row is full blockCount-sized for uniform
+    -- indexing in the fixed-point intersection).
+    let allTrue : Array Bool := Array.mk (List.replicate blockCount true)
+    let allFalse : Array Bool := Array.mk (List.replicate blockCount false)
+    let entryDom : Array Bool := allFalse.set! 0 true
+    let mut dom : Array (Array Bool) := Array.empty
+    let mut j : Nat := 0
+    for _ in [:blockCount] do
+      if j == 0 then
+        dom := dom.push (if reachable[0]! then entryDom else allFalse)
+      else if reachable[j]! then
+        dom := dom.push allTrue
+      else
+        dom := dom.push allFalse
+      j := j + 1
+    -- Fixed-point: at most blockCount+1 passes suffice for a finite graph.
+    let mut fuel : Nat := blockCount + 1
+    let mut stable : Bool := false
+    while !stable && fuel > 0 do
+      fuel := fuel - 1
+      stable := true
+      let mut b : Nat := 0
+      while b < blockCount do
+        if b == 0 then
+          b := b + 1
+        else if !reachable[b]! then
+          b := b + 1
+        else
+          -- dom[b] := {b} ∪ (∩ over reachable preds p of dom[p])
+          match preds[b]? with
+          | some ps =>
+              if ps.size == 0 then
+                -- Reachable but no predecessors: only the entry can be so, and
+                -- entry is handled above. Treat as no dominator info beyond
+                -- self; keep all-false except self to force a use here to fail
+                -- dominance (consistent with reachability already pinning
+                -- entry==0). Set dom[b] = {b} only.
+                let selfOnly := allFalse.set! b true
+                unless dom[b]! == selfOnly do
+                  dom := dom.set! b selfOnly
+                  stable := false
+              else
+                let mut inter : Array Bool := allTrue
+                for p in ps do
+                  if reachable[p]! then
+                    let dp := dom[p]!
+                    let mut k : Nat := 0
+                    let mut acc : Array Bool := Array.empty
+                    for _ in [:blockCount] do
+                      acc := acc.push (inter[k]! && dp[k]!)
+                      k := k + 1
+                    inter := acc
+                let selfInter := inter.set! b true
+                unless dom[b]! == selfInter do
+                  dom := dom.set! b selfInter
+                  stable := false
+          | none => pure ()
+          b := b + 1
+    pure dom
+
+/-- Check that every ValueId use (op uses + terminator uses) in each reachable
+    block B is dominated by its def's block D. `defSites` is already
+    exactly-once (step f), so a ValueId maps to a single def block. Missing
+    def site is step f's responsibility (already caught); to stay total, treat
+    a missing def as `.badCfg`. Requires `dom[B][D.toNat] == true` else
+    `.badCfg`. Unreachable blocks are skipped (step d owns those). -/
+private def checkDominanceOfUse (c : CallableV1)
+    (defSites : Array (ValueIdV1 × BlockIdV1))
+    (dom : Array (Array Bool)) (reachable : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
+  let blockCount := c.blocks.size
+  -- Bounded ValueId→defBlockId lookup (defSites is exactly-once by step f).
+  let defBlock (vid : ValueIdV1) : Option BlockIdV1 := Id.run do
+    let mut r : Option BlockIdV1 := none
+    for (v, b) in defSites do
+      if v == vid then
+        r := some b
+        break
+    pure r
+  let mut b : Nat := 0
+  for blk in c.blocks do
+    if reachable[b]! then
+      -- op uses
+      for instr in blk.instructions do
+        for use in opValueUses instr.op do
+          match defBlock use with
+          | none => return ← err .badCfg
+          | some d =>
+              let dn := d.toNat
+              unless dn < blockCount do
+                return ← err .badCfg
+              match dom[b]? with
+              | some row =>
+                  unless row[dn]! do
+                    return ← err .badCfg
+              | none => return ← err .badCfg
+      -- terminator uses
+      for use in terminatorValueUses blk.terminator do
+        match defBlock use with
+        | none => return ← err .badCfg
+        | some d =>
+            let dn := d.toNat
+            unless dn < blockCount do
+              return ← err .badCfg
+            match dom[b]? with
+            | some row =>
+                unless row[dn]! do
+                  return ← err .badCfg
+            | none => return ← err .badCfg
+    b := b + 1
+  pure ()
+
+/-- Per-callable dominance-of-use: compute predecessors + dominators from the
+    reachability array (already produced by step d), then check every use is
+    dominated by its def's block. Failure → `.badCfg`. -/
+def validateCallableDominanceOfUse (c : CallableV1)
+    (defSites : Array (ValueIdV1 × BlockIdV1)) (reachable : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
+  let blockCount := c.blocks.size
+  let dom := computeDominators c.blocks blockCount reachable
+  checkDominanceOfUse c defSites dom reachable
+
+/-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
+    + dominance-of-use. Deterministic, bounded. Steps a–e are CFG
+    shape/reachability/arity/loopBounds; step f runs the ValueId SSA def-table
+    (exactly-once def + use-existence); step g runs dominance-of-use. The
+    reachability array computed in step d is shared with step g. -/
 private def validateCallableCfgShape (c : CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
@@ -1972,24 +2137,30 @@ private def validateCallableCfgShape (c : CallableV1) :
   for b in c.blocks do
     for target in terminatorJumpTargets (BlockV1.terminator b) do
       checkJumpTargetArity c.blocks blockCount target
-  -- d) reachability from entry (bounded fixed-point passes)
-  if blockCount == 0 then
-    pure ()
-  else
-    let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
-    let visited1 := visited0.set! 0 true
-    let reached :=
+  -- d) reachability from entry (bounded fixed-point passes). The reachable
+  --   array is hoisted so steps d, f, g share it (when blockCount==0 it is
+  --   empty and dominance is a no-op).
+  let reachable : Array Bool :=
+    if blockCount == 0 then
+      #[]
+    else
+      let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
+      let visited1 := visited0.set! 0 true
       cfgReachFixpoint c.blocks blockCount blockCount visited1
-    for v in reached do
-      unless v do
-        return ← err .badCfg
-    pure ()
+  for v in reachable do
+    unless v do
+      return ← err .badCfg
   -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
   validateCallableLoopBounds c
   -- f) ValueId SSA definition-table: exactly-once def + use-existence
-  --   (SPEC §6.2). Dominance-of-use, block-param TYPE, and terminator typing
+  --   (SPEC §6.2). Build defSites once and reuse for step g.
+  let defSites := collectValueDefSites c
+  checkValueIdDefUniqueness defSites
+  checkValueIdUsesExist c defSites
+  -- g) dominance-of-use (SPEC §6.2): every ValueId use is in a block
+  --   dominated by its def's block. Block-param TYPE and terminator typing
   --   remain out of scope (later slices).
-  validateCallableValueIdSsa c
+  validateCallableDominanceOfUse c defSites reachable
 
 private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
@@ -2458,11 +2629,12 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
     + ValueId SSA definition-table / exactly-once / use-existence
+    + dominance-of-use
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
-    def-table — NOT dominance-of-use, block-param TYPE, or terminator typing. -/
+    def-table/dominance-of-use — NOT block-param TYPE, or terminator typing. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index

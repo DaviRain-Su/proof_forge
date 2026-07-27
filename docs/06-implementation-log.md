@@ -70,6 +70,60 @@ normative: false
   Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称 formal
   TASK-D2-06 完成。
 
+## 2026-07-27 — D2-06 CFG dominance-of-use (structure gate step g)
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  step f（ValueId SSA def-table）之后新增 step g：dominance-of-use
+  （SPEC §6.2 — 每个 ValueId use 必须位于被其 def block dominate 的 block，
+  D dominates B iff entry→B 的每条路径都过 D，失败 `.badCfg`；
+  structure-gate-only，不改 wire tag/field-count/encoder/decoder/schema）。
+  新增 4 个 def/private 函数：`cfgPredecessors`（每 block id 的升序唯一
+  predecessor 列表，由 `terminatorSuccessors` 反推，bounded、非递归）、
+  `computeDominators`（迭代 dataflow：`dom[0]={0}` iff reachable[0]，
+  reachable b≠0 初始化 all-true 后 fixed-point
+  `dom[b]={b}∪(∩ reachable preds p of dom[p])`，unreachable b all-false，
+  最多 `blockCount+1` pass 或稳定，bounded、非递归）、`checkDominanceOfUse`
+  （从 defSites 建 ValueId→defBlockId map，遍历每 reachable block 的
+  op/terminator uses，要求 `dom[B][D]==true`，missing def 为 total 计仍
+  `.badCfg`，unreachable block 跳过归 step d）、`validateCallableDominanceOfUse`
+  （preds+dominators 后调 check）。重构 `validateCallableCfgShape`：把
+  step d 的 reachability 数组 hoist 出 `blockCount==0` 分支供 step d/f/g
+  共享（blockCount==0 时 reachable 为空、dominance no-op），step f 改为
+  一次 `collectValueDefSites` 后复用 defSites 跑 `checkValueIdDefUniqueness`
+  与 `checkValueIdUsesExist`（行为/顺序不变），再跑 step g
+  `validateCallableDominanceOfUse c defSites reachable`；step a–e 字节级行为
+  不变；`validateCallableValueIdSsa` 保留为只跑 def-table 的独立入口。
+  更新 module header 'Not yet' 行（移除 'dominance-of-use'，保留
+  block-param TYPE/terminator typing/TypeKey/provenance join/normalizer/
+  product wire）、CFG section banner、`validateSemanticProgramStructureV1`
+  structure-order docstring。`Tests/Semantic/WireV1.lean` 增
+  `testCfgDominanceOfUse`（register 于 `run` 中 `testCfgValueIdSsa` 之后）：
+  5 正例（DP1 single-block def dominates use、DP2 callable param dominates
+  use、DP3 callable param inflow + distinct block param self-dom return、
+  DP4 dominator on only path 0→1→2、DP5 branch dominator of both arms）与
+  3 负例（DN1 def 在一分支 arm、join 处 use 不被 dominate；DN2 later block
+  def、earlier reachable block use 不被 dominate；DN3 arm def、sibling arm
+  use 不被 dominate），negative 均 reachability/arity/loopBounds/SSA
+  def-table 全通过、仅 dominance 失败、全 `.badCfg`、structure+encode 双路径；
+  branch 条件用 callable param（def@entry dominate 全图）避免被 SSA
+  use-existence 拦截。既有 `testCfgValueIdSsa` P3 因 dominance 升级为
+  invalid（block param def@1 不 dominate jump-arg use@0）已改为 callable
+  param inflow + distinct block param valueId，仍验证 block param def@1
+  dominate return use@1。更新 `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_fast_tests && lake env .lake/build/bin/proof-forge-next-fast-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite、`just dev-check` 与 `just ci`（含
+  `Tests.Semantic.WireV1: ok`）通过；`supply-chain/lean-package-files.v1.json`
+  仅刷新 `ProofForgeV2/Semantic/WireV1.lean` 的 hash/bytes；不记
+  formal TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Limitations：Not yet: block-param TYPE、terminator typing、TypeKey
+  anonymous ranking/interning、provenance source/NodeId join、
+  ProgramV1→Semantic normalizer、product wire。本切片只加宽 structure gate，
+  不改 wire bytes/codec/schema；transport decode 仍 structure-free；
+  不接线 Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称 formal
+  TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 CFG loopBounds back-edge coverage
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

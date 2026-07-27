@@ -1565,13 +1565,18 @@ private def testCfgValueIdSsa : IO Unit := do
         #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
         #[cfgBlock 0 (.return_ (some 0))]]
   expectCfgOk "P2 callable param def+use" p2
-  -- P3 block param + jump arg: block 0 jump args #[0], block 1 param 0
-  --   return (some 0). No back edge → loopBounds := #[].
+  -- P3 block param + jump arg: callable param valueId 0, block 0 jump
+  --   args #[0], block 1 param valueId 1, return (some 1). The jump arg
+  --   use@0 of ValueId 0 is dominated by callable-param def@entry=0; the
+  --   return use@1 of ValueId 1 is dominated by block-param def@1. Distinct
+  --   ValueIds keep the SSA def-table exactly-once. No back edge.
   let p3 ← programWithTypes "SsaP3BlockParam" cfgBoolTypes #[]
-    #[cfgCallable #[
-      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0])),
-      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0))
-    ]]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[
+          cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0])),
+          cfgBlockWithParams 1 #[cfgBoolParam 1] (.return_ (some 1))
+        ]]
   expectCfgOk "P3 block param + jump arg" p3
   -- P4 two defs + binary use: result 0 := lit, result 1 := lit,
   --   result 2 := binary add 0 1, return (some 2).
@@ -1663,6 +1668,119 @@ private def testCfgValueIdSsa : IO Unit := do
         #[cfgBlockWithParams 0 #[cfgBoolParam 0] (.return_ (some 0))]]
   expectCfgErr "N8 duplicate callable param + block param" n8
 
+/-- SPEC §6.2 dominance-of-use: every ValueId use must be in a block dominated
+    by the def's block. A block D dominates B iff every path from entry (0) to
+    B passes through D. Failure → `.badCfg`. These cases pass the earlier
+    reachability / arity / loopBounds / SSA def-table (exactly-once +
+    use-existence) steps so the `.badCfg` is attributable purely to dominance. -/
+private def testCfgDominanceOfUse : IO Unit := do
+  -- POSITIVES (def block dominates use block).
+  -- DP1 single-block: instr result 0 := lit; return (some 0). Def@0 dominates use@0.
+  let dp1 ← programWithTypes "DomP1Single" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.return_ (some 0))]]
+  expectCfgOk "DP1 single-block def dominates use" dp1
+  -- DP2 callable param: param valueId 0, block 0 return (some 0).
+  --   Callable param def@entry=0 dominates use@0.
+  let dp2 ← programWithTypes "DomP2Param" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[cfgBlock 0 (.return_ (some 0))]]
+  expectCfgOk "DP2 callable param dominates use" dp2
+  -- DP3 block param self-domination: callable param valueId 0, block 0 jump
+  --   args #[0] to block 1, block 1 param valueId 1 return (some 1). The
+  --   jump-arg use@0 of ValueId 0 is dominated by callable-param def@entry=0;
+  --   the block-param def@1 dominates the return use@1 of ValueId 1. Distinct
+  --   ValueIds keep SSA exactly-once. No back edge → loopBounds := #[].
+  let dp3 ← programWithTypes "DomP3BlockParam" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[
+          cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0])),
+          cfgBlockWithParams 1 #[cfgBoolParam 1] (.return_ (some 1))
+        ]]
+  expectCfgOk "DP3 block param dominates self use" dp3
+  -- DP4 dominator on only path: block 0 jump 1; block 1 instr result 5 := lit;
+  --   block 1 jump 2; block 2 return (some 5). Block 1 dominates block 2
+  --   (only path 0→1→2). No back edge → loopBounds := #[].
+  let dp4 ← programWithTypes "DomP4OnlyPath" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlockInstrs 1
+        #[cfgInstr (some (cfgValueDef 5)) (cfgBoolLit 0)]
+        (.jump (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ (some 5))
+    ]]
+  expectCfgOk "DP4 dominator on only path" dp4
+  -- DP5 def in dominator of both branch arms: block 0 instr result 0 := lit,
+  --   branch 0 → block 1 / block 2; block 1 return (some 0);
+  --   block 2 return (some 0). Block 0 dominates both block 1 and block 2.
+  let dp5 ← programWithTypes "DomP5BranchDominator" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+      cfgBlock 1 (.return_ (some 0)),
+      cfgBlock 2 (.return_ (some 0))
+    ]]
+  expectCfgOk "DP5 branch dominator of both arms" dp5
+  -- NEGATIVES (use in a block NOT dominated by def block).
+  -- DN1 def in one branch arm, use at join: block 0 branch cond(0) → block 1 /
+  --   block 2; block 1 instr result 5 := lit, jump 3; block 2 jump 3;
+  --   block 3 return (some 5). Block 1 does NOT dominate block 3
+  --   (path 0→2→3 avoids block 1). 5 defined exactly once, use-exists, all
+  --   reachable → only dominance fails. Condition uses callable param 0
+  --   (defined at entry, dominates all). No back edge.
+  let dn1 ← programWithTypes "DomN1ArmDefJoinUse" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[
+          cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+          cfgBlockInstrs 1
+            #[cfgInstr (some (cfgValueDef 5)) (cfgBoolLit 0)]
+            (.jump (cfgJumpTarget 3)),
+          cfgBlock 2 (.jump (cfgJumpTarget 3)),
+          cfgBlock 3 (.return_ (some 5))
+        ]]
+  expectCfgErr "DN1 def in arm, use at join not dominated" dn1
+  -- DN2 def in later block, use in earlier reachable block: block 0 branch
+  --   cond(0) → block 1 / block 2; block 1 instr result 6 := unary not 5,
+  --   jump 3; block 2 instr result 5 := lit, jump 3; block 3 return none.
+  --   ValueId 5 defined exactly once (only in block 2), use-exists, both arms
+  --   reachable; block 2 does not dominate block 1 → only dominance fails.
+  --   Condition uses callable param 0.
+  let dn2 ← programWithTypes "DomN2LaterDefEarlierUse" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[
+          cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+          cfgBlockInstrs 1
+            #[cfgInstr (some (cfgValueDef 6)) (.unary .not 5)]
+            (.jump (cfgJumpTarget 3)),
+          cfgBlockInstrs 2
+            #[cfgInstr (some (cfgValueDef 5)) (cfgBoolLit 0)]
+            (.jump (cfgJumpTarget 3)),
+          cfgBlock 3 (.return_ none)
+        ]]
+  expectCfgErr "DN2 later block def, earlier block use not dominated" dn2
+  -- DN3 def in non-dominating arm used in sibling arm: block 0 branch cond(0)
+  --   → block 1 / block 2; block 1 instr result 5 := lit, return (some 5);
+  --   block 2 return (some 5). Block 1 does NOT dominate block 2. 5 defined
+  --   once, use-exists, both arms reachable → only dominance fails. Condition
+  --   uses callable param 0.
+  let dn3 ← programWithTypes "DomN3ArmDefSiblingUse" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := "p", typeId := 0, visibility := .public_ }]
+        #[
+          cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+          cfgBlockInstrs 1
+            #[cfgInstr (some (cfgValueDef 5)) (cfgBoolLit 0)]
+            (.return_ (some 5)),
+          cfgBlock 2 (.return_ (some 5))
+        ]]
+  expectCfgErr "DN3 arm def, sibling arm use not dominated" dn3
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1688,6 +1806,7 @@ def run : IO Unit := do
   testCfgBlockParamArity
   testCfgLoopBounds
   testCfgValueIdSsa
+  testCfgDominanceOfUse
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
