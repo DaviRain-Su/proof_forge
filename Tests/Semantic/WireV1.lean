@@ -2,9 +2,10 @@
   Tests.Semantic.WireV1 — focused engineering suite for D2-06 wire skeleton.
 
   Pins schema/magic, empty/minimal root round-trip, hash identity, structure
-  gate (id/index, shallow refs, requirements domain/order/predicates/enumContains),
-  nesting fuel maxNesting=256, provenance envelope-only stub + validate always
-  badProvenance, Digest raw-32 wire, and invalid-carrier invariants projection.
+  gate (id/index, shallow refs, type-shape/FieldSpec/Map-key, requirements
+  domain/order/predicates/enumContains), nesting fuel maxNesting=256,
+  provenance envelope-only stub + validate always badProvenance, Digest
+  raw-32 wire, and invalid-carrier invariants projection.
   Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -446,6 +447,272 @@ private def testDecodeDataNoStructureGate : IO Unit := do
   let bytes ← expectOk "good encode" (encodeSemanticProgramDataV1 good)
   let _ ← expectOk "transport decode good" (decodeSemanticProgramDataV1 bytes)
 
+private def testTypeShapePositives : IO Unit := do
+  let data0 ← emptyProgram "TypeShapeOk"
+  -- legal uint64 + bytes 0/4096
+  let okWidths : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .uint 64 },
+      { id := 1, name := none, shape := .int 128 },
+      { id := 2, name := none, shape := .bytes 0 },
+      { id := 3, name := none, shape := .bytes 4096 },
+      { id := 4, name := none, shape := .array 0 4096 }
+    ]
+  }
+  expectOk "widths/lengths structure" (validateSemanticProgramStructureV1 okWidths)
+  let _ ← expectOk "widths/lengths encode" (encodeSemanticProgramDataV1 okWidths)
+  -- named nonempty struct + enum
+  let okNamed : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .uint 32 },
+      {
+        id := 1
+        name := some "Point"
+        shape := .struct #[
+          { name := "x", typeId := 0 },
+          { name := "y", typeId := 0 }
+        ]
+      },
+      {
+        id := 2
+        name := some "Color"
+        shape := .enum #[
+          { name := "Red", payloadTypes := #[] },
+          { name := "Blue", payloadTypes := #[0] }
+        ]
+      }
+    ]
+  }
+  expectOk "named struct/enum structure" (validateSemanticProgramStructureV1 okNamed)
+  let bytesNamed ← expectOk "named struct/enum encode" (encodeSemanticProgramDataV1 okNamed)
+  let _ ← expectOk "named carrier" (decodeSemanticProgramV1 bytesNamed)
+  -- exact bn254 field type
+  let okField : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 }]
+  }
+  expect (bn254FrFieldSpecV1.id.value == bn254FrFieldIdV1) "field catalog id"
+  expect (bn254FrFieldSpecV1.modulusBE == bn254FrModulusBEV1) "field catalog modulus"
+  expect (bn254FrModulusBEV1.size == 32) "modulus is 32 bytes"
+  expectOk "bn254 field structure" (validateSemanticProgramStructureV1 okField)
+  let _ ← expectOk "bn254 field encode" (encodeSemanticProgramDataV1 okField)
+  -- Map over Bool / UInt / Bytes keys
+  let okMapPrim : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 64 },
+      { id := 2, name := none, shape := .bytes 8 },
+      { id := 3, name := none, shape := .map 0 1 },
+      { id := 4, name := none, shape := .map 1 0 },
+      { id := 5, name := none, shape := .map 2 1 }
+    ]
+  }
+  expectOk "map primitive keys structure" (validateSemanticProgramStructureV1 okMapPrim)
+  let _ ← expectOk "map primitive keys encode" (encodeSemanticProgramDataV1 okMapPrim)
+  -- Map over Struct-of-UInt key
+  let okMapStruct : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .uint 32 },
+      {
+        id := 1
+        name := some "Key"
+        shape := .struct #[{ name := "a", typeId := 0 }]
+      },
+      { id := 2, name := none, shape := .bool },
+      { id := 3, name := none, shape := .map 1 2 }
+    ]
+  }
+  expectOk "map struct key structure" (validateSemanticProgramStructureV1 okMapStruct)
+  let _ ← expectOk "map struct key encode" (encodeSemanticProgramDataV1 okMapStruct)
+
+private def testTypeShapeNegatives : IO Unit := do
+  let data0 ← emptyProgram "TypeShapeBad"
+  -- name=some on bool
+  let badNameSome : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := some "B", shape := .bool }]
+  }
+  expectErr "name some on bool" .badType
+    (validateSemanticProgramStructureV1 badNameSome)
+  expectErr "name some on bool encode" .badType
+    (encodeSemanticProgramDataV1 badNameSome)
+  -- name=none on struct
+  let badNameNone : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := none
+      shape := .struct #[{ name := "x", typeId := 0 }]
+    }]
+  }
+  expectErr "name none on struct" .badType
+    (validateSemanticProgramStructureV1 badNameNone)
+  -- empty struct / enum
+  let badEmptyStruct : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := some "S", shape := .struct #[] }]
+  }
+  expectErr "empty struct" .badType
+    (validateSemanticProgramStructureV1 badEmptyStruct)
+  let badEmptyEnum : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := some "E", shape := .enum #[] }]
+  }
+  expectErr "empty enum" .badType
+    (validateSemanticProgramStructureV1 badEmptyEnum)
+  -- uint 7 / bytes 4097
+  let badWidth : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := none, shape := .uint 7 }]
+  }
+  expectErr "uint width 7" .badType
+    (validateSemanticProgramStructureV1 badWidth)
+  let badBytes : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := none, shape := .bytes 4097 }]
+  }
+  expectErr "bytes 4097" .badType
+    (validateSemanticProgramStructureV1 badBytes)
+  let badArray : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .array 0 4097 }
+    ]
+  }
+  expectErr "array 4097" .badType
+    (validateSemanticProgramStructureV1 badArray)
+  -- bad FieldSpec id
+  let badFieldId : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := none
+      shape := .field {
+        id := { value := "proof-forge.field.unknown.v1" }
+        modulusBE := bn254FrModulusBEV1
+      }
+    }]
+  }
+  expectErr "bad field id" .badType
+    (validateSemanticProgramStructureV1 badFieldId)
+  -- correct id + zero modulus
+  let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
+  let badFieldMod : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := none
+      shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod }
+    }]
+  }
+  expectErr "zero modulus" .badType
+    (validateSemanticProgramStructureV1 badFieldMod)
+  -- duplicate field / variant names
+  let badDupField : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .uint 8 },
+      {
+        id := 1
+        name := some "S"
+        shape := .struct #[
+          { name := "x", typeId := 0 },
+          { name := "x", typeId := 0 }
+        ]
+      }
+    ]
+  }
+  expectErr "dup field names" .duplicate
+    (validateSemanticProgramStructureV1 badDupField)
+  let badDupVariant : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{
+      id := 0
+      name := some "E"
+      shape := .enum #[
+        { name := "A", payloadTypes := #[] },
+        { name := "A", payloadTypes := #[] }
+      ]
+    }]
+  }
+  expectErr "dup variant names" .duplicate
+    (validateSemanticProgramStructureV1 badDupVariant)
+  -- Map with Option / Array / Unit / Enum key
+  let badMapOption : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .option 0 },
+      { id := 2, name := none, shape := .map 1 0 }
+    ]
+  }
+  expectErr "map option key" .badType
+    (validateSemanticProgramStructureV1 badMapOption)
+  let badMapArray : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .array 0 1 },
+      { id := 2, name := none, shape := .map 1 0 }
+    ]
+  }
+  expectErr "map array key" .badType
+    (validateSemanticProgramStructureV1 badMapArray)
+  let badMapUnit : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .unit },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .map 0 1 }
+    ]
+  }
+  expectErr "map unit key" .badType
+    (validateSemanticProgramStructureV1 badMapUnit)
+  let badMapEnum : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      {
+        id := 0
+        name := some "E"
+        shape := .enum #[{ name := "A", payloadTypes := #[] }]
+      },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .map 0 1 }
+    ]
+  }
+  expectErr "map enum key" .badType
+    (validateSemanticProgramStructureV1 badMapEnum)
+
+private def testTypeShapeRegressionTransportAndNesting : IO Unit := do
+  -- Nesting fuel path still encodes zero-modulus Field shape outside program
+  -- structure (encodeTypeShapeV1 does not run FieldSpec catalog).
+  let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
+  let fieldShape : TypeShapeV1 :=
+    .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod }
+  let fieldB ← expectOk "enc zero-mod field shape" (encodeTypeShapeV1 fieldShape)
+  let (decoded, c) ← expectOk "dec zero-mod field shape" (decodeTypeShapeV1 (start fieldB))
+  expectOk "finish zero-mod field" (finish c)
+  match decoded with
+  | .field spec =>
+      expect (spec.modulusBE == zeroMod) "zero modulus preserved on shape wire"
+  | _ => throw <| IO.userError "expected field shape"
+  -- Transport decode remains structure-free: bad type name still not gated
+  -- at decodeSemanticProgramDataV1 (only via encode / structure / carrier).
+  let data0 ← emptyProgram "TransportType"
+  let badNamed : SemanticProgramDataV1 := {
+    data0 with
+    types := #[{ id := 0, name := some "B", shape := .bool }]
+  }
+  expectErr "structure gates named bool" .badType
+    (validateSemanticProgramStructureV1 badNamed)
+  expectErr "encode gates named bool" .badType
+    (encodeSemanticProgramDataV1 badNamed)
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -461,6 +728,9 @@ def run : IO Unit := do
   testRequirementPredicates
   testNestingLimit
   testDecodeDataNoStructureGate
+  testTypeShapePositives
+  testTypeShapeNegatives
+  testTypeShapeRegressionTransportAndNesting
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-19
+updated: 2026-07-27
 normative: false
 ---
 
@@ -11,6 +11,21 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-07-27 — D2-06 type-shape / FieldSpec / Map-key structure subset
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 table id/index 与 shallow TypeId/
+  CallableId 之后、requirements 之前增加 SPEC-SEM-WIRE-001 §5 type-shape 结构校验
+  （named iff struct|enum、nonempty、integer widths、Bytes/Array ≤4096、sole
+  `bn254FrFieldSpecV1` catalog、intra-type name `.duplicate`、Map key legality）；
+  `Tests/Semantic/WireV1.lean` 增正/负与 nesting/transport regression；更新
+  `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build ProofForgeV2 Tests`；`lake build proof_forge_next_tests &&
+  lake env .lake/build/bin/proof-forge-next-tests`；`just sbom-package-files-refresh`；
+  `git diff --check`；`just docs-check`；`just ci`。
+- Results：聚焦 suite 与 ordinary product CI 通过；不记 formal TASK/TST/EV。
+- Limitations：仍无 CFG/TypeKey/valueBytes/provenance join/normalizer/product wire；
+  不删 alpha SemanticIR。
 
 ## 2026-07-16 — repo cutover CI + TASK-A0-17 preflight land
 

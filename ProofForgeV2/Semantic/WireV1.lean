@@ -17,9 +17,23 @@ import ProofForgeV2.Core.Unicode
     when `nesting < maxNesting` (=256), leave after body). Non-tagged scalars
     (u32/string/Digest/arrays of scalars) do not consume fuel. Current model
     has no recursive TypeShape-on-wire; fuel still applies on the shared path.
-  * Structural subset (SPEC §4.5 / §6 / §6.2 + CAP SupportPredicate rank):
+  * Structural subset (SPEC §4.5 / §5 / §6 / §6.2 + CAP SupportPredicate rank):
     - table `decl.id == array index` (`.duplicate` on mismatch)
     - shallow declaration-record TypeId / CallableId range (`.badReference`)
+    - type-shape / FieldSpec / Map-key (SPEC §5), after shallow refs and
+      before requirements:
+        · `name=some` iff shape is `.struct`/`.enum`; other shapes
+          require `name=none` (`.badType`)
+        · struct fields / enum variants nonempty (`.badType`)
+        · integer widths ∈ {8,16,32,64,128,256} (`.badType`)
+        · Bytes/Array length ≤ 4096 (`.badType`)
+        · FieldSpec catalog: only `proof-forge.field.bn254-fr.v1` with
+          exact 32-byte modulusBE (`bn254FrFieldSpecV1`; `.badType`)
+        · unique struct field / enum variant names within one decl
+          (`.duplicate`)
+        · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of
+          recursively legal keys; reject Option/Array/Map/Enum/Unit/Field
+          (`.badType`; recursion fuel = types.size)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -43,7 +57,8 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: CFG/dominance, type-closure/TypeKey, provenance inventory join,
+  * Not yet: CFG/dominance, full TypeKey anonymous ranking/interning,
+    constant/literal valueBytes, provenance inventory join,
     ProgramV1 normalizer, product CheckV1/compile/CLI wiring.
 -/
 
@@ -67,6 +82,20 @@ def maxNesting : Nat := 256
 def maxOriginBindings : Nat := 1000000
 def maxOriginsPerBinding : Nat := 100000
 def maxTagAsciiBytes : Nat := 64
+/-- SPEC §5 Bytes/Array length upper bound. -/
+def maxTypeLengthV1 : Nat := 4096
+
+/-- v1 Field catalog sole entry id (SPEC-SEM-WIRE-001 §5). -/
+def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
+
+/-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
+def bn254FrModulusBEV1 : ByteArray :=
+  ByteArray.mk #[
+    0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+    0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+    0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+    0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
+  ]
 
 abbrev TypeIdV1 := UInt32
 abbrev ConstantIdV1 := UInt32
@@ -105,6 +134,10 @@ structure FieldSpecV1 where
   id : SchemaId
   modulusBE : ByteArray
   deriving BEq
+
+/-- Sole v1 FieldSpec catalog entry for structure validation and tests. -/
+def bn254FrFieldSpecV1 : FieldSpecV1 :=
+  { id := { value := bn254FrFieldIdV1 }, modulusBE := bn254FrModulusBEV1 }
 
 structure StructFieldV1 where
   name : String
@@ -1587,11 +1620,14 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     return ← err .limitExceeded
   pure ()
 
-/-! ### Structural validation subset (tables / shallow refs / requirements)
+/-! ### Structural validation subset (tables / shallow refs / type-shape / requirements)
 
     Encode-before-output, `validateSemanticProgramV1`, and the re-encode leg of
     `decodeSemanticProgramV1` require this subset. `decodeSemanticProgramDataV1`
     does not (transport only). See module header API contracts.
+
+    Stable order (SPEC §6.2 engineering subset): table id/index → shallow
+    declaration refs → type-shape/FieldSpec/Map-key → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -1646,6 +1682,93 @@ private def checkTypeShapeRefs (shape : TypeShapeV1) (typeCount : Nat) :
           checkTypeIdInRange t typeCount
   | .bool | .uint _ | .int _ | .principal | .unit | .bytes _ | .field _ =>
       pure ()
+
+/-- Integer widths allowed by SPEC-SEM-WIRE-001 §5. -/
+private def legalIntegerWidthV1 (width : UInt16) : Bool :=
+  width == 8 || width == 16 || width == 32 || width == 64 ||
+  width == 128 || width == 256
+
+private def checkUniqueIntraTypeNames (names : Array String) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut seen : Array String := #[]
+  for name in names do
+    if seen.any (· == name) then
+      return ← err .duplicate
+    seen := seen.push name
+  pure ()
+
+private def validateFieldSpecCatalogV1 (spec : FieldSpecV1) :
+    Except SemanticWireErrorV1 Unit := do
+  unless spec.id.value == bn254FrFieldIdV1 do
+    return ← err .badType
+  unless spec.modulusBE == bn254FrModulusBEV1 do
+    return ← err .badType
+  pure ()
+
+/-- Map key legality (SPEC §5): Bool|UInt|Int|Principal|Bytes|Struct of legal keys.
+    Recursion fuel defaults to `types.size`; fuel exhaustion / illegal leaf → `.badType`.
+    Out-of-range TypeId is `.badReference` (shallow range still owns that class). -/
+private def checkLegalMapKeyTypeV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
+    (fuel : Nat) → Except SemanticWireErrorV1 Unit
+  | 0 => err .badType
+  | fuel + 1 => do
+    match types[typeId.toNat]? with
+    | none => err .badReference
+    | some decl =>
+      match decl.shape with
+      | .bool | .uint _ | .int _ | .principal | .bytes _ =>
+          pure ()
+      | .struct fields =>
+          for f in fields do
+            checkLegalMapKeyTypeV1 types f.typeId fuel
+      | .option _ | .array _ _ | .map _ _ | .enum _ | .unit | .field _ =>
+          err .badType
+
+/-- Named rule: `name=some` iff shape is struct|enum (SPEC §5). -/
+private def validateTypeDeclNamedRuleV1 (decl : TypeDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let isNamedShape :=
+    match decl.shape with
+    | .struct _ | .enum _ => true
+    | _ => false
+  match decl.name, isNamedShape with
+  | some _, true => pure ()
+  | none, false => pure ()
+  | some _, false | none, true => err .badType
+
+private def validateTypeDeclShapeV1 (decl : TypeDeclV1) (types : Array TypeDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  validateTypeDeclNamedRuleV1 decl
+  match decl.shape with
+  | .bool | .principal | .unit | .option _ =>
+      pure ()
+  | .uint width | .int width =>
+      unless legalIntegerWidthV1 width do
+        return ← err .badType
+  | .bytes length =>
+      unless length.toNat ≤ maxTypeLengthV1 do
+        return ← err .badType
+  | .array _ length =>
+      unless length.toNat ≤ maxTypeLengthV1 do
+        return ← err .badType
+  | .field spec =>
+      validateFieldSpecCatalogV1 spec
+  | .struct fields =>
+      if fields.isEmpty then
+        return ← err .badType
+      checkUniqueIntraTypeNames (fields.map (·.name))
+  | .enum variants =>
+      if variants.isEmpty then
+        return ← err .badType
+      checkUniqueIntraTypeNames (variants.map (·.name))
+  | .map key _value =>
+      checkLegalMapKeyTypeV1 types key types.size
+
+private def validateTypesStructureV1 (types : Array TypeDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  for decl in types do
+    validateTypeDeclShapeV1 decl types
+  pure ()
 
 private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "value" || domain == "control" || domain == "state" ||
@@ -1767,8 +1890,9 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     i := i + 1
   pure ()
 
-/-- First post-wire structural subset: table IDs, shallow declaration refs,
-    requirement/predicate order (SPEC-SEM-WIRE-001 §4.5/§6/§6.2 + CAP ranks).
+/-- Post-wire structural subset: table IDs, shallow declaration refs,
+    type-shape/FieldSpec/Map-key (SPEC §5), requirement/predicate order
+    (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Does not walk CFG bodies. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -1801,7 +1925,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     checkTypeIdInRange c.result.typeId typeCount
   for inv in data.invariants do
     checkCallableIdInRange inv.callableId callableCount
-  -- 3) Requirement key + predicate order
+  -- 3) Type-shape / FieldSpec catalog / Map-key legality (SPEC §5)
+  validateTypesStructureV1 data.types
+  -- 4) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 
 def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
