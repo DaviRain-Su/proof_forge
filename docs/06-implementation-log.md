@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.VariantPayload static exact contract (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `ProofForgeV2/Semantic/WireV1.lean` `checkOpTyping` 的 `Op.VariantPayload` static §5.1 gate，不接线 Typed/CheckV1/compile/CLI，不删 alpha SemanticIR，不改 wire/codec/schema。
+- RED/Changed：tests-first。`Tests/Semantic/WireV1.lean` 新增 `testCfgVariantPayloadTyping`，P1 Enum payload/P2 Option-some 正向；N1 primitive base、N2 Enum variant OOR、N3 Enum payload OOR、N4 Option-none、N5 Option payload OOR、N6 wrong result type、N7 empty Enum variant payload 负向，均驱动真实 `validateSemanticProgramStructureV1` + `encodeSemanticProgramDataV1` 双路径。实现前 suite 在 N1 以 “expected `.badCfg`” 失败。同步把既有 `PresP12VariantPayload`/`PresN12VariantPayload` 改为合法 Option-some base，使 presence 回归只隔离 result presence。
+- Production：`checkOpTyping` 新增独立 `.variantPayload` arm。Enum base 要求 variantIndex/payloadIndex 精确 in range，result.typeId 等于 selected payload TypeId；Option base 只允许 `(variantIndex=1,payloadIndex=0)`，result.typeId 等于 element TypeId；其他 base/index/result 均 `.badCfg`。runtime Enum value tag 与 declared variantIndex agreement 本切片不检查；D2-07 interpreter 尚未实现/接线且届时必须 trap。presence-only family 从 5 个缩为 IndexSet/CheckedCast/ContextRead/Commit 4 个。
+- Verification：实现前真实 harness 在 N1 以 expected `.badCfg` 失败（RED）；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests` 与真实 `proof-forge-next-tests` harness 已通过（`Tests.Semantic.WireV1: ok`）；`just sbom-package-files-refresh`、`just docs-check`、`git diff --check`、普通 `just ci` 均已通过，输出保存于 Goal scratch。
+- Boundary：不实现 runtime Enum tag agreement、IndexSet/CheckedCast/ContextRead/Commit exact typing、revert/emit/externalCall/schedule declaration argument joins、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 value-producing Instruction.result presence (step j extension, structure-gate-only)
 
 - RED/Changed：tests-first。`Tests/Semantic/WireV1.lean` 新增 `testCfgValueOpResultPresence`

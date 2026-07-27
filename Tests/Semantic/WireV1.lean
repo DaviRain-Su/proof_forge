@@ -2580,13 +2580,15 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P11 variantTag result present" p11
-  -- P12: VariantPayload (deferred family) with result present.
+  -- P12: VariantPayload result present with a valid Option-some base.
   let p12 ← programWithTypes "PresP12VariantPayload" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 1 #[10]),
              cfgInstr (some (cfgUint8ValueDef 2))
-               (.variantPayload 1 0 0) ]
+               (.variantPayload 1 1 0) ]
           (.return_ none)
       ] 0]
   expectCfgOk "P12 variantPayload result present" p12
@@ -2756,12 +2758,15 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgErr "N11 variantTag result none" n11
-  -- N12: VariantPayload with result none.
+  -- N12: VariantPayload with a valid Option-some base but result none, so
+  --   only the result-presence gate fails.
   let n12 ← programWithTypes "PresN12VariantPayload" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr none (.variantPayload 1 0 0) ]
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 1 #[10]),
+             cfgInstr none (.variantPayload 1 1 0) ]
           (.return_ none)
       ] 0]
   expectCfgErr "N12 variantPayload result none" n12
@@ -3074,6 +3079,113 @@ private def testCfgVariantTagTyping : IO Unit := do
       ] 0]
   expectCfgErr "N4 variantTag duplicate UInt32 closure type" n4
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.VariantPayload` exact static contract.
+    Enum bases require in-range variant/payload indices and return the selected
+    payload type. Option bases permit only `(variantIndex=1,payloadIndex=0)` and
+    return the element type. Every case drives the real structure gate and
+    encoder through `expectCfgOk` / `expectCfgErr`. -/
+private def testCfgVariantPayloadTyping : IO Unit := do
+  -- P1: Enum variant 0 payload 0 is UInt8, so the result is UInt8.
+  let p1 ← programWithTypes "VPayloadP1Enum" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 0 #[10]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 0 0)]
+          (.return_ none)] 0]
+  expectCfgOk "P1 variantPayload Enum payload result" p1
+  -- P2: Option-some `(1,0)` returns the Option element UInt8.
+  let p2 ← programWithTypes "VPayloadP2Option" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 3 })
+              (.construct 3 1 #[10]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 1 0)]
+          (.return_ none)] 0]
+  expectCfgOk "P2 variantPayload Option-some result" p2
+  -- N1: primitive base is neither Enum nor Option.
+  let n1 ← programWithTypes "VPayloadN1Primitive" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 0 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N1 variantPayload primitive base" n1
+  -- N2: Enum variant index is out of range.
+  let n2 ← programWithTypes "VPayloadN2VariantOor" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 0 #[10]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 1 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N2 variantPayload Enum variant OOR" n2
+  -- N3: Enum payload index is out of range.
+  let n3 ← programWithTypes "VPayloadN3PayloadOor" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 0 #[10]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 0 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N3 variantPayload Enum payload OOR" n3
+  -- N4: Option-none variant 0 has no payload.
+  let n4 ← programWithTypes "VPayloadN4OptionNone" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 3 })
+              (.construct 3 0 #[]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 0 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N4 variantPayload Option-none" n4
+  -- N5: Option-some permits payload index 0 only.
+  let n5 ← programWithTypes "VPayloadN5OptionPayloadOor" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 3 })
+              (.construct 3 1 #[10]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 1 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N5 variantPayload Option payload OOR" n5
+  -- N6: selected Enum payload is UInt8 but result is Bool.
+  let n6 ← programWithTypes "VPayloadN6WrongResult" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 0 #[10]),
+            cfgInstr (some (cfgValueDef 2))
+              (.variantPayload 1 0 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N6 variantPayload wrong result type" n6
+  -- N7: an empty Enum variant has no payload index 0.
+  let emptyVariantTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := some "E",
+         shape := .enum #[{ name := "Empty", payloadTypes := #[] }] }]
+  let n7 ← programWithTypes "VPayloadN7EmptyVariant" emptyVariantTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 2 })
+              (.construct 2 0 #[]),
+            cfgInstr (some (cfgUint8ValueDef 2))
+              (.variantPayload 1 0 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N7 variantPayload empty Enum variant" n7
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3106,6 +3218,7 @@ def run : IO Unit := do
   testCfgValueOpResultPresence
   testCfgFieldSetTyping
   testCfgVariantTagTyping
+  testCfgVariantPayloadTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
