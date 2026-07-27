@@ -7,7 +7,7 @@
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
-  Not yet: CFG/dominance, TypeKey, provenance join, normalizer, product wire.
+  CFG shape/reachability pinned; dominance/ValueId SSA/provenance join/normalizer/product wire still pending.
   Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -1107,6 +1107,122 @@ private def testValueBytesTransportRegression : IO Unit := do
   expectErr "provenance still bad" .badProvenance
     (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
 
+/-! ### CFG shape + reachability (D2-06 first CFG layer)
+
+    Per-callable: entryBlock == 0, block id == array index, terminator target
+    range, and total reachability from entry. NOT dominance, ValueId SSA,
+    loopBounds back-edge coverage, block-param arity/type, or terminator typing
+    (those remain explicitly out of scope this slice). -/
+
+private def cfgBoolTypes : Array TypeDeclV1 :=
+  #[{ id := 0, name := none, shape := .bool }]
+
+private def cfgCallable (blocks : Array BlockV1) (entryBlock : BlockIdV1 := 0) :
+    CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "f"
+    params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock
+    blocks
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+private def cfgBlock (id : BlockIdV1) (terminator : TerminatorV1) :
+    BlockV1 :=
+  { id, params := #[], instructions := #[], terminator }
+
+private def cfgJumpTarget (blockId : BlockIdV1) : JumpTargetV1 :=
+  { blockId, args := #[] }
+
+private def expectCfgOk (label : String) (data : SemanticProgramDataV1) :
+    IO Unit := do
+  expectOk s!"{label} structure" (validateSemanticProgramStructureV1 data)
+  let _ ← expectOk s!"{label} encode" (encodeSemanticProgramDataV1 data)
+
+private def expectCfgErr (label : String) (data : SemanticProgramDataV1) :
+    IO Unit := do
+  expectErr s!"{label} structure" .badCfg
+    (validateSemanticProgramStructureV1 data)
+  expectErr s!"{label} encode" .badCfg (encodeSemanticProgramDataV1 data)
+
+private def testCfgShapeAndReachability : IO Unit := do
+  -- Positive 1: single-block callable, return terminator (re-pin).
+  let p1 ← programWithTypes "CfgSingle" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.return_ (some 0))]]
+  expectCfgOk "single-block return" p1
+  -- Positive 2: two-block jump, both reachable.
+  let p2 ← programWithTypes "CfgJump" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "two-block jump" p2
+  -- Positive 3: branch reachability (self-jump to entry allowed as target).
+  let p3 ← programWithTypes "CfgBranch" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "branch reachability" p3
+  -- Positive 4: switch reachability with default target.
+  let p4 ← programWithTypes "CfgSwitch" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 0
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTarget 1 }]
+        (some (cfgJumpTarget 1))),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "switch reachability" p4
+  -- Positive 5: empty-callables program still legal (regression).
+  let p5 ← programWithTypes "CfgEmpty" cfgBoolTypes
+  expectCfgOk "empty callables regression" p5
+  -- Negative 1: entryBlock != 0.
+  let n1 ← programWithTypes "CfgBadEntry" cfgBoolTypes #[]
+    #[cfgCallable
+      #[cfgBlock 0 (.return_ none), cfgBlock 1 (.return_ none)]
+      (entryBlock := 1)]
+  expectCfgErr "entryBlock != 0" n1
+  -- Negative 2: block id != array index.
+  let n2 ← programWithTypes "CfgBadIdIndex" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 1 (.return_ none),
+      cfgBlock 0 (.jump (cfgJumpTarget 0))
+    ]]
+  expectCfgErr "block id != index" n2
+  -- Negative 3: jump target out of range.
+  let n3 ← programWithTypes "CfgJumpOOR" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.jump (cfgJumpTarget 5))]]
+  expectCfgErr "jump target oor" n3
+  -- Negative 4: branch target out of range.
+  let n4 ← programWithTypes "CfgBranchOOR" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 5) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "branch target oor" n4
+  -- Negative 5: switch case target out of range.
+  let n5 ← programWithTypes "CfgSwitchOOR" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 0
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTarget 5 }]
+        none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "switch case target oor" n5
+  -- Negative 6: unreachable block (block 1 not reachable from entry).
+  let n6 ← programWithTypes "CfgUnreachable" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.return_ none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "unreachable block" n6
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1128,6 +1244,7 @@ def run : IO Unit := do
   testValueBytesPositives
   testValueBytesNegatives
   testValueBytesTransportRegression
+  testCfgShapeAndReachability
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

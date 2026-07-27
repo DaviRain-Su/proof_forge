@@ -64,9 +64,10 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: CFG/dominance/ValueId SSA, full TypeKey anonymous ranking/
-    interning, provenance inventory join, ProgramV1 normalizer, product
-    CheckV1/compile/CLI wiring, op type contracts beyond valueBytes.
+  * Not yet: dominance/ValueId SSA, loopBounds back-edge coverage, full TypeKey
+    anonymous ranking/interning, provenance inventory join, ProgramV1
+    normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
+    valueBytes. (CFG shape + reachability from entry are now covered.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -1664,6 +1665,90 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
+/-! ### CFG shape + reachability (SPEC §6.2 — first CFG layer)
+
+    Per-callable: entryBlock == 0, block id == array index, terminator target
+    range, and total reachability from entry. All CFG-shape failures use
+    `.badCfg`. NOT dominance, ValueId SSA, loopBounds back-edge coverage,
+    block-param arity/type, or terminator typing (separate later slices).
+    Reachability is total and non-recursive (worklist) to stay within
+    nesting/stack limits. -/
+
+private def checkBlockIdInRange (blockId : BlockIdV1) (blockCount : Nat) :
+    Except SemanticWireErrorV1 Unit := do
+  unless blockId.toNat < blockCount do
+    return ← err .badCfg
+  pure ()
+
+/-- Successor blockIds of a terminator (leaf terminators return empty). -/
+private def terminatorSuccessors (term : TerminatorV1) : Array BlockIdV1 :=
+  match term with
+  | .jump target => #[target.blockId]
+  | .branch _cond thenTarget elseTarget =>
+      #[thenTarget.blockId, elseTarget.blockId]
+  | .switch _scrut cases defaultTarget =>
+      let fromCases := cases.map (·.target.blockId)
+      match defaultTarget with
+      | some t => fromCases.push t.blockId
+      | none => fromCases
+  | .return_ _ | .revert _ _ | .trap _ => #[]
+
+/-- One fixed-point pass: for each visited block, mark its successors visited.
+    Returns the updated visited array. -/
+private def cfgReachPass (blocks : Array BlockV1) (blockCount : Nat)
+    (visited : Array Bool) : Array Bool := Id.run do
+  let mut v : Array Bool := visited
+  let mut i : Nat := 0
+  for b in blocks do
+    if v[i]! then
+      for succ in terminatorSuccessors (BlockV1.terminator b) do
+        let s := succ.toNat
+        if s < blockCount && v[s]? == some false then
+          v := v.set! s true
+    i := i + 1
+  pure v
+
+/-- Reachability fixed point: repeat passes until no change or blockCount
+    passes (blockCount passes suffice for a finite graph). Bounded, no
+    unbounded recursion or worklist dequeue. -/
+private def cfgReachFixpoint (blocks : Array BlockV1) (blockCount : Nat)
+    : (fuel : Nat) → (visited : Array Bool) → Array Bool
+  | 0, visited => visited
+  | fuel + 1, visited =>
+    let next := cfgReachPass blocks blockCount visited
+    if next == visited then next
+    else cfgReachFixpoint blocks blockCount fuel next
+
+/-- Per-callable CFG shape + reachability. Deterministic, bounded. -/
+private def validateCallableCfgShape (c : CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let blockCount := c.blocks.size
+  -- a) entryBlock == 0
+  unless c.entryBlock.toNat == 0 do
+    return ← err .badCfg
+  -- b) block id == array index
+  let mut idx : Nat := 0
+  for b in c.blocks do
+    unless b.id.toNat == idx do
+      return ← err .badCfg
+    idx := idx + 1
+  -- c) terminator target range
+  for b in c.blocks do
+    for succ in terminatorSuccessors (BlockV1.terminator b) do
+      checkBlockIdInRange succ blockCount
+  -- d) reachability from entry (bounded fixed-point passes)
+  if blockCount == 0 then
+    pure ()
+  else
+    let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
+    let visited1 := visited0.set! 0 true
+    let reached :=
+      cfgReachFixpoint c.blocks blockCount blockCount visited1
+    for v in reached do
+      unless v do
+        return ← err .badCfg
+    pure ()
+
 private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
   unless typeId.toNat < typeCount do
@@ -2127,10 +2212,13 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
 
 /-- Post-wire structural subset: table IDs, shallow declaration refs,
     type-shape/FieldSpec/Map-key (SPEC §5), canonical valueBytes (Constant /
-    Op.Literal / SwitchCase), requirement/predicate order
+    Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
+    (SPEC §6.2 first CFG layer), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
-    only for valueBytes sites — not CFG completeness/dominance/SSA. -/
+    only for valueBytes sites and CFG shape/reachability — NOT dominance,
+    ValueId SSA, loopBounds back-edge coverage, block-param arity/type, or
+    terminator typing. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
@@ -2167,6 +2255,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
+  -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
+  for c in data.callables do
+    validateCallableCfgShape c
   -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 

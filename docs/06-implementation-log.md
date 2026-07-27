@@ -12,6 +12,33 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 CFG shape + reachability foundation
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateSemanticProgramStructureV1`
+  的 valueBytes 相位（step 4）之后、requirements 相位（step 5）之前新增 step 4.5
+  per-callable CFG shape + reachability 校验（SPEC §6.2 第一 CFG 层）：每个
+  callable 要求 `entryBlock == 0`、block `id == array index`、所有 terminator
+  目标 `blockId < blockCount`，以及从 entry 出发的 total reachability
+  （bounded fixed-point pass，fuel=`blockCount`，非递归 worklist 风格）；所有 CFG
+  shape 失败统一 `.badCfg`（不复用 `.duplicate`/`.badReference`）。新增 private
+  helpers `checkBlockIdInRange`/`terminatorSuccessors`/`cfgReachPass`/
+  `cfgReachFixpoint`/`validateCallableCfgShape`。`Tests/Semantic/WireV1.lean` 增
+  `testCfgShapeAndReachability`：5 个正例（单 block return、两 block jump、
+  branch reachability、switch reachability、empty-callables 回归）与 6 个负例
+  （entryBlock!=0、block id!=index、jump/branch/switch target out-of-range、
+  unreachable block），均校验 structure gate 与 encode 双路径。更新 module header
+  与 `validateSemanticProgramStructureV1` docstring、`Tests/Semantic/WireV1.lean`
+  header 注释、`AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_tests && lake env .lake/build/bin/proof-forge-next-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite 与 `just dev-check`/`just ci` 通过；`supply-chain/lean-package-files.v1.json`
+  仅刷新已编辑文件 hash/bytes（无新文件）；不记 formal TASK/TST/EV。
+- Limitations：Not yet: dominance、ValueId SSA、loopBounds back-edge coverage、
+  block-param arity/type、terminator typing（独立后续切片）。本切片只加宽 structure
+  gate，不改 wire bytes/codec；transport decode 仍 structure-free；不接线
+  Typed/CheckV1/compile/CLI/alpha SemanticIR；不删 alpha SemanticIR。
+
 ## 2026-07-27 — D2-06 canonical valueBytes structure subset
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 type-shape/FieldSpec/Map-key 之后、
