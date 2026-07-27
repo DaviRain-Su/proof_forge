@@ -1613,6 +1613,76 @@ private def testConstantNameUniqueness : IO Unit := do
     duplicateConstants #[badCfgCallable]
   expectCfgErrCode "N6 constant names before CFG" .duplicate n6
 
+/-- SPEC-SEM-WIRE-001 §6 StateDecl names are exact-string unique within the
+    logicalState table. Identifier grammar/NFC and other declaration tables
+    remain separate gates. -/
+private def testLogicalStateNameUniqueness : IO Unit := do
+  let stateX0 : StateDeclV1 := {
+    id := 0, name := "x", typeId := 0, visibility := .public_
+  }
+  let stateY1 : StateDeclV1 := {
+    id := 1, name := "y", typeId := 0, visibility := .public_
+  }
+  let stateUpperX2 : StateDeclV1 := {
+    id := 2, name := "X", typeId := 0, visibility := .public_
+  }
+  let base ← programWithTypes "LogicalStateNameBase" cfgBoolTypes
+  let p0 := { base with logicalState := #[] }
+  expectCfgOk "P0 empty logicalState table" p0
+  let orderedStates := #[stateX0, stateY1, stateUpperX2]
+  let p1 := { base with logicalState := orderedStates }
+  expectCfgOk "P1 distinct case-sensitive state names" p1
+  let p1Bytes ← expectOk "P1 logicalState order encode"
+    (encodeSemanticProgramDataV1 p1)
+  let p1Decoded ← expectOk "P1 logicalState order decode"
+    (decodeSemanticProgramDataV1 p1Bytes)
+  expect (p1Decoded.logicalState == orderedStates)
+    "P1 logicalState source order survives wire round-trip"
+  let stateX1 : StateDeclV1 := { stateX0 with id := 1 }
+  let duplicateStates := #[stateX0, stateX1]
+  let n1 := { base with logicalState := duplicateStates }
+  expectCfgErrCode "N1 duplicate logicalState names" .duplicate n1
+  -- Shallow StateDecl TypeId range validation precedes name uniqueness.
+  let badRefStateX1 : StateDeclV1 := { stateX1 with typeId := 99 }
+  let n2 := { base with logicalState := #[stateX0, badRefStateX1] }
+  expectCfgErrCode "N2 StateDecl TypeId before names" .badReference n2
+  -- Canonical Constant valueBytes validation precedes state-name uniqueness.
+  let n3 := {
+    base with
+      constants := #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+      logicalState := duplicateStates
+  }
+  expectCfgErrCode "N3 Constant value before state names" .nonCanonical n3
+  -- Canonical callable valueBytes also precede state-name uniqueness.
+  let badValueCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 })
+        (.literal 0 (ByteArray.mk #[2]))]
+      (.return_ none)] with
+      id := 0
+  }
+  let n4 := {
+    base with logicalState := duplicateStates, callables := #[badValueCallable]
+  }
+  expectCfgErrCode "N4 callable value before state names" .nonCanonical n4
+  -- State-name uniqueness precedes callable signature validation.
+  let badSignatureCallable := cfgCallableKindName .pureFn none
+  let n5 := {
+    base with logicalState := duplicateStates, callables := #[badSignatureCallable]
+  }
+  expectCfgErrCode "N5 state names before callable signature" .duplicate n5
+  -- State-name uniqueness also precedes per-callable CFG validation.
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+  }
+  let n6 := {
+    base with logicalState := duplicateStates, callables := #[badCfgCallable]
+  }
+  expectCfgErrCode "N6 state names before CFG" .duplicate n6
+
 /-- SPEC-SEM-WIRE-001 §6 event/error interface-field names are exact-string
     unique within each declaration. Different declarations and declaration
     kinds may reuse a field name; identifier grammar/NFC remains separate. -/
@@ -5006,6 +5076,7 @@ def run : IO Unit := do
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
   testConstantNameUniqueness
+  testLogicalStateNameUniqueness
   testInterfaceFieldNameUniqueness
   testInitializerCardinality
   testInitializerResultShape

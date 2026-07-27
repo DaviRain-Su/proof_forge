@@ -42,8 +42,9 @@ import ProofForgeV2.Core.Unicode
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - declaration/signature name subset after canonical values and before CFG:
-      exact Constant-name uniqueness within the constants table,
-      per-event/per-error exact interface-field-name uniqueness, callable
+      exact Constant-name uniqueness within the constants table, exact
+      StateDecl-name uniqueness within logicalState, per-event/per-error exact
+      interface-field-name uniqueness, callable
       kind/name Option presence, exact named-callable uniqueness,
       per-callable exact parameter-name uniqueness, zero-or-one initializer,
       initializer result
@@ -1676,7 +1677,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
-    (Constant / Op.Literal / SwitchCase) → Constant-name uniqueness →
+    (Constant / Op.Literal / SwitchCase) → grouped same-error duplicate phase
+    {Constant-name uniqueness, logicalState-name uniqueness} →
     interface-field-name uniqueness → callable kind/name presence → named
     callable uniqueness → per-callable parameter-name uniqueness →
     initializer cardinality → initializer Unit/public result → invariant
@@ -3362,12 +3364,11 @@ private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
       validateTerminatorValueBytesV1 types block.terminator
   pure ()
 
-/-- Constant names are exact-string unique within the constants table (SPEC
-    §6). Sorting a private UTF-8 name array preserves public source order and
-    avoids a quadratic duplicate scan at the wire table limit. -/
-private def validateConstantNameUniquenessV1 (constants : Array ConstantV1) :
+/-- Exact declaration/field names are checked on a private UTF-8 sort so
+    public source-order arrays remain unchanged and duplicate detection stays
+    non-quadratic at the wire table limit. -/
+private def checkUniqueDeclarationNamesV1 (names : Array String) :
     Except SemanticWireErrorV1 Unit := do
-  let names := constants.map (·.name)
   let sorted := names.qsort fun left right =>
     compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
   let mut index : Nat := 1
@@ -3377,20 +3378,17 @@ private def validateConstantNameUniquenessV1 (constants : Array ConstantV1) :
     index := index + 1
   pure ()
 
-/-- Check one event/error field namespace without reordering its public
-    source-order array. The private UTF-8 sort avoids a quadratic duplicate
-    scan at the wire array limit. -/
-private def checkUniqueInterfaceFieldNamesV1
-    (fields : Array InterfaceFieldV1) : Except SemanticWireErrorV1 Unit := do
-  let names := fields.map (·.name)
-  let sorted := names.qsort fun left right =>
-    compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
-  let mut index : Nat := 1
-  while index < sorted.size do
-    if sorted[index - 1]! == sorted[index]! then
-      return ← err .duplicate
-    index := index + 1
-  pure ()
+/-- Constant names are exact-string unique within the constants table (SPEC
+    §6). Identifier grammar/NFC remains a separate gate. -/
+private def validateConstantNameUniquenessV1 (constants : Array ConstantV1) :
+    Except SemanticWireErrorV1 Unit :=
+  checkUniqueDeclarationNamesV1 (constants.map (·.name))
+
+/-- StateDecl names are exact-string unique within logicalState (SPEC §6).
+    Identifier grammar/NFC remains a separate gate. -/
+private def validateLogicalStateNameUniquenessV1
+    (logicalState : Array StateDeclV1) : Except SemanticWireErrorV1 Unit :=
+  checkUniqueDeclarationNamesV1 (logicalState.map (·.name))
 
 /-- Event/error interface-field names are exact-string unique within each
     declaration (SPEC §6). Each declaration gets an independent namespace;
@@ -3399,9 +3397,9 @@ private def validateInterfaceFieldNameUniquenessV1
     (events : Array EventDeclV1) (errors : Array ErrorDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   for eventDecl in events do
-    checkUniqueInterfaceFieldNamesV1 eventDecl.fields
+    checkUniqueDeclarationNamesV1 (eventDecl.fields.map (·.name))
   for errorDecl in errors do
-    checkUniqueInterfaceFieldNamesV1 errorDecl.fields
+    checkUniqueDeclarationNamesV1 (errorDecl.fields.map (·.name))
   pure ()
 
 /-- Callable signature name presence (SPEC §6): initializer is the only
@@ -3754,8 +3752,11 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
-  -- 4.2) Constant-name uniqueness after all canonical value sites.
+  -- 4.2) Constant and logicalState names form one same-error `.duplicate`
+  --   phase after canonical values. Calls retain declaration-table order, but
+  --   the closed public error value intentionally exposes no intra-phase rank.
   validateConstantNameUniquenessV1 data.constants
+  validateLogicalStateNameUniquenessV1 data.logicalState
   -- 4.25) Per-declaration interface-field uniqueness, then callable name
   --   presence/uniqueness and per-callable parameter-name uniqueness.
   validateInterfaceFieldNameUniquenessV1 data.events data.errors
