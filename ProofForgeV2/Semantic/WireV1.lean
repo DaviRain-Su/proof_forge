@@ -1692,9 +1692,10 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
 
 /-! ### CFG shape + reachability + block-param arity + loopBounds + EffectId + ValueId SSA def-table + dominance-of-use (SPEC §6.2 — CFG layers)
 
-    Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, jump/branch/switch target arg arity == target block params, total
-    reachability from entry, loopBounds back-edge coverage, contiguous EffectId
+    Per-callable: entryBlock == 0, block id == array index, Switch cases
+    nonempty, terminator target range, jump/branch/switch target arg arity ==
+    target block params, total reachability from entry, loopBounds back-edge
+    coverage, contiguous EffectId
     assignment, ValueId definition-table / exactly-once / use-existence, and
     dominance-of-use.
     All CFG-shape failures use `.badCfg`. NOT block-param TYPE,
@@ -2892,8 +2893,9 @@ def checkOpTyping (instr : InstructionV1)
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
     + ValueId SSA def-table + dominance-of-use + def-site TypeId range +
     terminator typing + per-op type/result contract. Deterministic, bounded.
-    Steps a–e are CFG shape/reachability/arity/loopBounds; step e.5 checks
-    per-callable EffectIds; step f runs the ValueId SSA def-table
+    Steps a–e are CFG shape (including Switch cases nonempty), reachability,
+    arity, and loopBounds; step e.5 checks per-callable EffectIds; step f runs
+    the ValueId SSA def-table
     (exactly-once def + use-existence); step g runs dominance-of-use;
     step h runs def-site TypeId range (`.badReference`); step i runs
     terminator typing (`.badCfg`); step j runs the per-op type/result
@@ -2914,6 +2916,13 @@ private def validateCallableCfgShape (c : CallableV1)
     unless b.id.toNat == idx do
       return ← err .badCfg
     idx := idx + 1
+  -- b.5) Canonical Switch shape: zero cases must normalize to Jump rather
+  --   than retaining a second equivalent control-flow encoding (SPEC §6).
+  for b in c.blocks do
+    match b.terminator with
+    | .switch _ cases _ =>
+        if cases.isEmpty then return ← err .badCfg
+    | _ => pure ()
   -- c) terminator target range
   for b in c.blocks do
     for succ in terminatorSuccessors (BlockV1.terminator b) do
@@ -3452,6 +3461,7 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
     Map-key (SPEC §5), canonical valueBytes (Constant /
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
+    + Switch cases nonempty
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
     + per-callable Emit/ExternalCall/Schedule EffectId contiguous assignment

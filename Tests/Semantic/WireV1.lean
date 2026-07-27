@@ -1193,13 +1193,13 @@ private def testValueBytesTransportRegression : IO Unit := do
 
 /-! ### CFG shape + reachability + block-param arity + loopBounds (D2-06 CFG layers)
 
-    Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, total reachability from entry, jump/branch/switch target arg
-    arity == target block params, and loopBounds back-edge coverage
-    (exact coverage of every CFG back edge, `(header,backEdgeFrom)` unique
-    ascending, maxIterations <= 4096, all `.badCfg`). NOT dominance, ValueId
-    SSA, block-param TYPE, or terminator typing (those remain explicitly out
-    of scope this slice). -/
+    Per-callable: entryBlock == 0, block id == array index, Switch cases
+    nonempty, terminator target range, total reachability from entry,
+    jump/branch/switch target arg arity == target block params, and loopBounds
+    back-edge coverage (exact coverage of every CFG back edge,
+    `(header,backEdgeFrom)` unique ascending, maxIterations <= 4096, all
+    `.badCfg`). Later sections in this same suite pin SSA, dominance,
+    block-param/terminator typing, EffectId assignment, and per-op contracts. -/
 
 private def cfgBoolTypes : Array TypeDeclV1 :=
   #[{ id := 0, name := none, shape := .bool }]
@@ -1413,6 +1413,50 @@ private def testCfgShapeAndReachability : IO Unit := do
       cfgBlock 1 (.return_ none)
     ]]
   expectCfgErr "unreachable block" n6
+
+/-- SPEC-SEM-WIRE-001 §6 canonical control-flow shape: Term.Switch must carry
+    at least one case. A zero-case branch must normalize to Term.Jump rather
+    than retaining a second equivalent encoding. -/
+private def testCfgSwitchCasesNonempty : IO Unit := do
+  -- P1: one case without a default remains canonical.
+  let p1 ← programWithTypes "SwitchCasesP1" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "P1 switch one case" p1
+  -- P2: one case plus a default remains canonical.
+  let p2 ← programWithTypes "SwitchCasesP2" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 }]
+          (some (cfgJumpTarget 1))),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "P2 switch one case and default" p2
+  -- N1: empty cases remain invalid even with a valid reachable default.
+  let n1 ← programWithTypes "SwitchCasesN1Default" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0 #[] (some (cfgJumpTarget 1))),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "N1 switch empty cases with default" n1
+  -- N2: empty cases without a default are likewise non-canonical.
+  let n2 ← programWithTypes "SwitchCasesN2NoDefault" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+      (.switch 0 #[] none)]]
+  expectCfgErr "N2 switch empty cases without default" n2
 
 private def testCfgBlockParamArity : IO Unit := do
   -- Positive 1: jump to a 2-param block passing 2 args.
@@ -1776,10 +1820,16 @@ private def testCfgValueIdSsa : IO Unit := do
       cfgBlock 1 (.return_ none)
     ]]
   expectCfgErr "N6 undefined use in jump arg" n6
-  -- N7 undefined use in switch scrutinee: switch 99 [] none (single block,
-  --   no back edge, reachability ok).
+  -- N7 undefined use in switch scrutinee. The case array is nonempty so the
+  --   canonical Switch-shape gate passes and this remains an SSA-use test.
   let n7 ← programWithTypes "SsaN7UndefSwitchScrut" cfgBoolTypes #[]
-    #[cfgCallable #[cfgBlock 0 (.switch 99 #[] none)]]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 99
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTarget 1 }]
+        none),
+      cfgBlock 1 (.return_ none)
+    ]]
   expectCfgErr "N7 undefined use in switch scrut" n7
   -- N8 duplicate callable param vs block param: param 0, block 0 param 0.
   let n8 ← programWithTypes "SsaN8DupCallableBlockParam" cfgBoolTypes #[]
@@ -4005,6 +4055,7 @@ def run : IO Unit := do
   testValueBytesNegatives
   testValueBytesTransportRegression
   testCfgShapeAndReachability
+  testCfgSwitchCasesNonempty
   testCfgBlockParamArity
   testCfgLoopBounds
   testCfgValueIdSsa

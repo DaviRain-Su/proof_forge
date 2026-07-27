@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 Term.Switch nonempty canonical cases (CFG step b.5, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 `Term.Switch.cases` nonempty canonical shape，不实现 normalizer、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testCfgSwitchCasesNonempty`，驱动真实 structure+encode 双路径：单 case 无 default、单 case有 default 正向；零 case 有 valid default、零 case无 default 负向。实现前真实 harness 在有 default 的零 case 期望 `.badCfg` 处失败。既有 SSA N7 undefined-switch fixture 改为 nonempty valid case，避免新 shape gate 抢先使 use-existence 测试失真。
+- Production：`validateCallableCfgShape` 在 block id==index 后、target range 前新增 step b.5；每个 `.switch` 必须 `cases.isEmpty = false`，否则 `.badCfg`。零 case 控制流必须由未来 normalizer 物化为 `.jump`，不能保留第二种等价编码。
+- Verification：三路只读 review 一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 Switch case uniqueness/source-arm normalization、ProgramV1→Semantic normalizer或runtime branch semantics；TypeKey、provenance、product wiring、ExternalCall/Schedule args serializability、ContextRead/Commit exact contracts及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 SemanticProgram root qualifiedName shape (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 program root qualifiedName 至少两个 components，不实现 source module/declaration identity join、不接线产品、不改 wire/codec/schema。
