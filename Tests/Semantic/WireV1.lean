@@ -11,9 +11,9 @@
   def-site TypeId range, block/terminator typing, and step-j per-op contracts
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
-  result.typeId == toType) and StateStore state lookup/value type/void-result
-  contract; only ContextRead/Commit remain presence-only. Formal TST-SEM-001
-  corpus remains pending.
+  result.typeId == toType), StateStore state lookup/value type/void-result,
+  and Assert Bool/error/args/void-result contracts; only ContextRead/Commit
+  remain presence-only. Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.WireV1
@@ -2025,6 +2025,21 @@ private def stateRow (id : StateIdV1) (name : String) (typeId : TypeIdV1) :
     StateDeclV1 :=
   { id, name, typeId, visibility := .public_ }
 
+/-- Public interface field for ErrorDecl/EventDecl declaration-join tests. -/
+private def interfaceField (name : String) (typeId : TypeIdV1) :
+    InterfaceFieldV1 :=
+  { name, typeId, visibility := .public_ }
+
+private def errorRow (id : ErrorIdV1) (name : String)
+    (fields : Array InterfaceFieldV1) : ErrorDeclV1 :=
+  { id, name, fields }
+
+private def programWithErrors (name : String) (types : Array TypeDeclV1)
+    (errors : Array ErrorDeclV1) (callables : Array CallableV1) :
+    IO SemanticProgramDataV1 := do
+  let data0 ← emptyProgram name
+  pure { data0 with types, errors, callables }
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -2306,10 +2321,10 @@ private def testCfgOpTyping : IO Unit := do
     The five genuinely-void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/
     `Schedule`) MUST carry `result := none`; a spurious `result := some _` is
     an invalid Core trap → `.badCfg`. This suite isolates result presence;
-    its StateStore fixtures also satisfy the later exact state lookup/value
-    type contract. Event/error/effectId joins and argument typing remain out
-    of scope here, and spurious results fail before those deferred joins.
-    Uses the same 8-type `cfgOpTypes` fixture. -/
+    its StateStore and Assert fixtures also satisfy their later exact state/
+    error declaration and operand contracts. Event/effectId joins and call
+    argument typing remain out of scope here, and spurious results fail before
+    those deferred joins. Uses the same 8-type `cfgOpTypes` fixture. -/
 
 -- A qualified name with ≥2 components for externalCall/schedule callees.
 private def cfgCalleeName : IO QualifiedName := do
@@ -3508,6 +3523,102 @@ private def testCfgStateStoreTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N3 stateStore selected type mismatch" n3
 
+/-- SPEC-SEM-WIRE-001 §5.1/§6 `Op.Assert` exact condition/error join.
+    condition must be Bool; `errorId = none` requires empty args, while
+    `some errorId` must resolve and args must positionally match ErrorDecl
+    fields. Assert remains void. Fixtures drive structure+encode dual paths. -/
+private def testCfgAssertTyping : IO Unit := do
+  -- P1: standard assertion failure form — Bool condition, no error, no args.
+  let p1 ← programWithTypes "AssertP1Standard" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr none (.assert_ 0 none #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P1 assert standard" p1
+  -- P2: declared error with two positional args of exact field types.
+  let p2 ← programWithErrors "AssertP2Declared" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+            cfgInstr none (.assert_ 0 (some 0) #[1, 2])]
+          (.return_ none)] 0]
+  expectCfgOk "P2 assert declared error args" p2
+  -- P3: errorId selects the second declaration and its UInt32 field.
+  let p3 ← programWithErrors "AssertP3SelectedError" cfgOpTypes
+    #[errorRow 0 "Empty" #[],
+      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+            cfgInstr none (.assert_ 0 (some 1) #[1])]
+          (.return_ none)] 0]
+  expectCfgOk "P3 assert selected error" p3
+  -- N1: condition must be Bool, not UInt8.
+  let n1 ← programWithTypes "AssertN1Condition" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1),
+            cfgInstr none (.assert_ 0 none #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N1 assert non-Bool condition" n1
+  -- N2: errorId none requires args empty.
+  let n2 ← programWithTypes "AssertN2StandardArgs" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr none (.assert_ 0 none #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N2 assert standard args nonempty" n2
+  -- N3: declared errorId must resolve.
+  let n3 ← programWithTypes "AssertN3MissingError" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr none (.assert_ 0 (some 0) #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N3 assert missing error" n3
+  -- N4: declared error arg count must equal fields.size.
+  let n4 ← programWithErrors "AssertN4Arity" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr none (.assert_ 0 (some 0) #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N4 assert error arg count" n4
+  -- N5: declared error args must match field types positionally.
+  let n5 ← programWithErrors "AssertN5ArgType" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+            cfgInstr none (.assert_ 0 (some 0) #[1, 2])]
+          (.return_ none)] 0]
+  expectCfgErr "N5 assert error arg type" n5
+  -- N6: lookup must use the selected errorId rather than another row's shape.
+  let n6 ← programWithErrors "AssertN6SelectedError" cfgOpTypes
+    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 0],
+      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr none (.assert_ 0 (some 1) #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N6 assert selected error arg type" n6
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3544,6 +3655,7 @@ def run : IO Unit := do
   testCfgIndexSetTyping
   testCfgCheckedCastTyping
   testCfgStateStoreTyping
+  testCfgAssertTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.Assert condition/error declaration join (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.Assert` static §5.1/§6 gate，不实现 reference runtime、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `interfaceField`/`errorRow`/`programWithErrors` fixtures 与 `testCfgAssertTyping`，驱动真实 structure+encode 双路径：P1 standard assert（Bool+none+empty args）/P2 declared two-arg exact/P3 second-error selection 正向；N1 non-Bool condition、N2 none+nonempty args、N3 missing errorId、N4 arg count、N5 positional arg type、N6 selected-error type 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败；既有 void presence Assert fixture 已满足 Bool+none+empty args，继续隔离 spurious result。
+- Production：`Instruction.result` 必须为 none，condition ValueId 类型必须为 Bool；`errorId=none` 时 args 必须 empty，`some errorId` 时 declaration 必须存在且 args arity/type 按 `ErrorDeclV1.fields` source order 精确匹配。校验顺序为 result→condition→errorId→args；任一失败 `.badCfg`。
+- Verification：三路只读 review 一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 `Assert(false)` runtime Outcome、Term.Revert join、Emit event join、ExternalCall/Schedule args/effectId、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 Op.StateStore declaration/type contract (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.StateStore` static §5.1 gate，不接线产品、不改 wire/codec/schema。
