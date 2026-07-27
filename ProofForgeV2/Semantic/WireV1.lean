@@ -78,11 +78,12 @@ import ProofForgeV2.Core.Unicode
     result.typeId == type(base), the full Op.VariantTag contract — base
     Enum/Option, result.typeId == unique UInt32 TypeId — and the static
     Op.VariantPayload Enum/Option index/result contract, Op.IndexSet
-    Array/Bytes/Map operand/result contract, and Op.CheckedCast UInt/Int
-    source/destination/result contract), presence-only result for
-    ContextRead/Commit, and void-op result-presence for StateStore/Assert/
-    Emit/ExternalCall/Schedule are now covered; revert/emit/externalCall/
-    schedule argument typing, exact contracts for the two presence-only
+    Array/Bytes/Map operand/result contract, Op.CheckedCast UInt/Int
+    source/destination/result contract, and Op.StateStore state lookup/value
+    type/void-result contract), presence-only result for ContextRead/Commit,
+    and void-op result-presence for Assert/Emit/ExternalCall/Schedule are now
+    covered; revert/emit/externalCall/schedule argument typing, exact contracts
+    for the two presence-only
     families, TypeKey anonymous
     ranking, provenance inventory join, ProgramV1 normalizer, and product
     wire remain out of scope pending later slices.)
@@ -2276,11 +2277,12 @@ def checkTerminatorTyping (c : CallableV1)
     structurally interned UInt32 TypeId) plus the static VariantPayload
     Enum/Option index/result contract plus the exact static IndexSet
     Array/Bytes/Map operand/result contract and CheckedCast UInt/Int
-    source/destination/result contract. The two deferred families
-    (ContextRead/Commit) carry presence-only result; their exact contracts are
-    deferred. The five void ops (StateStore/Assert/Emit/ExternalCall/Schedule)
-    MUST carry `result := none`; a spurious result or a missing result on a
-    value-producing op is an invalid Core trap → `.badCfg`.
+    source/destination/result contract. StateStore resolves stateId, requires
+    type(value) == state.typeId, and carries no result. The two deferred
+    families (ContextRead/Commit) carry presence-only result; their exact
+    contracts are deferred. The other four void ops (Assert/Emit/ExternalCall/
+    Schedule) MUST carry `result := none`; a spurious result or a missing
+    result on a value-producing op is an invalid Core trap → `.badCfg`.
     All step j failures → `.badCfg`. Bounded, non-recursive, total. Out of
     scope: revert/emit/externalCall/schedule argument typing, exact typing for
     ContextRead/Commit, TypeKey anonymous
@@ -2371,10 +2373,11 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     Value-producing ops (`Literal`/`Constant`/`StateLoad`/`Construct`/`FieldGet`/
     `IndexGet`/`Unary`/`Binary`/`PureCall`) MUST carry `result := some _` and
     the result TypeId must equal the op's exact result type; a missing result
-    or mismatched TypeId is `.badCfg` (SPEC-SEM-WIRE-001 §4.3/§5.1). Void ops
-    (`StateStore`/`Assert`/`Emit`/`ExternalCall`/`Schedule`) MUST carry
-    `result := none`; a spurious result is `.badCfg`. `Op.FieldSet` carries
-    the full §5.1 contract (base must resolve to a Struct, fieldIndex in
+    or mismatched TypeId is `.badCfg` (SPEC-SEM-WIRE-001 §4.3/§5.1).
+    `Op.StateStore` resolves stateId, requires type(value) == state.typeId, and
+    MUST carry `result := none`. The other void ops (`Assert`/`Emit`/
+    `ExternalCall`/`Schedule`) also require no result; a spurious result is
+    `.badCfg`. `Op.FieldSet` carries the full §5.1 contract (base must resolve to a Struct, fieldIndex in
     range, type(value) == selected field.typeId, result.typeId == type(base));
     a missing result or any mismatch is `.badCfg`. `Op.VariantTag` carries
     the full §5.1 contract (base must resolve to an Enum or Option,
@@ -2659,13 +2662,25 @@ def checkOpTyping (instr : InstructionV1)
         let expected := callee.params.map (·.typeId)
         checkArgTypes args expected
         requireResult callee.result.typeId
-  -- Void ops (SPEC §5.1 'no result'): StateStore/Assert/Emit/ExternalCall/
+  -- Op.StateStore (SPEC-SEM-WIRE-001 §5.1): stateId MUST resolve, the value
+  --   operand TypeId MUST exactly equal the selected state.typeId, and this
+  --   op is void (`Instruction.result = none`). Any mismatch → `.badCfg`.
+  | .stateStore stateId value =>
+      match instr.result with
+      | some _ => err .badCfg
+      | none =>
+          match data.logicalState[stateId.toNat]? with
+          | none => err .badCfg
+          | some state =>
+              let valueT ← requireOperandType value
+              unless valueT == state.typeId do return ← err .badCfg
+              pure ()
+  -- Remaining void ops (SPEC §5.1 'no result'): Assert/Emit/ExternalCall/
   --   Schedule are genuinely void; their `Instruction.result` MUST be `none`.
   --   A spurious `result := some _` on any of these is an invalid Core trap
-  --   → `.badCfg`. No declaration-table join (event/error/effectId range or
-  --   argument typing) is performed here — those are later slices.
-  | .stateStore _ _ | .assert_ _ _ _ | .emit _ _ _
-  | .externalCall _ _ _ | .schedule _ _ _ =>
+  --   → `.badCfg`. No error/event/effectId declaration-table join or argument
+  --   typing is performed here — those are later slices.
+  | .assert_ _ _ _ | .emit _ _ _ | .externalCall _ _ _ | .schedule _ _ _ =>
       match instr.result with
       | some _ => err .badCfg
       | none => pure ()
@@ -2857,10 +2872,11 @@ private def validateCallableCfgShape (c : CallableV1)
   --   contract. `Op.FieldSet` carries the full §5.1 contract (base Struct,
   --   fieldIndex in range, type(value) == field.typeId, result.typeId ==
   --   type(base)). `Op.VariantTag` carries the full §5.1 contract (base
-  --   Enum/Option, result.typeId == unique UInt32 TypeId). Void ops
-  --   (StateStore/Assert/Emit/ExternalCall/Schedule) MUST carry
-  --   `result := none`; a spurious result is `.badCfg`. VariantPayload,
-  --   IndexSet, and CheckedCast have exact static contracts; ContextRead and
+  --   Enum/Option, result.typeId == unique UInt32 TypeId). `Op.StateStore`
+  --   resolves stateId, checks value type, and requires no result. The other
+  --   void ops (Assert/Emit/ExternalCall/Schedule) also require no result;
+  --   a spurious result is `.badCfg`. VariantPayload, IndexSet, and
+  --   CheckedCast have exact static contracts; ContextRead and
   --   Commit must each carry `result := some _` presence-only and retain
   --   deferred exact contracts. All failures → `.badCfg`. Reuses `defTypes`
   --   from step h.
@@ -3342,8 +3358,9 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
       result.typeId == unique UInt32 TypeId; Op.VariantPayload static
       Enum/Option index/result contract; Op.IndexSet exact Array/Bytes/Map
       operand/result contract; Op.CheckedCast exact UInt/Int source/
-      destination/result contract; presence-only result for ContextRead/Commit;
-      void-op result-presence for StateStore/Assert/Emit/ExternalCall/Schedule)
+      destination/result contract; Op.StateStore exact state lookup/value type/
+      void-result contract; presence-only result for ContextRead/Commit;
+      void-op result-presence for Assert/Emit/ExternalCall/Schedule)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies

@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.StateStore declaration/type contract (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.StateStore` static §5.1 gate，不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。`testCfgStateStoreTyping` 驱动真实 structure+encode 双路径：P1 UInt8 exact/P2 Bool exact/P3 second-state selection 正向；N1 missing stateId、N2 wrong value type、N3 wrong selected-state type 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败。既有 `testCfgVoidOpResultPresence` 与 result-presence regression 的 StateStore fixtures 从错误 UInt32 value 改为与 UInt8 state 精确匹配，使其继续隔离 `result := none`/spurious-result 行为。
+- Production：`stateId` 必须在 `logicalState` 中存在，value operand TypeId 必须精确等于 selected `StateDeclV1.typeId`，且 `Instruction.result` 必须为 none；missing state、wrong value type、spurious result 均 `.badCfg`。Assert/Emit/ExternalCall/Schedule declaration joins 仍保持后续切片。
+- Verification：三路只读 review 一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 Assert/Term.Revert error join、Emit event join、ExternalCall/Schedule args/effectId、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 Op.CheckedCast static exact contract (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.CheckedCast` static §5.1 gate，不接线产品、不改 wire/codec/schema。

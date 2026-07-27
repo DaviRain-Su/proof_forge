@@ -11,8 +11,9 @@
   def-site TypeId range, block/terminator typing, and step-j per-op contracts
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
-  result.typeId == toType); only ContextRead/Commit remain presence-only.
-  Formal TST-SEM-001 corpus remains pending.
+  result.typeId == toType) and StateStore state lookup/value type/void-result
+  contract; only ContextRead/Commit remain presence-only. Formal TST-SEM-001
+  corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.WireV1
@@ -2304,12 +2305,11 @@ private def testCfgOpTyping : IO Unit := do
 
     The five genuinely-void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/
     `Schedule`) MUST carry `result := none`; a spurious `result := some _` is
-    an invalid Core trap → `.badCfg`. The remaining side-effecting ops
-    (`FieldSet`/`VariantTag`/`VariantPayload`/`IndexSet`/`CheckedCast`/
-    `ContextRead`/`Commit`) DO produce results and stay out of scope this
-    slice. No event/error/effectId range checks or argument typing are
-    exercised — the void-op result-presence check fires before any
-    declaration-table join. Uses the same 8-type `cfgOpTypes` fixture. -/
+    an invalid Core trap → `.badCfg`. This suite isolates result presence;
+    its StateStore fixtures also satisfy the later exact state lookup/value
+    type contract. Event/error/effectId joins and argument typing remain out
+    of scope here, and spurious results fail before those deferred joins.
+    Uses the same 8-type `cfgOpTypes` fixture. -/
 
 -- A qualified name with ≥2 components for externalCall/schedule callees.
 private def cfgCalleeName : IO QualifiedName := do
@@ -2327,13 +2327,13 @@ private def cfgSpuriousVoidResult (valueId : ValueIdV1) : ValueDefV1 :=
 private def testCfgVoidOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
   -- POSITIVES (result := none on the void op; expectCfgOk).
-  -- P1: StateStore — ValueId 0 (UInt32 lit) defined and used by stateStore;
+  -- P1: StateStore — ValueId 0 (UInt8 lit) exactly matches state type;
   --   state row present (stateId 0). result none, return none.
   let p1 ← programWithState "VoidP1StateStore" cfgOpTypes #[]
     #[stateRow 0 "s" 1]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
              cfgInstr none (.stateStore 0 0) ]
           (.return_ none)
       ] 0]
@@ -2383,7 +2383,7 @@ private def testCfgVoidOpResultPresence : IO Unit := do
     #[stateRow 0 "s" 1]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
              cfgInstr (some (cfgSpuriousVoidResult 5)) (.stateStore 0 0) ]
           (.return_ none)
       ] 0]
@@ -2823,7 +2823,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
     #[stateRow 0 "s" 1]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
              cfgInstr none (.stateStore 0 0) ]
           (.return_ none)
       ] 0]
@@ -3448,6 +3448,66 @@ private def testCfgCheckedCastTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N6 checkedCast missing destination type" n6
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.StateStore` exact declaration/type contract.
+    stateId must resolve, type(value) must equal the selected state.typeId, and
+    the instruction remains void (`result := none`). These fixtures drive the
+    real structure+encode gate; spurious-result coverage remains in
+    `testCfgVoidOpResultPresence`. -/
+private def testCfgStateStoreTyping : IO Unit := do
+  -- P1: UInt8 value exactly matches UInt8 state.
+  let p1 ← programWithState "StoreP1UInt8" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr none (.stateStore 0 1)]
+          (.return_ none)] 0]
+  expectCfgOk "P1 stateStore UInt8 exact" p1
+  -- P2: Bool value exactly matches Bool state.
+  let p2 ← programWithState "StoreP2Bool" cfgOpTypes #[]
+    #[stateRow 0 "flag" 0]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+            cfgInstr none (.stateStore 0 1)]
+          (.return_ none)] 0]
+  expectCfgOk "P2 stateStore Bool exact" p2
+  -- P3: stateId selects the second declaration, whose type is UInt32.
+  let p3 ← programWithState "StoreP3SelectedState" cfgOpTypes #[]
+    #[stateRow 0 "flag" 0, stateRow 1 "count" 2]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+            cfgInstr none (.stateStore 1 1)]
+          (.return_ none)] 0]
+  expectCfgOk "P3 stateStore selected declaration" p3
+  -- N1: stateId does not resolve in an empty logicalState table.
+  let n1 ← programWithTypes "StoreN1MissingState" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr none (.stateStore 0 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N1 stateStore missing state" n1
+  -- N2: Bool value does not match the selected UInt8 state.
+  let n2 ← programWithState "StoreN2WrongValue" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+            cfgInstr none (.stateStore 0 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N2 stateStore wrong value type" n2
+  -- N3: lookup must use the selected stateId rather than another row's type.
+  let n3 ← programWithState "StoreN3WrongSelectedState" cfgOpTypes #[]
+    #[stateRow 0 "flag" 0, stateRow 1 "count" 2]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+            cfgInstr none (.stateStore 1 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N3 stateStore selected type mismatch" n3
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3483,6 +3543,7 @@ def run : IO Unit := do
   testCfgVariantPayloadTyping
   testCfgIndexSetTyping
   testCfgCheckedCastTyping
+  testCfgStateStoreTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
