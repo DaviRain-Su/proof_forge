@@ -71,12 +71,13 @@ import ProofForgeV2.Core.Unicode
     jump/branch/switch target arg arity == target block params, loopBounds
     back-edge coverage, ValueId SSA definition-table / exactly-once /
     use-existence, dominance-of-use, def-site TypeId range, terminator
-    typing, and the per-op §5.1 type/result contract for value-producing ops
-    are now covered; revert/emit/externalCall/schedule argument typing,
-    void-op result-presence, contextRead/commit/checkedCast/variantTag/
-    variantPayload typing, TypeKey anonymous ranking, provenance inventory
-    join, ProgramV1 normalizer, and product wire remain out of scope pending
-    later slices.)
+    typing, the per-op §5.1 type/result contract for value-producing ops,
+    and void-op result-presence for StateStore/Assert/Emit/ExternalCall/
+    Schedule are now covered; revert/emit/externalCall/schedule argument
+    typing, FieldSet/VariantTag/VariantPayload/IndexSet/CheckedCast/
+    ContextRead/Commit result-typing, TypeKey anonymous ranking, provenance
+    inventory join, ProgramV1 normalizer, and product wire remain out of
+    scope pending later slices.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -2257,14 +2258,14 @@ def checkTerminatorTyping (c : CallableV1)
     Step j: every value-producing op (literal/constant/stateLoad/construct/
     fieldGet/indexGet/unary/binary/pureCall) must produce a result whose
     declared TypeId matches the op's type contract, and any ValueId operand
-    types must match the declared operand contract. Void/side-effecting ops
-    with `result := none` are skipped this slice (a void op carrying a
-    spurious `result := some _` is out of scope for the void-op contract
-    slice). All step j failures → `.badCfg`. Bounded, non-recursive, total.
-    Out of scope: stateStore/fieldSet/indexSet/variantTag/variantPayload/
-    checkedCast/contextRead/commit/assert_/emit/externalCall/schedule typing,
-    TypeKey anonymous ranking/interning, provenance join, normalizer, product
-    wire. -/
+    types must match the declared operand contract. The five void ops
+    (StateStore/Assert/Emit/ExternalCall/Schedule) MUST carry `result := none`;
+    a spurious result is an invalid Core trap → `.badCfg`. All step j
+    failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
+    revert/emit/externalCall/schedule argument typing, FieldSet/VariantTag/
+    VariantPayload/IndexSet/CheckedCast/ContextRead/Commit result-typing,
+    TypeKey anonymous ranking/interning, provenance join, normalizer,
+    product wire. -/
 
 /-- First TypeId whose shape is `.uint 32`, if any. Bounded, non-recursive.
     Parallel to `boolTypeId`. -/
@@ -2332,8 +2333,13 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
 /-- Step j: per-op type/result contract for one instruction. `defTypes` is the
     ValueId→TypeId def-site table (exactly-once by step f). `data` provides
     declaration tables for constant/stateLoad/construct/pureCall resolution.
-    Void ops (`result := none`) are skipped. All failures → `.badCfg`.
-    Bounded, non-recursive (serializableType is fuel-bounded). -/
+    Void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/`Schedule`) MUST
+    carry `result := none`; a spurious result is an invalid Core trap →
+    `.badCfg`. The remaining side-effecting-but-result-producing ops
+    (`FieldSet`/`VariantTag`/`VariantPayload`/`IndexSet`/`CheckedCast`/
+    `ContextRead`/`Commit`) are skipped this slice (result-typing deferred).
+    All failures → `.badCfg`. Bounded, non-recursive (serializableType is
+    fuel-bounded). -/
 def checkOpTyping (instr : InstructionV1)
     (defTypes : Array (ValueIdV1 × TypeIdV1)) (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -2591,15 +2597,23 @@ def checkOpTyping (instr : InstructionV1)
         let expected := callee.params.map (·.typeId)
         checkArgTypes args expected
         requireResult callee.result.typeId
-  -- Void / side-effecting ops not in this slice's value-producing contract:
-  --   stateStore/fieldSet/indexSet/variantTag/variantPayload/checkedCast/
-  --   contextRead/commit/assert_/emit/externalCall/schedule. A void op with
-  --   `result := none` is skipped; a spurious `result := some _` on a void
-  --   op is out of scope for the void-op contract slice.
-  | .stateStore _ _ | .fieldSet _ _ _ | .indexSet _ _ _
+  -- Void ops (SPEC §5.1 'no result'): StateStore/Assert/Emit/ExternalCall/
+  --   Schedule are genuinely void; their `Instruction.result` MUST be `none`.
+  --   A spurious `result := some _` on any of these is an invalid Core trap
+  --   → `.badCfg`. No declaration-table join (event/error/effectId range or
+  --   argument typing) is performed here — those are later slices.
+  | .stateStore _ _ | .assert_ _ _ _ | .emit _ _ _
+  | .externalCall _ _ _ | .schedule _ _ _ =>
+      match instr.result with
+      | some _ => err .badCfg
+      | none => pure ()
+  -- Remaining side-effecting-but-result-producing ops (FieldSet/VariantTag/
+  --   VariantPayload/IndexSet/CheckedCast/ContextRead/Commit) DO produce a
+  --   result per SPEC §5.1, but their result-type contracts belong to a
+  --   later step-j extension; result-typing is skipped this slice.
+  | .fieldSet _ _ _ | .indexSet _ _ _
   | .variantTag _ | .variantPayload _ _ _ | .checkedCast _ _
-  | .contextRead _ | .commit _ | .assert_ _ _ _ | .emit _ _ _
-  | .externalCall _ _ _ | .schedule _ _ _ => pure ()
+  | .contextRead _ | .commit _ => pure ()
 
 /-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
     + dominance-of-use + def-site TypeId range + terminator typing + per-op
@@ -2673,8 +2687,11 @@ private def validateCallableCfgShape (c : CallableV1)
   --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
   --   indexGet/unary/binary/pureCall) must produce a result whose declared
   --   TypeId matches the op's type contract, and ValueId operand types must
-  --   match the declared operand contract. Void ops with `result := none`
-  --   are skipped. All failures → `.badCfg`. Reuses `defTypes` from step h.
+  --   match the declared operand contract. Void ops (StateStore/Assert/Emit/
+  --   ExternalCall/Schedule) MUST carry `result := none`; a spurious result
+  --   is an invalid Core trap → `.badCfg`. FieldSet/VariantTag/VariantPayload/
+  --   IndexSet/CheckedCast/ContextRead/Commit result-typing remains out of
+  --   scope. All failures → `.badCfg`. Reuses `defTypes` from step h.
   for b in c.blocks do
     for instr in b.instructions do
       checkOpTyping instr defTypes data
@@ -3147,15 +3164,17 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
       return (some v) == result type)
     + per-op type/result contract (§5.1: literal/constant/stateLoad/
       construct/fieldGet/indexGet/unary/binary/pureCall result types and
-      operand types)
+      operand types; void-op result-presence for StateStore/Assert/Emit/
+      ExternalCall/Schedule)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
-    type/result contract — NOT revert/emit/externalCall/schedule argument
-    typing, void-op result-presence, TypeKey anonymous ranking/interning,
-    provenance inventory join, or ProgramV1 normalizer. -/
+    type/result contract (incl. void-op result-presence) — NOT revert/emit/
+    externalCall/schedule argument typing, FieldSet/VariantTag/VariantPayload/
+    IndexSet/CheckedCast/ContextRead/Commit result-typing, TypeKey anonymous
+    ranking/interning, provenance inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index

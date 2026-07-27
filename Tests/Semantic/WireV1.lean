@@ -2296,6 +2296,133 @@ private def testCfgOpTyping : IO Unit := do
       cfgPureFn1 ]
   expectCfgErr "N12 pureCall arg type mismatch" n12
 
+/-! ### step j extension: void-op result-presence (SPEC-SEM-WIRE-001 §5.1)
+
+    The five genuinely-void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/
+    `Schedule`) MUST carry `result := none`; a spurious `result := some _` is
+    an invalid Core trap → `.badCfg`. The remaining side-effecting ops
+    (`FieldSet`/`VariantTag`/`VariantPayload`/`IndexSet`/`CheckedCast`/
+    `ContextRead`/`Commit`) DO produce results and stay out of scope this
+    slice. No event/error/effectId range checks or argument typing are
+    exercised — the void-op result-presence check fires before any
+    declaration-table join. Uses the same 8-type `cfgOpTypes` fixture. -/
+
+-- A qualified name with ≥2 components for externalCall/schedule callees.
+private def cfgCalleeName : IO QualifiedName := do
+  match parseQualifiedName #["mod", "callee"] with
+  | .ok n => pure n
+  | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+
+-- A fresh spurious-result ValueDef at `valueId` with typeId 1 (UInt8, in
+-- `cfgOpTypes` range) — registered as a def site by `collectValueTypeDefs`
+-- (step h range ok), not used anywhere (use-existence only requires
+-- uses→defs), so the ONLY step-j failure is the void-op result-presence.
+private def cfgSpuriousVoidResult (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 1 }
+
+private def testCfgVoidOpResultPresence : IO Unit := do
+  let calleeName ← cfgCalleeName
+  -- POSITIVES (result := none on the void op; expectCfgOk).
+  -- P1: StateStore — ValueId 0 (UInt32 lit) defined and used by stateStore;
+  --   state row present (stateId 0). result none, return none.
+  let p1 ← programWithState "VoidP1StateStore" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+             cfgInstr none (.stateStore 0 0) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P1 stateStore result none" p1
+  -- P2: Assert — condition ValueId 0 (Bool lit), assert_ 0 none #[] result none.
+  let p2 ← programWithTypes "VoidP2Assert" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.assert_ 0 none #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P2 assert result none" p2
+  -- P3: Emit — emit 0 0 #[] result none (empty args, no operand uses).
+  let p3 ← programWithTypes "VoidP3Emit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.emit 0 0 #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P3 emit result none" p3
+  -- P4: ExternalCall — externalCall 0 calleeName #[] result none.
+  let p4 ← programWithTypes "VoidP4ExternalCall" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.externalCall 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P4 externalCall result none" p4
+  -- P5: Schedule — schedule 0 calleeName #[] result none.
+  let p5 ← programWithTypes "VoidP5Schedule" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr none (.schedule 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P5 schedule result none" p5
+  -- NEGATIVES (spurious result := some _ on the void op; expectCfgErr .badCfg,
+  --   dual path structure+encode). The spurious result ValueDef uses a fresh
+  --   ValueId 5 (not used elsewhere) with typeId 1 (UInt8, in range) so
+  --   steps a–i all pass and ONLY step j void-op result-presence fails.
+  -- N1: StateStore with spurious result some.
+  let n1 ← programWithState "VoidN1StateStore" cfgOpTypes #[]
+    #[stateRow 0 "s" 1]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUInt32ValueDef 0)) (cfgUInt32Lit 7),
+             cfgInstr (some (cfgSpuriousVoidResult 5)) (.stateStore 0 0) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N1 stateStore spurious result" n1
+  -- N2: Assert with spurious result some.
+  let n2 ← programWithTypes "VoidN2Assert" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr (some (cfgSpuriousVoidResult 5)) (.assert_ 0 none #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N2 assert spurious result" n2
+  -- N3: Emit with spurious result some.
+  let n3 ← programWithTypes "VoidN3Emit" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr (some (cfgSpuriousVoidResult 5)) (.emit 0 0 #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N3 emit spurious result" n3
+  -- N4: ExternalCall with spurious result some.
+  let n4 ← programWithTypes "VoidN4ExternalCall" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr (some (cfgSpuriousVoidResult 5))
+               (.externalCall 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N4 externalCall spurious result" n4
+  -- N5: Schedule with spurious result some.
+  let n5 ← programWithTypes "VoidN5Schedule" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+             cfgInstr (some (cfgSpuriousVoidResult 5))
+               (.schedule 0 calleeName #[]) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N5 schedule spurious result" n5
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -2324,6 +2451,7 @@ def run : IO Unit := do
   testCfgDominanceOfUse
   testCfgBlockParamTypeAndTerminatorTyping
   testCfgOpTyping
+  testCfgVoidOpResultPresence
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
