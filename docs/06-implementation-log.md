@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.IndexSet static exact contract (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.IndexSet` static §5.1 gate，不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。`testCfgIndexSetTyping` 驱动真实 structure+encode 双路径：P1 Array/P2 Bytes/P3 Map 正向；N1 primitive base、N2 Array wrong index、N3 Array wrong value、N4 Bytes wrong index、N5 Bytes wrong value、N6 Map wrong key、N7 Map wrong value、N8 wrong result 负向；review 后新增 N9 duplicate UInt8 closure，旧 first-match helper 下同样 RED。实现前 harness 在 N1 以 expected `.badCfg` 失败。既有 `PresP13IndexSet`/`PresN13IndexSet` 改为合法 Map<U8,U8> base，使 presence 回归隔离 missing result。
+- Production：Array/Bytes index 必须解析到 UInt32；Array value 精确等于 element，Bytes value 精确等于 UInt8；Map index/value 精确等于 key/value TypeId；三类 result.typeId 均等于 type(base)。`uint8TypeId` 与 UInt32 helper 一样 uniqueness-gated，重复匿名 UInt8 fail closed（并一致收紧 Bytes IndexGet）。其他 base 或 mismatch 均 `.badCfg`。runtime Array/Bytes bounds 本切片不检查，D2-07 尚未实现且届时必须 revert/trap 按规格区分。
+- Verification：只读 review 与修复后，`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：CheckedCast/ContextRead/Commit exact typing、runtime bounds、declaration joins、TypeKey、provenance、normalizer、product wiring和formal completion均不在本切片。
+
 ## 2026-07-27 — D2-06 Op.VariantPayload static exact contract (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `ProofForgeV2/Semantic/WireV1.lean` `checkOpTyping` 的 `Op.VariantPayload` static §5.1 gate，不接线 Typed/CheckV1/compile/CLI，不删 alpha SemanticIR，不改 wire/codec/schema。

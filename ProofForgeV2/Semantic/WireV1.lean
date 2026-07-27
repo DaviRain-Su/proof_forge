@@ -77,11 +77,12 @@ import ProofForgeV2.Core.Unicode
     contract — base Struct, fieldIndex in range, type(value) == field.typeId,
     result.typeId == type(base), the full Op.VariantTag contract — base
     Enum/Option, result.typeId == unique UInt32 TypeId — and the static
-    Op.VariantPayload Enum/Option index/result contract), presence-only result
-    for IndexSet/CheckedCast/ContextRead/Commit, and void-op result-presence
-    for StateStore/Assert/Emit/ExternalCall/Schedule are now covered;
+    Op.VariantPayload Enum/Option index/result contract, and Op.IndexSet
+    Array/Bytes/Map operand/result contract), presence-only result for
+    CheckedCast/ContextRead/Commit, and void-op result-presence for
+    StateStore/Assert/Emit/ExternalCall/Schedule are now covered;
     revert/emit/externalCall/schedule argument typing, exact result-typing for
-    the four presence-only families, TypeKey anonymous
+    the three presence-only families, TypeKey anonymous
     ranking, provenance inventory join, ProgramV1 normalizer, and product
     wire remain out of scope pending later slices.)
 -/
@@ -2263,28 +2264,30 @@ def checkTerminatorTyping (c : CallableV1)
 
     Step j: every value-producing op MUST carry `result := some _`
     (SPEC §4.3). The typed families (literal/constant/stateLoad/construct/
-    fieldGet/indexGet/unary/binary/pureCall/fieldSet/variantTag) must
-    additionally have a result TypeId matching the op's exact type contract,
+    fieldGet/indexGet/unary/binary/pureCall/fieldSet/variantTag/
+    variantPayload/indexSet) must additionally have a result TypeId matching
+    the op's exact type contract,
     with ValueId operand types matching the declared operand contract.
     `Op.FieldSet` carries the full §5.1 contract (base resolves to Struct,
     fieldIndex in range, type(value) == selected field.typeId,
     result.typeId == type(base)). `Op.VariantTag` carries the full §5.1
     contract (base resolves to Enum or Option, result.typeId == the unique
     structurally interned UInt32 TypeId) plus the static VariantPayload
-    Enum/Option index/result contract. The four deferred families
-    (IndexSet/CheckedCast/ContextRead/Commit) carry presence-only result;
-    their exact result-type contracts are deferred. The five void ops
+    Enum/Option index/result contract plus the exact static IndexSet
+    Array/Bytes/Map operand/result contract. The three deferred families
+    (CheckedCast/ContextRead/Commit) carry presence-only result; their exact
+    result-type contracts are deferred. The five void ops
     (StateStore/Assert/Emit/ExternalCall/Schedule)
     MUST carry `result := none`; a spurious result or a missing result on a
     value-producing op is an invalid Core trap → `.badCfg`.
     All step j failures → `.badCfg`. Bounded, non-recursive, total. Out of
-    scope: revert/emit/externalCall/schedule argument typing, the exact
-    result-typing for the five presence-only families, TypeKey anonymous
+    scope: revert/emit/externalCall/schedule argument typing, exact typing for
+    CheckedCast/ContextRead/Commit, TypeKey anonymous
     ranking/interning, provenance join, normalizer, product wire. -/
 
 /-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
-    Bounded, non-recursive. Unlike the first-match `boolTypeId`/`uint8TypeId`
-    helpers, this resolver enforces uniqueness: it returns `some` only when
+    Bounded, non-recursive. Like `uint8TypeId` (and unlike first-match
+    `boolTypeId`), this resolver returns `some` only when
     exactly one `.uint 32` declaration is present, and `none` otherwise
     (zero or duplicate). SPEC-SEM-WIRE-001 §5.1 `Op.VariantTag` resolves the
     unique structurally interned UInt32 TypeId; in the absence of TypeKey
@@ -2306,18 +2309,23 @@ def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
     i := i + 1
   if dup then pure none else pure r
 
-/-- First TypeId whose shape is `.uint 8`, if any. Bounded, non-recursive.
-    Parallel to `boolTypeId`. -/
+/-- The unique TypeId whose shape is `.uint 8`, if exactly one exists.
+    Bounded and non-recursive. Bytes IndexGet/IndexSet require the unique
+    structurally interned UInt8 TypeId; while TypeKey interning is pending,
+    duplicate anonymous UInt8 declarations fail closed as `none`. -/
 def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
   let mut r : Option TypeIdV1 := none
+  let mut dup : Bool := false
   let mut i : Nat := 0
   for t in types do
-    if r.isNone then
-      match t.shape with
-      | .uint 8 => r := some (UInt32.ofNat i)
-      | _ => pure ()
+    match t.shape with
+    | .uint 8 =>
+        match r with
+        | none => r := some (UInt32.ofNat i)
+        | some _ => dup := true
+    | _ => pure ()
     i := i + 1
-  pure r
+  if dup then pure none else pure r
 
 /-- First TypeId whose shape is `.option element` with the given element
     TypeId, if any. Bounded, non-recursive. Used by `indexGet` on Map to
@@ -2417,11 +2425,11 @@ def checkOpTyping (instr : InstructionV1)
     match resultTypeId with
     | some rT => unless rT == tid do err .badCfg
     | none => err .badCfg
-  -- Helper: require result present for the four value-producing families
+  -- Helper: require result present for the three value-producing families
   --   whose exact input/result typing is deferred to later step-j extensions
-  --   (IndexSet/CheckedCast/ContextRead/Commit). SPEC §4.3/§5.1 mandates a
-  --   result; a missing result is `.badCfg`. FieldSet, VariantTag, and
-  --   VariantPayload have their own exact static contracts below.
+  --   (CheckedCast/ContextRead/Commit). SPEC §4.3/§5.1 mandates a result; a
+  --   missing result is `.badCfg`. FieldSet, VariantTag, VariantPayload, and
+  --   IndexSet have their own exact static contracts below.
   let requireResultPresent : Except SemanticWireErrorV1 Unit :=
     match instr.result with
     | some _ => pure ()
@@ -2720,13 +2728,39 @@ def checkOpTyping (instr : InstructionV1)
             return ← err .badCfg
           requireResult element
       | _ => err .badCfg
-  -- Remaining side-effecting-but-result-producing ops (IndexSet/CheckedCast/
-  --   ContextRead/Commit) DO produce a result per SPEC §4.3/§5.1 and MUST
-  --   carry `Instruction.result = some _` (presence-only; `.badCfg` if
-  --   missing). Their exact result-type contracts belong to later step-j
-  --   extensions and are NOT checked here.
-  | .indexSet _ _ _ | .checkedCast _ _
-  | .contextRead _ | .commit _ => requireResultPresent
+  -- Op.IndexSet (SPEC-SEM-WIRE-001 §5.1): Array/Bytes indices must be the
+  --   unique UInt32 TypeId; Array values match element, Bytes values match
+  --   UInt8; Map key/value operands match the declared key/value TypeIds.
+  --   Every valid IndexSet returns type(base). Runtime bounds are not checked
+  --   here and must be handled by D2-07. Any static mismatch → `.badCfg`.
+  | .indexSet base index value =>
+      let baseT ← requireOperandType base
+      let indexT ← requireOperandType index
+      let valueT ← requireOperandType value
+      match shapeOf baseT with
+      | some (.array element _) =>
+          match uint32TypeId types with
+          | none => err .badCfg
+          | some u32 =>
+              unless indexT == u32 && valueT == element do
+                return ← err .badCfg
+              requireResult baseT
+      | some (.bytes _) =>
+          match uint32TypeId types, uint8TypeId types with
+          | some u32, some u8 =>
+              unless indexT == u32 && valueT == u8 do
+                return ← err .badCfg
+              requireResult baseT
+          | _, _ => err .badCfg
+      | some (.map key mapValue) =>
+          unless indexT == key && valueT == mapValue do
+            return ← err .badCfg
+          requireResult baseT
+      | _ => err .badCfg
+  -- Remaining result-producing ops (CheckedCast/ContextRead/Commit) carry
+  --   `Instruction.result = some _` presence-only. Their exact contracts are
+  --   deferred to later step-j extensions.
+  | .checkedCast _ _ | .contextRead _ | .commit _ => requireResultPresent
 
 /-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
     + dominance-of-use + def-site TypeId range + terminator typing + per-op
@@ -2806,10 +2840,10 @@ private def validateCallableCfgShape (c : CallableV1)
   --   type(base)). `Op.VariantTag` carries the full §5.1 contract (base
   --   Enum/Option, result.typeId == unique UInt32 TypeId). Void ops
   --   (StateStore/Assert/Emit/ExternalCall/Schedule) MUST carry
-  --   `result := none`; a spurious result is `.badCfg`. VariantPayload has
-  --   its static Enum/Option index/result contract; the four families
-  --   IndexSet/CheckedCast/ContextRead/Commit must each carry `result :=
-  --   some _` presence-only and retain deferred exact typing. All failures →
+  --   `result := none`; a spurious result is `.badCfg`. VariantPayload and
+  --   IndexSet have exact static contracts; CheckedCast/ContextRead/Commit
+  --   must each carry `result := some _` presence-only and retain deferred
+  --   exact typing. All failures →
   --   `.badCfg`. Reuses `defTypes`
   --   from step h.
   for b in c.blocks do
@@ -3288,8 +3322,9 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
       fieldIndex in range, type(value) == field.typeId, result.typeId ==
       type(base); Op.VariantTag full contract — base Enum/Option,
       result.typeId == unique UInt32 TypeId; Op.VariantPayload static
-      Enum/Option index/result contract; presence-only result for
-      IndexSet/CheckedCast/ContextRead/Commit; void-op result-presence for
+      Enum/Option index/result contract; Op.IndexSet exact Array/Bytes/Map
+      operand/result contract; presence-only result for CheckedCast/ContextRead/
+      Commit; void-op result-presence for
       StateStore/Assert/Emit/ExternalCall/Schedule)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
@@ -3298,8 +3333,8 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
     result-presence) — NOT revert/emit/externalCall/schedule argument typing,
-    IndexSet/CheckedCast/ContextRead/Commit exact result-typing, runtime Enum
-    tag agreement for VariantPayload, TypeKey anonymous ranking/interning, provenance
+    CheckedCast/ContextRead/Commit exact result-typing, runtime Array/Bytes
+    bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
     inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do

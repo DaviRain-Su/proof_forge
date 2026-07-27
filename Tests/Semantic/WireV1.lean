@@ -2592,13 +2592,17 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P12 variantPayload result present" p12
-  -- P13: IndexSet (deferred family) with result present.
+  -- P13: IndexSet result present with a valid Map<U8,U8> base and exact
+  --   key/value types, so the exact static contract also passes.
   let p13 ← programWithTypes "PresP13IndexSet" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.indexSet 1 1 2) ]
+          #[ cfgInstr (some { valueId := 1, typeId := 6 })
+               (.construct 6 0 #[]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 4, typeId := 6 })
+               (.indexSet 1 2 3) ]
           (.return_ none)
       ] 0]
   expectCfgOk "P13 indexSet result present" p13
@@ -2770,13 +2774,16 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgErr "N12 variantPayload result none" n12
-  -- N13: IndexSet with result none.
+  -- N13: valid Map<U8,U8> IndexSet with result none, so only the presence
+  --   requirement fails.
   let n13 ← programWithTypes "PresN13IndexSet" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr none (.indexSet 1 1 2) ]
+          #[ cfgInstr (some { valueId := 1, typeId := 6 })
+               (.construct 6 0 #[]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 2),
+             cfgInstr none (.indexSet 1 2 3) ]
           (.return_ none)
       ] 0]
   expectCfgErr "N13 indexSet result none" n13
@@ -3186,6 +3193,164 @@ private def testCfgVariantPayloadTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N7 variantPayload empty Enum variant" n7
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.IndexSet` static type/result contract for
+    Array, Bytes, and Map. Runtime index bounds remain an interpreter concern;
+    these fixtures drive the real structure+encode gate. -/
+private def testCfgIndexSetTyping : IO Unit := do
+  let indexSetTypes := cfgOpTypes.push
+    { id := 8, name := none, shape := .array 1 2 }
+  -- P1: Array<U8,2>, UInt32 index, UInt8 value, Array result.
+  let p1 ← programWithTypes "ISetP1Array" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+            cfgInstr (some { valueId := 1, typeId := 8 })
+              (.construct 8 0 #[10, 11]),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 8 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgOk "P1 indexSet Array" p1
+  -- P2: Bytes<4>, UInt32 index, UInt8 value, Bytes result.
+  let p2 ← programWithTypes "ISetP2Bytes" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 7 })
+              (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 7 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgOk "P2 indexSet Bytes" p2
+  -- P3: Map<U8,U8>, exact key/value, Map result.
+  let p3 ← programWithTypes "ISetP3Map" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 6 })
+              (.construct 6 0 #[]),
+            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 6 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgOk "P3 indexSet Map" p3
+  -- N1: primitive base is not index-settable.
+  let n1 ← programWithTypes "ISetN1Primitive" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgUint8ValueDef 4)) (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N1 indexSet primitive base" n1
+  -- N2: Array index must be UInt32, not Bool.
+  let n2 ← programWithTypes "ISetN2ArrayIndex" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+            cfgInstr (some { valueId := 1, typeId := 8 })
+              (.construct 8 0 #[10, 11]),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 8 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N2 indexSet Array wrong index" n2
+  -- N3: Array value must equal element type.
+  let n3 ← programWithTypes "ISetN3ArrayValue" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+            cfgInstr (some { valueId := 1, typeId := 8 })
+              (.construct 8 0 #[10, 11]),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some { valueId := 4, typeId := 8 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N3 indexSet Array wrong value" n3
+  -- N4: Bytes index must be UInt32.
+  let n4 ← programWithTypes "ISetN4BytesIndex" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 7 })
+              (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 7 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N4 indexSet Bytes wrong index" n4
+  -- N5: Bytes value must be UInt8.
+  let n5 ← programWithTypes "ISetN5BytesValue" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 7 })
+              (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some { valueId := 4, typeId := 7 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N5 indexSet Bytes wrong value" n5
+  -- N6: Map index must match key type.
+  let n6 ← programWithTypes "ISetN6MapKey" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 6 })
+              (.construct 6 0 #[]),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 6 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N6 indexSet Map wrong key" n6
+  -- N7: Map value must match value type.
+  let n7 ← programWithTypes "ISetN7MapValue" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 6 })
+              (.construct 6 0 #[]),
+            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some { valueId := 4, typeId := 6 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N7 indexSet Map wrong value" n7
+  -- N8: result type must equal base type.
+  let n8 ← programWithTypes "ISetN8WrongResult" indexSetTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 6 })
+              (.construct 6 0 #[]),
+            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgUint8ValueDef 4)) (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N8 indexSet wrong result type" n8
+  -- N9: duplicate anonymous UInt8 declarations make the canonical Bytes
+  --   value type ambiguous while all operands/results otherwise match the
+  --   first UInt8 row. The structure gate must fail closed.
+  let dupU8Types := cfgOpTypes.push
+    { id := 8, name := none, shape := .uint 8 }
+  let n9 ← programWithTypes "ISetN9DuplicateUInt8" dupU8Types #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 7 })
+              (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
+            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some { valueId := 4, typeId := 7 })
+              (.indexSet 1 2 3)]
+          (.return_ none)] 0]
+  expectCfgErr "N9 indexSet duplicate UInt8 closure type" n9
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3219,6 +3384,7 @@ def run : IO Unit := do
   testCfgFieldSetTyping
   testCfgVariantTagTyping
   testCfgVariantPayloadTyping
+  testCfgIndexSetTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
