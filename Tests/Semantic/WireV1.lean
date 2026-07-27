@@ -2,8 +2,9 @@
   Tests.Semantic.WireV1 — focused engineering suite for D2-06 wire skeleton.
 
   Pins schema/magic, empty/minimal root round-trip, hash identity, structure
-  gate (id/index, shallow refs, type-shape/FieldSpec/Map-key, canonical
-  valueBytes for Constant/Op.Literal/SwitchCase, requirements domain/order/
+  gate (program qualifiedName ≥2 components, id/index, shallow refs,
+  type-shape/FieldSpec/Map-key, canonical valueBytes for Constant/Op.Literal/
+  SwitchCase, requirements domain/order/
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
@@ -53,7 +54,7 @@ private def startsWithMagic (bytes : ByteArray) (magic : String) : Bool :=
   bytes.size ≥ want.size && bytes.extract 0 want.size == want
 
 private def emptyProgram (name : String) : IO SemanticProgramDataV1 := do
-  let qn ← match parseQualifiedName #[name] with
+  let qn ← match parseQualifiedName #["Tests", name] with
     | .ok n => pure n
     | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
   pure {
@@ -139,6 +140,77 @@ private def testEmptyProgramRoundtrip : IO Unit := do
       else
         mutated := mutated.push b
     expectErrAny "mutated after magic" (decodeSemanticProgramV1 mutated)
+
+/-- SPEC-SEM-WIRE-001 §6 program identity shape: a SemanticProgram root
+    qualifiedName is module identity plus declaration name, so it must contain
+    at least two components. Common QualifiedName itself permits one. -/
+private def testProgramQualifiedNameShape : IO Unit := do
+  let base ← emptyProgram "OnlyProgram"
+  let singleName ← match parseQualifiedName #["OnlyProgram"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let single := { base with qualifiedName := singleName }
+  expectErr "single-component program name structure" .badScalar
+    (validateSemanticProgramStructureV1 single)
+  expectErr "single-component program name encode" .badScalar
+    (encodeSemanticProgramDataV1 single)
+  -- Root shape has precedence over later structure and encoder size gates.
+  let badId : SemanticProgramDataV1 := {
+    single with types := #[{ id := 1, name := none, shape := .bool }]
+  }
+  expectErr "single program name before table id structure" .badScalar
+    (validateSemanticProgramStructureV1 badId)
+  expectErr "single program name before table id encode" .badScalar
+    (encodeSemanticProgramDataV1 badId)
+  let hugeTypes : Array TypeDeclV1 := Array.replicate (maxTableElements + 1)
+    { id := 0, name := none, shape := .bool }
+  let oversized : SemanticProgramDataV1 := { single with types := hugeTypes }
+  expectErr "single program name before table size structure" .badScalar
+    (validateSemanticProgramStructureV1 oversized)
+  expectErr "single program name before table size encode" .badScalar
+    (encodeSemanticProgramDataV1 oversized)
+  -- Transport remains scalar-only: hand-build valid wire bytes for the
+  -- common one-component QualifiedName, then ensure carrier decode rejects
+  -- only on its structure-gated re-encode path.
+  let qnB ← expectOk "single program qn wire" (encodeQualifiedName singleName)
+  let typesB ← expectOk "single program types wire" (encodeArray encodeTypeDeclV1 #[])
+  let constantsB ← expectOk "single program constants wire"
+    (encodeArray encodeConstantV1 #[])
+  let stateB ← expectOk "single program state wire" (encodeArray encodeStateDeclV1 #[])
+  let eventsB ← expectOk "single program events wire" (encodeArray encodeEventDeclV1 #[])
+  let errorsB ← expectOk "single program errors wire" (encodeArray encodeErrorDeclV1 #[])
+  let callablesB ← expectOk "single program callables wire"
+    (encodeArray encodeCallableV1 #[])
+  let invariantsB ← expectOk "single program invariants wire"
+    (encodeArray encodeInvariantDeclV1 #[])
+  let reqB ← expectOk "single program requirements wire"
+    (encodeProgramRequirementsV1 { items := #[] })
+  let body ← expectOk "single program body wire" (encodeTagged "SemanticProgram.Data"
+    #[qnB, typesB, constantsB, stateB, eventsB, errorsB, callablesB,
+      invariantsB, reqB])
+  let bytes := (semanticProgramMagicV1.toUTF8.push 0).append body
+  let transported ← expectOk "single-component program transport"
+    (decodeSemanticProgramDataV1 bytes)
+  expect (transported == single) "single-component transport preserves data"
+  expectErr "single-component program carrier" .badScalar
+    (decodeSemanticProgramV1 bytes)
+  let twoName ← match parseQualifiedName #["Example", "Program"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let two := { single with qualifiedName := twoName }
+  let _ ← expectOk "two-component program name structure"
+    (validateSemanticProgramStructureV1 two)
+  let _ ← expectOk "two-component program name encode"
+    (encodeSemanticProgramDataV1 two)
+  let threeName ← match parseQualifiedName #["Org", "Example", "Program"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let three := { single with qualifiedName := threeName }
+  let _ ← expectOk "three-component program name structure"
+    (validateSemanticProgramStructureV1 three)
+  let _ ← expectOk "three-component program name encode"
+    (encodeSemanticProgramDataV1 three)
+  pure ()
 
 private def testSemanticHash : IO Unit := do
   let data1 ← emptyProgram "EmptySem"
@@ -3913,6 +3985,7 @@ private def testCfgEffectIdOrder : IO Unit := do
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
+  testProgramQualifiedNameShape
   testSemanticHash
   testProvenanceEnvelope
   testProvenanceValidateAlwaysBad

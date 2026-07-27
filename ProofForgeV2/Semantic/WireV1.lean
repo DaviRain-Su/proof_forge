@@ -21,6 +21,7 @@ import ProofForgeV2.Core.Unicode
     Recursive **valueBytes** shapes (Array/Map/Option/Struct/Enum) also use
     fuel capped at `maxNesting` (fail closed with `.limitExceeded`).
   * Structural subset (SPEC §4.5 / §5 / §6 / §6.2 + CAP SupportPredicate rank):
+    - program root `qualifiedName` has at least two components (`.badScalar`)
     - table `decl.id == array index` (`.duplicate` on mismatch)
     - shallow declaration-record TypeId / CallableId range (`.badReference`)
     - type-shape / FieldSpec / Map-key (SPEC §5), after shallow refs:
@@ -3437,8 +3438,19 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     i := i + 1
   pure ()
 
-/-- Post-wire structural subset: table IDs, shallow declaration refs,
-    type-shape/FieldSpec/Map-key (SPEC §5), canonical valueBytes (Constant /
+/-- SemanticProgram root identity shape (SPEC §6). Common QualifiedName
+    intentionally permits one component, but a program root is module identity
+    plus declaration name and therefore requires at least two. This helper is
+    called before encoder size gates and again as structure step 0 so mixed-
+    invalid values have stable `.badScalar` precedence. -/
+private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
+    Except SemanticWireErrorV1 Unit := do
+  unless 2 ≤ name.components.toArray.size do return ← err .badScalar
+  pure ()
+
+/-- Post-wire structural subset: program root qualifiedName has at least two
+    components, table IDs, shallow declaration refs, type-shape/FieldSpec/
+    Map-key (SPEC §5), canonical valueBytes (Constant /
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
@@ -3475,6 +3487,9 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
+  -- 0) Program root identity shape; intentionally precedes every table/ref/
+  --   type/CFG/requirement gate.
+  validateProgramQualifiedNameShapeV1 data.qualifiedName
   -- 1) Table ID == array index
   checkTableIds (·.id) data.types
   checkTableIds (·.id) data.constants
@@ -3517,6 +3532,8 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
 
 def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 ByteArray := do
+  -- Root identity shape has stable precedence over even table-size failures.
+  validateProgramQualifiedNameShapeV1 p.qualifiedName
   checkTableSize p.types.size
   checkTableSize p.constants.size
   checkTableSize p.logicalState.size

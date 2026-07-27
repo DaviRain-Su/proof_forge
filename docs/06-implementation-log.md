@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 SemanticProgram root qualifiedName shape (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 program root qualifiedName 至少两个 components，不实现 source module/declaration identity join、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testProgramQualifiedNameShape`：双/三 component structure+encode 正向，单 component structure/encode `.badScalar` 负向，并手工构造合法 transport bytes 固定 `decodeSemanticProgramDataV1` 仍接受 common QualifiedName scalar、`decodeSemanticProgramV1` 在 structure-gated re-encode 路径拒绝。实现前真实 harness 在单 component structure 期望 `.badScalar` 处失败；既有合法 program fixture 统一迁为 `Tests.<name>` 双 component identity。首次只读 review 发现 encoder table-size 先于 structure gate 的 mixed-invalid precedence 缺口；补充单 component + bad table-id/oversized table 的 structure+encode 回归。
+- Production：抽取 `validateProgramQualifiedNameShapeV1`；`validateSemanticProgramStructureV1` 在 table/ref/type/CFG/requirements 前以 step 0 调用，`encodeSemanticProgramDataV1` 在所有 table-size gate 前调用，使短 root 对 mixed-invalid 稳定优先返回 `.badScalar`。common `QualifiedName` 与 transport decoder 仍允许单 component，严格 root shape 只属于 SemanticProgram structure/carrier gate。
+- Verification：首次三路只读 review 发现 encoder table-size precedence 与 mixed-invalid test gap，修复后复审三路一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：只检查 component count，不伪造 source module + declaration exact join；该 identity join 留给 ProgramV1 normalizer/provenance/product wiring。ExternalCall/Schedule args serializability、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 ExternalCall/Schedule qualified callee shape (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 effect callee 至少两个 qualified-name components，不实现 argument serializability/runtime external effect、不接线产品、不改 wire/codec/schema。
