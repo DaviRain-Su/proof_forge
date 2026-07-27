@@ -2344,6 +2344,13 @@ private def cfgCalleeName : IO QualifiedName := do
   | .ok n => pure n
   | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
 
+-- Common QualifiedName accepts one component; ExternalCall/Schedule impose a
+-- stricter SemanticProgramV1 structure rule requiring at least two.
+private def cfgSingleComponentCalleeName : IO QualifiedName := do
+  match parseQualifiedName #["callee"] with
+  | .ok n => pure n
+  | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+
 -- A fresh spurious-result ValueDef at `valueId` with typeId 1 (UInt8, in
 -- `cfgOpTypes` range) — registered as a def site by `collectValueTypeDefs`
 -- (step h range ok), not used anywhere (use-existence only requires
@@ -3788,6 +3795,46 @@ private def testCfgEmitTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N5 emit reversed positional args" n5
 
+/-- SPEC-SEM-WIRE-001 §6 ExternalCall/Schedule callee shape: unlike the
+    common QualifiedName carrier (which permits one component), effect callees
+    must contain at least two components. Args remain empty here so this suite
+    isolates the callee structure rule from the deferred serializability gate. -/
+private def testCfgExternalCalleeShape : IO Unit := do
+  let qualified ← cfgCalleeName
+  let single ← cfgSingleComponentCalleeName
+  -- P1/P2: both effect families accept a two-component callee.
+  let p1 ← programWithTypes "CalleeP1External" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 qualified #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P1 externalCall qualified callee" p1
+  let p2 ← programWithTypes "CalleeP2Schedule" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 qualified #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P2 schedule qualified callee" p2
+  -- P3: the lower bound is not an exact-two restriction.
+  let three ← match parseQualifiedName #["org", "mod", "callee"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let p3 ← programWithTypes "CalleeP3Three" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 three #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P3 externalCall three-component callee" p3
+  -- N1/N2: one component is valid for the common carrier but invalid for
+  -- ExternalCall/Schedule. expectCfgErr checks structure and encode paths.
+  let n1 ← programWithTypes "CalleeN1External" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 single #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N1 externalCall single-component callee" n1
+  let n2 ← programWithTypes "CalleeN2Schedule" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 single #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N2 schedule single-component callee" n2
+
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
     Emit/ExternalCall/Schedule instruction must carry the next contiguous
     EffectId in BlockId/instruction order, starting at zero. -/
@@ -3902,6 +3949,7 @@ def run : IO Unit := do
   testCfgAssertTyping
   testCfgRevertTyping
   testCfgEmitTyping
+  testCfgExternalCalleeShape
   testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 

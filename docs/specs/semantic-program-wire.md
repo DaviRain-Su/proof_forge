@@ -735,7 +735,7 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 | Commit | input serializable且 disclosure rule/requirement通过 | type(value) |
 | Assert | condition Bool；error/args按 ErrorDecl exact | no result |
 | Emit | args逐项匹配 EventDecl fields | no result |
-| ExternalCall/Schedule | args 全部 canonical serializable；callee nonempty | no result |
+| ExternalCall/Schedule | args 全部 canonical serializable；callee 至少两个 components | no result |
 
 表中 “declared resultType” 仍必须是 `Instruction.result` 的实际 TypeId；不存在由 host 推断的 hidden type。
 同一 program 内所有 `Op.ContextRead` 的相同 key 必须使用同一 result TypeId；不同 callable/branch 对

@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-27
+updated: 2026-07-28
 normative: false
 ---
 
@@ -11,6 +11,14 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-07-28 — D2-06 ExternalCall/Schedule qualified callee shape (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 effect callee 至少两个 qualified-name components，不实现 argument serializability/runtime external effect、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testCfgExternalCalleeShape`，驱动真实 structure+encode 双路径：P1 ExternalCall/P2 Schedule 双 component、P3 ExternalCall 三 component 正向；N1 ExternalCall/N2 Schedule 单 component 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败。
+- Production：`checkOpTyping` 在保留 `Instruction.result = none` 优先检查后，要求 ExternalCall/Schedule callee `components.size ≥ 2`；common `QualifiedName` 的单 component carrier 仍合法，但在 Semantic structure gate fail closed。SPEC §5.1 的 `callee nonempty` 同步精确化为至少两个 components。
+- Verification：三路只读 review 一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：args 保持 empty 以隔离 callee rule；“canonical serializable”允许 TypeShape 集合尚未逐项规范化，因此不复用 Eq/Ne 专用且排除 Array/Map/Option/Unit 的 `serializableType`。不实现 ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
 
 ## 2026-07-27 — D2-06 per-callable EffectId canonical assignment (CFG step e.5, structure-gate-only)
 

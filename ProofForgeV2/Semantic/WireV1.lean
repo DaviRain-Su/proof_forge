@@ -84,10 +84,10 @@ import ProofForgeV2.Core.Unicode
     type/void-result contract, and Op.Assert Bool/error/args/void-result
     contract), the Term.Revert ErrorDecl/args exact join, the Op.Emit EventDecl/
     args/void-result contract, presence-only result for ContextRead/Commit,
-    and void-op result-presence for ExternalCall/Schedule are now covered;
-    ExternalCall/Schedule callee/argument typing, exact contracts
-    for the two presence-only
-    families, TypeKey anonymous
+    and void-op result-presence plus the at-least-two-component callee shape
+    for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
+    serializability, exact contracts for the two presence-only families,
+    TypeKey anonymous
     ranking, provenance inventory join, ProgramV1 normalizer, and product
     wire remain out of scope pending later slices.)
 -/
@@ -2333,12 +2333,12 @@ def checkTerminatorTyping (c : CallableV1)
     condition plus an exact optional ErrorDecl/args join and carries no result.
     Emit resolves eventId, matches args positionally against EventDecl fields,
     and carries no result. The two deferred families (ContextRead/Commit) carry
-    presence-only result; their exact contracts are deferred. The other two
-    void ops (ExternalCall/Schedule) MUST carry `result := none`; a spurious
-    result or a missing result on a value-producing op is an invalid Core trap
-    → `.badCfg`. All step j failures → `.badCfg`. Bounded, non-recursive, total.
-    Out of scope: ExternalCall/Schedule callee/argument typing, effectId
-    numbering/uniqueness, exact typing for
+    presence-only result; their exact contracts are deferred. ExternalCall/
+    Schedule MUST carry `result := none` and a callee with at least two
+    qualified-name components; a spurious result, short callee, or missing
+    result on a value-producing op is an invalid Core trap → `.badCfg`. All
+    step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
+    ExternalCall/Schedule argument serializability, exact typing for
     ContextRead/Commit, TypeKey anonymous
     ranking/interning, provenance join, normalizer, product wire. -/
 
@@ -2433,7 +2433,9 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     `errorId = none` with empty args or an exact ErrorDecl/args join, and no
     result. `Op.Emit` resolves eventId, matches args exactly against EventDecl
     fields, and requires no result. The other void ops (`ExternalCall`/
-    `Schedule`) also require no result; a spurious result is `.badCfg`.
+    `Schedule`) also require no result and require a callee with at least two
+    qualified-name components; a spurious result or short callee is `.badCfg`.
+    Their argument serializability contract remains deferred.
     `Op.FieldSet` carries the full §5.1 contract (base must resolve to a Struct, fieldIndex in
     range, type(value) == selected field.typeId, result.typeId == type(base));
     a missing result or any mismatch is `.badCfg`. `Op.VariantTag` carries
@@ -2763,13 +2765,17 @@ def checkOpTyping (instr : InstructionV1)
           | none => err .badCfg
           | some eventDecl =>
               checkArgTypes args (eventDecl.fields.map (·.typeId))
-  -- Remaining void ops (SPEC §5.1 'no result'): ExternalCall/Schedule are
-  --   genuinely void; their `Instruction.result` MUST be `none`. A spurious
-  --   result is `.badCfg`. Callee/arg/effectId contracts are later slices.
-  | .externalCall _ _ _ | .schedule _ _ _ =>
+  -- Remaining void ops (SPEC §5.1/§6): ExternalCall/Schedule are genuinely
+  --   void, and their callee MUST contain at least two qualified-name
+  --   components. Result presence is checked before callee shape to preserve
+  --   the existing fail-closed order. Arg serializability is a later slice;
+  --   EffectId canonical assignment is owned by CFG step e.5.
+  | .externalCall _effectId callee _args | .schedule _effectId callee _args =>
       match instr.result with
       | some _ => err .badCfg
-      | none => pure ()
+      | none =>
+          unless 2 ≤ callee.components.toArray.size do return ← err .badCfg
+          pure ()
   -- Op.FieldSet (SPEC-SEM-WIRE-001 §5.1): base ValueId type MUST resolve to
   --   a Struct; fieldIndex MUST be in range; type(value) MUST exactly equal
   --   the selected field.typeId; `Instruction.result` MUST be present and
@@ -3455,14 +3461,15 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
       destination/result contract; Op.StateStore exact state lookup/value type/
       void-result contract; Op.Assert exact Bool/error/args/void-result contract;
       Op.Emit exact EventDecl/args/void-result contract; presence-only result
-      for ContextRead/Commit; void-op result-presence for ExternalCall/Schedule)
+      for ContextRead/Commit; ExternalCall/Schedule void-result plus
+      at-least-two-component callee shape)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT ExternalCall/Schedule callee/argument typing,
+    result-presence) — NOT ExternalCall/Schedule argument serializability,
     ContextRead/Commit exact contracts, runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
     inventory join, or ProgramV1 normalizer. -/
