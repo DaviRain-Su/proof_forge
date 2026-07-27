@@ -2549,12 +2549,20 @@ private def testCfgValueOpResultPresence : IO Unit := do
   -- P10: FieldSet (deferred family) with result present. base/value are
   --   defined UInt8 literals; result ValueId 3 typeId 1 (in range). Input
   --   typing is NOT checked this slice.
+  --   NOTE: FieldSet now carries the full §5.1 contract (base must be a
+  --   Struct, fieldIndex in range, type(value) == field.typeId, result.typeId
+  --   == type(base)). P10 here re-pins presence with a valid Struct base so
+  --   the full FieldSet typing test lives in testCfgFieldSetTyping.
   let p10 ← programWithTypes "PresP10FieldSet" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.fieldSet 1 0 2) ]
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.fieldSet 1 0 2) ]
           (.return_ none)
       ] 0]
   expectCfgOk "P10 fieldSet result present" p10
@@ -2713,12 +2721,18 @@ private def testCfgValueOpResultPresence : IO Unit := do
           ] 0,
       cfgPureFn1 ]
   expectCfgErr "N9 pureCall result none" n9
-  -- N10: FieldSet with result none (deferred family now enforced).
+  -- N10: FieldSet with result none (presence gate). Uses a valid Struct
+  --   base (ValueId 1, typeId 4) and a valid value (UInt8, field 0 type) so
+  --   steps a–i and the FieldSet typing preconditions all pass and ONLY the
+  --   missing result fails. Isolates the presence gate.
   let n10 ← programWithTypes "PresN10FieldSet" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
              cfgInstr none (.fieldSet 1 0 2) ]
           (.return_ none)
       ] 0]
@@ -2824,6 +2838,107 @@ private def testCfgValueOpResultPresence : IO Unit := do
       ] 0]
   expectCfgOk "Reg schedule result none still accepted" r5
 
+/-- testCfgFieldSetTyping: SPEC-SEM-WIRE-001 §5.1 Op.FieldSet exact contract.
+    base ValueId type MUST resolve to a Struct; fieldIndex MUST be in range;
+    type(value) MUST exactly equal fields[fieldIndex].typeId; `result` MUST be
+    present and result.typeId MUST exactly equal type(base) (the whole struct
+    type). All failures → `.badCfg` via structure+encode dual path. Each
+    negative isolates FieldSet typing: operands are otherwise valid SSA /
+    dominance definitions and earlier steps pass, so only step j FieldSet
+    typing fails. Uses cfgOpTypes (typeId 4 = Struct{a:UInt8, b:UInt8}). -/
+private def testCfgFieldSetTyping : IO Unit := do
+  -- POSITIVES
+  -- P1: FieldSet on first field (index 0). base is a constructed Struct
+  --   ValueId 1 (typeId 4); value ValueId 2 (UInt8); result ValueId 3
+  --   typeId 4 (== type(base)).
+  let p1 ← programWithTypes "FSetP1FirstField" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P1 fieldSet first field result==struct" p1
+  -- P2: FieldSet on a later field (index 1). value ValueId 2 (UInt8); result
+  --   ValueId 3 typeId 4 (== type(base)).
+  let p2 ← programWithTypes "FSetP2LaterField" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.fieldSet 1 1 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P2 fieldSet later field result==struct" p2
+  -- NEGATIVES (all .badCfg via structure+encode dual path; operands are
+  --   otherwise valid SSA/dominance definitions so each negative isolates
+  --   FieldSet typing).
+  -- N1: non-Struct base. base is a UInt8 literal (typeId 1), not a Struct.
+  let n1 ← programWithTypes "FSetN1NonStructBase" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 1 })
+               (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N1 fieldSet non-Struct base" n1
+  -- N2: out-of-range fieldIndex. base Struct has 2 fields (indices 0,1);
+  --   fieldIndex 2 is OOR. value is a valid UInt8; result typeId 4.
+  let n2 ← programWithTypes "FSetN2OORFieldIndex" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.fieldSet 1 2 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N2 fieldSet out-of-range fieldIndex" n2
+  -- N3: wrong value type. base Struct field 0 expects UInt8 (typeId 1) but
+  --   value is Bool (typeId 0). result typeId 4 (== type(base)).
+  let n3 ← programWithTypes "FSetN3WrongValueType" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+             cfgInstr (some { valueId := 3, typeId := 4 })
+               (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N3 fieldSet wrong value type" n3
+  -- N4: wrong result type. base Struct (typeId 4), field 0 expects UInt8,
+  --   value UInt8, but result.typeId is 1 (UInt8) instead of 4 (struct).
+  let n4 ← programWithTypes "FSetN4WrongResultType" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 4 })
+               (.construct 4 0 #[10, 11]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 1 })
+               (.fieldSet 1 0 2) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N4 fieldSet wrong result type" n4
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -2854,6 +2969,7 @@ def run : IO Unit := do
   testCfgOpTyping
   testCfgVoidOpResultPresence
   testCfgValueOpResultPresence
+  testCfgFieldSetTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
