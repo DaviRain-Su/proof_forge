@@ -1594,6 +1594,106 @@ private def testInvariantResultShape : IO Unit := do
   }
   expectCfgErr "N7 invariant signature before def-site TypeId" n7
 
+/-- SPEC-SEM-WIRE-001 §8 invariant root signature: invariant callables have
+    zero parameters. Declaration join, closure restrictions, and invariantSteps
+    remain separate slices. -/
+private def testInvariantParameterShape : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let param0 : ParameterV1 := {
+    valueId := 0, name := "x", typeId := 0, visibility := .public_
+  }
+  let p0 ← programWithTypes "InvParamP0PureFn" boolUnitTypes #[]
+    #[cfgCallableWithParams #[param0] #[cfgBlock 0 (.return_ none)]]
+  expectCfgOk "P0 pureFn may have params" p0
+  let initializerWithParam : CallableV1 := {
+    (cfgCallableKindName .initializer none 1) with params := #[param0]
+  }
+  let p1 ← programWithTypes "InvParamP1Initializer" boolUnitTypes #[]
+    #[initializerWithParam]
+  expectCfgOk "P1 initializer may have params" p1
+  let entryWithParam : CallableV1 := {
+    (cfgCallableKindName .entry (some "run")) with params := #[param0]
+  }
+  let p2 ← programWithTypes "InvParamP2Entry" boolUnitTypes #[]
+    #[entryWithParam]
+  expectCfgOk "P2 entry may have params" p2
+  let viewWithParam : CallableV1 := {
+    (cfgCallableKindName .view (some "read")) with params := #[param0]
+  }
+  let p3 ← programWithTypes "InvParamP3View" boolUnitTypes #[]
+    #[viewWithParam]
+  expectCfgOk "P3 view may have params" p3
+  let p4Base ← programWithTypes "InvParamP4Zero" boolUnitTypes #[]
+    #[cfgCallableKindName .invariant (some "safe")]
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P4 invariant zero params" p4
+  let oneParamInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with params := #[param0]
+  }
+  let n1Base ← programWithTypes "InvParamN1One" cfgBoolTypes #[]
+    #[oneParamInvariant]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant one param" n1
+  -- Shallow parameter TypeId range validation precedes signature shape.
+  let badRefParam : ParameterV1 := { param0 with typeId := 99 }
+  let badRefInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with params := #[badRefParam]
+  }
+  let n2Base ← programWithTypes "InvParamN2ReferenceFirst" cfgBoolTypes #[]
+    #[badRefInvariant]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 param TypeId before invariant signature" .badReference n2
+  -- Shallow parameter TypeId range also precedes canonical valueBytes when
+  -- both are malformed in the same invariant callable.
+  let badRefAndValueInvariant : CallableV1 := {
+    badRefInvariant with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 1, typeId := 0 })
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n3Base ← programWithTypes "InvParamN3ReferenceBeforeValue" cfgBoolTypes #[]
+    #[badRefAndValueInvariant]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 param TypeId before canonical value" .badReference n3
+  -- Canonical literal values precede invariant parameter shape.
+  let badValueInvariant : CallableV1 := {
+    oneParamInvariant with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 1, typeId := 0 })
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n4Base ← programWithTypes "InvParamN4ValueFirst" cfgBoolTypes #[]
+    #[badValueInvariant]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 canonical value before invariant params" .nonCanonical n4
+  -- Invariant parameter shape precedes CFG def-site TypeId range.
+  let badCfgInvariant : CallableV1 := {
+    oneParamInvariant with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 1, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n5Base ← programWithTypes "InvParamN5SignatureFirst" cfgBoolTypes #[]
+    #[badCfgInvariant]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N5 invariant params before def-site TypeId" n5
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -4450,6 +4550,7 @@ def run : IO Unit := do
   testInitializerCardinality
   testInitializerResultShape
   testInvariantResultShape
+  testInvariantParameterShape
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
