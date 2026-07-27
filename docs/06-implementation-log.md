@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-root direct Emit prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Emit` 加入既有 direct forbidden-op gate；不实现 transitive pureFn closure、ExternalCall/Schedule、exact steps、DAG、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantRootEmitProhibited`，固定 entry direct Emit 双路径正向、invariant direct Emit 双路径负向，以及 closure 先于 over-ceiling fuel/requirements；实现前 N1 被 structure gate 接受。首轮 review 后补充 spurious result、noncanonical EffectId、unresolved EventDecl、arg arity/type mismatch 与 missing SSA use 混合负例，并通过真实 `validateCfgInvariantPhasesV1` 固定这些 generic CFG/op failures 均先于 closure。
+- Production：扩展 bounded `validateInvariantRootDirectOpsV1`，在保留 StateStore/ContextRead/Commit 拒绝与 StateLoad 允许的同时，按 invariant callable/block/instruction source order 拒绝 direct `.emit`；generic CFG/op typing、EffectId assignment、closure、fuel 与 requirements 的稳定顺序及公开 `.badCfg` 不变。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` bytes/hash；`proof-forge-one-slice-54` findings 已修复，`proof-forge-one-slice-55` 三路只读复审一致 approved、无 findings；SBOM 幂等刷新、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：transitive pureFn closure、ExternalCall/Schedule direct restrictions、exact checked step computation、closure DAG、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root direct Commit prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Commit` 加入既有 direct forbidden-op gate；不实现 Commit disclosure/requirement exact contract、transitive pureFn closure、effect families、exact steps、DAG、interpreter或产品接线。

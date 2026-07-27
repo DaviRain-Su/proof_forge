@@ -3967,6 +3967,127 @@ private def testInvariantRootCommitProhibited : IO Unit := do
   }
   expectCfgErr "N4 invariant Commit before requirements" n4
 
+/-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
+    Emit is forbidden directly in an invariant root but remains allowed in an
+    entry. Generic EventDecl/args/void-result typing and EffectId assignment run
+    before this restriction; transitive pureFn closure remains separate. -/
+private def testInvariantRootEmitProhibited : IO Unit := do
+  let forbiddenEmitRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.emit 0 0 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 4
+  }
+  let n1Base ← programWithEvents "InvEmitN1Root" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[forbiddenEmitRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct Emit forbidden" n1
+  expectCfgInvariantPhase "N1 invariant Emit closure phase"
+    .invariantClosure .badCfg n1
+  let entryEmit : CallableV1 := {
+    forbiddenEmitRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p1 ← programWithEvents "InvEmitP1Entry" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[entryEmit]
+  expectCfgOk "P1 entry direct Emit remains allowed" p1
+  -- Generic void-result typing must win before the closure restriction.
+  let badTypingRoot : CallableV1 := {
+    forbiddenEmitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr (some (cfgValueDef 1)) (.emit 0 0 #[])]
+        (.return_ (some 0))]
+  }
+  let n2Base ← programWithEvents "InvEmitN2Typing" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[badTypingRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 Emit typing before invariant closure" .badCfg n2
+  expectCfgInvariantPhase "N2 Emit typing phase wins" .cfg .badCfg n2
+  let badEffectRoot : CallableV1 := {
+    forbiddenEmitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.emit 1 0 #[])]
+        (.return_ (some 0))]
+  }
+  let n3Base ← programWithEvents "InvEmitN3Effect" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[badEffectRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 EffectId before invariant Emit closure" .badCfg n3
+  expectCfgInvariantPhase "N3 EffectId phase wins" .cfg .badCfg n3
+  let badEventRoot : CallableV1 := {
+    forbiddenEmitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.emit 0 1 #[])]
+        (.return_ (some 0))]
+  }
+  let n4Base ← programWithEvents "InvEmitN4Event" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[badEventRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 event lookup before invariant Emit closure" .badCfg n4
+  expectCfgInvariantPhase "N4 event lookup phase wins" .cfg .badCfg n4
+  let n5Base ← programWithEvents "InvEmitN5Arity" cfgBoolTypes
+    #[eventRow 0 "Value" #[interfaceField "value" 0]] #[forbiddenEmitRoot]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N5 Emit arity before invariant closure" .badCfg n5
+  expectCfgInvariantPhase "N5 Emit arity phase wins" .cfg .badCfg n5
+  let badTypeRoot : CallableV1 := {
+    forbiddenEmitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.emit 0 0 #[0])]
+        (.return_ (some 0))]
+  }
+  let n6Base ← programWithEvents "InvEmitN6Type" cfgUint8Types
+    #[eventRow 0 "Value" #[interfaceField "value" 1]] #[badTypeRoot]
+  let n6 : SemanticProgramDataV1 := {
+    n6Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N6 Emit arg type before invariant closure" .badCfg n6
+  expectCfgInvariantPhase "N6 Emit arg type phase wins" .cfg .badCfg n6
+  let badSsaRoot : CallableV1 := {
+    forbiddenEmitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.emit 0 0 #[99])]
+        (.return_ (some 0))]
+  }
+  let n7Base ← programWithEvents "InvEmitN7Ssa" cfgBoolTypes
+    #[eventRow 0 "Value" #[interfaceField "value" 0]] #[badSsaRoot]
+  let n7 : SemanticProgramDataV1 := {
+    n7Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N7 Emit SSA use before invariant closure" .badCfg n7
+  expectCfgInvariantPhase "N7 Emit SSA phase wins" .cfg .badCfg n7
+  -- Closure restrictions precede intrinsic fuel and requirements.
+  let n8 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenEmitRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N8 invariant Emit before fuel ceiling" .badCfg n8
+  expectCfgInvariantPhase "N8 Emit closure phase wins"
+    .invariantClosure .badCfg n8
+  let n9 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-emit"] }
+  }
+  expectCfgErr "N9 invariant Emit before requirements" n9
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -5868,6 +5989,7 @@ def run : IO Unit := do
   testInvariantRootStateStoreProhibited
   testInvariantRootContextReadProhibited
   testInvariantRootCommitProhibited
+  testInvariantRootEmitProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
