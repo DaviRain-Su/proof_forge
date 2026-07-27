@@ -4299,9 +4299,9 @@ private def testInvariantRootScheduleProhibited : IO Unit := do
 
 /-- SPEC §8 exact transitive pureFn closure-membership metadata slice. A
     pureFn carries `invariantSteps=some` iff reachable by `Op.PureCall` from an
-    invariant root; other pureFns carry none. Reachable call-graph DAG
-    validation is a separate post-membership gate; closure-CFG back edges, op
-    allowlists, and exact step computation remain deferred. -/
+    invariant root; other pureFns carry none. Reachable call-graph DAG and
+    closure-CFG acyclicity are separate post-membership gates; op allowlists and
+    exact step computation remain deferred. -/
 private def testInvariantPureFnClosureMembership : IO Unit := do
   let leaf : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
@@ -4422,8 +4422,8 @@ private def testInvariantPureFnClosureMembership : IO Unit := do
 
 /-- SPEC §8 reachable invariant-closure `Op.PureCall` graph must be a
     DAG. This slice rejects self and multi-node cycles only when reachable from
-    an invariant root; closure-CFG back edges, op allowlists, and exact checked
-    step computation remain separate. -/
+    an invariant root; closure-CFG acyclicity is a following gate, while op
+    allowlists and exact checked step computation remain separate. -/
 private def testInvariantPureFnClosureDag : IO Unit := do
   let leaf : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
@@ -4558,6 +4558,102 @@ private def testInvariantPureFnClosureDag : IO Unit := do
   }
   expectCfgErrCode "N4 malformed PureCall before closure DAG" .badCfg n4
   expectCfgInvariantPhase "N4 generic CFG phase wins" .cfg .badCfg n4
+
+/-- SPEC §8 every callable in an invariant closure has an acyclic CFG.
+    Generic loopBounds validation runs first; this closure gate rejects any
+    remaining reachable member back edge while leaving unreachable pureFn loops
+    to the generic bounded-loop contract. -/
+private def testInvariantClosureCfgBackEdges : IO Unit := do
+  let leaf : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "leaf"
+      invariantSteps := some 3
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let p1Base ← programWithTypes "InvClosureCfgP1Acyclic"
+    cfgBoolTypes #[] #[leaf, root]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 acyclic closure callable CFGs" p1
+  let unreachableLoop : CallableV1 :=
+    cfgCallableKindNameLoop .pureFn (some "unreachableLoop")
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p2Base ← programWithTypes "InvClosureCfgP2UnreachableLoop"
+    cfgBoolTypes #[] #[unreachableLoop, literalRoot]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P2 unreachable pureFn bounded loop outside closure" p2
+  let reachableLoop : CallableV1 := {
+    unreachableLoop with invariantSteps := some 2
+  }
+  let n1Base ← programWithTypes "InvClosureCfgN1ReachableLoop"
+    cfgBoolTypes #[] #[reachableLoop, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn CFG self back-edge" n1
+  expectCfgInvariantPhase "N1 closure CFG phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      name := some "middle"
+      invariantSteps := some 5
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 8
+  }
+  let n2Base ← programWithTypes "InvClosureCfgN2TransitiveLoop"
+    cfgBoolTypes #[] #[reachableLoop, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn CFG back-edge" n2
+  expectCfgInvariantPhase "N2 transitive closure CFG phase"
+    .invariantClosure .badCfg n2
+  let malformedLoop : CallableV1 := {
+    reachableLoop with loopBounds := #[]
+  }
+  let n3Base ← programWithTypes "InvClosureCfgN3GenericFirst"
+    cfgBoolTypes #[] #[malformedLoop, root]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 generic loop coverage before closure CFG" .badCfg n3
+  expectCfgInvariantPhase "N3 generic CFG phase wins" .cfg .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[reachableLoop,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 closure CFG before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 closure CFG phase wins"
+    .invariantClosure .badCfg n4
 
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
@@ -6465,6 +6561,7 @@ def run : IO Unit := do
   testInvariantRootScheduleProhibited
   testInvariantPureFnClosureMembership
   testInvariantPureFnClosureDag
+  testInvariantClosureCfgBackEdges
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

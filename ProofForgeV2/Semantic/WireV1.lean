@@ -58,8 +58,8 @@ import ProofForgeV2.Core.Unicode
     - post-CFG transitive `Op.PureCall` reachability requires
       `invariantSteps=some` exactly for pureFns in an invariant closure and
       `none` for every other pureFn; the reachable closure call graph must be a
-      DAG (bounded Kahn traversal; unreachable cycles remain out of scope)
-      (`.badCfg`)
+      DAG (bounded Kahn traversal; unreachable cycles remain out of scope), and
+      every closure-member CFG must contain no back edge (`.badCfg`)
     - post-CFG invariant roots reject direct `Op.StateStore`, `Op.ContextRead`,
       `Op.Commit`, `Op.Emit`, `Op.ExternalCall`, and `Op.Schedule` while
       retaining direct `Op.StateLoad` (`.badCfg`)
@@ -90,9 +90,8 @@ import ProofForgeV2.Core.Unicode
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
   * Not yet: full TypeKey
-    anonymous ranking/interning, remaining invariant-closure CFG back-edge
-    rejection/pureFn op allowlist/exact checked step computation, provenance
-    inventory
+    anonymous ranking/interning, remaining invariant-closure pureFn op
+    allowlist/exact checked step computation, provenance inventory
     join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
@@ -3562,8 +3561,8 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
     metadata (SPEC §8). Initializer/entry/view are kind-disjoint from roots and
     `Op.PureCall` callees. When no invariant callable exists, every pureFn is
     also provably rootless and therefore outside all closures. Exact transitive
-    pureFn membership and reachable call-graph DAG are checked post-CFG; exact
-    step computation, closure-CFG back edges, and op validation remain separate. -/
+    pureFn membership, reachable call-graph DAG, and closure-CFG acyclicity are
+    checked post-CFG; exact step computation and op validation remain separate. -/
 private def validateNonClosureCallableInvariantStepsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let hasInvariantRoot := callables.any (·.kind == .invariant)
@@ -3582,10 +3581,10 @@ private def validateNonClosureCallableInvariantStepsV1
   pure ()
 
 /-- Every invariant root carries fuel metadata (SPEC §8). This bounded gate
-    validates `some` presence only; exact pureFn membership and reachable
-    call-graph DAG are checked post-CFG, while exact step computation,
-    closure-CFG back edges/op validation, and checked accumulation remain
-    separate. The intrinsic ceiling is checked post-CFG. This presence
+    validates `some` presence only; exact pureFn membership, reachable
+    call-graph DAG, and closure-CFG acyclicity are checked post-CFG, while exact
+    step computation, op validation, and checked accumulation remain separate.
+    The intrinsic ceiling is checked post-CFG. This presence
     gate runs after non-closure absence checks and before declaration join/CFG
     validation. -/
 private def validateInvariantRootStepsPresenceV1
@@ -3662,9 +3661,9 @@ private def computeInvariantClosureMembershipV1
 /-- A pureFn carries invariant fuel metadata iff it is transitively reachable
     from an invariant root through `Op.PureCall` (SPEC §8). Presence is checked
     here after complete generic CFG/op validation; reachable call-graph DAG
-    validation runs next, while closure-CFG back edges/op allowlists and exact
-    checked step values remain separate slices. Other callable-kind presence
-    rules remain in the earlier signature gates. -/
+    and closure-CFG acyclicity validation run next, while op allowlists and
+    exact checked step values remain separate slices. Other callable-kind
+    presence rules remain in the earlier signature gates. -/
 private def validatePureFnInvariantClosureMembershipV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let members ← computeInvariantClosureMembershipV1 callables
@@ -3734,6 +3733,23 @@ private def validateInvariantClosureCallGraphDagV1
   unless processed == memberCount do return ← err .badCfg
   pure ()
 
+/-- Every callable in an invariant closure must have an acyclic CFG (SPEC §8).
+    Generic per-callable loopBounds validation has already established exact
+    back-edge metadata; this post-membership gate rejects any actual back edge
+    in a closure member while leaving unreachable pureFn bounded loops under
+    the generic contract. Bounded by callables plus CFG successor edges. -/
+private def validateInvariantClosureCfgAcyclicV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let members ← computeInvariantClosureMembershipV1 callables
+  for index in [:callables.size] do
+    if members[index]! then
+      match callables[index]? with
+      | none => return ← err .badCfg
+      | some callable =>
+          unless (cfgBackEdges callable.blocks callable.blocks.size).isEmpty do
+            return ← err .badCfg
+  pure ()
+
 /-- Every present invariant fuel value is bounded by the schema-fixed 10M
     intrinsic ceiling (SPEC §8). This does not compute expected steps; exact
     closure membership has already been checked. The structure pipeline calls
@@ -3787,6 +3803,8 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     (validatePureFnInvariantClosureMembershipV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
     (validateInvariantClosureCallGraphDagV1 data.callables)
+  liftCfgInvariantValidationPhaseV1 .invariantClosure
+    (validateInvariantClosureCfgAcyclicV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantFuel
     (validateInvariantStepsIntrinsicCeilingV1 data.callables)
 
@@ -4059,9 +4077,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateInvariantRootStepsPresenceV1 data.callables
   validateInvariantDeclarationJoinV1 data.callables data.invariants
   -- 4.5–4.75) Generic CFG/op typing → direct root restrictions + exact
-  --   transitive pureFn closure membership + reachable call-graph DAG →
-  --   intrinsic invariant fuel. The shared helper preserves the public wire
-  --   error while exposing the stable subphase to focused tests.
+  --   transitive pureFn closure membership + reachable call-graph/CFG
+  --   acyclicity → intrinsic invariant fuel. The shared helper preserves the
+  --   public wire error while exposing the stable subphase to focused tests.
   match validateCfgInvariantPhasesV1 data with
   | .ok () => pure ()
   | .error failure => throw failure.error

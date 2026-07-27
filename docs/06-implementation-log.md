@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-closure callable CFG no-back-edge gate (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 §8 invariant closure 内每个 callable CFG 无 back edge，不实现 pureFn op allowlist、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantClosureCfgBackEdges`，固定 acyclic closure 与 unreachable pureFn bounded loop 双路径正向、direct/transitive reachable pureFn back edge 双路径负向，以及 generic loopBounds coverage→closure-CFG→intrinsic fuel phase precedence；实现前 N1 reachable self back-edge 被 structure gate 接受。
+- Production：新增 bounded `validateInvariantClosureCfgAcyclicV1`，复用 exact membership 与 canonical `cfgBackEdges`，在 generic per-callable loopBounds exact coverage 后按 callable source order拒绝任何 closure-member actual back edge；unreachable pureFn loop 不进入本 gate，失败 `.badCfg`。
+- Verification：聚焦 production/test build、真实 harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-63` 三路审查 approved。
+- Boundary：closure pureFn StateLoad/forbidden-op allowlist、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 reachable invariant-closure PureCall call-graph DAG (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 §8 invariant-reachable `Op.PureCall` call-graph DAG，不实现 closure-CFG back-edge rejection、pureFn op allowlist、exact checked steps、interpreter或产品接线。
