@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant Bool/public result (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 invariant callable result 必须解析为 Bool 且 visibility 为 public，不实现 declaration identity/ordinal join、zero params、closure/op/fuel、`invariantSteps`、name grammar/uniqueness或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantResultShape`，固定非 invariant callable 与 Bool/public invariant 正向，Unit/public、Bool/private、Bool/commitment 负向，以及 shallow result TypeId range → canonical literal value → invariant signature → per-callable CFG 的 phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded/source-order `validateInvariantResultShapeV1`，仅遍历 `.invariant` callable，先要求 public visibility，再将 result TypeId 解析到 `.bool`；missing/non-Bool/non-public 均 fail closed 为 `.badCfg`。接线于 initializer signature 后、CFG 前。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；首次三路只读 review 仅发现 shallow-ref→canonical-value mixed-invalid 未直接固定、structure-order 注释漏列两个 result gate；已补组合负例与注释，修复后完整 harness 通过；`just sbom-package-files-refresh` 精确只更新 `WireV1.lean` 的 bytes/hash，复审三路一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：invariant declaration name/ID exact join、zero params、closure CFG/op/fuel 与 `invariantSteps`、callable name grammar/NFC/uniqueness、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 initializer Unit/public result (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 initializer result 必须解析为 Unit 且 visibility 为 public，不实现其他 callable result、name grammar/uniqueness、invariant join、entry/view existence或产品接线。

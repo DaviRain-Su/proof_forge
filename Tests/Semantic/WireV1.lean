@@ -1494,6 +1494,106 @@ private def testInitializerResultShape : IO Unit := do
     #[badCfgInit]
   expectCfgErr "N6 initializer signature before def-site TypeId" n6
 
+/-- SPEC-SEM-WIRE-001 §6 invariant result signature: every invariant callable
+    has a Bool/public result. Declaration identity/ordinal join, zero params,
+    closure restrictions, and invariantSteps remain separate slices. -/
+private def testInvariantResultShape : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let privatePureFn : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f") 1) with
+      result := { typeId := 1, visibility := .private_ }
+  }
+  let p0 ← programWithTypes "InvResultP0OtherKind" boolUnitTypes #[]
+    #[privatePureFn]
+  expectCfgOk "P0 non-invariant result is outside this gate" p0
+  let p1Base ← programWithTypes "InvResultP1BoolPublic" boolUnitTypes #[]
+    #[cfgCallableKindName .invariant (some "safe")]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 invariant Bool public" p1
+  let n1Base ← programWithTypes "InvResultN1UnitPublic" boolUnitTypes #[]
+    #[cfgCallableKindName .invariant (some "safe") 1]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant Unit public" n1
+  let privateInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      result := { typeId := 0, visibility := .private_ }
+  }
+  let n2Base ← programWithTypes "InvResultN2BoolPrivate" boolUnitTypes #[]
+    #[privateInvariant]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N2 invariant Bool private" n2
+  let commitmentInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      result := { typeId := 0, visibility := .commitment }
+  }
+  let n3Base ← programWithTypes "InvResultN3BoolCommitment" boolUnitTypes #[]
+    #[commitmentInvariant]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N3 invariant Bool commitment" n3
+  -- Shallow result TypeId range validation precedes signature shape.
+  let badRefInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      result := { typeId := 99, visibility := .private_ }
+  }
+  let n4Base ← programWithTypes "InvResultN4ReferenceFirst" boolUnitTypes #[]
+    #[badRefInvariant]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 result TypeId before invariant signature" .badReference n4
+  -- Shallow result TypeId range also precedes canonical valueBytes when both
+  -- are malformed in the same invariant callable.
+  let badRefAndValueInvariant : CallableV1 := {
+    badRefInvariant with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n5Base ← programWithTypes "InvResultN5ReferenceBeforeValue" boolUnitTypes #[]
+    #[badRefAndValueInvariant]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N5 result TypeId before canonical value" .badReference n5
+  -- Canonical literal values precede callable signature validation.
+  let badValueInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe") 1) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n6Base ← programWithTypes "InvResultN6ValueFirst" boolUnitTypes #[]
+    #[badValueInvariant]
+  let n6 : SemanticProgramDataV1 := {
+    n6Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N6 canonical value before invariant signature" .nonCanonical n6
+  -- Invariant signature validation precedes CFG def-site TypeId range.
+  let badCfgInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe") 1) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n7Base ← programWithTypes "InvResultN7SignatureFirst" boolUnitTypes #[]
+    #[badCfgInvariant]
+  let n7 : SemanticProgramDataV1 := {
+    n7Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N7 invariant signature before def-site TypeId" n7
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -4349,6 +4449,7 @@ def run : IO Unit := do
   testCallableKindNamePresence
   testInitializerCardinality
   testInitializerResultShape
+  testInvariantResultShape
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

@@ -42,8 +42,9 @@ import ProofForgeV2.Core.Unicode
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - callable signature subset after canonical values and before CFG:
-      kind/name Option presence, zero-or-one initializer, and initializer
-      result resolving to Unit with public visibility (`.badCfg`)
+      kind/name Option presence, zero-or-one initializer, initializer result
+      resolving to Unit/public, and invariant result resolving to Bool/public
+      (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -1670,7 +1671,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
     (Constant / Op.Literal / SwitchCase) → callable kind/name presence →
-    initializer cardinality → CFG → requirements.
+    initializer cardinality → initializer Unit/public result → invariant
+    Bool/public result → CFG → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -3353,8 +3355,8 @@ private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
 
 /-- Callable signature name presence (SPEC §6): initializer is the only
     anonymous callable kind; entry/view/pureFn/invariant must carry `some`
-    name. String grammar/NFC/uniqueness, initializer cardinality/result, and
-    invariant declaration join are separate later gates. Runs after canonical
+    name. String grammar/NFC/uniqueness and invariant declaration join are
+    separate later gates. Runs after canonical
     values and before CFG so kind/signature failures have stable `.badCfg`. -/
 private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -3389,6 +3391,24 @@ private def validateInitializerResultShapeV1 (types : Array TypeDeclV1)
       | some decl =>
           match decl.shape with
           | .unit => pure ()
+          | _ => return ← err .badCfg
+      | none => return ← err .badCfg
+  pure ()
+
+/-- Every invariant callable result resolves to Type.Bool and has public
+    visibility (SPEC §6). Declaration join, zero params, closure restrictions,
+    and invariantSteps are separate gates. Shallow result TypeId range
+    validation runs earlier; this helper stays total for missing types. -/
+private def validateInvariantResultShapeV1 (types : Array TypeDeclV1)
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    if callable.kind == .invariant then
+      unless callable.result.visibility == .public_ do
+        return ← err .badCfg
+      match types[callable.result.typeId.toNat]? with
+      | some decl =>
+          match decl.shape with
+          | .bool => pure ()
           | _ => return ← err .badCfg
       | none => return ← err .badCfg
   pure ()
@@ -3603,10 +3623,12 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallablesValueBytesV1 data.types data.callables
   -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
   validateCallableKindNamePresenceV1 data.callables
-  -- 4.3) Initializer signature: zero or one, with Unit/public result.
-  --   These checks still precede per-callable CFG validation.
+  -- 4.3) Special callable results: initializer is zero-or-one with a
+  --   Unit/public result; invariant has a Bool/public result. These checks
+  --   still precede per-callable CFG validation.
   validateInitializerCardinalityV1 data.callables
   validateInitializerResultShapeV1 data.types data.callables
+  validateInvariantResultShapeV1 data.types data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data
