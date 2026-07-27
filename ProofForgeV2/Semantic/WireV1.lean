@@ -69,7 +69,8 @@ import ProofForgeV2.Core.Unicode
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
-    back-edge coverage, ValueId SSA definition-table / exactly-once /
+    back-edge coverage, per-callable EffectId contiguous canonical assignment,
+    ValueId SSA definition-table / exactly-once /
     use-existence, dominance-of-use, def-site TypeId range, terminator
     typing, the per-op §4.3/§5.1 type/result contract for value-producing ops
     (incl. exact result presence for Literal/Constant/StateLoad/Construct/
@@ -84,8 +85,7 @@ import ProofForgeV2.Core.Unicode
     contract), the Term.Revert ErrorDecl/args exact join, the Op.Emit EventDecl/
     args/void-result contract, presence-only result for ContextRead/Commit,
     and void-op result-presence for ExternalCall/Schedule are now covered;
-    ExternalCall/Schedule callee/argument typing and effectId numbering,
-    exact contracts
+    ExternalCall/Schedule callee/argument typing, exact contracts
     for the two presence-only
     families, TypeKey anonymous
     ranking, provenance inventory join, ProgramV1 normalizer, and product
@@ -1689,12 +1689,13 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
-/-! ### CFG shape + reachability + block-param arity + loopBounds + ValueId SSA def-table + dominance-of-use (SPEC §6.2 — CFG layers)
+/-! ### CFG shape + reachability + block-param arity + loopBounds + EffectId + ValueId SSA def-table + dominance-of-use (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
     range, jump/branch/switch target arg arity == target block params, total
-    reachability from entry, loopBounds back-edge coverage, ValueId SSA
-    definition-table / exactly-once / use-existence, and dominance-of-use.
+    reachability from entry, loopBounds back-edge coverage, contiguous EffectId
+    assignment, ValueId definition-table / exactly-once / use-existence, and
+    dominance-of-use.
     All CFG-shape failures use `.badCfg`. NOT block-param TYPE,
     or terminator typing (separate later slices). Reachability is total and
     non-recursive (worklist) to stay within nesting/stack limits. -/
@@ -1849,6 +1850,31 @@ private def validateCallableLoopBounds (c : CallableV1) :
     let key := (lb.header.toNat, lb.backEdgeFrom.toNat)
     unless actual.any (· == key) do
       return ← err .badCfg
+  pure ()
+
+/-! ### EffectId canonical assignment (SPEC §6 — CFG layer e.5)
+
+    Within each callable, Emit/ExternalCall/Schedule instructions receive
+    contiguous EffectIds 0..n-1 in BlockId/instruction order. Block IDs have
+    already been checked against array index, so nested array traversal is the
+    exact canonical order. IDs reset per callable. Any gap, duplicate, wrong
+    start, or reordering fails `.badCfg`. Bounded, non-recursive, total. -/
+private def validateCallableEffectIds (c : CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut next : Nat := 0
+  for b in c.blocks do
+    for instr in b.instructions do
+      let effectId? : Option EffectIdV1 :=
+        match instr.op with
+        | .emit effectId _ _ => some effectId
+        | .externalCall effectId _ _ => some effectId
+        | .schedule effectId _ _ => some effectId
+        | _ => none
+      match effectId? with
+      | none => pure ()
+      | some effectId =>
+          unless effectId.toNat == next do return ← err .badCfg
+          next := next + 1
   pure ()
 
 /-! ### ValueId SSA definition-table + dominance-of-use (SPEC §6.2)
@@ -2728,7 +2754,7 @@ def checkOpTyping (instr : InstructionV1)
           | _ => err .badCfg
   -- Op.Emit (SPEC-SEM-WIRE-001 §5.1): result MUST be none; eventId MUST
   --   resolve; args MUST match EventDecl fields positionally and exactly.
-  --   EffectId canonical numbering/uniqueness is a separate §6 layer.
+  --   EffectId canonical numbering/uniqueness is owned by CFG step e.5.
   | .emit _effectId eventId args =>
       match instr.result with
       | some _ => err .badCfg
@@ -2856,10 +2882,11 @@ def checkOpTyping (instr : InstructionV1)
   --   deferred to later step-j extensions.
   | .contextRead _ | .commit _ => requireResultPresent
 
-/-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
-    + dominance-of-use + def-site TypeId range + terminator typing + per-op
-    type/result contract. Deterministic, bounded. Steps a–e are CFG shape/
-    reachability/arity/loopBounds; step f runs the ValueId SSA def-table
+/-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
+    + ValueId SSA def-table + dominance-of-use + def-site TypeId range +
+    terminator typing + per-op type/result contract. Deterministic, bounded.
+    Steps a–e are CFG shape/reachability/arity/loopBounds; step e.5 checks
+    per-callable EffectIds; step f runs the ValueId SSA def-table
     (exactly-once def + use-existence); step g runs dominance-of-use;
     step h runs def-site TypeId range (`.badReference`); step i runs
     terminator typing (`.badCfg`); step j runs the per-op type/result
@@ -2905,6 +2932,9 @@ private def validateCallableCfgShape (c : CallableV1)
       return ← err .badCfg
   -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
   validateCallableLoopBounds c
+  -- e.5) EffectId assignment: Emit/ExternalCall/Schedule IDs are contiguous
+  --   from zero in BlockId/instruction order, independently per callable.
+  validateCallableEffectIds c
   -- f) ValueId SSA definition-table: exactly-once def + use-existence
   --   (SPEC §6.2). Build defSites once and reuse for step g; build defTypes
   --   once and reuse for steps h and i.
@@ -3406,6 +3436,8 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
+    + per-callable Emit/ExternalCall/Schedule EffectId contiguous assignment
+      in BlockId/instruction order
     + ValueId SSA definition-table / exactly-once / use-existence
     + dominance-of-use
     + def-site TypeId range (block params + instruction result ValueDefs)
@@ -3431,8 +3463,7 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
     result-presence) — NOT ExternalCall/Schedule callee/argument typing,
-    effectId numbering/uniqueness, ContextRead/Commit exact contracts,
-    runtime CheckedCast representability,
+    ContextRead/Commit exact contracts, runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
     inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :

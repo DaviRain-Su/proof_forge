@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 per-callable EffectId canonical assignment (CFG step e.5, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只实现 SPEC-SEM-WIRE-001 §6 static EffectId assignment，不实现 occurrence/runtime effects、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testCfgEffectIdOrder`，驱动真实 structure+encode 双路径：P1 Emit/ExternalCall/Schedule 在单 block 为 0/1/2、P2 跨 block 按 BlockId order 为 0/1、P3 两 callable 各从 0 重置正向；N1 first id=1、N2 duplicate 0/0、N3 gap 0/2、N4 后继 block restart 0 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败。
+- Production：新增 bounded/non-recursive `validateCallableEffectIds`，按 `c.blocks` array（其 ID 已由 step b 固定）和 instruction array order 遍历，仅收集 Emit/ExternalCall/Schedule 的 embedded EffectId，要求逐项 `effectId.toNat == next` 并递增；每次 callable validator 调用独立从 0 开始。接线于 loopBounds step e 后、ValueId SSA step f 前的 e.5；任一 gap/duplicate/wrong start/reorder `.badCfg`。
+- Verification：三路只读 review 一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 dynamic occurrence、runtime effect buffer/response cursor、ExternalCall/Schedule callee/args、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 Op.Emit EventDecl join (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.Emit` static §5.1 gate，不实现 EffectId 全局编号/runtime effect、不接线产品、不改 wire/codec/schema。

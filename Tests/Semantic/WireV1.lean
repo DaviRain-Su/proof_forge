@@ -7,8 +7,9 @@
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
-  CFG shape/reachability, loop bounds, ValueId SSA/use-existence/dominance,
-  def-site TypeId range, block/terminator typing, and step-j per-op contracts
+  CFG shape/reachability, loop bounds, per-callable EffectId assignment,
+  ValueId SSA/use-existence/dominance, def-site TypeId range,
+  block/terminator typing, and step-j per-op contracts
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
@@ -3787,6 +3788,81 @@ private def testCfgEmitTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N5 emit reversed positional args" n5
 
+/-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
+    Emit/ExternalCall/Schedule instruction must carry the next contiguous
+    EffectId in BlockId/instruction order, starting at zero. -/
+private def testCfgEffectIdOrder : IO Unit := do
+  let calleeName ← cfgCalleeName
+  -- P1: all three effect families receive contiguous IDs in one block.
+  let p1 ← programWithEvents "EffectP1Families" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[]),
+            cfgInstr none (.externalCall 1 calleeName #[]),
+            cfgInstr none (.schedule 2 calleeName #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P1 effectId all families" p1
+  -- P2: numbering follows BlockId order across reachable blocks.
+  let p2 ← programWithEvents "EffectP2Blocks" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[])]
+          (.jump (cfgJumpTarget 1)),
+        cfgBlockInstrs 1
+          #[cfgInstr none (.schedule 1 calleeName #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P2 effectId across blocks" p2
+  -- P3: EffectId numbering resets independently for each callable.
+  let c0 := cfgCallableResult
+    #[cfgBlockInstrs 0 #[cfgInstr none (.emit 0 0 #[])] (.return_ none)] 0
+  let c1 : CallableV1 := {
+    (cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 calleeName #[])]
+        (.return_ none)] 0) with
+    id := 1
+    name := some "g"
+  }
+  let p3 ← programWithEvents "EffectP3PerCallable" cfgOpTypes
+    #[eventRow 0 "Ping" #[]] #[c0, c1]
+  expectCfgOk "P3 effectId per-callable reset" p3
+  -- N1: first effect ID must be zero.
+  let n1 ← programWithEvents "EffectN1StartsAtOne" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.emit 1 0 #[])] (.return_ none)] 0]
+  expectCfgErr "N1 effectId starts at one" n1
+  -- N2: duplicate IDs across effect families are invalid.
+  let n2 ← programWithEvents "EffectN2Duplicate" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[]),
+            cfgInstr none (.externalCall 0 calleeName #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N2 effectId duplicate" n2
+  -- N3: gaps are invalid even when IDs remain increasing.
+  let n3 ← programWithEvents "EffectN3Gap" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[]),
+            cfgInstr none (.schedule 2 calleeName #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N3 effectId gap" n3
+  -- N4: later block cannot restart or reverse numbering.
+  let n4 ← programWithEvents "EffectN4BlockOrder" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[])]
+          (.jump (cfgJumpTarget 1)),
+        cfgBlockInstrs 1
+          #[cfgInstr none (.schedule 0 calleeName #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N4 effectId block order" n4
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3826,6 +3902,7 @@ def run : IO Unit := do
   testCfgAssertTyping
   testCfgRevertTyping
   testCfgEmitTyping
+  testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
