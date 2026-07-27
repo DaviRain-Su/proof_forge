@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 callable kind/name presence (signature step 4.25, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6/§6.2 的 callable kind/name Option presence，不实现 name grammar/uniqueness、initializer cardinality/result、invariant join或产品接线。
+- RED/Changed：tests-first。新增 `testCallableKindNamePresence`，驱动真实 structure+encode 双路径：initializer+none 与 entry/view/pureFn/invariant+some 正向；initializer+some 和其余四 kind+none 逐项负向。实现前真实 harness 在 named initializer 期望 `.badCfg` 处失败；empty program 与既有 named pureFn fixtures 无需迁移。首次只读 review 仅发现 signature step phase ordering 未锁死；补充 malformed Bool literal + wrong name 先 `.nonCanonical`，以及 wrong name + later def-site TypeId OOR 先 `.badCfg` 的 mixed-invalid 双路径测试。
+- Production：新增 bounded/source-order `validateCallableKindNamePresenceV1`，initializer 只接受 none，entry/view/pureFn/invariant 只接受 some；接线于 canonical constant/literal/switch values 后、per-callable CFG 前的 signature step 4.25，wrong kind/name relation 返回 `.badCfg`。
+- Verification：首次三路只读 review 仅发现 signature phase-order 测试缺口；补齐 mixed-invalid cases 后复审三路一致 approved、无 findings。`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：some empty/invalid identifier 与 duplicate names 仍未检查；initializer 至多一个及 Unit/public result、invariant name/ID/result/closure exact join、至少一个 entry/view 仍 deferred。TypeKey、provenance、normalizer、product wiring及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 Term.Switch typed case-value uniqueness (CFG step b.6, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 Switch case typed canonical value uniqueness，不实现 source-arm normalization/reference runtime、不接线产品、不改 wire/codec/schema。

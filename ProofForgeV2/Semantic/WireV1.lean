@@ -1666,7 +1666,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
-    (Constant / Op.Literal / SwitchCase) → requirements.
+    (Constant / Op.Literal / SwitchCase) → callable kind/name presence → CFG
+    → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -3347,6 +3348,21 @@ private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
       validateTerminatorValueBytesV1 types block.terminator
   pure ()
 
+/-- Callable signature name presence (SPEC §6): initializer is the only
+    anonymous callable kind; entry/view/pureFn/invariant must carry `some`
+    name. String grammar/NFC/uniqueness, initializer cardinality/result, and
+    invariant declaration join are separate later gates. Runs after canonical
+    values and before CFG so kind/signature failures have stable `.badCfg`. -/
+private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    match callable.kind, callable.name with
+    | .initializer, none => pure ()
+    | .entry, some _ | .view, some _ | .pureFn, some _
+    | .invariant, some _ => pure ()
+    | _, _ => return ← err .badCfg
+  pure ()
+
 private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "value" || domain == "control" || domain == "state" ||
   domain == "effect" || domain == "context" || domain == "disclosure" ||
@@ -3480,7 +3496,8 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
 /-- Post-wire structural subset: program root qualifiedName has at least two
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
     Map-key (SPEC §5), canonical valueBytes (Constant /
-    Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
+    Op.Literal / SwitchCase), callable kind/name presence, per-callable CFG
+    shape + reachability from entry
     + Switch cases nonempty with unique `(typeId,valueBytes)` constants
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
@@ -3554,6 +3571,8 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
+  -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
+  validateCallableKindNamePresenceV1 data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data

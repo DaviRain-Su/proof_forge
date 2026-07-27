@@ -8,8 +8,9 @@
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
-  CFG shape/reachability (including Switch nonempty/typed-value uniqueness),
-  loop bounds, per-callable EffectId assignment, ValueId SSA/use-existence/
+  callable kind/name presence, CFG shape/reachability (including Switch
+  nonempty/typed-value uniqueness), loop bounds, per-callable EffectId
+  assignment, ValueId SSA/use-existence/
   dominance, def-site TypeId range,
   block/terminator typing, and step-j per-op contracts
   are pinned; provenance join/normalizer/product wire remain pending. Step j
@@ -1230,6 +1231,11 @@ private def cfgBlock (id : BlockIdV1) (terminator : TerminatorV1) :
 private def cfgJumpTarget (blockId : BlockIdV1) : JumpTargetV1 :=
   { blockId, args := #[] }
 
+private def cfgCallableKindName (kind : CallableKindV1) (name : Option String)
+    (resultTypeId : TypeIdV1 := 0) : CallableV1 :=
+  { (cfgCallable #[cfgBlock 0 (.return_ none)]) with
+    kind, name, result := { typeId := resultTypeId, visibility := .public_ } }
+
 /-- Block with explicit params (for block-param arity tests). All params use
     typeId 0 (Bool, present in cfgBoolTypes) to avoid unrelated badReference. -/
 private def cfgBlockWithParams (id : BlockIdV1)
@@ -1330,6 +1336,76 @@ private def expectCfgErrCode (label : String) (code : SemanticWireErrorV1)
   expectErr s!"{label} structure" code
     (validateSemanticProgramStructureV1 data)
   expectErr s!"{label} encode" code (encodeSemanticProgramDataV1 data)
+
+/-- SPEC-SEM-WIRE-001 §6 callable kind/name presence: initializer is the only
+    anonymous kind; entry/view/pureFn/invariant must be named. This slice does
+    not validate identifier spelling, uniqueness, initializer result/cardinality,
+    or the full invariant declaration/closure join. -/
+private def testCallableKindNamePresence : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  -- Positives: initializer anonymous; every other kind named.
+  let p1 ← programWithTypes "CallableNameP1Init" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1]
+  expectCfgOk "P1 initializer anonymous" p1
+  let p2 ← programWithTypes "CallableNameP2Entry" cfgBoolTypes #[]
+    #[cfgCallableKindName .entry (some "run")]
+  expectCfgOk "P2 entry named" p2
+  let p3 ← programWithTypes "CallableNameP3View" cfgBoolTypes #[]
+    #[cfgCallableKindName .view (some "read")]
+  expectCfgOk "P3 view named" p3
+  let p4 ← programWithTypes "CallableNameP4Pure" cfgBoolTypes #[]
+    #[cfgCallableKindName .pureFn (some "f")]
+  expectCfgOk "P4 pureFn named" p4
+  let p5Base ← programWithTypes "CallableNameP5Invariant" cfgBoolTypes #[]
+    #[cfgCallableKindName .invariant (some "safe")]
+  let p5 : SemanticProgramDataV1 := {
+    p5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P5 invariant named" p5
+  -- Negatives: wrong Option shape for each kind.
+  let n1 ← programWithTypes "CallableNameN1InitNamed" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer (some "init") 1]
+  expectCfgErr "N1 initializer named" n1
+  let n2 ← programWithTypes "CallableNameN2EntryAnon" cfgBoolTypes #[]
+    #[cfgCallableKindName .entry none]
+  expectCfgErr "N2 entry anonymous" n2
+  let n3 ← programWithTypes "CallableNameN3ViewAnon" cfgBoolTypes #[]
+    #[cfgCallableKindName .view none]
+  expectCfgErr "N3 view anonymous" n3
+  let n4 ← programWithTypes "CallableNameN4PureAnon" cfgBoolTypes #[]
+    #[cfgCallableKindName .pureFn none]
+  expectCfgErr "N4 pureFn anonymous" n4
+  let n5Base ← programWithTypes "CallableNameN5InvariantAnon" cfgBoolTypes #[]
+    #[cfgCallableKindName .invariant none]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N5 invariant anonymous" n5
+  -- N6: canonical value validation precedes signature presence. The malformed
+  -- Bool literal must report `.nonCanonical` before the anonymous pureFn.
+  let badValueCallable : CallableV1 := {
+    (cfgCallableKindName .pureFn none) with
+    blocks := #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0))
+        (.literal 0 (ByteArray.mk #[2]))]
+      (.return_ none)]
+  }
+  let n6 ← programWithTypes "CallableNameN6ValueFirst" cfgBoolTypes #[]
+    #[badValueCallable]
+  expectCfgErrCode "N6 canonical value before signature" .nonCanonical n6
+  -- N7: signature presence precedes CFG/def-site validation. TypeId 99 on the
+  -- result ValueDef would later be `.badReference`, but anonymous pureFn wins.
+  let badCfgCallable : CallableV1 := {
+    (cfgCallableKindName .pureFn none) with
+    blocks := #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)]
+  }
+  let n7 ← programWithTypes "CallableNameN7SignatureFirst" cfgBoolTypes #[]
+    #[badCfgCallable]
+  expectCfgErr "N7 signature before def-site TypeId" n7
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -4183,6 +4259,7 @@ def run : IO Unit := do
   testValueBytesPositives
   testValueBytesNegatives
   testValueBytesTransportRegression
+  testCallableKindNamePresence
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
