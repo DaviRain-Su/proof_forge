@@ -2598,8 +2598,9 @@ private def testNonClosureCallableInvariantSteps : IO Unit := do
   expectCfgErr "N8 rootless pureFn steps before def-site TypeId" n8
 
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root fuel presence: every
-    `kind=invariant` root carries `some invariantSteps`. Exact computation,
-    closure membership, DAG/op validation, and the 10M ceiling remain separate.
+    `kind=invariant` root carries `some invariantSteps`. Transitive pureFn
+    membership, exact computation, DAG/op validation, and the 10M ceiling are
+    separate post-CFG gates.
     All cases drive both the structure and encoder gates. -/
 private def testInvariantRootStepsPresence : IO Unit := do
   let rootWithoutSteps : CallableV1 := {
@@ -2656,8 +2657,9 @@ private def testInvariantRootStepsPresence : IO Unit := do
 
 /-- SPEC-SEM-WIRE-001 §8 intrinsic invariant fuel ceiling: every present
     `invariantSteps` value is at most 10,000,000. This gate runs after complete
-    per-callable CFG validation and before requirements; exact computation,
-    closure membership, DAG/op closure, and checked accumulation are separate. -/
+    per-callable CFG and exact closure-membership validation and before
+    requirements; exact computation, DAG/op closure, and checked accumulation
+    are separate. -/
 private def testInvariantStepsIntrinsicCeiling : IO Unit := do
   let simpleRoot := cfgCallableKindName .invariant (some "safe")
   let p1Base ← programWithTypes "InvCeilingP1Exact" cfgBoolTypes #[]
@@ -3848,7 +3850,7 @@ private def testInvariantRootStateStoreProhibited : IO Unit := do
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     ContextRead is forbidden directly in an invariant root but remains outside
     this slice for other callable kinds. Exact ContextRead key/requirement type
-    binding and transitive pureFn closure remain separate. -/
+    binding and the transitive pureFn closure op allowlist remain separate. -/
 private def testInvariantRootContextReadProhibited : IO Unit := do
   let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
     | .ok key => pure key
@@ -3911,7 +3913,8 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     Commit is forbidden directly in an invariant root but remains allowed in an
     entry under its current presence-only generic contract. Exact disclosure/
-    requirement validation and transitive pureFn closure remain separate. -/
+    requirement validation and the transitive pureFn closure op allowlist remain
+    separate. -/
 private def testInvariantRootCommitProhibited : IO Unit := do
   let forbiddenCommitRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
@@ -3970,7 +3973,8 @@ private def testInvariantRootCommitProhibited : IO Unit := do
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     Emit is forbidden directly in an invariant root but remains allowed in an
     entry. Generic EventDecl/args/void-result typing and EffectId assignment run
-    before this restriction; transitive pureFn closure remains separate. -/
+    before this restriction; the transitive pureFn closure op allowlist remains
+    separate. -/
 private def testInvariantRootEmitProhibited : IO Unit := do
   let forbiddenEmitRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
@@ -4090,7 +4094,8 @@ private def testInvariantRootEmitProhibited : IO Unit := do
 
 /-- SPEC §8 bounded invariant-root direct-op slice for ExternalCall. Generic
     EffectId, callee-shape, SSA, and void-result checks run first; argument
-    serializability and transitive pureFn closure remain deferred. -/
+    serializability and the transitive pureFn closure op allowlist remain
+    deferred. -/
 private def testInvariantRootExternalCallProhibited : IO Unit := do
   let callee ← match parseQualifiedName #["mod", "callee"] with
     | .ok name => pure name
@@ -4291,6 +4296,165 @@ private def testInvariantRootScheduleProhibited : IO Unit := do
     n1 with requirements := { items := #[req "notadomain.after-schedule"] }
   }
   expectCfgErr "N8 Schedule before requirements" n8
+
+/-- SPEC §8 exact transitive pureFn closure-membership metadata slice. A
+    pureFn carries `invariantSteps=some` iff reachable by `Op.PureCall` from an
+    invariant root; other pureFns carry none. DAG validation, closure op
+    allowlists, and exact step computation remain deferred. -/
+private def testInvariantPureFnClosureMembership : IO Unit := do
+  let leaf : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "leaf"
+      invariantSteps := some 3
+  }
+  let middle : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      name := some "middle"
+      invariantSteps := some 6
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+      (.return_ (some 0))]) with
+      id := 2
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 9
+  }
+  let p1Base ← programWithTypes "InvClosureMembershipP1Transitive"
+    cfgBoolTypes #[] #[leaf, middle, root]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgOk "P1 transitive pureFn closure members carry steps" p1
+  let unused : CallableV1 := {
+    leaf with name := some "unused", invariantSteps := none
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      id := 1
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let p2Base ← programWithTypes "InvClosureMembershipP2UnusedNone"
+    cfgBoolTypes #[] #[unused, literalRoot]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P2 unused pureFn carries no steps despite invariant root" p2
+  let rightLeaf : CallableV1 := {
+    leaf with id := 1, name := some "rightLeaf"
+  }
+  let leftRoot : CallableV1 := {
+    root with
+      id := 2
+      name := some "leftSafe"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 6
+  }
+  let rightRoot : CallableV1 := {
+    root with
+      id := 3
+      name := some "rightSafe"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 6
+  }
+  let p3Base ← programWithTypes "InvClosureMembershipP3TwoRoots"
+    cfgBoolTypes #[] #[leaf, rightLeaf, leftRoot, rightRoot]
+  let p3 : SemanticProgramDataV1 := {
+    p3Base with invariants := #[
+      { id := 0, name := "leftSafe", callableId := 2 },
+      { id := 1, name := "rightSafe", callableId := 3 }]
+  }
+  expectCfgOk "P3 every invariant root seeds its disjoint closure" p3
+  let cycleA : CallableV1 := {
+    middle with
+      id := 0
+      name := some "cycleA"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let cycleB : CallableV1 := {
+    middle with
+      id := 1
+      name := some "cycleB"
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let cycleRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+        (.return_ (some 0))]
+  }
+  let p4Base ← programWithTypes "InvClosureMembershipP4CycleDeferred"
+    cfgBoolTypes #[] #[cycleA, cycleB, cycleRoot]
+  -- §8 DAG rejection is deliberately a later slice. A bad requirement proves
+  -- both shipped gates traverse this finite reachable cycle, accept membership
+  -- metadata for both pureFns, and continue past closure/fuel without claiming
+  -- the cyclic carrier is a complete valid SemanticProgramV1.
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with
+      invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+      requirements := { items := #[req "notadomain.after-cycle-membership"] }
+  }
+  expectCfgErrCode "P4 reachable pureFn cycle reaches later requirements"
+    .badRequirement p4
+  let n1 : SemanticProgramDataV1 := {
+    p2 with callables := #[{ unused with invariantSteps := some 3 }, literalRoot]
+  }
+  expectCfgErr "N1 unused pureFn with steps" n1
+  expectCfgInvariantPhase "N1 unused pureFn membership phase"
+    .invariantClosure .badCfg n1
+  let n2 : SemanticProgramDataV1 := {
+    p1 with callables := #[{ leaf with invariantSteps := none }, middle, root]
+  }
+  expectCfgErr "N2 transitive closure pureFn missing steps" n2
+  expectCfgInvariantPhase "N2 transitive membership phase"
+    .invariantClosure .badCfg n2
+  let badCfgRoot : CallableV1 := {
+    literalRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 99 #[])]
+        (.return_ (some 0))]
+  }
+  let n3Base ← programWithTypes "InvClosureMembershipN3CfgFirst"
+    cfgBoolTypes #[] #[{ unused with invariantSteps := some 3 }, badCfgRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 malformed PureCall before closure membership" .badCfg n3
+  expectCfgInvariantPhase "N3 generic CFG phase wins" .cfg .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n2 with callables := #[
+      { leaf with invariantSteps := none },
+      middle,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 membership before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 closure membership phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-membership"] }
+  }
+  expectCfgErr "N5 membership before requirements" n5
+  expectCfgInvariantPhase "N5 closure membership before requirements"
+    .invariantClosure .badCfg n5
 
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
@@ -6196,6 +6360,7 @@ def run : IO Unit := do
   testInvariantRootEmitProhibited
   testInvariantRootExternalCallProhibited
   testInvariantRootScheduleProhibited
+  testInvariantPureFnClosureMembership
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

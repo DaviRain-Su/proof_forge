@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 exact transitive pureFn invariant-closure membership metadata (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 §8 pureFn closure membership 与 `invariantSteps` some/none 对应，不实现 closure op allowlist、DAG、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantPureFnClosureMembership`，固定两跳 pureFn closure、双 invariant-root disjoint closure 与 unused pureFn-none 正向、reachable two-pureFn cycle 有界遍历至 later requirements、unused pureFn-some/transitive member-none 负向，以及 generic CFG→membership→intrinsic fuel→requirements phase precedence；实现前 N1 被 structure gate 接受；`proof-forge-one-slice-59` 指出的 every-root seeding 与 deferred-cycle termination 缺口已补齐。
+- Production：新增 bounded `computeInvariantClosureMembershipV1` worklist，从全部 invariant roots 沿 `Op.PureCall` 做 transitive reachability，每 callable 最多入队一次；post-CFG `validatePureFnInvariantClosureMembershipV1` 要求 pureFn 当且仅当 closure member 时携带 `invariantSteps=some`，失败 `.badCfg`；既有 root direct-op gate 与 intrinsic ceiling 顺序不变。
+- Verification：聚焦 production/test build、真实 harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-59` findings 已修复，`proof-forge-one-slice-60` 三路复审 approved。
+- Boundary：closure pureFn StateLoad/forbidden-op allowlist、DAG/back-edge rejection、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root direct Schedule prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Schedule` 加入既有 direct forbidden-op gate；不实现 argument serializability、transitive pureFn closure、exact steps、DAG、interpreter或产品接线。
