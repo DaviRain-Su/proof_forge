@@ -1684,6 +1684,23 @@ private def compareByteArrayLex (left right : ByteArray) : Ordering :=
     else .eq
   loop 0
 
+/-- Switch case constants are unique as `(typeId,valueBytes)` within one
+    terminator (SPEC §6). Canonical valueBytes have already been validated by
+    the phase-4 callable walk before CFG validation. Sort private typed keys
+    and compare adjacent entries, avoiding a quadratic scan while preserving
+    source case order in the public model. Target block/args are deliberately
+    absent from the key: they cannot disambiguate the same case constant. -/
+private def validateSwitchCaseValuesUnique (cases : Array SwitchCaseV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let keys := cases.map fun sc => (encodeU32le sc.typeId).append sc.valueBytes
+  let sorted := keys.qsort fun left right => compareByteArrayLex left right == .lt
+  let mut i : Nat := 1
+  while i < sorted.size do
+    if compareByteArrayLex sorted[i - 1]! sorted[i]! == .eq then
+      return ← err .badCfg
+    i := i + 1
+  pure ()
+
 private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     Except SemanticWireErrorV1 Unit := do
   unless id.toNat == index do
@@ -1693,7 +1710,8 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
 /-! ### CFG shape + reachability + block-param arity + loopBounds + EffectId + ValueId SSA def-table + dominance-of-use (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, Switch cases
-    nonempty, terminator target range, jump/branch/switch target arg arity ==
+    nonempty with unique typed canonical constants, terminator target range,
+    jump/branch/switch target arg arity ==
     target block params, total reachability from entry, loopBounds back-edge
     coverage, contiguous EffectId
     assignment, ValueId definition-table / exactly-once / use-existence, and
@@ -2893,8 +2911,9 @@ def checkOpTyping (instr : InstructionV1)
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
     + ValueId SSA def-table + dominance-of-use + def-site TypeId range +
     terminator typing + per-op type/result contract. Deterministic, bounded.
-    Steps a–e are CFG shape (including Switch cases nonempty), reachability,
-    arity, and loopBounds; step e.5 checks per-callable EffectIds; step f runs
+    Steps a–e are CFG shape (including Switch cases nonempty and typed-value
+    uniqueness), reachability, arity, and loopBounds; step e.5 checks
+    per-callable EffectIds; step f runs
     the ValueId SSA def-table
     (exactly-once def + use-existence); step g runs dominance-of-use;
     step h runs def-site TypeId range (`.badReference`); step i runs
@@ -2916,12 +2935,13 @@ private def validateCallableCfgShape (c : CallableV1)
     unless b.id.toNat == idx do
       return ← err .badCfg
     idx := idx + 1
-  -- b.5) Canonical Switch shape: zero cases must normalize to Jump rather
-  --   than retaining a second equivalent control-flow encoding (SPEC §6).
+  -- b.5/b.6) Canonical Switch shape: zero cases must normalize to Jump, and
+  --   typed canonical case constants must be unique within each Switch.
   for b in c.blocks do
     match b.terminator with
     | .switch _ cases _ =>
         if cases.isEmpty then return ← err .badCfg
+        validateSwitchCaseValuesUnique cases
     | _ => pure ()
   -- c) terminator target range
   for b in c.blocks do
@@ -3461,7 +3481,7 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
     Map-key (SPEC §5), canonical valueBytes (Constant /
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
-    + Switch cases nonempty
+    + Switch cases nonempty with unique `(typeId,valueBytes)` constants
     + jump/branch/switch target arg arity == target block params
     + loopBounds back-edge coverage
     + per-callable Emit/ExternalCall/Schedule EffectId contiguous assignment

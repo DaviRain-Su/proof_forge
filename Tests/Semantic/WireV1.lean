@@ -8,8 +8,9 @@
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
-  CFG shape/reachability, loop bounds, per-callable EffectId assignment,
-  ValueId SSA/use-existence/dominance, def-site TypeId range,
+  CFG shape/reachability (including Switch nonempty/typed-value uniqueness),
+  loop bounds, per-callable EffectId assignment, ValueId SSA/use-existence/
+  dominance, def-site TypeId range,
   block/terminator typing, and step-j per-op contracts
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
@@ -1457,6 +1458,134 @@ private def testCfgSwitchCasesNonempty : IO Unit := do
       #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
       (.switch 0 #[] none)]]
   expectCfgErr "N2 switch empty cases without default" n2
+
+/-- SPEC-SEM-WIRE-001 §6 Switch case values are unique as typed canonical
+    constants within each Switch. Different targets do not disambiguate the
+    same `(typeId,valueBytes)` key. -/
+private def testCfgSwitchCaseValueUniqueness : IO Unit := do
+  -- P1: distinct canonical Bool values are accepted.
+  let p1 ← programWithTypes "SwitchUniqueP1Bool" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 },
+            { typeId := 0, valueBytes := ByteArray.mk #[1],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "P1 switch distinct Bool cases" p1
+  -- P2: uniqueness is type-driven and also accepts distinct UInt8 values.
+  let p2 ← programWithTypes "SwitchUniqueP2UInt8" cfgUint8Types #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7)]
+        (.switch 0
+          #[{ typeId := 1, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 },
+            { typeId := 1, valueBytes := ByteArray.mk #[255],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "P2 switch distinct UInt8 cases" p2
+  -- N1: duplicate Bool value to the same target is invalid.
+  let n1 ← programWithTypes "SwitchUniqueN1SameTarget" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 },
+            { typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "N1 switch duplicate Bool same target" n1
+  -- N2: different targets still cannot disambiguate the same case value.
+  let n2 ← programWithTypes "SwitchUniqueN2DifferentTargets" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[1],
+              target := cfgJumpTarget 1 },
+            { typeId := 0, valueBytes := ByteArray.mk #[1],
+              target := cfgJumpTarget 2 }]
+          none),
+      cfgBlock 1 (.return_ none),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgErr "N2 switch duplicate Bool different targets" n2
+  -- N3: duplicate UInt8 canonical values are likewise invalid.
+  let n3 ← programWithTypes "SwitchUniqueN3UInt8" cfgUint8Types #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 9)]
+        (.switch 0
+          #[{ typeId := 1, valueBytes := ByteArray.mk #[7],
+              target := cfgJumpTarget 1 },
+            { typeId := 1, valueBytes := ByteArray.mk #[7],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErr "N3 switch duplicate UInt8" n3
+  -- P3: uniqueness resets for each Switch; the same typed key may appear in
+  -- two distinct reachable terminators within one callable.
+  let p3 ← programWithTypes "SwitchUniqueP3PerSwitch" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 1 }]
+          (some (cfgJumpTarget 3))),
+      cfgBlockInstrs 1
+        #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.switch 1
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTarget 2 }]
+          (some (cfgJumpTarget 2))),
+      cfgBlock 2 (.return_ none),
+      cfgBlock 3 (.return_ none)
+    ]]
+  expectCfgOk "P3 switch uniqueness resets per terminator" p3
+  -- N4: target args do not disambiguate duplicate typed case values. Both
+  -- args are defined, dominate the Switch, and exactly match the target param.
+  let n4 ← programWithTypes "SwitchUniqueN4DifferentArgs" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+          cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTargetWithArgs 1 #[1] },
+            { typeId := 0, valueBytes := ByteArray.mk #[0],
+              target := cfgJumpTargetWithArgs 1 #[2] }]
+          none),
+      cfgBlockWithParams 1 #[cfgBoolParam 3] (.return_ (some 3))
+    ]]
+  expectCfgErr "N4 switch duplicate Bool different target args" n4
+  -- N5: canonical value validation owns precedence over duplicate detection.
+  -- Bool byte 2 is malformed, so both public paths return `.nonCanonical`.
+  let n5 ← programWithTypes "SwitchUniqueN5MalformedDuplicate" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+        (.switch 0
+          #[{ typeId := 0, valueBytes := ByteArray.mk #[2],
+              target := cfgJumpTarget 1 },
+            { typeId := 0, valueBytes := ByteArray.mk #[2],
+              target := cfgJumpTarget 1 }]
+          none),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgErrCode "N5 malformed duplicate before uniqueness" .nonCanonical n5
 
 private def testCfgBlockParamArity : IO Unit := do
   -- Positive 1: jump to a 2-param block passing 2 args.
@@ -4056,6 +4185,7 @@ def run : IO Unit := do
   testValueBytesTransportRegression
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
+  testCfgSwitchCaseValueUniqueness
   testCfgBlockParamArity
   testCfgLoopBounds
   testCfgValueIdSsa

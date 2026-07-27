@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 Term.Switch typed case-value uniqueness (CFG step b.6, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 Switch case typed canonical value uniqueness，不实现 source-arm normalization/reference runtime、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testCfgSwitchCaseValueUniqueness`，驱动真实 structure+encode 双路径：distinct canonical Bool/UInt8 cases 正向；duplicate Bool same target、duplicate Bool different targets、duplicate UInt8 负向。实现前真实 harness 在 duplicate Bool same target 期望 `.badCfg` 处失败。首次只读 review 发现 per-Switch reset、target args exclusion 与 malformed-value phase precedence 未锁死；补充同 callable 两个 reachable Switch 重用同 typed key 正向、同 target 不同合法 args duplicate 负向，以及 duplicate malformed Bool 必须先 `.nonCanonical`。
+- Production：新增 bounded `validateSwitchCaseValuesUnique`，为每项构造 `u32le(typeId) ++ valueBytes` typed raw key，在 private array 上 qsort 并比较相邻项；避免 quadratic scan且不改变 public case source order。target/args 明确不进入 key；`validateCallableCfgShape` step b.6 在 nonempty 后、target range 前调用，duplicate 返回 `.badCfg`。canonical valueBytes 已由此前 phase-4 callable walk 先验证。
+- Verification：首次三路只读 review 仅发现 per-Switch reset、target args exclusion 与 malformed-value phase precedence 测试缺口；补齐后复审三路一致 approved、无 findings。`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 Switch normalized source-arm ordering、normalizer或runtime branch semantics；TypeKey、provenance、product wiring、ExternalCall/Schedule args serializability、ContextRead/Commit exact contracts及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 Term.Switch nonempty canonical cases (CFG step b.5, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只落实 SPEC-SEM-WIRE-001 §6 的 `Term.Switch.cases` nonempty canonical shape，不实现 normalizer、不接线产品、不改 wire/codec/schema。
