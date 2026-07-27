@@ -4088,6 +4088,90 @@ private def testInvariantRootEmitProhibited : IO Unit := do
   }
   expectCfgErr "N9 invariant Emit before requirements" n9
 
+/-- SPEC §8 bounded invariant-root direct-op slice for ExternalCall. Generic
+    EffectId, callee-shape, SSA, and void-result checks run first; argument
+    serializability and transitive pureFn closure remain deferred. -/
+private def testInvariantRootExternalCallProhibited : IO Unit := do
+  let callee ← match parseQualifiedName #["mod", "callee"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let shortCallee ← match parseQualifiedName #["callee"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let forbiddenRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.externalCall 0 callee #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 4
+  }
+  let n1Base ← programWithTypes "InvCallN1Root" cfgBoolTypes #[] #[forbiddenRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct ExternalCall forbidden" n1
+  expectCfgInvariantPhase "N1 ExternalCall closure phase"
+    .invariantClosure .badCfg n1
+  let entryCall : CallableV1 := {
+    forbiddenRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p1 ← programWithTypes "InvCallP1Entry" cfgBoolTypes #[] #[entryCall]
+  expectCfgOk "P1 entry direct ExternalCall remains allowed" p1
+  let badResultRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr (some (cfgValueDef 1)) (.externalCall 0 callee #[])]
+        (.return_ (some 0))]
+  }
+  let n2Base ← programWithTypes "InvCallN2Result" cfgBoolTypes #[] #[badResultRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 ExternalCall result before closure" .badCfg n2
+  expectCfgInvariantPhase "N2 ExternalCall result phase wins" .cfg .badCfg n2
+  let badEffectRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.externalCall 1 callee #[])]
+        (.return_ (some 0))]
+  }
+  let n3Base ← programWithTypes "InvCallN3Effect" cfgBoolTypes #[] #[badEffectRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 ExternalCall EffectId before closure" .badCfg n3
+  expectCfgInvariantPhase "N3 ExternalCall EffectId phase wins" .cfg .badCfg n3
+  let badCalleeRoot : CallableV1 := {
+    forbiddenRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.externalCall 0 shortCallee #[])]
+        (.return_ (some 0))]
+  }
+  let n4Base ← programWithTypes "InvCallN4Callee" cfgBoolTypes #[] #[badCalleeRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 ExternalCall callee before closure" .badCfg n4
+  expectCfgInvariantPhase "N4 ExternalCall callee phase wins" .cfg .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N5 ExternalCall before fuel" .badCfg n5
+  expectCfgInvariantPhase "N5 ExternalCall closure phase wins"
+    .invariantClosure .badCfg n5
+  let n6 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-external-call"] }
+  }
+  expectCfgErr "N6 ExternalCall before requirements" n6
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -5990,6 +6074,7 @@ def run : IO Unit := do
   testInvariantRootContextReadProhibited
   testInvariantRootCommitProhibited
   testInvariantRootEmitProhibited
+  testInvariantRootExternalCallProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

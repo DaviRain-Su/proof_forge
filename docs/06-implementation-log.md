@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-root direct ExternalCall prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.ExternalCall` 加入既有 direct forbidden-op gate；不实现 argument serializability、transitive pureFn closure、Schedule、exact steps、DAG、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantRootExternalCallProhibited`，固定 entry direct ExternalCall 双路径正向、invariant direct ExternalCall 双路径负向、void-result/EffectId/callee-shape generic failures 先于 closure，以及 closure 先于 fuel/requirements；实现前 N1 被 structure gate 接受。
+- Production：扩展 bounded `validateInvariantRootDirectOpsV1`，按 invariant callable/block/instruction source order拒绝 direct `.externalCall`；既有 StateStore/ContextRead/Commit/Emit、StateLoad 与稳定 phase order 不变，失败仍为 `.badCfg`。
+- Verification：聚焦 production/test build、真实 harness 与 `just dev-check` 已通过；SBOM 已刷新；`proof-forge-one-slice-56` 三路只读 review 一致 approved、无 findings；`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：ExternalCall argument serializability、transitive pureFn closure、Schedule direct restriction、exact steps、DAG、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root direct Emit prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Emit` 加入既有 direct forbidden-op gate；不实现 transitive pureFn closure、ExternalCall/Schedule、exact steps、DAG、interpreter或产品接线。
