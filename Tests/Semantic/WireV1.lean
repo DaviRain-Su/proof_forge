@@ -2,10 +2,12 @@
   Tests.Semantic.WireV1 — focused engineering suite for D2-06 wire skeleton.
 
   Pins schema/magic, empty/minimal root round-trip, hash identity, structure
-  gate (id/index, shallow refs, type-shape/FieldSpec/Map-key, requirements
-  domain/order/predicates/enumContains), nesting fuel maxNesting=256,
-  provenance envelope-only stub + validate always badProvenance, Digest
-  raw-32 wire, and invalid-carrier invariants projection.
+  gate (id/index, shallow refs, type-shape/FieldSpec/Map-key, canonical
+  valueBytes for Constant/Op.Literal/SwitchCase, requirements domain/order/
+  predicates/enumContains), nesting fuel maxNesting=256, provenance
+  envelope-only stub + validate always badProvenance, Digest raw-32 wire,
+  and invalid-carrier invariants projection.
+  Not yet: CFG/dominance, TypeKey, provenance join, normalizer, product wire.
   Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -769,6 +771,342 @@ private def testTypeShapeRegressionTransportAndNesting : IO Unit := do
   expectErr "encode gates named bool" .badType
     (encodeSemanticProgramDataV1 badNamed)
 
+/-! ### Canonical valueBytes (SPEC §5) -/
+
+private def u32le (n : Nat) : ByteArray :=
+  encodeU32le (UInt32.ofNat n)
+
+private def leBytesFromNat (n : Nat) (len : Nat) : ByteArray := Id.run do
+  let mut out := ByteArray.emptyWithCapacity len
+  let mut v := n
+  for _ in [:len] do
+    out := out.push (UInt8.ofNat (v % 256))
+    v := v / 256
+  pure out
+
+private def beBytesToNat (bytes : ByteArray) : Nat := Id.run do
+  let mut n : Nat := 0
+  for i in [:bytes.size] do
+    n := n * 256 + (bytes.get! i).toNat
+  pure n
+
+private def constOf (id : ConstantIdV1) (name : String) (typeId : TypeIdV1)
+    (valueBytes : ByteArray) : ConstantV1 :=
+  { id, name, typeId, valueBytes }
+
+private def programWithTypes (name : String) (types : Array TypeDeclV1)
+    (constants : Array ConstantV1 := #[])
+    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
+  let data0 ← emptyProgram name
+  pure { data0 with types, constants, callables }
+
+private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "litFn"
+    params := #[]
+    result := { typeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId }
+        op := .literal typeId valueBytes
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+private def minimalCallableSwitch (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "swFn"
+    params := #[]
+    result := { typeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[]
+      terminator := .switch 0 #[{
+        typeId
+        valueBytes
+        target := { blockId := 0, args := #[] }
+      }] none
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+private def expectValueOk (label : String) (data : SemanticProgramDataV1) : IO Unit := do
+  expectOk s!"{label} structure" (validateSemanticProgramStructureV1 data)
+  let bytes ← expectOk s!"{label} encode" (encodeSemanticProgramDataV1 data)
+  let _ ← expectOk s!"{label} carrier" (decodeSemanticProgramV1 bytes)
+
+private def expectValueNonCanonical (label : String) (data : SemanticProgramDataV1) :
+    IO Unit := do
+  expectErr s!"{label} structure" .nonCanonical
+    (validateSemanticProgramStructureV1 data)
+  expectErr s!"{label} encode" .nonCanonical
+    (encodeSemanticProgramDataV1 data)
+
+private def testValueBytesPositives : IO Unit := do
+  -- Bool true/false constants
+  let boolTypes : Array TypeDeclV1 := #[{ id := 0, name := none, shape := .bool }]
+  let boolFalse ← programWithTypes "VBBoolF" boolTypes
+    #[constOf 0 "f" 0 (ByteArray.mk #[0])]
+  let boolTrue ← programWithTypes "VBBoolT" boolTypes
+    #[constOf 0 "t" 0 (ByteArray.mk #[1])]
+  expectValueOk "bool false" boolFalse
+  expectValueOk "bool true" boolTrue
+  -- UInt8 / UInt64
+  let u8 ← programWithTypes "VBU8"
+    #[{ id := 0, name := none, shape := .uint 8 }]
+    #[constOf 0 "u" 0 (ByteArray.mk #[0x2a])]
+  let u64 ← programWithTypes "VBU64"
+    #[{ id := 0, name := none, shape := .uint 64 }]
+    #[constOf 0 "u" 0 (ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0])]
+  expectValueOk "uint8" u8
+  expectValueOk "uint64" u64
+  -- Int8 negative (-1 = 0xFF)
+  let i8 ← programWithTypes "VBI8"
+    #[{ id := 0, name := none, shape := .int 8 }]
+    #[constOf 0 "n" 0 (ByteArray.mk #[0xff])]
+  expectValueOk "int8 neg" i8
+  -- Unit empty
+  let unitP ← programWithTypes "VBUnit"
+    #[{ id := 0, name := none, shape := .unit }]
+    #[constOf 0 "u" 0 ByteArray.empty]
+  expectValueOk "unit" unitP
+  -- Bytes length 0 and exact N=3
+  let bytes0 ← programWithTypes "VBBytes0"
+    #[{ id := 0, name := none, shape := .bytes 0 }]
+    #[constOf 0 "b" 0 ByteArray.empty]
+  let bytes3 ← programWithTypes "VBBytes3"
+    #[{ id := 0, name := none, shape := .bytes 3 }]
+    #[constOf 0 "b" 0 (ByteArray.mk #[1, 2, 3])]
+  expectValueOk "bytes0" bytes0
+  expectValueOk "bytes3" bytes3
+  -- Option none / some Bool
+  let optTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  let optNone ← programWithTypes "VBOptN" optTypes
+    #[constOf 0 "n" 1 (ByteArray.mk #[0])]
+  let optSome ← programWithTypes "VBOptS" optTypes
+    #[constOf 0 "s" 1 (ByteArray.mk #[1, 1])]
+  expectValueOk "option none" optNone
+  expectValueOk "option some bool" optSome
+  -- bn254 Field 0 and p-1
+  let fieldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 }]
+  let field0 ← programWithTypes "VBField0" fieldTypes
+    #[constOf 0 "z" 0 (ByteArray.mk (Array.replicate 32 (0 : UInt8)))]
+  let p := beBytesToNat bn254FrModulusBEV1
+  let fieldPm1 ← programWithTypes "VBFieldPm1" fieldTypes
+    #[constOf 0 "m" 0 (leBytesFromNat (p - 1) 32)]
+  expectValueOk "field 0" field0
+  expectValueOk "field p-1" fieldPm1
+  -- named Struct of two UInt8
+  let structTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    {
+      id := 1
+      name := some "Pair"
+      shape := .struct #[
+        { name := "a", typeId := 0 },
+        { name := "b", typeId := 0 }
+      ]
+    }
+  ]
+  let structP ← programWithTypes "VBStruct" structTypes
+    #[constOf 0 "p" 1 (ByteArray.mk #[0x10, 0x20])]
+  expectValueOk "struct two u8" structP
+  -- Enum variant 0 empty + variant with UInt8 payload
+  let enumTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    {
+      id := 1
+      name := some "E"
+      shape := .enum #[
+        { name := "A", payloadTypes := #[] },
+        { name := "B", payloadTypes := #[0] }
+      ]
+    }
+  ]
+  let enum0 ← programWithTypes "VBEnum0" enumTypes
+    #[constOf 0 "a" 1 (u32le 0)]
+  let enum1 ← programWithTypes "VBEnum1" enumTypes
+    #[constOf 0 "b" 1 ((u32le 1).append (ByteArray.mk #[0x99]))]
+  expectValueOk "enum v0 empty" enum0
+  expectValueOk "enum v1 payload" enum1
+  -- Map Bool→UInt8 empty and one sorted entry (false→7)
+  let mapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .map 0 1 }
+  ]
+  let mapEmpty ← programWithTypes "VBMapE" mapTypes
+    #[constOf 0 "m" 2 (u32le 0)]
+  let mapOneBytes :=
+    (((((u32le 1).append (u32le 1)).append (ByteArray.mk #[0])).append
+      (u32le 1)).append (ByteArray.mk #[7]))
+  let mapOne ← programWithTypes "VBMap1" mapTypes
+    #[constOf 0 "m" 2 mapOneBytes]
+  expectValueOk "map empty" mapEmpty
+  expectValueOk "map one entry" mapOne
+  -- Array UInt8 length 2
+  let arrTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .array 0 2 }
+  ]
+  let arrP ← programWithTypes "VBArr" arrTypes
+    #[constOf 0 "a" 1 (ByteArray.mk #[3, 4])]
+  expectValueOk "array u8x2" arrP
+  -- Op.Literal shares decoder
+  let litProg ← programWithTypes "VBLit" boolTypes #[]
+    #[minimalCallableLiteral 0 (ByteArray.mk #[1])]
+  expectValueOk "op.literal bool" litProg
+  -- SwitchCase shares decoder
+  let swProg ← programWithTypes "VBSw" boolTypes #[]
+    #[minimalCallableSwitch 0 (ByteArray.mk #[0])]
+  expectValueOk "switch case bool" swProg
+
+private def testValueBytesNegatives : IO Unit := do
+  let boolTypes : Array TypeDeclV1 := #[{ id := 0, name := none, shape := .bool }]
+  -- Bool 02
+  let badBool ← programWithTypes "VBBadBool" boolTypes
+    #[constOf 0 "b" 0 (ByteArray.mk #[2])]
+  expectValueNonCanonical "bool 02" badBool
+  -- UInt64 wrong length
+  let badU64 ← programWithTypes "VBBadU64"
+    #[{ id := 0, name := none, shape := .uint 64 }]
+    #[constOf 0 "u" 0 (ByteArray.mk #[1, 2, 3])]
+  expectValueNonCanonical "uint64 short" badU64
+  -- Bytes N wrong length
+  let badBytes ← programWithTypes "VBBadBytes"
+    #[{ id := 0, name := none, shape := .bytes 2 }]
+    #[constOf 0 "b" 0 (ByteArray.mk #[1])]
+  expectValueNonCanonical "bytes wrong len" badBytes
+  -- Option marker 02
+  let optTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  let badOpt ← programWithTypes "VBBadOpt" optTypes
+    #[constOf 0 "o" 1 (ByteArray.mk #[2])]
+  expectValueNonCanonical "option marker 02" badOpt
+  -- Field ≥ modulus (p itself as LE)
+  let fieldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 }]
+  let p := beBytesToNat bn254FrModulusBEV1
+  let badField ← programWithTypes "VBBadField" fieldTypes
+    #[constOf 0 "f" 0 (leBytesFromNat p 32)]
+  expectValueNonCanonical "field >= p" badField
+  -- Map unsorted keys (true before false)
+  let mapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .map 0 1 }
+  ]
+  -- true-before-false is reverse unsigned-lex order
+  let unsorted :=
+    (((((((((u32le 2).append (u32le 1)).append (ByteArray.mk #[1])).append
+      (u32le 1)).append (ByteArray.mk #[1])).append (u32le 1)).append
+      (ByteArray.mk #[0])).append (u32le 1)).append (ByteArray.mk #[2]))
+  let badUnsorted ← programWithTypes "VBMapUnsorted" mapTypes
+    #[constOf 0 "m" 2 unsorted]
+  expectValueNonCanonical "map unsorted" badUnsorted
+  -- Map duplicate keys
+  let dupKeys :=
+    (((((((((u32le 2).append (u32le 1)).append (ByteArray.mk #[0])).append
+      (u32le 1)).append (ByteArray.mk #[1])).append (u32le 1)).append
+      (ByteArray.mk #[0])).append (u32le 1)).append (ByteArray.mk #[2]))
+  let badDup ← programWithTypes "VBMapDup" mapTypes
+    #[constOf 0 "m" 2 dupKeys]
+  expectValueNonCanonical "map dup keys" badDup
+  -- Map keyLen not exact for key type (keyLen=2 for Bool)
+  let badKeyLen :=
+    (((((u32le 1).append (u32le 2)).append (ByteArray.mk #[0, 0])).append
+      (u32le 1)).append (ByteArray.mk #[7]))
+  let badKL ← programWithTypes "VBMapKL" mapTypes
+    #[constOf 0 "m" 2 badKeyLen]
+  expectValueNonCanonical "map keyLen not exact" badKL
+  -- Enum OOB variant
+  let enumTypes : Array TypeDeclV1 := #[{
+    id := 0
+    name := some "E"
+    shape := .enum #[{ name := "A", payloadTypes := #[] }]
+  }]
+  let badEnum ← programWithTypes "VBEnumOOB" enumTypes
+    #[constOf 0 "e" 0 (u32le 1)]
+  expectValueNonCanonical "enum OOB" badEnum
+  -- trailing extra byte on otherwise-valid Bool true
+  let trailing ← programWithTypes "VBTrail" boolTypes
+    #[constOf 0 "b" 0 (ByteArray.mk #[1, 0])]
+  expectValueNonCanonical "trailing extra" trailing
+  -- truncated payload (empty for Bool)
+  let trunc ← programWithTypes "VBTrunc" boolTypes
+    #[constOf 0 "b" 0 ByteArray.empty]
+  expectValueNonCanonical "truncated bool" trunc
+  -- Literal + SwitchCase negative paths
+  let badLit ← programWithTypes "VBBadLit" boolTypes #[]
+    #[minimalCallableLiteral 0 (ByteArray.mk #[2])]
+  expectValueNonCanonical "literal bad bool" badLit
+  let badSw ← programWithTypes "VBBadSw" boolTypes #[]
+    #[minimalCallableSwitch 0 (ByteArray.mk #[2])]
+  expectValueNonCanonical "switch bad bool" badSw
+
+private def testValueBytesTransportRegression : IO Unit := do
+  -- Hand-assemble transport with garbage constant valueBytes; structure-free
+  -- decodeSemanticProgramDataV1 must accept it. Structure/encode reject.
+  let data0 ← emptyProgram "VBTransport"
+  let types : Array TypeDeclV1 := #[{ id := 0, name := none, shape := .bool }]
+  let garbage : ByteArray := ByteArray.mk #[0x02, 0xff]
+  let constants : Array ConstantV1 := #[constOf 0 "g" 0 garbage]
+  let qnB ← expectOk "qn" (encodeQualifiedName data0.qualifiedName)
+  let typesB ← expectOk "types" (encodeArray encodeTypeDeclV1 types)
+  let constantsB ← expectOk "consts" (encodeArray encodeConstantV1 constants)
+  let emptyArr ← expectOk "empty arr" (encodeArray encodeStateDeclV1 #[])
+  let emptyEvents ← expectOk "empty events" (encodeArray encodeEventDeclV1 #[])
+  let emptyErrors ← expectOk "empty errors" (encodeArray encodeErrorDeclV1 #[])
+  let emptyCallables ← expectOk "empty callables" (encodeArray encodeCallableV1 #[])
+  let emptyInvariants ← expectOk "empty inv" (encodeArray encodeInvariantDeclV1 #[])
+  let reqB ← expectOk "reqs" (encodeProgramRequirementsV1 { items := #[] })
+  let body ← expectOk "body" (encodeTagged "SemanticProgram.Data" #[
+    qnB, typesB, constantsB, emptyArr, emptyEvents, emptyErrors,
+    emptyCallables, emptyInvariants, reqB
+  ])
+  let magic := semanticProgramMagicV1.toUTF8.push 0
+  let bytes := magic.append body
+  let decoded ← expectOk "transport garbage valueBytes"
+    (decodeSemanticProgramDataV1 bytes)
+  expect (decoded.constants.size == 1) "constant present on transport"
+  match decoded.constants[0]? with
+  | some c => expect (c.valueBytes == garbage) "garbage preserved"
+  | none => throw <| IO.userError "expected constant at 0"
+  expectErr "structure rejects garbage valueBytes" .nonCanonical
+    (validateSemanticProgramStructureV1 decoded)
+  expectErr "encode rejects garbage valueBytes" .nonCanonical
+    (encodeSemanticProgramDataV1 decoded)
+  -- Empty/minimal still green; provenance still always bad
+  let empty ← emptyProgram "VBEmptyStill"
+  expectValueOk "empty still" empty
+  let p ← emptyProvenance "VBEmptyStill"
+  let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
+  let enc ← expectOk "enc empty" (encodeSemanticProgramDataV1 empty)
+  let carrier ← expectOk "carrier empty" (decodeSemanticProgramV1 enc)
+  expectErr "provenance still bad" .badProvenance
+    (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -787,6 +1125,9 @@ def run : IO Unit := do
   testTypeShapePositives
   testTypeShapeNegatives
   testTypeShapeRegressionTransportAndNesting
+  testValueBytesPositives
+  testValueBytesNegatives
+  testValueBytesTransportRegression
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

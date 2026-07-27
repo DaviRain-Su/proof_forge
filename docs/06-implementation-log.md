@@ -12,6 +12,24 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 canonical valueBytes structure subset
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 type-shape/FieldSpec/Map-key 之后、
+  requirements 之前增加 SPEC-SEM-WIRE-001 §5 canonical `valueBytes` 校验：
+  Constant / `Op.Literal` / `SwitchCase` 共享 type-driven decode/re-encode
+  （Bool/UInt/Int/Principal/Unit/Bytes/Array/Map/Option/Field/Struct/Enum；
+  full-consume + encode(decode)==bytes → else `.nonCanonical`；Map keys
+  unsigned-lex unique ascending；Field LE width value `<` modulus；value nesting
+  fuel=`maxNesting`）；`decodeSemanticProgramDataV1` 仍 structure-free transport；
+  `Tests/Semantic/WireV1.lean` 增正/负/Literal·SwitchCase 与 transport garbage
+  valueBytes regression；更新 `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_tests && lake env .lake/build/bin/proof-forge-next-tests`；
+  `just sbom-package-files-refresh`；`git diff --check`；`just docs-check`；`just ci`。
+- Results：聚焦 suite 与 ordinary product CI 通过；不记 formal TASK/TST/EV。
+- Limitations：仍无 CFG/dominance/TypeKey/provenance join/normalizer/product wire；
+  不删 alpha SemanticIR。
+
 ## 2026-07-27 — D2-06 type-shape / FieldSpec / Map-key structure subset
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 table id/index 与 shallow TypeId/

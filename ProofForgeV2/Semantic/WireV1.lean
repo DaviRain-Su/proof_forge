@@ -3,7 +3,8 @@ import ProofForgeV2.Core.Unicode
 
 /-!
   ProofForgeV2.Semantic.WireV1 — closed SemanticProgramV1 model + root wire codec
-  (SPEC-SEM-WIRE-001 engineering subset: D2-06 wire + first structural tables/reqs).
+  (SPEC-SEM-WIRE-001 engineering subset: D2-06 wire + structural tables/reqs +
+  canonical valueBytes).
 
   Owns the SemanticProgramV1 / SemanticProvenanceV1 data model and strict
   little-endian tagged codecs. Does not import Source AST modules, Target, or
@@ -17,11 +18,12 @@ import ProofForgeV2.Core.Unicode
     when `nesting < maxNesting` (=256), leave after body). Non-tagged scalars
     (u32/string/Digest/arrays of scalars) do not consume fuel. Current model
     has no recursive TypeShape-on-wire; fuel still applies on the shared path.
+    Recursive **valueBytes** shapes (Array/Map/Option/Struct/Enum) also use
+    fuel capped at `maxNesting` (fail closed with `.limitExceeded`).
   * Structural subset (SPEC §4.5 / §5 / §6 / §6.2 + CAP SupportPredicate rank):
     - table `decl.id == array index` (`.duplicate` on mismatch)
     - shallow declaration-record TypeId / CallableId range (`.badReference`)
-    - type-shape / FieldSpec / Map-key (SPEC §5), after shallow refs and
-      before requirements:
+    - type-shape / FieldSpec / Map-key (SPEC §5), after shallow refs:
         · `name=some` iff shape is `.struct`/`.enum`; other shapes
           require `name=none` (`.badType`)
         · struct fields / enum variants nonempty (`.badType`)
@@ -34,12 +36,17 @@ import ProofForgeV2.Core.Unicode
         · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of
           recursively legal keys; reject Option/Array/Map/Enum/Unit/Field
           (`.badType`; recursion fuel = types.size)
+    - canonical `valueBytes` (SPEC §5), after type-shape and before
+      requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
+      decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
+      (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
   * API contracts (structure vs transport):
     - `decodeSemanticProgramDataV1`: transport/scalar only (magic, tags,
-      limits/nesting, trailing). **No** structure gate.
+      limits/nesting, trailing). **No** structure gate (garbage valueBytes
+      accepted on transport).
     - `encodeSemanticProgramDataV1`: structure gate **before** any program
       bytes (`validateSemanticProgramStructureV1`).
     - `decodeSemanticProgramV1`: data decode → structure-gated re-encode →
@@ -57,9 +64,9 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: CFG/dominance, full TypeKey anonymous ranking/interning,
-    constant/literal valueBytes, provenance inventory join,
-    ProgramV1 normalizer, product CheckV1/compile/CLI wiring.
+  * Not yet: CFG/dominance/ValueId SSA, full TypeKey anonymous ranking/
+    interning, provenance inventory join, ProgramV1 normalizer, product
+    CheckV1/compile/CLI wiring, op type contracts beyond valueBytes.
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -84,6 +91,10 @@ def maxOriginsPerBinding : Nat := 100000
 def maxTagAsciiBytes : Nat := 64
 /-- SPEC §5 Bytes/Array length upper bound. -/
 def maxTypeLengthV1 : Nat := 4096
+/-- SPEC §3 canonical valueBytes size upper bound (16 MiB). -/
+def maxCanonicalValueBytes : Nat := 16 * 1024 * 1024
+/-- SPEC §3 Map entry count upper bound (same as array elements). -/
+def maxMapEntriesV1 : Nat := maxArrayElements
 
 /-- v1 Field catalog sole entry id (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
@@ -1620,14 +1631,16 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     return ← err .limitExceeded
   pure ()
 
-/-! ### Structural validation subset (tables / shallow refs / type-shape / requirements)
+/-! ### Structural validation subset
+    (tables / shallow refs / type-shape / valueBytes / requirements)
 
     Encode-before-output, `validateSemanticProgramV1`, and the re-encode leg of
     `decodeSemanticProgramV1` require this subset. `decodeSemanticProgramDataV1`
     does not (transport only). See module header API contracts.
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
-    declaration refs → type-shape/FieldSpec/Map-key → requirements.
+    declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
+    (Constant / Op.Literal / SwitchCase) → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -1770,6 +1783,228 @@ private def validateTypesStructureV1 (types : Array TypeDeclV1) :
     validateTypeDeclShapeV1 decl types
   pure ()
 
+/-! ### Canonical valueBytes (SPEC-SEM-WIRE-001 §5)
+
+    Type-driven encode/decode/validate shared by Constant, Op.Literal, and
+    SwitchCase. Transport decode does not call this. Short/leftover/bad marker/
+    range failures are `.nonCanonical` (not `.truncated`/`.trailingBytes`/
+    `.badType` when the TypeId/shape is legal). OOR TypeId → `.badReference`.
+    Nesting/size/map-count limits → `.limitExceeded`.
+-/
+
+private def takeByteNC (c : Cursor) :
+    Except SemanticWireErrorV1 (UInt8 × Cursor) := do
+  unless remaining c ≥ 1 do
+    return ← err .nonCanonical
+  pure (c.input.get! c.offset, ⟨c.input, c.offset + 1, c.nesting⟩)
+
+private def takeBytesNC (c : Cursor) (n : Nat) :
+    Except SemanticWireErrorV1 (ByteArray × Cursor) := do
+  unless remaining c ≥ n do
+    return ← err .nonCanonical
+  pure (c.input.extract c.offset (c.offset + n), ⟨c.input, c.offset + n, c.nesting⟩)
+
+private def takeU32leNC (c : Cursor) :
+    Except SemanticWireErrorV1 (UInt32 × Cursor) := do
+  let (b0, c) ← takeByteNC c
+  let (b1, c) ← takeByteNC c
+  let (b2, c) ← takeByteNC c
+  let (b3, c) ← takeByteNC c
+  let v := b0.toNat + b1.toNat * 256 + b2.toNat * 65536 + b3.toNat * 16777216
+  pure (UInt32.ofNat v, c)
+
+private def beBytesToNatV1 (bytes : ByteArray) : Nat := Id.run do
+  let mut n : Nat := 0
+  for i in [:bytes.size] do
+    n := n * 256 + (bytes.get! i).toNat
+  pure n
+
+private def leBytesToNatV1 (bytes : ByteArray) : Nat := Id.run do
+  let mut n : Nat := 0
+  let mut place : Nat := 1
+  for i in [:bytes.size] do
+    n := n + (bytes.get! i).toNat * place
+    place := place * 256
+  pure n
+
+/-- `ceil(bitLength(p)/8)` for Field value width (SPEC §5). -/
+private def fieldValueByteLengthV1 (modulusBE : ByteArray) : Nat :=
+  let p := beBytesToNatV1 modulusBE
+  if p == 0 then 0
+  else
+    let bitLength := Nat.log2 p + 1
+    (bitLength + 7) / 8
+
+/-- Decode one type-driven value and return its re-encoded canonical bytes.
+    Fuel bounds recursive shapes (Array/Map/Option/Struct/Enum). -/
+private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
+    (fuel : Nat) → Decoder ByteArray
+  | 0 => fun _ => err .limitExceeded
+  | fuel + 1 => fun c => do
+    match types[typeId.toNat]? with
+    | none => err .badReference
+    | some decl =>
+      match decl.shape with
+      | .bool => do
+          let (b, c) ← takeByteNC c
+          unless b == 0 || b == 1 do
+            return ← err .nonCanonical
+          pure (encodeU8 b, c)
+      | .uint width => do
+          let n := width.toNat / 8
+          let (raw, c) ← takeBytesNC c n
+          pure (raw, c)
+      | .int width => do
+          let n := width.toNat / 8
+          let (raw, c) ← takeBytesNC c n
+          pure (raw, c)
+      | .principal => do
+          let (lenU, c) ← takeU32leNC c
+          let len := lenU.toNat
+          unless 1 ≤ len && len ≤ maxTypeLengthV1 do
+            return ← err .nonCanonical
+          let (bodyBytes, c) ← takeBytesNC c len
+          pure ((encodeU32le lenU).append bodyBytes, c)
+      | .unit =>
+          pure (ByteArray.empty, c)
+      | .bytes length => do
+          let (raw, c) ← takeBytesNC c length.toNat
+          pure (raw, c)
+      | .array element length => do
+          let mut out := ByteArray.empty
+          let mut c := c
+          for _ in [:length.toNat] do
+            let (chunk, c') ← decodeAndReencodeValueBytesV1 types element fuel c
+            out := out.append chunk
+            c := c'
+          pure (out, c)
+      | .map keyType valueType => do
+          let (countU, c) ← takeU32leNC c
+          let count := countU.toNat
+          unless count ≤ maxMapEntriesV1 do
+            return ← err .limitExceeded
+          let mut out := encodeU32le countU
+          let mut c := c
+          let mut prevKey? : Option ByteArray := none
+          for _ in [:count] do
+            let (keyLenU, c1) ← takeU32leNC c
+            let keyLen := keyLenU.toNat
+            let (keyBytes, c2) ← takeBytesNC c1 keyLen
+            let (keyRe, keyC) ←
+              decodeAndReencodeValueBytesV1 types keyType fuel (start keyBytes)
+            unless remaining keyC == 0 do
+              return ← err .nonCanonical
+            unless keyRe == keyBytes do
+              return ← err .nonCanonical
+            unless keyBytes.size == keyLen do
+              return ← err .nonCanonical
+            match prevKey? with
+            | none => pure ()
+            | some prev =>
+              match compareByteArrayLex prev keyBytes with
+              | .lt => pure ()
+              | .eq | .gt => return ← err .nonCanonical
+            prevKey? := some keyBytes
+            let (valLenU, c3) ← takeU32leNC c2
+            let valLen := valLenU.toNat
+            let (valBytes, c4) ← takeBytesNC c3 valLen
+            let (valRe, valC) ←
+              decodeAndReencodeValueBytesV1 types valueType fuel (start valBytes)
+            unless remaining valC == 0 do
+              return ← err .nonCanonical
+            unless valRe == valBytes do
+              return ← err .nonCanonical
+            unless valBytes.size == valLen do
+              return ← err .nonCanonical
+            out :=
+              ((out.append (encodeU32le keyLenU)).append keyBytes).append
+                ((encodeU32le valLenU).append valBytes)
+            c := c4
+          pure (out, c)
+      | .option element => do
+          let (m, c) ← takeByteNC c
+          match m.toNat with
+          | 0 => pure (encodeU8 0, c)
+          | 1 => do
+              let (payload, c) ← decodeAndReencodeValueBytesV1 types element fuel c
+              pure ((encodeU8 1).append payload, c)
+          | _ => err .nonCanonical
+      | .field spec => do
+          let width := fieldValueByteLengthV1 spec.modulusBE
+          let (raw, c) ← takeBytesNC c width
+          let value := leBytesToNatV1 raw
+          let modulus := beBytesToNatV1 spec.modulusBE
+          unless value < modulus do
+            return ← err .nonCanonical
+          pure (raw, c)
+      | .struct fields => do
+          let mut out := ByteArray.empty
+          let mut c := c
+          for f in fields do
+            let (chunk, c') ← decodeAndReencodeValueBytesV1 types f.typeId fuel c
+            out := out.append chunk
+            c := c'
+          pure (out, c)
+      | .enum variants => do
+          let (idxU, c) ← takeU32leNC c
+          let idx := idxU.toNat
+          match variants[idx]? with
+          | none => err .nonCanonical
+          | some variant => do
+              let mut out := encodeU32le idxU
+              let mut c := c
+              for payloadType in variant.payloadTypes do
+                let (chunk, c') ←
+                  decodeAndReencodeValueBytesV1 types payloadType fuel c
+                out := out.append chunk
+                c := c'
+              pure (out, c)
+
+/-- Validate a complete valueBytes slice for `typeId` (full consume + re-encode). -/
+def validateValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1)
+    (valueBytes : ByteArray) : Except SemanticWireErrorV1 Unit := do
+  unless valueBytes.size ≤ maxCanonicalValueBytes do
+    return ← err .limitExceeded
+  let (reencoded, c) ←
+    decodeAndReencodeValueBytesV1 types typeId maxNesting (start valueBytes)
+  unless remaining c == 0 do
+    return ← err .nonCanonical
+  unless reencoded == valueBytes do
+    return ← err .nonCanonical
+  pure ()
+
+private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1) :
+    Except SemanticWireErrorV1 Unit := do
+  match op with
+  | .literal typeId valueBytes =>
+      validateValueBytesV1 types typeId valueBytes
+  | _ => pure ()
+
+private def validateTerminatorValueBytesV1 (types : Array TypeDeclV1)
+    (term : TerminatorV1) : Except SemanticWireErrorV1 Unit := do
+  match term with
+  | .switch _scrutinee cases _default =>
+      for sc in cases do
+        validateValueBytesV1 types sc.typeId sc.valueBytes
+  | _ => pure ()
+
+private def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
+    (constants : Array ConstantV1) : Except SemanticWireErrorV1 Unit := do
+  for c in constants do
+    validateValueBytesV1 types c.typeId c.valueBytes
+  pure ()
+
+/-- Walk callable blocks for Op.Literal and SwitchCase valueBytes only.
+    Does not check CFG reachability, dominance, or ValueId SSA. -/
+private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        validateOpValueBytesV1 types instr.op
+      validateTerminatorValueBytesV1 types block.terminator
+  pure ()
+
 private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "value" || domain == "control" || domain == "state" ||
   domain == "effect" || domain == "context" || domain == "disclosure" ||
@@ -1891,9 +2126,11 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
   pure ()
 
 /-- Post-wire structural subset: table IDs, shallow declaration refs,
-    type-shape/FieldSpec/Map-key (SPEC §5), requirement/predicate order
+    type-shape/FieldSpec/Map-key (SPEC §5), canonical valueBytes (Constant /
+    Op.Literal / SwitchCase), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
-    Empty tables and empty requirements remain legal. Does not walk CFG bodies. -/
+    Empty tables and empty requirements remain legal. Walks callable bodies
+    only for valueBytes sites — not CFG completeness/dominance/SSA. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
@@ -1927,7 +2164,10 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     checkCallableIdInRange inv.callableId callableCount
   -- 3) Type-shape / FieldSpec catalog / Map-key legality (SPEC §5)
   validateTypesStructureV1 data.types
-  -- 4) Requirement key + predicate order
+  -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
+  validateConstantsValueBytesV1 data.types data.constants
+  validateCallablesValueBytesV1 data.types data.callables
+  -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 
 def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
