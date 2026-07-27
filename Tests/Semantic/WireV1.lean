@@ -3845,6 +3845,69 @@ private def testInvariantRootStateStoreProhibited : IO Unit := do
   }
   expectCfgErr "N7 invariant StateStore before requirements" n7
 
+/-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
+    ContextRead is forbidden directly in an invariant root but remains outside
+    this slice for other callable kinds. Exact ContextRead key/requirement type
+    binding and transitive pureFn closure remain separate. -/
+private def testInvariantRootContextReadProhibited : IO Unit := do
+  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
+    | .ok key => pure key
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let forbiddenReadRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let n1Base ← programWithTypes "InvCtxN1Root" cfgBoolTypes #[]
+    #[forbiddenReadRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct ContextRead forbidden" n1
+  expectCfgInvariantPhase "N1 invariant ContextRead closure phase"
+    .invariantClosure .badCfg n1
+  -- Scope guard: ContextRead remains accepted in an entry under its current
+  -- presence-only generic op contract.
+  let entryRead : CallableV1 := {
+    forbiddenReadRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p1 ← programWithTypes "InvCtxP1Entry" cfgBoolTypes #[] #[entryRead]
+  expectCfgOk "P1 entry direct ContextRead remains allowed" p1
+  -- Generic result-presence typing must win before the closure restriction.
+  -- The separate Bool literal keeps the invariant return valid.
+  let missingResultRoot : CallableV1 := {
+    forbiddenReadRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.contextRead ctxKey),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 4
+  }
+  let n2Base ← programWithTypes "InvCtxN2Typing" cfgBoolTypes #[]
+    #[missingResultRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 ContextRead typing before invariant closure" .badCfg n2
+  expectCfgInvariantPhase "N2 ContextRead typing phase wins" .cfg .badCfg n2
+  -- Closure restrictions precede intrinsic fuel and requirements.
+  let n3 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenReadRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N3 invariant ContextRead before fuel ceiling" .badCfg n3
+  expectCfgInvariantPhase "N3 ContextRead closure phase wins"
+    .invariantClosure .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-context-read"] }
+  }
+  expectCfgErr "N4 invariant ContextRead before requirements" n4
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -5744,6 +5807,7 @@ def run : IO Unit := do
   testInvariantRootStepsPresence
   testInvariantStepsIntrinsicCeiling
   testInvariantRootStateStoreProhibited
+  testInvariantRootContextReadProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

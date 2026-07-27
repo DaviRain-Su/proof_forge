@@ -55,9 +55,9 @@ import ProofForgeV2.Core.Unicode
       when no invariant root exists, `invariantSteps=some` presence for every
       invariant root, plus exact source-order InvariantDecl callableId/kind/name
       join (`.badCfg`)
-    - post-CFG invariant roots reject direct `Op.StateStore` while retaining
-      direct `Op.StateLoad`; other closure op families remain deferred
-      (`.badCfg`)
+    - post-CFG invariant roots reject direct `Op.StateStore` and
+      `Op.ContextRead` while retaining direct `Op.StateLoad`; other closure op
+      families remain deferred (`.badCfg`)
     - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
       before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
@@ -3589,11 +3589,11 @@ private def validateInvariantRootStepsPresenceV1
       | none => return ← err .badCfg
   pure ()
 
-/-- Invariant roots cannot write logical state (SPEC §8 bounded direct-op
-    subset). This gate rejects direct `Op.StateStore` after generic CFG/op
-    typing has validated the instruction. StateLoad remains allowed; transitive
-    pureFn closure and other forbidden op families are separate slices. -/
-private def validateInvariantRootNoStateStoreV1
+/-- SPEC §8 bounded direct-op subset for invariant roots. After generic
+    CFG/op typing, reject direct logical-state writes and context reads.
+    StateLoad remains allowed; transitive pureFn closure and the remaining
+    forbidden op families are separate slices. -/
+private def validateInvariantRootDirectOpsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
     if callable.kind == .invariant then
@@ -3601,6 +3601,7 @@ private def validateInvariantRootNoStateStoreV1
         for instr in block.instructions do
           match instr.op with
           | .stateStore _ _ => return ← err .badCfg
+          | .contextRead _ => return ← err .badCfg
           | _ => pure ()
   pure ()
 
@@ -3651,7 +3652,7 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     liftCfgInvariantValidationPhaseV1 .cfg
       (validateCallableCfgShape callable data.types.size data.types data)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validateInvariantRootNoStateStoreV1 data.callables)
+    (validateInvariantRootDirectOpsV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantFuel
     (validateInvariantStepsIntrinsicCeilingV1 data.callables)
 
