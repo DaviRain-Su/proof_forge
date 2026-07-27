@@ -1694,6 +1694,119 @@ private def testInvariantParameterShape : IO Unit := do
   }
   expectCfgErr "N5 invariant params before def-site TypeId" n5
 
+/-- SPEC-SEM-WIRE-001 §6 invariant declaration join: invariant callables and
+    InvariantDecl rows correspond one-to-one in invariant-callable source order,
+    with exact callableId/kind/name. Closure semantics remain separate. -/
+private def testInvariantDeclarationJoin : IO Unit := do
+  let p0 ← programWithTypes "InvJoinP0Empty" cfgBoolTypes
+  expectCfgOk "P0 no invariant callables or rows" p0
+  let invariantSafe := cfgCallableKindName .invariant (some "safe")
+  let p1Base ← programWithTypes "InvJoinP1Exact" cfgBoolTypes #[]
+    #[invariantSafe]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 one exact invariant row" p1
+  -- P2: invariant ordinals skip non-invariant callables while callableId keeps
+  -- the unified callable-table index.
+  let entry0 := cfgCallableKindName .entry (some "run")
+  let invariant1 : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with id := 1
+  }
+  let pure2 : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f")) with id := 2
+  }
+  let invariant3 : CallableV1 := {
+    (cfgCallableKindName .invariant (some "live")) with id := 3
+  }
+  let p2Base ← programWithTypes "InvJoinP2MixedOrder" cfgBoolTypes #[]
+    #[entry0, invariant1, pure2, invariant3]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with invariants :=
+      #[{ id := 0, name := "safe", callableId := 1 },
+        { id := 1, name := "live", callableId := 3 }]
+  }
+  expectCfgOk "P2 invariant rows follow filtered callable source order" p2
+  -- N1: every invariant callable has exactly one row.
+  let n1 ← programWithTypes "InvJoinN1MissingRow" cfgBoolTypes #[]
+    #[invariantSafe]
+  expectCfgErr "N1 invariant callable missing row" n1
+  -- Extra rows fail even when every row id equals its index and every
+  -- callableId is in range.
+  let nExtraBase ← programWithTypes "InvJoinN1bExtraRow" cfgBoolTypes #[]
+    #[invariantSafe]
+  let nExtra : SemanticProgramDataV1 := {
+    nExtraBase with invariants :=
+      #[{ id := 0, name := "safe", callableId := 0 },
+        { id := 1, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1b extra invariant row" nExtra
+  -- N2: count is equal, but the row points at a non-invariant callable.
+  let pure0 := cfgCallableKindName .pureFn (some "f")
+  let invariantAt1 : CallableV1 := { invariantSafe with id := 1 }
+  let n2Base ← programWithTypes "InvJoinN2WrongKind" cfgBoolTypes #[]
+    #[pure0, invariantAt1]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "f", callableId := 0 }]
+  }
+  expectCfgErr "N2 row references non-invariant callable" n2
+  let n3Base ← programWithTypes "InvJoinN3WrongName" cfgBoolTypes #[]
+    #[invariantSafe]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "other", callableId := 0 }]
+  }
+  expectCfgErr "N3 invariant row name mismatch" n3
+  -- N4: each row matches an invariant by name/id, but rows reverse source
+  -- order and therefore are noncanonical.
+  let invariantLive1 : CallableV1 := {
+    (cfgCallableKindName .invariant (some "live")) with id := 1
+  }
+  let n4Base ← programWithTypes "InvJoinN4Reordered" cfgBoolTypes #[]
+    #[invariantSafe, invariantLive1]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants :=
+      #[{ id := 0, name := "live", callableId := 1 },
+        { id := 1, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N4 invariant rows reversed" n4
+  -- N5: duplicate binding cannot replace the second source-order row.
+  let n5Base ← programWithTypes "InvJoinN5DuplicateBinding" cfgBoolTypes #[]
+    #[invariantSafe, invariantLive1]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants :=
+      #[{ id := 0, name := "safe", callableId := 0 },
+        { id := 1, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N5 duplicate invariant binding" n5
+  -- N6: shallow callableId range wins over malformed canonical valueBytes.
+  let malformedInvariant : CallableV1 := {
+    invariantSafe with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n6Base ← programWithTypes "InvJoinN6ReferenceFirst" cfgBoolTypes #[]
+    #[malformedInvariant]
+  let n6 : SemanticProgramDataV1 := {
+    n6Base with invariants := #[{ id := 0, name := "safe", callableId := 99 }]
+  }
+  expectCfgErrCode "N6 row reference before canonical value" .badReference n6
+  -- N7: canonical value validation precedes the missing-row join failure.
+  let n7 ← programWithTypes "InvJoinN7ValueFirst" cfgBoolTypes #[]
+    #[malformedInvariant]
+  expectCfgErrCode "N7 canonical value before invariant join" .nonCanonical n7
+  -- N8: invariant declaration join precedes per-callable CFG validation.
+  let badCfgInvariant : CallableV1 := {
+    invariantSafe with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n8 ← programWithTypes "InvJoinN8JoinFirst" cfgBoolTypes #[]
+    #[badCfgInvariant]
+  expectCfgErr "N8 invariant join before def-site TypeId" n8
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -4551,6 +4664,7 @@ def run : IO Unit := do
   testInitializerResultShape
   testInvariantResultShape
   testInvariantParameterShape
+  testInvariantDeclarationJoin
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

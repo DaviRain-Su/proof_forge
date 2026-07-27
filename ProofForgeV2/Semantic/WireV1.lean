@@ -43,8 +43,9 @@ import ProofForgeV2.Core.Unicode
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - callable signature subset after canonical values and before CFG:
       kind/name Option presence, zero-or-one initializer, initializer result
-      resolving to Unit/public, and invariant root with zero parameters and a
-      result resolving to Bool/public (`.badCfg`)
+      resolving to Unit/public, invariant root with zero parameters and a
+      result resolving to Bool/public, plus exact source-order InvariantDecl
+      callableId/kind/name join (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -1672,7 +1673,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
     (Constant / Op.Literal / SwitchCase) → callable kind/name presence →
     initializer cardinality → initializer Unit/public result → invariant
-    Bool/public result → invariant zero parameters → CFG → requirements.
+    Bool/public result → invariant zero parameters → InvariantDecl exact join
+    → CFG → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -3423,6 +3425,35 @@ private def validateInvariantParameterShapeV1 (callables : Array CallableV1) :
       return ← err .badCfg
   pure ()
 
+/-- InvariantDecl rows correspond one-to-one with invariant callables in the
+    latter's filtered source order (SPEC §6): exact callableId, invariant kind,
+    and name. Table-id and callableId range checks run in earlier phases. -/
+private def validateInvariantDeclarationJoinV1 (callables : Array CallableV1)
+    (invariants : Array InvariantDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let mut invariantCallableIds : Array CallableIdV1 := #[]
+  for callable in callables do
+    if callable.kind == .invariant then
+      invariantCallableIds := invariantCallableIds.push callable.id
+  unless invariants.size == invariantCallableIds.size do
+    return ← err .badCfg
+  let mut index : Nat := 0
+  for invariant in invariants do
+    match invariantCallableIds[index]? with
+    | none => return ← err .badCfg
+    | some expectedCallableId =>
+        unless invariant.callableId == expectedCallableId do
+          return ← err .badCfg
+        match callables[expectedCallableId.toNat]? with
+        | some callable =>
+            match callable.kind, callable.name with
+            | .invariant, some name =>
+                unless invariant.name == name do
+                  return ← err .badCfg
+            | _, _ => return ← err .badCfg
+        | none => return ← err .badCfg
+    index := index + 1
+  pure ()
+
 private def isKnownRequirementDomain (domain : String) : Bool :=
   domain == "value" || domain == "control" || domain == "state" ||
   domain == "effect" || domain == "context" || domain == "disclosure" ||
@@ -3634,12 +3665,13 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
   validateCallableKindNamePresenceV1 data.callables
   -- 4.3) Special callable signatures: initializer is zero-or-one with a
-  --   Unit/public result; invariant has zero params and a Bool/public result.
-  --   These checks still precede per-callable CFG validation.
+  --   Unit/public result; invariant has zero params, a Bool/public result, and
+  --   one source-order exact InvariantDecl row. These checks still precede CFG.
   validateInitializerCardinalityV1 data.callables
   validateInitializerResultShapeV1 data.types data.callables
   validateInvariantResultShapeV1 data.types data.callables
   validateInvariantParameterShapeV1 data.callables
+  validateInvariantDeclarationJoinV1 data.callables data.invariants
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data

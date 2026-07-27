@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 InvariantDecl exact join (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 invariant callable 与 `InvariantDecl` 的 filtered source-order、callableId/kind/name 一一 exact join，不实现 closure/op/fuel、`invariantSteps`、name grammar/uniqueness或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantDeclarationJoin`，固定 empty、single exact、混合 entry/invariant/pureFn 下过滤 source order 正向；missing/extra row、row 指向 non-invariant、name mismatch、reordered rows、duplicate binding 负向，以及 shallow callableId range → canonical literal value → invariant join → per-callable CFG phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded/source-order `validateInvariantDeclarationJoinV1`，先收集 `.invariant` callable IDs，要求 rows 等长且每行按 ordinal exact 匹配 callableId、kind 与 name；任一 mismatch fail closed 为 `.badCfg`。接线于 invariant result/parameter signature 后、CFG 前，并同步 stable-order 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；首次三路只读 review 汇聚为 extra-row regression 未直接固定；已补 one callable + two in-range rows 双路径负例，修复后完整 harness 通过；`just sbom-package-files-refresh` 已精确只更新 `WireV1.lean` 的 bytes/hash，复审三路一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：invariant closure CFG/op/fuel 与 `invariantSteps`、callable/declaration name grammar/NFC/uniqueness、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant zero parameters (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 invariant callable 参数数组必须为空，不实现 declaration identity/ordinal join、closure/op/fuel、`invariantSteps`、name grammar/uniqueness或产品接线。
