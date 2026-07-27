@@ -81,9 +81,10 @@ import ProofForgeV2.Core.Unicode
     Array/Bytes/Map operand/result contract, Op.CheckedCast UInt/Int
     source/destination/result contract, Op.StateStore state lookup/value
     type/void-result contract, and Op.Assert Bool/error/args/void-result
-    contract), presence-only result for ContextRead/Commit, and void-op
-    result-presence for Emit/ExternalCall/Schedule are now covered; revert/
-    emit/externalCall/schedule argument typing, exact contracts
+    contract), the Term.Revert ErrorDecl/args exact join, presence-only result
+    for ContextRead/Commit, and void-op result-presence for Emit/ExternalCall/
+    Schedule are now covered; emit/externalCall/schedule argument typing,
+    exact contracts
     for the two presence-only
     families, TypeKey anonymous
     ranking, provenance inventory join, ProgramV1 normalizer, and product
@@ -2143,11 +2144,11 @@ private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     sites. Branch condition must be the Bool TypeId; switch case TypeId must
     equal the scrutinee's TypeId; jump/branch/switch target args must match
     the target block params positionally; `return_ (some v)` must match the
-    callable result TypeId. `return_ none` / `revert` / `trap` are not type
-    checked this slice. All step i failures → `.badCfg`. Bounded,
-    non-recursive, total. Per-op type/result contracts (§5.1), revert/emit/
-    externalCall/schedule argument typing, TypeKey anonymous ranking, and
-    provenance join remain explicitly out of scope. -/
+    callable result TypeId. `Term.Revert` errorId must resolve and args must
+    positionally match ErrorDecl fields. `return_ none` / `trap` need no
+    additional type check. All step i failures → `.badCfg`. Bounded,
+    non-recursive, total. Emit/externalCall/schedule declaration joins,
+    TypeKey anonymous ranking, and provenance join remain out of scope. -/
 
 /-- Collect every ValueId → TypeId definition in source order: callable params
     (p.valueId, p.typeId), then per block: block params (bp.valueId,
@@ -2189,11 +2190,12 @@ def checkDefSiteTypeIdsInRange (defTypes : Array (ValueIdV1 × TypeIdV1))
     checkTypeIdInRange tid typeCount
 
 /-- Step i: terminator typing against a ValueId→TypeId table built from def
-    sites. Bounded lookup of `typeOf vid`; missing def → `.badCfg` (step f owns
-    existence, but we stay total). All failures → `.badCfg`. -/
+    sites plus the ErrorDecl table for Term.Revert. Bounded lookup of
+    `typeOf vid`; missing def → `.badCfg` (step f owns existence, but we stay
+    total). All failures → `.badCfg`. -/
 def checkTerminatorTyping (c : CallableV1)
-    (defTypes : Array (ValueIdV1 × TypeIdV1)) (types : Array TypeDeclV1) :
-    Except SemanticWireErrorV1 Unit := do
+    (defTypes : Array (ValueIdV1 × TypeIdV1)) (types : Array TypeDeclV1)
+    (errors : Array ErrorDeclV1) : Except SemanticWireErrorV1 Unit := do
   let boolT := boolTypeId types
   -- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f).
   let typeOf (vid : ValueIdV1) : Option TypeIdV1 := Id.run do
@@ -2230,6 +2232,26 @@ def checkTerminatorTyping (c : CallableV1)
                 return ← err .badCfg
       i := i + 1
     pure ()
+  -- Exact declared-error join for Term.Revert: errorId must resolve and args
+  -- must match ErrorDecl fields positionally by TypeId.
+  let checkErrorArgs (errorId : ErrorIdV1) (args : Array ValueIdV1) :
+      Except SemanticWireErrorV1 Unit := do
+    match errors[errorId.toNat]? with
+    | none => err .badCfg
+    | some errorDecl =>
+        unless args.size == errorDecl.fields.size do
+          return ← err .badCfg
+        let mut i : Nat := 0
+        while i < args.size do
+          match typeOf args[i]! with
+          | none => return ← err .badCfg
+          | some argT =>
+              match errorDecl.fields[i]? with
+              | none => return ← err .badCfg
+              | some field =>
+                  unless argT == field.typeId do return ← err .badCfg
+          i := i + 1
+        pure ()
   for b in c.blocks do
     match b.terminator with
     | .jump target => checkTargetArgs target
@@ -2260,7 +2282,8 @@ def checkTerminatorTyping (c : CallableV1)
         match typeOf v with
         | none => return ← err .badCfg
         | some vt => unless vt == c.result.typeId do return ← err .badCfg
-    | .return_ none | .revert _ _ | .trap _ => pure ()
+    | .revert errorId args => checkErrorArgs errorId args
+    | .return_ none | .trap _ => pure ()
   pure ()
 
 /-! ### Per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1 — CFG layer j)
@@ -2286,7 +2309,7 @@ def checkTerminatorTyping (c : CallableV1)
     ExternalCall/Schedule) MUST carry `result := none`; a spurious result or a
     missing result on a value-producing op is an invalid Core trap → `.badCfg`.
     All step j failures → `.badCfg`. Bounded, non-recursive, total. Out of
-    scope: revert/emit/externalCall/schedule argument typing, exact typing for
+    scope: emit/externalCall/schedule argument typing, exact typing for
     ContextRead/Commit, TypeKey anonymous
     ranking/interning, provenance join, normalizer, product wire. -/
 
@@ -2884,9 +2907,9 @@ private def validateCallableCfgShape (c : CallableV1)
   checkDefSiteTypeIdsInRange defTypes typeCount
   -- i) terminator typing (SPEC §6.2): branch cond Bool, switch case type ==
   --   scrutinee type, jump/branch/switch target arg types == target block
-  --   param types positionally, return (some v) type == result type. All
-  --   `.badCfg`.
-  checkTerminatorTyping c defTypes types
+  --   param types positionally, return (some v) type == result type, and
+  --   Term.Revert errorId/args == selected ErrorDecl fields. All `.badCfg`.
+  checkTerminatorTyping c defTypes types data.errors
   -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1): every
   --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
   --   indexGet/unary/binary/pureCall/fieldSet/variantTag) must carry
@@ -3373,7 +3396,7 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     + def-site TypeId range (block params + instruction result ValueDefs)
     + terminator typing (branch cond Bool, switch case == scrutinee,
       target arg types == target block param types positional,
-      return (some v) == result type)
+      return (some v) == result type, Term.Revert error/args exact join)
     + per-op type/result contract (§4.3/§5.1: literal/constant/stateLoad/
       construct/fieldGet/indexGet/unary/binary/pureCall result presence and
       exact result/operand types; Op.FieldSet full contract — base Struct,
@@ -3392,7 +3415,7 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT revert/emit/externalCall/schedule argument typing,
+    result-presence) — NOT emit/externalCall/schedule argument typing,
     ContextRead/Commit exact contracts, runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
     inventory join, or ProgramV1 normalizer. -/

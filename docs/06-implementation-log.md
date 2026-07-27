@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Term.Revert ErrorDecl join (terminator-typing step i extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkTerminatorTyping` 的 `Term.Revert` static §6 gate，不实现 runtime Outcome、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `testCfgRevertTyping`，驱动真实 structure+encode 双路径：P1 zero-field error/P2 declared two-arg exact/P3 second-error selection 正向；N1 missing errorId、N2 arg count、N3 positional arg type、N4 selected-error type 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败。只读 review 后新增 N5：ErrorDecl fields `[UInt8,Bool]` 配 reversed args `[Bool,UInt8]`，锁死 source-order positional matching、拒绝 non-positional/multiset 实现。
+- Production：`checkTerminatorTyping` 新增 `errors : Array ErrorDeclV1` 输入与 bounded `checkErrorArgs`；`Term.Revert.errorId` 必须存在，args arity/type 按 selected `ErrorDeclV1.fields` source order 精确匹配，任一失败 `.badCfg`。validator step i 调用传入 `data.errors`；既有 branch/switch/jump/return 顺序与行为不变。
+- Verification：首次三路只读 review 仅发现 reversed multi-arg positional negative 缺失，补齐 N5 后聚焦 harness 通过，复审三路一致 approved、无 findings；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与修复后普通 `just ci` 均已通过。
+- Boundary：不实现 declared revert runtime Outcome、Emit event join、ExternalCall/Schedule args/effectId、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 Op.Assert condition/error declaration join (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.Assert` static §5.1/§6 gate，不实现 reference runtime、不接线产品、不改 wire/codec/schema。

@@ -12,8 +12,9 @@
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
-  and Assert Bool/error/args/void-result contracts; only ContextRead/Commit
-  remain presence-only. Formal TST-SEM-001 corpus remains pending.
+  Assert Bool/error/args/void-result, and Term.Revert ErrorDecl/args contracts;
+  only ContextRead/Commit remain presence-only. Formal TST-SEM-001 corpus
+  remains pending.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.WireV1
@@ -3619,6 +3620,79 @@ private def testCfgAssertTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N6 assert selected error arg type" n6
 
+/-- SPEC-SEM-WIRE-001 §6 `Term.Revert` exact ErrorDecl join. errorId must
+    resolve and args must match ErrorDecl fields positionally by exact TypeId.
+    Fixtures drive the real structure+encode terminator-typing path. -/
+private def testCfgRevertTyping : IO Unit := do
+  -- P1: zero-field declared error with no args.
+  let p1 ← programWithErrors "RevertP1Empty" cfgOpTypes
+    #[errorRow 0 "Failure" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 0]
+  expectCfgOk "P1 revert empty error" p1
+  -- P2: two args match ErrorDecl fields in source order.
+  let p2 ← programWithErrors "RevertP2Args" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0)]
+          (.revert 0 #[1, 2])] 0]
+  expectCfgOk "P2 revert declared args" p2
+  -- P3: errorId selects the second declaration and its UInt32 field.
+  let p3 ← programWithErrors "RevertP3Selected" cfgOpTypes
+    #[errorRow 0 "Empty" #[],
+      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7)]
+          (.revert 1 #[1])] 0]
+  expectCfgOk "P3 revert selected error" p3
+  -- N1: errorId must resolve.
+  let n1 ← programWithTypes "RevertN1MissingError" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 0]
+  expectCfgErr "N1 revert missing error" n1
+  -- N2: args count must equal fields.size.
+  let n2 ← programWithErrors "RevertN2Arity" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7)]
+          (.revert 0 #[1])] 0]
+  expectCfgErr "N2 revert arg count" n2
+  -- N3: args must match field types positionally.
+  let n3 ← programWithErrors "RevertN3ArgType" cfgOpTypes
+    #[errorRow 0 "Failure" #[interfaceField "code" 1]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0)]
+          (.revert 0 #[1])] 0]
+  expectCfgErr "N3 revert arg type" n3
+  -- N4: lookup must use selected errorId rather than another row's field type.
+  let n4 ← programWithErrors "RevertN4Selected" cfgOpTypes
+    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 0],
+      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0)]
+          (.revert 1 #[1])] 0]
+  expectCfgErr "N4 revert selected error arg type" n4
+  -- N5 (review repair): distinct two-field types supplied in reverse order
+  --   must fail, pinning source-order positional matching rather than a
+  --   non-positional/multiset check.
+  let n5 ← programWithErrors "RevertN5ReversedArgs" cfgOpTypes
+    #[errorRow 0 "Failure"
+        #[interfaceField "code" 1, interfaceField "fatal" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7)]
+          (.revert 0 #[1, 2])] 0]
+  expectCfgErr "N5 revert reversed positional args" n5
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3656,6 +3730,7 @@ def run : IO Unit := do
   testCfgCheckedCastTyping
   testCfgStateStoreTyping
   testCfgAssertTyping
+  testCfgRevertTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
