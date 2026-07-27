@@ -1,22 +1,24 @@
 let meta = #{
     name: "proof-forge-one-slice",
-    description: "Implement, independently review, verify, and locally commit exactly one Goal-selected ProofForge migration slice",
+    description: "Build and independently verify one ProofForge slice in isolated worktrees, returning one commit candidate for the Goal to apply",
     phases: [
-        #{ title: "Implement", detail: "write failing tests and implement the supplied bounded slice without committing" },
-        #{ title: "Review", detail: "independently audit the uncommitted slice" },
-        #{ title: "Verify", detail: "fix confirmed issues and run focused plus ordinary product gates" },
-        #{ title: "Commit", detail: "guard the baseline and create exactly one local slice commit" },
+        #{ title: "Implement", detail: "tests-first implementation and candidate commit in an isolated worktree" },
+        #{ title: "Review", detail: "independent review of the candidate in a separate isolated worktree" },
+        #{ title: "Verify", detail: "apply findings, run product gates, and create one final isolated commit" },
+        #{ title: "Audit", detail: "independently inspect and test the final isolated commit" },
     ],
-    when_to_use: "Use from a long-running Goal after it selects one bounded ProofForge D1→D2→D3→D4 slice and records the clean baseline commit.",
+    when_to_use: "Use from a long-running Goal after it selects one bounded ProofForge slice and records a clean baseline; the Goal cherry-picks the returned final_commit only after checking main stayed unchanged.",
 };
 
 let implementation_schema = #{
     "type": "object",
-    "required": ["success", "summary", "files", "tests", "limitations"],
+    "required": ["success", "summary", "candidate_commit", "commit_message", "files", "tests", "limitations"],
     "properties": #{
         "success": #{ "type": "boolean" },
         "summary": #{ "type": "string" },
-        "files": #{ "type": "array", "maxItems": 60, "items": #{ "type": "string" } },
+        "candidate_commit": #{ "type": "string" },
+        "commit_message": #{ "type": "string" },
+        "files": #{ "type": "array", "maxItems": 70, "items": #{ "type": "string" } },
         "tests": #{ "type": "array", "maxItems": 30, "items": #{ "type": "string" } },
         "limitations": #{ "type": "array", "maxItems": 20, "items": #{ "type": "string" } },
     },
@@ -41,90 +43,82 @@ let review_schema = #{
 };
 let verification_schema = #{
     "type": "object",
-    "required": ["success", "ready_to_commit", "summary", "verification", "remaining_limits", "next_hint", "files_to_commit"],
+    "required": ["success", "summary", "final_commit", "commit_message", "verification", "remaining_limits", "next_hint"],
     "properties": #{
         "success": #{ "type": "boolean" },
-        "ready_to_commit": #{ "type": "boolean" },
         "summary": #{ "type": "string" },
+        "final_commit": #{ "type": "string" },
+        "commit_message": #{ "type": "string" },
         "verification": #{ "type": "array", "maxItems": 30, "items": #{ "type": "string" } },
         "remaining_limits": #{ "type": "array", "maxItems": 20, "items": #{ "type": "string" } },
         "next_hint": #{ "type": "string" },
-        "files_to_commit": #{ "type": "array", "minItems": 1, "maxItems": 70, "items": #{ "type": "string" } },
     },
 };
-let commit_schema = #{
+let audit_schema = #{
     "type": "object",
-    "required": ["success", "summary", "commit_hash", "commit_message"],
+    "required": ["approved", "summary", "findings"],
     "properties": #{
-        "success": #{ "type": "boolean" },
+        "approved": #{ "type": "boolean" },
         "summary": #{ "type": "string" },
-        "commit_hash": #{ "type": "string" },
-        "commit_message": #{ "type": "string" },
+        "findings": #{ "type": "array", "maxItems": 12, "items": #{
+            "type": "object",
+            "required": ["severity", "file", "issue"],
+            "properties": #{
+                "severity": #{ "type": "string" },
+                "file": #{ "type": "string" },
+                "issue": #{ "type": "string" },
+            },
+        }},
     },
 };
 
 let slice = if args == () { () } else { args.slice };
 let base_commit = if args == () { () } else { args.base_commit };
 let task_prompt = if args == () { () } else { args.task_prompt };
-if slice == () || slice == "" {
-    pause("verification", "Goal must launch this workflow with args.slice for exactly one bounded migration slice.");
-}
-if base_commit == () || base_commit == "" {
-    pause("verification", "Goal must launch this workflow with args.base_commit from a clean git rev-parse HEAD.");
-}
-if task_prompt == () || task_prompt == "" {
-    pause("verification", "Goal must launch this workflow with a self-contained args.task_prompt.");
-}
+if slice == () || slice == "" { pause("verification", "Goal must pass args.slice for one bounded migration slice."); }
+if base_commit == () || base_commit == "" { pause("verification", "Goal must pass args.base_commit from a clean main HEAD."); }
+if task_prompt == () || task_prompt == "" { pause("verification", "Goal must pass a self-contained tests-first args.task_prompt."); }
 
-log("Starting one bounded ProofForge slice at baseline " + base_commit + ": " + slice);
+log("Starting isolated ProofForge slice at baseline " + base_commit + ": " + slice);
 
 phase("Implement");
-let implement_prompt = "Implement exactly one bounded ProofForge migration slice in the shared working tree. Re-read AGENTS.md and the directly relevant accepted specs. Before editing, run git status --short and git rev-parse HEAD; require a clean tree and exact baseline " + base_commit + ". Add focused failing tests first, then the minimum production implementation. Keep source/Typed/Semantic target-neutral. Do not stage, commit, push, amend, reset, create .plan.md or any planning artifact, start another slice, or touch qualification/governance. No adapters, fallback, destructive git commands, or maturity overclaims. Run focused tests. If ProofForgeV2/** changes, run just sbom-package-files-refresh. Update only directly relevant engineering facts. Leave the complete slice uncommitted. Slice: " + slice + ". Task: " + task_prompt;
-let implemented = agent(implement_prompt, #{ label: "implementer", agent_type: "general-purpose", capability_mode: "all", output_schema: implementation_schema });
-if implemented == () || implemented.success == false || implemented.output.success == false {
-    complete(#{ status: "blocked", stage: "implement", slice: slice, reason: "implementation failed; inspect the uncommitted tree" });
+let implement_prompt = "Work only in your isolated git worktree. Confirm its starting HEAD equals baseline " + base_commit + ". Read AGENTS.md and directly relevant accepted specs. Implement exactly one bounded ProofForge slice tests-first. Do not touch the parent/main worktree, push, amend, create .plan.md, run governance/release, or start another slice. Run focused tests; refresh SBOM pin if ProofForgeV2/** changes; update only accurate engineering facts. Then stage explicit slice paths, run git diff --cached --check, and create exactly one candidate commit in this isolated worktree. Return its actual hash and subject. Slice: " + slice + ". Task: " + task_prompt;
+let implemented = agent(implement_prompt, #{ label: "isolated-implementer", agent_type: "general-purpose", capability_mode: "all", isolation_worktree: true, output_schema: implementation_schema });
+if implemented == () || implemented.success == false || implemented.output.success == false || implemented.output.candidate_commit == () || implemented.output.candidate_commit == "" {
+    complete(#{ status: "blocked", stage: "implement", slice: slice, reason: "isolated implementation failed" });
 }
 
 phase("Review");
 let files_json = json_encode(implemented.output.files);
-let review_prompt = "Independently review one uncommitted ProofForge slice. Read AGENTS.md, the directly relevant accepted specs, and every implementer-listed path: " + files_json + ". Inspect actual files and tests; do not edit, stage, commit, push, or create planning files. Check semantic correctness, fail-closed behavior, diagnostic order, negative coverage, deterministic ordering, scope boundaries, SBOM pin facts, and maturity claims. Treat any evidence that HEAD moved away from baseline " + base_commit + " or any unrelated artifact as a critical finding. Only evidence-backed findings count; empty findings is valid after real inspection. Slice: " + slice + ". Implementation summary: " + implemented.output.summary;
-let reviewed = agent(review_prompt, #{ label: "reviewer", agent_type: "oracle", capability_mode: "read-only", output_schema: review_schema });
+let review_prompt = "Work only in your isolated git worktree; never touch parent/main. Confirm starting HEAD equals baseline " + base_commit + ". Inspect candidate commit " + implemented.output.candidate_commit + " with git show and apply it in this isolated worktree with git cherry-pick -n only if needed for focused inspection. Read AGENTS.md, relevant specs, and listed files: " + files_json + ". Independently check semantic correctness, fail-closed behavior, diagnostic order, deterministic ordering, shipped tests, SBOM facts, scope, and maturity claims. Do not push or create planning files. Return only evidence-backed findings. Slice: " + slice + ". Summary: " + implemented.output.summary;
+let reviewed = agent(review_prompt, #{ label: "isolated-reviewer", agent_type: "general-purpose", capability_mode: "all", isolation_worktree: true, output_schema: review_schema });
 if reviewed == () || reviewed.success == false {
-    complete(#{ status: "blocked", stage: "review", slice: slice, reason: "independent review failed" });
+    complete(#{ status: "blocked", stage: "review", slice: slice, reason: "independent isolated review failed" });
 }
 
 phase("Verify");
 let findings_json = json_encode(reviewed.output.findings);
-let verify_prompt = "Own final repair and verification for exactly one ProofForge slice. Run git rev-parse HEAD and require baseline " + base_commit + ". Inspect git status and the full uncommitted diff, including untracked files. Independently validate every review finding and fix only confirmed issues without expanding scope. Delete no unfamiliar files. Run focused tests, git diff --check, just sbom-package-files-refresh when ProofForgeV2/** changed, and ordinary just ci. Never run governance-check or release-check. Do not stage, commit, push, amend, reset, create .plan.md, or begin another task. Return ready_to_commit=true only when HEAD is unchanged, every dirty path belongs to this slice, all gates pass, and files_to_commit exactly enumerates every dirty/untracked path. Keep formal statuses honest. Slice: " + slice + ". Findings JSON: " + findings_json;
-let verified = agent(verify_prompt, #{ label: "fixer-verifier", agent_type: "general-purpose", capability_mode: "all", output_schema: verification_schema });
-if verified == () || verified.success == false || verified.output.success == false || verified.output.ready_to_commit == false {
-    complete(#{ status: "blocked", stage: "verify", slice: slice, reason: "repair or verification failed; inspect the uncommitted tree" });
+let verify_prompt = "Work only in your isolated git worktree; never touch parent/main. Require starting HEAD equals baseline " + base_commit + ". Apply candidate " + implemented.output.candidate_commit + " without committing via git cherry-pick -n. Validate each review finding and fix only confirmed issues within this slice. Run focused tests, git diff --check, applicable just sbom-package-files-refresh, and ordinary just ci. Never run governance/release, push, amend, reset parent/main, create .plan.md, or start another task. After all gates pass, stage every explicit slice path, run git diff --cached --check, and create exactly one final commit from the baseline containing candidate plus fixes. Return actual final commit hash, subject, evidence, limits, and next hint. Slice: " + slice + ". Findings JSON: " + findings_json;
+let verified = agent(verify_prompt, #{ label: "isolated-fixer-verifier", agent_type: "general-purpose", capability_mode: "all", isolation_worktree: true, output_schema: verification_schema });
+if verified == () || verified.success == false || verified.output.success == false || verified.output.final_commit == () || verified.output.final_commit == "" {
+    complete(#{ status: "blocked", stage: "verify", slice: slice, reason: "isolated repair or verification failed" });
 }
 
-phase("Commit");
-let commit_files_json = json_encode(verified.output.files_to_commit);
-let commit_prompt = "Act only as local committer for one already verified ProofForge slice. Do not edit files, rerun implementation, or expand scope. Require git rev-parse HEAD exactly equals baseline " + base_commit + ". Inspect git status and ensure every dirty/untracked path belongs to this exact verified list: " + commit_files_json + ". If HEAD moved, tree is clean, any dirty path is unlisted, or a listed path is unrelated/missing, return success=false without changing git. Otherwise stage each explicit path individually with git add <path>; never use git add -A or git add . Check git diff --cached --check and inspect the staged diff. Create exactly one local commit with a concise imperative subject describing only slice " + slice + ". Never amend or push. Require a clean working tree afterward. Return actual git rev-parse HEAD and git log -1 --format=%s. Verification summary: " + verified.output.summary;
-let committed = agent(commit_prompt, #{ label: "committer", agent_type: "general-purpose", capability_mode: "all", output_schema: commit_schema });
-if committed == () || committed.success == false || committed.output.success == false || committed.output.commit_hash == () || committed.output.commit_hash == "" {
-    complete(#{ status: "blocked", stage: "commit", slice: slice, reason: "dedicated local commit failed; inspect git status" });
+phase("Audit");
+let audit_prompt = "Work only in your isolated git worktree; never touch parent/main. Require starting HEAD equals baseline " + base_commit + ". Inspect final commit " + verified.output.final_commit + " with git show; apply it with git cherry-pick -n in this isolated worktree for checks. Independently verify it is exactly one bounded slice, contains real shipped tests, respects AGENTS/spec boundaries, has accurate docs/pins, and passes a focused build plus git diff --check. Do not edit, commit, push, or create planning files. approved=true only with concrete evidence and no findings. Slice: " + slice + ". Verification summary: " + verified.output.summary;
+let audited = agent(audit_prompt, #{ label: "isolated-final-auditor", agent_type: "general-purpose", capability_mode: "all", isolation_worktree: true, output_schema: audit_schema });
+if audited == () || audited.success == false || audited.output.approved == false || audited.output.findings.len() > 0 {
+    complete(#{ status: "blocked", stage: "audit", slice: slice, reason: "final isolated audit rejected candidate", final_commit: verified.output.final_commit, findings: audited.output.findings });
 }
 
-let report = "# ProofForge one-slice result\n\n";
+let report = "# ProofForge isolated one-slice candidate\n\n";
 report += "**Slice:** " + slice + "\n\n";
 report += "**Baseline:** `" + base_commit + "`\n\n";
 report += "**Implementation:** " + implemented.output.summary + "\n\n";
 report += "**Review:** " + reviewed.output.summary + "\n\n";
 report += "**Verification:** " + verified.output.summary + "\n\n";
-report += "**Commit:** `" + committed.output.commit_hash + "` " + committed.output.commit_message + "\n\n";
+report += "**Audit:** " + audited.output.summary + "\n\n";
+report += "**Final isolated commit:** `" + verified.output.final_commit + "` " + verified.output.commit_message + "\n\n";
 report += "**Next hint:** " + verified.output.next_hint + "\n";
 let report_path = write_scratch_file("proof-forge-one-slice.md", report);
-complete(#{
-    status: "completed",
-    slice: slice,
-    commit_hash: committed.output.commit_hash,
-    commit_message: committed.output.commit_message,
-    verification: verified.output.verification,
-    remaining_limits: verified.output.remaining_limits,
-    next_hint: verified.output.next_hint,
-    report_path: report_path,
-});
+complete(#{ status: "candidate_ready", slice: slice, base_commit: base_commit, final_commit: verified.output.final_commit, commit_message: verified.output.commit_message, verification: verified.output.verification, remaining_limits: verified.output.remaining_limits, next_hint: verified.output.next_hint, audit_summary: audited.output.summary, report_path: report_path });
