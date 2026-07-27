@@ -42,7 +42,8 @@ import ProofForgeV2.Core.Unicode
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - callable signature subset after canonical values and before CFG:
-      kind/name Option presence, zero-or-one initializer, initializer result
+      kind/name Option presence, exact named-callable uniqueness,
+      zero-or-one initializer, initializer result
       resolving to Unit/public, invariant root with zero parameters,
       `loopBounds=[]`, and a result resolving to Bool/public, plus exact
       source-order InvariantDecl
@@ -1673,7 +1674,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
     (Constant / Op.Literal / SwitchCase) → callable kind/name presence →
-    initializer cardinality → initializer Unit/public result → invariant
+    named callable uniqueness → initializer cardinality → initializer
+    Unit/public result → invariant
     Bool/public result → invariant zero parameters → invariant empty loopBounds
     → InvariantDecl exact join → CFG → requirements.
 -/
@@ -3358,9 +3360,8 @@ private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
 
 /-- Callable signature name presence (SPEC §6): initializer is the only
     anonymous callable kind; entry/view/pureFn/invariant must carry `some`
-    name. String grammar/NFC/uniqueness and invariant declaration join are
-    separate later gates. Runs after canonical
-    values and before CFG so kind/signature failures have stable `.badCfg`. -/
+    name. String grammar/NFC remains a separate gate. Runs after canonical
+    values and before uniqueness/special signatures/CFG. -/
 private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   for callable in callables do
@@ -3369,6 +3370,25 @@ private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     | .entry, some _ | .view, some _ | .pureFn, some _
     | .invariant, some _ => pure ()
     | _, _ => return ← err .badCfg
+  pure ()
+
+/-- Named callables are unique within the unified callable table (SPEC §6).
+    Compare exact UTF-8 strings; grammar/NFC is a separate gate. Sorting a
+    private name array preserves public callable source order. -/
+private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut names : Array String := #[]
+  for callable in callables do
+    match callable.name with
+    | some name => names := names.push name
+    | none => pure ()
+  let sorted := names.qsort fun left right =>
+    compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
+  let mut index : Nat := 1
+  while index < sorted.size do
+    if sorted[index - 1]! == sorted[index]! then
+      return ← err .badCfg
+    index := index + 1
   pure ()
 
 /-- At most one initializer callable may occur in source order (SPEC §6). -/
@@ -3673,8 +3693,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
-  -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
+  -- 4.25) Callable kind/name presence + exact named-callable uniqueness.
   validateCallableKindNamePresenceV1 data.callables
+  validateCallableNameUniquenessV1 data.callables
   -- 4.3) Special callable signatures: initializer is zero-or-one with a
   --   Unit/public result; invariant has zero params, empty loopBounds, a
   --   Bool/public result, and one source-order exact InvariantDecl row. These

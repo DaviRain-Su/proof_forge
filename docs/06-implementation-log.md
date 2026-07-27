@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 named callable uniqueness (signature step 4.25, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 unified callable table 内 `some name` 的 exact String 唯一，不实现 identifier grammar/NFC、其他 declaration table names、entry/view existence或产品接线。
+- RED/Changed：tests-first。新增 `testCallableNameUniqueness`，固定 initializer anonymous + entry/view/pureFn/invariant distinct 正向、case-sensitive 正向、same-kind 与 cross-kind duplicate 负向，以及 shallow result TypeId range → canonical literal value → name uniqueness → per-callable CFG phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded `validateCallableNameUniquenessV1`，收集 named callables 后在 private UTF-8 array 上 qsort 并比较相邻 exact String，避免改动 public source order；重复 fail closed 为 `.badCfg`。接线于 kind/name presence 后、special signatures 与 CFG 前，并同步 stable-order 注释。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确只更新 `WireV1.lean` 的 bytes/hash，refresh 后完整 harness 通过；三路只读 review 一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：callable/declaration identifier grammar/NFC、其他 table name uniqueness、invariant closure/fuel 与 `invariantSteps`、entry/view existence、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant empty loopBounds (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 invariant root `loopBounds=[]`，不实现完整 closure DAG/op/fuel、`invariantSteps`、name grammar/uniqueness或产品接线。

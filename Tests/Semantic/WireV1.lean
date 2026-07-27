@@ -1416,6 +1416,82 @@ private def testCallableKindNamePresence : IO Unit := do
     #[badCfgCallable]
   expectCfgErr "N7 signature before def-site TypeId" n7
 
+/-- SPEC-SEM-WIRE-001 §6 named callable table uniqueness. This slice compares
+    exact String values only; identifier grammar and NFC remain separate. -/
+private def testCallableNameUniqueness : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let initializer0 := cfgCallableKindName .initializer none 1
+  let entry1 : CallableV1 := {
+    (cfgCallableKindName .entry (some "run")) with id := 1
+  }
+  let view2 : CallableV1 := {
+    (cfgCallableKindName .view (some "read")) with id := 2
+  }
+  let pure3 : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f")) with id := 3
+  }
+  let invariant4 : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with id := 4
+  }
+  let p0Base ← programWithTypes "CallableUniqueP0Kinds" boolUnitTypes #[]
+    #[initializer0, entry1, view2, pure3, invariant4]
+  let p0 : SemanticProgramDataV1 := {
+    p0Base with invariants := #[{ id := 0, name := "safe", callableId := 4 }]
+  }
+  expectCfgOk "P0 initializer plus four distinct named kinds" p0
+  let upper1 : CallableV1 := {
+    (cfgCallableKindName .view (some "F")) with id := 1
+  }
+  let p1 ← programWithTypes "CallableUniqueP1Case" boolUnitTypes #[]
+    #[cfgCallableKindName .entry (some "f"), upper1]
+  expectCfgOk "P1 callable names are case sensitive" p1
+  let duplicatePure1 : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "dup")) with id := 1
+  }
+  let n1 ← programWithTypes "CallableUniqueN1Pure" boolUnitTypes #[]
+    #[cfgCallableKindName .pureFn (some "dup"), duplicatePure1]
+  expectCfgErr "N1 duplicate pureFn names" n1
+  let duplicateInvariant1 : CallableV1 := {
+    (cfgCallableKindName .invariant (some "same")) with id := 1
+  }
+  let n2Base ← programWithTypes "CallableUniqueN2CrossKind" boolUnitTypes #[]
+    #[cfgCallableKindName .entry (some "same"), duplicateInvariant1]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "same", callableId := 1 }]
+  }
+  expectCfgErr "N2 duplicate names across callable kinds" n2
+  -- Shallow result TypeId range precedes name uniqueness.
+  let badRefCallable : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "dup")) with
+      result := { typeId := 99, visibility := .public_ }
+  }
+  let n3 ← programWithTypes "CallableUniqueN3ReferenceFirst" boolUnitTypes #[]
+    #[badRefCallable, duplicatePure1]
+  expectCfgErrCode "N3 result TypeId before name uniqueness" .badReference n3
+  -- Canonical valueBytes validation precedes name uniqueness.
+  let badValueCallable : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "dup")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n4 ← programWithTypes "CallableUniqueN4ValueFirst" boolUnitTypes #[]
+    #[badValueCallable, duplicatePure1]
+  expectCfgErrCode "N4 canonical value before name uniqueness" .nonCanonical n4
+  -- Name uniqueness precedes per-callable CFG def-site TypeId validation.
+  let badCfgDuplicate1 : CallableV1 := {
+    duplicatePure1 with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n5 ← programWithTypes "CallableUniqueN5UniquenessFirst" boolUnitTypes #[]
+    #[cfgCallableKindName .pureFn (some "dup"), badCfgDuplicate1]
+  expectCfgErr "N5 name uniqueness before def-site TypeId" n5
+
 /-- SPEC-SEM-WIRE-001 §6 initializer cardinality: a program contains zero or
     one initializer, never two. Result shape is tested separately below. -/
 private def testInitializerCardinality : IO Unit := do
@@ -4736,6 +4812,7 @@ def run : IO Unit := do
   testValueBytesNegatives
   testValueBytesTransportRegression
   testCallableKindNamePresence
+  testCallableNameUniqueness
   testInitializerCardinality
   testInitializerResultShape
   testInvariantResultShape
