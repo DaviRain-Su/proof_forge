@@ -43,7 +43,8 @@ import ProofForgeV2.Core.Unicode
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
     - callable signature subset after canonical values and before CFG:
       kind/name Option presence, exact named-callable uniqueness,
-      zero-or-one initializer, initializer result
+      per-callable exact parameter-name uniqueness, zero-or-one initializer,
+      initializer result
       resolving to Unit/public, invariant root with zero parameters,
       `loopBounds=[]`, and a result resolving to Bool/public, plus exact
       source-order InvariantDecl
@@ -1674,8 +1675,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
     declaration refs → type-shape/FieldSpec/Map-key → canonical valueBytes
     (Constant / Op.Literal / SwitchCase) → callable kind/name presence →
-    named callable uniqueness → initializer cardinality → initializer
-    Unit/public result → invariant
+    named callable uniqueness → per-callable parameter-name uniqueness →
+    initializer cardinality → initializer Unit/public result → invariant
     Bool/public result → invariant zero parameters → invariant empty loopBounds
     → InvariantDecl exact join → CFG → requirements.
 -/
@@ -3391,6 +3392,21 @@ private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
     index := index + 1
   pure ()
 
+/-- Parameter names are exact-string unique within each callable (SPEC §6).
+    Each callable gets a fresh private sort; grammar/NFC remains separate. -/
+private def validateCallableParameterNameUniquenessV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    let names := callable.params.map (·.name)
+    let sorted := names.qsort fun left right =>
+      compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
+    let mut index : Nat := 1
+    while index < sorted.size do
+      if sorted[index - 1]! == sorted[index]! then
+        return ← err .badCfg
+      index := index + 1
+  pure ()
+
 /-- At most one initializer callable may occur in source order (SPEC §6). -/
 private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -3693,9 +3709,10 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
   validateCallablesValueBytesV1 data.types data.callables
-  -- 4.25) Callable kind/name presence + exact named-callable uniqueness.
+  -- 4.25) Callable name presence/uniqueness + per-callable param-name uniqueness.
   validateCallableKindNamePresenceV1 data.callables
   validateCallableNameUniquenessV1 data.callables
+  validateCallableParameterNameUniquenessV1 data.callables
   -- 4.3) Special callable signatures: initializer is zero-or-one with a
   --   Unit/public result; invariant has zero params, empty loopBounds, a
   --   Bool/public result, and one source-order exact InvariantDecl row. These

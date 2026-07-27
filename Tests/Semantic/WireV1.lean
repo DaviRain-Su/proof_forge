@@ -1492,6 +1492,73 @@ private def testCallableNameUniqueness : IO Unit := do
     #[cfgCallableKindName .pureFn (some "dup"), badCfgDuplicate1]
   expectCfgErr "N5 name uniqueness before def-site TypeId" n5
 
+/-- SPEC-SEM-WIRE-001 §6 parameter names are exact-string unique within each
+    callable. Different callables may reuse a parameter name; grammar/NFC is
+    separate. -/
+private def testCallableParameterNameUniqueness : IO Unit := do
+  let paramX0 : ParameterV1 := {
+    valueId := 0, name := "x", typeId := 0, visibility := .public_
+  }
+  let paramY1 : ParameterV1 := {
+    valueId := 1, name := "y", typeId := 0, visibility := .public_
+  }
+  let paramUpper1 : ParameterV1 := {
+    valueId := 1, name := "X", typeId := 0, visibility := .public_
+  }
+  let paramX1 : ParameterV1 := {
+    valueId := 1, name := "x", typeId := 0, visibility := .public_
+  }
+  let p0 ← programWithTypes "ParamNameP0Distinct" cfgBoolTypes #[]
+    #[cfgCallableWithParams #[paramX0, paramY1] #[cfgBlock 0 (.return_ none)]]
+  expectCfgOk "P0 distinct parameter names" p0
+  let secondCallable : CallableV1 := {
+    (cfgCallableWithParams #[paramX0] #[cfgBlock 0 (.return_ none)]) with
+      id := 1, name := some "g"
+  }
+  let p1 ← programWithTypes "ParamNameP1PerCallable" cfgBoolTypes #[]
+    #[cfgCallableWithParams #[paramX0] #[cfgBlock 0 (.return_ none)], secondCallable]
+  expectCfgOk "P1 parameter name scope resets per callable" p1
+  let p2 ← programWithTypes "ParamNameP2Case" cfgBoolTypes #[]
+    #[cfgCallableWithParams #[paramX0, paramUpper1] #[cfgBlock 0 (.return_ none)]]
+  expectCfgOk "P2 parameter names are case sensitive" p2
+  let duplicateParamsCallable :=
+    cfgCallableWithParams #[paramX0, paramX1] #[cfgBlock 0 (.return_ none)]
+  let n1 ← programWithTypes "ParamNameN1PureFn" cfgBoolTypes #[]
+    #[duplicateParamsCallable]
+  expectCfgErr "N1 duplicate parameter names in pureFn" n1
+  let duplicateEntry : CallableV1 := {
+    duplicateParamsCallable with kind := .entry, name := some "run"
+  }
+  let n2 ← programWithTypes "ParamNameN2Entry" cfgBoolTypes #[]
+    #[duplicateEntry]
+  expectCfgErr "N2 duplicate parameter names in entry" n2
+  -- Shallow parameter TypeId range validation precedes name uniqueness.
+  let badRefParam1 : ParameterV1 := { paramX1 with typeId := 99 }
+  let n3 ← programWithTypes "ParamNameN3ReferenceFirst" cfgBoolTypes #[]
+    #[cfgCallableWithParams #[paramX0, badRefParam1] #[cfgBlock 0 (.return_ none)]]
+  expectCfgErrCode "N3 parameter TypeId before name uniqueness" .badReference n3
+  -- Canonical valueBytes validation precedes parameter-name uniqueness.
+  let badValueCallable : CallableV1 := {
+    duplicateParamsCallable with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 2, typeId := 0 })
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n4 ← programWithTypes "ParamNameN4ValueFirst" cfgBoolTypes #[]
+    #[badValueCallable]
+  expectCfgErrCode "N4 canonical value before parameter names" .nonCanonical n4
+  -- Parameter-name uniqueness precedes CFG def-site TypeId range.
+  let badCfgCallable : CallableV1 := {
+    duplicateParamsCallable with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 2, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n5 ← programWithTypes "ParamNameN5UniquenessFirst" cfgBoolTypes #[]
+    #[badCfgCallable]
+  expectCfgErr "N5 parameter names before def-site TypeId" n5
+
 /-- SPEC-SEM-WIRE-001 §6 initializer cardinality: a program contains zero or
     one initializer, never two. Result shape is tested separately below. -/
 private def testInitializerCardinality : IO Unit := do
@@ -4813,6 +4880,7 @@ def run : IO Unit := do
   testValueBytesTransportRegression
   testCallableKindNamePresence
   testCallableNameUniqueness
+  testCallableParameterNameUniqueness
   testInitializerCardinality
   testInitializerResultShape
   testInvariantResultShape
