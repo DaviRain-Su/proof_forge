@@ -2469,12 +2469,13 @@ private def testInvariantLoopBoundsShape : IO Unit := do
   }
   expectCfgErr "N3 invariant loopBounds before def-site TypeId" n3
 
-/-- SPEC-SEM-WIRE-001 §8 invariant fuel metadata, bounded kind-disjoint
-    subset: initializer/entry/view can never belong to an invariant closure,
-    so their `invariantSteps` must be `none`. A valid pureFn→invariant closure
-    with `some` values pins that this gate does not broaden to those kinds;
-    full membership/exact computation, DAG validation, and the 10M ceiling
-    remain separate slices. Every case drives the structure and encoder gates. -/
+/-- SPEC-SEM-WIRE-001 §8 invariant fuel metadata, bounded provable
+    non-closure subsets: initializer/entry/view are always outside invariant
+    closures; when no invariant root exists, every pureFn is outside too. A
+    valid pureFn→invariant closure with `some` values pins that the rootless
+    rule does not reject genuine closure members. Full membership/exact
+    computation, DAG validation, and the 10M ceiling remain separate slices.
+    Every case drives the structure and encoder gates. -/
 private def testNonClosureCallableInvariantSteps : IO Unit := do
   let boolUnitTypes : Array TypeDeclV1 :=
     #[{ id := 0, name := none, shape := .bool },
@@ -2514,6 +2515,9 @@ private def testNonClosureCallableInvariantSteps : IO Unit := do
     p4Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
   expectCfgOk "P4 pureFn/invariant closure invariantSteps some" p4
+  let p5 ← programWithTypes "InvStepsP5RootlessPureNone" boolUnitTypes #[]
+    #[cfgCallableKindName .pureFn (some "f")]
+  expectCfgOk "P5 rootless pureFn invariantSteps none" p5
   let initializerWithSteps : CallableV1 := {
     (cfgCallableKindName .initializer none 1) with invariantSteps := some 1
   }
@@ -2548,6 +2552,27 @@ private def testNonClosureCallableInvariantSteps : IO Unit := do
   let n5 ← programWithTypes "InvStepsN5SignatureFirst" boolUnitTypes #[]
     #[entryWithStepsBadDef]
   expectCfgErr "N5 invariantSteps before def-site TypeId" n5
+  let rootlessPureWithSteps : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f")) with invariantSteps := some 2
+  }
+  let n6 ← programWithTypes "InvStepsN6RootlessPureSome" boolUnitTypes #[]
+    #[rootlessPureWithSteps]
+  expectCfgErr "N6 rootless pureFn invariantSteps some" n6
+  -- The rootless-pureFn extension retains canonical-values-before-signature.
+  let n7 ← programWithTypes "InvStepsN7RootlessValueFirst" boolUnitTypes
+    #[constOf 0 "bad" 0 (ByteArray.mk #[2])] #[rootlessPureWithSteps]
+  expectCfgErrCode "N7 canonical value before rootless pureFn steps"
+    .nonCanonical n7
+  -- It also retains signature-before-CFG using a distinguishable later error.
+  let rootlessPureWithStepsBadDef : CallableV1 := {
+    rootlessPureWithSteps with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n8 ← programWithTypes "InvStepsN8RootlessSignatureFirst" boolUnitTypes #[]
+    #[rootlessPureWithStepsBadDef]
+  expectCfgErr "N8 rootless pureFn steps before def-site TypeId" n8
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).

@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 rootless pureFn invariantSteps absence (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实当 callables 中没有 invariant root 时，每个 pureFn 都可证明不属于任何 invariant closure，因而必须 `invariantSteps=none`；不实现有 root 时的 pureFn reachability、invariant exact steps、DAG/op closure、10M ceiling、interpreter或产品接线。
+- RED/Changed：tests-first。扩展 `testNonClosureCallableInvariantSteps`，新增 rootless pureFn `none` 双路径正向、`some 2` 双路径负向，以及 canonical valueBytes → rootless fuel metadata → CFG instruction-result TypeId range 的可区分 precedence；保留上一切片实际 pureFn→invariant closure exact steps 3/6 的 `some` 正向以防 gate 误扩张。实现前 N6 被 structure gate 接受。
+- Production：扩展 bounded `validateNonClosureCallableInvariantStepsV1`，先检查是否存在 `.invariant` callable；没有 root 时拒绝所有 pureFn 的任意 `some`，失败为 `.badCfg`。initializer/entry/view 既有 kind-disjoint 规则不变；有 root 时 pureFn membership 与 invariant step value 仍不在该 helper 推断或验证。phase 位置保持 canonical values 后、InvariantDecl join/CFG 前。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` 的 bytes/hash；`proof-forge-one-slice-46` 三路只读 review 一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：有 invariant root 时未被调用 pureFn 的 closure membership、invariant root exact steps、closure DAG/op allowlist、checked UInt64/10M ceiling、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 non-closure invariantSteps absence (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实按 callable kind 可证明不属于 invariant closure 的 initializer/entry/view 必须 `invariantSteps=none`，不实现 pureFn closure membership、invariant root exact step computation、DAG/op closure、10M ceiling、interpreter或产品接线。

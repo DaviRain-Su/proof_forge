@@ -51,8 +51,9 @@ import ProofForgeV2.Core.Unicode
       initializer result
       resolving to Unit/public, invariant root with zero parameters,
       `loopBounds=[]`, and a result resolving to Bool/public,
-      `invariantSteps=none` for initializer/entry/view, plus exact source-order
-      InvariantDecl callableId/kind/name join (`.badCfg`)
+      `invariantSteps=none` for initializer/entry/view and for every pureFn
+      when no invariant root exists, plus exact source-order InvariantDecl
+      callableId/kind/name join (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -3542,20 +3543,27 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
       return ← err .badCfg
   pure ()
 
-/-- Callable kinds that are disjoint from every invariant closure carry no
-    invariant fuel metadata (SPEC §8). Initializer/entry/view cannot be an
-    invariant root and cannot be reached by `Op.PureCall`, whose callee must be
-    a pureFn. PureFn closure membership, invariant-root exact step computation,
-    closure DAG validation, and the intrinsic ceiling remain separate gates. -/
+/-- Callables provably disjoint from every invariant closure carry no fuel
+    metadata (SPEC §8). Initializer/entry/view are kind-disjoint from roots and
+    `Op.PureCall` callees. When no invariant callable exists, every pureFn is
+    also provably rootless and therefore outside all closures. General pureFn
+    reachability, invariant-root exact step computation, closure DAG validation,
+    and the intrinsic ceiling remain separate gates. -/
 private def validateNonClosureCallableInvariantStepsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let hasInvariantRoot := callables.any (·.kind == .invariant)
   for callable in callables do
     match callable.kind with
     | .initializer | .entry | .view =>
         match callable.invariantSteps with
         | none => pure ()
         | some _ => return ← err .badCfg
-    | .pureFn | .invariant => pure ()
+    | .pureFn =>
+        unless hasInvariantRoot do
+          match callable.invariantSteps with
+          | none => pure ()
+          | some _ => return ← err .badCfg
+    | .invariant => pure ()
   pure ()
 
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
@@ -3814,8 +3822,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4.3) Special callable signatures: initializer is zero-or-one with a
   --   Unit/public result; invariant has zero params, empty loopBounds, a
   --   Bool/public result, and one source-order exact InvariantDecl row;
-  --   initializer/entry/view carry no invariantSteps metadata. These checks
-  --   still precede per-callable CFG validation.
+  --   initializer/entry/view always carry no invariantSteps metadata, as do
+  --   all pureFns when no invariant root exists. These checks still precede
+  --   per-callable CFG validation.
   validateInitializerCardinalityV1 data.callables
   validateInitializerResultShapeV1 data.types data.callables
   validateInvariantResultShapeV1 data.types data.callables
