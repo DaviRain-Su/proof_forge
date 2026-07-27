@@ -2566,12 +2566,17 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P10 fieldSet result present" p10
-  -- P11: VariantTag (deferred family) with result present.
+  -- P11: VariantTag with result present. NOTE: VariantTag now carries the
+  --   full §5.1 contract (base must be Enum/Option, result.typeId == unique
+  --   UInt32 TypeId). P11 here re-pins presence with a valid Enum base so
+  --   the full VariantTag typing test lives in testCfgVariantTagTyping.
   let p11 ← programWithTypes "PresP11VariantTag" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 0 #[10]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
           (.return_ none)
       ] 0]
   expectCfgOk "P11 variantTag result present" p11
@@ -2737,11 +2742,16 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgErr "N10 fieldSet result none" n10
-  -- N11: VariantTag with result none.
+  -- N11: VariantTag with result none. NOTE: VariantTag now carries the full
+  --   §5.1 contract; N11 uses a valid Enum base (ValueId 1, typeId 5) so
+  --   steps a–i and the VariantTag typing preconditions all pass and ONLY
+  --   the missing result fails. Isolates the presence gate.
   let n11 ← programWithTypes "PresN11VariantTag" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 0 #[10]),
              cfgInstr none (.variantTag 1) ]
           (.return_ none)
       ] 0]
@@ -2939,6 +2949,131 @@ private def testCfgFieldSetTyping : IO Unit := do
       ] 0]
   expectCfgErr "N4 fieldSet wrong result type" n4
 
+/-- testCfgVariantTagTyping: SPEC-SEM-WIRE-001 §5.1 Op.VariantTag exact
+    contract. base ValueId type MUST resolve to a Type.Enum or Type.Option;
+    `Instruction.result` MUST be present and its typeId MUST exactly equal
+    the unique UInt32 TypeId (resolved via the `uint32TypeId` helper, which
+    returns `some` only when exactly one `.uint 32` declaration exists). A
+    non-Enum/Option base, a missing UInt32 closure type, a duplicate UInt32
+    closure type, or a wrong result type is `.badCfg` via structure+encode
+    dual path. Each negative isolates VariantTag typing: operands are
+    otherwise valid SSA / dominance definitions and earlier steps pass, so
+    only step j VariantTag typing fails. Uses cfgOpTypes (typeId 2 = UInt32,
+    typeId 3 = Option<UInt8>, typeId 5 = Enum{v(UInt8)}); N4 uses a custom
+    5-type table with a duplicate `.uint 32` declaration. -/
+private def testCfgVariantTagTyping : IO Unit := do
+  -- POSITIVES
+  -- P1: VariantTag on an Enum base. Construct Enum (typeId 5) variant 0
+  --   with a UInt8 payload (ValueId 10) → ValueId 1 (typeId 5); VariantTag
+  --   1 → result ValueId 2 typeId 2 (the unique UInt32 TypeId).
+  let p1 ← programWithTypes "VTagP1Enum" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 0 #[10]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P1 variantTag Enum base result==UInt32" p1
+  -- P2: VariantTag on an Option-some base. Construct Option-some (typeId 3,
+  --   ctorIdx 1) with a UInt8 (ValueId 10) → ValueId 1 (typeId 3);
+  --   VariantTag 1 → result ValueId 2 typeId 2 (UInt32).
+  let p2 ← programWithTypes "VTagP2OptionSome" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 1 #[10]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P2 variantTag Option-some base result==UInt32" p2
+  -- P3: VariantTag on an Option-none base. Construct Option-none (typeId 3,
+  --   ctorIdx 0, no args) → ValueId 1 (typeId 3); VariantTag 1 → result
+  --   ValueId 2 typeId 2 (UInt32).
+  let p3 ← programWithTypes "VTagP3OptionNone" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 0 #[]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgOk "P3 variantTag Option-none base result==UInt32" p3
+  -- NEGATIVES (all .badCfg via structure+encode dual path; operands are
+  --   otherwise valid SSA/dominance definitions so each negative isolates
+  --   VariantTag typing).
+  -- N1: non-Enum/Option base (primitive). base is a UInt8 literal
+  --   (typeId 1), not Enum/Option; result typeId 2 (UInt32, in range).
+  let n1 ← programWithTypes "VTagN1PrimitiveBase" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N1 variantTag non-Enum/Option base" n1
+  -- N2: no UInt32 closure type. Custom type table without a UInt32 shape:
+  --   typeId 0 = Bool, 1 = UInt8, 2 = Enum{v(UInt8)} (no UInt32). Construct
+  --   Enum (typeId 2) variant 0 with UInt8 → ValueId 1 (typeId 2);
+  --   VariantTag 1 → result ValueId 2 typeId 0 (Bool, in range). The
+  --   `uint32TypeId` helper returns none → `.badCfg`.
+  let noU32Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := some "E",
+         shape := .enum #[{ name := "v", payloadTypes := #[1] }] }]
+  let n2 ← programWithTypes "VTagN2NoUInt32Type" noU32Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 2 })
+               (.construct 2 0 #[10]),
+             cfgInstr (some (cfgValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N2 variantTag no UInt32 closure type" n2
+  -- N3: wrong result type. base Enum (typeId 5), the unique UInt32 TypeId
+  --   is typeId 2, but result.typeId is 1 (UInt8) instead of 2.
+  let n3 ← programWithTypes "VTagN3WrongResultType" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 0 #[10]),
+             cfgInstr (some (cfgUint8ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N3 variantTag wrong result type" n3
+  -- N4: duplicate UInt32 closure type. Custom type table with TWO `.uint 32`
+  --   declarations (typeId 2 and typeId 4): typeId 0 = Bool, 1 = UInt8,
+  --   2 = UInt32, 3 = Enum{v(UInt8)}, 4 = UInt32 (duplicate). Construct
+  --   Enum (typeId 3) variant 0 with UInt8 → ValueId 1 (typeId 3);
+  --   VariantTag 1 → result ValueId 2 typeId 2 (one of the UInt32 typeIds,
+  --   in range). Because `uint32TypeId` now enforces uniqueness and returns
+  --   `none` on a duplicate anonymous `.uint 32` declaration, the
+  --   VariantTag contract fails → `.badCfg` (structure+encode dual path).
+  --   This pins the uniqueness gate that the prior first-match resolver
+  --   silently bypassed.
+  let dupU32Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := none, shape := .uint 32 },
+      { id := 3, name := some "E",
+         shape := .enum #[{ name := "v", payloadTypes := #[1] }] },
+      { id := 4, name := none, shape := .uint 32 }]
+  let n4 ← programWithTypes "VTagN4DupUInt32Type" dupU32Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 0 #[10]),
+             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          (.return_ none)
+      ] 0]
+  expectCfgErr "N4 variantTag duplicate UInt32 closure type" n4
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -2970,6 +3105,7 @@ def run : IO Unit := do
   testCfgVoidOpResultPresence
   testCfgValueOpResultPresence
   testCfgFieldSetTyping
+  testCfgVariantTagTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
