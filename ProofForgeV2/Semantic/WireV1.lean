@@ -41,6 +41,9 @@ import ProofForgeV2.Core.Unicode
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
       (OOR TypeId → `.badReference`; nesting/size limits → `.limitExceeded`)
+    - callable signature subset after canonical values and before CFG:
+      kind/name Option presence, zero-or-one initializer, and initializer
+      result resolving to Unit with public visibility (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -3363,8 +3366,7 @@ private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     | _, _ => return ← err .badCfg
   pure ()
 
-/-- At most one initializer callable may occur in source order (SPEC §6).
-    Unit/public result validation remains a separate signature slice. -/
+/-- At most one initializer callable may occur in source order (SPEC §6). -/
 private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut seen : Bool := false
@@ -3372,6 +3374,23 @@ private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
     if callable.kind == .initializer then
       if seen then return ← err .badCfg
       seen := true
+  pure ()
+
+/-- Every initializer result resolves to Type.Unit and has public visibility
+    (SPEC §6). Shallow result TypeId range validation runs earlier; this helper
+    remains total and fails closed if called with a missing type. -/
+private def validateInitializerResultShapeV1 (types : Array TypeDeclV1)
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    if callable.kind == .initializer then
+      unless callable.result.visibility == .public_ do
+        return ← err .badCfg
+      match types[callable.result.typeId.toNat]? with
+      | some decl =>
+          match decl.shape with
+          | .unit => pure ()
+          | _ => return ← err .badCfg
+      | none => return ← err .badCfg
   pure ()
 
 private def isKnownRequirementDomain (domain : String) : Bool :=
@@ -3584,8 +3603,10 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallablesValueBytesV1 data.types data.callables
   -- 4.25) Callable kind/name presence signature (SPEC §6/§6.2)
   validateCallableKindNamePresenceV1 data.callables
-  -- 4.3) Initializer cardinality (zero or one), still before CFG.
+  -- 4.3) Initializer signature: zero or one, with Unit/public result.
+  --   These checks still precede per-callable CFG validation.
   validateInitializerCardinalityV1 data.callables
+  validateInitializerResultShapeV1 data.types data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data

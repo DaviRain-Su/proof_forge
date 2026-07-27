@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 initializer Unit/public result (signature step 4.3, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 initializer result 必须解析为 Unit 且 visibility 为 public，不实现其他 callable result、name grammar/uniqueness、invariant join、entry/view existence或产品接线。
+- RED/Changed：tests-first。新增 `testInitializerResultShape`，固定无 initializer 与 Unit/public initializer 正向，Bool/public、Unit/private、Unit/commitment 负向，以及 shallow result TypeId range → canonical literal value → initializer signature → per-callable CFG 的 phase precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 bounded/source-order `validateInitializerResultShapeV1`，仅遍历 initializer，先要求 public visibility，再将 result TypeId 解析到 `.unit`；missing/non-Unit/non-public 均 fail closed 为 `.badCfg`。接线于 initializer cardinality 后、CFG 前。
+- Verification：聚焦 production/test build 与真实 `proof-forge-next-tests` harness 已通过；首次三路只读 review 的 semantic/test 两路无 findings，boundary 仅要求补刷新 Lean package-file pin；`just sbom-package-files-refresh` 已精确只更新 `WireV1.lean` 的 bytes/hash，修复后聚焦 harness 通过，复审三路一致 approved、无 findings；`just dev-check`、SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：callable name grammar/NFC/uniqueness、invariant declaration/result/closure join、至少一个 entry/view、TypeKey/provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 initializer cardinality (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 initializer 零或一个，不实现 Unit/public result。

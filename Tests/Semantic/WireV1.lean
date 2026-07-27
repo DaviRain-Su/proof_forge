@@ -1338,7 +1338,7 @@ private def expectCfgErrCode (label : String) (code : SemanticWireErrorV1)
   expectErr s!"{label} encode" code (encodeSemanticProgramDataV1 data)
 
 /-- SPEC-SEM-WIRE-001 §6 callable kind/name presence: initializer is the only
-    anonymous kind; entry/view/pureFn/invariant must be named. This slice does
+    anonymous kind; entry/view/pureFn/invariant must be named. This test does
     not validate identifier spelling, uniqueness, initializer result/cardinality,
     or the full invariant declaration/closure join. -/
 private def testCallableKindNamePresence : IO Unit := do
@@ -1408,7 +1408,7 @@ private def testCallableKindNamePresence : IO Unit := do
   expectCfgErr "N7 signature before def-site TypeId" n7
 
 /-- SPEC-SEM-WIRE-001 §6 initializer cardinality: a program contains zero or
-    one initializer, never two. Result shape remains a separate slice. -/
+    one initializer, never two. Result shape is tested separately below. -/
 private def testInitializerCardinality : IO Unit := do
   let boolUnitTypes : Array TypeDeclV1 :=
     #[{ id := 0, name := none, shape := .bool },
@@ -1434,6 +1434,65 @@ private def testInitializerCardinality : IO Unit := do
   let n2 ← programWithTypes "InitCountN2BeforeCfg" boolUnitTypes #[]
     #[cfgCallableKindName .initializer none 1, badInit1]
   expectCfgErr "N2 initializer count before CFG" n2
+
+/-- SPEC-SEM-WIRE-001 §6 initializer result signature: when present, an
+    initializer has a Unit/public result. Other callable kinds are outside this
+    slice. -/
+private def testInitializerResultShape : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  let p0 ← programWithTypes "InitResultP0NoInit" cfgBoolTypes
+  expectCfgOk "P0 no initializer needs no Unit result" p0
+  let p1 ← programWithTypes "InitResultP1UnitPublic" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 1]
+  expectCfgOk "P1 initializer Unit public" p1
+  let n1 ← programWithTypes "InitResultN1BoolPublic" boolUnitTypes #[]
+    #[cfgCallableKindName .initializer none 0]
+  expectCfgErr "N1 initializer Bool public" n1
+  let privateInit : CallableV1 := {
+    (cfgCallableKindName .initializer none 1) with
+      result := { typeId := 1, visibility := .private_ }
+  }
+  let n2 ← programWithTypes "InitResultN2UnitPrivate" boolUnitTypes #[]
+    #[privateInit]
+  expectCfgErr "N2 initializer Unit private" n2
+  let commitmentInit : CallableV1 := {
+    (cfgCallableKindName .initializer none 1) with
+      result := { typeId := 1, visibility := .commitment }
+  }
+  let n3 ← programWithTypes "InitResultN3UnitCommitment" boolUnitTypes #[]
+    #[commitmentInit]
+  expectCfgErr "N3 initializer Unit commitment" n3
+  -- Shallow TypeId range validation precedes signature shape.
+  let badRefInit : CallableV1 := {
+    (cfgCallableKindName .initializer none 1) with
+      result := { typeId := 99, visibility := .private_ }
+  }
+  let n4 ← programWithTypes "InitResultN4ReferenceFirst" boolUnitTypes #[]
+    #[badRefInit]
+  expectCfgErrCode "N4 result TypeId before initializer signature" .badReference n4
+  -- Canonical literal values precede callable signature validation.
+  let badValueInit : CallableV1 := {
+    (cfgCallableKindName .initializer none 0) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ none)]
+  }
+  let n5 ← programWithTypes "InitResultN5ValueFirst" boolUnitTypes #[]
+    #[badValueInit]
+  expectCfgErrCode "N5 canonical value before initializer signature" .nonCanonical n5
+  -- Initializer signature validation precedes CFG def-site TypeId range.
+  let badCfgInit : CallableV1 := {
+    (cfgCallableKindName .initializer none 0) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+        (.return_ none)]
+  }
+  let n6 ← programWithTypes "InitResultN6SignatureFirst" boolUnitTypes #[]
+    #[badCfgInit]
+  expectCfgErr "N6 initializer signature before def-site TypeId" n6
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -4289,6 +4348,7 @@ def run : IO Unit := do
   testValueBytesTransportRegression
   testCallableKindNamePresence
   testInitializerCardinality
+  testInitializerResultShape
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
