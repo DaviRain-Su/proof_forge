@@ -53,6 +53,8 @@ inductive DiagnosticCodeV1 where
   | targetNotImplemented
   | outputAtomicity
   | internal
+  | effectDisallowed
+  | visibilityViolation
   deriving BEq, DecidableEq, Repr, Inhabited
 
 namespace DiagnosticCodeV1
@@ -67,6 +69,8 @@ private def toolchainMismatchRank : Nat := 3
 private def targetNotImplementedRank : Nat := 4
 private def outputAtomicityRank : Nat := 5
 private def internalRank : Nat := 6
+private def effectDisallowedRank : Nat := 7
+private def visibilityViolationRank : Nat := 8
 
 /-- Stable rank used for total ordering. -/
 def rank : DiagnosticCodeV1 → Nat
@@ -77,6 +81,8 @@ def rank : DiagnosticCodeV1 → Nat
   | .targetNotImplemented => targetNotImplementedRank
   | .outputAtomicity => outputAtomicityRank
   | .internal => internalRank
+  | .effectDisallowed => effectDisallowedRank
+  | .visibilityViolation => visibilityViolationRank
 
 /-- Exact wire code string for each diagnostic code.  These must be byte-identical
     to the strings produced by the existing `CompileError` renderer. -/
@@ -88,6 +94,8 @@ def wire : DiagnosticCodeV1 → String
   | .targetNotImplemented => "PF-TARGET-NOT-IMPLEMENTED"
   | .outputAtomicity => "PF-OUTPUT-ATOMICITY"
   | .internal => "PF-INTERNAL"
+  | .effectDisallowed => "PF-EFFECT-001"
+  | .visibilityViolation => "PF-VIS-001"
 
 end DiagnosticCodeV1
 

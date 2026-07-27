@@ -5,6 +5,7 @@ namespace Tests.Language.Loader
 
 open ProofForgeV2 System
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Source.AstV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -111,17 +112,29 @@ unsafe def run : IO Unit := do
         #["Product", "Multi", "B", "Two"]) "qualified selection failed"
   | .error error => throw <| IO.userError error.render
 
+  -- Stateless private params parse, but explicit disclosure rejects returning
+  -- private values through a public entry result (product CheckV1 gate).
   let stateless := "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram PrivateSum4 where\n  entry sum(private a : UInt64, private b : UInt64, private c : UInt64, private d : UInt64) : UInt64 do\n    return a + b\n"
   match ← session.selectProgramV1 stateless "<stateless>" "Root" none with
   | .ok source =>
       expect (source.program.items.all fun item =>
         match item with | .entry _ => true | _ => false)
         "stateless programs must remain valid"
+      let hasPrivateParam := source.program.items.any fun item =>
+        match item with
+        | .entry e => e.params.any (·.visibility == .private_)
+        | _ => false
+      expect hasPrivateParam "private parameter visibility must survive parsing"
       match Compiler.compileValidatedSourceV1 source with
-      | .ok semanticProgram =>
-          expect (semanticProgram.requirements.contains .privateWitness)
-            "private visibility must survive parsing and semantic compilation"
-      | .error error => throw <| IO.userError error.render
+      | .error (.visibilityViolation message) =>
+          expect (message.contains "disclosure violation: cannot flow 'private' into 'public'")
+            s!"private→public return must use disclosure wire detail, got {message}"
+      | .error other =>
+          throw <| IO.userError
+            s!"private→public return must fail closed with PF-VIS-001, got {other.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "private→public return must not compile through the product Typed gate"
   | .error error => throw <| IO.userError error.render
 
   let tooLarge := "import ProofForgeV2\nopen ProofForgeV2.Language\nprogram TooLarge where\n  view get() : UInt64 do\n    return 18446744073709551616\n"

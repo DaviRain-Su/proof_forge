@@ -1,8 +1,10 @@
+import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Typed.CheckV1
 import Std.Data.HashMap
 import Std.Data.HashSet
 
@@ -10,12 +12,14 @@ namespace ProofForgeV2.Typed
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Typed.CheckV1
 
 private def invalidV1 (message : String) : CompileResult α :=
   .error (.invalidProgram message)
@@ -233,12 +237,13 @@ private partial def checkExprV1 (scope : ScopeV1) : ExprV1 → CompileResult Exp
       -- `validateSupportedShapeV1` owns reachable unsupported diagnostics.
       invalidV1 s!"PF-INTERNAL: unsupported ProgramV1 expression reached Typed: {repr expression}"
 
-private def checkStatementV1 (scope : ScopeV1) (mode : EntryMode) :
-    StmtV1 → CompileResult Statement
+/-- Alpha IR lowering for supported statements. View write / synchronous-call
+    effect allowlists are owned solely by `EffectCheckV1` (via `CheckV1` →
+    `checkV1` fail-closed gate); this residual only performs name/type shape
+    lowering and empty-callee rejection. Missing/after-return remain on entry. -/
+private def checkStatementV1 (scope : ScopeV1) : StmtV1 → CompileResult Statement
   | .assign (.name sourceName) value => do
       let name := raw sourceName
-      if mode == .view then
-        throw <| .invalidProgram s!"view '{scope.owner}' cannot write state '{name}'"
       let state ← match scope.stateByName.get? name with
         | some state => pure state
         | none => invalidV1 (
@@ -251,9 +256,7 @@ private def checkStatementV1 (scope : ScopeV1) (mode : EntryMode) :
   | .return_ (some value) => .returnValue <$> checkExprV1 scope value
   | .call call =>
       let callee := renderQualified call.callee
-      if mode == .view then
-        invalidV1 s!"view '{scope.owner}' cannot perform synchronous call '{callee}'"
-      else if callee.isEmpty then
+      if callee.isEmpty then
         invalidV1 s!"synchronous call target in {scope.owner} cannot be empty"
       else
         pure (.synchronousCall callee)
@@ -274,7 +277,7 @@ private def checkInitializerV1 (state : StateEnvV1)
     match statement with
     | .return_ (some _) =>
         throw <| .invalidProgram "initializer cannot return a value"
-    | _ => body := body.push (← checkStatementV1 scope .mutate statement)
+    | _ => body := body.push (← checkStatementV1 scope statement)
   pure { params := params.ordered, body }
 
 private def checkEntryV1 (state : StateEnvV1) (mode : EntryMode)
@@ -295,7 +298,7 @@ private def checkEntryV1 (state : StateEnvV1) (mode : EntryMode)
   for statement in block.statements do
     if returned then
       throw <| .invalidProgram s!"{owner} contains a statement after return"
-    let checked ← checkStatementV1 scope mode statement
+    let checked ← checkStatementV1 scope statement
     match checked with
     | .returnValue value =>
         unless value.type == result do
@@ -307,10 +310,48 @@ private def checkEntryV1 (state : StateEnvV1) (mode : EntryMode)
     throw <| .invalidProgram s!"{owner} is missing a return value"
   pure { name, params := params.ordered, result, mode, body }
 
-/-- Direct ProgramV1 → Typed boundary. It never constructs or validates a
-legacy `Source.Program`; source identity and hashing remain owned by
-`ValidatedSourceV1`. -/
+/-- Map a multi-pass `DiagnosticV1` onto the single-error product carrier.
+    Wire codes on `CompileError.render` stay stable: PF-BOUND-001 / PF-EFFECT-001 /
+    PF-VIS-001 / PF-SRC-INVALID (and PF-INTERNAL → invalidProgram). -/
+private def compileErrorFromDiagnosticV1 (diag : DiagnosticV1) : CompileError :=
+  match diag.code with
+  | .resourceBound => .resourceBound diag.message
+  | .effectDisallowed => .effectDisallowed diag.message
+  | .visibilityViolation => .visibilityViolation diag.message
+  | .sourceInvalid | .internal | .toolchainMissing | .toolchainMismatch
+  | .targetNotImplemented | .outputAtomicity =>
+      .invalidProgram diag.message
+
+/-- Fail closed on the first phase-ordered multi-pass diagnostic, or on incomplete
+    analysis with no diagnostics (defensive). -/
+private def failClosedFromCheckV1 (result : TypedCheckResultV1) : CompileResult Unit :=
+  if result.ok then
+    pure ()
+  else
+    match result.diagnostics[0]? with
+    | some diag => .error (compileErrorFromDiagnosticV1 diag)
+    | none =>
+        .error (.invalidProgram "typed multi-pass analysis incomplete")
+
+/-- Direct ProgramV1 → Typed product boundary.
+
+    Gate order (documented choice): run independent multi-pass
+    `CheckV1.checkProgramTypedResultV1` **first** so structure/type/effect/bound/
+    disclosure are authoritative for full ProgramV1.  On `!ok` (including
+    `analysisComplete = false`), fail closed with the first phase-ordered
+    diagnostic mapped to `CompileError`.  On success, continue with the alpha
+    supported-shape validator and alpha Typed IR lowering (entry/view still set
+    `Entry.mode`; residual alpha shape rules cover missing/after-return only).
+
+    `EffectCheckV1` (via `CheckV1`) is the sole product authority for fn/view
+    effect allowlists and `PF-EFFECT-001`; the former TypedV1 alpha view
+    write/synchronous-call duplicate defense has been removed.  Formal D2-02
+    remains pending (context/disclosure/extension effects not in this path).
+
+    Never constructs or validates a legacy `Source.Program`; source identity and
+    hashing remain owned by `ValidatedSourceV1`. -/
 def checkV1 (source : ValidatedSourceV1) : CompileResult Program := do
+  failClosedFromCheckV1 (checkProgramTypedResultV1 source)
   validateSupportedShapeV1 source
   let qualifiedName := renderQualified source.programIdentity
   let owner := s!"program '{qualifiedName}'"

@@ -87,6 +87,8 @@ inductive CompileError where
   | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetId)
   | invalidProgram (message : String)
   | resourceBound (message : String)
+  | effectDisallowed (message : String)
+  | visibilityViolation (message : String)
   | unknownEntry (name : String)
   | wrongArity (expected actual : Nat)
   | arithmeticOverflow
@@ -105,6 +107,8 @@ def code : CompileError → String
   | .unsupportedRequirement .. => "PF-REQ-UNSUPPORTED"
   | .invalidProgram .. => "PF-SRC-INVALID"
   | .resourceBound .. => "PF-BOUND-001"
+  | .effectDisallowed .. => "PF-EFFECT-001"
+  | .visibilityViolation .. => "PF-VIS-001"
   | .unknownEntry .. => "PF-SEM-UNKNOWN-ENTRY"
   | .wrongArity .. => "PF-SEM-WRONG-ARITY"
   | .arithmeticOverflow => "PF-SEM-ARITHMETIC-OVERFLOW"
@@ -121,6 +125,8 @@ def message : CompileError → String
     s!"target '{target}' cannot preserve requirement '{requirement}'"
   | .invalidProgram detail => detail
   | .resourceBound detail => detail
+  | .effectDisallowed detail => detail
+  | .visibilityViolation detail => detail
   | .unknownEntry name => s!"unknown entry '{name}'"
   | .wrongArity expected actual => s!"expected {expected} arguments, received {actual}"
   | .arithmeticOverflow => "checked UInt64 arithmetic overflow"

@@ -62,7 +62,9 @@ private def codeWireGolden : Array (DiagnosticCodeV1 × String) := #[
   (.toolchainMismatch, "PF-TOOLCHAIN-MISMATCH"),
   (.targetNotImplemented, "PF-TARGET-NOT-IMPLEMENTED"),
   (.outputAtomicity, "PF-OUTPUT-ATOMICITY"),
-  (.internal, "PF-INTERNAL")
+  (.internal, "PF-INTERNAL"),
+  (.effectDisallowed, "PF-EFFECT-001"),
+  (.visibilityViolation, "PF-VIS-001")
 ]
 
 private def testWireUniqueness : IO Unit := do
@@ -73,7 +75,7 @@ private def testWireUniqueness : IO Unit := do
         throw <| IO.userError s!"wire strings at {i} and {j} are not unique"
 
 private def testCodeRank : IO Unit := do
-  let expected := #[0, 1, 2, 3, 4, 5, 6]
+  let expected := #[0, 1, 2, 3, 4, 5, 6, 7, 8]
   let got := codeWireGolden.map fun (code, _) => DiagnosticCodeV1.rank code
   unless got == expected do
     throw <| IO.userError s!"code rank order mismatch: expected {repr expected}, got {repr got}"

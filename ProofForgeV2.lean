@@ -48,10 +48,16 @@ import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Typed.TypeCheckV1
 import ProofForgeV2.Typed.CallGraphV1
+import ProofForgeV2.Typed.EffectCheckV1
+import ProofForgeV2.Typed.BoundCheckV1
+import ProofForgeV2.Typed.DisclosureCheckV1
+import ProofForgeV2.Typed.RequirementsInferV1
+import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Core.Typed
 import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.Semantics
+import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Language.Loader
