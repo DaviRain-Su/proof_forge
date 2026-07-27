@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.Emit EventDecl join (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.Emit` static §5.1 gate，不实现 EffectId 全局编号/runtime effect、不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。新增 `eventRow`/`programWithEvents` fixtures 与 `testCfgEmitTyping`，驱动真实 structure+encode 双路径：P1 zero-field event/P2 two-arg exact/P3 second-event selection 正向；N1 missing eventId、N2 arg count、N3 positional arg type、N4 selected-event type、N5 reversed `[Bool,UInt8]` vs fields `[UInt8,Bool]` 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败。既有 void presence/regression Emit fixtures 改为合法 empty EventDecl，使其继续隔离 result none/spurious-result。
+- Production：`Instruction.result` 必须 none，eventId 必须在 `data.events` 中存在，args arity/type 按 selected `EventDeclV1.fields` source order 精确匹配；任一失败 `.badCfg`。`effectId` 本切片不检查，留给独立 §6 canonical numbering/uniqueness gate。
+- Verification：三路只读 review 一致 approved、无 findings（规范仍为 proposed 的边界保持准确）；`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just dev-check`、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：不实现 EffectId 编号/occurrence/runtime event、ExternalCall/Schedule callee/args、ContextRead/Commit exact contracts、TypeKey、provenance、normalizer、product wiring或formal completion。
+
 ## 2026-07-27 — D2-06 Term.Revert ErrorDecl join (terminator-typing step i extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkTerminatorTyping` 的 `Term.Revert` static §6 gate，不实现 runtime Outcome、不接线产品、不改 wire/codec/schema。

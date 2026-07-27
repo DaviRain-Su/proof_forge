@@ -81,9 +81,10 @@ import ProofForgeV2.Core.Unicode
     Array/Bytes/Map operand/result contract, Op.CheckedCast UInt/Int
     source/destination/result contract, Op.StateStore state lookup/value
     type/void-result contract, and Op.Assert Bool/error/args/void-result
-    contract), the Term.Revert ErrorDecl/args exact join, presence-only result
-    for ContextRead/Commit, and void-op result-presence for Emit/ExternalCall/
-    Schedule are now covered; emit/externalCall/schedule argument typing,
+    contract), the Term.Revert ErrorDecl/args exact join, the Op.Emit EventDecl/
+    args/void-result contract, presence-only result for ContextRead/Commit,
+    and void-op result-presence for ExternalCall/Schedule are now covered;
+    ExternalCall/Schedule callee/argument typing and effectId numbering,
     exact contracts
     for the two presence-only
     families, TypeKey anonymous
@@ -2304,12 +2305,14 @@ def checkTerminatorTyping (c : CallableV1)
     source/destination/result contract. StateStore resolves stateId, requires
     type(value) == state.typeId, and carries no result. Assert requires a Bool
     condition plus an exact optional ErrorDecl/args join and carries no result.
-    The two deferred families (ContextRead/Commit) carry presence-only result;
-    their exact contracts are deferred. The other three void ops (Emit/
-    ExternalCall/Schedule) MUST carry `result := none`; a spurious result or a
-    missing result on a value-producing op is an invalid Core trap → `.badCfg`.
-    All step j failures → `.badCfg`. Bounded, non-recursive, total. Out of
-    scope: emit/externalCall/schedule argument typing, exact typing for
+    Emit resolves eventId, matches args positionally against EventDecl fields,
+    and carries no result. The two deferred families (ContextRead/Commit) carry
+    presence-only result; their exact contracts are deferred. The other two
+    void ops (ExternalCall/Schedule) MUST carry `result := none`; a spurious
+    result or a missing result on a value-producing op is an invalid Core trap
+    → `.badCfg`. All step j failures → `.badCfg`. Bounded, non-recursive, total.
+    Out of scope: ExternalCall/Schedule callee/argument typing, effectId
+    numbering/uniqueness, exact typing for
     ContextRead/Commit, TypeKey anonymous
     ranking/interning, provenance join, normalizer, product wire. -/
 
@@ -2402,8 +2405,10 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     `Op.StateStore` resolves stateId, requires type(value) == state.typeId, and
     MUST carry `result := none`. `Op.Assert` requires a Bool condition,
     `errorId = none` with empty args or an exact ErrorDecl/args join, and no
-    result. The other void ops (`Emit`/`ExternalCall`/`Schedule`) also require
-    no result; a spurious result is `.badCfg`. `Op.FieldSet` carries the full §5.1 contract (base must resolve to a Struct, fieldIndex in
+    result. `Op.Emit` resolves eventId, matches args exactly against EventDecl
+    fields, and requires no result. The other void ops (`ExternalCall`/
+    `Schedule`) also require no result; a spurious result is `.badCfg`.
+    `Op.FieldSet` carries the full §5.1 contract (base must resolve to a Struct, fieldIndex in
     range, type(value) == selected field.typeId, result.typeId == type(base));
     a missing result or any mismatch is `.badCfg`. `Op.VariantTag` carries
     the full §5.1 contract (base must resolve to an Enum or Option,
@@ -2721,12 +2726,21 @@ def checkOpTyping (instr : InstructionV1)
                   | some errorDecl =>
                       checkArgTypes args (errorDecl.fields.map (·.typeId))
           | _ => err .badCfg
-  -- Remaining void ops (SPEC §5.1 'no result'): Emit/ExternalCall/Schedule
-  --   are genuinely void; their `Instruction.result` MUST be `none`.
-  --   A spurious `result := some _` on any of these is an invalid Core trap
-  --   → `.badCfg`. No event/effectId declaration-table join or argument typing
-  --   is performed here — those are later slices.
-  | .emit _ _ _ | .externalCall _ _ _ | .schedule _ _ _ =>
+  -- Op.Emit (SPEC-SEM-WIRE-001 §5.1): result MUST be none; eventId MUST
+  --   resolve; args MUST match EventDecl fields positionally and exactly.
+  --   EffectId canonical numbering/uniqueness is a separate §6 layer.
+  | .emit _effectId eventId args =>
+      match instr.result with
+      | some _ => err .badCfg
+      | none =>
+          match data.events[eventId.toNat]? with
+          | none => err .badCfg
+          | some eventDecl =>
+              checkArgTypes args (eventDecl.fields.map (·.typeId))
+  -- Remaining void ops (SPEC §5.1 'no result'): ExternalCall/Schedule are
+  --   genuinely void; their `Instruction.result` MUST be `none`. A spurious
+  --   result is `.badCfg`. Callee/arg/effectId contracts are later slices.
+  | .externalCall _ _ _ | .schedule _ _ _ =>
       match instr.result with
       | some _ => err .badCfg
       | none => pure ()
@@ -2921,7 +2935,8 @@ private def validateCallableCfgShape (c : CallableV1)
   --   Enum/Option, result.typeId == unique UInt32 TypeId). `Op.StateStore`
   --   resolves stateId, checks value type, and requires no result. `Op.Assert`
   --   checks Bool condition plus exact optional ErrorDecl/args and no result.
-  --   The remaining void ops (Emit/ExternalCall/Schedule) require no result;
+  --   `Op.Emit` resolves EventDecl, checks positional args, and requires no
+  --   result. The remaining void ops (ExternalCall/Schedule) require no result;
   --   a spurious result is `.badCfg`. VariantPayload, IndexSet, and
   --   CheckedCast have exact static contracts; ContextRead and
   --   Commit must each carry `result := some _` presence-only and retain
@@ -3407,16 +3422,17 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
       operand/result contract; Op.CheckedCast exact UInt/Int source/
       destination/result contract; Op.StateStore exact state lookup/value type/
       void-result contract; Op.Assert exact Bool/error/args/void-result contract;
-      presence-only result for ContextRead/Commit; void-op result-presence for
-      Emit/ExternalCall/Schedule)
+      Op.Emit exact EventDecl/args/void-result contract; presence-only result
+      for ContextRead/Commit; void-op result-presence for ExternalCall/Schedule)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT emit/externalCall/schedule argument typing,
-    ContextRead/Commit exact contracts, runtime CheckedCast representability,
+    result-presence) — NOT ExternalCall/Schedule callee/argument typing,
+    effectId numbering/uniqueness, ContextRead/Commit exact contracts,
+    runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
     inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :

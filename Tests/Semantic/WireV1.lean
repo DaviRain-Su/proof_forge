@@ -12,9 +12,9 @@
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
-  Assert Bool/error/args/void-result, and Term.Revert ErrorDecl/args contracts;
-  only ContextRead/Commit remain presence-only. Formal TST-SEM-001 corpus
-  remains pending.
+  Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, and Emit
+  EventDecl/args/void-result contracts; only ContextRead/Commit remain
+  presence-only. Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.WireV1
@@ -2035,6 +2035,16 @@ private def errorRow (id : ErrorIdV1) (name : String)
     (fields : Array InterfaceFieldV1) : ErrorDeclV1 :=
   { id, name, fields }
 
+private def eventRow (id : EventIdV1) (name : String)
+    (fields : Array InterfaceFieldV1) : EventDeclV1 :=
+  { id, name, fields }
+
+private def programWithEvents (name : String) (types : Array TypeDeclV1)
+    (events : Array EventDeclV1) (callables : Array CallableV1) :
+    IO SemanticProgramDataV1 := do
+  let data0 ← emptyProgram name
+  pure { data0 with types, events, callables }
+
 private def programWithErrors (name : String) (types : Array TypeDeclV1)
     (errors : Array ErrorDeclV1) (callables : Array CallableV1) :
     IO SemanticProgramDataV1 := do
@@ -2322,10 +2332,10 @@ private def testCfgOpTyping : IO Unit := do
     The five genuinely-void ops (`StateStore`/`Assert`/`Emit`/`ExternalCall`/
     `Schedule`) MUST carry `result := none`; a spurious `result := some _` is
     an invalid Core trap → `.badCfg`. This suite isolates result presence;
-    its StateStore and Assert fixtures also satisfy their later exact state/
-    error declaration and operand contracts. Event/effectId joins and call
-    argument typing remain out of scope here, and spurious results fail before
-    those deferred joins. Uses the same 8-type `cfgOpTypes` fixture. -/
+    its StateStore, Assert, and Emit fixtures also satisfy their later exact
+    state/error/event declaration and operand contracts. EffectId numbering
+    and call argument typing remain out of scope here, and spurious results
+    fail before those deferred joins. Uses the same 8-type `cfgOpTypes` fixture. -/
 
 -- A qualified name with ≥2 components for externalCall/schedule callees.
 private def cfgCalleeName : IO QualifiedName := do
@@ -2363,8 +2373,9 @@ private def testCfgVoidOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P2 assert result none" p2
-  -- P3: Emit — emit 0 0 #[] result none (empty args, no operand uses).
-  let p3 ← programWithTypes "VoidP3Emit" cfgOpTypes #[]
+  -- P3: Emit — exact empty EventDecl, result none.
+  let p3 ← programWithEvents "VoidP3Emit" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
@@ -2413,8 +2424,9 @@ private def testCfgVoidOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgErr "N2 assert spurious result" n2
-  -- N3: Emit with spurious result some.
-  let n3 ← programWithTypes "VoidN3Emit" cfgOpTypes #[]
+  -- N3: Emit with valid empty EventDecl and spurious result some.
+  let n3 ← programWithEvents "VoidN3Emit" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
@@ -2852,7 +2864,8 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "Reg assert result none still accepted" r2
-  let r3 ← programWithTypes "PresRegEmit" cfgOpTypes #[]
+  let r3 ← programWithEvents "PresRegEmit" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
@@ -3693,6 +3706,87 @@ private def testCfgRevertTyping : IO Unit := do
           (.revert 0 #[1, 2])] 0]
   expectCfgErr "N5 revert reversed positional args" n5
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.Emit` exact EventDecl join. eventId must
+    resolve and args must match EventDecl fields positionally by exact TypeId;
+    Emit remains void. EffectId global numbering is a separate §6 slice. -/
+private def testCfgEmitTyping : IO Unit := do
+  -- P1: zero-field event with no args.
+  let p1 ← programWithEvents "EmitP1Empty" cfgOpTypes
+    #[eventRow 0 "Ping" #[]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[])]
+          (.return_ none)] 0]
+  expectCfgOk "P1 emit empty event" p1
+  -- P2: two args match EventDecl fields in source order.
+  let p2 ← programWithEvents "EmitP2Args" cfgOpTypes
+    #[eventRow 0 "Tick"
+        #[interfaceField "count" 1, interfaceField "final" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+            cfgInstr none (.emit 0 0 #[1, 2])]
+          (.return_ none)] 0]
+  expectCfgOk "P2 emit declared args" p2
+  -- P3: eventId selects the second declaration and its UInt32 field.
+  let p3 ← programWithEvents "EmitP3Selected" cfgOpTypes
+    #[eventRow 0 "Ping" #[],
+      eventRow 1 "Count" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+            cfgInstr none (.emit 0 1 #[1])]
+          (.return_ none)] 0]
+  expectCfgOk "P3 emit selected event" p3
+  -- N1: eventId must resolve.
+  let n1 ← programWithTypes "EmitN1MissingEvent" cfgOpTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr none (.emit 0 0 #[])]
+          (.return_ none)] 0]
+  expectCfgErr "N1 emit missing event" n1
+  -- N2: args count must equal fields.size.
+  let n2 ← programWithEvents "EmitN2Arity" cfgOpTypes
+    #[eventRow 0 "Tick"
+        #[interfaceField "count" 1, interfaceField "final" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr none (.emit 0 0 #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N2 emit arg count" n2
+  -- N3: args must match field types positionally.
+  let n3 ← programWithEvents "EmitN3ArgType" cfgOpTypes
+    #[eventRow 0 "Tick" #[interfaceField "count" 1]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr none (.emit 0 0 #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N3 emit arg type" n3
+  -- N4: lookup must use selected eventId rather than another row's type.
+  let n4 ← programWithEvents "EmitN4Selected" cfgOpTypes
+    #[eventRow 0 "Flag" #[interfaceField "flag" 0],
+      eventRow 1 "Count" #[interfaceField "count" 2]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr none (.emit 0 1 #[1])]
+          (.return_ none)] 0]
+  expectCfgErr "N4 emit selected event arg type" n4
+  -- N5: distinct field types supplied in reverse order must fail.
+  let n5 ← programWithEvents "EmitN5ReversedArgs" cfgOpTypes
+    #[eventRow 0 "Tick"
+        #[interfaceField "count" 1, interfaceField "final" 0]]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7),
+            cfgInstr none (.emit 0 0 #[1, 2])]
+          (.return_ none)] 0]
+  expectCfgErr "N5 emit reversed positional args" n5
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3731,6 +3825,7 @@ def run : IO Unit := do
   testCfgStateStoreTyping
   testCfgAssertTyping
   testCfgRevertTyping
+  testCfgEmitTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
