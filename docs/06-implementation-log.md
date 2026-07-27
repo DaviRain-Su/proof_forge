@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-root direct StateStore prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 invariant root 直接 body 禁止 `Op.StateStore`，保留 `Op.StateLoad`；不实现 transitive pureFn closure、其他 forbidden op family、exact steps、DAG、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantRootStateStoreProhibited`，固定 invariant direct StateLoad 与 entry direct StateStore 双路径正向、invariant direct StateStore 双路径负向，以及 canonical valueBytes → CFG def-site/op typing → closure restriction → intrinsic fuel → requirements precedence；实现前 N1 被 structure gate 接受。首轮 review 指出共享 `.badCfg` 无法区分相邻 phase 后，补充合法引用但 StateStore type mismatch、独立 StateLoad typing failure、StateStore+over-ceiling fuel 混合负例及 phase-aware assertions。
+- Production：新增 bounded `validateInvariantRootNoStateStoreV1`，在 generic per-callable CFG/`checkOpTyping` 全部通过后，按 invariant callable/block/instruction source order 扫描并拒绝 direct `.stateStore`，失败 `.badCfg`；接线于 intrinsic fuel ceiling 与 requirements 前，不影响其他 callable kind。新增 non-wire `validateCfgInvariantPhasesV1` 作为该真实 production segment 的窄 phase-observation seam；structure gate 消费其 exact result并只擦除 phase，公开 wire error 仍逐字节保持不变。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` bytes/hash；`proof-forge-one-slice-49/-50` findings 已修复，`proof-forge-one-slice-51` 三路只读复审一致 approved、无 findings；SBOM 幂等刷新、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：transitive pureFn closure、ContextRead/Commit/Emit/ExternalCall/Schedule 等其他 forbidden family、exact checked step computation、closure DAG、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariantSteps intrinsic ceiling (post-CFG fuel step 4.75, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 SPEC §8 schema-fixed `invariantSteps ≤ 10_000_000`，覆盖所有 present metadata；不计算 expected steps，不推断 pureFn closure membership，不实现 DAG/op closure、checked accumulation、interpreter或产品接线。

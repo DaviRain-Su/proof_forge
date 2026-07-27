@@ -1352,6 +1352,23 @@ private def expectCfgErrCode (label : String) (code : SemanticWireErrorV1)
     (validateSemanticProgramStructureV1 data)
   expectErr s!"{label} encode" code (encodeSemanticProgramDataV1 data)
 
+/-- Pin the stable CFG/invariant subphase even when competing failures share
+    the same public `.badCfg` value. The production structure gate consumes
+    this exact phase-aware helper and erases only the phase. -/
+private def expectCfgInvariantPhase (label : String)
+    (phase : CfgInvariantValidationPhaseV1) (code : SemanticWireErrorV1)
+    (data : SemanticProgramDataV1) : IO Unit := do
+  match validateCfgInvariantPhasesV1 data with
+  | .ok () =>
+      throw <| IO.userError s!"{label}: expected phase failure {repr phase}"
+  | .error failure =>
+      unless failure.phase == phase do
+        throw <| IO.userError
+          s!"{label}: expected phase {repr phase}, got {repr failure.phase}"
+      unless failure.error == code do
+        throw <| IO.userError
+          s!"{label}: expected error {repr code}, got {repr failure.error}"
+
 /-- SPEC-SEM-WIRE-001 §6 callable kind/name presence: initializer is the only
     anonymous kind; entry/view/pureFn/invariant must be named. This test does
     not validate identifier spelling, uniqueness, initializer result/cardinality,
@@ -3701,6 +3718,133 @@ private def programWithErrors (name : String) (types : Array TypeDeclV1)
   let data0 ← emptyProgram name
   pure { data0 with types, errors, callables }
 
+/-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
+    StateLoad is allowed, but StateStore is forbidden directly in an invariant
+    root. Transitive pureFn closure and other forbidden op families remain
+    separate. All cases drive structure and encoder paths. -/
+private def testInvariantRootStateStoreProhibited : IO Unit := do
+  let state := #[stateRow 0 "flag" 0]
+  let allowedLoadRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.stateLoad 0)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithState "InvStoreP1Load" cfgBoolTypes #[] state
+    #[allowedLoadRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 invariant root direct StateLoad allowed" p1
+  let forbiddenStoreRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.stateStore 0 0)]
+        (.return_ (some 0))]
+      invariantSteps := some 4
+  }
+  let n1Base ← programWithState "InvStoreN1Root" cfgBoolTypes #[] state
+    #[forbiddenStoreRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct StateStore forbidden" n1
+  -- Scope guard: the same valid StateStore remains allowed in an entry.
+  let entryStore : CallableV1 := {
+    forbiddenStoreRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p2 ← programWithState "InvStoreP2Entry" cfgBoolTypes #[] state
+    #[entryStore]
+  expectCfgOk "P2 entry direct StateStore remains allowed" p2
+  -- Canonical valueBytes precede CFG and invariant closure restrictions.
+  let badValueRoot : CallableV1 := {
+    forbiddenStoreRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+            (.literal 0 (ByteArray.mk #[2])),
+          cfgInstr none (.stateStore 0 0)]
+        (.return_ (some 0))]
+  }
+  let n2Base ← programWithState "InvStoreN2ValueFirst" cfgBoolTypes #[] state
+    #[badValueRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 canonical value before invariant StateStore"
+    .nonCanonical n2
+  -- Complete CFG/op typing precedes the invariant closure restriction.
+  let badCfgRoot : CallableV1 := {
+    forbiddenStoreRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 1),
+          cfgInstr none (.stateStore 0 0)]
+        (.return_ none)]
+  }
+  let n3Base ← programWithState "InvStoreN3CfgFirst" cfgBoolTypes #[] state
+    #[badCfgRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 CFG def-site before invariant StateStore"
+    .badReference n3
+  expectCfgInvariantPhase "N3 CFG def-site phase wins"
+    .cfg .badReference n3
+  -- Valid references still reach StateStore op typing before the closure gate:
+  -- value 0 is UInt8 while state 0 is Bool. Value 1 keeps the invariant's
+  -- required Bool return independently valid.
+  let badStoreTypingRoot : CallableV1 := {
+    forbiddenStoreRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+          cfgInstr none (.stateStore 0 0)]
+        (.return_ (some 1))]
+  }
+  let n4Base ← programWithState "InvStoreN4StoreTyping" cfgUint8Types #[] state
+    #[badStoreTypingRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 StateStore op typing before invariant closure"
+    .badCfg n4
+  expectCfgInvariantPhase "N4 StateStore typing phase wins"
+    .cfg .badCfg n4
+  -- An allowed invariant StateLoad with valid references but a mismatched
+  -- result type proves generic op typing is active independently of StateStore.
+  let badLoadTypingRoot : CallableV1 := {
+    allowedLoadRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (.stateLoad 0),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n5Base ← programWithState "InvStoreN5LoadTyping" cfgUint8Types #[] state
+    #[badLoadTypingRoot]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N5 invariant StateLoad op typing enforced"
+    .badCfg n5
+  expectCfgInvariantPhase "N5 StateLoad typing phase isolated"
+    .cfg .badCfg n5
+  -- Invariant closure restrictions precede intrinsic fuel and requirements.
+  let n6 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenStoreRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N6 invariant StateStore before fuel ceiling" .badCfg n6
+  expectCfgInvariantPhase "N6 invariant closure phase wins"
+    .invariantClosure .badCfg n6
+  let n7 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-store"] }
+  }
+  expectCfgErr "N7 invariant StateStore before requirements" n7
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -5599,6 +5743,7 @@ def run : IO Unit := do
   testNonClosureCallableInvariantSteps
   testInvariantRootStepsPresence
   testInvariantStepsIntrinsicCeiling
+  testInvariantRootStateStoreProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

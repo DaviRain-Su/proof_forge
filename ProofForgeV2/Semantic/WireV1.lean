@@ -55,6 +55,9 @@ import ProofForgeV2.Core.Unicode
       when no invariant root exists, `invariantSteps=some` presence for every
       invariant root, plus exact source-order InvariantDecl callableId/kind/name
       join (`.badCfg`)
+    - post-CFG invariant roots reject direct `Op.StateStore` while retaining
+      direct `Op.StateLoad`; other closure op families remain deferred
+      (`.badCfg`)
     - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
       before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
@@ -82,8 +85,9 @@ import ProofForgeV2.Core.Unicode
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
   * Not yet: full TypeKey
-    anonymous ranking/interning, invariant closure/DAG/exact checked step
-    computation, provenance inventory join, ProgramV1 normalizer, product
+    anonymous ranking/interning, remaining invariant closure (transitive pureFn
+    and op allowlist)/DAG/exact checked step computation, provenance inventory
+    join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
@@ -3585,6 +3589,21 @@ private def validateInvariantRootStepsPresenceV1
       | none => return ← err .badCfg
   pure ()
 
+/-- Invariant roots cannot write logical state (SPEC §8 bounded direct-op
+    subset). This gate rejects direct `Op.StateStore` after generic CFG/op
+    typing has validated the instruction. StateLoad remains allowed; transitive
+    pureFn closure and other forbidden op families are separate slices. -/
+private def validateInvariantRootNoStateStoreV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    if callable.kind == .invariant then
+      for block in callable.blocks do
+        for instr in block.instructions do
+          match instr.op with
+          | .stateStore _ _ => return ← err .badCfg
+          | _ => pure ()
+  pure ()
+
 /-- Every present invariant fuel value is bounded by the schema-fixed 10M
     intrinsic ceiling (SPEC §8). This does not compute expected steps or infer
     closure membership. The structure pipeline intentionally calls it after
@@ -3597,6 +3616,44 @@ private def validateInvariantStepsIntrinsicCeilingV1
     | some steps =>
         unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
   pure ()
+
+/-- Stable observable subphases for the CFG/invariant segment of structure
+    validation. This is not serialized and does not change the public wire
+    error contract; it lets tests distinguish precedence when multiple phases
+    intentionally collapse to `.badCfg`. -/
+inductive CfgInvariantValidationPhaseV1
+  | cfg
+  | invariantClosure
+  | invariantFuel
+  deriving BEq, Repr
+
+/-- Internal phase plus the unchanged public wire error. The production
+    structure validator consumes this exact result and erases only `phase`. -/
+structure CfgInvariantValidationFailureV1 where
+  phase : CfgInvariantValidationPhaseV1
+  error : SemanticWireErrorV1
+  deriving BEq, Repr
+
+private def liftCfgInvariantValidationPhaseV1
+    (phase : CfgInvariantValidationPhaseV1)
+    (result : Except SemanticWireErrorV1 Unit) :
+    Except CfgInvariantValidationFailureV1 Unit :=
+  match result with
+  | .ok () => .ok ()
+  | .error error => .error { phase, error }
+
+/-- Runs the exact stable §6.2 segment used by the structure gate: every
+    callable's generic CFG/op validation, then invariant closure restrictions,
+    then intrinsic invariant fuel. Earlier structure phases are prerequisites. -/
+def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
+    Except CfgInvariantValidationFailureV1 Unit := do
+  for callable in data.callables do
+    liftCfgInvariantValidationPhaseV1 .cfg
+      (validateCallableCfgShape callable data.types.size data.types data)
+  liftCfgInvariantValidationPhaseV1 .invariantClosure
+    (validateInvariantRootNoStateStoreV1 data.callables)
+  liftCfgInvariantValidationPhaseV1 .invariantFuel
+    (validateInvariantStepsIntrinsicCeilingV1 data.callables)
 
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
     latter's filtered source order (SPEC §6): exact callableId, invariant kind,
@@ -3866,12 +3923,12 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateNonClosureCallableInvariantStepsV1 data.callables
   validateInvariantRootStepsPresenceV1 data.callables
   validateInvariantDeclarationJoinV1 data.callables data.invariants
-  -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
-  for c in data.callables do
-    validateCallableCfgShape c typeCount data.types data
-  -- 4.75) Invariant fuel intrinsic ceiling follows all CFG/type checks and
-  --   precedes requirements (SPEC §6.2 stable order / §8).
-  validateInvariantStepsIntrinsicCeilingV1 data.callables
+  -- 4.5–4.75) Generic CFG/op typing → invariant closure restrictions →
+  --   intrinsic invariant fuel. The shared helper preserves the public wire
+  --   error while exposing the stable subphase to focused tests.
+  match validateCfgInvariantPhasesV1 data with
+  | .ok () => pure ()
+  | .error failure => throw failure.error
   -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 
