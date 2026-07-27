@@ -12,6 +12,37 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 CFG block-param arity (count portion)
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  现有 terminator target range 相位（step c）之后新增 step c.5：遍历每个 block
+  terminator 携带的所有 `JumpTargetV1`（`.jump`、`.branch` then/else、
+  `.switch` 每 case.target + optional defaultTarget），校验
+  `target.args.size == target block.params.size`，不匹配统一 `.badCfg`。
+  仅对 in-range target 执行 arity 检查（OOR 仍由 step c 的 range check 独占，
+  避免双重报告）。新增 private helpers `checkJumpTargetArity` 与
+  `terminatorJumpTargets`；未改动 `terminatorSuccessors`/reachability/codec。
+  `Tests/Semantic/WireV1.lean` 增 `testCfgBlockParamArity`：新增 helpers
+  `cfgBlockWithParams`/`cfgJumpTargetWithArgs`/`cfgBoolParam`（保留既有
+  `cfgBlock`/`cfgJumpTarget` 的 0==0 回归），4 个正例（jump 2==2、branch
+  then/else 1==1、switch case 1/default 0、return 0==0 回归）与 6 个负例
+  （jump 1<2、jump 3>2、branch else 不匹配、switch case 不匹配、switch default
+  不匹配、jump OOR 仍由 range 独占），均校验 structure gate 与 encode 双路径；
+  所有 block params 用 typeId 0（Bool）。更新 module header、
+  `validateSemanticProgramStructureV1` docstring、`Tests/Semantic/WireV1.lean`
+  header 注释、`AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_tests && lake env .lake/build/bin/proof-forge-next-tests`；
+  `just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite 与 full test binary（含 `Tests.Semantic.WireV1: ok`）通过；
+  `supply-chain/lean-package-files.v1.json` 仅刷新 `ProofForgeV2/Semantic/WireV1.lean`
+  的 hash/bytes（92833→94815）；不记 formal TASK/TST/EV。
+- Limitations：仅 count portion（`args.size == params.size`）。Not yet: arg
+  ValueId→type 解析、ValueId-definition table、dominance、loopBounds back-edge
+  coverage、block-param TYPE、terminator typing（独立后续切片）。本切片只加宽
+  structure gate，不改 wire bytes/codec；transport decode 仍 structure-free；
+  不接线 Typed/CheckV1/compile/CLI/alpha SemanticIR；不删 alpha SemanticIR。
+
 ## 2026-07-27 — D2-06 CFG shape + reachability foundation
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateSemanticProgramStructureV1`

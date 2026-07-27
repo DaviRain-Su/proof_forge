@@ -1107,12 +1107,13 @@ private def testValueBytesTransportRegression : IO Unit := do
   expectErr "provenance still bad" .badProvenance
     (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
 
-/-! ### CFG shape + reachability (D2-06 first CFG layer)
+/-! ### CFG shape + reachability + block-param arity (D2-06 CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, and total reachability from entry. NOT dominance, ValueId SSA,
-    loopBounds back-edge coverage, block-param arity/type, or terminator typing
-    (those remain explicitly out of scope this slice). -/
+    range, total reachability from entry, and jump/branch/switch target arg
+    arity == target block params. NOT dominance, ValueId SSA, loopBounds
+    back-edge coverage, block-param TYPE, or terminator typing (those remain
+    explicitly out of scope this slice). -/
 
 private def cfgBoolTypes : Array TypeDeclV1 :=
   #[{ id := 0, name := none, shape := .bool }]
@@ -1137,6 +1138,21 @@ private def cfgBlock (id : BlockIdV1) (terminator : TerminatorV1) :
 
 private def cfgJumpTarget (blockId : BlockIdV1) : JumpTargetV1 :=
   { blockId, args := #[] }
+
+/-- Block with explicit params (for block-param arity tests). All params use
+    typeId 0 (Bool, present in cfgBoolTypes) to avoid unrelated badReference. -/
+private def cfgBlockWithParams (id : BlockIdV1)
+    (params : Array BlockParameterV1) (terminator : TerminatorV1) : BlockV1 :=
+  { id, params, instructions := #[], terminator }
+
+/-- JumpTarget with explicit arg ValueIds (for block-param arity tests). -/
+private def cfgJumpTargetWithArgs (blockId : BlockIdV1)
+    (args : Array ValueIdV1) : JumpTargetV1 :=
+  { blockId, args }
+
+/-- Bool block param at `valueId` (typeId 0 = Bool in cfgBoolTypes). -/
+private def cfgBoolParam (valueId : ValueIdV1) : BlockParameterV1 :=
+  { valueId, typeId := 0 }
 
 private def expectCfgOk (label : String) (data : SemanticProgramDataV1) :
     IO Unit := do
@@ -1223,6 +1239,96 @@ private def testCfgShapeAndReachability : IO Unit := do
     ]]
   expectCfgErr "unreachable block" n6
 
+private def testCfgBlockParamArity : IO Unit := do
+  -- Positive 1: jump to a 2-param block passing 2 args.
+  let p1 ← programWithTypes "CfgArityJump2" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0, 1])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0, cfgBoolParam 1]
+        (.return_ (some 0))
+    ]]
+  expectCfgOk "jump arity 2==2" p1
+  -- Positive 2: branch then/else both targeting 1-param blocks, 1 arg each.
+  let p2 ← programWithTypes "CfgArityBranch1" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0
+        (cfgJumpTargetWithArgs 1 #[0])
+        (cfgJumpTargetWithArgs 2 #[1])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
+      cfgBlockWithParams 2 #[cfgBoolParam 1] (.return_ (some 1))
+    ]]
+  expectCfgOk "branch arity 1==1" p2
+  -- Positive 3: switch case target 1-param (1 arg), default 0-param (0 args).
+  let p3 ← programWithTypes "CfgAritySwitch" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 0
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTargetWithArgs 1 #[0] }]
+        (some (cfgJumpTarget 2))),
+      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgOk "switch arity case 1 / default 0" p3
+  -- Positive 4: regression — single-block return (0 args, 0 params) still ok.
+  let p4 ← programWithTypes "CfgArityReturn0" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.return_ (some 0))]]
+  expectCfgOk "return 0==0 regression" p4
+  -- Negative 1: jump to 2-param block with 1 arg (arity mismatch).
+  let n1 ← programWithTypes "CfgArityJumpShort" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0, cfgBoolParam 1]
+        (.return_ (some 0))
+    ]]
+  expectCfgErr "jump arity 1<2" n1
+  -- Negative 2: jump to 2-param block with 3 args.
+  let n2 ← programWithTypes "CfgArityJumpLong" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 1 #[0, 1, 2])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0, cfgBoolParam 1]
+        (.return_ (some 0))
+    ]]
+  expectCfgErr "jump arity 3>2" n2
+  -- Negative 3: branch thenTarget ok, elseTarget arity mismatch.
+  let n3 ← programWithTypes "CfgArityBranchElse" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0
+        (cfgJumpTargetWithArgs 1 #[0])
+        (cfgJumpTargetWithArgs 2 #[])),
+      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
+      cfgBlockWithParams 2 #[cfgBoolParam 1] (.return_ (some 1))
+    ]]
+  expectCfgErr "branch else arity mismatch" n3
+  -- Negative 4: switch case target arity mismatch (0 args, 1-param block).
+  let n4 ← programWithTypes "CfgAritySwitchCase" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 0
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTarget 1 }]
+        (some (cfgJumpTarget 2))),
+      cfgBlockWithParams 1 #[cfgBoolParam 0] (.return_ (some 0)),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgErr "switch case arity mismatch" n4
+  -- Negative 5: switch defaultTarget arity mismatch (default 1 arg, 0-param).
+  let n5 ← programWithTypes "CfgAritySwitchDefault" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.switch 0
+        #[{ typeId := 0, valueBytes := ByteArray.mk #[0],
+            target := cfgJumpTarget 1 }]
+        (some (cfgJumpTargetWithArgs 2 #[0]))),
+      cfgBlock 1 (.return_ none),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgErr "switch default arity mismatch" n5
+  -- Negative 6: jump target OOR still reports via existing range check
+  --   (re-pin: range owns OOR, not arity).
+  let n6 ← programWithTypes "CfgArityJumpOOR" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTargetWithArgs 5 #[0, 1, 2]))
+    ]]
+  expectCfgErr "jump oor owns range" n6
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1245,6 +1351,7 @@ def run : IO Unit := do
   testValueBytesNegatives
   testValueBytesTransportRegression
   testCfgShapeAndReachability
+  testCfgBlockParamArity
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

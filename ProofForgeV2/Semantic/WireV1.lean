@@ -67,7 +67,9 @@ import ProofForgeV2.Core.Unicode
   * Not yet: dominance/ValueId SSA, loopBounds back-edge coverage, full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
-    valueBytes. (CFG shape + reachability from entry are now covered.)
+    valueBytes. (CFG shape + reachability from entry and jump/branch/switch
+    target arg arity == target block params are now covered; block-param TYPE
+    remains out of scope pending the ValueId-definition table.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -1665,19 +1667,36 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
-/-! ### CFG shape + reachability (SPEC §6.2 — first CFG layer)
+/-! ### CFG shape + reachability + block-param arity (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, and total reachability from entry. All CFG-shape failures use
-    `.badCfg`. NOT dominance, ValueId SSA, loopBounds back-edge coverage,
-    block-param arity/type, or terminator typing (separate later slices).
-    Reachability is total and non-recursive (worklist) to stay within
-    nesting/stack limits. -/
+    range, jump/branch/switch target arg arity == target block params, and
+    total reachability from entry. All CFG-shape failures use `.badCfg`. NOT
+    dominance, ValueId SSA, loopBounds back-edge coverage, block-param TYPE,
+    or terminator typing (separate later slices). Reachability is total and
+    non-recursive (worklist) to stay within nesting/stack limits. -/
 
 private def checkBlockIdInRange (blockId : BlockIdV1) (blockCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
   unless blockId.toNat < blockCount do
     return ← err .badCfg
+  pure ()
+
+/-- Check a single JumpTargetV1's arg arity == target block's params size.
+    Only runs when the target blockId is in range — the existing terminator
+    target range pass (step c) owns out-of-range reporting, so this helper
+    stays silent on OOR to avoid double-reporting. Arity mismatch → `.badCfg`.
+    Arg ValueId→type resolution is out of scope (needs the ValueId-definition
+    table from the dominance/SSA slice). -/
+private def checkJumpTargetArity (blocks : Array BlockV1) (blockCount : Nat)
+    (target : JumpTargetV1) : Except SemanticWireErrorV1 Unit := do
+  let bid := target.blockId.toNat
+  if bid < blockCount then
+    match blocks[bid]? with
+    | some blk =>
+        unless target.args.size == blk.params.size do
+          return ← err .badCfg
+    | none => pure ()
   pure ()
 
 /-- Successor blockIds of a terminator (leaf terminators return empty). -/
@@ -1690,6 +1709,20 @@ private def terminatorSuccessors (term : TerminatorV1) : Array BlockIdV1 :=
       let fromCases := cases.map (·.target.blockId)
       match defaultTarget with
       | some t => fromCases.push t.blockId
+      | none => fromCases
+  | .return_ _ | .revert _ _ | .trap _ => #[]
+
+/-- All JumpTargetV1s carried by a terminator (for arg-arity checks).
+    Leaf terminators return empty. -/
+private def terminatorJumpTargets (term : TerminatorV1) :
+    Array JumpTargetV1 :=
+  match term with
+  | .jump target => #[target]
+  | .branch _cond thenTarget elseTarget => #[thenTarget, elseTarget]
+  | .switch _scrut cases defaultTarget =>
+      let fromCases := cases.map (·.target)
+      match defaultTarget with
+      | some t => fromCases.push t
       | none => fromCases
   | .return_ _ | .revert _ _ | .trap _ => #[]
 
@@ -1736,6 +1769,12 @@ private def validateCallableCfgShape (c : CallableV1) :
   for b in c.blocks do
     for succ in terminatorSuccessors (BlockV1.terminator b) do
       checkBlockIdInRange succ blockCount
+  -- c.5) jump/branch/switch target arg arity == target block params
+  --   (only for in-range targets; step c owns OOR. Arg ValueId→type is
+  --   out of scope — needs the ValueId-definition table from a later slice.)
+  for b in c.blocks do
+    for target in terminatorJumpTargets (BlockV1.terminator b) do
+      checkJumpTargetArity c.blocks blockCount target
   -- d) reachability from entry (bounded fixed-point passes)
   if blockCount == 0 then
     pure ()
@@ -2213,11 +2252,12 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
 /-- Post-wire structural subset: table IDs, shallow declaration refs,
     type-shape/FieldSpec/Map-key (SPEC §5), canonical valueBytes (Constant /
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
-    (SPEC §6.2 first CFG layer), requirement/predicate order
+    + jump/branch/switch target arg arity == target block params
+    (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
-    only for valueBytes sites and CFG shape/reachability — NOT dominance,
-    ValueId SSA, loopBounds back-edge coverage, block-param arity/type, or
+    only for valueBytes sites and CFG shape/reachability/arity — NOT dominance,
+    ValueId SSA, loopBounds back-edge coverage, block-param TYPE, or
     terminator typing. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
