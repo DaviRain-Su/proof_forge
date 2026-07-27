@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariantSteps intrinsic ceiling (post-CFG fuel step 4.75, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实 SPEC §8 schema-fixed `invariantSteps ≤ 10_000_000`，覆盖所有 present metadata；不计算 expected steps，不推断 pureFn closure membership，不实现 DAG/op closure、checked accumulation、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantStepsIntrinsicCeiling`，固定 exact simple invariant root 正向、ceiling equality 穿透至 later `.badRequirement`、root 与实际 pureFn→invariant closure member 的 10000001 负向，以及 canonical valueBytes → CFG def-site → intrinsic ceiling → requirements 的可区分 precedence；实现前 N1 被 structure gate 接受。
+- Production：新增 public `maxInvariantStepsV1 : UInt64 := 10000000` 与 bounded `validateInvariantStepsIntrinsicCeilingV1`，按 callable source order 拒绝任意 `some steps` 超界，失败 `.badCfg`；接线在所有 per-callable CFG/type validation 后、requirements 前，匹配 §6.2 stable phase order。同步既有 presence/absence helper 注释，避免继续声称 ceiling deferred。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` 的 bytes/hash；`proof-forge-one-slice-48` 三路只读 review 一致 approved、无 findings；SBOM refresh 幂等检查、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：pureFn closure membership、invariant root/closure member exact checked step computation、closure DAG/op allowlist、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root invariantSteps presence (signature step 4.3, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只落实每个 invariant root 必须携带 `some invariantSteps`；不验证数值，不实现 pureFn closure membership、exact step computation、DAG/op closure、checked UInt64/10M ceiling、interpreter或产品接线。

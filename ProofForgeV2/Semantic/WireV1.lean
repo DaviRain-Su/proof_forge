@@ -55,6 +55,8 @@ import ProofForgeV2.Core.Unicode
       when no invariant root exists, `invariantSteps=some` presence for every
       invariant root, plus exact source-order InvariantDecl callableId/kind/name
       join (`.badCfg`)
+    - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
+      before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -80,8 +82,8 @@ import ProofForgeV2.Core.Unicode
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
   * Not yet: full TypeKey
-    anonymous ranking/interning, invariant closure/DAG/exact step computation
-    and fuel ceiling, provenance inventory join, ProgramV1 normalizer, product
+    anonymous ranking/interning, invariant closure/DAG/exact checked step
+    computation, provenance inventory join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
@@ -132,6 +134,8 @@ def maxTagAsciiBytes : Nat := 64
 def maxTypeLengthV1 : Nat := 4096
 /-- SPEC §6 loopBounds `maxIterations` upper bound (per-loop iteration cap). -/
 def maxLoopIterationsV1 : UInt32 := 4096
+/-- SPEC §8 intrinsic invariant interpreter fuel ceiling. -/
+def maxInvariantStepsV1 : UInt64 := 10000000
 /-- SPEC §3 canonical valueBytes size upper bound (16 MiB). -/
 def maxCanonicalValueBytes : Nat := 16 * 1024 * 1024
 /-- SPEC §3 Map entry count upper bound (same as array elements). -/
@@ -3548,8 +3552,8 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
     metadata (SPEC §8). Initializer/entry/view are kind-disjoint from roots and
     `Op.PureCall` callees. When no invariant callable exists, every pureFn is
     also provably rootless and therefore outside all closures. General pureFn
-    reachability, invariant-root exact step computation, closure DAG validation,
-    and the intrinsic ceiling remain separate gates. -/
+    reachability, invariant-root exact step computation, and closure DAG/op
+    validation remain separate; the intrinsic ceiling is checked post-CFG. -/
 private def validateNonClosureCallableInvariantStepsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let hasInvariantRoot := callables.any (·.kind == .invariant)
@@ -3569,9 +3573,9 @@ private def validateNonClosureCallableInvariantStepsV1
 
 /-- Every invariant root carries fuel metadata (SPEC §8). This bounded gate
     validates `some` presence only; exact step computation, pureFn closure
-    membership, DAG/op closure, checked arithmetic, and the 10M ceiling remain
-    separate. Runs after non-closure absence checks and before declaration join
-    and per-callable CFG validation. -/
+    membership, DAG/op closure, and checked accumulation remain separate. The
+    intrinsic ceiling is checked post-CFG. This presence gate runs after
+    non-closure absence checks and before declaration join/CFG validation. -/
 private def validateInvariantRootStepsPresenceV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
@@ -3579,6 +3583,19 @@ private def validateInvariantRootStepsPresenceV1
       match callable.invariantSteps with
       | some _ => pure ()
       | none => return ← err .badCfg
+  pure ()
+
+/-- Every present invariant fuel value is bounded by the schema-fixed 10M
+    intrinsic ceiling (SPEC §8). This does not compute expected steps or infer
+    closure membership. The structure pipeline intentionally calls it after
+    complete per-callable CFG validation and before requirements. -/
+private def validateInvariantStepsIntrinsicCeilingV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    match callable.invariantSteps with
+    | none => pure ()
+    | some steps =>
+        unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
   pure ()
 
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
@@ -3852,6 +3869,9 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
     validateCallableCfgShape c typeCount data.types data
+  -- 4.75) Invariant fuel intrinsic ceiling follows all CFG/type checks and
+  --   precedes requirements (SPEC §6.2 stable order / §8).
+  validateInvariantStepsIntrinsicCeilingV1 data.callables
   -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 

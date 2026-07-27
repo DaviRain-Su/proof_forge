@@ -2637,6 +2637,98 @@ private def testInvariantRootStepsPresence : IO Unit := do
   }
   expectCfgErr "N3 invariant root steps before def-site TypeId" n3
 
+/-- SPEC-SEM-WIRE-001 §8 intrinsic invariant fuel ceiling: every present
+    `invariantSteps` value is at most 10,000,000. This gate runs after complete
+    per-callable CFG validation and before requirements; exact computation,
+    closure membership, DAG/op closure, and checked accumulation are separate. -/
+private def testInvariantStepsIntrinsicCeiling : IO Unit := do
+  let simpleRoot := cfgCallableKindName .invariant (some "safe")
+  let p1Base ← programWithTypes "InvCeilingP1Exact" cfgBoolTypes #[]
+    #[simpleRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 exact simple invariant steps below ceiling" p1
+  -- Equality with the ceiling passes this bounded gate; a later bad requirement
+  -- makes the carrier invalid without asserting that the non-exact step value
+  -- is a complete valid invariant program.
+  let rootAtCeiling : CallableV1 := {
+    simpleRoot with invariantSteps := some 10000000
+  }
+  let p2Base ← programWithTypes "InvCeilingP2Boundary" cfgBoolTypes #[]
+    #[rootAtCeiling]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with
+      invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+      requirements := { items := #[req "notadomain.boundary"] }
+  }
+  expectCfgErrCode "P2 ceiling equality reaches requirements" .badRequirement p2
+  let rootOverCeiling : CallableV1 := {
+    simpleRoot with invariantSteps := some 10000001
+  }
+  let n1Base ← programWithTypes "InvCeilingN1Root" cfgBoolTypes #[]
+    #[rootOverCeiling]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root over intrinsic ceiling" n1
+  -- The ceiling applies to pureFn closure metadata as well as invariant roots.
+  let closurePureOver : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      name := some "helper"
+      invariantSteps := some 10000001
+  }
+  let closureRoot : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let n2Base ← programWithTypes "InvCeilingN2PureFn" cfgBoolTypes #[]
+    #[closurePureOver, closureRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N2 closure pureFn over intrinsic ceiling" n2
+  -- CFG failures precede the post-CFG ceiling phase.
+  let badCfgRoot : CallableV1 := {
+    rootOverCeiling with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 1)]
+        (.return_ none)]
+  }
+  let n3Base ← programWithTypes "InvCeilingN3CfgFirst" cfgBoolTypes #[]
+    #[badCfgRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N3 CFG def-site before invariant ceiling" .badReference n3
+  -- A valid CFG with both ceiling and requirement errors reports fuel first.
+  let n4 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-ceiling"] }
+  }
+  expectCfgErr "N4 invariant ceiling before requirements" n4
+  -- Canonical valueBytes remain earlier than CFG and fuel phases.
+  let badValueRoot : CallableV1 := {
+    rootOverCeiling with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ (some 0))]
+  }
+  let n5Base ← programWithTypes "InvCeilingN5ValueFirst" cfgBoolTypes #[]
+    #[badValueRoot]
+  let n5 : SemanticProgramDataV1 := {
+    n5Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N5 canonical value before invariant ceiling"
+    .nonCanonical n5
+
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
@@ -5506,6 +5598,7 @@ def run : IO Unit := do
   testInvariantLoopBoundsShape
   testNonClosureCallableInvariantSteps
   testInvariantRootStepsPresence
+  testInvariantStepsIntrinsicCeiling
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
