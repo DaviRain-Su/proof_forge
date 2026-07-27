@@ -3908,6 +3908,65 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
   }
   expectCfgErr "N4 invariant ContextRead before requirements" n4
 
+/-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
+    Commit is forbidden directly in an invariant root but remains allowed in an
+    entry under its current presence-only generic contract. Exact disclosure/
+    requirement validation and transitive pureFn closure remain separate. -/
+private def testInvariantRootCommitProhibited : IO Unit := do
+  let forbiddenCommitRoot : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr (some (cfgValueDef 1)) (.commit 0)]
+        (.return_ (some 1))]
+      invariantSteps := some 4
+  }
+  let n1Base ← programWithTypes "InvCommitN1Root" cfgBoolTypes #[]
+    #[forbiddenCommitRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root direct Commit forbidden" n1
+  expectCfgInvariantPhase "N1 invariant Commit closure phase"
+    .invariantClosure .badCfg n1
+  let entryCommit : CallableV1 := {
+    forbiddenCommitRoot with
+      kind := .entry
+      name := some "run"
+      invariantSteps := none
+  }
+  let p1 ← programWithTypes "InvCommitP1Entry" cfgBoolTypes #[] #[entryCommit]
+  expectCfgOk "P1 entry direct Commit remains allowed" p1
+  -- Generic result-presence typing must win before the closure restriction.
+  let missingResultRoot : CallableV1 := {
+    forbiddenCommitRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.commit 0),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+      invariantSteps := some 5
+  }
+  let n2Base ← programWithTypes "InvCommitN2Typing" cfgBoolTypes #[]
+    #[missingResultRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 Commit typing before invariant closure" .badCfg n2
+  expectCfgInvariantPhase "N2 Commit typing phase wins" .cfg .badCfg n2
+  -- Closure restrictions precede intrinsic fuel and requirements.
+  let n3 : SemanticProgramDataV1 := {
+    n1 with callables := #[{ forbiddenCommitRoot with
+      invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N3 invariant Commit before fuel ceiling" .badCfg n3
+  expectCfgInvariantPhase "N3 Commit closure phase wins"
+    .invariantClosure .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-commit"] }
+  }
+  expectCfgErr "N4 invariant Commit before requirements" n4
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -5808,6 +5867,7 @@ def run : IO Unit := do
   testInvariantStepsIntrinsicCeiling
   testInvariantRootStateStoreProhibited
   testInvariantRootContextReadProhibited
+  testInvariantRootCommitProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

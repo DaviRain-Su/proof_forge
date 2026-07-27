@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-root direct Commit prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.Commit` 加入既有 direct forbidden-op gate；不实现 Commit disclosure/requirement exact contract、transitive pureFn closure、effect families、exact steps、DAG、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantRootCommitProhibited`，固定 entry direct Commit 双路径正向、invariant direct Commit 双路径负向、missing-result generic typing 先于 closure，以及 closure 先于 over-ceiling fuel/requirements；phase-aware assertions 复用真实 `validateCfgInvariantPhasesV1`。实现前 N1 被 structure gate 接受。
+- Production：扩展 bounded `validateInvariantRootDirectOpsV1`，在保留 direct StateStore/ContextRead 拒绝与 direct StateLoad 允许的同时，按 invariant callable/block/instruction source order 拒绝 direct `.commit`；generic CFG/op typing、closure、fuel 与 requirements 的稳定顺序及公开 `.badCfg` 不变。
+- Verification：聚焦 production/test build、真实 `proof-forge-next-tests` harness 与 `just dev-check` 已通过；`just sbom-package-files-refresh` 已精确更新 `WireV1.lean` bytes/hash；`proof-forge-one-slice-53` 三路只读 review 一致 approved、无 findings；SBOM 幂等刷新、`just docs-check`、`git diff --check` 与普通 `just ci` 均通过。
+- Boundary：Commit exact contract、transitive pureFn closure、Emit/ExternalCall/Schedule direct restrictions、exact checked step computation、closure DAG、entry/view existence、TypeKey、provenance/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-root direct ContextRead prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 invariant root direct `Op.ContextRead` 加入既有 direct forbidden-op gate；不实现 ContextRead exact key/requirement type binding、transitive pureFn closure、Commit/effect families、exact steps、DAG、interpreter或产品接线。
