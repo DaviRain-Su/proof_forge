@@ -1240,10 +1240,16 @@ private def cfgCallableKindNameLoop (kind : CallableKindV1) (name : Option Strin
       kind, name, result := { typeId := resultTypeId, visibility := .public_ }
   }
 
+/-- Single empty-block callable fixture. For invariant roots the exact step
+    count is `1 + (0 instructions + 1 terminator) = 2`; other kinds are outside
+    the focused root-presence contract and retain `none`. -/
 private def cfgCallableKindName (kind : CallableKindV1) (name : Option String)
     (resultTypeId : TypeIdV1 := 0) : CallableV1 :=
   { (cfgCallable #[cfgBlock 0 (.return_ none)]) with
-    kind, name, result := { typeId := resultTypeId, visibility := .public_ } }
+    kind
+    name
+    result := { typeId := resultTypeId, visibility := .public_ }
+    invariantSteps := if kind == .invariant then some 2 else none }
 
 /-- Block with explicit params (for block-param arity tests). All params use
     typeId 0 (Bool, present in cfgBoolTypes) to avoid unrelated badReference. -/
@@ -2573,6 +2579,63 @@ private def testNonClosureCallableInvariantSteps : IO Unit := do
   let n8 ← programWithTypes "InvStepsN8RootlessSignatureFirst" boolUnitTypes #[]
     #[rootlessPureWithStepsBadDef]
   expectCfgErr "N8 rootless pureFn steps before def-site TypeId" n8
+
+/-- SPEC-SEM-WIRE-001 §8 bounded invariant-root fuel presence: every
+    `kind=invariant` root carries `some invariantSteps`. Exact computation,
+    closure membership, DAG/op validation, and the 10M ceiling remain separate.
+    All cases drive both the structure and encoder gates. -/
+private def testInvariantRootStepsPresence : IO Unit := do
+  let rootWithoutSteps : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := none
+  }
+  -- One literal plus one terminator: computed steps = 1 + (1 + 1) = 3.
+  let rootWithSteps : CallableV1 := {
+    rootWithoutSteps with invariantSteps := some 3
+  }
+  let p1Base ← programWithTypes "InvRootStepsP1Some" cfgBoolTypes #[]
+    #[rootWithSteps]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 invariant root steps some" p1
+  let n1Base ← programWithTypes "InvRootStepsN1None" cfgBoolTypes #[]
+    #[rootWithoutSteps]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N1 invariant root steps none" n1
+  -- Canonical valueBytes precede invariant-root fuel presence.
+  let badValueRoot : CallableV1 := {
+    rootWithoutSteps with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0))
+          (.literal 0 (ByteArray.mk #[2]))]
+        (.return_ (some 0))]
+  }
+  let n2Base ← programWithTypes "InvRootStepsN2ValueFirst" cfgBoolTypes #[]
+    #[badValueRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N2 canonical value before invariant root steps"
+    .nonCanonical n2
+  -- Fuel presence precedes per-callable CFG def-site TypeId range.
+  let badCfgRoot : CallableV1 := {
+    rootWithoutSteps with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 1)]
+        (.return_ none)]
+  }
+  let n3Base ← programWithTypes "InvRootStepsN3SignatureFirst" cfgBoolTypes #[]
+    #[badCfgRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N3 invariant root steps before def-site TypeId" n3
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -5442,6 +5505,7 @@ def run : IO Unit := do
   testInvariantDeclarationJoin
   testInvariantLoopBoundsShape
   testNonClosureCallableInvariantSteps
+  testInvariantRootStepsPresence
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

@@ -52,8 +52,9 @@ import ProofForgeV2.Core.Unicode
       resolving to Unit/public, invariant root with zero parameters,
       `loopBounds=[]`, and a result resolving to Bool/public,
       `invariantSteps=none` for initializer/entry/view and for every pureFn
-      when no invariant root exists, plus exact source-order InvariantDecl
-      callableId/kind/name join (`.badCfg`)
+      when no invariant root exists, `invariantSteps=some` presence for every
+      invariant root, plus exact source-order InvariantDecl callableId/kind/name
+      join (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
       predicate name+rank+wire order, `enumContains` nonempty unique ascending
       (`.badRequirement`)
@@ -3566,6 +3567,20 @@ private def validateNonClosureCallableInvariantStepsV1
     | .invariant => pure ()
   pure ()
 
+/-- Every invariant root carries fuel metadata (SPEC §8). This bounded gate
+    validates `some` presence only; exact step computation, pureFn closure
+    membership, DAG/op closure, checked arithmetic, and the 10M ceiling remain
+    separate. Runs after non-closure absence checks and before declaration join
+    and per-callable CFG validation. -/
+private def validateInvariantRootStepsPresenceV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  for callable in callables do
+    if callable.kind == .invariant then
+      match callable.invariantSteps with
+      | some _ => pure ()
+      | none => return ← err .badCfg
+  pure ()
+
 /-- InvariantDecl rows correspond one-to-one with invariant callables in the
     latter's filtered source order (SPEC §6): exact callableId, invariant kind,
     and name. Table-id and callableId range checks run in earlier phases. -/
@@ -3823,14 +3838,16 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   --   Unit/public result; invariant has zero params, empty loopBounds, a
   --   Bool/public result, and one source-order exact InvariantDecl row;
   --   initializer/entry/view always carry no invariantSteps metadata, as do
-  --   all pureFns when no invariant root exists. These checks still precede
-  --   per-callable CFG validation.
+  --   all pureFns when no invariant root exists; every invariant root carries
+  --   some steps metadata. These checks still precede per-callable CFG
+  --   validation.
   validateInitializerCardinalityV1 data.callables
   validateInitializerResultShapeV1 data.types data.callables
   validateInvariantResultShapeV1 data.types data.callables
   validateInvariantParameterShapeV1 data.callables
   validateInvariantLoopBoundsShapeV1 data.callables
   validateNonClosureCallableInvariantStepsV1 data.callables
+  validateInvariantRootStepsPresenceV1 data.callables
   validateInvariantDeclarationJoinV1 data.callables data.invariants
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
