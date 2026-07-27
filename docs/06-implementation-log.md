@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 Op.CheckedCast static exact contract (step j extension, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.CheckedCast` static §5.1 gate，不接线产品、不改 wire/codec/schema。
+- RED/Changed：tests-first。`testCfgCheckedCastTyping` 驱动真实 structure+encode 双路径：P1 UInt→UInt/P2 UInt→Int/P3 Int→UInt/P4 Int→Int 正向；N1 Bool source、N2 Bytes source、N3 Bool destination、N4 Bytes destination、N5 wrong result type、N6 missing destination TypeId 负向。实现前真实 harness 在 N1 以 expected `.badCfg` 失败；既有 `PresP14CheckedCast`/`PresN14CheckedCast` 已是合法 UInt8→UInt8 fixture，继续隔离 result presence。
+- Production：source ValueId TypeId 与 `toType` 必须分别解析为 `.uint _`/`.int _`，且 `Instruction.result.typeId == toType`；missing/non-integer source、missing/non-integer destination、missing/wrong result 均 `.badCfg`。数学值在目标宽度是否可表示是运行时性质，本切片不检查；尚未实现的 D2-07 interpreter 必须按规格 checked-revert。
+- Verification：首次三路只读 review 未发现实现缺陷；其两个独立低风险 finding（suite header 的 dominance/deferred-family 陈述过时、矩阵 snapshot 元数据未说明原始基线）均已修复，修复后复审三路一致 approved、无 findings。`lake build ProofForgeV2.Semantic.WireV1 Tests.Semantic.WireV1 proof_forge_next_tests`、真实 `proof-forge-next-tests` harness（`Tests.Semantic.WireV1: ok`）、`just sbom-package-files-refresh`、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过。
+- Boundary：ContextRead/Commit exact contracts、runtime cast representability、declaration joins、TypeKey、provenance、normalizer、product wiring和formal completion均不在本切片。
+
 ## 2026-07-27 — D2-06 Op.IndexSet static exact contract (step j extension, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done；本切片只扩展 `checkOpTyping` 的 `Op.IndexSet` static §5.1 gate，不接线产品、不改 wire/codec/schema。

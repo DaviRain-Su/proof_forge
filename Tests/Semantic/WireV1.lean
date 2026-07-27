@@ -7,10 +7,11 @@
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
   and invalid-carrier invariants projection.
-  CFG shape/reachability pinned; dominance/ValueId SSA/provenance join/normalizer/product wire still pending.
-  Step j covers per-op type/result contract: typed 9 family result+operand typing,
-  void-op result-presence, and value-producing result-presence (typed 9 family
-  presence+exact TypeId, 7 deferred family presence-only).
+  CFG shape/reachability, loop bounds, ValueId SSA/use-existence/dominance,
+  def-site TypeId range, block/terminator typing, and step-j per-op contracts
+  are pinned; provenance join/normalizer/product wire remain pending. Step j
+  includes the exact CheckedCast contract (UInt/Int source and destination,
+  result.typeId == toType); only ContextRead/Commit remain presence-only.
   Formal TST-SEM-001 corpus remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -2433,21 +2434,21 @@ private def testCfgVoidOpResultPresence : IO Unit := do
     typed families (Literal/Constant/StateLoad/Construct/FieldGet/IndexGet/
     Unary/Binary/PureCall) already required an exact result TypeId; this
     slice additionally makes a missing result `.badCfg` (previously silently
-    ignored). The seven deferred families (FieldSet/VariantTag/VariantPayload/
-    IndexSet/CheckedCast/ContextRead/Commit) get presence-only validation
-    this slice; their exact input/result typing stays deferred. The void
-    rule (StateStore/Assert/Emit/ExternalCall/Schedule => result none) is
-    unchanged. Uses the same 8-type `cfgOpTypes` fixture. -/
+    ignored). Seven families (FieldSet/VariantTag/VariantPayload/IndexSet/
+    CheckedCast/ContextRead/Commit) originally entered through presence-only
+    validation; later focused suites now enforce exact contracts for the first
+    five, while ContextRead/Commit remain presence-only. The fixtures here use
+    operands/results valid under the current contracts so they continue to
+    isolate missing-result behavior. The void rule remains unchanged. -/
 
 private def testCfgValueOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
   -- POSITIVES (result := some _ on each value-producing op; expectCfgOk,
-  --   structure+encode dual path). For the seven deferred families the
-  --   result ValueDef uses an in-range typeId (1 = UInt8); their exact
-  --   result-type contract is NOT checked this slice, so any in-range
-  --   typeId is accepted. Operands are defined as UInt8 literals so that
+  --   structure+encode dual path). Families with later exact contracts use
+  --   operands and result TypeIds valid under those contracts; ContextRead/
+  --   Commit remain presence-only. Operands are otherwise defined so that
   --   steps a–i (use-existence, def-site range, dominance, terminator
-  --   typing) all pass and ONLY step j is exercised.
+  --   typing) all pass and this suite isolates result presence.
   -- P1: Literal with result present (typed family — exact typeId already
   --   covered by testCfgOpTyping P1; here re-pinned for the presence slice).
   let p1 ← programWithTypes "PresP1Lit" cfgOpTypes #[]
@@ -2606,7 +2607,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P13 indexSet result present" p13
-  -- P14: CheckedCast (deferred family) with result present.
+  -- P14: CheckedCast with a valid UInt8→UInt8 exact contract and result.
   let p14 ← programWithTypes "PresP14CheckedCast" cfgOpTypes #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
@@ -3351,6 +3352,102 @@ private def testCfgIndexSetTyping : IO Unit := do
           (.return_ none)] 0]
   expectCfgErr "N9 indexSet duplicate UInt8 closure type" n9
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.CheckedCast` static type/result contract.
+    Both source and destination must be UInt/Int TypeIds, and the instruction
+    result must exactly equal `toType`. Runtime representability remains a
+    D2-07 interpreter concern; these fixtures drive the real structure+encode
+    gate. -/
+private def testCfgCheckedCastTyping : IO Unit := do
+  let castTypes := (cfgOpTypes.push
+    { id := 8, name := none, shape := .int 8 }).push
+    { id := 9, name := none, shape := .int 32 }
+  -- P1: UInt8 -> UInt32.
+  let p1 ← programWithTypes "CastP1UIntUInt" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgUInt32ValueDef 2)) (.checkedCast 1 2)]
+          (.return_ none)] 0]
+  expectCfgOk "P1 checkedCast UInt to UInt" p1
+  -- P2: UInt32 -> Int8.
+  let p2 ← programWithTypes "CastP2UIntInt" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+            cfgInstr (some { valueId := 2, typeId := 8 })
+              (.checkedCast 1 8)]
+          (.return_ none)] 0]
+  expectCfgOk "P2 checkedCast UInt to Int" p2
+  -- P3: Int8 -> UInt8.
+  let p3 ← programWithTypes "CastP3IntUInt" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 8 })
+              (.literal 8 (ByteArray.mk #[1])),
+            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
+          (.return_ none)] 0]
+  expectCfgOk "P3 checkedCast Int to UInt" p3
+  -- P4: Int8 -> Int32.
+  let p4 ← programWithTypes "CastP4IntInt" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 8 })
+              (.literal 8 (ByteArray.mk #[0xff])),
+            cfgInstr (some { valueId := 2, typeId := 9 })
+              (.checkedCast 1 9)]
+          (.return_ none)] 0]
+  expectCfgOk "P4 checkedCast Int to Int" p4
+  -- N1: Bool is not a legal cast source.
+  let n1 ← programWithTypes "CastN1BoolSource" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N1 checkedCast Bool source" n1
+  -- N2: Bytes is not a legal cast source.
+  let n2 ← programWithTypes "CastN2BytesSource" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some { valueId := 1, typeId := 7 })
+              (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
+            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
+          (.return_ none)] 0]
+  expectCfgErr "N2 checkedCast Bytes source" n2
+  -- N3: Bool is not a legal cast destination.
+  let n3 ← programWithTypes "CastN3BoolDestination" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgValueDef 2)) (.checkedCast 1 0)]
+          (.return_ none)] 0]
+  expectCfgErr "N3 checkedCast Bool destination" n3
+  -- N4: Bytes is not a legal cast destination.
+  let n4 ← programWithTypes "CastN4BytesDestination" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some { valueId := 2, typeId := 7 })
+              (.checkedCast 1 7)]
+          (.return_ none)] 0]
+  expectCfgErr "N4 checkedCast Bytes destination" n4
+  -- N5: result.typeId must exactly equal toType.
+  let n5 ← programWithTypes "CastN5WrongResult" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 2)]
+          (.return_ none)] 0]
+  expectCfgErr "N5 checkedCast wrong result type" n5
+  -- N6: toType must resolve to an in-range UInt/Int declaration.
+  let n6 ← programWithTypes "CastN6MissingDestination" castTypes #[]
+    #[cfgCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 99)]
+          (.return_ none)] 0]
+  expectCfgErr "N6 checkedCast missing destination type" n6
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -3385,6 +3482,7 @@ def run : IO Unit := do
   testCfgVariantTagTyping
   testCfgVariantPayloadTyping
   testCfgIndexSetTyping
+  testCfgCheckedCastTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1
