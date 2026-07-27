@@ -1178,6 +1178,29 @@ private def cfgInstr (result? : Option ValueDefV1) (op : SemanticOpV1) :
 private def cfgBoolLit (byte : UInt8) : SemanticOpV1 :=
   .literal 0 (ByteArray.mk #[byte])
 
+/-! ### step h/i fixtures (Bool + UInt8 types)
+
+    Two-type fixture: typeId 0 = Bool, typeId 1 = UInt8. Used by
+    testCfgBlockParamTypeAndTerminatorTyping for branch-cond Bool, switch
+    case == scrutinee, target arg type, and return-value type checks. -/
+
+private def cfgUint8Types : Array TypeDeclV1 :=
+  #[{ id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 }]
+
+/-- UInt8 block param at `valueId` (typeId 1 = UInt8 in cfgUint8Types). -/
+private def cfgUint8Param (valueId : ValueIdV1) : BlockParameterV1 :=
+  { valueId, typeId := 1 }
+
+/-- ValueDef at `valueId` with typeId 1 (UInt8 in cfgUint8Types). -/
+private def cfgUint8ValueDef (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 1 }
+
+/-- UInt8 literal op at typeId 1 with a single byte (UInt8 canonical valueBytes
+    per SPEC §5 = single byte). No ValueId uses. -/
+private def cfgUint8Lit (byte : UInt8) : SemanticOpV1 :=
+  .literal 1 (ByteArray.mk #[byte])
+
 /-- Block with explicit instructions plus terminator. -/
 private def cfgBlockInstrs (id : BlockIdV1) (instructions : Array InstructionV1)
     (terminator : TerminatorV1) : BlockV1 :=
@@ -1209,6 +1232,14 @@ private def expectCfgErr (label : String) (data : SemanticProgramDataV1) :
   expectErr s!"{label} structure" .badCfg
     (validateSemanticProgramStructureV1 data)
   expectErr s!"{label} encode" .badCfg (encodeSemanticProgramDataV1 data)
+
+/-- Structure + encode dual path expecting a specific error code (used by
+    step h `.badReference` cases). -/
+private def expectCfgErrCode (label : String) (code : SemanticWireErrorV1)
+    (data : SemanticProgramDataV1) : IO Unit := do
+  expectErr s!"{label} structure" code
+    (validateSemanticProgramStructureV1 data)
+  expectErr s!"{label} encode" code (encodeSemanticProgramDataV1 data)
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -1781,6 +1812,166 @@ private def testCfgDominanceOfUse : IO Unit := do
         ]]
   expectCfgErr "DN3 arm def, sibling arm use not dominated" dn3
 
+/-! ### step h/i: def-site TypeId range + terminator typing
+
+    Positives P1–P5 (expectCfgOk) and negatives N1–N8 (dual path):
+    N1/N2 → `.badReference` (def-site TypeId OOR); N3–N8 → `.badCfg`
+    (terminator typing mismatch). Uses cfgUint8Types (Bool=0, UInt8=1) so
+    type mismatches are observable. -/
+
+private def cfgCallableResult (blocks : Array BlockV1)
+    (resultTypeId : TypeIdV1 := 0) : CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "f"
+    params := #[]
+    result := { typeId := resultTypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+private def testCfgBlockParamTypeAndTerminatorTyping : IO Unit := do
+  -- P1: jump arg type matches target block param type (UInt8 → UInt8).
+  let p1 ← programWithTypes "TypP1JumpArg" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7)]
+          (.jump (cfgJumpTargetWithArgs 1 #[0])),
+         cfgBlockWithParams 1 #[cfgUint8Param 1] (.return_ (some 1))
+      ] 1]
+  expectCfgOk "P1 jump arg type matches" p1
+  -- P2: branch cond Bool + then/else arg types match (Bool cond, UInt8 args).
+  let p2 ← programWithTypes "TypP2Branch" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7) ]
+          (.branch 0
+            (cfgJumpTargetWithArgs 1 #[1])
+            (cfgJumpTargetWithArgs 2 #[1])),
+         cfgBlockWithParams 1 #[cfgUint8Param 2] (.return_ (some 2)),
+         cfgBlockWithParams 2 #[cfgUint8Param 3] (.return_ (some 3))
+      ] 1]
+  expectCfgOk "P2 branch cond Bool + arg types match" p2
+  -- P3: switch scrut Bool + case.typeId Bool + case arg type matches.
+  let p3 ← programWithTypes "TypP3Switch" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7) ]
+          (.switch 0
+            #[{ typeId := 0, valueBytes := ByteArray.mk #[1],
+                target := cfgJumpTargetWithArgs 1 #[1] }]
+            (some (cfgJumpTargetWithArgs 2 #[1]))),
+         cfgBlockWithParams 1 #[cfgUint8Param 2] (.return_ (some 2)),
+         cfgBlockWithParams 2 #[cfgUint8Param 3] (.return_ (some 3))
+      ] 1]
+  expectCfgOk "P3 switch scrut Bool + case.typeId Bool + arg match" p3
+  -- P4: return value type == result type (UInt8).
+  let p4 ← programWithTypes "TypP4Return" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 9)]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgOk "P4 return value type == result type" p4
+  -- P5: regression single-block Bool return (existing shape, type-stable).
+  let p5 ← programWithTypes "TypP5BoolReturn" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+          (.return_ (some 0))
+      ] 0]
+  expectCfgOk "P5 single-block Bool return regression" p5
+  -- N1: block-param typeId OOR → .badReference. Single block so no arity
+  --   interaction; the OOR block param is the sole def of valueId 0.
+  let n1 ← programWithTypes "TypN1BlockParamOOR" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ { id := 0,
+           params := #[{ valueId := 0, typeId := 99 }],
+           instructions := #[],
+           terminator := .return_ (some 0) }
+      ] 1]
+  expectCfgErrCode "N1 block-param typeId OOR" .badReference n1
+  -- N2: instr-result ValueDef typeId OOR → .badReference.
+  let n2 ← programWithTypes "TypN2InstrResultOOR" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[{ result := some { valueId := 0, typeId := 99 },
+              op := cfgUint8Lit 9 }]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgErrCode "N2 instr-result ValueDef typeId OOR" .badReference n2
+  -- N3: branch cond non-Bool (UInt8) → .badCfg.
+  let n3 ← programWithTypes "TypN3BranchNonBool" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1)]
+          (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+         cfgBlock 1 (.return_ none),
+         cfgBlock 2 (.return_ none)
+      ] 0]
+  expectCfgErr "N3 branch cond non-Bool" n3
+  -- N4: switch case typeId != scrutinee type → .badCfg.
+  let n4 ← programWithTypes "TypN4SwitchCaseType" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1)]
+          (.switch 0
+            #[{ typeId := 0, valueBytes := ByteArray.mk #[1],
+                target := cfgJumpTarget 1 }]
+            none),
+         cfgBlock 1 (.return_ none)
+      ] 0]
+  expectCfgErr "N4 switch case typeId != scrutinee type" n4
+  -- N5: jump arg type != target param type → .badCfg.
+  let n5 ← programWithTypes "TypN5JumpArgType" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+          (.jump (cfgJumpTargetWithArgs 1 #[0])),
+         cfgBlockWithParams 1 #[cfgUint8Param 1] (.return_ (some 1))
+      ] 1]
+  expectCfgErr "N5 jump arg type != target param type" n5
+  -- N6: branch then-arg type mismatch → .badCfg.
+  let n6 ← programWithTypes "TypN6BranchThenArg" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1) ]
+          (.branch 0
+            (cfgJumpTargetWithArgs 1 #[1])
+            (cfgJumpTargetWithArgs 2 #[1])),
+         cfgBlockWithParams 1 #[cfgUint8Param 2] (.return_ (some 2)),
+         cfgBlockWithParams 2 #[cfgUint8Param 3] (.return_ (some 3))
+      ] 1]
+  expectCfgErr "N6 branch then-arg type mismatch" n6
+  -- N7: return value type != result type → .badCfg.
+  let n7 ← programWithTypes "TypN7ReturnType" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+          (.return_ (some 0))
+      ] 1]
+  expectCfgErr "N7 return value type != result type" n7
+  -- N8: switch default-target arg type mismatch → .badCfg.
+  let n8 ← programWithTypes "TypN8SwitchDefaultArg" cfgUint8Types #[]
+    #[cfgCallableResult
+      #[ cfgBlockInstrs 0
+          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1) ]
+          (.switch 0
+            #[{ typeId := 0, valueBytes := ByteArray.mk #[1],
+                target := cfgJumpTargetWithArgs 1 #[1] }]
+            (some (cfgJumpTargetWithArgs 2 #[1]))),
+         cfgBlockWithParams 1 #[cfgUint8Param 2] (.return_ (some 2)),
+         cfgBlockWithParams 2 #[cfgUint8Param 3] (.return_ (some 3))
+      ] 1]
+  expectCfgErr "N8 switch default-target arg type mismatch" n8
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1807,6 +1998,7 @@ def run : IO Unit := do
   testCfgLoopBounds
   testCfgValueIdSsa
   testCfgDominanceOfUse
+  testCfgBlockParamTypeAndTerminatorTyping
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

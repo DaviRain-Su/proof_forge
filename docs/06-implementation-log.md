@@ -12,6 +12,67 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 CFG def-site TypeId range + terminator typing (structure gate step h/i)
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  step g（dominance-of-use）之后新增 step h（def-site TypeId range）与
+  step i（terminator typing）（SPEC §6.2 — structure-gate-only，不改 wire
+  tag/field-count/encoder/decoder/schema）。step h：新增 `collectValueTypeDefs`
+  （callable params `(valueId,typeId)` → 每 block block params → instruction
+  result `ValueDefV1` 的 source-order `(valueId,typeId)` 表，复用 step f 的
+  exactly-once 保证、不重复 uniqueness）与 `checkDefSiteTypeIdsInRange`
+  （每个 def-site typeId 必须 in `[0, types.size)`，callable
+  `ParameterV1.typeId`/`CallableResultV1.typeId` 已由 step 2 覆盖不重复，
+  失败 `.badReference`）。step i：新增 `boolTypeId`（首个 shape==.bool 的
+  TypeId）与 `checkTerminatorTyping`（从 defTypes 建 ValueId→TypeId 表，
+  `.branch cond _ _` 要求 `typeOf(cond)==boolTypeId`；`.switch scrut cases
+  default` 要求每个 `SwitchCaseV1.typeId==typeOf(scrut)`；`.jump`/
+  `.branch` then+else/`.switch` case+default 的 `JumpTargetV1.args` positional
+  `typeOf(arg)==target block params[i].typeId`（min-length guard total，
+  arity 归 step c.5）；`.return_ (some v)` 要求 `typeOf(v)==callable.result.typeId`；
+  `.return_ none`/`.revert`/`.trap` 本切片不检查；全 `.badCfg`）。
+  重构 `validateCallableCfgShape` 签名为 `(c)(typeCount)(types)`，step 4.5
+  调用点传入 `data.types.size` 与 `data.types`；step f 一次 `collectValueDefSites`
+  复用 defSites 跑 f/g，再一次 `collectValueTypeDefs` 复用 defTypes 跑 h/i
+  （行为/顺序不变）；为消除前向引用把 `checkTypeIdInRange` 移到新 helper 之前。
+  更新 module header 'Not yet' 行、dominance-of-use section banner、
+  `validateSemanticProgramStructureV1` structure-order docstring（列出 h/i、
+  'Not' 改为 per-op §5.1 contract/revert·emit·externalCall·schedule arg
+  typing/TypeKey/provenance join/normalizer）。`Tests/Semantic/WireV1.lean`
+  增 `expectCfgErrCode`（structure+encode 双路径指定错误码）、
+  `cfgUint8Types`/`cfgUint8Param`/`cfgUint8ValueDef`/`cfgUint8Lit`（Bool=0、
+  UInt8=1 双类型 fixture，UInt8 canonical valueBytes 单字节 per §5）、
+  `cfgCallableResult`（可指定 result.typeId）与 `testCfgBlockParamTypeAndTerminatorTyping`
+  （register 于 `run` 中 `testCfgDominanceOfUse` 之后）：5 正例（P1 jump arg
+  type matches、P2 branch cond Bool + then/else arg types match、P3 switch
+  scrut Bool + case.typeId Bool + case arg match、P4 return value type ==
+  result type、P5 single-block Bool return 回归）与 8 负例（N1 block-param
+  typeId OOR → `.badReference`、N2 instr-result ValueDef typeId OOR →
+  `.badReference`、N3 branch cond non-Bool UInt8 → `.badCfg`、N4 switch
+  case typeId != scrutinee type → `.badCfg`、N5 jump arg type != target
+  param type → `.badCfg`、N6 branch then-arg type mismatch → `.badCfg`、
+  N7 return value type != result type → `.badCfg`、N8 switch default-target
+  arg type mismatch → `.badCfg`），全 structure+encode 双路径；N1 用单块
+  callable 避免 step c.5 arity 误报，使失败精确落在 step h。既有 `testCfg*`
+  positives 全用 typeId 0 Bool，新 h/i 通过。更新 `AGENTS.md`/`MIGRATION_MATRIX.md`
+  工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_fast_tests && lake env .lake/build/bin/proof-forge-next-fast-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite、`just dev-check` 与 `just ci`（含
+  `Tests.Semantic.WireV1: ok`）通过；`supply-chain/lean-package-files.v1.json`
+  仅刷新 `ProofForgeV2/Semantic/WireV1.lean` 的 hash/bytes；既有 positives
+  encode bytes 不变；不记 formal TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Limitations：Not yet: per-op type/result contract §5.1（Literal/StateLoad/
+  Construct/FieldGet/IndexGet/Unary/Binary/PureCall result+input types）、
+  revert arg/error lookup、emit/event lookup、externalCall/schedule arg
+  typing（需 declaration-table joins，later slice）、TypeKey anonymous
+  ranking/interning、provenance source/NodeId join、ProgramV1→Semantic
+  normalizer、product wire。本切片只加宽 structure gate，不改 wire
+  bytes/codec/schema；transport decode 仍 structure-free；不接线
+  Typed/CheckV1/compile/CLI；不删 alpha SemanticIR；不伪称 formal
+  TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 ValueId SSA definition-table + uniqueness + use-existence
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

@@ -64,14 +64,17 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: block-param TYPE, terminator typing, full TypeKey
+  * Not yet: full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
     valueBytes. (CFG shape + reachability from entry, jump/branch/switch
     target arg arity == target block params, loopBounds back-edge
     coverage, ValueId SSA definition-table / exactly-once /
-    use-existence, and dominance-of-use are now covered; block-param TYPE
-    and terminator typing remain out of scope pending later slices.)
+    use-existence, dominance-of-use, def-site TypeId range, and terminator
+    typing are now covered; per-op type/result contracts, revert/emit/
+    externalCall/schedule argument typing, TypeKey anonymous ranking,
+    provenance inventory join, ProgramV1 normalizer, and product wire
+    remain out of scope pending later slices.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -1954,8 +1957,7 @@ def validateCallableValueIdSsa (c : CallableV1) :
     A block D dominates block B iff every path from entry (block 0) to B
     passes through D. After step f (ValueId SSA def-table: exactly-once +
     use-existence), enforce that every ValueId USE is in a block dominated by
-    the def's block. Failure → `.badCfg`. Bounded, non-recursive, total.
-    Block-param TYPE and terminator typing remain out of scope. -/
+    the def's block. Failure → `.badCfg`. Bounded, non-recursive, total. -/
 
 /-- For each block id b in [0, blockCount), the sorted-ascending unique list of
     predecessor block ids whose terminator lists b as an in-range successor
@@ -2110,12 +2112,153 @@ def validateCallableDominanceOfUse (c : CallableV1)
   let dom := computeDominators c.blocks blockCount reachable
   checkDominanceOfUse c defSites dom reachable
 
+private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
+    Except SemanticWireErrorV1 Unit := do
+  unless typeId.toNat < typeCount do
+    return ← err .badReference
+  pure ()
+
+/-! ### Def-site TypeId range + terminator typing (SPEC §6.2 — CFG layers h/i)
+
+    Step h: every block-param TypeId and every instruction-result ValueDef
+    TypeId is in `[0, types.size)`. Callable `ParameterV1.typeId` and
+    `CallableResultV1.typeId` are already checked at step 2 of
+    `validateSemanticProgramStructureV1`; do NOT duplicate. Failure →
+    `.badReference` (same as `checkTypeIdInRange`).
+
+    Step i: terminator typing against a ValueId→TypeId table built from def
+    sites. Branch condition must be the Bool TypeId; switch case TypeId must
+    equal the scrutinee's TypeId; jump/branch/switch target args must match
+    the target block params positionally; `return_ (some v)` must match the
+    callable result TypeId. `return_ none` / `revert` / `trap` are not type
+    checked this slice. All step i failures → `.badCfg`. Bounded,
+    non-recursive, total. Per-op type/result contracts (§5.1), revert/emit/
+    externalCall/schedule argument typing, TypeKey anonymous ranking, and
+    provenance join remain explicitly out of scope. -/
+
+/-- Collect every ValueId → TypeId definition in source order: callable params
+    (p.valueId, p.typeId), then per block: block params (bp.valueId,
+    bp.typeId), then instruction results (vdef.valueId, vdef.typeId). Source
+    order, bounded, non-recursive. Reuses the step-f exactly-once guarantee;
+    does NOT re-run uniqueness. -/
+def collectValueTypeDefs (c : CallableV1) : Array (ValueIdV1 × TypeIdV1) :=
+  Id.run do
+    let mut defs : Array (ValueIdV1 × TypeIdV1) := #[]
+    for p in c.params do
+      defs := defs.push (p.valueId, p.typeId)
+    for b in c.blocks do
+      for bp in b.params do
+        defs := defs.push (bp.valueId, bp.typeId)
+      for instr in b.instructions do
+        match instr.result with
+        | some vdef => defs := defs.push (vdef.valueId, vdef.typeId)
+        | none => pure ()
+    pure defs
+
+/-- First TypeId whose shape is `.bool`, if any. Bounded, non-recursive. -/
+def boolTypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
+  let mut r : Option TypeIdV1 := none
+  let mut i : Nat := 0
+  for t in types do
+    if r.isNone then
+      match t.shape with
+      | .bool => r := some (UInt32.ofNat i)
+      | _ => pure ()
+    i := i + 1
+  pure r
+
+/-- Step h: every def-site TypeId (block params + instruction results) is in
+    `[0, typeCount)`. Callable param/result TypeIds are already checked at
+    step 2; do NOT duplicate. Failure → `.badReference`. -/
+def checkDefSiteTypeIdsInRange (defTypes : Array (ValueIdV1 × TypeIdV1))
+    (typeCount : Nat) : Except SemanticWireErrorV1 Unit := do
+  for (_, tid) in defTypes do
+    checkTypeIdInRange tid typeCount
+
+/-- Step i: terminator typing against a ValueId→TypeId table built from def
+    sites. Bounded lookup of `typeOf vid`; missing def → `.badCfg` (step f owns
+    existence, but we stay total). All failures → `.badCfg`. -/
+def checkTerminatorTyping (c : CallableV1)
+    (defTypes : Array (ValueIdV1 × TypeIdV1)) (types : Array TypeDeclV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let boolT := boolTypeId types
+  -- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f).
+  let typeOf (vid : ValueIdV1) : Option TypeIdV1 := Id.run do
+    let mut r : Option TypeIdV1 := none
+    for (v, t) in defTypes do
+      if v == vid then
+        r := some t
+        break
+    pure r
+  -- Block params of block id `bid`, if in range (step c owns OOR).
+  let blockParams (bid : BlockIdV1) : Array BlockParameterV1 := Id.run do
+    let mut r : Array BlockParameterV1 := #[]
+    let n := bid.toNat
+    if n < c.blocks.size then
+      match c.blocks[n]? with
+      | some b => r := b.params
+      | none => pure ()
+    pure r
+  -- Positional arg-type check against target block params (min-length guard
+  -- to stay total; arity is owned by step c.5).
+  let checkTargetArgs (target : JumpTargetV1) :
+      Except SemanticWireErrorV1 Unit := do
+    let params := blockParams target.blockId
+    let n := min target.args.size params.size
+    let mut i : Nat := 0
+    while i < n do
+      match typeOf target.args[i]! with
+      | none => return ← err .badCfg
+      | some argT =>
+          match params[i]? with
+          | none => return ← err .badCfg
+          | some bp =>
+              unless argT == bp.typeId do
+                return ← err .badCfg
+      i := i + 1
+    pure ()
+  for b in c.blocks do
+    match b.terminator with
+    | .jump target => checkTargetArgs target
+    | .branch cond thenT elseT => do
+        -- condition must be the Bool TypeId
+        match boolT with
+        | none => return ← err .badCfg
+        | some boolId =>
+            match typeOf cond with
+            | none => return ← err .badCfg
+            | some condT => unless condT == boolId do return ← err .badCfg
+        checkTargetArgs thenT
+        checkTargetArgs elseT
+    | .switch scrut cases default => do
+        -- scrutinee type
+        match typeOf scrut with
+        | none => return ← err .badCfg
+        | some scrutT =>
+            -- every case typeId == scrutinee type
+            for cs in cases do
+              unless cs.typeId == scrutT do
+                return ← err .badCfg
+              checkTargetArgs cs.target
+            match default with
+            | some dt => checkTargetArgs dt
+            | none => pure ()
+    | .return_ (some v) =>
+        match typeOf v with
+        | none => return ← err .badCfg
+        | some vt => unless vt == c.result.typeId do return ← err .badCfg
+    | .return_ none | .revert _ _ | .trap _ => pure ()
+  pure ()
+
 /-- Per-callable CFG shape + reachability + loopBounds + ValueId SSA def-table
-    + dominance-of-use. Deterministic, bounded. Steps a–e are CFG
-    shape/reachability/arity/loopBounds; step f runs the ValueId SSA def-table
-    (exactly-once def + use-existence); step g runs dominance-of-use. The
+    + dominance-of-use + def-site TypeId range + terminator typing.
+    Deterministic, bounded. Steps a–e are CFG shape/reachability/arity/
+    loopBounds; step f runs the ValueId SSA def-table (exactly-once def +
+    use-existence); step g runs dominance-of-use; step h runs def-site TypeId
+    range (`.badReference`); step i runs terminator typing (`.badCfg`). The
     reachability array computed in step d is shared with step g. -/
-private def validateCallableCfgShape (c : CallableV1) :
+private def validateCallableCfgShape (c : CallableV1)
+    (typeCount : Nat) (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
   -- a) entryBlock == 0
@@ -2153,20 +2296,24 @@ private def validateCallableCfgShape (c : CallableV1) :
   -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
   validateCallableLoopBounds c
   -- f) ValueId SSA definition-table: exactly-once def + use-existence
-  --   (SPEC §6.2). Build defSites once and reuse for step g.
+  --   (SPEC §6.2). Build defSites once and reuse for step g; build defTypes
+  --   once and reuse for steps h and i.
   let defSites := collectValueDefSites c
   checkValueIdDefUniqueness defSites
   checkValueIdUsesExist c defSites
   -- g) dominance-of-use (SPEC §6.2): every ValueId use is in a block
-  --   dominated by its def's block. Block-param TYPE and terminator typing
-  --   remain out of scope (later slices).
+  --   dominated by its def's block.
   validateCallableDominanceOfUse c defSites reachable
-
-private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
-    Except SemanticWireErrorV1 Unit := do
-  unless typeId.toNat < typeCount do
-    return ← err .badReference
-  pure ()
+  -- h) def-site TypeId range (SPEC §6.2): block params + instruction result
+  --   ValueDef TypeIds must be in [0, typeCount). Callable param/result
+  --   TypeIds are already checked at step 2. Failure → `.badReference`.
+  let defTypes := collectValueTypeDefs c
+  checkDefSiteTypeIdsInRange defTypes typeCount
+  -- i) terminator typing (SPEC §6.2): branch cond Bool, switch case type ==
+  --   scrutinee type, jump/branch/switch target arg types == target block
+  --   param types positionally, return (some v) type == result type. All
+  --   `.badCfg`. Per-op type/result contracts remain out of scope.
+  checkTerminatorTyping c defTypes types
 
 private def checkCallableIdInRange (callableId : CallableIdV1) (callableCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
@@ -2630,11 +2777,18 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     + loopBounds back-edge coverage
     + ValueId SSA definition-table / exactly-once / use-existence
     + dominance-of-use
+    + def-site TypeId range (block params + instruction result ValueDefs)
+    + terminator typing (branch cond Bool, switch case == scrutinee,
+      target arg types == target block param types positional,
+      return (some v) == result type)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
-    def-table/dominance-of-use — NOT block-param TYPE, or terminator typing. -/
+    def-table/dominance-of-use/def-site TypeId range/terminator typing — NOT
+    per-op type/result contracts (§5.1), revert/emit/externalCall/schedule
+    argument typing, TypeKey anonymous ranking/interning, provenance inventory
+    join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
@@ -2673,7 +2827,7 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateCallablesValueBytesV1 data.types data.callables
   -- 4.5) Per-callable CFG shape + reachability from entry (SPEC §6.2)
   for c in data.callables do
-    validateCallableCfgShape c
+    validateCallableCfgShape c typeCount data.types
   -- 5) Requirement key + predicate order
   validateProgramRequirementsStructure data.requirements
 
