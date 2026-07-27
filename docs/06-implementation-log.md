@@ -18,8 +18,10 @@ normative: false
   CallableId 之后、requirements 之前增加 SPEC-SEM-WIRE-001 §5 type-shape 结构校验
   （named iff struct|enum、nonempty、integer widths、Bytes/Array ≤4096、sole
   `bn254FrFieldSpecV1` catalog、intra-type name `.duplicate`、Map key legality）；
-  `Tests/Semantic/WireV1.lean` 增正/负与 nesting/transport regression；更新
-  `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+  `Tests/Semantic/WireV1.lean` 增正/负与 nesting/transport regression；repair
+  增 Map key=Struct-of-Option/Field/Map 的 structure+encode `.badType` 负例，
+  锁死 `checkLegalMapKeyTypeV1` 的 struct field 递归分支（保留 Struct-of-UInt
+  正向）；更新 `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
 - Commands：`lake build ProofForgeV2 Tests`；`lake build proof_forge_next_tests &&
   lake env .lake/build/bin/proof-forge-next-tests`；`just sbom-package-files-refresh`；
   `git diff --check`；`just docs-check`；`just ci`。

@@ -687,6 +687,62 @@ private def testTypeShapeNegatives : IO Unit := do
   }
   expectErr "map enum key" .badType
     (validateSemanticProgramStructureV1 badMapEnum)
+  -- Map key = named Struct whose field type is illegal: exercises the recursive
+  -- `.struct` branch of checkLegalMapKeyTypeV1 (flat Option/Array/Unit/Enum
+  -- above would pass even if field walk were dropped). Keep Struct-of-UInt
+  -- positive in testTypeShapePositives.
+  let badMapStructOption : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .option 0 },
+      {
+        id := 2
+        name := some "BadKey"
+        shape := .struct #[{ name := "inner", typeId := 1 }]
+      },
+      { id := 3, name := none, shape := .map 2 0 }
+    ]
+  }
+  expectErr "map struct-of-option key" .badType
+    (validateSemanticProgramStructureV1 badMapStructOption)
+  expectErr "map struct-of-option key encode" .badType
+    (encodeSemanticProgramDataV1 badMapStructOption)
+  let badMapStructField : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .field bn254FrFieldSpecV1 },
+      {
+        id := 1
+        name := some "FieldKey"
+        shape := .struct #[{ name := "f", typeId := 0 }]
+      },
+      { id := 2, name := none, shape := .bool },
+      { id := 3, name := none, shape := .map 1 2 }
+    ]
+  }
+  expectErr "map struct-of-field key" .badType
+    (validateSemanticProgramStructureV1 badMapStructField)
+  expectErr "map struct-of-field key encode" .badType
+    (encodeSemanticProgramDataV1 badMapStructField)
+  let badMapStructMap : SemanticProgramDataV1 := {
+    data0 with
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 8 },
+      { id := 2, name := none, shape := .map 0 1 },
+      {
+        id := 3
+        name := some "MapKey"
+        shape := .struct #[{ name := "m", typeId := 2 }]
+      },
+      { id := 4, name := none, shape := .map 3 0 }
+    ]
+  }
+  expectErr "map struct-of-map key" .badType
+    (validateSemanticProgramStructureV1 badMapStructMap)
+  expectErr "map struct-of-map key encode" .badType
+    (encodeSemanticProgramDataV1 badMapStructMap)
 
 private def testTypeShapeRegressionTransportAndNesting : IO Unit := do
   -- Nesting fuel path still encodes zero-modulus Field shape outside program
