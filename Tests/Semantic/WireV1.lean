@@ -841,7 +841,9 @@ private def minimalCallableSwitch (typeId : TypeIdV1) (valueBytes : ByteArray) :
         target := { blockId := 0, args := #[] }
       }] none
     }]
-    loopBounds := #[]
+    -- Single-block switch case target is block 0 itself → a self back edge
+    -- (0→0); declared here so the loopBounds back-edge coverage gate passes.
+    loopBounds := #[{ header := 0, backEdgeFrom := 0, maxIterations := 1 }]
     invariantSteps := none
   }
 
@@ -1107,19 +1109,25 @@ private def testValueBytesTransportRegression : IO Unit := do
   expectErr "provenance still bad" .badProvenance
     (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
 
-/-! ### CFG shape + reachability + block-param arity (D2-06 CFG layers)
+/-! ### CFG shape + reachability + block-param arity + loopBounds (D2-06 CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, total reachability from entry, and jump/branch/switch target arg
-    arity == target block params. NOT dominance, ValueId SSA, loopBounds
-    back-edge coverage, block-param TYPE, or terminator typing (those remain
-    explicitly out of scope this slice). -/
+    range, total reachability from entry, jump/branch/switch target arg
+    arity == target block params, and loopBounds back-edge coverage
+    (exact coverage of every CFG back edge, `(header,backEdgeFrom)` unique
+    ascending, maxIterations <= 4096, all `.badCfg`). NOT dominance, ValueId
+    SSA, block-param TYPE, or terminator typing (those remain explicitly out
+    of scope this slice). -/
 
 private def cfgBoolTypes : Array TypeDeclV1 :=
   #[{ id := 0, name := none, shape := .bool }]
 
-private def cfgCallable (blocks : Array BlockV1) (entryBlock : BlockIdV1 := 0) :
-    CallableV1 :=
+private def cfgLoopBound (header backEdgeFrom : BlockIdV1)
+    (maxIterations : UInt32) : LoopBoundV1 :=
+  { header, backEdgeFrom, maxIterations }
+
+private def cfgCallable (blocks : Array BlockV1) (entryBlock : BlockIdV1 := 0)
+    (loopBounds : Array LoopBoundV1 := #[]) : CallableV1 :=
   {
     id := 0
     kind := .pureFn
@@ -1128,7 +1136,7 @@ private def cfgCallable (blocks : Array BlockV1) (entryBlock : BlockIdV1 := 0) :
     result := { typeId := 0, visibility := .public_ }
     entryBlock
     blocks
-    loopBounds := #[]
+    loopBounds
     invariantSteps := none
   }
 
@@ -1177,12 +1185,13 @@ private def testCfgShapeAndReachability : IO Unit := do
       cfgBlock 1 (.return_ none)
     ]]
   expectCfgOk "two-block jump" p2
-  -- Positive 3: branch reachability (self-jump to entry allowed as target).
+  -- Positive 3: branch reachability (self-jump to entry allowed as target);
+  --   the self-target is a back edge 0→0, declared in loopBounds.
   let p3 ← programWithTypes "CfgBranch" cfgBoolTypes #[]
     #[cfgCallable #[
       cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
       cfgBlock 1 (.return_ none)
-    ]]
+    ] (loopBounds := #[cfgLoopBound 0 0 1])]
   expectCfgOk "branch reachability" p3
   -- Positive 4: switch reachability with default target.
   let p4 ← programWithTypes "CfgSwitch" cfgBoolTypes #[]
@@ -1329,6 +1338,134 @@ private def testCfgBlockParamArity : IO Unit := do
     ]]
   expectCfgErr "jump oor owns range" n6
 
+private def testCfgLoopBounds : IO Unit := do
+  -- POSITIVES (all reachable, entry==0, id==index, arity ok).
+  -- Positive 1: single self-back-edge loop, header==backEdgeFrom==0, maxIter 10.
+  let p1 ← programWithTypes "CfgLoopSelf" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 0 10])]
+  expectCfgOk "self back-edge loop" p1
+  -- Positive 2: two-block loop with back edge 1->0, maxIter 4096.
+  let p2 ← programWithTypes "CfgLoop2Block" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 1 4096])]
+  expectCfgOk "two-block back edge 1->0" p2
+  -- Positive 3: header 0 back-edge 1 plus a forward-only region; exactly the
+  --   one back edge, maxIter 1.
+  let p3 ← programWithTypes "CfgLoopForwardTail" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+      cfgBlock 1 (.jump (cfgJumpTarget 0)),
+      cfgBlock 2 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 1 1])]
+  expectCfgOk "back edge plus forward tail" p3
+  -- Positive 4: maxIterations == 0 still legal (bounded zero-trip loop is
+  --   finite; SPEC only caps upper bound at 4096).
+  let p4 ← programWithTypes "CfgLoopZeroIter" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 0 0])]
+  expectCfgOk "zero-iter loop legal" p4
+  -- Positive 5: loopBounds empty when CFG has no back edge (linear jump chain).
+  let p5 ← programWithTypes "CfgLoopNoBackEdge" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ]]
+  expectCfgOk "no back edge empty loopBounds" p5
+  -- Positive 6: two genuine back edges sorted ascending (0,0) then (0,1).
+  --   block 0 self-loop plus 1->0; loopBounds sorted [(0,0),(0,1)].
+  let p6 ← programWithTypes "CfgLoopTwoBackSorted" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.jump (cfgJumpTarget 0))
+    ] (loopBounds := #[cfgLoopBound 0 0 5, cfgLoopBound 0 1 5])]
+  expectCfgOk "two back edges sorted ascending" p6
+  -- NEGATIVES (each must fail structure AND encode with .badCfg).
+  -- Negative 1: missing back edge — two-block loop above but loopBounds := #[].
+  let n1 ← programWithTypes "CfgLoopMissing" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ none)
+    ]]
+  expectCfgErr "missing back-edge coverage" n1
+  -- Negative 2: extra loopBound not corresponding to any CFG back edge —
+  --   linear CFG [0: jump 1, 1: return] with loopBounds [0<-1] (no edge 1->0).
+  let n2 ← programWithTypes "CfgLoopExtra" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 1 10])]
+  expectCfgErr "extra loopBound no back edge" n2
+  -- Negative 3: wrong backEdgeFrom — real back edge is 1->0 but loopBound
+  --   says backEdgeFrom 2 (block 2 absent → range first, then mismatch).
+  let n3 ← programWithTypes "CfgLoopWrongFrom" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 2 5])]
+  expectCfgErr "wrong backEdgeFrom" n3
+  -- Negative 4: wrong header — back edge 1->0 but loopBound header := 1.
+  let n4 ← programWithTypes "CfgLoopWrongHeader" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 1 1 5])]
+  expectCfgErr "wrong header" n4
+  -- Negative 5: maxIterations 4097 > 4096 (SPEC §6 cap).
+  let n5 ← programWithTypes "CfgLoopMaxIterOver" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 0 4097])]
+  expectCfgErr "maxIterations 4097 over cap" n5
+  -- Negative 6: duplicate (header,backEdgeFrom) pair — two loopBounds (0,1).
+  let n6 ← programWithTypes "CfgLoopDupPair" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.jump (cfgJumpTarget 1)),
+      cfgBlock 1 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 2)),
+      cfgBlock 2 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 1 5, cfgLoopBound 0 1 5])]
+  expectCfgErr "duplicate pair not unique" n6
+  -- Negative 7: loopBounds not sorted ascending by (header,backEdgeFrom).
+  --   Genuine back edges {0<-0, 0<-1} but in-memory order [(0,1),(0,0)]
+  --   violates ascending and is rejected (the sorted sibling is Positive 6).
+  let n7 ← programWithTypes "CfgLoopUnsorted" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.jump (cfgJumpTarget 0))
+    ] (loopBounds := #[cfgLoopBound 0 1 5, cfgLoopBound 0 0 5])]
+  expectCfgErr "unsorted loopBounds" n7
+  -- Negative 8: loopBound header out of block range (header=5, blockCount=2).
+  let n8 ← programWithTypes "CfgLoopHeaderOOR" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 5 0 5])]
+  expectCfgErr "loopBound header oor" n8
+  -- Negative 9: loopBound backEdgeFrom out of range.
+  let n9 ← programWithTypes "CfgLoopFromOOR" cfgBoolTypes #[]
+    #[cfgCallable #[
+      cfgBlock 0 (.branch 0 (cfgJumpTarget 0) (cfgJumpTarget 1)),
+      cfgBlock 1 (.return_ none)
+    ] (loopBounds := #[cfgLoopBound 0 5 5])]
+  expectCfgErr "loopBound backEdgeFrom oor" n9
+  -- Negative 10: back edge target not actually a predecessor edge — single
+  --   block [0: return] with loopBounds [(0,0)] (return has no self edge).
+  let n10 ← programWithTypes "CfgLoopNoEdge" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.return_ none)]
+      (loopBounds := #[cfgLoopBound 0 0 5])]
+  expectCfgErr "no self edge single block" n10
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -1352,6 +1489,7 @@ def run : IO Unit := do
   testValueBytesTransportRegression
   testCfgShapeAndReachability
   testCfgBlockParamArity
+  testCfgLoopBounds
   IO.println "Tests.Semantic.WireV1: ok"
 
 end Tests.Semantic.WireV1

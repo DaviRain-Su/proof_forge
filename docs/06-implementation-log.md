@@ -12,6 +12,51 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-27 — D2-06 CFG loopBounds back-edge coverage
+
+- Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`
+  现有 reachability 相位（step d）之后新增 step e：调用新 private
+  `validateCallableLoopBounds`，校验 SPEC §6/§6.2 的 loopBounds back-edge
+  coverage 层。新增 `maxLoopIterationsV1 := 4096` cap 与 private helpers
+  `cfgBackEdges`（按 SPEC §6 preorder ID order 把每条 terminator successor
+  edge `i→s` 中 `s ≤ i` 的视为 back edge `(header=s, backEdgeFrom=i)`，
+  bounded、非递归、仅 in-range successor）与 `validateCallableLoopBounds`
+  （a) 每个 loopBound `header`/`backEdgeFrom < blockCount` → else `.badCfg`
+  （range 归此处，非 `.badReference`）；b) `maxIterations ≤ 4096` → else
+  `.badCfg`；c) `loopBounds` 按 `(header, backEdgeFrom)` 严格升序且唯一 →
+  否则 `.badCfg`；d) dedup 后 actual back-edge pair 集合与 `loopBounds`
+  pair 集合 size 与 membership 精确一致，duplicate actual edge 同 pair
+  视为单条 → 缺失/多余/不匹配统一 `.badCfg`）。未改动
+  `LoopBoundV1`/`encodeLoopBoundV1`/`decodeLoopBoundV1`/`Callable` field
+  order/encoder/decoder（structure-gate-only）。`Tests/Semantic/WireV1.lean`
+  增 `testCfgLoopBounds`：新增 helper `cfgLoopBound` 并扩展 `cfgCallable`
+  以 optional `loopBounds := #[]` 默认参数（保持既有 call sites 编译），
+  6 个正例（self back-edge 0→0、两块 1→0、嵌套+forward tail、maxIter 0
+  合法、无 back-edge 空 loopBounds 回归、双 back-edge 升序）与 10 个负例
+  （missing coverage、extra no-edge、wrong backEdgeFrom、wrong header、
+  maxIter 4097、dup pair、unsorted、header OOR、backEdgeFrom OOR、单块
+  return 无 self edge），均校验 structure gate 与 encode 双路径、全
+  `.badCfg`；register 于 `run` 中 `testCfgBlockParamArity` 之后。同步把
+  `minimalCallableSwitch`（单块 switch case target=0 的真实 self back edge）
+  与 `testCfgShapeAndReachability` Positive 3（branch self-jump to entry）
+  补上对应 `loopBounds` 以满足新 coverage gate。更新 module header、
+  `validateCallableCfgShape`/`validateSemanticProgramStructureV1` docstring、
+  `Tests/Semantic/WireV1.lean` header/CFG section 注释、
+  `AGENTS.md`/`MIGRATION_MATRIX.md` 工程事实。
+- Commands：`lake build Tests.Semantic.WireV1`；
+  `lake build proof_forge_next_fast_tests && lake env .lake/build/bin/proof-forge-next-fast-tests`；
+  `just dev-check`；`just sbom-package-files-refresh`；`git diff --check`；`just ci`。
+- Results：聚焦 suite、`just dev-check` 与 `just ci`（含 `Tests.Semantic.WireV1: ok`）
+  通过；`supply-chain/lean-package-files.v1.json` 仅刷新
+  `ProofForgeV2/Semantic/WireV1.lean` 的 hash/bytes（94815→98510）；不记
+  formal TASK/TST/EV；D1–D4 formal 仍 0/27 done。
+- Limitations：Not yet: dominance、ValueId SSA、block-param TYPE、terminator
+  typing、TypeKey anonymous ranking/interning、provenance source/NodeId join、
+  ProgramV1→Semantic normalizer、product wire/CheckV1/compile/CLI（独立后续切片）。
+  本切片只加宽 structure gate，不改 wire bytes/codec；transport decode 仍
+  structure-free；不接线 Typed/CheckV1/compile/CLI/alpha SemanticIR；不删
+  alpha SemanticIR；不伪称 formal TASK-D2-06 完成。
+
 ## 2026-07-27 — D2-06 CFG block-param arity (count portion)
 
 - Changed：`ProofForgeV2/Semantic/WireV1.lean` 在 `validateCallableCfgShape`

@@ -64,12 +64,13 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: dominance/ValueId SSA, loopBounds back-edge coverage, full TypeKey
+  * Not yet: dominance/ValueId SSA, full TypeKey
     anonymous ranking/interning, provenance inventory join, ProgramV1
     normalizer, product CheckV1/compile/CLI wiring, op type contracts beyond
-    valueBytes. (CFG shape + reachability from entry and jump/branch/switch
-    target arg arity == target block params are now covered; block-param TYPE
-    remains out of scope pending the ValueId-definition table.)
+    valueBytes. (CFG shape + reachability from entry, jump/branch/switch
+    target arg arity == target block params, and loopBounds back-edge
+    coverage are now covered; block-param TYPE remains out of scope pending
+    the ValueId-definition table.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -94,6 +95,8 @@ def maxOriginsPerBinding : Nat := 100000
 def maxTagAsciiBytes : Nat := 64
 /-- SPEC §5 Bytes/Array length upper bound. -/
 def maxTypeLengthV1 : Nat := 4096
+/-- SPEC §6 loopBounds `maxIterations` upper bound (per-loop iteration cap). -/
+def maxLoopIterationsV1 : UInt32 := 4096
 /-- SPEC §3 canonical valueBytes size upper bound (16 MiB). -/
 def maxCanonicalValueBytes : Nat := 16 * 1024 * 1024
 /-- SPEC §3 Map entry count upper bound (same as array elements). -/
@@ -1667,12 +1670,12 @@ private def checkIdEqualsIndex (id : UInt32) (index : Nat) :
     return ← err .duplicate
   pure ()
 
-/-! ### CFG shape + reachability + block-param arity (SPEC §6.2 — CFG layers)
+/-! ### CFG shape + reachability + block-param arity + loopBounds (SPEC §6.2 — CFG layers)
 
     Per-callable: entryBlock == 0, block id == array index, terminator target
-    range, jump/branch/switch target arg arity == target block params, and
-    total reachability from entry. All CFG-shape failures use `.badCfg`. NOT
-    dominance, ValueId SSA, loopBounds back-edge coverage, block-param TYPE,
+    range, jump/branch/switch target arg arity == target block params, total
+    reachability from entry, and loopBounds back-edge coverage. All CFG-shape
+    failures use `.badCfg`. NOT dominance, ValueId SSA, block-param TYPE,
     or terminator typing (separate later slices). Reachability is total and
     non-recursive (worklist) to stay within nesting/stack limits. -/
 
@@ -1726,6 +1729,25 @@ private def terminatorJumpTargets (term : TerminatorV1) :
       | none => fromCases
   | .return_ _ | .revert _ _ | .trap _ => #[]
 
+/-- CFG back edges as `(header, backEdgeFrom)` pairs (SPEC §6). SPEC assigns
+    block IDs via preorder DFS from entry, so an edge `i -> s` is a back edge
+    iff `s.toNat <= i`. We do not need a separate DFS/dominance pass — ID order
+    already encodes preorder. Each distinct `(header, backEdgeFrom)` pair is
+    reported once per occurrence; callers dedup by pair. Bounded,
+    non-recursive. Only in-range successors are considered (out-of-range
+    targets are owned by the terminator target range pass). -/
+private def cfgBackEdges (blocks : Array BlockV1) (blockCount : Nat) :
+    Array (BlockIdV1 × BlockIdV1) := Id.run do
+  let mut acc : Array (BlockIdV1 × BlockIdV1) := #[]
+  let mut i : Nat := 0
+  for b in blocks do
+    for succ in terminatorSuccessors (BlockV1.terminator b) do
+      let s := succ.toNat
+      if s < blockCount && s <= i then
+        acc := acc.push (succ, UInt32.ofNat i)
+    i := i + 1
+  pure acc
+
 /-- One fixed-point pass: for each visited block, mark its successors visited.
     Returns the updated visited array. -/
 private def cfgReachPass (blocks : Array BlockV1) (blockCount : Nat)
@@ -1752,7 +1774,64 @@ private def cfgReachFixpoint (blocks : Array BlockV1) (blockCount : Nat)
     if next == visited then next
     else cfgReachFixpoint blocks blockCount fuel next
 
-/-- Per-callable CFG shape + reachability. Deterministic, bounded. -/
+/-- Per-callable loopBounds back-edge coverage (SPEC §6 / §6.2). Validates:
+    a) each loopBound header/backEdgeFrom < blockCount (range owned here, not
+       `.badReference`, because these are CFG-internal),
+    b) maxIterations <= maxLoopIterationsV1 (4096),
+    c) loopBounds strictly ascending and unique by (header, backEdgeFrom)
+       lexicographic order,
+    d) exact coverage: the multiset of (header, backEdgeFrom) pairs in
+       loopBounds equals the multiset of actual CFG back edges (computed by
+       `cfgBackEdges`), with duplicate actual edges to the same (header,
+       backEdgeFrom) treated as a single back edge (SPEC says each pair is
+       unique ascending). All failures → `.badCfg`. Bounded, total. -/
+private def validateCallableLoopBounds (c : CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let blockCount := c.blocks.size
+  -- a) range check on header / backEdgeFrom
+  for lb in c.loopBounds do
+    unless lb.header.toNat < blockCount do
+      return ← err .badCfg
+    unless lb.backEdgeFrom.toNat < blockCount do
+      return ← err .badCfg
+  -- b) maxIterations <= 4096
+  for lb in c.loopBounds do
+    unless lb.maxIterations <= maxLoopIterationsV1 do
+      return ← err .badCfg
+  -- c) strictly ascending + unique by (header, backEdgeFrom) lexicographic.
+  --   Compare adjacent pairs by (header, backEdgeFrom) lexicographic order;
+  --   equal or out-of-order → `.badCfg`.
+  let mut i : Nat := 0
+  for lb in c.loopBounds do
+    if i + 1 < c.loopBounds.size then
+      match c.loopBounds[i + 1]? with
+      | some next =>
+          let ch := lb.header.toNat
+          let cb := lb.backEdgeFrom.toNat
+          let nh := next.header.toNat
+          let nb := next.backEdgeFrom.toNat
+          let ok := ch < nh || (ch == nh && cb < nb)
+          unless ok do
+            return ← err .badCfg
+      | none => pure ()
+    i := i + 1
+  -- d) exact coverage. Build deduped actual back-edge pair list, then compare
+  --   sizes and membership (blockCount is small; bounded Array membership).
+  let actualAll := cfgBackEdges c.blocks blockCount
+  let mut actual : Array (Nat × Nat) := #[]
+  for p in actualAll do
+    let key := (p.1.toNat, p.2.toNat)
+    unless actual.any (· == key) do
+      actual := actual.push key
+  unless actual.size == c.loopBounds.size do
+    return ← err .badCfg
+  for lb in c.loopBounds do
+    let key := (lb.header.toNat, lb.backEdgeFrom.toNat)
+    unless actual.any (· == key) do
+      return ← err .badCfg
+  pure ()
+
+/-- Per-callable CFG shape + reachability + loopBounds. Deterministic, bounded. -/
 private def validateCallableCfgShape (c : CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
@@ -1787,6 +1866,8 @@ private def validateCallableCfgShape (c : CallableV1) :
       unless v do
         return ← err .badCfg
     pure ()
+  -- e) loopBounds back-edge coverage (SPEC §6 / §6.2)
+  validateCallableLoopBounds c
 
 private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     Except SemanticWireErrorV1 Unit := do
@@ -2253,12 +2334,12 @@ private def checkTableIds (getId : α → UInt32) (table : Array α) :
     type-shape/FieldSpec/Map-key (SPEC §5), canonical valueBytes (Constant /
     Op.Literal / SwitchCase), per-callable CFG shape + reachability from entry
     + jump/branch/switch target arg arity == target block params
+    + loopBounds back-edge coverage
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
-    only for valueBytes sites and CFG shape/reachability/arity — NOT dominance,
-    ValueId SSA, loopBounds back-edge coverage, block-param TYPE, or
-    terminator typing. -/
+    only for valueBytes sites and CFG shape/reachability/arity/loopBounds —
+    NOT dominance, ValueId SSA, block-param TYPE, or terminator typing. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 1) Table ID == array index
