@@ -1,5 +1,5 @@
 /-
-  B7b1 + B7b2: Typed diagnostic-draft path materialization through B7a
+  B7b1 + B7b2 + B7b3a: Typed diagnostic-draft path materialization through B7a
   OriginInventoryV1.
 
   B7b1 (name-resolution / call-graph):
@@ -19,6 +19,15 @@
   * resolution-not-ok short-circuit erase parity
   * every draft path ∈ canonicalNodeVisitsV1
   * locate via selectProgramV1WithOrigins → exact real NodeIds
+
+  B7b3a (EffectCheckV1 producer paths):
+  * direct fn state.read/write + emit/call/schedule/assert/revert sites
+  * multi-effect EffectKind order + primary FnDecl/ViewDecl
+  * view disallow vs view-ok state.read
+  * transitive 1-hop / multi-hop causal related (direct ∪ effect-carrying LocalCall)
+  * duplicate callsites retained; cycle finite; shadowing; incomplete dup-fn
+  * every draft path ∈ canonicalNodeVisitsV1; locate exact NodeId sets
+  * public checkProgramEffects* erase parity on code/message/order/ok/analysisComplete
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
@@ -39,6 +48,7 @@ import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
+import ProofForgeV2.Typed.EffectCheckV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Typed.TypeCheckV1
@@ -63,6 +73,7 @@ open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
 open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
+open ProofForgeV2.Typed.EffectCheckV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 open ProofForgeV2.Typed.TypeCheckV1
@@ -1080,6 +1091,467 @@ private unsafe def testTypeCheckAllDraftPathsInVisits
       (eraseArray tc.drafts).map (·.message))
     "tc-multi: full erase messages"
 
+/-- B7b3a: EffectCheck draft authority via Loader origins. -/
+private unsafe def effectDraftsWithOrigins
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × OriginInventoryV1 × EffectCheckDraftResultV1) := do
+  let (validated, inv) ← selectWithOrigins session label source
+  let res := checkProgramEffectsDraftsV1 validated
+  pure (validated, inv, res)
+
+/-- Every path on every draft is a canonical visit; locate yields real NodeIds. -/
+private def expectEffectDraftPaths
+    (label : String) (inv : OriginInventoryV1) (prog : ProgramV1)
+    (drafts : Array TypedDiagnosticDraftV1) : IO Unit := do
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 prog)
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    expect (pathInVisits visits loc.primaryPath)
+      s!"{label}[{i}]: primary ∈ visits"
+    for (rp, j) in loc.relatedPaths.zipIdx do
+      expect (pathInVisits visits rp)
+        s!"{label}[{i}].related[{j}] ∈ visits"
+  let located ← locateAll label inv drafts
+  expect (located.size == drafts.size) s!"{label}: locate size"
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    let primaryId ← expectNodeIdSome s!"{label}[{i}]" located[i]!.primary
+    expect (primaryId == (← inventoryNodeId inv loc.primaryPath s!"{label}[{i}] primary"))
+      s!"{label}[{i}]: primary NodeId exact"
+    expectRelatedNodeIdSet s!"{label}[{i}]" inv located[i]!.related loc.relatedPaths
+
+private def expectEffectEraseParity
+    (label : String) (validated : ValidatedSourceV1)
+    (draftRes : EffectCheckDraftResultV1) : IO Unit := do
+  let publicArr := checkProgramEffectsV1 validated
+  let publicRes := checkProgramEffectsResultV1 validated
+  eraseParity label draftRes.drafts publicArr
+  expect (draftRes.ok == publicRes.ok) s!"{label}: ok parity"
+  expect (draftRes.analysisComplete == publicRes.analysisComplete)
+    s!"{label}: analysisComplete parity"
+  expect (publicRes.diagnostics.map (·.message) == publicArr.map (·.message))
+    s!"{label}: result vs array messages"
+  expect (publicArr.map (·.code) == (eraseArray draftRes.drafts).map (·.code))
+    s!"{label}: code order parity"
+  expect (publicArr.all (fun d => d.code == .effectDisallowed || d.code == .sourceInvalid
+      || d.code == .internal))
+    s!"{label}: public codes are effect/structural only"
+
+/-- Direct fn state.read: primary FnDecl; related = Place.Name root. -/
+private unsafe def testEffectDirectStateRead
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffRead where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return total\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return peek()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-read" source
+  expect (!res.ok) "eff-read: not ok"
+  expect res.analysisComplete "eff-read: complete"
+  expect (res.drafts.size == 1) "eff-read: one draft"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.code == .effectDisallowed) "eff-read: code"
+  expect (draft.diagnostic.message == "fn 'peek' does not allow effect 'state.read'")
+    "eff-read: message"
+  let loc ← requireLocation "eff-read" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some pVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError "eff-read: primary visit"
+  expect (pVisit.constructorTag == "FnDecl") "eff-read: primary FnDecl"
+  expect (loc.relatedPaths.size == 1) "eff-read: one related"
+  let some rVisit := visits.find? (·.path == loc.relatedPaths[0]!) |
+    throw <| IO.userError "eff-read: related visit"
+  expect (rVisit.constructorTag == "Place.Name") "eff-read: related Place.Name"
+  expectEffectDraftPaths "eff-read" inv validated.program res.drafts
+  expectEffectEraseParity "eff-read" validated res
+
+/-- Direct state.write on assign target Place.Name + state.read from return. -/
+private unsafe def testEffectDirectStateWrite
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffWrite where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn bump() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    return total\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return bump()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-write" source
+  expect (!res.ok) "eff-write: not ok"
+  expect (res.drafts.size == 2) "eff-write: read+write drafts"
+  expect (res.drafts[0]!.diagnostic.message.contains "state.read")
+    "eff-write: rank state.read first"
+  expect (res.drafts[1]!.diagnostic.message.contains "state.write")
+    "eff-write: rank state.write second"
+  let writeDraft := res.drafts[1]!
+  let loc ← requireLocation "eff-write" writeDraft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some pVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError "eff-write: primary visit"
+  expect (pVisit.constructorTag == "FnDecl") "eff-write: primary FnDecl"
+  expect (loc.relatedPaths.any fun rp =>
+      match visits.find? (·.path == rp) with
+      | some v => v.constructorTag == "Place.Name"
+      | none => false)
+    "eff-write: related includes Place.Name write root"
+  expectEffectDraftPaths "eff-write" inv validated.program res.drafts
+  expectEffectEraseParity "eff-write" validated res
+
+/-- emit / call / schedule / assert / revert at exact Stmt nodes. -/
+private unsafe def testEffectDirectStmtSites
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffStmts where\n" ++
+    "  event Ev()\n" ++
+    "  error Boom()\n" ++
+    "  fn bad(ok : Bool) : UInt64 do\n" ++
+    "    emit Ev()\n" ++
+    "    call External.Use()\n" ++
+    "    schedule External.Later()\n" ++
+    "    assert ok\n" ++
+    "    if ok then\n" ++
+    "      return 0\n" ++
+    "    else\n" ++
+    "      revert Boom()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return bad(true)\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-stmts" source
+  expect (!res.ok) "eff-stmts: not ok"
+  -- emit, external.call.sync, workflow.schedule in EffectKind order; assert+revert are allowed
+  let msgs := res.drafts.map (·.diagnostic.message)
+  expect (msgs.any (·.contains "event.emit")) "eff-stmts: emit"
+  expect (msgs.any (·.contains "external.call.sync")) "eff-stmts: call"
+  expect (msgs.any (·.contains "workflow.schedule")) "eff-stmts: schedule"
+  -- failure.revert allowed on fn — no PF-EFFECT-001 for assert/revert
+  expect (!msgs.any (·.contains "failure.revert")) "eff-stmts: no revert disallow"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  for (draft, i) in res.drafts.zipIdx do
+    let loc ← requireLocation s!"eff-stmts[{i}]" draft
+    let some pVisit := visits.find? (·.path == loc.primaryPath) |
+      throw <| IO.userError s!"eff-stmts[{i}]: primary visit"
+    expect (pVisit.constructorTag == "FnDecl") s!"eff-stmts[{i}]: primary FnDecl"
+    expect (loc.relatedPaths.size ≥ 1) s!"eff-stmts[{i}]: related nonempty"
+    for rp in loc.relatedPaths do
+      let some rv := visits.find? (·.path == rp) |
+        throw <| IO.userError s!"eff-stmts[{i}]: related visit"
+      expect (rv.constructorTag == "Stmt.Emit" || rv.constructorTag == "Stmt.Call"
+          || rv.constructorTag == "Stmt.Schedule")
+        s!"eff-stmts[{i}]: related stmt tag {rv.constructorTag}"
+  expectEffectDraftPaths "eff-stmts" inv validated.program res.drafts
+  expectEffectEraseParity "eff-stmts" validated res
+
+/-- Multi-effect one fn: declaration + EffectKind order preserved on erase. -/
+private unsafe def testEffectMultiKindOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffMulti where\n" ++
+    "  state total : UInt64\n" ++
+    "  event Ev()\n" ++
+    "  fn bad() : UInt64 do\n" ++
+    "    emit Ev()\n" ++
+    "    total := 1\n" ++
+    "    return total\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return bad()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-multi" source
+  expect (!res.ok) "eff-multi: not ok"
+  let msgs := res.drafts.map (·.diagnostic.message)
+  -- rank: state.read(0), state.write(1), event.emit(2)
+  expect (msgs.size ≥ 3) s!"eff-multi: ≥3 drafts, got {msgs}"
+  expect (msgs[0]!.contains "state.read") s!"eff-multi: [0] read, got {msgs}"
+  expect (msgs[1]!.contains "state.write") s!"eff-multi: [1] write, got {msgs}"
+  expect (msgs[2]!.contains "event.emit") s!"eff-multi: [2] emit, got {msgs}"
+  expectEffectDraftPaths "eff-multi" inv validated.program res.drafts
+  expectEffectEraseParity "eff-multi" validated res
+
+/-- View disallow state.write primary=ViewDecl; view-ok state.read produces no draft. -/
+private unsafe def testEffectViewLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let okSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffViewOk where\n" ++
+    "  state total : UInt64\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return total\n"
+  let (vOk, _invOk, resOk) ← effectDraftsWithOrigins session "eff-view-ok" okSource
+  expect resOk.ok "eff-view-ok: ok"
+  expect resOk.drafts.isEmpty "eff-view-ok: no drafts"
+  expectEffectEraseParity "eff-view-ok" vOk resOk
+
+  let badSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffViewWrite where\n" ++
+    "  state total : UInt64\n" ++
+    "  view set() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    return total\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-view-write" badSource
+  expect (!res.ok) "eff-view-write: not ok"
+  let some draft := res.drafts.find?
+      (·.diagnostic.message.contains "view 'set' does not allow effect 'state.write'") |
+    throw <| IO.userError s!"eff-view-write: missing write draft, got {res.drafts.map (·.diagnostic.message)}"
+  let loc ← requireLocation "eff-view-write" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some pVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError "eff-view-write: primary visit"
+  expect (pVisit.constructorTag == "ViewDecl") "eff-view-write: primary ViewDecl"
+  expect (loc.relatedPaths.any fun rp =>
+      match visits.find? (·.path == rp) with
+      | some v => v.constructorTag == "Place.Name"
+      | none => false)
+    "eff-view-write: related Place.Name"
+  expectEffectDraftPaths "eff-view-write" inv validated.program res.drafts
+  expectEffectEraseParity "eff-view-write" validated res
+
+/-- 1-hop transitive: caller related = LocalCall site ∪ writer direct Place.Name. -/
+private unsafe def testEffectTransitiveOneHop
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffHop1 where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn writer() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    return 1\n" ++
+    "  fn caller() : UInt64 do\n" ++
+    "    return writer()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return caller()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-hop1" source
+  expect (!res.ok) "eff-hop1: not ok"
+  let some writerD := res.drafts.find?
+      (·.diagnostic.message == "fn 'writer' does not allow effect 'state.write'") |
+    throw <| IO.userError s!"eff-hop1: missing writer, got {res.drafts.map (·.diagnostic.message)}"
+  let some callerD := res.drafts.find?
+      (·.diagnostic.message == "fn 'caller' does not allow effect 'state.write'") |
+    throw <| IO.userError s!"eff-hop1: missing caller, got {res.drafts.map (·.diagnostic.message)}"
+  let wLoc ← requireLocation "eff-hop1-w" writerD
+  let cLoc ← requireLocation "eff-hop1-c" callerD
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (wLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Place.Name")
+    "eff-hop1: writer related Place.Name"
+  expect (!wLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall")
+    "eff-hop1: writer has no LocalCall related"
+  expect (cLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall")
+    "eff-hop1: caller related LocalCall"
+  expect (cLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Place.Name")
+    "eff-hop1: caller related includes downstream Place.Name"
+  expectEffectDraftPaths "eff-hop1" inv validated.program res.drafts
+  expectEffectEraseParity "eff-hop1" validated res
+
+/-- Multi-hop chain: top related excludes pure unrelated call edges. -/
+private unsafe def testEffectTransitiveMultiHop
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffHopN where\n" ++
+    "  event Ev()\n" ++
+    "  fn pure() : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  fn leaf() : UInt64 do\n" ++
+    "    emit Ev()\n" ++
+    "    return pure()\n" ++
+    "  fn mid() : UInt64 do\n" ++
+    "    return leaf()\n" ++
+    "  fn top() : UInt64 do\n" ++
+    "    return mid()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return top()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-hopn" source
+  expect (!res.ok) "eff-hopn: not ok"
+  let some topD := res.drafts.find?
+      (·.diagnostic.message == "fn 'top' does not allow effect 'event.emit'") |
+    throw <| IO.userError s!"eff-hopn: missing top, got {res.drafts.map (·.diagnostic.message)}"
+  let some leafD := res.drafts.find?
+      (·.diagnostic.message == "fn 'leaf' does not allow effect 'event.emit'") |
+    throw <| IO.userError s!"eff-hopn: missing leaf, got {res.drafts.map (·.diagnostic.message)}"
+  let topLoc ← requireLocation "eff-hopn-top" topD
+  let leafLoc ← requireLocation "eff-hopn-leaf" leafD
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  -- leaf related: Stmt.Emit only (pure() closed set has no event.emit → exclude LocalCall pure)
+  expect (leafLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Stmt.Emit")
+    "eff-hopn: leaf related Stmt.Emit"
+  expect (!leafLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall")
+    "eff-hopn: leaf excludes pure LocalCall (unrelated to emit)"
+  -- top related: LocalCall mid + LocalCall leaf + Stmt.Emit (no pure)
+  let topLocalCalls := topLoc.relatedPaths.filter fun rp =>
+    (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall"
+  expect (topLocalCalls.size == 2)
+    s!"eff-hopn: top has 2 effect-propagating LocalCalls, got {topLocalCalls.size}"
+  expect (topLoc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Stmt.Emit")
+    "eff-hopn: top related includes Stmt.Emit"
+  expectEffectDraftPaths "eff-hopn" inv validated.program res.drafts
+  expectEffectEraseParity "eff-hopn" validated res
+
+/-- Duplicate callsites: retain distinct LocalCall occurrences. -/
+private unsafe def testEffectDuplicateCallsites
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffDupCall where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn writer() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    return 1\n" ++
+    "  fn caller() : UInt64 do\n" ++
+    "    let _a : UInt64 := writer()\n" ++
+    "    let _b : UInt64 := writer()\n" ++
+    "    return _a\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return caller()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-dup-call" source
+  expect (!res.ok) "eff-dup-call: not ok"
+  let some callerD := res.drafts.find?
+      (·.diagnostic.message == "fn 'caller' does not allow effect 'state.write'") |
+    throw <| IO.userError s!"eff-dup-call: missing caller, got {res.drafts.map (·.diagnostic.message)}"
+  let loc ← requireLocation "eff-dup-call" callerD
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let localCalls := loc.relatedPaths.filter fun rp =>
+    (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall"
+  expect (localCalls.size == 2)
+    s!"eff-dup-call: two distinct LocalCall related, got {localCalls.size}"
+  expect (localCalls[0]! != localCalls[1]!) "eff-dup-call: distinct paths"
+  expectEffectDraftPaths "eff-dup-call" inv validated.program res.drafts
+  expectEffectEraseParity "eff-dup-call" validated res
+
+/-- Cycle: finite deterministic related set (visit-bounded worklist). -/
+private unsafe def testEffectCycleEvidence
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffCycle where\n" ++
+    "  event Ev()\n" ++
+    "  fn a() : UInt64 do\n" ++
+    "    return b()\n" ++
+    "  fn b() : UInt64 do\n" ++
+    "    emit Ev()\n" ++
+    "    return a()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-cycle" source
+  expect (!res.ok) "eff-cycle: not ok"
+  let some aD := res.drafts.find?
+      (·.diagnostic.message == "fn 'a' does not allow effect 'event.emit'") |
+    throw <| IO.userError s!"eff-cycle: missing a, got {res.drafts.map (·.diagnostic.message)}"
+  let loc ← requireLocation "eff-cycle" aD
+  -- Finite: at most a few related paths (LocalCall b, Stmt.Emit, LocalCall a)
+  expect (loc.relatedPaths.size ≤ 8)
+    s!"eff-cycle: related bounded, got {loc.relatedPaths.size}"
+  expect (loc.relatedPaths.size ≥ 2)
+    s!"eff-cycle: related ≥2 (call+emit), got {loc.relatedPaths.size}"
+  -- Determinism: re-run same authority
+  let res2 := checkProgramEffectsDraftsV1 validated
+  expect (res2.drafts.size == res.drafts.size) "eff-cycle: draft count stable"
+  for i in [0:res.drafts.size] do
+    let l1 ← requireLocation s!"eff-cycle-d{i}" res.drafts[i]!
+    let l2 ← requireLocation s!"eff-cycle-d{i}b" res2.drafts[i]!
+    expect (l1.primaryPath == l2.primaryPath) s!"eff-cycle[{i}]: primary stable"
+    expect (l1.relatedPaths == l2.relatedPaths) s!"eff-cycle[{i}]: related stable"
+  expectEffectDraftPaths "eff-cycle" inv validated.program res.drafts
+  expectEffectEraseParity "eff-cycle" validated res
+
+/-- Shadowing: param/local shadow state or callee ⇒ no spurious sites/edges. -/
+private unsafe def testEffectShadowingLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffShadow where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn writer() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    return 1\n" ++
+    "  fn peek(total : UInt64) : UInt64 do\n" ++
+    "    return total\n" ++
+    "  fn caller(writer : UInt64) : UInt64 do\n" ++
+    "    return writer\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return peek(0) + caller(0)\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-shadow" source
+  expect (!res.ok) "eff-shadow: not ok"
+  -- only writer should fail; peek/caller produce no drafts
+  expect (res.drafts.all (fun d => d.diagnostic.message.contains "fn 'writer'"))
+    s!"eff-shadow: only writer drafts, got {res.drafts.map (·.diagnostic.message)}"
+  expect (!res.drafts.any (·.diagnostic.message.contains "fn 'peek'"))
+    "eff-shadow: no peek draft"
+  expect (!res.drafts.any (·.diagnostic.message.contains "fn 'caller'"))
+    "eff-shadow: no caller draft"
+  expectEffectDraftPaths "eff-shadow" inv validated.program res.drafts
+  expectEffectEraseParity "eff-shadow" validated res
+
+/-- Incomplete duplicate-fn: analysisComplete=false, no allowlist drafts. -/
+private unsafe def testEffectIncompleteDuplicateFn
+    (_session : Language.Loader.ParserSession) : IO Unit := do
+  let progName ← mkName "EffDupFn"
+  let helper ← mkName "helper"
+  let runName ← mkName "run"
+  let ret0 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 0)))] }
+  let ret1 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 1)))] }
+  let u64 : TypeV1 := .uint 64
+  let fnA : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret0 }
+  let fnB : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret1 }
+  let entryDecl : EntryDeclV1 := { name := runName, params := #[], result := u64, body := ret0 }
+  let progAst : ProgramV1 :=
+    { name := progName, items := #[.fn fnA, .fn fnB, .entry entryDecl] }
+  let (tables, _) := (buildTables progAst).run {}
+  expect tables.fn.hasDuplicateKey "eff-dup-fn: hasDuplicateKey"
+  let draftRes := checkEffectsDraftsV1 progAst tables
+  expect (!draftRes.analysisComplete) "eff-dup-fn: analysisComplete=false"
+  expect (!draftRes.ok) "eff-dup-fn: ok=false"
+  expect draftRes.drafts.isEmpty "eff-dup-fn: no allowlist drafts"
+  let erased := checkEffectsV1 progAst tables
+  expect (erased.diagnostics.isEmpty) "eff-dup-fn: public empty diags"
+  expect (!erased.analysisComplete) "eff-dup-fn: public incomplete"
+  expect (!erased.ok) "eff-dup-fn: public not ok"
+
+/-- All effect drafts paths ∈ visits; full public erase parity. -/
+private unsafe def testEffectAllDraftPathsInVisits
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EffAllPaths where\n" ++
+    "  state total : UInt64\n" ++
+    "  event Ev()\n" ++
+    "  fn writer() : UInt64 do\n" ++
+    "    total := 1\n" ++
+    "    emit Ev()\n" ++
+    "    return total\n" ++
+    "  fn mid() : UInt64 do\n" ++
+    "    return writer()\n" ++
+    "  view bad() : UInt64 do\n" ++
+    "    return mid()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return mid()\n"
+  let (validated, inv, res) ← effectDraftsWithOrigins session "eff-all" source
+  expect (!res.ok) "eff-all: not ok"
+  expect (res.drafts.size ≥ 3) s!"eff-all: ≥3 drafts, got {res.drafts.size}"
+  expectEffectDraftPaths "eff-all" inv validated.program res.drafts
+  expectEffectEraseParity "eff-all" validated res
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testUnknownPlaceName session
@@ -1111,6 +1583,19 @@ unsafe def run : IO Unit := do
   testTypeCheckBareReturn session
   testTypeCheckResolutionShortCircuit session
   testTypeCheckAllDraftPathsInVisits session
+  -- B7b3a EffectCheck locations
+  testEffectDirectStateRead session
+  testEffectDirectStateWrite session
+  testEffectDirectStmtSites session
+  testEffectMultiKindOrder session
+  testEffectViewLocations session
+  testEffectTransitiveOneHop session
+  testEffectTransitiveMultiHop session
+  testEffectDuplicateCallsites session
+  testEffectCycleEvidence session
+  testEffectShadowingLocations session
+  testEffectIncompleteDuplicateFn session
+  testEffectAllDraftPathsInVisits session
   IO.println "Tests.Typed.DiagnosticLocationsV1: all assertions passed"
 
 end Tests.Typed.DiagnosticLocationsV1

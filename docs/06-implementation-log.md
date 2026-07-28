@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B7b3a EffectCheckV1 diagnostic-draft paths
+
+- Context/State：B7b1/B7b2 已为 NameResolution/CallGraph/TypeCheck 接线 `DiagnosticDraftV1` path drafts；EffectCheckV1 仍 emit 空 primary/related。本切片工程-only 把 EffectCheck 单 walk 迁到 canonical ProgramV1 paths 与有限因果 related 证据，**不**改 Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：扩展 `Tests/Typed/DiagnosticLocationsV1.lean` 覆盖 EffectCheck direct/transitive/multi-hop/duplicate-callsite/cycle/view/shadowing/incomplete-dup-fn + erase parity + OriginInventory exact NodeId。实现前真实 RED：`Unknown identifier checkEffectsDraftsV1` / `Unknown identifier checkProgramEffectsDraftsV1`。
+- Production：`EffectCheckV1` sole path-threaded draft authority（`checkEffectsDraftsV1`/`checkProgramEffectsDraftsV1`）；public `checkEffectsV1`/`checkProgramEffectsV1`/`checkProgramEffectsResultV1` exact erase；primary=offending FnDecl/ViewDecl；related=direct occurrence（state root Place.Name；emit/call/schedule/assert/revert Stmt）∪ effect-propagating LocalCall edges，visit-bounded worklist；6-bit fixed-point 仍为 closed-effect 权威；PF-EFFECT-001 code/message/phase/order/shadowing/duplicate-fn incomplete 不变。
+- Zero patterns：EffectCheck/DiagnosticDraft 无 raw `path.push`；Typed 无 `import ProofForgeV2.Semantic`/`Language.Loader`；无第二 effect walker；无 Bound/Disclosure/CheckV1/compiler/CLI/Semantic/target 变更。
+- Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` TASK-D1-01/D1-07/D2-02 事实行；本日志。formal 状态不变。
+- Verification：focused `lake build` EffectCheck/DiagnosticLocations/CheckV1/fast_tests + `proof-forge-next-fast-tests`；zero-pattern rg；ordinary gates。
+- Boundary：无 Bound/Disclosure/located CheckV1 入口、无 B8 CLI bundle、无 formal/release 路径。
+
 ## 2026-07-29 — B7b2 TypeCheckV1 diagnostic-draft paths
 
 - Context/State：B7b1 已为 NameResolution/CallGraph 接线 `DiagnosticDraftV1` path drafts；TypeCheckV1 仍 emit 空 primary/related。本切片工程-only 把 TypeCheck 单 walk 迁到 canonical ProgramV1 paths，**不**改 Effect/Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。

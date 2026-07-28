@@ -426,9 +426,9 @@
       "sha256": "9f9a0f94c1a22ec10f2f792ade89273a1c36a019de3d9b6a856926fe3d400b84"
     },
     {
-      "bytes": 18075,
+      "bytes": 37733,
       "path": "ProofForgeV2/Typed/EffectCheckV1.lean",
-      "sha256": "72c28c52f613d1c25e1fa3b81d8e94cfcaa3d688bd4b4106a02cdc62c145eb90"
+      "sha256": "34631e425fc05e7f634bc9f2c61b9128ce1343200e979e96bab5078a9c475b60"
     },
     {
       "bytes": 17434,
