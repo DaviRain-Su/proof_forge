@@ -17,10 +17,11 @@
   dominance, def-site TypeId range,
   block/terminator typing, step-j per-op contracts, invariant-closure
   membership/DAG/CFG/op restrictions, and exact checked computedInvariantSteps
-  are pinned; named-prefix contiguous-rank is covered, while anonymous
-  canonical rank/order, the full SPEC rule
-  that recursive cycles pass simultaneously through Option and a reserved
-  named key, usage closure, provenance join/normalizer/product wire remain
+  are pinned; named-prefix contiguous-rank and the named-body
+  `Option`-cycle legality rule (recursive cycles must pass through an Option)
+  are covered, while anonymous
+  canonical rank/order, usage closure, provenance join/normalizer/product
+  wire, and the remaining full TypeKey closure remain
   pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
@@ -1523,8 +1524,10 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
     the public `.nonCanonical` wire error). These seam assertions complement,
     not replace, the shipped gate. The long-chain positive uses a strictly
     acyclic fixture (named struct field references the terminal Bool, not
-    itself and not an Option); the deferred SPEC rule that a named-body cycle
-    must include Option is not exercised as a positive. -/
+    itself and not an Option). Named-body `Option`-cycle legality is now
+    enforced by a later `namedBodyCycle` subphase (pinned by
+    `testNamedBodyOptionCycleLegality`); the P1/P2 named-anchor positives
+    below are legal under that complete cycle condition. -/
 private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
   -- Positives: distinct Array element/length, Map key/value, Option element
   -- structural classes. None of these duplicates another container shape.
@@ -1605,9 +1608,10 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
   -- field points back at a container that holds an Option of the named
   -- Struct. The named reserved TypeId is the terminal structural anchor, so
   -- the recursive Option class resolves through `named(reserved TypeId)`.
-  -- This slice only demonstrates that recursion through a named anchor is
-  -- accepted; the full SPEC rule that a recursive cycle must simultaneously
-  -- pass through `Option` and a reserved named key is deferred.
+  -- This case is legal under the complete SPEC §5 cycle condition, now
+  -- enforced by a later `namedBodyCycle` subphase: the cycle passes through
+  -- both a reserved named key (Node) and an `Option`, so the
+  -- Option-removed induced graph is acyclic.
   let p1Types : Array TypeDeclV1 := #[
     { id := 0, name := some "Node",
       shape := .struct #[{ name := "tail", typeId := 1 }] },
@@ -1703,9 +1707,9 @@ private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
   -- are anonymous Option nodes where Option i wraps Option(i-1) (Option 1
   -- wraps the named anchor 0), and id chainDepth+1 is the terminal Bool. No
   -- named-body cycle is constructed (the named struct field references Bool,
-  -- not itself and not an Option), so this stays within the legal acyclic
-  -- subset that this slice accepts; the deferred SPEC rule that a named-body
-  -- cycle must include Option is not exercised here. Each Option node has a
+  -- not itself and not an Option); this is an acyclic resource fixture that
+  -- exercises linear-space class computation, not a named-body cycle case.
+  -- Each Option node has a
   -- distinct structural class (different nesting depth), so no duplicate
   -- anonymous class is reported. Exercises linear-space class computation on
   -- a real shipped path (structure gate + encoder).
@@ -2187,8 +2191,9 @@ private def testNamedTypePrefixRank : IO Unit := do
   --   Two named Enum declarations, each with one variant whose payloadTypes
   --   is empty (a legal shape: enum variants must be nonempty, but each
   --   variant's payload list may be empty). No recursive named-body
-  --   reference is constructed, so the deferred SPEC named-body cycle
-  --   legality rule is not exercised as a positive.
+  --   reference is constructed, so the named-body `Option`-cycle legality
+  --   rule (now enforced by a later `namedBodyCycle` subphase) is not
+  --   exercised as a positive here.
   let p1 ← programWithTypes "NamedPrefixP1AllNamed" #[
     { id := 0, name := some "E1",
       shape := .enum #[{ name := "a", payloadTypes := #[] }] },
@@ -2406,6 +2411,366 @@ private def testNamedTypePrefixRank : IO Unit := do
     (encodeSemanticProgramDataV1 trDecoded)
   expectErr "tr carrier rejects interleaved prefix" .nonCanonical
     (decodeSemanticProgramV1 trBytes)
+
+/-! ### named-body Option-cycle legality (SPEC §5)
+
+    SPEC §5 requires that every recursive cycle in the type graph pass
+    simultaneously through a reserved named key and an `Option` node. The
+    earlier `recursiveAnonymous` subphase already rejects all
+    anonymous-container cycles that pass through no named anchor. This slice
+    closes the remaining gap: any cycle that passes through a reserved named
+    Struct/Enum key must also pass through at least one anonymous `Option`.
+
+    The recommended equivalent global algorithm is implemented: remove every
+    `.option` node (and its incident edges) from the TypeId directed graph,
+    then require the induced subgraph on the remaining nodes to be acyclic.
+    This rejects exactly the cycles that contain no `Option`; combined with
+    `recursiveAnonymous` rejecting anonymous-only cycles, the two gates
+    together ensure an accepted cycle simultaneously contains a named key
+    and an `Option`. Per-named-root DFS and "path has seen an Option" walks
+    are rejected because they miss the sibling-branch trap. The new phase is
+    ordered after `recursiveAnonymous` and before named-name uniqueness /
+    canonical valueBytes / callable signature / CFG / requirements. -/
+
+private def testNamedBodyOptionCycleLegality : IO Unit := do
+  -- Positives — acyclic or Option-on-cycle; both shipped paths accept.
+  -- P1: acyclic named Struct → Bool. No cycle.
+  let p1 ← programWithTypes "NamedBodyP1AcyclicNamedBool" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 1 }] },
+    { id := 1, name := none, shape := .bool }
+  ]
+  expectCfgOk "P1 acyclic named Struct → Bool" p1
+  -- P2: named Struct → Option(self). The Option node is removed from the
+  --   induced graph, so the Struct has no outgoing edge and there is no cycle.
+  let p2 ← programWithTypes "NamedBodyP2StructOptionSelf" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "tail", typeId := 1 }] },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  expectCfgOk "P2 named Struct → Option(self)" p2
+  -- P3: named Enum variant payload → Option(self). Same reasoning: the
+  --   Option edge is removed, so the Enum has no outgoing edge.
+  let p3 ← programWithTypes "NamedBodyP3EnumPayloadOptionSelf" #[
+    { id := 0, name := some "E",
+      shape := .enum #[{ name := "v", payloadTypes := #[1] }] },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  expectCfgOk "P3 named Enum payload → Option(self)" p3
+  -- P4: mutual named cycle whose actual path includes an Option. A→B (direct
+  --   field), B→Option A (the only B→A path goes through the removed Option).
+  --   After removing the Option, B has no outgoing edge, so the induced graph
+  --   is acyclic. The named anchor + Option both lie on the recursive cycle.
+  let p4 ← programWithTypes "NamedBodyP4MutualCycleWithOption" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "b", typeId := 1 }] },
+    { id := 1, name := some "B",
+      shape := .struct #[{ name := "a", typeId := 2 }] },
+    { id := 2, name := none, shape := .option 0 }
+  ]
+  expectCfgOk "P4 mutual named cycle through Option" p4
+  -- P5: named → Array → Option → named. The Array's element is an Option,
+  --   so the Array's only outgoing edge is removed. The named Struct's edge
+  --   to the Array stays, but the Array has no further edge in the induced
+  --   graph. No cycle.
+  let p5 ← programWithTypes "NamedBodyP5NamedArrayOptionNamed" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "xs", typeId := 1 }] },
+    { id := 1, name := none, shape := .array 2 4 },
+    { id := 2, name := none, shape := .option 0 }
+  ]
+  expectCfgOk "P5 named → Array → Option → named" p5
+  -- P6: Map value path includes an Option. A→Map (Bool → Option A). The Map's
+  --   value edge is to the Option, which is removed; the key edge is to Bool
+  --   (a leaf). So the Map has no edge to A; the induced graph is acyclic.
+  --   Named prefix: A at index 0, anonymous Bool/Map/Option suffix.
+  let p6 ← programWithTypes "NamedBodyP6MapValueOptionNamed" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "m", typeId := 2 }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .map 1 3 },
+    { id := 3, name := none, shape := .option 0 }
+  ]
+  expectCfgOk "P6 Map value path includes Option" p6
+  -- Negatives — a cycle in the induced graph (no Option on the cycle). All
+  -- reject as `.nonCanonical` on both shipped paths.
+  -- N1: direct named Struct self-cycle, no Option.
+  let n1 ← programWithTypes "NamedBodyN1StructSelf" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 0 }] }
+  ]
+  expectCfgErrCode "N1 direct named Struct self-cycle" .nonCanonical n1
+  -- N2: named Enum self payload, no Option.
+  let n2 ← programWithTypes "NamedBodyN2EnumSelfPayload" #[
+    { id := 0, name := some "E",
+      shape := .enum #[{ name := "v", payloadTypes := #[0] }] }
+  ]
+  expectCfgErrCode "N2 named Enum self payload" .nonCanonical n2
+  -- N3: two named mutual cycle, no Option.
+  let n3 ← programWithTypes "NamedBodyN3TwoMutualNoOption" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "b", typeId := 1 }] },
+    { id := 1, name := some "B",
+      shape := .struct #[{ name := "a", typeId := 0 }] }
+  ]
+  expectCfgErrCode "N3 two named mutual no Option" .nonCanonical n3
+  -- N4: three named mutual cycle, no Option.
+  let n4 ← programWithTypes "NamedBodyN4ThreeMutualNoOption" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "b", typeId := 1 }] },
+    { id := 1, name := some "B",
+      shape := .struct #[{ name := "c", typeId := 2 }] },
+    { id := 2, name := some "C",
+      shape := .struct #[{ name := "a", typeId := 0 }] }
+  ]
+  expectCfgErrCode "N4 three named mutual no Option" .nonCanonical n4
+  -- N5: Struct → Array(self). The Array element is the named Struct, so the
+  --   induced graph has A→Array and Array→A, a cycle with no Option.
+  let n5 ← programWithTypes "NamedBodyN5StructArraySelf" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "xs", typeId := 1 }] },
+    { id := 1, name := none, shape := .array 0 4 }
+  ]
+  expectCfgErrCode "N5 Struct → Array(self)" .nonCanonical n5
+  -- N6: Struct → Map<Bool,self>. The Map value is the named Struct; both the
+  --   Map key (Bool, leaf) and value (A) edges stay, giving A→Map and Map→A.
+  --   Named prefix: A at index 0, anonymous Bool/Map suffix.
+  let n6 ← programWithTypes "NamedBodyN6StructMapBoolSelf" #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "m", typeId := 2 }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .map 1 0 }
+  ]
+  expectCfgErrCode "N6 Struct → Map<Bool,self>" .nonCanonical n6
+  -- N7: sibling-branch trap. A has both an Option(B) field and a direct B
+  --   field; B→A. A "path has seen an Option" walk that follows the
+  --   Option(B) branch would wrongly accept, because the Option sits on that
+  --   branch. But the direct A→B→A cycle contains no Option. The global
+  --   induced-graph algorithm correctly rejects: A→B (direct field, both
+  --   non-Option) and B→A (non-Option) form a cycle with no Option node.
+  let n7 ← programWithTypes "NamedBodyN7SiblingBranchTrap" #[
+    { id := 0, name := some "A",
+      shape := .struct #[
+        { name := "optB", typeId := 2 },
+        { name := "b", typeId := 1 }
+      ] },
+    { id := 1, name := some "B",
+      shape := .struct #[{ name := "a", typeId := 0 }] },
+    { id := 2, name := none, shape := .option 1 }
+  ]
+  expectCfgErrCode "N7 sibling-branch trap (direct A→B→A no Option)"
+    .nonCanonical n7
+  -- Phase precedence: the new `.namedBodyCycle` phase is ordered after
+  --   `recursiveAnonymous`. A pure recursive duplicate (no named-body cycle)
+  --   must still report `.recursiveAnonymous`, not the new phase.
+  let prec1Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  expectTypeKeyPhase "Prec1 recursiveAnonymous before namedBodyCycle"
+    .recursiveAnonymous .nonCanonical prec1Types
+  -- A pure named-body cycle (no primitive/recursive duplicate) must report
+  --   the `.namedBodyCycle` phase.
+  expectTypeKeyPhase "Prec2 pure named-body cycle phase"
+    .namedBodyCycle .nonCanonical
+    #[{ id := 0, name := some "S",
+        shape := .struct #[{ name := "self", typeId := 0 }] }]
+  -- Predecessor ordering: table id/index precedes the new phase. A bad table
+  --   id plus a named self-cycle fails on the table-id check first.
+  let pre1 ← programWithTypes "NamedBodyPre1TableIdFirst" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 7 }] },
+    { id := 7, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 0 }] }
+  ]
+  expectCfgErrCode "Pre1 table id before named-body cycle" .duplicate pre1
+  -- Predecessor: shallow reference range precedes the new phase.
+  let pre2 ← programWithTypes "NamedBodyPre2ReferenceFirst" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 99 }] }
+  ]
+  expectCfgErrCode "Pre2 shallow ref before named-body cycle" .badReference
+    pre2
+  -- Predecessor: type-shape legality precedes the new phase. An empty struct
+  --   plus a named self-cycle fails on the shape check first.
+  let pre3 ← programWithTypes "NamedBodyPre3ShapeFirst" #[
+    { id := 0, name := some "S", shape := .struct #[] },
+    { id := 1, name := some "T",
+      shape := .struct #[{ name := "self", typeId := 1 }] }
+  ]
+  expectCfgErrCode "Pre3 type shape before named-body cycle" .badType pre3
+  -- Predecessor: namedPrefix precedes the new phase. A broken prefix plus a
+  --   named self-cycle fails on the prefix first.
+  let pre4 ← programWithTypes "NamedBodyPre4NamedPrefixFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 1 }] }
+  ]
+  expectCfgErrCode "Pre4 namedPrefix before named-body cycle" .nonCanonical
+    pre4
+  -- Predecessor: primitiveLeaf precedes the new phase. A duplicate primitive
+  --   plus a named self-cycle fails on primitive interning first. Named
+  --   prefix occupies index 0; duplicate anonymous Bools follow.
+  let pre5 ← programWithTypes "NamedBodyPre5PrimitiveLeafFirst" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 0 }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .bool }
+  ]
+  expectCfgErrCode "Pre5 primitiveLeaf before named-body cycle" .nonCanonical
+    pre5
+  -- Predecessor: recursiveAnonymous precedes the new phase. An
+  --   anonymous-container self cycle plus a named self-cycle fails on the
+  --   recursive phase first. Named prefix occupies index 0; the anonymous
+  --   Option self-cycle node follows.
+  let pre6Types : Array TypeDeclV1 := #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 0 }] },
+    { id := 1, name := none, shape := .option 1 }
+  ]
+  let pre6 ← programWithTypes "NamedBodyPre6RecursiveAnonymousFirst"
+    pre6Types
+  expectCfgErrCode "Pre6 recursiveAnonymous before named-body cycle"
+    .nonCanonical pre6
+  expectTypeKeyPhase "Pre6 recursiveAnonymous phase before namedBodyCycle"
+    .recursiveAnonymous .nonCanonical pre6Types
+  -- Successor ordering: the new phase precedes named-name uniqueness. A named
+  --   self-cycle plus duplicate named names fails on the cycle first.
+  let post1 ← programWithTypes "NamedBodyPost1NamedNamesLater" #[
+    { id := 0, name := some "Dup",
+      shape := .struct #[{ name := "self", typeId := 0 }] },
+    { id := 1, name := some "Dup",
+      shape := .struct #[{ name := "self", typeId := 1 }] }
+  ]
+  expectCfgErrCode "Post1 named-body cycle before named names" .nonCanonical
+    post1
+  -- Successor: the new phase precedes canonical valueBytes. A named
+  --   self-cycle plus a malformed Constant value fails on the cycle first.
+  let post2 ← programWithTypes "NamedBodyPost2ValueLater"
+    #[{ id := 0, name := some "S",
+        shape := .struct #[{ name := "self", typeId := 0 }] }]
+    #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+  expectCfgErrCode "Post2 named-body cycle before canonical value"
+    .nonCanonical post2
+  -- Successor: the new phase precedes callable signature.
+  let post3 ← programWithTypes "NamedBodyPost3SignatureLater"
+    #[{ id := 0, name := some "S",
+        shape := .struct #[{ name := "self", typeId := 0 }] }]
+    #[] #[cfgCallableKindName .pureFn none]
+  expectCfgErrCode "Post3 named-body cycle before callable signature"
+    .nonCanonical post3
+  -- Successor: the new phase precedes requirements.
+  let post4Base ← programWithTypes "NamedBodyPost4RequirementLater"
+    #[{ id := 0, name := some "S",
+        shape := .struct #[{ name := "self", typeId := 0 }] }]
+  let post4 : SemanticProgramDataV1 := {
+    post4Base with requirements := { items := #[req "unknown.capability"] }
+  }
+  expectCfgErrCode "Post4 named-body cycle before requirements" .nonCanonical
+    post4
+  -- Successor: the new phase precedes per-callable CFG. A named self-cycle
+  --   plus a CFG-invalid callable fails on the cycle first.
+  let cfgInvalidCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 }) (cfgBoolLit 0)]
+      (.jump (cfgJumpTarget 9))] with
+      id := 0
+  }
+  let post5 ← programWithTypes "NamedBodyPost5CfgLater"
+    #[{ id := 0, name := some "S",
+        shape := .struct #[{ name := "self", typeId := 0 }] }]
+    #[] #[cfgInvalidCallable]
+  expectCfgErrCode "Post5 named-body cycle before CFG" .nonCanonical post5
+  -- Transport regression: `decodeSemanticProgramDataV1` is structure-free and
+  --   must accept a direct named Struct self-cycle exactly as shipped, while
+  --   the structure gate, the structure-gated encoder, and the carrier
+  --   re-encode path (`decodeSemanticProgramV1`) all reject it as
+  --   `.nonCanonical`. The raw envelope is hand-assembled with the
+  --   low-level encode helpers (not `encodeSemanticProgramDataV1`, which is
+  --   structure-gated).
+  let trBase ← emptyProgram "NamedBodyTransport"
+  let trTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "self", typeId := 0 }] }
+  ]
+  let trQnB ← expectOk "tr qn" (encodeQualifiedName trBase.qualifiedName)
+  let trTypesB ← expectOk "tr types" (encodeArray encodeTypeDeclV1 trTypes)
+  let trEmptyState ← expectOk "tr state" (encodeArray encodeStateDeclV1 #[])
+  let trEmptyEvents ← expectOk "tr events" (encodeArray encodeEventDeclV1 #[])
+  let trEmptyErrors ← expectOk "tr errors" (encodeArray encodeErrorDeclV1 #[])
+  let trEmptyCallables ←
+    expectOk "tr callables" (encodeArray encodeCallableV1 #[])
+  let trEmptyInvariants ←
+    expectOk "tr inv" (encodeArray encodeInvariantDeclV1 #[])
+  let trEmptyConstants ←
+    expectOk "tr consts" (encodeArray encodeConstantV1 #[])
+  let trReqB ←
+    expectOk "tr reqs" (encodeProgramRequirementsV1 { items := #[] })
+  let trBody ← expectOk "tr body" (encodeTagged "SemanticProgram.Data" #[
+    trQnB, trTypesB, trEmptyConstants, trEmptyState, trEmptyEvents,
+    trEmptyErrors, trEmptyCallables, trEmptyInvariants, trReqB
+  ])
+  let trMagic := semanticProgramMagicV1.toUTF8.push 0
+  let trBytes := trMagic.append trBody
+  let trDecoded ← expectOk "tr transport accepts named self-cycle"
+    (decodeSemanticProgramDataV1 trBytes)
+  expect (trDecoded.types == trTypes)
+    "tr named self-cycle TypeDecl table preserved on transport"
+  expectErr "tr structure rejects named self-cycle" .nonCanonical
+    (validateSemanticProgramStructureV1 trDecoded)
+  expectErr "tr encode rejects named self-cycle" .nonCanonical
+    (encodeSemanticProgramDataV1 trDecoded)
+  expectErr "tr carrier rejects named self-cycle" .nonCanonical
+    (decodeSemanticProgramV1 trBytes)
+  -- Resource regression: an approximately 5000-node named Struct acyclic
+  --   chain (all named prefix, terminal anonymous Bool suffix) must complete
+  --   the structure gate and the structure-gated encoder on a real shipped
+  --   path. Each named Struct S_i has a single field pointing at S_{i+1};
+  --   the last points at the terminal anonymous Bool. No cycle is
+  --   constructed, so this is an acyclic resource fixture that exercises the
+  --   O(V+E) time / O(V+stack) space DFS linearly; the named-body cycle
+  --   condition is not exercised here (no cycle present).
+  let chainLen : Nat := 5000
+  let boolId : UInt32 := UInt32.ofNat chainLen
+  let mut chainTypes : Array TypeDeclV1 := Array.emptyWithCapacity
+    (chainLen + 1)
+  let mut i := 0
+  while i < chainLen do
+    chainTypes := chainTypes.push {
+      id := UInt32.ofNat i
+      name := some s!"S{i}"
+      shape := .struct #[{ name := "n", typeId := UInt32.ofNat (i + 1) }]
+    }
+    i := i + 1
+  -- Terminal anonymous Bool at the suffix (after the named prefix).
+  chainTypes := chainTypes.push
+    { id := boolId, name := none, shape := .bool }
+  let chain ← programWithTypes "NamedBodyResourceChain" chainTypes
+  expectCfgOk "Resource chain (5k named Struct) structure + encode" chain
+  -- High-fanout acyclic named Enum resource case: a single named Enum with
+  --   many variants, each carrying one UInt8 payload (all pointing at the
+  --   same leaf). The induced graph is acyclic (Enum → UInt8 leaf, leaf has
+  --   no children), so both shipped paths accept. This locks the linear
+  --   `nonOptionChildTypeIds` Enum flatten: a high-fanout Enum must not
+  --   degrade to O(E²) accumulator copying, and the DFS must finish linearly.
+  --   Bounded to keep the test light while exercising a wide fan-out.
+  let fanout : Nat := 1000
+  let mut enumVariants : Array EnumVariantV1 :=
+    Array.emptyWithCapacity fanout
+  let mut vi := 0
+  while vi < fanout do
+    enumVariants := enumVariants.push
+      { name := s!"v{vi}", payloadTypes := #[1] }
+    vi := vi + 1
+  let highFanoutTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Wide",
+      shape := .enum enumVariants },
+    { id := 1, name := none, shape := .uint 8 }
+  ]
+  let highFanout ← programWithTypes "NamedBodyHighFanoutEnum" highFanoutTypes
+  expectCfgOk "High-fanout acyclic named Enum (1k variants) structure + encode"
+    highFanout
 
 /-- SPEC-SEM-WIRE-001 §6 Constant names are exact-string unique within
     the constants table. Identifier grammar/NFC and other declaration tables
@@ -8343,6 +8708,7 @@ def run : IO Unit := do
   testCallableParameterNameUniqueness
   testNamedTypeNameUniqueness
   testNamedTypePrefixRank
+  testNamedBodyOptionCycleLegality
   testConstantNameUniqueness
   testLogicalStateNameUniqueness
   testEventNameUniqueness

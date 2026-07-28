@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 named-body Option-cycle legality (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 SPEC §5 recursive cycle condition：结合既有 no-named-anchor anonymous-cycle rejection，任何 accepted type cycle必须同时经过 reserved named Struct/Enum key 与 anonymous Option；不实现 anonymous canonical key bytes/rank/order、usage closure、normalizer、provenance join或产品接线。
+- RED/Changed：tests-first。新增 `testNamedBodyOptionCycleLegality`；实现前 direct named Struct self-cycle被 structure gate接受，真实 fast harness因未出现 expected `.nonCanonical` 而 RED。双 shipped paths固定 acyclic与 Struct/Enum/Array/Map/mutual Option-cycle正向，direct/Enum/two·three-named/Array/Map/sibling-branch no-Option cycle负向，table/ref/shape/FieldSpec/Map-key→namedPrefix→primitiveLeaf→recursiveAnonymous→namedBodyCycle→named-name/value/signature/CFG/requirements相位；raw envelope另固定 transport接受而 structure/encoder/carrier拒绝。
+- Production：新增 `validateNamedBodyOptionCycleLegalityV1`：移除全部 Option nodes及 incident edges后，以显式 stack white/gray/black DFS要求剩余 TypeId induced graph acyclic；gray back-edge `.nonCanonical`。Enum payload child flatten使用 mutable push保持 source order与 O(E)；整体 O(V+E) time/O(V+stack) space，无 recursion/HashMap iteration/nested TypeKey expansion/public reorder。`TypeKeyValidationPhaseV1` 新顺序为 namedPrefix→primitiveLeaf→recursiveAnonymous→namedBodyCycle。
+- Verification：implementation worker RED/GREEN、主控独立 fast shipped harness、`just dev-check`、SBOM refresh幂等、`just docs-check`、`git diff --check`与普通`just ci`均已通过；5k named Struct acyclic chain和1k-variant Enum固定 stack与fan-out资源边界；workflow-88三路复审 approved、无 findings。
+- Boundary：anonymous canonical TypeKey bytes/rank/order、usage closure/missing/unreferenced、identifier grammar/NFC、remaining full TypeKey closure、provenance join、normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 named TypeDecl contiguous-prefix rank (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 `types` table 的 named contiguous prefix：全部 `name=some` Struct/Enum 必须占据 `types[0..namedCount)`，不实现 anonymous canonical sort/rank bytes、usage closure、完整 named-body cycle legality、normalizer、provenance join或产品接线。

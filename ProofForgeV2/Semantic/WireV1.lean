@@ -63,14 +63,20 @@ import Std.Data.HashMap
           structural rescans — only a constant number of bounded linear
           passes plus a private O(n log n) class-ID sort, no unbounded recursion
           or stack-depth risk). This slice rejects only
-          anonymous-container cycles without a named anchor; the full SPEC rule
-          that a recursive cycle must simultaneously pass through `Option` and
-          a reserved named key (and the named-body type-graph rules around it)
-          is deferred. The structural-class signature is an internal fixed-size
+          anonymous-container cycles without a named anchor. The complete
+          SPEC §5 cycle condition — that every recursive cycle must
+          simultaneously pass through a reserved named key and an anonymous
+          `Option` — is closed by the combination of this helper (rejects
+          cycles with no named anchor) and a later `namedBodyCycle` subphase
+          that removes every `Option` node and requires the induced TypeId
+          graph to be acyclic (rejects cycles with no `Option`). The
+          structural-class signature is an internal fixed-size
           equality token, **not** the SPEC canonical unsigned-lexicographic
           anonymous TypeKey/ranking bytes. Named contiguous-prefix rank is
-          enforced above; full named-anchor closure/body-cycle validation and
-          anonymous canonical rank/order remain deferred.
+          enforced above; anonymous canonical rank/order and the remaining
+          full TypeKey closure (reachability/usage/provenance) remain
+          deferred, but the named-body cycle condition itself is no longer
+          deferred.
     - canonical `valueBytes` (SPEC §5), after type-shape and before
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
@@ -131,12 +137,9 @@ import Std.Data.HashMap
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: recursive/full TypeKey closure beyond the enforced named-prefix rank,
-    including named-anchor body/cycle validation,
-    full anonymous ranking/reachability (the SPEC canonical unsigned-
-    lexicographic anonymous TypeKey/ranking bytes), the full SPEC rule that a
-    recursive cycle must simultaneously pass through `Option` and a reserved
-    named key (and the named-body type-graph rules around it), and usage
+  * Not yet: recursive/full TypeKey closure beyond the enforced named-prefix
+    rank, full anonymous ranking/reachability (the SPEC canonical unsigned-
+    lexicographic anonymous TypeKey/ranking bytes), and usage
     closure/missing/unreferenced rejection, provenance inventory
     join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
@@ -164,13 +167,13 @@ import Std.Data.HashMap
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
     serializability, exact contracts for the two presence-only families,
     recursive/full TypeKey closure beyond the enforced named-prefix rank,
-    including named-anchor body/cycle validation, full anonymous
+    full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
-    TypeKey/ranking bytes), the full SPEC rule that recursive cycles pass
-    simultaneously through `Option` and a reserved named key, and usage
+    TypeKey/ranking bytes), and usage
     closure/missing/unreferenced rejection, provenance
     inventory join, ProgramV1 normalizer, and product
-    wire remain out of scope pending later slices.)
+    wire remain out of scope pending later slices. The complete SPEC §5
+    cycle condition is now closed by `recursiveAnonymous` + `namedBodyCycle`.)
 -/
 
 namespace ProofForgeV2.Semantic.WireV1
@@ -3225,8 +3228,10 @@ private def validateTypesStructureV1 (types : Array TypeDeclV1) :
     observable. Runs only after table id/index, shallow reference range, and
     type-shape/Map-key legality succeed. Named-name uniqueness, canonical
     valueBytes, callable signature, and requirements are later successors.
-    The SPEC canonical anonymous sort/rank bytes, named-body cycle legality,
-    and usage closure remain deferred. The scan is a single forward pass with
+    The SPEC canonical anonymous sort/rank bytes and usage closure remain
+    deferred; named-body cycle legality is now enforced by a later
+    `namedBodyCycle` subphase (after `recursiveAnonymous`), not here. The
+    scan is a single forward pass with
     O(n) time and O(1) extra space: once an anonymous declaration is seen, a
     `seenAnonymous` flag is set and any subsequent `name=some` declaration is
     rejected. -/
@@ -3396,12 +3401,13 @@ private def isNamedStructOrEnum (decl : TypeDeclV1) : Bool :=
     leaf uniqueness. This helper defensively rejects OOR/cycles but does not
     replace those earlier structure phases.
 
-    Scope: this slice rejects only anonymous-container cycles that pass
-    through no named anchor. The full SPEC rule that a recursive cycle must
-    simultaneously pass through `Option` and a reserved named key (and the
-    named-body type-graph rules around it) is **deferred**; legal examples in
-    this slice only demonstrate that recursion through a named anchor is
-    accepted, not that every named recursion is legal. Runs after leaf
+    Scope: this helper rejects only anonymous-container cycles that pass
+    through no named anchor. It does not itself enforce the named-body
+    `Option`-cycle condition; a later `namedBodyCycle` subphase removes every
+    `Option` node and requires the induced TypeId graph to be acyclic, and
+    together with this helper that closes the complete SPEC §5 cycle
+    condition (every recursive cycle passes simultaneously through a
+    reserved named key and an `Option`). Runs after leaf
     primitive interning. -/
 def computeStructuralTypeClassIdsV1 (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 (Array UInt32) := do
@@ -3495,12 +3501,14 @@ def computeStructuralTypeClassIdsV1 (types : Array TypeDeclV1) :
     structurally-equivalent child graphs receive the same structural class;
     a duplicate anonymous container class is rejected as `.nonCanonical`.
     Anonymous-container cycles that pass through no named anchor are rejected
-    during class computation (`.nonCanonical`); the full SPEC rule requiring
-    recursive cycles to pass simultaneously through `Option` and a reserved
-    named key is deferred. This is the `recursiveAnonymous` subphase of
-    `validateTypeKeyPhasesV1`, ordered after the `primitiveLeaf` subphase;
-    both report the same public `.nonCanonical` wire error while the phase
-    seam makes precedence observable. Runs after leaf primitive interning and
+    during class computation (`.nonCanonical`). This helper does not itself
+    enforce the named-body `Option`-cycle condition; a later `namedBodyCycle`
+    subphase closes the complete SPEC §5 cycle condition. This is the
+    `recursiveAnonymous` subphase of
+    `validateTypeKeyPhasesV1`, ordered after the `primitiveLeaf` subphase and
+    before `namedBodyCycle`; all three report the same public `.nonCanonical`
+    wire error while the phase seam makes precedence observable. Runs after
+    leaf primitive interning and
     before named-name/canonical-value/signature/requirement phases. -/
 private def validateRecursiveAnonymousTypeKeyUniquenessV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
@@ -3526,10 +3534,140 @@ private def validateRecursiveAnonymousTypeKeyUniquenessV1
     j := j + 1
   pure ()
 
+/-! ### named-body Option-cycle legality (SPEC §5)
+
+    SPEC §5 requires that every recursive cycle in the type graph pass
+    simultaneously through a reserved named Struct/Enum key and an anonymous
+    `Option` node. The earlier `recursiveAnonymous` subphase rejects all
+    anonymous-container cycles that pass through no named anchor. This slice
+    closes the remaining gap: any cycle that passes through a reserved named
+    key must also pass through at least one anonymous `Option`.
+
+    Equivalent global algorithm: build the directed graph on TypeIds with an
+    edge `u → v` for each child TypeId `v` referenced by a non-`Option`
+    declaration `u` where `v` itself is not an `Option` declaration (i.e.
+    remove every `.option` node and its incident edges), then require the
+    induced subgraph to be acyclic. This rejects exactly the cycles that
+    contain no `Option`; combined with `recursiveAnonymous` rejecting
+    anonymous-only cycles, the two gates together ensure an accepted cycle
+    simultaneously contains a named key and an `Option`. Per-named-root DFS
+    and "path has seen an Option" walks are rejected because they miss the
+    sibling-branch trap (a node can have both an Option branch and a direct
+    non-Option branch; the direct branch forms an Option-free cycle the
+    path-local walk would miss).
+
+    Implementation: a single explicit-stack white/gray/black DFS over the
+    types table. For each TypeId, the child set is collected from the
+    declaration's Struct fields / Enum payloads / Array element / Map key +
+    value, but `Option` declarations contribute no children (they are removed
+    nodes), and any child TypeId that resolves to an `Option` declaration is
+    skipped (its incident edges are removed). Primitive leaves have no
+    children; named Struct/Enum contribute their fields/payloads (those are
+    the edges that form a named-body cycle). A standard gray back-edge is
+    `.nonCanonical`.
+    O(V+E) time, O(V+stack) space, no recursion, no HashMap iteration, no
+    nested TypeKey bytes, no public reorder. Defensive OOR → `.badReference`
+    is retained but earlier shallow reference checks report first. Runs
+    after `recursiveAnonymous` and before named-name uniqueness / canonical
+    valueBytes / callable signature / CFG / requirements. The complete SPEC
+    §5 cycle condition is closed by the combination of the earlier
+    `recursiveAnonymous` anonymous-cycle gate and this `namedBodyCycle`
+    gate; the full TypeKey closure (anonymous canonical key bytes/rank/order,
+    reachability, usage closure) and normalizer/provenance/product wire
+    remain deferred. -/
+
+/-- Children TypeIds that a declaration contributes to the Option-removed
+    induced graph. `Option` declarations return `none` (removed nodes). Any
+    child reference whose target is an `Option` declaration is filtered by
+    the caller. The Enum branch is a linear flatten over variants and their
+    payloads (a single mutable `push` per child), preserving source order and
+    keeping the whole helper O(E) — a high-fanout Enum does not degrade to
+    quadratic accumulator copying. -/
+private def nonOptionChildTypeIds
+    (decl : TypeDeclV1) : Option (Array TypeIdV1) :=
+  match decl.shape with
+  | .option _ => none
+  | .struct fields => some (fields.map (·.typeId))
+  | .enum variants =>
+    some (Id.run do
+      let mut acc : Array TypeIdV1 := Array.emptyWithCapacity
+        (variants.foldl (fun s v => s + v.payloadTypes.size) 0)
+      for v in variants do
+        for t in v.payloadTypes do
+          acc := acc.push t
+      pure acc)
+  | .array element _ => some #[element]
+  | .map key value => some #[key, value]
+  | _ => none
+
+/-- Is the declaration at the given index an anonymous `.option`? The
+    induced graph removes Option nodes, so edges into or out of them are
+    dropped. -/
+private def isOptionDecl (types : Array TypeDeclV1) (id : TypeIdV1) : Bool :=
+  match types[id.toNat]? with
+  | some { shape := .option _, .. } => true
+  | _ => false
+
+/-- SPEC §5 named-body Option-cycle legality: remove every `Option` node and
+    its incident edges from the TypeId directed graph, then require the
+    induced subgraph to be acyclic. A standard gray back-edge in an
+    explicit-stack white/gray/black DFS is `.nonCanonical`. Runs as the
+    `namedBodyCycle` subphase of `validateTypeKeyPhasesV1`, ordered after
+    `recursiveAnonymous`. -/
+private def validateNamedBodyOptionCycleLegalityV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let n := types.size
+  let mut color : Array Nat := Array.replicate n 0
+  let mut stack : Array (Nat × Nat) := #[]
+  let mut root := 0
+  while _ : root < n do
+    if color[root]! == 0 then
+      -- Skip removed Option nodes entirely (no DFS entry).
+      if isOptionDecl types (UInt32.ofNat root) then
+        color := color.set! root 2
+      else
+        stack := stack.push (0, root)
+        while stack.isEmpty == false do
+          let (kind, tid) := stack.back!
+          stack := stack.pop
+          if kind == 1 then
+            -- exit: black.
+            color := color.set! tid 2
+          else
+            -- enter.
+            match color[tid]! with
+            | 2 => pure ()  -- memoized
+            | 1 => return ← err .nonCanonical  -- gray back-edge: Option-free cycle
+            | _ =>
+              match types[tid]? with
+              | none => return ← err .badReference
+              | some decl =>
+                -- Mark gray; push an exit marker, then push children.
+                color := color.set! tid 1
+                stack := stack.push (1, tid)
+                match nonOptionChildTypeIds decl with
+                | none => pure ()  -- no children (Option node / primitive leaf)
+                | some childIds =>
+                  let mut ci := childIds.size
+                  while _ : ci > 0 do
+                    ci := ci - 1
+                    let child := childIds[ci]!
+                    let childIdx := child.toNat
+                    if childIdx ≥ n then
+                      return ← err .badReference
+                    -- Drop edges into removed Option nodes.
+                    if isOptionDecl types child then
+                      pure ()
+                    else
+                      stack := stack.push (0, childIdx)
+    root := root + 1
+  pure ()
+
 /-! ### TypeKey validation phase seam (SPEC §5)
 
-    Named-prefix rank, leaf primitive anonymous TypeKey uniqueness, and
-    recursive anonymous container structural-class uniqueness all report the
+    Named-prefix rank, leaf primitive anonymous TypeKey uniqueness,
+    recursive anonymous container structural-class uniqueness, and named-body
+    `Option`-cycle legality all report the
     same public wire error `.nonCanonical`. To make their precedence
     observable to focused tests without changing the public wire contract,
     this closed phase seam mirrors the `CfgInvariantValidationPhaseV1`
@@ -3537,13 +3675,16 @@ private def validateRecursiveAnonymousTypeKeyUniquenessV1
     consumed exactly by the structure gate which erases only `phase`. The
     phase is not serialized and does not appear in any wire/CLI output. -/
 
-/-- Closed non-wire phase distinguishing the three TypeKey subphases that
+/-- Closed non-wire phase distinguishing the TypeKey subphases that
     share the public `.nonCanonical` error: `namedPrefix` (named contiguous
-    prefix rank), `primitiveLeaf`, and `recursiveAnonymous`. -/
+    prefix rank), `primitiveLeaf`, `recursiveAnonymous`, and
+    `namedBodyCycle` (the SPEC §5 rule that any recursive cycle must pass
+    through an `Option`, enforced after `recursiveAnonymous`). -/
 inductive TypeKeyValidationPhaseV1
   | namedPrefix
   | primitiveLeaf
   | recursiveAnonymous
+  | namedBodyCycle
   deriving BEq, Repr
 
 /-- Internal phase plus the unchanged public wire error. -/
@@ -3560,13 +3701,15 @@ private def liftTypeKeyValidationPhaseV1
   | .ok () => .ok ()
   | .error error => .error { phase, error }
 
-/-- Runs the exact stable §5 TypeKey segment used by the structure gate:
-    named contiguous-prefix rank first, then leaf primitive anonymous TypeKey
-    uniqueness, then recursive anonymous container structural-class uniqueness
-    (anonymous-container-cycle rejection without a named anchor). Type-shape/
-    FieldSpec/Map-key legality and shallow reference range are earlier
-    prerequisites. The public wire error is unchanged; only the phase is
-    exposed for focused tests. -/
+/-- Runs the exact stable §5 TypeKey segment used by the structure gate in
+    the fixed order: named contiguous-prefix rank first, then leaf primitive
+    anonymous TypeKey uniqueness, then recursive anonymous container
+    structural-class uniqueness (anonymous-container-cycle rejection without
+    a named anchor), then named-body `Option`-cycle legality (remove every
+    `Option` node and require the induced TypeId graph to be acyclic).
+    Type-shape/FieldSpec/Map-key legality and shallow reference range are
+    earlier prerequisites. The public wire error is unchanged; only the phase
+    is exposed for focused tests. -/
 def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
     Except TypeKeyValidationFailureV1 Unit := do
   liftTypeKeyValidationPhaseV1 .namedPrefix
@@ -3575,6 +3718,8 @@ def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
     (validatePrimitiveAnonymousTypeKeyUniquenessV1 types)
   liftTypeKeyValidationPhaseV1 .recursiveAnonymous
     (validateRecursiveAnonymousTypeKeyUniquenessV1 types)
+  liftTypeKeyValidationPhaseV1 .namedBodyCycle
+    (validateNamedBodyOptionCycleLegalityV1 types)
 
 /-! ### Canonical valueBytes (SPEC-SEM-WIRE-001 §5)
 
@@ -3813,9 +3958,11 @@ private def checkUniqueDeclarationNamesV1 (names : Array String) :
   pure ()
 
 /-- Named Struct/Enum TypeDecl names are exact-string unique (SPEC §5/§6).
-    Named contiguous-prefix rank is enforced earlier. Anonymous canonical
-    rank/order, usage closure, full named-anchor body/cycle validation, the
-    remaining TypeKey closure, and identifier grammar/NFC stay separate. -/
+    Named contiguous-prefix rank and the named-body `Option`-cycle condition
+    are enforced by earlier `namedPrefix` and `namedBodyCycle` subphases.
+    Anonymous canonical
+    rank/order, usage closure, the
+    remaining full TypeKey closure, and identifier grammar/NFC stay separate. -/
 private def validateNamedTypeNameUniquenessV1 (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut names : Array String := #[]
@@ -4539,11 +4686,16 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     result-presence) — NOT ExternalCall/Schedule argument serializability,
     ContextRead/Commit exact contracts, runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
-    with named-prefix anchors, full anonymous ranking/reachability (SPEC
-    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes), the full
-    SPEC rule that recursive cycles pass simultaneously through `Option` and a
-    reserved named key, and usage closure/missing/unreferenced rejection,
-    provenance inventory join, or ProgramV1 normalizer. -/
+    beyond the enforced named-prefix rank and closed cycle condition,
+    full anonymous ranking/reachability (SPEC
+    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes), and
+    usage closure/missing/unreferenced rejection,
+    provenance inventory join, or ProgramV1 normalizer. The named-body
+    Option-cycle legality rule (SPEC §5: any recursive cycle must pass
+    through an `Option`) is now closed by the combination of the earlier
+    `recursiveAnonymous` anonymous-cycle gate and the `namedBodyCycle`
+    subphase; anonymous canonical key bytes/rank/order, full TypeKey
+    closure reachability/provenance, and product wiring remain deferred. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 0) Program root identity shape; intentionally precedes every table/ref/
@@ -4583,9 +4735,12 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   --   rank first, then leaf primitive anonymous TypeKey uniqueness, then
   --   recursive anonymous container structural-class uniqueness
   --   (anonymous-container-cycle rejection without a named anchor), then
-  --   named Struct/Enum exact-name uniqueness (SPEC §5/§6). The phase seam
-  --   preserves the public `.nonCanonical` wire error while exposing the
-  --   subphase to focused tests.
+  --   named-body Option-cycle legality (SPEC §5: any recursive cycle must
+  --   pass through an `Option`, enforced as acyclicity of the TypeId graph
+  --   induced after removing every `Option` node), then named Struct/Enum
+  --   exact-name uniqueness (SPEC §5/§6). The phase seam preserves the
+  --   public `.nonCanonical` wire error while exposing the subphase to
+  --   focused tests.
   validateTypesStructureV1 data.types
   match validateTypeKeyPhasesV1 data.types with
   | .ok () => pure ()
