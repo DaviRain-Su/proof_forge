@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B4 delete obsolete `call StringLiteral` ProgramV1 grammar
+
+- Context/State：structured `call QualifiedId(args)` / `schedule QualifiedId(args)` 已是 sole 正向 surface，但 shared grammar 仍保留 `syntax "call " str : pfStmt` 与 decoder arm `pfStmt| call $_callee:str` 仅用于稳定拒绝并产出 decoder 诊断 `portable ProgramV1 calls require a qualified source identity`。本切片工程-only 删除该 obsolete string-call seam，使 legacy `call "…"` 仅在 Lean parser boundary 失败；不碰 formal TASK/TST/EV、B3 golden、或 alpha Core `synchronousCall` carriers。
+- RED/Changed（tests first）：`ProgramV1ExternalStatements` / `ProgramV1ControlFlow` / `ProgramV1Declarations` 将 `legacy-call-string*` 负例 expected 从 decoder 文案改为 `failed to parse file`（同源 `call "legacy.effect"`）。实现前真实 RED：`negative 'legacy-call-string' expected 'failed to parse file', got 'PF-SRC-INVALID: portable ProgramV1 calls require a qualified source identity'`。
+- Production：`ProofForgeV2/Language/Syntax.lean` 删除 `syntax "call " str : pfStmt` 与 `pfStmt| call $_callee:str` decoder-rejection 臂；保留 structured `call`/`schedule` `ident (pfExpr,*)` 与 `decodeExternalCallV1Unchecked`。
+- Zero patterns：`ProofForgeV2` 与 `Tests/Language` 下 `rg` 无 `syntax "call " str`、`pfStmt| call $_callee:str`、旧 decoder 字符串；无 string-call compatibility fallback。
+- Docs：`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` TASK-D1-04 事实行与 D1 frontend 删除清单、本日志；formal 状态不变；B3 source-full-tag 与 Core synchronousCall 未改。
+- Verification：focused `lake build` 三 suite + `proof_forge_next_fast_tests`、fast harness、zero-pattern rg；随后 sbom/diff/docs/dev-check/ci。
+- Boundary：formal TASK 仍 pending/blocked；无 dual reader/adapter/第二 decoder；无 target maturity 变化；无 release/governance 路径。
+
 ## 2026-07-29 — B3 source-driven full-tag ProgramV1 golden
 
 - Context/State：constructed `full-tag-v1` wire golden 已存在且为 field-count/marker/unknown-tag/boundary 负例 base；产品仍缺 source→ValidatedSourceV1 全 tag 的 source-driven golden（command/export 与 Loader 双路径字节/identity/span 对齐）。本切片工程-only 冻结 source-driven package，不碰 formal TASK/TST/EV，不改 constructed full-tag-v1。

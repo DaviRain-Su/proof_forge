@@ -237,7 +237,7 @@ unsafe def run : IO Unit := do
 
   expectReject session "legacy-call-string"
     (negativeSource "LegacyCall" "  init() do\n    call \"legacy.effect\"\n")
-    "portable ProgramV1 calls require a qualified source identity"
+    "failed to parse file"
   expectReject session "option-missing-payload"
     (negativeSource "MissingOption" "  state bad : Option\n")
     "unsupported portable type"

@@ -135,7 +135,6 @@ syntax pfPlace " := " pfExpr : pfStmt
 syntax "return" : pfStmt
 syntax "call " ident "(" pfExpr,* ")" : pfStmt
 syntax "schedule " ident "(" pfExpr,* ")" : pfStmt
-syntax "call " str : pfStmt
 syntax "assert " pfExpr " else " ident : pfStmt
 syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
@@ -727,8 +726,6 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
       pure (.call (← decodeExternalCallV1Unchecked callee args))
   | `(pfStmt| schedule $callee:ident ($args:pfExpr,*)) => do
       pure (.schedule (← decodeExternalCallV1Unchecked callee args))
-  | `(pfStmt| call $_callee:str) =>
-      throw "portable ProgramV1 calls require a qualified source identity"
   | stx => do
       match stx.getKind, stx.getArgs with
       | `ProofForgeV2.Language.ifStmt, #[.atom _ "if", condition, .atom _ "then",

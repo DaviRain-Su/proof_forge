@@ -228,6 +228,6 @@ unsafe def run : IO Unit := do
     "unsupported portable statement"
   expectReject session "legacy-call-string-carrier"
     "    call \"legacy.effect\"\n"
-    "portable ProgramV1 calls require a qualified source identity"
+    "failed to parse file"
 
 end Tests.Language.ProgramV1ControlFlow
