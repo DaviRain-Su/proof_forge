@@ -1,6 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.TypedV1
+import ProofForgeV2.Typed.RequirementsInferV1
 import Tests.Language.ParserSession
-import ProofForgeV2.Targets.Registry
 
 namespace Tests.Language.StateVisibility
 
@@ -9,25 +10,39 @@ open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Typed.RequirementsInferV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
-private def source (progName statePrefix : String) : String :=
+/-- Public/default: S1-compatible bare place return of state. -/
+private def publicSource (progName statePrefix : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
   "namespace Tests.Language.StateVisibilityFixture\n\n" ++
   "program " ++ progName ++ " where\n" ++
   "  state " ++ statePrefix ++ "value : UInt64\n\n" ++
   "  entry ping() : UInt64 do\n" ++
-  "    return 0\n\n" ++
+  "    return value\n\n" ++
+  "end Tests.Language.StateVisibilityFixture\n"
+
+/-- Private/commitment: unused non-public state + public param return so
+    CheckV1/disclosure stays clean while product compile fails at Normalize. -/
+private def nonPublicSource (progName statePrefix : String) : String :=
+  "import ProofForgeV2\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "namespace Tests.Language.StateVisibilityFixture\n\n" ++
+  "program " ++ progName ++ " where\n" ++
+  "  state " ++ statePrefix ++ "value : UInt64\n\n" ++
+  "  entry ping(seed : UInt64) : UInt64 do\n" ++
+  "    return seed\n\n" ++
   "end Tests.Language.StateVisibilityFixture\n"
 
 private def moduleName : String := "Tests.Language.StateVisibilityFixture"
 
 private unsafe def load (session : Language.Loader.ParserSession)
-    (progName statePrefix : String) : IO ValidatedSourceV1 := do
-  match ← session.selectProgramV1 (source progName statePrefix)
+    (progName : String) (input : String) : IO ValidatedSourceV1 := do
+  match ← session.selectProgramV1 input
       ("<state-visibility-" ++ progName ++ ">") moduleName none with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
@@ -53,10 +68,14 @@ private unsafe def parserEnvironment : IO Lean.Environment := do
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
 
-  let defaultVis ← load session "DefaultStateVisibility" ""
-  let pubVis ← load session "PublicStateVisibility" "public "
-  let privVis ← load session "PrivateStateVisibility" "private "
-  let commVis ← load session "CommitmentStateVisibility" "commitment "
+  let defaultVis ← load session "DefaultStateVisibility"
+    (publicSource "DefaultStateVisibility" "")
+  let pubVis ← load session "PublicStateVisibility"
+    (publicSource "PublicStateVisibility" "public ")
+  let privVis ← load session "PrivateStateVisibility"
+    (nonPublicSource "PrivateStateVisibility" "private ")
+  let commVis ← load session "CommitmentStateVisibility"
+    (nonPublicSource "CommitmentStateVisibility" "commitment ")
 
   expect (stateVisibility defaultVis == some .public_)
     "default state visibility must decode as public_"
@@ -71,43 +90,51 @@ unsafe def run : IO Unit := do
       privVis.program != commVis.program)
     "distinct visibility declarations must produce distinct ProgramV1 ASTs"
 
+  -- Public / default remain S1-compileable (Normalize gate + residual alpha).
   let semanticDefault ← match Compiler.compileValidatedSourceV1 defaultVis with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   let semanticPublic ← match Compiler.compileValidatedSourceV1 pubVis with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let semanticPrivate ← match Compiler.compileValidatedSourceV1 privVis with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
-  let semanticCommitment ← match Compiler.compileValidatedSourceV1 commVis with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
 
   expect (semanticDefault.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible] &&
-      semanticPublic.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible] &&
-      semanticPrivate.state.map (·.visibility) == #[Semantic.Visibility.proverWitness] &&
-      semanticCommitment.state.map (·.visibility) == #[Semantic.Visibility.commitmentOnly])
-    "Semantic state declarations must retain target-neutral visibility"
-
+      semanticPublic.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible])
+    "public Semantic state declarations must retain verifierVisible"
   expect (semanticPublic.requirements == #[.persistentState])
     "public state must require persistence without a private disclosure claim"
-  expect (semanticPrivate.requirements == #[.persistentState, .privateState])
-    "private state must have a state-specific disclosure requirement"
-  expect (semanticCommitment.requirements == #[.persistentState, .commitmentState])
-    "commitment state must have a state-specific disclosure requirement"
+  expect (semanticDefault.requirements == #[.persistentState])
+    "default-public state must require persistence only"
 
-  for target in Targets.phase1 do
-    match Targets.checkSupport target semanticPrivate with
-    | .error (.unsupportedRequirement .privateState rejectedTarget) =>
-        expect (rejectedTarget == target)
-          s!"{target}: private-state rejection must retain the selected target"
-    | _ => throw <| IO.userError s!"{target} must reject private state before target-owned planning"
-    match Targets.checkSupport target semanticCommitment with
-    | .error (.unsupportedRequirement .commitmentState rejectedTarget) =>
-        expect (rejectedTarget == target)
-          s!"{target}: commitment-state rejection must retain the selected target"
-    | _ => throw <| IO.userError (s!"{target} must reject commitment state before target-owned planning")
+  -- Private / commitment: AST + CheckV1 + RequirementsInfer retained; full
+  -- product compile fails closed at Normalize S1 (no alpha-only path).
+  match Typed.checkV1 privVis with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"private CheckV1: {e.render}"
+  match Typed.checkV1 commVis with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"commitment CheckV1: {e.render}"
+
+  let privInfer := inferRequirementsV1 privVis
+  let commInfer := inferRequirementsV1 commVis
+  expect (privInfer.requirements == #[.persistentState, .privateState])
+    "private state must have a state-specific disclosure requirement (infer)"
+  expect (commInfer.requirements == #[.persistentState, .commitmentState])
+    "commitment state must have a state-specific disclosure requirement (infer)"
+
+  match Compiler.compileValidatedSourceV1 privVis with
+  | .error (.invalidProgram msg) =>
+      expect (msg == "S1 normalizer supports only public state, got non-public 'value'")
+        s!"private compile must fail at Normalize gate, got {msg}"
+  | .error e => throw <| IO.userError s!"private compile wrong error: {e.render}"
+  | .ok _ => throw <| IO.userError "private state must not full-compile past Normalize S1"
+
+  match Compiler.compileValidatedSourceV1 commVis with
+  | .error (.invalidProgram msg) =>
+      expect (msg == "S1 normalizer supports only public state, got non-public 'value'")
+        s!"commitment compile must fail at Normalize gate, got {msg}"
+  | .error e => throw <| IO.userError s!"commitment compile wrong error: {e.render}"
+  | .ok _ => throw <| IO.userError "commitment state must not full-compile past Normalize S1"
 
   let parserEnv ← parserEnvironment
   expectParserReject "escaped visibility keyword" <|

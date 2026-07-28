@@ -1,10 +1,16 @@
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.ValidatedSourceV1
+
+-- Large decisive-matrix + S3 gate suite; raise elaboration fuel for nested AST fixtures.
+set_option maxRecDepth 4096
 
 namespace Tests.Compiler.ValidatedSourceV1Pipeline
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -71,70 +77,114 @@ private def compileOk (label : String) (source : ValidatedSourceV1) : IO Semanti
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
-private def unsupported (tag : String) : String :=
-  s!"validated ProgramV1 lowering does not support {tag}"
+/-- Assert direct Normalize produces structure-valid carrier with deterministic hash. -/
+private def expectNormalizeDeterministic (label : String) (source : ValidatedSourceV1) :
+    IO Unit := do
+  let c1 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"{label}: normalize #1 failed: {repr e}"
+  let c2 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"{label}: normalize #2 failed: {repr e}"
+  match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 c1 with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"{label}: validate failed: {repr e}"
+  expect (c1.canonicalBytes == c2.canonicalBytes)
+    s!"{label}: canonicalBytes must be deterministic"
+  let h1 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 c1 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"{label}: hash #1: {repr e}"
+  let h2 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 c2 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"{label}: hash #2: {repr e}"
+  expect (h1 == h2) s!"{label}: semanticHashV1 must be deterministic"
 
-/-- D1-PA-109 RED: validated ProgramV1 lowering, order, identity, hash, and
-complete reachable fail-closed constructor matrix. -/
+/-- S3 product path: NormalizeV1 structure gate before residual alpha Semantic;
+    Counter + Accumulator S1 positives; CheckV1 wires preserved; out-of-S1
+    fail closed at Normalize without alpha-only fallback. -/
 def run : IO Unit := do
-  let demo ← n "Demo"; let x ← n "x"; let y ← n "y"; let seed ← n "seed"; let runN ← n "run"
-  let getN ← n "get"; let peer ← q #["Peer", "go"]
+  let demo ← n "Demo"; let x ← n "x"; let y ← n "y"; let seed ← n "seed"
+  let runN ← n "run"; let getN ← n "get"; let total ← n "total"
+  let amount ← n "amount"; let peer ← q #["Peer", "go"]
   let moduleName ← q #["Tests", "Pipeline"]; let identity ← q #["Tests", "Pipeline", "Demo"]
   let quotedModule ← q #["Root"]
-  let quotedIdentity ← q #["Root", "A.B", "C"]
-  let acceptedTypes : Array TypeV1 := #[.bool, .uint 8, .uint 16, .uint 32, .uint 64,
-    .uint 128, .uint 256, .int 8, .int 16, .int 32, .int 64, .int 128, .int 256,
-    .principal, .unit, .bytes 0, .bytes 4096, .array (.option (.uint 64)) 0,
-    .array (.option (.array (.bool) 2)) 4096, .field (← n "bn254_fr")]
-  let acceptedItems : Array ProgramItemV1 := #[
-    .state (state x (.uint 64) .public_), .state (state y .bool .private_),
-    .state (state (← n "z") .bool .commitment),
+  let quotedIdentity ← q #["Root", "A.B", "C"]  -- Source-legal dotted component; Normalize rejects
+
+  -- Counter-shaped S1: public UInt64 state, init/entry/view, bare place, binary +.
+  let counterItems : Array ProgramItemV1 := #[
+    .state (state x),
     .init { params := #[param seed], body := block #[.assign (.name x) (var seed)] },
     .entry (entry runN (block #[
-      .assign (.name x) (.binary .add (var x) (u 18446744073709551615)),
-      .call { callee := peer, args := #[] }, .return_ (some (var x))]) #[param y]),
+      .assign (.name x) (.binary .add (var x) (var y)),
+      .return_ (some (var x))]) #[param y]),
     .view (view getN (ret (var x)))]
-  let source ← validated moduleName identity demo acceptedItems
-  let semantic ← compileOk "accepted subset" source
-  let digest ← lift "source hash" (sourceHashV1 source)
-  let rendered ← lift "render digest" (renderDigest digest)
-  expect (semantic.name == "Demo" && semantic.qualifiedName == "Tests.Pipeline.Demo")
+  let counter ← validated moduleName identity demo counterItems
+  let counterSem ← compileOk "counter S1" counter
+  expect (counterSem.name == "Demo" && counterSem.qualifiedName == "Tests.Pipeline.Demo")
     "program names must use raw short name and one full pure Name rendering"
-  expect (semantic.sourceHash.length == 64 && rendered == "sha256:" ++ semantic.sourceHash)
+  let digest ← lift "source hash" (sourceHashV1 counter)
+  let rendered ← lift "render digest" (renderDigest digest)
+  expect (counterSem.sourceHash.length == 64 && rendered == "sha256:" ++ counterSem.sourceHash)
     "semantic sourceHash must be the exact lowercase sourceHashV1 suffix"
-  match parseDigest ("sha256:" ++ semantic.sourceHash) with
+  match parseDigest ("sha256:" ++ counterSem.sourceHash) with
   | .ok parsed => expect (parsed == digest) "parsed source hash digest mismatch"
   | .error error => throw <| IO.userError s!"semantic sourceHash did not parse: {error}"
-  expect (semantic.state.map (·.name) == #["x", "y", "z"])
-    "state bucket must retain relative source order"
-  expect (semantic.entries.map (·.name) == #["run", "get"])
+  expect (counterSem.state.map (·.name) == #["x"])
+    "S1 counter state bucket"
+  expect (counterSem.entries.map (·.name) == #["run", "get"])
     "entry and view must share relative source order"
-  expect semantic.initializer.isSome "unique initializer must be preserved"
-  expect (semantic.entries[0]!.params[0]!.name == "y") "parameter names must remain raw"
-  match semantic.entries[0]!.body[1]? with
-  | some (Semantic.Statement.synchronousCall callee) => expect (callee == "Peer.go") "callee identity rendering"
-  | other => throw <| IO.userError s!"zero-argument call was not lowered: {repr other}"
-  expect (semantic.requirements.contains .synchronousCall &&
-      semantic.requirements.contains .privateState &&
-      semantic.requirements.contains .commitmentState)
-    "call and state visibility requirements must derive from lowered semantics"
+  expect counterSem.initializer.isSome "unique initializer must be preserved"
+  expect (counterSem.entries[0]!.params[0]!.name == "y") "parameter names must remain raw"
+  expect (counterSem.requirements.contains .persistentState &&
+      counterSem.requirements.contains .checkedArithmetic)
+    "S1 counter residual alpha requirements"
+  expectNormalizeDeterministic "counter normalize" counter
 
+  -- Accumulator-shaped S1 (distinct names from Counter).
+  let accName ← n "Accumulator"
+  let accIdentity ← q #["Tests", "Pipeline", "Accumulator"]
+  let acc ← validated moduleName accIdentity accName #[
+    .state (state total),
+    .init { params := #[param seed], body := block #[.assign (.name total) (var seed)] },
+    .entry (entry (← n "add") (block #[
+      .assign (.name total) (.binary .add (var total) (var amount)),
+      .return_ (some (var total))]) #[param amount]),
+    .view (view (← n "current") (ret (var total)))]
+  let accSem ← compileOk "accumulator S1" acc
+  expect (accSem.name == "Accumulator" && accSem.state.map (·.name) == #["total"] &&
+      accSem.entries.map (·.name) == #["add", "current"])
+    "accumulator residual alpha names"
+  expectNormalizeDeterministic "accumulator normalize" acc
+
+  -- Program identity for product compile must use Common.QualifiedName-legal
+  -- components (Normalize structure gate). Distinct multi-component boundaries
+  -- and short names remain; embedded-dot components fail closed at Normalize.
   let cName ← n "C"
-  let quoted ← validated quotedModule quotedIdentity cName #[.entry (entry runN (ret (u 0)))]
-  let quotedSem ← compileOk "quoted component" quoted
-  expect (quotedSem.qualifiedName != semantic.qualifiedName && quotedSem.qualifiedName ==
-      (Lean.Name.str (Lean.Name.str (Lean.Name.str .anonymous "Root") "A.B") "C").toString)
-    "quoted identity components must be rendered once as a pure Name chain"
-  let bcName ← n "B.C"
-  let collision ← validated quotedModule (← q #["Root", "A", "B.C"]) bcName
-    #[.entry (entry runN (ret (u 0)))]
-  let collisionSem ← compileOk "identity collision twin" collision
-  expect (quotedSem.qualifiedName != collisionSem.qualifiedName && collisionSem.name == "B.C")
-    "raw component boundaries and short names must remain distinct"
+  let pathABC ← validated quotedModule (← q #["Root", "A", "B", "C"]) cName
+    #[.entry (entry runN (ret (var seed)) #[param seed])]
+  let pathABCSem ← compileOk "multi-component identity" pathABC
+  expect (pathABCSem.qualifiedName != counterSem.qualifiedName &&
+      pathABCSem.qualifiedName == "Root.A.B.C")
+    "multi-component identity must lower via Normalize + residual alpha"
+  let pathAXC ← validated quotedModule (← q #["Root", "AX", "C"]) (← n "C")
+    #[.entry (entry runN (ret (var seed)) #[param seed])]
+  let pathAXCSem ← compileOk "identity boundary twin" pathAXC
+  expect (pathABCSem.qualifiedName != pathAXCSem.qualifiedName && pathAXCSem.name == "C")
+    "distinct component boundaries must remain distinct after Normalize"
   let minimal ← validated quotedModule (← q #["Root", "C"]) cName
-    #[.entry (entry runN (ret (u 0)))]
+    #[.entry (entry runN (ret (var seed)) #[param seed])]
   let minimalSem ← compileOk "minimum identity" minimal
   expect (minimalSem.qualifiedName == "Root.C") "minimum two-component identity must lower"
+  -- Embedded-dot program-identity component is Source-legal but Normalize identity
+  -- rejects it (Common.QualifiedName Lean-identifier rule) — fail closed.
+  let dottedId ← validated quotedModule quotedIdentity cName
+    #[.entry (entry runN (ret (var seed)) #[param seed])]
+  match Compiler.compileValidatedSourceV1 dottedId with
+  | .error (.invalidProgram msg) =>
+      expect (msg.contains "qualified-name component" || msg.contains "identifier")
+        s!"dotted identity must fail Normalize identity, got {msg}"
+  | .error e => throw <| IO.userError s!"dotted identity wrong error: {e.render}"
+  | .ok _ => throw <| IO.userError "dotted identity component must not full-compile"
   let dottedState ← n "state.value"; let dottedParam ← n "arg.value"
   let dottedEntry ← n "run.call"
   let rawNames ← validated moduleName identity demo #[
@@ -144,29 +194,14 @@ def run : IO Unit := do
   expect (rawSem.state[0]!.name == "state.value" &&
       rawSem.entries[0]!.name == "run.call" && rawSem.entries[0]!.params[0]!.name == "arg.value")
     "unqualified names must use raw components"
-  let calleeA ← q #["Peer", "A.B", "C"]
-  let calleeB ← q #["Peer", "A", "B.C"]
-  let callSource (callee : SourceQualifiedNameV1) := validated moduleName identity demo
-    #[.entry (entry runN (block #[.call { callee, args := #[] }, .return_ (some (u 0))]))]
-  let callA ← compileOk "quoted callee A" (← callSource calleeA)
-  let callB ← compileOk "quoted callee B" (← callSource calleeB)
-  match callA.entries[0]!.body[0]?, callB.entries[0]!.body[0]? with
-  | some (Semantic.Statement.synchronousCall a),
-      some (Semantic.Statement.synchronousCall b) =>
-      expect (a == (Lean.Name.str (Lean.Name.str (Lean.Name.str .anonymous "Peer") "A.B") "C").toString &&
-          b == (Lean.Name.str (Lean.Name.str (Lean.Name.str .anonymous "Peer") "A") "B.C").toString && a != b)
-        "qualified callees must preserve raw component boundaries"
-  | _, _ => throw <| IO.userError "quoted callees were not preserved"
-  for type_ in acceptedTypes do
-    let typed ← validated moduleName identity demo #[.entry (entry runN (ret (u 0)) #[param y type_])]
-    let _ ← compileOk "accepted type table" typed
-  let maxLiteral ← validated moduleName identity demo #[.entry (entry runN (ret (u 18446744073709551615)))]
-  let _ ← compileOk "UInt64.max" maxLiteral
 
+  -- Cross-kind reorder: S1 public state + param-echo entry/view (no literals).
   let reordered ← validated moduleName identity demo #[
-    .entry (entry runN (ret (u 0))), .state (state x), .view (view getN (ret (var x)))]
+    .entry (entry runN (ret (var seed)) #[param seed]), .state (state x),
+    .view (view getN (ret (var x)))]
   let original ← validated moduleName identity demo #[
-    .state (state x), .entry (entry runN (ret (u 0))), .view (view getN (ret (var x)))]
+    .state (state x), .entry (entry runN (ret (var seed)) #[param seed]),
+    .view (view getN (ret (var x)))]
   let a ← compileOk "order original" original; let b ← compileOk "order twin" reordered
   expect (a.sourceHash != b.sourceHash) "cross-kind source reorder must change sourceHash"
   expect ({ a with sourceHash := "" } == { b with sourceHash := "" })
@@ -174,21 +209,110 @@ def run : IO Unit := do
   expect (a.canonicalBytes == b.canonicalBytes && a.semanticHash == b.semanticHash)
     "Semantic canonical bytes and hash must ignore source-order provenance"
 
-  -- Top-level alternatives: CheckV1 runs first. Constructors that are well-typed
-  -- still fail alpha shape; hostile/ill-typed children surface CheckV1 messages.
+  -- Decisive Normalize-gate negatives (CheckV1 ok, Normalize rejects, no alpha path).
+  let privateUnused ← validated moduleName identity demo #[
+    .state (state x (.uint 64) .private_),
+    .entry (entry runN (ret (var seed)) #[param seed])]
+  expectInvalid "private state normalize gate"
+    "S1 normalizer supports only public state, got non-public 'x'"
+    (Compiler.compileValidatedSourceV1 privateUnused)
+  let commitmentUnused ← validated moduleName identity demo #[
+    .state (state x (.uint 64) .commitment),
+    .entry (entry runN (ret (var seed)) #[param seed])]
+  expectInvalid "commitment state normalize gate"
+    "S1 normalizer supports only public state, got non-public 'x'"
+    (Compiler.compileValidatedSourceV1 commitmentUnused)
+  let fnLocalClean ← validated moduleName identity demo #[
+    ProgramItemV1.fn {
+      name := x
+      params := #[param seed]
+      result := .uint 64
+      body := ret (var seed)
+    },
+    .entry (entry runN (ret (.localCall x #[var seed])) #[param seed])]
+  expectInvalid "fn/localCall normalize gate"
+    "S1 normalizer does not support fn"
+    (Compiler.compileValidatedSourceV1 fnLocalClean)
+  let literalOnly ← validated moduleName identity demo #[
+    .entry (entry runN (ret (u 0)))]
+  expectInvalid "literal-only normalize gate"
+    "S1 normalizer does not support literals"
+    (Compiler.compileValidatedSourceV1 literalOnly)
+  let callOnly ← validated moduleName identity demo #[
+    .entry (entry runN (block #[
+      .call { callee := peer, args := #[] },
+      .return_ (some (var seed))]) #[param seed])]
+  expectInvalid "call normalize gate"
+    "S1 normalizer does not support call"
+    (Compiler.compileValidatedSourceV1 callOnly)
+  -- schedule is the alpha-shape sibling of call: CheckV1-ok, Normalize reject.
+  let scheduleOnly ← validated moduleName identity demo #[
+    .entry (entry runN (block #[
+      .schedule { callee := peer, args := #[] },
+      .return_ (some (var seed))]) #[param seed])]
+  expectInvalid "schedule normalize gate"
+    "S1 normalizer does not support schedule"
+    (Compiler.compileValidatedSourceV1 scheduleOnly)
+  -- Unit bare `return` (return_ none): CheckV1 allows empty return when result
+  -- is Unit; S1 rejects at Normalize so product never hits residual Stmt.Return.
+  let bareReturn ← validated moduleName identity demo #[
+    .entry (entry runN (block #[.return_ none]) #[] .unit)]
+  expectInvalid "unit bare-return normalize gate"
+    "S1 normalizer does not support bare return"
+    (Compiler.compileValidatedSourceV1 bareReturn)
+  -- Init with explicit bare return after assign also fails at Normalize (implicit
+  -- terminator-none when source omits return remains the only Unit path).
+  let initBareReturn ← validated moduleName identity demo #[
+    .state (state x),
+    .init { params := #[param seed], body := block #[
+      .assign (.name x) (var seed),
+      .return_ none] },
+    .entry (entry runN (ret (var seed)) #[param seed])]
+  expectInvalid "init bare-return normalize gate"
+    "S1 normalizer does not support bare return"
+    (Compiler.compileValidatedSourceV1 initBareReturn)
+
+  -- Product wire-error message contract: structure-gate failures map to a fixed
+  -- prefix + closed SemanticWireErrorV1 summary (never Lean repr). Empty
+  -- SemanticProgramDataV1 fails encode with a stable wire tag.
+  let emptyQn ← lift "empty qn" (parseQualifiedName #["Tests", "EmptyWire"])
+  let emptyData : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 := {
+    qualifiedName := emptyQn
+    types := #[]
+    constants := #[]
+    logicalState := #[]
+    events := #[]
+    errors := #[]
+    callables := #[]
+    invariants := #[]
+    requirements := { items := #[] }
+  }
+  match encodeCarrierV1 emptyData with
+  | .error (.wire e) =>
+      -- Pin exact closed product text used by compileErrorFromNormalizeV1 (.wire).
+      expect (Compiler.productMessageFromWireErrorV1 e ==
+          "semantic structure gate: badCfg")
+        s!"empty SemanticProgramDataV1 encode must surface badCfg product text, got {Compiler.productMessageFromWireErrorV1 e}"
+  | .error other =>
+      throw <| IO.userError s!"empty encode expected .wire, got {repr other}"
+  | .ok _ =>
+      throw <| IO.userError "empty SemanticProgramDataV1 must fail structure gate"
+
+  -- Top-level alternatives: CheckV1 runs first (via Normalize typedNotOk).
+  -- Well-typed constructors fail at Normalize S1 unsupported detail.
   let hostile := .literal (.string "HOSTILE")
   let digest0 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
   let topCases : Array (String × Array ProgramItemV1 × String) := #[
     ("StructDecl", #[.struct { name := x, fields := #[{ name := y, type_ := .map .bool .bool }] }],
-      unsupported "StructDecl"),
+      "S1 normalizer does not support struct"),
     ("EnumDecl", #[.enum { name := x, variants := #[{ name := y, payloadTypes := #[.map .bool .bool] }] }],
-      unsupported "EnumDecl"),
+      "S1 normalizer does not support enum"),
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got string literal"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
-      unsupported "EventDecl"),
+      "S1 normalizer does not support event"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
-      unsupported "ErrorDecl"),
+      "S1 normalizer does not support error"),
     ("FnDecl",
       #[ProgramItemV1.fn {
           name := x
@@ -200,24 +324,27 @@ def run : IO Unit := do
     ("InvariantDecl", #[.invariant { name := x, predicate := hostile }],
       "type mismatch: expected Bool, got string literal"),
     ("ExtensionReq", #[.extensionReq { id := peer, version := "1.0.0", digest := digest0 }],
-      unsupported "ExtensionReq"),
+      "S1 normalizer does not support extension"),
     ("ProofDecl", #[.proof { invariant := x, theorem_ := peer },
       .invariant { name := x, predicate := hostile }],
       "type mismatch: expected Bool, got string literal")]
   for (tag, itemPrefix, want) in topCases do
-    let bad ← validated moduleName identity demo (itemPrefix.push (.entry (entry runN (ret (u 0)))))
+    -- Entry uses param-echo so CheckV1-clean constructors hit Normalize unsupported,
+    -- not residual alpha "validated ProgramV1 lowering does not support …".
+    let bad ← validated moduleName identity demo
+      (itemPrefix.push (.entry (entry runN (ret (var seed)) #[param seed])))
     expectInvalid s!"top {tag}" want (Compiler.compileValidatedSourceV1 bad)
 
-  -- Named types fail CheckV1 resolution (state name `x` is wrong-category as a type);
-  -- Map-shaped types still reach alpha shape rejection.
+  -- Named types fail CheckV1 resolution; Map-shaped types reach Normalize S1.
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Map", .map .bool .bool, unsupported "Type.Map"),
+    ("Type.Map", .map .bool .bool, "S1 normalizer does not support Map"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
-    ("Type.Map nested", .array (.option (.map .bool .bool)) 1, unsupported "Type.Map")]
+    ("Type.Map nested", .array (.option (.map .bool .bool)) 1, "S1 normalizer does not support Array")]
   for (tag, type_, want) in typeCases do
-    let bad ← validated moduleName identity demo #[.state (state x type_), .entry (entry runN (ret (u 0)))]
+    let bad ← validated moduleName identity demo
+      #[.state (state x type_), .entry (entry runN (ret (var seed)) #[param seed])]
     expectInvalid s!"type {tag}" want (Compiler.compileValidatedSourceV1 bad)
 
   let patterns : Array PatternV1 := #[.wildcard, .bind x, .literal (.bool true), .constructor peer #[]]
@@ -243,9 +370,6 @@ def run : IO Unit := do
   for (tag, op) in arithBinary do
     exprCases := exprCases.push (tag, .binary op hostile hostile,
       "type mismatch: expected UInt64, got string literal")
-  -- Equality / compare / logical / shift: first operand typing with no integer width.
-  -- String-with-no-expected uses the TypeCheckV1 wording "expected type" inside
-  -- `expectedActualDiagnostic`, yielding "expected expected type".
   exprCases := exprCases.push ("BinaryOp.Eq", .binary .eq hostile hostile,
     "type mismatch: expected expected type, got string literal")
   exprCases := exprCases.push ("BinaryOp.Ne", .binary .ne hostile hostile,
@@ -274,7 +398,7 @@ def run : IO Unit := do
     "type mismatch: expected UInt64, got integer literal 18446744073709551616 out of range"
     (Compiler.compileValidatedSourceV1 huge)
 
-  -- Statement families: CheckV1 resolution/type before alpha shape.
+  -- Statement families: CheckV1 resolution/type before Normalize unsupported.
   let stmtArms := patterns.map fun p => { pattern := p, body := ret hostile }
   let stmtCases : Array (String × StmtV1 × String) := #[
     ("Stmt.Let", .let_ x (some (.map .bool .bool)) hostile,
@@ -294,14 +418,16 @@ def run : IO Unit := do
     ("Stmt.Schedule", .schedule { callee := peer, args := #[hostile] },
       "type mismatch: expected expected type, got string literal")]
   for (tag, statement, want) in stmtCases do
-    let bad ← validated moduleName identity demo #[.entry (entry runN (block #[statement, .return_ (some (u 0))]))]
+    let bad ← validated moduleName identity demo
+      #[.entry (entry runN (block #[statement, .return_ (some (var seed))]) #[param seed])]
     expectInvalid s!"statement {tag}" want (Compiler.compileValidatedSourceV1 bad)
   let callArgs ← validated moduleName identity demo #[.entry (entry runN
-    (block #[.call { callee := peer, args := #[hostile] }, .return_ (some (u 0))]))]
+    (block #[.call { callee := peer, args := #[hostile] }, .return_ (some (var seed))])
+      #[param seed])]
   expectInvalid "call arguments" "type mismatch: expected expected type, got string literal"
     (Compiler.compileValidatedSourceV1 callArgs)
 
-  -- Phase-order priority under CheckV1-first product gate.
+  -- Phase-order priority under CheckV1-first product gate (via Normalize typedNotOk).
   let priority : Array (String × Array ProgramItemV1 × String) := #[
     ("item order", #[.entry (entry runN (ret hostile)),
       .struct { name := x, fields := #[{ name := y, type_ := .bool }] }],
@@ -309,7 +435,7 @@ def run : IO Unit := do
     ("add lhs", #[.entry (entry runN (ret (.binary .add hostile (.literal (.bool true)))))],
       "type mismatch: expected UInt64, got string literal"),
     ("assign target", #[.state (state x), .entry (entry runN (block #[
-      .assign (.field (.name x) y) hostile, .return_ (some (u 0))]))],
+      .assign (.field (.name x) y) hostile, .return_ (some (var seed))]) #[param seed])],
       "type mismatch: expected struct type, got UInt64"),
     ("resolution before type", #[.entry (entry runN (block #[
       .return_ (some (var y)), .return_ (some hostile)]))],
@@ -319,8 +445,8 @@ def run : IO Unit := do
     expectInvalid label want (Compiler.compileValidatedSourceV1 bad)
 
   -- Product Typed gate: CheckV1 (incl. EffectCheckV1) wins when it fires.
-  -- Alpha residual shape rules cover missing/after-return only; view write/call
-  -- allowlists are EffectCheckV1-only (PF-EFFECT-001), not TypedV1 alpha strings.
+  -- Residual after-return / missing-return now surface via Normalize S1 detail
+  -- (gate precedes residual alpha Typed.checkV1 shape rules).
   let typedCases : Array (String × Array ProgramItemV1 × String) := #[
     ("unknown", #[.entry (entry runN (ret (var y)))], "unknown name 'y' (expected value)"),
     ("assign", #[.entry (entry runN (block #[.assign (.name y) (u 1), .return_ (some (u 1))]))],
@@ -334,20 +460,22 @@ def run : IO Unit := do
     ("non-u64 add", #[.state (state x .bool), .entry (entry runN (ret (.binary .add (var x) (u 1))))],
       "type mismatch: expected UInt64, got Bool"),
     ("init return", #[.init { params := #[], body := block #[.return_ (some (u 0))] },
-      .entry (entry runN (ret (u 0)))],
+      .entry (entry runN (ret (var seed)) #[param seed])],
       "type mismatch: expected Unit, got integer literal"),
-    ("missing return", #[.entry (entry runN (block #[.call { callee := peer, args := #[] }]))],
-      "entry 'run' is missing a return value"),
+    ("missing return", #[.state (state x),
+      .entry (entry runN (block #[.assign (.name x) (var seed)]) #[param seed] .unit)],
+      "S1 normalizer requires explicit return for entry/view"),
     ("after return", #[.entry (entry runN (block #[
-      .return_ (some (u 0)), .call { callee := peer, args := #[] }]))],
-      "entry 'run' contains a statement after return"),
+      .return_ (some (var seed)), .assign (.name x) (var seed)]) #[param seed]),
+      .state (state x)],
+      "S1 normalizer does not support statements after return"),
     ("return mismatch", #[.entry (entry runN (ret (u 0)) #[] .bool)],
       "type mismatch: expected Bool, got integer literal")]
   for (label, items, want) in typedCases do
     let bad ← validated moduleName identity demo items
     expectInvalid label want (Compiler.compileValidatedSourceV1 bad)
 
-  -- Wire codes for effect-only product failures.
+  -- Wire codes for effect-only product failures (CheckV1 via Normalize typedNotOk).
   expectRender "view write wire"
     "PF-EFFECT-001: view 'get' does not allow effect 'state.write'"
     (Compiler.compileValidatedSourceV1 (← validated moduleName identity demo
@@ -359,17 +487,17 @@ def run : IO Unit := do
 
   -- Bound-only product wire: well-typed triple-nested for product overflow maps
   -- DiagnosticCodeV1.resourceBound → CompileError.resourceBound (PF-BOUND-001).
-  let total ← n "total"; let startN ← n "start"; let stopN ← n "stop"
+  let totalB ← n "totalB"; let startN ← n "start"; let stopN ← n "stop"
   let i ← n "i"; let j ← n "j"; let k ← n "k"
   let tripleNest : BlockV1 := block #[
     .for_ i (var startN) (var stopN) 4096 (block #[
       .for_ j (var startN) (var stopN) 4096 (block #[
         .for_ k (var startN) (var stopN) 4096 (block #[
-          .assign (.name total) (var i)])])])]
+          .assign (.name totalB) (var i)])])])]
   expectRender "bound loop product wire"
     "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
     (Compiler.compileValidatedSourceV1 (← validated moduleName identity demo
-      #[.state (state total), .state (state startN), .state (state stopN),
+      #[.state (state totalB), .state (state startN), .state (state stopN),
         .entry (entry runN tripleNest #[] .unit)]))
 
 end Tests.Compiler.ValidatedSourceV1Pipeline

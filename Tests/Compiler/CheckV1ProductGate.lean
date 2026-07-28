@@ -1,14 +1,19 @@
 /-
   Tests.Compiler.CheckV1ProductGate — product-path fail-closed gate for
-  independent multi-pass CheckV1 inside Typed.checkV1 / compileValidatedSourceV1.
+  independent multi-pass CheckV1 inside NormalizeV1 / Typed.checkV1 /
+  compileValidatedSourceV1.
 
-  Pins Counter happy path, type / effect / bound / disclosure product wires, alpha
-  residual control-flow rules that CheckV1 does not implement, and private unused
-  state.  Bound-only coverage is a well-typed triple-nested `for bounded 4096`
-  (UInt32 product overflow) with no earlier structure/type/effect diagnostics.
+  Pins Counter happy path (Normalize structure gate + residual alpha),
+  type / effect / bound / disclosure product wires, Normalize-gate residual
+  control-flow (missing/after-return) and private unused state fail closed at
+  S1 Normalize (no alpha-only compile path). Bound-only coverage is a
+  well-typed triple-nested `for bounded 4096` (UInt32 product overflow).
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.TypedV1
+import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Typed.CheckV1
 import Tests.Language.ParserSession
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -23,6 +28,8 @@ import ProofForgeV2.Source.ValidatedSourceV1
 namespace Tests.Compiler.CheckV1ProductGate
 
 open ProofForgeV2
+open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Typed.CheckV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstSpineDeclV1
@@ -97,6 +104,26 @@ private def expectRenderContains (label wantPrefix needle : String) (r : Compile
         s!"{label}: expected needle {needle}, got {e.render}"
   | .ok _ => throw <| IO.userError s!"{label}: expected error"
 
+private def expectNormalizeOk (label : String) (source : ValidatedSourceV1) : IO Unit := do
+  let c1 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"{label}: normalize #1: {repr e}"
+  let c2 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"{label}: normalize #2: {repr e}"
+  match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 c1 with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+  expect (c1.canonicalBytes == c2.canonicalBytes)
+    s!"{label}: canonicalBytes deterministic"
+  let h1 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 c1 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"{label}: hash1: {repr e}"
+  let h2 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 c2 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"{label}: hash2: {repr e}"
+  expect (h1 == h2) s!"{label}: semanticHashV1 deterministic"
+
 private def moduleName : String := "Tests.CheckV1ProductGate"
 
 private unsafe def counterSource : String :=
@@ -117,17 +144,30 @@ private unsafe def privateStateUnusedSource : String :=
   "open ProofForgeV2.Language\n\n" ++
   "program PrivateUnusedGate where\n" ++
   "  state private secret : UInt64\n" ++
-  "  entry ping() : UInt64 do\n" ++
-  "    return 0\n"
+  "  entry ping(seed : UInt64) : UInt64 do\n" ++
+  "    return seed\n"
 
-/-- Direct AST / compileValidatedSourceV1 coverage of the product Typed gate. -/
+private unsafe def accumulatorSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program AccumulatorGate where\n" ++
+  "  state total : UInt64\n" ++
+  "  init(seed : UInt64) do\n" ++
+  "    total := seed\n" ++
+  "  entry add(amount : UInt64) : UInt64 do\n" ++
+  "    total := total + amount\n" ++
+  "    return total\n" ++
+  "  view current() : UInt64 do\n" ++
+  "    return total\n"
+
+/-- Direct AST / compileValidatedSourceV1 coverage of the product Typed + Normalize gate. -/
 def runAst : IO Unit := do
   let demo ← n "Demo"; let count ← n "count"; let delta ← n "delta"
   let seed ← n "seed"; let inc ← n "increment"; let getN ← n "get"
   let runN ← n "run"; let x ← n "x"; let peer ← q #["Peer", "go"]
   let moduleQ ← q #["Tests", "Gate"]; let identity ← q #["Tests", "Gate", "Demo"]
 
-  -- Counter-shaped ValidatedSourceV1 succeeds through product compile.
+  -- Counter-shaped ValidatedSourceV1 succeeds through product compile + Normalize.
   let counter ← validated moduleQ identity demo #[
     .state (mkState count),
     .init { params := #[param seed], body := block #[.assign (.name count) (var seed)] },
@@ -137,6 +177,19 @@ def runAst : IO Unit := do
     .view (mkView getN (ret (var count)))]
   let _ ← expectOk "counter-ast" (Compiler.compileValidatedSourceV1 counter)
   let _ ← expectOk "counter-checkV1" (Typed.checkV1 counter)
+  expectNormalizeOk "counter-ast-normalize" counter
+
+  -- Accumulator-shaped S1 AST succeeds through product compile + Normalize.
+  let total ← n "total"; let amount ← n "amount"; let addN ← n "add"; let cur ← n "current"
+  let acc ← validated moduleQ (← q #["Tests", "Gate", "Accumulator"]) (← n "Accumulator") #[
+    .state (mkState total),
+    .init { params := #[param seed], body := block #[.assign (.name total) (var seed)] },
+    .entry (mkEntry addN (block #[
+      .assign (.name total) (.binary .add (var total) (var amount)),
+      .return_ (some (var total))]) #[param amount]),
+    .view (mkView cur (ret (var total)))]
+  let _ ← expectOk "accumulator-ast" (Compiler.compileValidatedSourceV1 acc)
+  expectNormalizeOk "accumulator-ast-normalize" acc
 
   -- Type-only: Bool return from UInt64 entry → PF-SRC-INVALID type mismatch.
   let typeOnly ← validated moduleQ identity demo #[
@@ -193,17 +246,15 @@ def runAst : IO Unit := do
     (Compiler.compileValidatedSourceV1 disc)
 
   -- Bound-only: well-typed triple-nested for bounded 4096 → PF-BOUND-001.
-  -- Endpoints are UInt64 state places (bare integer literals are not default-width).
-  -- Entry unit body avoids return/result type noise; 4096^3 overflows UInt32.
-  let total ← n "total"; let start ← n "start"; let stop ← n "stop"
+  let totalB ← n "totalB"; let start ← n "start"; let stop ← n "stop"
   let i ← n "i"; let j ← n "j"; let k ← n "k"
   let tripleNest : BlockV1 := block #[
     .for_ i (var start) (var stop) 4096 (block #[
       .for_ j (var start) (var stop) 4096 (block #[
         .for_ k (var start) (var stop) 4096 (block #[
-          .assign (.name total) (var i)])])])]
+          .assign (.name totalB) (var i)])])])]
   let boundOnly ← validated moduleQ identity demo #[
-    .state (mkState total),
+    .state (mkState totalB),
     .state (mkState start),
     .state (mkState stop),
     .entry (mkEntry runN tripleNest #[] .unit)]
@@ -214,26 +265,66 @@ def runAst : IO Unit := do
     "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
     (Typed.checkV1 boundOnly)
 
-  -- Alpha residual shape only (missing/after-return). View write/call effects
-  -- are owned solely by EffectCheckV1 → PF-EFFECT-001; TypedV1 no longer
-  -- duplicates those defenses.
+  -- Residual control-flow now fails at Normalize S1 (gate before alpha residual).
+  -- Nonempty block without return (unit entry + state assign); empty blocks are
+  -- rejected by ValidatedSourceV1 before the compiler.
   let missing ← validated moduleQ identity demo #[
-    .entry (mkEntry runN (block #[.call { callee := peer, args := #[] }]))]
-  expectRender "alpha-missing-return"
-    "PF-SRC-INVALID: entry 'run' is missing a return value"
+    .state (mkState count),
+    .entry (mkEntry runN (block #[.assign (.name count) (var seed)]) #[param seed] .unit)]
+  expectRender "normalize-missing-return"
+    "PF-SRC-INVALID: S1 normalizer requires explicit return for entry/view"
     (Compiler.compileValidatedSourceV1 missing)
 
   let after ← validated moduleQ identity demo #[
-    .entry (mkEntry runN (block #[.return_ (some (u 0)), .call { callee := peer, args := #[] }]))]
-  expectRender "alpha-after-return"
-    "PF-SRC-INVALID: entry 'run' contains a statement after return"
+    .state (mkState count),
+    .entry (mkEntry runN (block #[
+      .return_ (some (var seed)),
+      .assign (.name count) (var seed)]) #[param seed])]
+  expectRender "normalize-after-return"
+    "PF-SRC-INVALID: S1 normalizer does not support statements after return"
     (Compiler.compileValidatedSourceV1 after)
 
-  -- Private state unused still compiles (no public leak).
+  -- Private state unused: CheckV1 may succeed; product compile fails at Normalize.
   let priv ← validated moduleQ identity demo #[
     .state (mkState count (.uint 64) .private_),
+    .entry (mkEntry runN (ret (var seed)) #[param seed])]
+  let _ ← expectOk "private-unused-checkV1" (Typed.checkV1 priv)
+  expectRender "private-unused-normalize-gate"
+    "PF-SRC-INVALID: S1 normalizer supports only public state, got non-public 'count'"
+    (Compiler.compileValidatedSourceV1 priv)
+
+  -- Literal-only entry (CheckV1 ok) fails Normalize; no alpha-only path.
+  let litOnly ← validated moduleQ identity demo #[
     .entry (mkEntry runN (ret (u 0)))]
-  let _ ← expectOk "private-unused-ast" (Compiler.compileValidatedSourceV1 priv)
+  let _ ← expectOk "literal-only-checkV1" (Typed.checkV1 litOnly)
+  expectRender "literal-only-normalize-gate"
+    "PF-SRC-INVALID: S1 normalizer does not support literals"
+    (Compiler.compileValidatedSourceV1 litOnly)
+
+  -- Unit bare return: multi-pass CheckV1 ok (Unit empty return); residual
+  -- Typed.checkV1 still rejects Stmt.Return. S3 fails at Normalize first with
+  -- a stable S1 message so product never surfaces residual-only Stmt.Return.
+  let bareRet ← validated moduleQ identity demo #[
+    .entry (mkEntry runN (block #[.return_ none]) #[] .unit)]
+  let bareMp := checkProgramTypedResultV1 bareRet
+  expect (bareMp.ok && bareMp.analysisComplete)
+    "unit-bare-return multipass CheckV1 must be ok"
+  expectRender "unit-bare-return-normalize-gate"
+    "PF-SRC-INVALID: S1 normalizer does not support bare return"
+    (Compiler.compileValidatedSourceV1 bareRet)
+
+  -- schedule-only: multipass CheckV1 ok; residual alpha rejects Stmt.Schedule.
+  -- Product compile fails at Normalize S1 (sibling of call gate).
+  let sched ← validated moduleQ identity demo #[
+    .entry (mkEntry runN (block #[
+      .schedule { callee := peer, args := #[] },
+      .return_ (some (var seed))]) #[param seed])]
+  let schedMp := checkProgramTypedResultV1 sched
+  expect (schedMp.ok && schedMp.analysisComplete)
+    "schedule-only multipass CheckV1 must be ok"
+  expectRender "schedule-only-normalize-gate"
+    "PF-SRC-INVALID: S1 normalizer does not support schedule"
+    (Compiler.compileValidatedSourceV1 sched)
 
 private unsafe def runSource
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -241,12 +332,23 @@ private unsafe def runSource
       "<checkv1-product-counter>" moduleName none with
   | .ok source =>
       let _ ← expectOk "counter-source" (Compiler.compileValidatedSourceV1 source)
+      expectNormalizeOk "counter-source-normalize" source
   | .error error => throw <| IO.userError s!"counter-source load: {error.render}"
+
+  match ← session.selectProgramV1 accumulatorSource
+      "<checkv1-product-accumulator>" moduleName none with
+  | .ok source =>
+      let _ ← expectOk "accumulator-source" (Compiler.compileValidatedSourceV1 source)
+      expectNormalizeOk "accumulator-source-normalize" source
+  | .error error => throw <| IO.userError s!"accumulator-source load: {error.render}"
 
   match ← session.selectProgramV1 privateStateUnusedSource
       "<checkv1-product-private>" moduleName none with
   | .ok source =>
-      let _ ← expectOk "private-unused-source" (Compiler.compileValidatedSourceV1 source)
+      let _ ← expectOk "private-unused-source-checkV1" (Typed.checkV1 source)
+      expectRender "private-unused-source"
+        "PF-SRC-INVALID: S1 normalizer supports only public state, got non-public 'secret'"
+        (Compiler.compileValidatedSourceV1 source)
   | .error error => throw <| IO.userError s!"private-unused-source load: {error.render}"
 
   let typeOnlySource :=
@@ -340,6 +442,22 @@ private unsafe def runSource
         "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
         (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"bound-source load: {error.render}"
+
+  -- Literal-only source: CheckV1 ok, Normalize rejects (decisive product gate).
+  let literalSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LiteralOnlyGate where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← session.selectProgramV1 literalSource
+      "<checkv1-product-literal>" moduleName none with
+  | .ok source =>
+      let _ ← expectOk "literal-source-checkV1" (Typed.checkV1 source)
+      expectRender "literal-source-normalize-gate"
+        "PF-SRC-INVALID: S1 normalizer does not support literals"
+        (Compiler.compileValidatedSourceV1 source)
+  | .error error => throw <| IO.userError s!"literal-source load: {error.render}"
 
 unsafe def run : IO Unit := do
   runAst

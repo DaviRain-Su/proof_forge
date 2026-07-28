@@ -1,6 +1,8 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Targets.Registry
@@ -10,6 +12,7 @@ namespace Tests.Product.CounterV1Evm
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
@@ -61,6 +64,26 @@ unsafe def run : IO Unit := do
     assignNodeIdsV1 source.moduleName source.programIdentity source.program
   expect (!(nodeAssignmentsPreorderV1 nodeTable).isEmpty)
     "validated ProgramV1 must produce canonical NodeId assignments"
+
+  -- S3: product compile gates through NormalizeV1 structure-valid SemanticProgramV1.
+  let carrier1 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"Counter Normalize #1: {repr e}"
+  let carrier2 ← match normalizeProgramV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"Counter Normalize #2: {repr e}"
+  match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 carrier1 with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"Counter validate SemanticProgramV1: {repr e}"
+  expect (carrier1.canonicalBytes == carrier2.canonicalBytes)
+    "Counter Normalize canonicalBytes must be deterministic"
+  let h1 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 carrier1 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"Counter semanticHash #1: {repr e}"
+  let h2 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 carrier2 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"Counter semanticHash #2: {repr e}"
+  expect (h1 == h2) "Counter semanticHashV1 must be deterministic"
 
   let semantic ← liftCompile "compile ProgramV1" <|
     Compiler.compileValidatedSourceV1 source

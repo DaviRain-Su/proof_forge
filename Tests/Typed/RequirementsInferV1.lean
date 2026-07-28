@@ -201,10 +201,11 @@ private unsafe def testIdempotent
     s!"idempotent ids: {reqIds a.requirements} vs {reqIds b.requirements}"
   expect (a.requirements == b.requirements) "idempotent arrays"
 
-/-- 10. Parity with Semantic.deriveRequirements on supported Counter/state-visibility. -/
+/-- 10. Parity with Semantic.deriveRequirements on S1 Counter; direct inference
+    for out-of-S1 private/commitment/call (full compile no longer required). -/
 private unsafe def testParity
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Counter product source text
+  -- Counter product source text (S1 — compile + deriveRequirements parity)
   let counterSrc := Examples.counterSourceText
   match ← session.selectProgramV1 counterSrc "<req-infer-parity-counter>"
       Examples.counterModuleNameV1 none with
@@ -219,51 +220,58 @@ private unsafe def testParity
           expect (inferred.requirements == Semantic.deriveRequirements semantic)
             "parity-counter: match deriveRequirements"
 
-  -- StateVisibility-style public / private / commitment (no arithmetic)
-  let cases : Array (String × String × Array ProgramRequirement) := #[
-    ("ParityPublic", "public ", #[.persistentState]),
-    ("ParityPrivate", "private ", #[.persistentState, .privateState]),
-    ("ParityCommitment", "commitment ", #[.persistentState, .commitmentState])]
-  for c in cases do
-    let progName := c.1
-    let visPrefix := c.2.1
-    let expected := c.2.2
-    let source :=
-      "import ProofForgeV2\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "namespace Tests.RequirementsInferParity\n\n" ++
-      "program " ++ progName ++ " where\n" ++
-      "  state " ++ visPrefix ++ "value : UInt64\n\n" ++
+  -- Public S1-compatible state (bare place return) — compile parity.
+  let publicSrc :=
+    "import ProofForgeV2\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "namespace Tests.RequirementsInferParity\n\n" ++
+    "program ParityPublic where\n" ++
+    "  state public value : UInt64\n\n" ++
+    "  entry ping() : UInt64 do\n" ++
+    "    return value\n\n" ++
+    "end Tests.RequirementsInferParity\n"
+  match ← session.selectProgramV1 publicSrc "<ParityPublic>"
+      "Tests.RequirementsInferParity" none with
+  | .error e => throw <| IO.userError s!"ParityPublic load: {e.render}"
+  | .ok validated =>
+      let inferred := inferRequirementsV1 validated
+      expect (inferred.requirements == #[.persistentState])
+        s!"ParityPublic: infer got {reqIds inferred.requirements}"
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error e => throw <| IO.userError s!"ParityPublic compile: {e.render}"
+      | .ok semantic =>
+          expect (inferred.requirements == semantic.requirements)
+            s!"ParityPublic: parity infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
+
+  -- Private / commitment / call: direct inference only (out of S1 Normalize surface).
+  let nonS1 : Array (String × String × Array ProgramRequirement) := #[
+    ("ParityPrivate",
+      "  state private value : UInt64\n" ++
       "  entry ping() : UInt64 do\n" ++
-      "    return 0\n\n" ++
-      "end Tests.RequirementsInferParity\n"
+      "    return value\n",
+      #[.persistentState, .privateState]),
+    ("ParityCommitment",
+      "  state commitment value : UInt64\n" ++
+      "  entry ping() : UInt64 do\n" ++
+      "    return value\n",
+      #[.persistentState, .commitmentState]),
+    ("ParityCall",
+      "  entry run() : UInt64 do\n" ++
+      "    call External.Use()\n" ++
+      "    return 0\n",
+      #[.synchronousCall, .transactionalRollback])]
+  for c in nonS1 do
+    let progName := c.1
+    let body := c.2.1
+    let expected := c.2.2
+    let source := wrap progName body
     match ← session.selectProgramV1 source ("<" ++ progName ++ ">")
-        "Tests.RequirementsInferParity" none with
+        moduleName none with
     | .error e => throw <| IO.userError s!"{progName} load: {e.render}"
     | .ok validated =>
         let inferred := inferRequirementsV1 validated
         expect (inferred.requirements == expected)
           s!"{progName}: infer got {reqIds inferred.requirements}"
-        match Compiler.compileValidatedSourceV1 validated with
-        | .error e => throw <| IO.userError s!"{progName} compile: {e.render}"
-        | .ok semantic =>
-            expect (inferred.requirements == semantic.requirements)
-              s!"{progName}: parity infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
-
-  -- External call surface that alpha lowering accepts (zero-arg call)
-  let callSrc := wrap "ReqParityCall" <|
-    "  entry run() : UInt64 do\n" ++
-    "    call External.Use()\n" ++
-    "    return 0\n"
-  match ← session.selectProgramV1 callSrc "<parity-call>" moduleName none with
-  | .error e => throw <| IO.userError s!"parity-call load: {e.render}"
-  | .ok validated =>
-      let inferred := inferRequirementsV1 validated
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error e => throw <| IO.userError s!"parity-call compile: {e.render}"
-      | .ok semantic =>
-          expect (inferred.requirements == semantic.requirements)
-            s!"parity-call: infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
 
 /-- 11. Human wire ids exact. -/
 private def testWireIds : IO Unit := do

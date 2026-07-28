@@ -13,7 +13,16 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-28 — S3 product compile gate via NormalizeV1 structure carrier
+
+- Context/State：formal TASK-D2-06/D3 与 D1–D4 formal 仍 0/27 done。本切片把唯一 ProgramV1 产品成功路径 `Compiler.compileValidatedSourceV1` 接到已 shipped 的 target-neutral `NormalizeV1.normalizeProgramV1` structure gate；不拓宽 S1 表面、不删 alpha Semantic/materializer、不改四 target Plan/IR、不伪称 formal completion。
+- RED/Changed（tests first）：`Tests/Compiler/ValidatedSourceV1Pipeline.lean` 与 `Tests/Compiler/CheckV1ProductGate.lean` 固定 Counter + Accumulator S1 正向（compile 成功、direct normalize→`validateSemanticProgramV1`、两跑 `canonicalBytes`/`semanticHashV1` 确定）、private/commitment/fn·localCall/literal/call/schedule/Unit bare-return 等 CheckV1-ok 形状在 Normalize 拒绝后 full compile fail closed；保留 type/effect/bound/disclosure 精确 wire 与相位优先。`StateVisibility` 仅 public/default full-compile；private/commitment 改 CheckV1+`RequirementsInferV1`+Normalize-gate fail。`AggregateDeclarations` pin `S1 normalizer does not support struct/enum`。`RequirementsInferV1` Counter/public 保留 compile parity，非 S1 仅 direct infer。`CounterV1Evm` 增加 Normalize 确定性 pin；EVM materialize 行为不变。empty `SemanticProgramDataV1` encode pin 固定 `.wire` → `semantic structure gate: badCfg`（无 `repr`）。
+- Production：`ProofForgeV2/Compiler/Pipeline.lean` — `compileValidatedSourceV1` = `normalizeProgramV1` → 仅成功后 residual `Typed.checkV1` + `Semantic.fromTyped`；`.typedNotOk` 映射同 CheckV1（resourceBound/effectDisallowed/visibilityViolation/invalidProgram）；`.unsupported`/`.identity`/`.wire` → 稳定 `invalidProgram` 文本（`.wire` 为 closed summary `semantic structure gate: <tag>`，无新 formal DiagnosticCode、无 Lean `repr`）。`NormalizeV1` 显式拒绝 bare `return`（`return_ none`），init 仅允许省略 return 的 implicit terminator-none，避免 Normalize 成功后 residual `Stmt.Return` 失败。`MIGRATION_MATRIX` D2-06 Code/Evidence 已改为 S3 product gate 事实（不再写「不接线 compile/CLI」）；formal 仍 pending。无 flag/fallback/dual reader/adapter/target-semantic 分支。
+- Verification：repair 后重新聚焦 `ValidatedSourceV1Pipeline`/`CheckV1ProductGate` 与 SBOM pin；正式 commit 属后续 Commit phase。
+- Boundary：residual alpha Semantic 仍服务 materializer；formal SemanticProgramV1 product materialization、D3 identities、provenance-in-CLI 仍 pending。
+
 ## 2026-07-28 — S2 exact requirements freeze + exact-attribution SemanticProvenanceV1 join (Counter / S1)
+
 
 - Context/State：formal TASK-D2-05/D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done。本切片在 S1 NormalizeV1 Counter 表面上闭合 exact requirements freeze 与 **span-bound** source-authority provenance join；不接线 product compile/CLI、不伪称 formal completion。
 - RED/Changed：authority 不再接受 caller `SourceNodeInventoryV1`；`testCounterRequirementsAndProvenance` 增加 coordinated path/span mutation 负向（保留 NodeId+sourceHash 时 low-level 可自洽，authority validate/digest 必拒；span-bound inventory exact 拒；权威 construction 仍绿）；保留 multi-site、delimiter、carrier-substitution、missing-site、foreign hash/module、requirements freeze。

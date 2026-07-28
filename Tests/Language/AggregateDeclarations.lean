@@ -302,15 +302,16 @@ unsafe def run : IO Unit := do
       (mkProgramSource "ReservedEnumIdentifier" "  enum A where\n    | «enum»\n")
       "<reserved-enum-identifier>" "Root")
 
+  -- Product compile fails closed at Normalize S1 (gate precedes residual alpha).
   match Compiler.compileValidatedSourceV1 decoded with
-  | .error (.invalidProgram "validated ProgramV1 lowering does not support StructDecl") => pure ()
+  | .error (.invalidProgram "S1 normalizer does not support struct") => pure ()
   | .error other => throw <| IO.userError s!"struct declarations reached the wrong failure: {other.render}"
   | .ok _ => throw <| IO.userError "Compiler.compileValidatedSourceV1 must not silently erase struct declarations"
 
   let enumOnly ← select session
     (mkProgramSource "EnumOnly" "  enum Status where\n    | Ready\n") "<enum-only>"
   match Compiler.compileValidatedSourceV1 enumOnly with
-  | .error (.invalidProgram "validated ProgramV1 lowering does not support EnumDecl") => pure ()
+  | .error (.invalidProgram "S1 normalizer does not support enum") => pure ()
   | .error other => throw <| IO.userError s!"enum declarations reached the wrong failure: {other.render}"
   | .ok _ => throw <| IO.userError "Compiler.compileValidatedSourceV1 must not silently erase enum declarations"
 

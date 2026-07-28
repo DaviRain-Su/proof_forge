@@ -23,10 +23,16 @@
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
       public authority validate/digest never accept caller inventory)
 
-  Out of scope for this slice:
-    * product compileValidatedSourceV1 / CLI cutover
+  Product ownership (S3):
+    * `Compiler.compileValidatedSourceV1` gates every product success through
+      `normalizeProgramV1` before residual alpha Typed/Semantic materialization.
+    * This module owns the target-neutral structure gate only; it does not own
+      residual alpha `Semantic.Program`, Registry, or target Plan/IR.
+
+  Out of scope for this module:
+    * broadening the S1 surface beyond Counter-like public UInt64
     * registry / resolver / materializer / OutputSetV1
-    * interpreter / target changes
+    * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
 -/
 import ProofForgeV2.Core.Common
@@ -272,7 +278,12 @@ private def lowerStmt
                   }, none)
       | .field _ _ => failUnsupported "S1 assign does not support field targets"
       | .index _ _ => failUnsupported "S1 assign does not support index targets"
-  | .return_ none => pure (st, some none)
+  -- Explicit bare `return` is rejected at the S1 gate so product compile never
+  -- succeeds Normalize and then fails residual alpha `validateBlockShapeV1`
+  -- (`Stmt.Return`). Init may still end with implicit terminator-none when the
+  -- source omits a return (allowImplicitReturnNone).
+  | .return_ none =>
+      failUnsupported "S1 normalizer does not support bare return"
   | .return_ (some e) => do
       let (vid, _tid, st1) ← lowerExpr e st states
       pure (st1, some (some vid))
