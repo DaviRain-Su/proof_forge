@@ -4947,6 +4947,103 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
   expectCfgInvariantPhase "N5 ContextRead closure before requirements"
     .invariantClosure .badCfg n5
 
+/-- SPEC §8 forbids commitment creation in pureFn callables that belong to an
+    invariant closure. An unreachable pureFn remains outside this closure-only
+    restriction. Generic Commit result-presence validation runs before the
+    post-CFG closure gate. -/
+private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
+  let committer : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+        cfgInstr (some (cfgValueDef 1)) (.commit 0)]
+      (.return_ (some 1))]) with
+      id := 0
+      name := some "committer"
+      invariantSteps := some 4
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 7
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithTypes "InvClosureCommitP1Unreachable" cfgBoolTypes #[]
+    #[{ committer with invariantSteps := none }, literalRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 unreachable pureFn Commit outside invariant closure" p1
+  let n1Base ← programWithTypes "InvClosureCommitN1Reachable" cfgBoolTypes #[]
+    #[committer, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn Commit" n1
+  expectCfgInvariantPhase "N1 pureFn Commit closure phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    root with
+      id := 1
+      kind := .pureFn
+      name := some "middle"
+      invariantSteps := some 7
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 10
+  }
+  let n2Base ← programWithTypes "InvClosureCommitN2Transitive" cfgBoolTypes #[]
+    #[committer, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn Commit" n2
+  expectCfgInvariantPhase "N2 transitive Commit closure phase"
+    .invariantClosure .badCfg n2
+  let missingResultCommitter : CallableV1 := {
+    committer with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          cfgInstr none (.commit 0),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n3Base ← programWithTypes "InvClosureCommitN3CfgFirst" cfgBoolTypes #[]
+    #[missingResultCommitter, root]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 malformed Commit before closure restriction" .badCfg n3
+  expectCfgInvariantPhase "N3 generic Commit typing phase wins"
+    .cfg .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[committer,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 pureFn Commit before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 Commit closure phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-commit"] }
+  }
+  expectCfgErrCode "N5 pureFn Commit before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 Commit closure before requirements"
+    .invariantClosure .badCfg n5
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -6857,6 +6954,7 @@ def run : IO Unit := do
   testInvariantClosurePureFnStateLoadProhibited
   testInvariantClosurePureFnStateStoreProhibited
   testInvariantClosurePureFnContextReadProhibited
+  testInvariantClosurePureFnCommitProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
