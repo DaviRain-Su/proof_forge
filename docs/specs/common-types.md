@@ -3,7 +3,7 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-07-17
+updated: 2026-07-29
 normative: true
 ---
 
@@ -97,6 +97,10 @@ inductive ArtifactDeployability
   key 是 `(sourcePath UTF-8,startByte,endByte,nodeId raw bytes)`。scalar validator 只要求
   `startByte <= endByte`；byte offsets 指向原始 UTF-8，line/column 只可派生，不能参与 identity。
   `endByte <= sourceBytes` 必须由持有同一次 immutable source snapshot 的 Source/provenance join 验证。
+  **`nodeId` 在 common `SourceOrigin` 上不可空**（恰好 16 bytes）。pre-node parser 位置的显式
+  nullable NodeId 属于 diagnostic-only `DiagnosticOriginV1`（见
+  [`SPEC-DIAG-001`](diagnostics.md) 与 [`ADR-0022`](../adr/0022-d1-diagnostics-contained-frontend-contract.md)），
+  不得把 `Option NodeId` 塞进本结构，也不得把全零 sentinel 定义为 common identity 语义。
 
 `ProjectRelativePath` 集合 owner 必须另做 NFC + Unicode default casefold 后的全局唯一性检查；文件
 consumer 必须在其规格规定的 trusted root 下执行 component-by-component no-follow safe-open，并验证
@@ -179,6 +183,13 @@ frontend/core 因上限为 1，不允许任何 descendant。formal runner 必须
 `memoryMetric` 由 exact host profile 在构造 profile object 前选定；相同 `profileId` 在不同 host
 metric 下必然产生不同 digest，不得只用 ID 跨 host 代换。
 
+**Containment assurance（ADR-0022 D2）**：`darwin-development-observed` 允许 ordinary development
+运行，但 **永不** 表示 process/session containment 或 formal/hermetic evidence。仅当 **每一个**
+descendant 仍 controller-bound **且** resource attribution 由 controller event 支撑时，Linux 路径
+才可声明 `contained`。禁止 silent assurance fallback：无法证明 controller-bound、或缺少 controller
+event 时，不得将 development observation 升格为 `contained`，也不得用 stderr 猜测 OOM/逃逸。
+本规格 **不** 冻结 cgroup 布局、polling 周期、OS API 表面或 host-probe 分类法。
+
 source open 属于 frontend wall budget：supervisor 使用 dirfd-relative、no-follow、nonblocking、
 close-on-exec open，`fstat` 后只接受 regular single-link file；size 大于 16 MiB 在读取前拒绝，
 随后 bounded read 到 EOF 并额外探测 1 byte。FIFO/device/socket/symlink、read deadline、truncate/
@@ -188,8 +199,10 @@ grow race 和 short read 都稳定失败；攻击者不能在 worker budget 生�
 cap → monotonic deadline；无对应 controller event 的 signal、malformed/truncated response 或 worker
 exit 按下表的 stage mapping 归因，不根据 stderr 猜 OOM。等于上限接受，首次超过即终止整个
 containment，reap 全部成员、关闭 pipe、删除私有 staging，旧输出保持不变且不得发布部分 artifact。
-lowering 后必须构造新的 exact `ResourceProfileV1` object 并重算 effective digest。receipt 同时记录
-hard-profile ID/digest、effective object/digest、observed peak/elapsed、controller event 和 cleanup result。
+lowering 后必须构造新的 exact `ResourceProfileV1` object 并重算 effective digest。internal receipt
+同时记录 hard-profile ID/digest、effective object/digest、observed peak/elapsed、controller event 和
+cleanup result。supervised CLI 向 public JSON 暴露的是 **bounded public-safe `receipts` 投影/digest**
+（ADR-0022 D3 / SPEC-CLI-001），不是 raw/full receipt、不是 diagnostic、不是 artifact。
 
 ## 错误、版本与验收
 
