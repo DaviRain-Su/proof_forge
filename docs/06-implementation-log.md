@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 ContextRead same-key result-TypeId consistency (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 SPEC §5.1 明确的全program一致性规则：相同exact SchemaId key的每个 `Op.ContextRead` 必须使用同一 `Instruction.result` TypeId；不实现 requirement-to-result binding、key capability support或完整ContextRead contract。
+- RED/Changed：tests-first。新增 `testCfgContextReadResultTypeConsistency`；实现前同block same-key Bool/UInt8 mismatch被structure gate接受，真实fast harness因未出现expected `.badCfg`而RED。双shipped paths固定zero/one/read-repeat、跨block/branch/callable同key同type与不同key不同type正向，同block/branch/callable mismatch负向；canonical value/named-name/generic CFG前置、`.cfg`→invariant closure/fuel→requirements相位、raw transport精确保留与structure/encoder/carrier拒绝均已固定。
+- Production：新增 `validateContextReadResultTypeConsistencyV1`，在全部callable generic CFG/op typing通过后按callable→block→instruction source order扫描，以 `Std.HashMap String TypeIdV1` 对 `key.value`做exact lookup/insert且不迭代map；same-key不同TypeId `.badCfg`。该pass由 `validateCfgInvariantPhasesV1` 作为`.cfg`消费，位于invariant closure/fuel/requirements前；expected O(ContextRead occurrences) time/O(distinct keys) space。
+- Verification：implementation worker RED/GREEN与主控独立fast shipped harness已通过；2k occurrence资源fixture固定重复key与distinct-key lookup边界。本轮已执行并通过的门禁：`just dev-check`、幂等的 `just sbom-package-files-refresh`、`just docs-check`、`git diff --check`与普通 `just ci`。proof-forge-one-slice-89 复审报告了两项 required fix（补充 mixed-invalid cross-callable phase evidence 证明全部 per-callable generic CFG/op validation 先于全局 same-key consistency、以及把本 Verification 行的 prospective 措辞替换为已执行事实）并已修复；proof-forge-one-slice-90 三路只读 re-review 已 approved 且 zero findings（semantic/test/boundary 三份 summary 均无 findings）。
+- Boundary：ContextRead requirement-to-result binding/key capability support、Commit exact disclosure、ExternalCall/Schedule canonical-serializable类型定义与参数检查、anonymous rank/usage closure、provenance join、normalizer/product wire及formal completion仍 pending；现有 `serializableType` 不被未经规范授权地扩张为external ABI定义。
+
 ## 2026-07-28 — D2-06 named-body Option-cycle legality (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 SPEC §5 recursive cycle condition：结合既有 no-named-anchor anonymous-cycle rejection，任何 accepted type cycle必须同时经过 reserved named Struct/Enum key 与 anonymous Option；不实现 anonymous canonical key bytes/rank/order、usage closure、normalizer、provenance join或产品接线。

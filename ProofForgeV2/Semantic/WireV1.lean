@@ -162,10 +162,15 @@ import Std.Data.HashMap
     source/destination/result contract, Op.StateStore state lookup/value
     type/void-result contract, and Op.Assert Bool/error/args/void-result
     contract), the Term.Revert ErrorDecl/args exact join, the Op.Emit EventDecl/
-    args/void-result contract, presence-only result for ContextRead/Commit,
+    args/void-result contract, the §5.1 ContextRead same-key result-TypeId
+    consistency pass (one exact SchemaId key → one Instruction.result TypeId
+    across the whole program, `.badCfg`, `.cfg` phase after generic CFG/op
+    typing and before invariant closure/fuel/requirements), presence-only
+    result for ContextRead/Commit,
     and void-op result-presence plus the at-least-two-component callee shape
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
-    serializability, exact contracts for the two presence-only families,
+    serializability, the ContextRead requirement-to-result-type binding and key
+    capability support plus the exact Commit disclosure contract,
     recursive/full TypeKey closure beyond the enforced named-prefix rank,
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
@@ -2448,14 +2453,19 @@ def checkTerminatorTyping (c : CallableV1)
     type(value) == state.typeId, and carries no result. Assert requires a Bool
     condition plus an exact optional ErrorDecl/args join and carries no result.
     Emit resolves eventId, matches args positionally against EventDecl fields,
-    and carries no result. The two deferred families (ContextRead/Commit) carry
-    presence-only result; their exact contracts are deferred. ExternalCall/
+    and carries no result. `Op.ContextRead` carries result presence here plus
+    the §5.1 same-key result-TypeId global consistency pass (a separate
+    post-CFG gate); its requirement-to-result-type binding and key capability
+    support remain deferred. `Op.Commit` carries presence-only result; its
+    exact disclosure contract remains deferred. ExternalCall/
     Schedule MUST carry `result := none` and a callee with at least two
     qualified-name components; a spurious result, short callee, or missing
     result on a value-producing op is an invalid Core trap → `.badCfg`. All
     step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
-    ExternalCall/Schedule argument serializability, exact typing for
-    ContextRead/Commit, recursive/full TypeKey closure/ranking/reachability,
+    ExternalCall/Schedule argument serializability, the ContextRead
+    requirement-to-result-type binding and key capability support, the exact
+    `Op.Commit` disclosure contract, recursive/full TypeKey
+    closure/ranking/reachability,
     provenance join, normalizer, product wire. -/
 
 /-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
@@ -2562,8 +2572,10 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     indices or Option `(1,0)`, with the selected payload/element result type).
     `Op.IndexSet` and `Op.CheckedCast` carry their exact static contracts.
     The remaining result-producing ops (`ContextRead`/`Commit`) MUST carry
-    `result := some _` presence-only; their exact contracts are deferred to
-    later step-j extensions.
+    `result := some _` presence-only here; `Op.ContextRead` additionally
+    carries the §5.1 same-key result-TypeId consistency pass (a separate
+    post-CFG global gate), while the requirement-to-result-type binding and
+    the exact `Op.Commit` disclosure contract remain deferred to later slices.
     All failures → `.badCfg`. Bounded, non-recursive (serializableType is
     fuel-bounded). -/
 def checkOpTyping (instr : InstructionV1)
@@ -2602,11 +2614,15 @@ def checkOpTyping (instr : InstructionV1)
     match resultTypeId with
     | some rT => unless rT == tid do err .badCfg
     | none => err .badCfg
-  -- Helper: require result present for the two value-producing families
-  --   whose exact contracts are deferred to later step-j extensions
-  --   (ContextRead/Commit). SPEC §4.3/§5.1 mandates a result; a missing result
-  --   is `.badCfg`. FieldSet, VariantTag, VariantPayload, IndexSet, and
-  --   CheckedCast have their own exact static contracts below.
+  -- Helper: require result present for the value-producing families whose
+  --   local op branch here is presence-only (ContextRead/Commit). SPEC
+  --   §4.3/§5.1 mandates a result; a missing result is `.badCfg`.
+  --   `Op.ContextRead` additionally carries the §5.1 same-key result-TypeId
+  --   global consistency pass (a separate post-CFG gate); its requirement
+  --   binding and key capability support remain deferred. `Op.Commit`'s exact
+  --   disclosure contract remains deferred. FieldSet, VariantTag,
+  --   VariantPayload, IndexSet, and CheckedCast have their own exact static
+  --   contracts below.
   let requireResultPresent : Except SemanticWireErrorV1 Unit :=
     match instr.result with
     | some _ => pure ()
@@ -2997,8 +3013,10 @@ def checkOpTyping (instr : InstructionV1)
         return ← err .badCfg
       requireResult toType
   -- Remaining result-producing ops (ContextRead/Commit) carry
-  --   `Instruction.result = some _` presence-only. Their exact contracts are
-  --   deferred to later step-j extensions.
+  --   `Instruction.result = some _` presence-only here. `Op.ContextRead`
+  --   additionally carries the §5.1 same-key result-TypeId consistency pass
+  --   (a separate post-CFG global gate); the requirement-to-result-type
+  --   binding and the exact `Op.Commit` disclosure contract remain deferred.
   | .contextRead _ | .commit _ => requireResultPresent
 
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
@@ -3097,9 +3115,12 @@ private def validateCallableCfgShape (c : CallableV1)
   --   `Op.Emit` resolves EventDecl, checks positional args, and requires no
   --   result. The remaining void ops (ExternalCall/Schedule) require no result;
   --   a spurious result is `.badCfg`. VariantPayload, IndexSet, and
-  --   CheckedCast have exact static contracts; ContextRead and
-  --   Commit must each carry `result := some _` presence-only and retain
-  --   deferred exact contracts. All failures → `.badCfg`. Reuses `defTypes`
+  --   CheckedCast have exact static contracts; `Op.ContextRead` carries
+  --   result presence here plus the §5.1 same-key result-TypeId global
+  --   consistency pass (a separate post-CFG gate, requirement binding and key
+  --   capability support still deferred), and `Op.Commit` carries
+  --   `result := some _` presence-only with its exact disclosure contract
+  --   deferred. All failures → `.badCfg`. Reuses `defTypes`
   --   from step h.
   for b in c.blocks do
     for instr in b.instructions do
@@ -4437,6 +4458,41 @@ private def validateInvariantStepsIntrinsicCeilingV1
         unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
   pure ()
 
+/- SPEC-SEM-WIRE-001 §5.1 engineering subset (structure-gate-only): within one
+    `SemanticProgramV1`, every `Op.ContextRead` carrying the same exact
+    `SchemaId` key MUST use the same `Instruction.result` TypeId. Different
+    callables/branches declaring different result types for the same key are
+    invalid Core and cannot be rescued by an Invocation or target adapter.
+
+    This is a bounded deterministic global pass that runs after every
+    callable's generic CFG/op typing succeeds and before invariant-closure/
+    fuel/requirements. Generic CFG already guarantees result presence and
+    def-site TypeId range; this pass still defends a missing result as
+    `.badCfg`. It scans callables → blocks → instructions in source order and
+    performs exact-key lookup/insert only (`key.value` string equality); it
+    never iterates the host map. Expected time O(number of ContextRead
+    occurrences), space O(distinct keys). This slice does not bind the result
+    type to a requirement, implement ContextRead key capability support, or
+    validate the Commit disclosure contract; those remain deferred. -/
+private def validateContextReadResultTypeConsistencyV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let mut seen : Std.HashMap String TypeIdV1 := {}
+  for callable in callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .contextRead key =>
+            match instr.result with
+            | none => return ← err .badCfg
+            | some rdef =>
+                match seen.get? key.value with
+                | none => seen := seen.insert key.value rdef.typeId
+                | some prevT =>
+                    unless prevT == rdef.typeId do
+                      return ← err .badCfg
+        | _ => pure ()
+  pure ()
+
 /-- Stable observable subphases for the CFG/invariant segment of structure
     validation. This is not serialized and does not change the public wire
     error contract; it lets tests distinguish precedence when multiple phases
@@ -4463,13 +4519,17 @@ private def liftCfgInvariantValidationPhaseV1
   | .error error => .error { phase, error }
 
 /-- Runs the exact stable §6.2 segment used by the structure gate: every
-    callable's generic CFG/op validation, then invariant closure restrictions,
-    then intrinsic invariant fuel. Earlier structure phases are prerequisites. -/
+    callable's generic CFG/op validation, then the global ContextRead
+    same-key result-TypeId consistency pass (SPEC §5.1, `.cfg` phase), then
+    invariant closure restrictions, then intrinsic invariant fuel. Earlier
+    structure phases are prerequisites. -/
 def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     Except CfgInvariantValidationFailureV1 Unit := do
   for callable in data.callables do
     liftCfgInvariantValidationPhaseV1 .cfg
       (validateCallableCfgShape callable data.types.size data.types data)
+  liftCfgInvariantValidationPhaseV1 .cfg
+    (validateContextReadResultTypeConsistencyV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
     (validateInvariantRootDirectOpsV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
@@ -4675,7 +4735,8 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
       destination/result contract; Op.StateStore exact state lookup/value type/
       void-result contract; Op.Assert exact Bool/error/args/void-result contract;
       Op.Emit exact EventDecl/args/void-result contract; presence-only result
-      for ContextRead/Commit; ExternalCall/Schedule void-result plus
+      for ContextRead/Commit plus the §5.1 ContextRead same-key result-TypeId
+      consistency pass; ExternalCall/Schedule void-result plus
       at-least-two-component callee shape)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
@@ -4684,7 +4745,9 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
     result-presence) — NOT ExternalCall/Schedule argument serializability,
-    ContextRead/Commit exact contracts, runtime CheckedCast representability,
+    the ContextRead requirement-to-result-type binding and key capability
+    support plus the exact Commit disclosure contract,
+    runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
     beyond the enforced named-prefix rank and closed cycle condition,
     full anonymous ranking/reachability (SPEC
@@ -4778,7 +4841,8 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateNonClosureCallableInvariantStepsV1 data.callables
   validateInvariantRootStepsPresenceV1 data.callables
   validateInvariantDeclarationJoinV1 data.callables data.invariants
-  -- 4.5–4.75) Generic CFG/op typing → direct root restrictions + exact
+  -- 4.5–4.75) Generic CFG/op typing → global ContextRead same-key result-
+  --   TypeId consistency (§5.1, `.cfg`) → direct root restrictions + exact
   --   transitive pureFn closure membership + reachable call-graph/CFG
   --   acyclicity → intrinsic invariant fuel. The shared helper preserves the
   --   public wire error while exposing the stable subphase to focused tests.

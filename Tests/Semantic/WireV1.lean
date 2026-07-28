@@ -26,8 +26,13 @@
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
   Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, and Emit
-  EventDecl/args/void-result contracts; only ContextRead/Commit remain
-  presence-only. Formal TST-SEM-001 corpus remains pending.
+  EventDecl/args/void-result contracts; the §5.1 ContextRead same-key
+  result-TypeId consistency pass is pinned (one exact SchemaId key → one
+  Instruction.result TypeId across the whole program, `.badCfg`, `.cfg` phase
+  after generic CFG/op typing and before invariant closure/fuel/requirements),
+  while the ContextRead requirement-to-result-type binding and the exact
+  Commit disclosure contract remain deferred. Formal TST-SEM-001 corpus
+  remains pending.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Semantic.WireV1
@@ -5183,8 +5188,9 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
   expectCfgErr "N1 invariant root direct ContextRead forbidden" n1
   expectCfgInvariantPhase "N1 invariant ContextRead closure phase"
     .invariantClosure .badCfg n1
-  -- Scope guard: ContextRead remains accepted in an entry under its current
-  -- presence-only generic op contract.
+  -- Scope guard: ContextRead remains accepted in an entry; its local op
+  --   branch is presence-only and the §5.1 same-key result-TypeId global
+  --   consistency pass is satisfied by the single Bool read below.
   let entryRead : CallableV1 := {
     forbiddenReadRoot with
       kind := .entry
@@ -7248,7 +7254,10 @@ private def testCfgVoidOpResultPresence : IO Unit := do
     ignored). Seven families (FieldSet/VariantTag/VariantPayload/IndexSet/
     CheckedCast/ContextRead/Commit) originally entered through presence-only
     validation; later focused suites now enforce exact contracts for the first
-    five, while ContextRead/Commit remain presence-only. The fixtures here use
+    five. `Op.ContextRead` retains a presence-only local op branch but now
+    carries the §5.1 same-key result-TypeId global consistency pass (a
+    separate post-CFG suite); `Op.Commit` remains presence-only with its
+    exact disclosure contract deferred. The fixtures here use
     operands/results valid under the current contracts so they continue to
     isolate missing-result behavior. The void rule remains unchanged. -/
 
@@ -7256,8 +7265,10 @@ private def testCfgValueOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
   -- POSITIVES (result := some _ on each value-producing op; expectCfgOk,
   --   structure+encode dual path). Families with later exact contracts use
-  --   operands and result TypeIds valid under those contracts; ContextRead/
-  --   Commit remain presence-only. Operands are otherwise defined so that
+  --   operands and result TypeIds valid under those contracts; ContextRead
+  --   has a presence-only local op branch plus the §5.1 same-key result-TypeId
+  --   global consistency pass, and Commit remains presence-only. Operands are
+  --   otherwise defined so that
   --   steps a–i (use-existence, def-site range, dominance, terminator
   --   typing) all pass and this suite isolates result presence.
   -- P1: Literal with result present (typed family — exact typeId already
@@ -8604,6 +8615,337 @@ private def testCfgExternalCalleeShape : IO Unit := do
           (.return_ none)] 2]
   expectCfgErr "N2 schedule single-component callee" n2
 
+/- SPEC-SEM-WIRE-001 §5.1 engineering subset: within one SemanticProgramV1,
+   every `Op.ContextRead` carrying the same exact `SchemaId` key MUST use the
+   same `Instruction.result` TypeId; a different callable/branch declaring a
+   different type for the same key is invalid Core and cannot be rescued by an
+   Invocation or target adapter. This is a structure-gate-only slice: it does
+   not bind the result type to a requirement or implement ContextRead key
+   capability support. The global consistency pass runs as
+   `CfgInvariantValidationPhaseV1.cfg` after every callable's generic CFG/op
+   typing succeeds and before invariant-closure/fuel/requirements. -/
+private def testCfgContextReadResultTypeConsistency : IO Unit := do
+  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
+    | .ok key => pure key
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let otherKey ← match parseSchemaId "proof-forge.ctx.other.v1" with
+    | .ok key => pure key
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  -- Two-type fixture: typeId 0 = Bool, typeId 1 = UInt8.
+  let types : Array TypeDeclV1 := cfgUint8Types
+  -- Instruction with a ContextRead op producing a result at the given
+  --   ValueId/TypeId for the given key.
+  let ctxRead (vid : ValueIdV1) (tid : TypeIdV1) (key : SchemaId) :
+      InstructionV1 :=
+    cfgInstr (some { valueId := vid, typeId := tid }) (.contextRead key)
+  -- Entry callable with one block whose instructions are supplied; returns
+  --   none. `id`/`name` default to 0/"run"; callers override for
+  --   multi-callable programs so the name-uniqueness gate stays satisfied.
+  let entryCallable (instrs : Array InstructionV1)
+      (id : CallableIdV1 := 0) (name : String := "run") : CallableV1 :=
+    { (cfgCallableKindName .entry (some name)
+          (resultTypeId := 0)) with
+      id
+      blocks := #[cfgBlockInstrs 0 instrs (.return_ none)] }
+  -- P1: zero reads.
+  let p1 ← programWithTypes "CtxConsP1Zero" types #[]
+    #[entryCallable #[]]
+  expectCfgOk "P1 zero reads" p1
+  -- P2: one read (Bool result).
+  let p2 ← programWithTypes "CtxConsP2One" types #[]
+    #[entryCallable #[ctxRead 0 0 ctxKey]]
+  expectCfgOk "P2 one read" p2
+  -- P3: same key, same TypeId across two callables.
+  let p3 ← programWithTypes "CtxConsP3TwoCalls" types #[]
+    #[entryCallable #[ctxRead 0 0 ctxKey] 0 "runA",
+      entryCallable #[ctxRead 0 0 ctxKey] 1 "runB"]
+  expectCfgOk "P3 same key same type across callables" p3
+  -- P4: same key, same TypeId across two blocks within one callable. The
+  --   branch is split between block 1 (then) and block 2 (else), each
+  --   reading the key with the Bool TypeId and returning none. Block 0
+  --   defines the branch condition via a Bool literal.
+  let p4 ← programWithTypes "CtxConsP4Branches" types #[]
+    #[{ (cfgCallableKindName .entry (some "run")
+          (resultTypeId := 0)) with
+        id := 0
+        blocks := #[
+          cfgBlockInstrs 0
+            #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+            (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+          cfgBlockInstrs 1
+            #[ctxRead 1 0 ctxKey]
+            (.return_ none),
+          cfgBlockInstrs 2
+            #[ctxRead 2 0 ctxKey]
+            (.return_ none)
+        ] }]
+  expectCfgOk "P4 same key same type across branches" p4
+  -- P5: different keys may use different result TypeIds.
+  let p5 ← programWithTypes "CtxConsP5DiffKeys" types #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 1 otherKey]]
+  expectCfgOk "P5 different keys different types" p5
+  -- P6: same key, same TypeId repeated within one block. Local repetition of
+  --   the same exact key with the same result TypeId is allowed; the global
+  --   consistency gate only rejects a divergent TypeId for an already-seen
+  --   key.
+  let p6 ← programWithTypes "CtxConsP6LocalRepeat" types #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 0 ctxKey]]
+  expectCfgOk "P6 same key same type repeated one block" p6
+  -- N1: same key, different TypeId in one block (Bool vs UInt8).
+  let n1 ← programWithTypes "CtxConsN1Block" types #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]]
+  expectCfgErr "N1 same key different type one block" n1
+  expectCfgInvariantPhase "N1 cfg consistency phase" .cfg .badCfg n1
+  -- N2: same key, different TypeId across branches.
+  let n2 ← programWithTypes "CtxConsN2Branches" types #[]
+    #[{ (cfgCallableKindName .entry (some "run")
+          (resultTypeId := 0)) with
+        id := 0
+        blocks := #[
+          cfgBlockInstrs 0
+            #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
+            (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+          cfgBlockInstrs 1
+            #[ctxRead 1 0 ctxKey]
+            (.return_ none),
+          cfgBlockInstrs 2
+            #[ctxRead 2 1 ctxKey]
+            (.return_ none)
+        ] }]
+  expectCfgErr "N2 same key different type across branches" n2
+  expectCfgInvariantPhase "N2 cfg consistency phase" .cfg .badCfg n2
+  -- N3: same key, different TypeId across different callables.
+  let n3 ← programWithTypes "CtxConsN3Callables" types #[]
+    #[entryCallable #[ctxRead 0 0 ctxKey] 0 "runA",
+      entryCallable #[ctxRead 0 1 ctxKey] 1 "runB"]
+  expectCfgErr "N3 same key different type across callables" n3
+  expectCfgInvariantPhase "N3 cfg consistency phase" .cfg .badCfg n3
+  -- N4: exact key equality. A key differing only in the final segment is a
+  --   distinct key and may carry a different TypeId.
+  let nearKey ← match parseSchemaId "proof-forge.ctx.k.v2" with
+    | .ok key => pure key
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let n4 ← programWithTypes "CtxConsN4ExactKey" types #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 1 nearKey]]
+  expectCfgOk "N4 distinct keys may differ" n4
+  -- Precedence: a missing ContextRead result (generic CFG/op typing) fails
+  --   before the global consistency pass.
+  let n5 ← programWithTypes "CtxConsN5MissingResult" types #[]
+    #[entryCallable
+        #[cfgInstr none (.contextRead ctxKey)]]
+  expectCfgErrCode "N5 missing result before consistency" .badCfg n5
+  expectCfgInvariantPhase "N5 generic typing before consistency" .cfg .badCfg n5
+  -- Precedence: a def-site TypeId OOR (step h) fails as `.badReference`
+  --   before the global consistency pass. Here the ContextRead result
+  --   declares typeId 99 (out of range).
+  let n6 ← programWithTypes "CtxConsN6TypeOOR" types #[]
+    #[entryCallable
+        #[cfgInstr (some { valueId := 0, typeId := 99 })
+            (.contextRead ctxKey)]]
+  expectCfgErrCode "N6 def TypeId OOR before consistency"
+    .badReference n6
+  -- Precedence: a generic CFG failure (undefined terminator use) fails before
+  --   consistency. The branch references an undefined ValueId 7.
+  let n7 ← programWithTypes "CtxConsN7CfgBefore" types #[]
+    #[{ (cfgCallableKindName .entry (some "run")
+          (resultTypeId := 0)) with
+        id := 0
+        blocks := #[
+          cfgBlockInstrs 0
+            #[ctxRead 0 0 ctxKey]
+            (.branch 7 (cfgJumpTarget 1) (cfgJumpTarget 1)),
+          cfgBlock 1 (.return_ none)
+        ] }]
+  expectCfgErrCode "N7 generic CFG before consistency" .badCfg n7
+  expectCfgInvariantPhase "N7 generic CFG phase wins" .cfg .badCfg n7
+  -- Mixed-invalid phase precedence 3a: a canonical valueBytes error (bad
+  --   Bool literal byte 0x02) co-located with a same-key TypeId mismatch
+  --   must fail as `.nonCanonical` first, because the valueBytes gate (step
+  --   4) precedes the CFG/consistency segment (step 4.5).
+  let badValueMismatch : CallableV1 :=
+    entryCallable
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 2),
+        ctxRead 1 0 ctxKey,
+        ctxRead 2 1 ctxKey]
+  let m1 ← programWithTypes "CtxConsM1ValueBeforeMismatch" types #[]
+    #[badValueMismatch]
+  expectCfgErrCode "M1 canonical valueBytes before consistency"
+    .nonCanonical m1
+  -- Mixed-invalid phase precedence 3b: a same-key TypeId mismatch co-located
+  --   with a later bad requirement must fail as `.badCfg` first; the
+  --   requirement gate (step 5) runs only after the CFG/consistency segment.
+  --   The available phase seam pins the consistency failure to `.cfg`.
+  let m2 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-ctx"] }
+  }
+  expectCfgErrCode "M2 consistency before bad requirement" .badCfg m2
+  expectCfgInvariantPhase "M2 cfg before requirements" .cfg .badCfg m2
+  -- Mixed-invalid phase precedence 3c: a named Struct/Enum duplicate
+  --   (`.duplicate`, step 3) co-located with a same-key TypeId mismatch must
+  --   fail as `.duplicate` first, because the named-name uniqueness gate
+  --   precedes the CFG/consistency segment. The duplicate type table keeps
+  --   child refs in range so the only competing earlier failure is the name
+  --   clash.
+  let dupTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Dup",
+      shape := .struct #[{ name := "a", typeId := 2 }] },
+    { id := 1, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
+    { id := 2, name := none, shape := .bool }
+  ]
+  let m3 ← programWithTypes "CtxConsM3NameDupBeforeMismatch" dupTypes #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]]
+  expectCfgErrCode "M3 named-name duplicate before consistency"
+    .duplicate m3
+  -- Mixed-invalid cross-callable phase order 4: ALL per-callable generic
+  --   CFG/op validation (the `.cfg` per-callable loop) must finish before the
+  --   global same-key consistency pass begins. The first callable has a valid
+  --   CFG but two ContextReads using the same key with Bool/UInt8 result
+  --   TypeIds (a global mismatch that only the post-loop consistency pass
+  --   would catch). The later callable carries a distinguishable generic
+  --   def-site TypeId out-of-range error (`.badReference`, step h). Because
+  --   the per-callable loop visits every callable before the global pass,
+  --   the later callable's `.badReference` must win over the first callable's
+  --   latent same-key mismatch. Both shipped structure and the structure-
+  --   gated encoder return `.badReference`; the phase seam pins it to `.cfg`
+  --   with `.badReference`.
+  let laterOor : CallableV1 :=
+    entryCallable
+      #[cfgInstr (some { valueId := 0, typeId := 99 })
+          (.literal 0 (ByteArray.mk #[0]))]
+      1 "runB"
+  let m4 ← programWithTypes "CtxConsM4CrossCallablePhase" types #[]
+    #[entryCallable
+        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey] 0 "runA",
+      laterOor]
+  expectCfgErrCode "M4 per-callable OOR before global consistency"
+    .badReference m4
+  expectCfgInvariantPhase "M4 cfg phase per-callable OOR"
+    .cfg .badReference m4
+  -- Phase: a same-key mismatch inside an invariant root must fail as `.cfg`
+  --   before the later invariant-closure ContextRead prohibition. The root
+  --   declares two ContextReads with the same key but different TypeIds;
+  --   generic op typing passes (result present, TypeIds in range), so the
+  --   consistency gate fires first.
+  let rootMismatch : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")
+      (resultTypeId := 0)) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          ctxRead 1 0 ctxKey,
+          ctxRead 2 1 ctxKey]
+        (.return_ (some 0))]
+      invariantSteps := some 7
+  }
+  let n8Base ← programWithTypes "CtxConsN8RootPhase" types #[] #[rootMismatch]
+  let n8 : SemanticProgramDataV1 := {
+    n8Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N8 consistency before invariant ContextRead prohibition" n8
+  expectCfgInvariantPhase "N8 cfg before invariant closure" .cfg .badCfg n8
+  -- Phase: valid ContextRead consistency (a single same-key Bool read) still
+  --   present in a reachable invariant-closure pureFn must fail at the
+  --   invariant-closure pureFn forbidden-op allowlist, not at the
+  --   consistency gate. The consistency pass must have accepted the program
+  --   up to that point.
+  let contextReader : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "contextReader"
+      invariantSteps := some 4
+  }
+  let invariantRoot : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 7
+  }
+  let n9Base ← programWithTypes "CtxConsN9ClosureValidConsistency" types #[]
+    #[contextReader, invariantRoot]
+  let n9 : SemanticProgramDataV1 := {
+    n9Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N9 valid consistency, closure ContextRead forbidden" n9
+  expectCfgInvariantPhase "N9 closure phase after valid consistency"
+    .invariantClosure .badCfg n9
+  -- Transport: hand-assemble a raw envelope carrying a same-key type
+  --   mismatch. `decodeSemanticProgramDataV1` is structure-free and must
+  --   accept and preserve it; structure gate, encoder, and carrier reject
+  --   with `.badCfg`.
+  let qn ← match parseQualifiedName #["Tests", "CtxConsTransport"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let qnB ← expectOk "tr qn" (encodeQualifiedName qn)
+  let typesB ← expectOk "tr types" (encodeArray encodeTypeDeclV1 types)
+  let emptyConsts ← expectOk "tr consts" (encodeArray encodeConstantV1 #[])
+  let emptyState ← expectOk "tr state" (encodeArray encodeStateDeclV1 #[])
+  let emptyEvents ← expectOk "tr events" (encodeArray encodeEventDeclV1 #[])
+  let emptyErrors ← expectOk "tr errors" (encodeArray encodeErrorDeclV1 #[])
+  let trCallable : CallableV1 :=
+    entryCallable
+      #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]
+  let callablesB ← expectOk "tr callables"
+    (encodeArray encodeCallableV1 #[trCallable])
+  let emptyInvariants ← expectOk "tr invariants"
+    (encodeArray encodeInvariantDeclV1 #[])
+  let reqB ← expectOk "tr reqs"
+    (encodeProgramRequirementsV1 { items := #[] })
+  let body ← expectOk "tr body" (encodeTagged "SemanticProgram.Data" #[
+    qnB, typesB, emptyConsts, emptyState, emptyEvents, emptyErrors,
+    callablesB, emptyInvariants, reqB
+  ])
+  let magic := semanticProgramMagicV1.toUTF8.push 0
+  let trBytes := magic.append body
+  let decoded ← expectOk "transport accepts same-key mismatch"
+    (decodeSemanticProgramDataV1 trBytes)
+  -- Transport is structure-free and must preserve the exact payload.
+  expect (decoded.qualifiedName == qn) "transport qualifiedName preserved"
+  expect (decoded.types == types) "transport types preserved"
+  expect (decoded.callables == #[trCallable])
+    "transport callables preserved"
+  expectErr "structure rejects same-key mismatch" .badCfg
+    (validateSemanticProgramStructureV1 decoded)
+  expectErr "encoder rejects same-key mismatch" .badCfg
+    (encodeSemanticProgramDataV1 decoded)
+  expectErr "carrier rejects same-key mismatch" .badCfg
+    (decodeSemanticProgramV1 trBytes)
+  -- Resource: ~2000 ContextRead occurrences (1000 repeats of one key with
+  --   the same Bool TypeId, plus 1000 distinct keys each carrying the UInt8
+  --   TypeId) must stay bounded; every key uses a single consistent TypeId,
+  --   so the global consistency gate stays green. `expectCfgOk` exercises the
+  --   structure + encode dual path. This guards expected O(occurrences) time
+  --   and O(distinct keys) space.
+  let mut instrs : Array InstructionV1 := #[]
+  let mut vid : ValueIdV1 := 0
+  for _ in [:1000] do
+    instrs := instrs.push (ctxRead vid 0 ctxKey)
+    vid := vid + 1
+  for i in [:1000] do
+    let dk ← match parseSchemaId s!"proof-forge.ctx.k{i}.v1" with
+      | .ok key => pure key
+      | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+    instrs := instrs.push (ctxRead vid 1 dk)
+    vid := vid + 1
+  -- The single entry callable must terminate; the large instruction array
+  --   keeps all ValueIds distinct so SSA remains valid.
+  let resourceCallable : CallableV1 := {
+    (cfgCallableKindName .entry (some "run")
+      (resultTypeId := 0)) with
+      id := 0
+      blocks := #[cfgBlockInstrs 0 instrs (.return_ none)] }
+  let r ← programWithTypes "CtxConsResource" types #[] #[resourceCallable]
+  expectCfgOk "resource 2000 reads bounded" r
+
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
     Emit/ExternalCall/Schedule instruction must carry the next contiguous
     EffectId in BlockId/instruction order, starting at zero. -/
@@ -8761,6 +9103,7 @@ def run : IO Unit := do
   testCfgRevertTyping
   testCfgEmitTyping
   testCfgExternalCalleeShape
+  testCfgContextReadResultTypeConsistency
   testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 
