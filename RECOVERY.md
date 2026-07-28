@@ -50,8 +50,9 @@ ValidatedSourceV1
   缺失不再阻塞 EVM，而 release checker 继续要求完整 global bundle。这仍是 alpha
   Typed/Semantic/Plan/Output 路径，不代表正式 D1–D4 contract 或 task completion；本切片也未新增
   Anvil runtime 结论。
-- 旧 Lean command/export/Loader API 仍仅供历史 characterization tests，未被产品 CLI 调用；
-  它们已列入矩阵的D1退役清单，只有ProgramV1替代门禁通过后才删除。
+- Legacy source-reading 与 v1 export API 已删除：`parseProgramsV1`/`selectProgramV1` 与
+  v2 ProgramExport payload 是 sole source-reading/export 权威；残余 alpha Typed/Semantic
+  backend carrier 仅在 `CompiledProgramV1` dual-carrier 之后供 target Plan/IR 使用。
 - [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 已逐项记录 D1–D4 的 requirement、实现文件、
   产品接线、测试事实、缺口和删除门槛；formal仍为0/27 done。
 - [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 已确认 qualification 子系统为

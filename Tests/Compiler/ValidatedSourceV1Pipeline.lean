@@ -372,6 +372,26 @@ def run : IO Unit := do
   expectInvalid "dual duplicate V1 id"
     "dual-carrier: duplicate V1 requirement id 'state.persistent'"
     (validateDualCarrierConsistencyV1 dupIdCarrier goodAlpha)
+  -- Both same-id rows noncanonical (distinct wire keys, wrong version+digest): duplicate-id
+  -- precedence must win over version/digest mismatch (structure-valid carrier only).
+  let stateBothBad1 : RequirementRequestV1 := {
+    stateR with
+    version := { major := 2, minor := 0, patch := 0 }
+    digest := zeroDigest
+  }
+  let stateBothBad2 : RequirementRequestV1 := {
+    stateR with
+    version := { major := 3, minor := 0, patch := 0 }
+    digest := zeroDigest
+  }
+  let dupIdBothNoncanonical ← reencodeCarrier "dup V1 id both noncanonical" {
+    baseData with requirements := {
+      items := #[failR, stateBothBad1, stateBothBad2, arithR]
+    }
+  }
+  expectInvalid "dual duplicate V1 id both noncanonical"
+    "dual-carrier: duplicate V1 requirement id 'state.persistent'"
+    (validateDualCarrierConsistencyV1 dupIdBothNoncanonical goodAlpha)
   -- Equal-key V1 dups rejected by structure encode; empty carrier remains separate structure-invalid pin.
   match encodeSemanticProgramDataV1 {
       baseData with requirements := { items := #[failR, stateR, stateR] }

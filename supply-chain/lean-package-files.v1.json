@@ -21,9 +21,9 @@
       "sha256": "d0176a9cb9c67db56d1d4dbe7fb7e40509a90f4de8fdd296c0c7aa181278c70b"
     },
     {
-      "bytes": 10185,
+      "bytes": 10668,
       "path": "ProofForgeV2/Compiler/Pipeline.lean",
-      "sha256": "199be69b9cfcc099bfc1e7ccf757f8803ced17f326581347b9cfeb4b08d6d1c4"
+      "sha256": "80b035af9e7df220eb4062fdd4b4944016f3350774c126fd5924f0dac0a0b2b9"
     },
     {
       "bytes": 11436,

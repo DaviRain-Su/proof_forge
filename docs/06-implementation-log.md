@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-28
+updated: 2026-07-29
 normative: false
 ---
 
@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+
+## 2026-07-29 — D3/S5 dual-carrier committed-review repair (duplicate-id precedence)
+
+- Context/State：baseline `ad53e0bf74e940a3e5900508b4675c22d0ad057e`（D3/S5 dual-carrier cutover）；formal D1–D4 仍 0/27 done；本条为 committed-review repair only，**不是** SupportClaim/formal D3 完成。
+- RED/Changed（tests first）：`Tests/Compiler/ValidatedSourceV1Pipeline.lean` 新增 structure-valid same-id fixture：两条 `state.persistent` 行均非 canonical version/digest、wire key 互异（2.0.0+zero digest 与 3.0.0+zero digest），夹在 failR/arithR 之间；对 shipped Unit gate 断言 exact `dual-carrier: duplicate V1 requirement id 'state.persistent'`。既有 valid+invalid same-id fixture 与其余 dual-carrier 负例保持不变。
+- Production：`validateDualCarrierConsistencyV1` 在 structure validation 与 known-ID recognition 之后、version/digest/predicate 检查之前，无条件检测 V1 requirement id 重复，使双行同 id 且均坏 version/digest 时仍报告 duplicate-id（非 version mismatch）。unknown-id 单行与其余 exact error 字符串优先级保持。
+- Docs：`RECOVERY.md`「当前结果」修正为 legacy source-reading/v1 export 已删除，`parseProgramsV1`/`selectProgramV1` 与 v2 ProgramExport 为 sole authority，residual alpha 仅在 `CompiledProgramV1` 之后；本日志。
+- Boundary：无 CompiledProgramV1 API/catalog/materializer/CLI 变更；无 SupportClaim/resolver/BuildIdentity/OutputSetV1；formal D3 仍 pending。
 
 ## 2026-07-28 — D3/S5 CompiledProgramV1 dual-carrier product cutover
 

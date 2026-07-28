@@ -133,8 +133,9 @@ private def countV1Ids (items : Array RequirementRequestV1) (want : String) : Na
 
 /-- Engineering dual-carrier consistency gate (test seam + compile gate).
     Not SupportClaim / claim resolution. Validates structure-valid
-    SemanticProgramV1, then exact bidirectional equality of S2 catalog
-    requirement requests with residual alpha mapped constructors:
+    SemanticProgramV1, then (known-ID → unconditional duplicate-id →
+    version/digest/empty predicates) and exact bidirectional equality of S2
+    catalog requirement requests with residual alpha mapped constructors:
       state.persistent ↔ .persistentState
       value.checked-arithmetic ↔ .checkedArithmetic
       failure.atomic-rollback ↔ .transactionalRollback
@@ -149,12 +150,20 @@ def validateDualCarrierConsistencyV1
     | .error e =>
         invalid s!"dual-carrier: semantic structure invalid ({renderSemanticWireErrorSummaryV1 e})"
   let items := data.requirements.items
-  -- Validate each V1 request: known mapped id, exact version/digest, empty predicates, no dups.
+  -- Phase a: known-ID recognition (single unknown row precedes duplicate/version checks).
   for item in items do
     match mappedAlphaOfV1Id? item.id with
     | none =>
         return ← invalid s!"dual-carrier: unknown requirement id '{item.id}'"
     | some _ => pure ()
+  -- Phase b: duplicate V1 requirement identity — unconditional after known-ID recognition.
+  -- Same-id rows with distinct wire keys (version/digest) are structure-valid; report
+  -- duplicate before validating any repeated row's version, digest, or predicates.
+  for item in items do
+    unless countV1Ids items item.id == 1 do
+      return ← invalid s!"dual-carrier: duplicate V1 requirement id '{item.id}'"
+  -- Phase c: per-row version, digest, empty predicates (only after uniqueness is settled).
+  for item in items do
     unless item.version == s2RequirementVersionV1 do
       return ← invalid s!"dual-carrier: requirement '{item.id}' version mismatch"
     let expectedDigest ← match engineeringRequirementDigestV1 item.id with
@@ -164,8 +173,6 @@ def validateDualCarrierConsistencyV1
       return ← invalid s!"dual-carrier: requirement '{item.id}' digest mismatch"
     unless item.predicates.isEmpty do
       return ← invalid s!"dual-carrier: requirement '{item.id}' must have empty predicates"
-    unless countV1Ids items item.id == 1 do
-      return ← invalid s!"dual-carrier: duplicate V1 requirement id '{item.id}'"
   -- Mapped alpha constructors: multiplicity 0 or 1; no duplicates among the three.
   for alphaReq in #[ProgramRequirement.persistentState,
       .checkedArithmetic, .transactionalRollback] do
