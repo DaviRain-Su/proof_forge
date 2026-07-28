@@ -58,6 +58,8 @@ import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Semantic.InvariantABI
+import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Language.Loader

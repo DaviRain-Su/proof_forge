@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 2796,
+      "bytes": 2879,
       "path": "ProofForgeV2.lean",
-      "sha256": "bb2abe69dff08695ef50da2dc7263f9b66e739146198dd22bf1c14c3e15a5d3e"
+      "sha256": "09fd6d65209641208b94529349f41bb7f60533ae9b85b1e74122446055586054"
     },
     {
       "bytes": 8869,
@@ -121,6 +121,11 @@
       "sha256": "298982e8606f44166175629f783c9265f6bc02abd88964dce4bb506bbf76a7fd"
     },
     {
+      "bytes": 8879,
+      "path": "ProofForgeV2/Semantic/InvariantABI.lean",
+      "sha256": "bff1ab3c7d5a8358d05544d75b37b1b265c7bede63b27cfb30485d53d856257c"
+    },
+    {
       "bytes": 25219,
       "path": "ProofForgeV2/Semantic/NormalizeV1.lean",
       "sha256": "ec5ae330caa1cf9208c63f46fe7dca2603aceb57b4aed19d34f04783c8ce2bf5"
@@ -129,6 +134,11 @@
       "bytes": 45956,
       "path": "ProofForgeV2/Semantic/ProvenanceV1.lean",
       "sha256": "db61bf767e1cc1ead6fbc106be3cf66abbb64a32c5e6dfc61d276e42d6f4e49c"
+    },
+    {
+      "bytes": 45467,
+      "path": "ProofForgeV2/Semantic/ReferenceV1.lean",
+      "sha256": "468c7e34dd8ed1b467ebf972bd562346ff445bb46f2f10c01da4d94f132ea20f"
     },
     {
       "bytes": 12896,

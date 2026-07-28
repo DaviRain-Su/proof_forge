@@ -20,6 +20,8 @@ import Tests.Typed.DisclosureCheckV1
 import Tests.Typed.RequirementsInferV1
 import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
+import Tests.Semantic.InvariantABI
+import Tests.Semantic.ReferenceV1
 import Tests.Language.ProgramExports
 import Tests.Language.ProgramExportAcceptance
 import Tests.Language.ProgramExportAcceptanceEmpty
@@ -122,6 +124,8 @@ unsafe def main : IO Unit := do
   Tests.Typed.RequirementsInferV1.run
   Tests.Typed.CheckV1.run
   Tests.Semantic.WireV1.run
+  Tests.Semantic.InvariantABI.run
+  Tests.Semantic.ReferenceV1.run
   Tests.Language.ProgramExports.run
   Tests.Language.ProgramExportAcceptance.run
   Tests.Language.ProgramExportAcceptanceEmpty.run

@@ -32,6 +32,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Typed.RequirementsInferV1,
     `Tests.Typed.CheckV1,
     `Tests.Semantic.WireV1,
+    `Tests.Semantic.InvariantABI,
+    `Tests.Semantic.ReferenceV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
     `Tests.Language.ProgramExportFixtures.B,
