@@ -185,7 +185,9 @@ unsafe def run : IO Unit := do
   -- Field with the only supported identifier.
   expectType session "field" "  state s : Field bn254_fr\n" (.field bn254_fr)
 
-  -- Option and Array special forms.
+  -- Option and Array forms via sole portableType|prefixType surface (no
+  -- fixed-depth combo alternatives). Shallow Array/Option/Field/Bytes must
+  -- still parse after B1R fixed-combo deletion.
   expectType session "option-primitive" "  state s : Option UInt64\n"
     (.option (.uint 64))
   expectType session "array-primitive" "  state s : Array UInt64 4\n"
@@ -202,6 +204,30 @@ unsafe def run : IO Unit := do
     (.option (.option (.uint 64)))
   expectType session "array-array" "  state s : Array Array UInt64 2 3\n"
     (.array (.array (.uint 64) 2) 3)
+  -- Explicit shallow regression matrix: each form is carried only by
+  -- portableType (Field/Bytes atoms) or prefixType (Option/Array prefix).
+  expectType session "shallow-option-bool" "  state s : Option Bool\n"
+    (.option .bool)
+  expectType session "shallow-array-bool" "  state s : Array Bool 1\n"
+    (.array .bool 1)
+  expectType session "shallow-field" "  state s : Field bn254_fr\n"
+    (.field bn254_fr)
+  expectType session "shallow-bytes" "  state s : Bytes 16\n"
+    (.bytes 16)
+  expectType session "shallow-option-field" "  state s : Option Field bn254_fr\n"
+    (.option (.field bn254_fr))
+  expectType session "shallow-option-bytes" "  state s : Option Bytes 8\n"
+    (.option (.bytes 8))
+  expectType session "shallow-array-field" "  state s : Array Field bn254_fr 2\n"
+    (.array (.field bn254_fr) 2)
+  expectType session "shallow-array-bytes" "  state s : Array Bytes 4 2\n"
+    (.array (.bytes 4) 2)
+  expectStructFieldType session "struct-shallow-array-option"
+    "    ao : Array Option Bool 1\n"
+    (.array (.option .bool) 1)
+  expectStructFieldType session "struct-shallow-option-array"
+    "    oa : Option Array Bool 1\n"
+    (.option (.array .bool 1))
 
   -- Map forms and recursive Option/Array containers over Map (full EBNF surface).
   expectType session "map-primitive" "  state s : Map UInt64 Bool\n"

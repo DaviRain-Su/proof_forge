@@ -341,6 +341,77 @@ unsafe def run : IO Unit := do
   expect (arrayMapTypePaths.size ≥ 6)
     s!"expected ≥6 nested container type nodes, got {arrayMapTypePaths.size}"
 
+  -- Nested type spans must equal visit count and be path-identical (already
+  -- checked above); additionally Map key span must precede value span.
+  let mapKeyValuePairs := recursiveExpected.zipIdx.filterMap fun (visit, idx) =>
+    if visit.constructorTag == "Type.Map" then some (visit, idx) else none
+  for (mapVisit, mapIdx) in mapKeyValuePairs do
+    let keyPath := mapVisit.path.push {
+      parentTag := "Type.Map", fieldTag := "key", index := 0
+    }
+    let valuePath := mapVisit.path.push {
+      parentTag := "Type.Map", fieldTag := "value", index := 0
+    }
+    let keyIdx ← match recursiveExpected.findIdx? fun v => v.path == keyPath with
+      | some i => pure i
+      | none => throw <| IO.userError "recursive Map key path missing"
+    let valueIdx ← match recursiveExpected.findIdx? fun v => v.path == valuePath with
+      | some i => pure i
+      | none => throw <| IO.userError "recursive Map value path missing"
+    expect (mapIdx < keyIdx && keyIdx < valueIdx)
+      "Map visit order must be Map then key then value"
+    let keySpan ← match recursiveSpans[keyIdx]? with
+      | some (_, span) => pure span
+      | none => throw <| IO.userError "recursive Map key span missing"
+    let valueSpan ← match recursiveSpans[valueIdx]? with
+      | some (_, span) => pure span
+      | none => throw <| IO.userError "recursive Map value span missing"
+    expect (spanStart keySpan ≤ spanStart valueSpan)
+      "Map key span start must precede or equal value span start in source order"
+
+  -- Same-node-count tampered TypeV1 must fail closed on tag/path/count:
+  -- Array ↔ Option (both two type nodes when element is a leaf) and Map
+  -- key/value swap (three type nodes preserved).
+  let arrayStateSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "\n" ++
+    "program TamperTypes where\n" ++
+    "  state public arr : Array Bool 1\n" ++
+    "  state public mp : Map UInt8 Int8\n" ++
+    "  entry ok() : UInt64 do\n" ++
+    "    return 0\n"
+  let (arrayStateUnit, _) ← selectWithSpans session arrayStateSource none
+  let arrayStateCmd ← parseProgramCommand arrayStateSource
+  let tamperedArrayToOption : ProgramV1 :=
+    match arrayStateUnit.program.items.toList with
+    | [.state s0, .state s1, rest] =>
+        {
+          name := arrayStateUnit.program.name
+          items := #[
+            .state { s0 with type_ := .option .bool },
+            .state s1,
+            rest
+          ]
+        }
+    | _ => arrayStateUnit.program
+  expectSpanJoinError "same-count Array↔Option type tag"
+    (spanJoinV1 arrayStateSource arrayStateCmd tamperedArrayToOption)
+  let tamperedMapKeyValue : ProgramV1 :=
+    match arrayStateUnit.program.items.toList with
+    | [.state s0, .state s1, rest] =>
+        {
+          name := arrayStateUnit.program.name
+          items := #[
+            .state s0,
+            .state { s1 with type_ := .map (.int 8) (.uint 8) },
+            rest
+          ]
+        }
+    | _ => arrayStateUnit.program
+  expectSpanJoinError "same-count Map key/value swap"
+    (spanJoinV1 arrayStateSource arrayStateCmd tamperedMapKeyValue)
+
   IO.println "Tests.Language.ProgramV1SpanJoin: ok"
 
 end Tests.Language.ProgramV1SpanJoin
