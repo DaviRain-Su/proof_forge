@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-07-28
+updated: 2026-07-29
 normative: false
 ---
 
@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+
+## 2026-07-29 — B2 ProgramV1 source-bound engineering gate recovery
+
+- Context/State：legacy `Tests/Language/SourceBoundsAcceptance.lean` 已删除且 `dsl-negative` 仅作 quarantine inventory；Root-aware total program identity 溢出（`Root`+255 namespaces+decl = 257）曾落到 `PF-SRC-INVALID: source qualified name must contain 1..256 components`，与 SPEC 的 `PF-BOUND-001` 资源界不一致。本切片恢复完整 ProgramV1 source-bound 工程门禁，不碰 formal TASK/TST/EV。
+- RED/Changed（tests first）：新增 `Tests/Language/ProgramV1Bounds.lean` resident unit（仅 `parseProgramsV1`/`selectProgramV1` + Language preflight）。实现前真实 RED：`Root-inclusive identity 257: expected PF-BOUND-001: portable program identity exceeds nesting limit 256, got PF-SRC-INVALID: source qualified name must contain 1..256 components`。GREEN 后 resident 固定 syntax depth 256/257、nodes 100000/100001、identifier/Root-identity 256/257；300-term/20k-state/exact 16 MiB/combined overflow 仅在 CLI 子进程 gate，不进入 Fast/`dev-check` resident harness。
+- Production：`ProofForgeV2/Language/Syntax.lean` `decodeProgramV1Unchecked` 在 `programIdentity = module ++ namespace ++ shortName` 组装处若 size∉[1,maxSyntaxNesting] 直接 `CompileError.resourceBound` / `PF-BOUND-001: portable program identity exceeds nesting limit 256`，再调用 `sourceQualifiedNameV1OfComponents`；place/ident 路径的 shared `qnCountError` 仍映射 `invalidProgram`；保留 preflightSyntax 先于 identity。
+- CLI gate：更新 `scripts/generate_syntax_bound_fixtures.py` 为 Root-aware（accept d=254；identity-over-limit d=255；overLimit d=257；S1-compatible body；exact 16 MiB pad）；新增 `scripts/program_v1_source_bounds` + `just source-bounds`（真实 `proof-forge-next` + `--module Root`；失败零 artifact/无 success stdout；精确诊断；承载 300-term/20k-state/16 MiB±1）；`just ci` 显式包含 `source-bounds`，不触碰 quarantined `dsl-negative`。
+- Registration：`lakefile.lean` / `Tests.lean` / `Tests/Fast.lean` 注册 `ProgramV1Bounds`；`just sbom-package-files-refresh` 刷新 package-file pin。
+- Docs：`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` TASK-D1-06 证据行、本日志；formal 状态不变。
+- Verification：`lake build Tests.Language.ProgramV1Bounds proof_forge_next proof_forge_next_fast_tests`；fast harness；`just source-bounds`；`git diff --check`；`just docs-check`；`just dev-check`；`just ci`。
+- Boundary：formal TASK 仍 pending；无 SourceBoundsAcceptance 复活；无 dual reader/fallback；无 release/governance 路径。
 
 ## 2026-07-28 — B1R delete fixed-depth type parsers; decoder anchors + SpanJoin zip
 

@@ -969,23 +969,46 @@ private def leanNameComponentsV1 (name : Name) : Except String (Array SourceName
   else
     pure (NonEmptyArray.toArray (← sourceQualifiedNameV1FromLeanName name).components)
 
+/-- Total module+namespace+declaration identity overflow message (PF-BOUND-001). -/
+private def identityNestingLimitMessage : String :=
+  s!"portable program identity exceeds nesting limit {maxSyntaxNesting}"
+
+private def invalidProgramString (message : String) : CompileError :=
+  .invalidProgram message
+
 private def decodeProgramV1Unchecked
     (moduleName : SourceQualifiedNameV1) (currentNamespace : Name) : Syntax →
-    Except String ValidatedSourceV1
+    CompileResult ValidatedSourceV1
   | `(program $name:ident where $items:pfItem*) => do
       unless boundedNamePartCount 2 name.getId == some 1 do
-        throw "program name must be unqualified"
-      let shortName ← decodeNameV1 name
-      let namespaceComponents ← leanNameComponentsV1 currentNamespace
+        throw <| invalidProgramString "program name must be unqualified"
+      let shortName ← match decodeNameV1 name with
+        | .ok n => pure n
+        | .error message => throw <| invalidProgramString message
+      let namespaceComponents ← match leanNameComponentsV1 currentNamespace with
+        | .ok cs => pure cs
+        | .error message => throw <| invalidProgramString message
       let moduleComponents := NonEmptyArray.toArray moduleName.components
-      let identity ← sourceQualifiedNameV1OfComponents
-        ((moduleComponents ++ namespaceComponents).push shortName)
+      -- Structured identity-size resourceBound at the assembly site, before the
+      -- shared QualifiedName grammar constructor (qnCountError remains invalidProgram
+      -- for place/ident component helpers elsewhere).
+      let identityComponents := (moduleComponents ++ namespaceComponents).push shortName
+      if identityComponents.size < 1 || identityComponents.size > maxSyntaxNesting then
+        throw <| .resourceBound identityNestingLimitMessage
+      let identity ← match sourceQualifiedNameV1OfComponents identityComponents with
+        | .ok id => pure id
+        | .error message => throw <| invalidProgramString message
+      let decodedItems ← match items.mapM decodeItemV1Unchecked with
+        | .ok decoded => pure decoded
+        | .error message => throw <| invalidProgramString message
       let sourceProgram : ProgramV1 := {
         name := shortName
-        items := ← items.mapM decodeItemV1Unchecked
+        items := decodedItems
       }
-      validateSourceV1 moduleName identity sourceProgram
-  | _ => throw "expected a program declaration"
+      match validateSourceV1 moduleName identity sourceProgram with
+      | .ok source => pure source
+      | .error message => throw <| invalidProgramString message
+  | _ => throw <| invalidProgramString "expected a program declaration"
 
 /-- Direct recovery frontend for the supported ProgramV1 product slice. It
 constructs and validates ProgramV1 from Syntax without creating legacy source. -/
@@ -995,11 +1018,8 @@ def decodeProgramCommandV1Checked
   preflightSyntax stx
   let namespaceName ← match currentNamespace with
     | .bounded name => pure name
-    | .overLimit => .error (.resourceBound
-        s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
-  match decodeProgramV1Unchecked moduleName namespaceName stx with
-  | .ok source => pure source
-  | .error message => .error (.invalidProgram message)
+    | .overLimit => .error (.resourceBound identityNestingLimitMessage)
+  decodeProgramV1Unchecked moduleName namespaceName stx
 
 end ProgramV1Decoder
 

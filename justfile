@@ -627,6 +627,11 @@ product-negative: build
     rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
 
+# Dedicated ProgramV1 source-bound gate (B2). Independent of quarantined dsl-negative.
+# Real proof-forge-next CLI with explicit --module Root; heavy fixtures under build/.
+source-bounds: build
+    bash scripts/program_v1_source_bounds
+
 target-negative: build
     rm -rf build/v2/openvm-negative build/v2/tool-negative build/v2/tool-mismatch
     if lake env .lake/build/bin/proof-forge-next build-counter --target openvm -o build/v2/openvm-negative > build/openvm-negative.log 2>&1; then echo "research-only target unexpectedly built" >&2; exit 1; fi
@@ -683,7 +688,8 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-negative
+# source-bounds is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate (not dsl-negative).
+ci: docs-check build test product-negative source-bounds target-negative
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

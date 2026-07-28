@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# ProgramV1 source-bound engineering gate (B2).
+# Real proof-forge-next CLI with explicit --module Root.
+# Failures must leave zero artifact/output directory and no success stdout.
+# Compatible with macOS /bin/bash 3.2 (no associative arrays).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+CLI=(lake env .lake/build/bin/proof-forge-next)
+FIXTURE_DIR="build/program-v1-source-bounds"
+LOG_DIR="$FIXTURE_DIR/logs"
+
+rm -rf "$FIXTURE_DIR"
+/usr/bin/python3 -I -S scripts/generate_syntax_bound_fixtures.py "$FIXTURE_DIR"
+mkdir -p "$LOG_DIR"
+
+run_cli() {
+  local source="$1"
+  local out="$2"
+  set +e
+  "${CLI[@]}" build "$source" --module Root --root "$FIXTURE_DIR" --target solana -o "$out" \
+    >"$LOG_DIR/$source.cli.log" 2>&1
+  local ec=$?
+  set -e
+  return $ec
+}
+
+assert_no_output() {
+  local out="$1"
+  local label="$2"
+  if [[ -e "$FIXTURE_DIR/$out" ]]; then
+    echo "$label: unexpected output directory $FIXTURE_DIR/$out" >&2
+    exit 1
+  fi
+}
+
+assert_no_success_stdout() {
+  local log="$1"
+  local label="$2"
+  if rg -q '^built target=' "$log"; then
+    echo "$label: misleading success stdout in $log" >&2
+    exit 1
+  fi
+}
+
+exact_diag() {
+  local log="$1"
+  local expected="$2"
+  local label="$3"
+  local actual
+  actual="$(rg -o 'PF-(SRC-INVALID|BOUND-001):.*' "$log" | head -1 || true)"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "$label: expected diagnostic:" >&2
+    echo "  $expected" >&2
+    echo "got:" >&2
+    echo "  $actual" >&2
+    echo "full log:" >&2
+    cat "$log" >&2
+    exit 1
+  fi
+}
+
+expected_for() {
+  case "$1" in
+    identity-over-limit)
+      echo "PF-BOUND-001: portable program identity exceeds nesting limit 256"
+      ;;
+    namespace-over-limit)
+      echo "PF-BOUND-001: portable program identity exceeds nesting limit 256"
+      ;;
+    namespace-and-expression-over-limit)
+      echo "PF-BOUND-001: portable syntax exceeds nesting limit 256"
+      ;;
+    expression-over-limit)
+      echo "PF-BOUND-001: portable syntax exceeds nesting limit 256"
+      ;;
+    nodes-over-limit)
+      echo "PF-BOUND-001: portable syntax exceeds node limit 100000"
+      ;;
+    source-over-limit)
+      echo "PF-SRC-INVALID: source exceeds the 16 MiB limit"
+      ;;
+    *)
+      echo "unknown fixture: $1" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ---- Accept vectors (must fully succeed) ----
+for fixture in namespace-at-limit namespace-unwound-at-limit source-at-limit; do
+  out="${fixture}-out"
+  if ! run_cli "${fixture}.lean" "$out"; then
+    echo "$fixture: unexpected CLI failure" >&2
+    cat "$LOG_DIR/${fixture}.lean.cli.log" >&2
+    exit 1
+  fi
+  if [[ ! -d "$FIXTURE_DIR/$out" ]]; then
+    echo "$fixture: expected output directory missing" >&2
+    exit 1
+  fi
+  if ! rg -q '^built target=solana' "$LOG_DIR/${fixture}.lean.cli.log"; then
+    echo "$fixture: missing success stdout" >&2
+    cat "$LOG_DIR/${fixture}.lean.cli.log" >&2
+    exit 1
+  fi
+done
+
+# Exact 16 MiB UTF-8 size of accept fixture.
+AT_LIMIT_SIZE=$(wc -c < "$FIXTURE_DIR/source-at-limit.lean" | tr -d ' ')
+if [[ "$AT_LIMIT_SIZE" != "$((16 * 1024 * 1024))" ]]; then
+  echo "source-at-limit.lean size $AT_LIMIT_SIZE != 16 MiB" >&2
+  exit 1
+fi
+OVER_LIMIT_SIZE=$(wc -c < "$FIXTURE_DIR/source-over-limit.lean" | tr -d ' ')
+if [[ "$OVER_LIMIT_SIZE" != "$((16 * 1024 * 1024 + 1))" ]]; then
+  echo "source-over-limit.lean size $OVER_LIMIT_SIZE != 16 MiB+1" >&2
+  exit 1
+fi
+
+# ---- Failure vectors: exact diagnostics, zero output, no success stdout ----
+for fixture in identity-over-limit namespace-over-limit namespace-and-expression-over-limit \
+               expression-over-limit nodes-over-limit source-over-limit; do
+  out="${fixture}-out"
+  if run_cli "${fixture}.lean" "$out"; then
+    echo "$fixture: unexpectedly succeeded" >&2
+    cat "$LOG_DIR/${fixture}.lean.cli.log" >&2
+    exit 1
+  fi
+  assert_no_output "$out" "$fixture"
+  assert_no_success_stdout "$LOG_DIR/${fixture}.lean.cli.log" "$fixture"
+  exact_diag "$LOG_DIR/${fixture}.lean.cli.log" "$(expected_for "$fixture")" "$fixture"
+done
+
+echo "program_v1_source_bounds: ok"
