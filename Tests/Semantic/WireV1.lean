@@ -85,6 +85,41 @@ private def emptyProgram (name : String) : IO SemanticProgramDataV1 := do
     requirements := { items := #[] }
   }
 
+/-- Minimal valid `.entry` callable used to satisfy the SPEC §6 aggregate
+    entry/view presence gate in structure-gated fixtures that exercise an
+    unrelated phase. Its single block returns no value (`return_ none` is not
+    result-type-checked per SPEC §5.1), its `result.typeId` is 0 (always in
+    range for the non-empty type tables used by these fixtures), and its name
+    `entry_gate` is chosen to avoid collisions with test callable names.
+    `id` is supplied by the caller so it stays equal to the callable array
+    index. Self-contained so it can be referenced by early builders/tests. -/
+private def entryGateCallable (id : CallableIdV1) : CallableV1 :=
+  {
+    id
+    kind := .entry
+    name := some "entry_gate"
+    params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{ id := 0, params := #[], instructions := #[],
+                  terminator := .return_ none }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+/-- Bool type at TypeId 0 + one minimal `.entry` callable. This is the
+    smallest structurally valid program under the SPEC §6 entry/view presence
+    gate; it replaces the zero-callable `emptyProgram` as the base for
+    structure-gated encoder/carrier/hash/provenance/type/value/requirements
+    tests. `emptyProgram` remains available for raw transport fixtures and for
+    structure negatives intentionally rejected by an earlier phase before the
+    entry/view aggregate gate. -/
+private def minimalValidProgram (name : String) : IO SemanticProgramDataV1 := do
+  let data0 ← emptyProgram name
+  pure { data0 with
+    types := #[{ id := 0, name := none, shape := .bool }]
+    callables := #[entryGateCallable 0] }
+
 private def zeroDigest : Digest :=
   { algorithm := .sha256, bytes := ByteArray.mk (Array.replicate 32 (0 : UInt8)) }
 
@@ -123,12 +158,45 @@ private def testSchemaMagicConstants : IO Unit := do
   expect (maxNesting == 256) "maxNesting is 256"
 
 private def testEmptyProgramRoundtrip : IO Unit := do
-  let data ← emptyProgram "EmptySem"
-  let bytes ← expectOk "encode empty" (encodeSemanticProgramDataV1 data)
+  -- Zero-callable program: transport decode accepts and preserves it, but the
+  -- SPEC §6 entry/view presence gate makes it structurally invalid, so
+  -- encode, structure validation, and carrier decode all reject `.badCfg`.
+  -- This zero-callable use is the raw transport fixture for this test; other
+  -- `emptyProgram` uses may intentionally exercise earlier structure failures.
+  let zero ← emptyProgram "EmptySem"
+  let zQnB ← expectOk "zero qn" (encodeQualifiedName zero.qualifiedName)
+  let zEmptyTypes ← expectOk "zero types" (encodeArray encodeTypeDeclV1 #[])
+  let zEmptyConsts ← expectOk "zero consts" (encodeArray encodeConstantV1 #[])
+  let zEmptyState ← expectOk "zero state" (encodeArray encodeStateDeclV1 #[])
+  let zEmptyEvents ← expectOk "zero events" (encodeArray encodeEventDeclV1 #[])
+  let zEmptyErrors ← expectOk "zero errors" (encodeArray encodeErrorDeclV1 #[])
+  let zEmptyCallables ← expectOk "zero callables"
+    (encodeArray encodeCallableV1 #[])
+  let zEmptyInvs ← expectOk "zero invs" (encodeArray encodeInvariantDeclV1 #[])
+  let zEmptyReqs ← expectOk "zero reqs"
+    (encodeProgramRequirementsV1 { items := #[] })
+  let zeroBody ← expectOk "zero body" (encodeTagged "SemanticProgram.Data" #[
+    zQnB, zEmptyTypes, zEmptyConsts, zEmptyState, zEmptyEvents, zEmptyErrors,
+    zEmptyCallables, zEmptyInvs, zEmptyReqs
+  ])
+  let zeroBytes := (semanticProgramMagicV1.toUTF8.push 0).append zeroBody
+  let zeroDecoded ← expectOk "transport decode zero callables"
+    (decodeSemanticProgramDataV1 zeroBytes)
+  expect (zeroDecoded == zero) "transport preserves zero-callable envelope"
+  expectErr "structure rejects zero callables" .badCfg
+    (validateSemanticProgramStructureV1 zero)
+  expectErr "encode rejects zero callables" .badCfg
+    (encodeSemanticProgramDataV1 zero)
+  expectErr "carrier rejects zero callables" .badCfg
+    (decodeSemanticProgramV1 zeroBytes)
+  -- Minimal structurally valid program (one Bool type + one entry) round-trips
+  -- through encode/decode/carrier.
+  let data ← minimalValidProgram "MinimalSem"
+  let bytes ← expectOk "encode minimal" (encodeSemanticProgramDataV1 data)
   expect (startsWithMagic bytes semanticProgramMagicV1) "encode starts with program magic"
-  let decoded ← expectOk "decode empty" (decodeSemanticProgramDataV1 bytes)
+  let decoded ← expectOk "decode minimal" (decodeSemanticProgramDataV1 bytes)
   expect (decoded == data) "decode structural equality"
-  let carrier ← expectOk "decodeSemanticProgramV1" (decodeSemanticProgramV1 bytes)
+  let carrier ← expectOk "decodeSemanticProgramV1 minimal" (decodeSemanticProgramV1 bytes)
   expect (bytesEqual carrier.canonicalBytes bytes) "carrier bytes identity"
   -- trailing garbage
   expectErr "trailing" .trailingBytes
@@ -213,7 +281,11 @@ private def testProgramQualifiedNameShape : IO Unit := do
   let twoName ← match parseQualifiedName #["Example", "Program"] with
     | .ok n => pure n
     | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
-  let two := { single with qualifiedName := twoName }
+  -- `two`/`three` are structurally valid programs (valid multi-component name
+  -- plus a minimal entry callable); `single` stays zero-callable because its
+  -- single-component name fails at step 0 before the entry/view gate.
+  let validBase ← minimalValidProgram "OnlyProgram"
+  let two := { validBase with qualifiedName := twoName }
   let _ ← expectOk "two-component program name structure"
     (validateSemanticProgramStructureV1 two)
   let _ ← expectOk "two-component program name encode"
@@ -221,7 +293,7 @@ private def testProgramQualifiedNameShape : IO Unit := do
   let threeName ← match parseQualifiedName #["Org", "Example", "Program"] with
     | .ok n => pure n
     | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
-  let three := { single with qualifiedName := threeName }
+  let three := { validBase with qualifiedName := threeName }
   let _ ← expectOk "three-component program name structure"
     (validateSemanticProgramStructureV1 three)
   let _ ← expectOk "three-component program name encode"
@@ -229,9 +301,9 @@ private def testProgramQualifiedNameShape : IO Unit := do
   pure ()
 
 private def testSemanticHash : IO Unit := do
-  let data1 ← emptyProgram "EmptySem"
-  let data2 ← emptyProgram "EmptySem"
-  let data3 ← emptyProgram "OtherSem"
+  let data1 ← minimalValidProgram "EmptySem"
+  let data2 ← minimalValidProgram "EmptySem"
+  let data3 ← minimalValidProgram "OtherSem"
   let bytes1 ← expectOk "enc1" (encodeSemanticProgramDataV1 data1)
   let bytes2 ← expectOk "enc2" (encodeSemanticProgramDataV1 data2)
   let bytes3 ← expectOk "enc3" (encodeSemanticProgramDataV1 data3)
@@ -266,7 +338,7 @@ private def testProvenanceEnvelope : IO Unit := do
 
 private def testProvenanceValidateAlwaysBad : IO Unit := do
   let p ← emptyProvenance "EmptySem"
-  let data ← emptyProgram "EmptySem"
+  let data ← minimalValidProgram "EmptySem"
   let bytes ← expectOk "enc prog" (encodeSemanticProgramDataV1 data)
   let carrier ← expectOk "carrier" (decodeSemanticProgramV1 bytes)
   let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
@@ -292,14 +364,15 @@ private def testInvariantsProjectionInvalid : IO Unit := do
   let invalid : SemanticProgramV1 := ⟨ByteArray.empty⟩
   expect (SemanticProgramV1.invariants invalid == #[])
     "invalid carrier invariants projection is empty"
-  let data ← emptyProgram "EmptySem"
+  let data ← minimalValidProgram "EmptySem"
   let bytes ← expectOk "enc" (encodeSemanticProgramDataV1 data)
   let carrier ← expectOk "dec" (decodeSemanticProgramV1 bytes)
   expect (SemanticProgramV1.invariants carrier == #[])
-    "empty program invariants array is empty"
+    "valid program with no invariants projects empty array"
 
 private def testMinimalNestedTypeRoundtrip : IO Unit := do
   -- Non-empty nested TypeDecl table must fully round-trip (not silent-drop).
+  -- A minimal entry callable satisfies the SPEC §6 entry/view presence gate.
   let data0 ← emptyProgram "WithType"
   let data : SemanticProgramDataV1 := {
     data0 with
@@ -308,6 +381,7 @@ private def testMinimalNestedTypeRoundtrip : IO Unit := do
       name := none
       shape := .bool
     }]
+    callables := #[entryGateCallable 0]
   }
   let bytes ← expectOk "enc typed" (encodeSemanticProgramDataV1 data)
   let decoded ← expectOk "dec typed" (decodeSemanticProgramDataV1 bytes)
@@ -350,7 +424,7 @@ private def testStructureGateShallowRef : IO Unit := do
     (validateSemanticProgramStructureV1 badInv)
 
 private def testRequirementsDomainAndOrder : IO Unit := do
-  let data0 ← emptyProgram "Reqs"
+  let data0 ← minimalValidProgram "Reqs"
   -- positive: known CAP domain, sorted keys
   let okData : SemanticProgramDataV1 := {
     data0 with
@@ -418,7 +492,7 @@ private def testRequirementsDomainAndOrder : IO Unit := do
   expectOk "digest tie-break order" (validateSemanticProgramStructureV1 okDigestOrder)
 
 private def testRequirementPredicates : IO Unit := do
-  let data0 ← emptyProgram "Preds"
+  let data0 ← minimalValidProgram "Preds"
   -- positive sorted by name then rank
   let predsOk : Array RequirementPredicateV1 := #[
     .boolEquals "alpha" true,
@@ -540,12 +614,15 @@ private def testDecodeDataNoStructureGate : IO Unit := do
   -- validateSemanticProgramStructureV1 vs the module header).
   expectErr "structure rejects bad id" .duplicate
     (validateSemanticProgramStructureV1 bad)
-  let good ← emptyProgram "Transport"
+  let good ← minimalValidProgram "Transport"
   let bytes ← expectOk "good encode" (encodeSemanticProgramDataV1 good)
   let _ ← expectOk "transport decode good" (decodeSemanticProgramDataV1 bytes)
 
 private def testTypeShapePositives : IO Unit := do
   let data0 ← emptyProgram "TypeShapeOk"
+  -- Each positive adds a minimal entry callable (result typeId 0, always in
+  -- range) to satisfy the SPEC §6 entry/view presence gate; the type-shape
+  -- phase runs before callable signatures so the entry does not interfere.
   -- legal uint64 + bytes 0/4096
   let okWidths : SemanticProgramDataV1 := {
     data0 with
@@ -556,6 +633,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 3, name := none, shape := .bytes 4096 },
       { id := 4, name := none, shape := .array 0 4096 }
     ]
+    callables := #[entryGateCallable 0]
   }
   expectOk "widths/lengths structure" (validateSemanticProgramStructureV1 okWidths)
   let _ ← expectOk "widths/lengths encode" (encodeSemanticProgramDataV1 okWidths)
@@ -582,6 +660,7 @@ private def testTypeShapePositives : IO Unit := do
       },
       { id := 2, name := none, shape := .uint 32 }
     ]
+    callables := #[entryGateCallable 0]
   }
   expectOk "named struct/enum structure" (validateSemanticProgramStructureV1 okNamed)
   let bytesNamed ← expectOk "named struct/enum encode" (encodeSemanticProgramDataV1 okNamed)
@@ -590,6 +669,7 @@ private def testTypeShapePositives : IO Unit := do
   let okField : SemanticProgramDataV1 := {
     data0 with
     types := #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 }]
+    callables := #[entryGateCallable 0]
   }
   expect (bn254FrFieldSpecV1.id.value == bn254FrFieldIdV1) "field catalog id"
   expect (bn254FrFieldSpecV1.modulusBE == bn254FrModulusBEV1) "field catalog modulus"
@@ -607,6 +687,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 4, name := none, shape := .map 1 0 },
       { id := 5, name := none, shape := .map 2 1 }
     ]
+    callables := #[entryGateCallable 0]
   }
   expectOk "map primitive keys structure" (validateSemanticProgramStructureV1 okMapPrim)
   let _ ← expectOk "map primitive keys encode" (encodeSemanticProgramDataV1 okMapPrim)
@@ -623,6 +704,7 @@ private def testTypeShapePositives : IO Unit := do
       { id := 2, name := none, shape := .bool },
       { id := 3, name := none, shape := .map 0 2 }
     ]
+    callables := #[entryGateCallable 0]
   }
   expectOk "map struct key structure" (validateSemanticProgramStructureV1 okMapStruct)
   let _ ← expectOk "map struct key encode" (encodeSemanticProgramDataV1 okMapStruct)
@@ -890,11 +972,22 @@ private def constOf (id : ConstantIdV1) (name : String) (typeId : TypeIdV1)
     (valueBytes : ByteArray) : ConstantV1 :=
   { id, name, typeId, valueBytes }
 
+/-- Structure-gated program builder. Appends a minimal valid `.entry` callable
+    (`entryGateCallable`) so fixtures satisfy the SPEC §6 aggregate entry/view
+    presence gate while exercising an unrelated phase. The appended entry's
+    `id` equals `callables.size` (array index), and errors in the supplied
+    callables still fire first because all earlier gates run in source order.
+    Tests that need to exercise the entry/view presence gate itself use
+    `rawProgramWithTypes`, which does not append. -/
 private def programWithTypes (name : String) (types : Array TypeDeclV1)
     (constants : Array ConstantV1 := #[])
     (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
-  pure { data0 with types, constants, callables }
+  let entryId : CallableIdV1 := callables.size.toUInt32
+  pure { data0 with
+    types := types
+    constants := constants
+    callables := callables.push (entryGateCallable entryId) }
 
 private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CallableV1 :=
@@ -1199,13 +1292,15 @@ private def testValueBytesTransportRegression : IO Unit := do
     (validateSemanticProgramStructureV1 decoded)
   expectErr "encode rejects garbage valueBytes" .nonCanonical
     (encodeSemanticProgramDataV1 decoded)
-  -- Empty/minimal still green; provenance still always bad
-  let empty ← emptyProgram "VBEmptyStill"
-  expectValueOk "empty still" empty
+  -- Minimal structurally valid program still green; provenance still always
+  -- bad. (Zero-callable `emptyProgram` is no longer structurally valid under
+  -- the SPEC §6 entry/view presence gate.)
+  let empty ← minimalValidProgram "VBEmptyStill"
+  expectValueOk "minimal still" empty
   let p ← emptyProvenance "VBEmptyStill"
   let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
-  let enc ← expectOk "enc empty" (encodeSemanticProgramDataV1 empty)
-  let carrier ← expectOk "carrier empty" (decodeSemanticProgramV1 enc)
+  let enc ← expectOk "enc minimal" (encodeSemanticProgramDataV1 empty)
+  let carrier ← expectOk "carrier minimal" (decodeSemanticProgramV1 enc)
   expectErr "provenance still bad" .badProvenance
     (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
 
@@ -1393,6 +1488,23 @@ private def expectTypeKeyPhase (label : String)
     (phase : TypeKeyValidationPhaseV1) (code : SemanticWireErrorV1)
     (types : Array TypeDeclV1) : IO Unit := do
   match validateTypeKeyPhasesV1 types with
+  | .ok () =>
+      throw <| IO.userError s!"{label}: expected phase failure {repr phase}"
+  | .error failure =>
+      unless failure.phase == phase do
+        throw <| IO.userError
+          s!"{label}: expected phase {repr phase}, got {repr failure.phase}"
+      unless failure.error == code do
+        throw <| IO.userError
+          s!"{label}: expected error {repr code}, got {repr failure.error}"
+
+/-- Pin callable-signature precedence when neighboring checks share the public
+    `.badCfg` wire error. The production structure gate consumes this exact
+    non-serialized helper and erases only its phase. -/
+private def expectCallableSignaturePhase (label : String)
+    (phase : CallableSignatureValidationPhaseV1)
+    (code : SemanticWireErrorV1) (data : SemanticProgramDataV1) : IO Unit := do
+  match validateCallableSignaturePhasesV1 data.types data.callables with
   | .ok () =>
       throw <| IO.userError s!"{label}: expected phase failure {repr phase}"
   | .error failure =>
@@ -2081,6 +2193,193 @@ private def testCallableParameterNameUniqueness : IO Unit := do
   let n5 ← programWithTypes "ParamNameN5UniquenessFirst" cfgBoolTypes #[]
     #[badCfgCallable]
   expectCfgErr "N5 parameter names before def-site TypeId" n5
+
+/-! ### SPEC §6 aggregate callable entry/view presence
+
+    `SemanticProgramDataV1.callables` must contain at least one callable of
+    kind `.entry` or `.view`; a program with only initializers/pureFns/
+    invariants (or zero callables) has no externally invokable surface. This
+    is a structure-gate-only rule; raw `decodeSemanticProgramDataV1` transport
+    remains permissive. The gate runs after callable kind/name presence,
+    callable-name uniqueness, and per-callable parameter-name uniqueness, and
+    before initializer/invariant signature checks, CFG, and requirements.
+
+    The fixtures below use `rawProgramWithTypes`, which intentionally does NOT
+    append the auto-entry callable that the structure-gated `programWithTypes`
+    helper adds, so the aggregate gate is exercised directly. -/
+
+/-- Program builder that does NOT append an entry/view callable, for direct
+    exercise of the SPEC §6 entry/view presence aggregate gate. All other
+    structure-gated fixtures use `programWithTypes`, which appends a minimal
+    valid `.entry` callable so they satisfy the new gate. -/
+private def rawProgramWithTypes (name : String) (types : Array TypeDeclV1)
+    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
+  let data0 ← emptyProgram name
+  pure { data0 with types, callables }
+
+/-- SPEC-SEM-WIRE-001 §6 callables must contain at least one `.entry` or
+    `.view`. Positives: entry only; view only; initializer+entry;
+    pureFn/invariant plus a later view. Negatives: zero callables;
+    initializer only; pureFn only; invariant only (with valid metadata/join);
+    initializer+pureFn+invariant but no entry/view. Stable-order mixed-invalid
+    cases pin the phase seam: malformed callable kind/name, duplicate named
+    callable, and duplicate parameter name all precede the new aggregate gate;
+    absence of entry/view precedes duplicate initializer, malformed invariant
+    signature/join, generic CFG error, and bad requirements. Transport decode
+    of a hand-built zero-callable envelope remains permissive while structure
+    validator, encoder, and carrier decoder reject `.badCfg`. -/
+private def testCallableEntryViewPresence : IO Unit := do
+  let boolUnitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .unit }]
+  -- Positives: each program has at least one entry/view and is otherwise
+  -- fully valid under existing gates.
+  let p1 ← rawProgramWithTypes "EntryViewP1Entry" cfgBoolTypes
+    #[cfgCallableKindName .entry (some "run")]
+  expectCfgOk "P1 entry only" p1
+  let p2 ← rawProgramWithTypes "EntryViewP2View" cfgBoolTypes
+    #[cfgCallableKindName .view (some "read")]
+  expectCfgOk "P2 view only" p2
+  let p3 ← rawProgramWithTypes "EntryViewP3InitEntry" boolUnitTypes
+    #[cfgCallableKindName .initializer none 1,
+      { (cfgCallableKindName .entry (some "run")) with id := 1 }]
+  expectCfgOk "P3 initializer plus entry" p3
+  let p4Base ← rawProgramWithTypes "EntryViewP4PureInvView" cfgBoolTypes
+    #[cfgCallableKindName .pureFn (some "f"),
+      { (cfgCallableKindName .invariant (some "safe")) with id := 1 },
+      { (cfgCallableKindName .view (some "read")) with id := 2 }]
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P4 pureFn/invariant plus later view" p4
+  -- Negatives: no entry/view anywhere. Both shipped structure validator and
+  -- structure-gated encoder must reject `.badCfg`.
+  let n0 ← rawProgramWithTypes "EntryViewN0Zero" cfgBoolTypes
+  expectCfgErr "N0 zero callables" n0
+  let n1 ← rawProgramWithTypes "EntryViewN1InitOnly" boolUnitTypes
+    #[cfgCallableKindName .initializer none 1]
+  expectCfgErr "N1 initializer only" n1
+  let n2 ← rawProgramWithTypes "EntryViewN2PureOnly" cfgBoolTypes
+    #[cfgCallableKindName .pureFn (some "f")]
+  expectCfgErr "N2 pureFn only" n2
+  let n3Base ← rawProgramWithTypes "EntryViewN3InvariantOnly" cfgBoolTypes
+    #[cfgCallableKindName .invariant (some "safe")]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N3 invariant only with valid metadata/join" n3
+  let n4Base ← rawProgramWithTypes "EntryViewN4InitPureInv" boolUnitTypes
+    #[cfgCallableKindName .initializer none 1,
+      { (cfgCallableKindName .pureFn (some "f")) with id := 1 },
+      { (cfgCallableKindName .invariant (some "safe")) with id := 2 }]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N4 initializer+pureFn+invariant no entry/view" n4
+  -- Stable-order mixed-invalid: earlier callable-name/parameter gates precede
+  -- the new aggregate gate. Malformed kind/name on the first callable fires
+  -- before the absence-of-entry/view is observed on the whole table.
+  let n5 ← rawProgramWithTypes "EntryViewN5KindNameFirst" cfgBoolTypes
+    #[cfgCallableKindName .pureFn none,
+      { (cfgCallableKindName .pureFn (some "f")) with id := 1 }]
+  expectCfgErr "N5 malformed callable kind/name before aggregate gate" n5
+  expectCallableSignaturePhase "N5 kind/name phase"
+    .kindName .badCfg n5
+  let n6 ← rawProgramWithTypes "EntryViewN6DuplicateName" cfgBoolTypes
+    #[cfgCallableKindName .pureFn (some "dup"),
+      { (cfgCallableKindName .pureFn (some "dup")) with id := 1 }]
+  expectCfgErr "N6 duplicate named callable before aggregate gate" n6
+  expectCallableSignaturePhase "N6 callable-name phase"
+    .callableName .badCfg n6
+  let dupParam : ParameterV1 :=
+    { valueId := 0, name := "x", typeId := 0, visibility := .public_ }
+  let dupParamCallable : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f")) with
+      params := #[dupParam, { dupParam with valueId := 1 }]
+  }
+  let n7 ← rawProgramWithTypes "EntryViewN7DuplicateParam" cfgBoolTypes
+    #[dupParamCallable]
+  expectCfgErr "N7 duplicate parameter name before aggregate gate" n7
+  expectCallableSignaturePhase "N7 parameter-name phase"
+    .parameterName .badCfg n7
+  -- Stable-order mixed-invalid: absence of entry/view precedes later
+  -- initializer/invariant signature, CFG, and requirements gates. N8/N9 use
+  -- the production-consumed non-wire seam to distinguish same-`.badCfg`
+  -- signature subphases. N10/N11 additionally use distinguishable later public
+  -- errors (`.badReference`/`.badRequirement`), so the shipped dual paths
+  -- prove that the aggregate `.badCfg` wins before CFG/requirements.
+  let n8 ← rawProgramWithTypes "EntryViewN8BeforeDupInit" boolUnitTypes
+    #[cfgCallableKindName .initializer none 1,
+      { (cfgCallableKindName .initializer none 1) with id := 1 }]
+  expectCfgErr "N8 absence of entry/view before duplicate initializer" n8
+  expectCallableSignaturePhase "N8 entry/view before duplicate initializer"
+    .entryView .badCfg n8
+  let n9Base ← rawProgramWithTypes "EntryViewN9BeforeInvSig" cfgBoolTypes
+    #[{ (cfgCallableKindName .invariant (some "safe")) with
+        result := { typeId := 0, visibility := .private_ } }]
+  let n9 : SemanticProgramDataV1 := {
+    n9Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "N9 absence of entry/view before malformed invariant signature" n9
+  expectCallableSignaturePhase "N9 entry/view before invariant signature"
+    .entryView .badCfg n9
+  let n10BadCfg : CallableV1 := {
+    (cfgCallableKindName .pureFn (some "f")) with
+    blocks := #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 })
+        (.literal 0 (ByteArray.mk #[0]))]
+      (.return_ none)]
+  }
+  let n10 ← rawProgramWithTypes "EntryViewN10BeforeCfg" cfgBoolTypes
+    #[n10BadCfg]
+  expectCfgErrCode "N10 absence of entry/view before generic badReference"
+    .badCfg n10
+  expectCallableSignaturePhase "N10 entry/view before CFG"
+    .entryView .badCfg n10
+  let n11 ← rawProgramWithTypes "EntryViewN11BeforeReqs" cfgBoolTypes
+    #[cfgCallableKindName .pureFn (some "f")]
+  let n11Bad : SemanticProgramDataV1 := {
+    n11 with requirements := { items := #[req "notadomain.foo"] }
+  }
+  expectCfgErrCode "N11 absence of entry/view before bad requirements"
+    .badCfg n11Bad
+  expectCallableSignaturePhase "N11 entry/view before requirements"
+    .entryView .badCfg n11Bad
+  -- Transport decode of a hand-built zero-callable envelope is permissive:
+  -- `decodeSemanticProgramDataV1` accepts and exactly preserves it, while the
+  -- shipped structure validator, structure-gated encoder, and carrier decoder
+  -- all reject `.badCfg`.
+  let zeroData ← emptyProgram "EntryViewTransportZero"
+  let zQnB ← expectOk "transport qn" (encodeQualifiedName zeroData.qualifiedName)
+  let zTypesB ← expectOk "transport types"
+    (encodeArray encodeTypeDeclV1 #[])
+  let zConstsB ← expectOk "transport consts"
+    (encodeArray encodeConstantV1 #[])
+  let zStateB ← expectOk "transport state" (encodeArray encodeStateDeclV1 #[])
+  let zEventsB ← expectOk "transport events" (encodeArray encodeEventDeclV1 #[])
+  let zErrorsB ← expectOk "transport errors" (encodeArray encodeErrorDeclV1 #[])
+  let zCallablesB ← expectOk "transport callables"
+    (encodeArray encodeCallableV1 #[])
+  let zInvsB ← expectOk "transport invs"
+    (encodeArray encodeInvariantDeclV1 #[])
+  let zReqB ← expectOk "transport reqs"
+    (encodeProgramRequirementsV1 { items := #[] })
+  let zBody ← expectOk "transport body" (encodeTagged "SemanticProgram.Data" #[
+    zQnB, zTypesB, zConstsB, zStateB, zEventsB, zErrorsB,
+    zCallablesB, zInvsB, zReqB
+  ])
+  let zMagic := semanticProgramMagicV1.toUTF8.push 0
+  let zBytes := zMagic.append zBody
+  let zDecoded ← expectOk "transport decode zero callables"
+    (decodeSemanticProgramDataV1 zBytes)
+  expect (zDecoded == zeroData) "transport preserves zero-callable envelope"
+  expect (zDecoded.callables.isEmpty) "transport zero callables preserved"
+  expectErr "structure rejects zero callables" .badCfg
+    (validateSemanticProgramStructureV1 zDecoded)
+  expectErr "encode rejects zero callables" .badCfg
+    (encodeSemanticProgramDataV1 zDecoded)
+  expectErr "carrier rejects zero callables" .badCfg
+    (decodeSemanticProgramV1 zBytes)
 
 /-- SPEC-SEM-WIRE-001 §5/§6 named Struct/Enum TypeDecl names are
     exact-string unique within the named-type namespace. Full TypeKey closure,
@@ -5006,7 +5305,12 @@ private def programWithState (name : String) (types : Array TypeDeclV1)
     (constants : Array ConstantV1) (state : Array StateDeclV1)
     (callables : Array CallableV1) : IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
-  pure { data0 with types, constants, logicalState := state, callables }
+  let entryId : CallableIdV1 := callables.size.toUInt32
+  pure { data0 with
+    types := types
+    constants := constants
+    logicalState := state
+    callables := callables.push (entryGateCallable entryId) }
 
 /-- State row (id, name, typeId, visibility). -/
 private def stateRow (id : StateIdV1) (name : String) (typeId : TypeIdV1) :
@@ -5030,13 +5334,21 @@ private def programWithEvents (name : String) (types : Array TypeDeclV1)
     (events : Array EventDeclV1) (callables : Array CallableV1) :
     IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
-  pure { data0 with types, events, callables }
+  let entryId : CallableIdV1 := callables.size.toUInt32
+  pure { data0 with
+    types := types
+    events := events
+    callables := callables.push (entryGateCallable entryId) }
 
 private def programWithErrors (name : String) (types : Array TypeDeclV1)
     (errors : Array ErrorDeclV1) (callables : Array CallableV1) :
     IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
-  pure { data0 with types, errors, callables }
+  let entryId : CallableIdV1 := callables.size.toUInt32
+  pure { data0 with
+    types := types
+    errors := errors
+    callables := callables.push (entryGateCallable entryId) }
 
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     StateLoad is allowed, but StateStore is forbidden directly in an invariant
@@ -9048,6 +9360,7 @@ def run : IO Unit := do
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
+  testCallableEntryViewPresence
   testNamedTypeNameUniqueness
   testNamedTypePrefixRank
   testNamedBodyOptionCycleLegality

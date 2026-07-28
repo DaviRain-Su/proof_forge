@@ -4077,6 +4077,26 @@ private def validateCallableParameterNameUniquenessV1
       index := index + 1
   pure ()
 
+/-- SPEC §6 aggregate callable requirement: `callables` must contain at least
+    one callable of kind `.entry` or `.view`. A program with only
+    initializers/pureFns/invariants (or zero callables) has no externally
+    invokable surface and is structurally invalid. This bounded source-order
+    scan is O(callables)/O(1) and runs after callable kind/name presence,
+    callable-name uniqueness, and per-callable parameter-name uniqueness, but
+    before initializer/invariant signature checks, CFG, and requirements, so
+    those later gates only observe programs that already expose an entry/view.
+    `decodeSemanticProgramDataV1` transport remains permissive. -/
+private def validateCallableEntryViewPresenceV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let mut found := false
+  for callable in callables do
+    match callable.kind with
+    | .entry | .view => found := true
+    | _ => pure ()
+  unless found do
+    return ← err .badCfg
+  pure ()
+
 /-- At most one initializer callable may occur in source order (SPEC §6). -/
 private def validateInitializerCardinalityV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -4180,6 +4200,63 @@ private def validateInvariantRootStepsPresenceV1
       | some _ => pure ()
       | none => return ← err .badCfg
   pure ()
+
+/-- Stable non-serialized phases for the callable-signature segment. Several
+    neighboring checks intentionally share the public `.badCfg` wire error;
+    this seam makes their precedence observable to focused tests without
+    changing serialized or CLI behavior. -/
+inductive CallableSignatureValidationPhaseV1
+  | kindName
+  | callableName
+  | parameterName
+  | entryView
+  | specialSignature
+  deriving BEq, Repr
+
+/-- Callable-signature phase plus the unchanged public wire error. -/
+structure CallableSignatureValidationFailureV1 where
+  phase : CallableSignatureValidationPhaseV1
+  error : SemanticWireErrorV1
+  deriving BEq, Repr
+
+private def liftCallableSignatureValidationPhaseV1
+    (phase : CallableSignatureValidationPhaseV1)
+    (result : Except SemanticWireErrorV1 Unit) :
+    Except CallableSignatureValidationFailureV1 Unit :=
+  match result with
+  | .ok () => .ok ()
+  | .error wireError => .error { phase, error := wireError }
+
+/-- Exact callable-signature phase sequence consumed by the production
+    structure gate. The phase is never serialized; callers erase only it and
+    retain the existing `SemanticWireErrorV1`. Invariant declaration join stays
+    in its later post-signature position because it also depends on the
+    dedicated invariant table. -/
+def validateCallableSignaturePhasesV1 (types : Array TypeDeclV1)
+    (callables : Array CallableV1) :
+    Except CallableSignatureValidationFailureV1 Unit := do
+  liftCallableSignatureValidationPhaseV1 .kindName
+    (validateCallableKindNamePresenceV1 callables)
+  liftCallableSignatureValidationPhaseV1 .callableName
+    (validateCallableNameUniquenessV1 callables)
+  liftCallableSignatureValidationPhaseV1 .parameterName
+    (validateCallableParameterNameUniquenessV1 callables)
+  liftCallableSignatureValidationPhaseV1 .entryView
+    (validateCallableEntryViewPresenceV1 callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInitializerCardinalityV1 callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInitializerResultShapeV1 types callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInvariantResultShapeV1 types callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInvariantParameterShapeV1 callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInvariantLoopBoundsShapeV1 callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateNonClosureCallableInvariantStepsV1 callables)
+  liftCallableSignatureValidationPhaseV1 .specialSignature
+    (validateInvariantRootStepsPresenceV1 callables)
 
 /-- SPEC §8 bounded direct-op subset for invariant roots. After generic
     CFG/op typing, reject direct logical-state writes, context reads,
@@ -4822,24 +4899,15 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   validateEventNameUniquenessV1 data.events
   validateErrorNameUniquenessV1 data.errors
   validateInterfaceFieldNameUniquenessV1 data.events data.errors
-  -- 4.25) Callable name presence/uniqueness and per-callable parameter names.
-  validateCallableKindNamePresenceV1 data.callables
-  validateCallableNameUniquenessV1 data.callables
-  validateCallableParameterNameUniquenessV1 data.callables
-  -- 4.3) Special callable signatures: initializer is zero-or-one with a
-  --   Unit/public result; invariant has zero params, empty loopBounds, a
-  --   Bool/public result, and one source-order exact InvariantDecl row;
-  --   initializer/entry/view always carry no invariantSteps metadata, as do
-  --   all pureFns when no invariant root exists; every invariant root carries
-  --   some steps metadata. These checks still precede per-callable CFG
-  --   validation.
-  validateInitializerCardinalityV1 data.callables
-  validateInitializerResultShapeV1 data.types data.callables
-  validateInvariantResultShapeV1 data.types data.callables
-  validateInvariantParameterShapeV1 data.callables
-  validateInvariantLoopBoundsShapeV1 data.callables
-  validateNonClosureCallableInvariantStepsV1 data.callables
-  validateInvariantRootStepsPresenceV1 data.callables
+  -- 4.25–4.3) Callable kind/name → callable-name uniqueness → per-callable
+  --   parameter-name uniqueness → SPEC §6 entry/view aggregate presence →
+  --   initializer/invariant special signatures and invariantSteps metadata.
+  --   The production gate consumes the exact non-serialized phase seam so
+  --   focused tests can distinguish neighboring checks that share `.badCfg`;
+  --   only the phase is erased here. InvariantDecl exact join remains next.
+  match validateCallableSignaturePhasesV1 data.types data.callables with
+  | .ok () => pure ()
+  | .error failure => throw failure.error
   validateInvariantDeclarationJoinV1 data.callables data.invariants
   -- 4.5–4.75) Generic CFG/op typing → global ContextRead same-key result-
   --   TypeId consistency (§5.1, `.cfg`) → direct root restrictions + exact
