@@ -59,7 +59,8 @@ private def parseProfile (s : String) : IO CodegenProfileId :=
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
     (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
   let selection ← resolveBuildSelectionV1 target profile?
-  Targets.materializeResult selection compiled
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.materializeResult capability
 
 private def hasSubstr (haystack needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
@@ -547,6 +548,15 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (text.startsWith "target=evm\nprofile=evm-yul-solc-0.8.34-v1\n")
         s!"describe implemented evm, got {text}"
       expect (hasSubstr text "requirements=") "describe implemented includes requirements"
+      expect (hasSubstr text "failure.atomic-rollback")
+        "describe S2 ids from engineering support index"
+      expect (hasSubstr text "state.persistent") "describe includes state.persistent"
+      expect (hasSubstr text "value.checked-arithmetic")
+        "describe includes value.checked-arithmetic"
+      expect (!hasSubstr text "privateWitness")
+        "describe must not surface residual alpha privateWitness"
+      expect (!hasSubstr text "ProgramRequirement")
+        "describe uses S2 request identities, not alpha Repr"
   | .error e => throw <| IO.userError s!"describe evm: {e.render}"
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
@@ -594,7 +604,9 @@ private unsafe def testMaterializeIdentity : IO Unit := do
   let residual := CompiledProgramV1.alphaResidualOf compiled
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult <| resolveBuildSelectionV1 tid none
-    let output ← liftResult <| Targets.materializeResult selection compiled
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    let output ← liftResult <| Targets.materializeResult capability
     expect (!output.files.isEmpty) s!"{tid} must emit artifacts"
     expect (output.manifest.target == tid) s!"manifest target identity for {tid}"
     expect (output.manifest.sourceHash == residual.sourceHash)
@@ -614,14 +626,17 @@ private unsafe def testMaterializeIdentity : IO Unit := do
   | .error e => throw <| IO.userError s!"expected NOT-IMPLEMENTED, got {e.render}"
   | .ok _ => throw <| IO.userError "design-only must not resolve"
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
   let outputDir := System.FilePath.mk "build/v2/build-selection-emit"
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
-  let manifest ← ProofForgeV2.CLI.emitProgram selection compiled outputDir
+  let manifest ← ProofForgeV2.CLI.emitProgram capability outputDir
   expect (manifest.target == TargetId.solana) "emitProgram target identity"
   expect (manifest.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "emitProgram profile identity"
   let evmSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
-  let evmOut ← liftResult <| Targets.materializeResult evmSel compiled
+  let evmCap ← liftResult <| Targets.resolveEngineeringRequirementsV1 evmSel compiled
+  let evmOut ← liftResult <| Targets.materializeResult evmCap
   expect (evmOut.manifest.target.toString == "evm") "EVM manifest target wire"
   expect (evmOut.manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "EVM manifest profile wire"

@@ -78,6 +78,11 @@ structure TargetDescriptor where
   proofModel : ProofModel
   settlementModel : SettlementModel
   codegenProfile : CodegenProfileId
+  /-- Residual alpha backend defense / characterization list. Product support
+      authority is the engineering exact requirement resolver
+      (`RequirementResolverV1` static index + `resolveEngineeringRequirementsV1`),
+      not this field. Public residual target routes that read this list still
+      exist (next deletion gate: S6); formal SupportClaim still pending. -/
   supportedRequirements : Array ProgramRequirement
   -- No Inhabited: TargetId/CodegenProfileId have no default identity.
   deriving BEq, Repr

@@ -43,6 +43,12 @@ inductive CompileError where
   | unknownTarget (input : String)
   | targetNotImplemented (target : TargetKind)
   | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetKind)
+  /-- V1 request unknown / wrong version / wrong digest / no exact support.
+      Wire code `PF-REQ-UNSUPPORTED` (engineering resolver path; not SupportClaim). -/
+  | unsupportedRequirementV1 (message : String)
+  /-- Nonempty or unsatisfied requirement predicate.
+      Wire code `PF-REQ-PRECONDITION`. Empty-predicates-only engineering slice. -/
+  | requirementPrecondition (message : String)
   | invalidProgram (message : String)
   | resourceBound (message : String)
   | effectDisallowed (message : String)
@@ -66,6 +72,8 @@ def code : CompileError → String
   | .unknownTarget .. => "PF-TARGET-UNKNOWN"
   | .targetNotImplemented .. => "PF-TARGET-NOT-IMPLEMENTED"
   | .unsupportedRequirement .. => "PF-REQ-UNSUPPORTED"
+  | .unsupportedRequirementV1 .. => "PF-REQ-UNSUPPORTED"
+  | .requirementPrecondition .. => "PF-REQ-PRECONDITION"
   | .invalidProgram .. => "PF-SRC-INVALID"
   | .resourceBound .. => "PF-BOUND-001"
   | .effectDisallowed .. => "PF-EFFECT-001"
@@ -87,6 +95,8 @@ def message : CompileError → String
   | .targetNotImplemented target => s!"target '{target}' has research metadata but no compiler implementation"
   | .unsupportedRequirement requirement target =>
     s!"target '{target}' cannot preserve requirement '{requirement}'"
+  | .unsupportedRequirementV1 detail => detail
+  | .requirementPrecondition detail => detail
   | .invalidProgram detail => detail
   | .resourceBound detail => detail
   | .effectDisallowed detail => detail

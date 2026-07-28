@@ -93,6 +93,7 @@ import Tests.Language.SourceAstCanonicalRootDecodeV1
 import Tests.Language.FrontendParity
 import Tests.Language.Loader
 import Tests.Materialization.BuildSelectionV1
+import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.Targets
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.NearHostModel
@@ -198,6 +199,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceProgramWireUnknownTagGoldenV1.run
   Tests.Language.SourceSpan.run
   Tests.Materialization.BuildSelectionV1.run
+  Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.NearHostModel.run

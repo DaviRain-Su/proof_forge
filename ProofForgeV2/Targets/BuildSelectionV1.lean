@@ -226,9 +226,11 @@ private def findRegistration (index : StaticBuildSelectionIndexV1) (target : Tar
     Option StaticBuildRegistrationV1 :=
   index.registrations.find? (·.targetId == target)
 
-/-- Inspection-only selection fields. **Not** a materialize/emit capability:
-`materializeResult` / `emitProgram` require `ResolvedBuildSelectionV1`, which is
-minted only by product `resolveBuildSelectionV1` (sole private-ctor call site).
+/-- Inspection-only selection fields. **Not** a materialize/emit capability.
+`ResolvedBuildSelectionV1` is frozen target/profile identity only (sole private
+mint: product `resolveBuildSelectionV1`). Aggregate product `materializeResult`
+/ `emitProgram` require private `ResolvedEngineeringBuildV1` from
+`resolveEngineeringRequirementsV1` (selection is a prerequisite, not sufficient).
 Forged/alternate catalogs may produce inspections or registration rows only. -/
 structure BuildSelectionInspectionV1 where
   targetId : TargetId

@@ -1,5 +1,6 @@
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
@@ -52,7 +53,10 @@ unsafe def run : IO Unit := do
       let sel ← match resolveBuildSelectionV1 TargetId.solana none with
         | .ok s => pure s
         | .error e => throw <| IO.userError e.render
-      let _ ← ProofForgeV2.CLI.emitProgram sel compiled collision
+      let capability ← match Targets.resolveEngineeringRequirementsV1 sel compiled with
+        | .ok c => pure c
+        | .error e => throw <| IO.userError e.render
+      let _ ← ProofForgeV2.CLI.emitProgram capability collision
       pure false
     catch error =>
       pure (decide (((toString error).splitOn "PF-OUTPUT-COLLISION").length > 1))

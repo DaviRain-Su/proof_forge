@@ -17,9 +17,17 @@ def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit
       throw <| .invalidProgram s!"duplicate semantic requirement '{requirement}'"
     seen := seen.push requirement
 
-/-- Revalidate the public `ResolvedProgram` seam before target planning. The
-structure is intentionally inspectable, so a direct constructor call must not
-bypass descriptor equality or requirement support established by `resolve`. -/
+/-- Revalidate the public `ResolvedProgram` seam before target planning.
+
+    **Residual characterization / backend defense.** Shipped aggregate
+    materialize/emit require private `ResolvedEngineeringBuildV1` from
+    `resolveEngineeringRequirementsV1` (product support authority). These alpha
+    `supportedRequirements.contains` checks cannot grant aggregate/staging access
+    and must not become a parallel product resolver — but this public residual
+    seam still exists (not type-level impossibility of all alpha routes); next
+    deletion gate is S6 direct Plan cutover. A direct `ResolvedProgram`
+    constructor call must still not bypass descriptor equality or residual
+    backend support. Formal SupportClaim still pending. -/
 def validateResolved (kind : TargetKind) (expected : TargetDescriptor)
     (resolved : ResolvedProgram kind) : CompileResult Unit := do
   unless resolved.descriptor == expected do
@@ -33,6 +41,11 @@ def validateResolved (kind : TargetKind) (expected : TargetDescriptor)
     unless expected.supportedRequirements.contains requirement do
       throw <| .unsupportedRequirement requirement kind
 
+/-- Target-local residual resolve. **Engineering characterization seam** (public
+    residual route still exists; not product aggregate/staging authority).
+    Alpha `supportedRequirements.contains` is not product support authority —
+    shipped aggregate materialize/emit require `ResolvedEngineeringBuildV1`.
+    Next deletion gate: S6 direct Plan cutover. Formal still pending. -/
 def resolve (kind : TargetKind) (descriptor : TargetDescriptor) (program : SemanticProgram) :
     CompileResult (ResolvedProgram kind) := do
   unless descriptor.targetId == TargetId.ofKind kind do

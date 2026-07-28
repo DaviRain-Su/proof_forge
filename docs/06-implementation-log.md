@@ -13,6 +13,115 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-29 — D3/S5 exact-resolver dual-arg gate → Lean Environment reflection
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 保持；本条替换 Python source lexer 为 Lean Environment reflection durable API gate；**不** commit。
+- Authority（Lean，elaboration-time `run_cmd`）：
+  - Suite **显式 `import ProofForgeV2`（umbrella）**，elaboration Environment 含完整 shipped production
+    closure（非 selected submodule 子集）。Gate 仍只扫 public `Name` 前缀 `ProofForgeV2`。
+  - Umbrella coverage 断言：`env.contains`
+    `ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1`（旧 selected import 集外的稳定 public FQName；
+    不新增 evil production decl）。
+  - 遍历 `Environment.constants`；public = 前缀 + 非 `isPrivateName`；跳过 `isAuxRecursor` 与 non-value kinds。
+  - **Type 扫描 = 单一共享 total node budget**（`Array` worklist + `while`）：每 pop 一个 Expr 扣 1，
+    children 入队，不给 siblings 复制 fuel；覆盖全部 Expr constructors；预算内早发现 both → success；
+    预算耗尽 → deterministic `budgetExhausted`。Carrier FQNames：
+    `…ResolvedBuildSelectionV1` 与 `…CompiledProgramV1`。
+  - 资源上限（fail closed）：`dualArgMaxEnvConstants=2_000_000`、`dualArgMaxPrefixDecls=100_000`、
+    `dualArgMaxTypeExprNodes=100_000`。
+  - 产品前缀仅允许 exact `ProofForgeV2.Targets.resolveEngineeringRequirementsV1`；额外 hit `throwError` 列名。
+  - Self-test：`DualArgProbe` dual/single；**budget self-test**（wide shallow Nat app-spine 节点数 >
+    注入 small budget → exhaust；exact-node budget accept non-dual；synthetic dual/simple 仍分类正确）。
+- Just：text deletion + sole mint greps + `lake build` focused suite；**无** Python scanner。
+- Suite：runtime 不回调 `just`；Fast/dev/ci 编译运行 reflection gates。
+- Boundary：无 production API 行为变更；formal D3/SupportClaim 仍 pending。
+
+## 2026-07-29 — D3/S5 reflection gate repair (umbrella env + shared type budget)
+
+- Context/State：baseline `a0afcb395` 保持；修 reflection gate 两项；不 commit。
+- (1) Umbrella：`import ProofForgeV2` + coverage witness
+  `admitReferenceProgramSliceV1` 的 `env.contains`。
+- (2) Type walk 改为共享 total-node worklist（非 per-sibling fuel 递归）；budget self-test 固定 under/exact/dual。
+- Verification：`lake build Tests.Materialization.RequirementResolverV1`；deletion gate；fast/dev；docs/diff；ci；SBOM。
+- Boundary：Python 仍移除；formal D3 pending。
+
+## 2026-07-29 — D3/S5 reflection gate: CLI root + all typed kinds + alias-aware
+
+- Context/State：baseline `a0afcb395` 保持；不 commit。
+- Env coverage：额外 `import ProofForgeV2.CLI.Main`（不塞 umbrella）；`env.contains`
+  `ProofForgeV2.CLI.run` + 既有 ReferenceV1 umbrella witness。
+- **CLI importability**：top-level `main` 从 `CLI/Main.lean` 迁到 thin `CLI/Exe.lean`；
+  `lakefile` `proof_forge_next` root=`ProofForgeV2.CLI.Exe`，避免 test roots 的 `main` 冲突。
+  Product API 仍为 `ProofForgeV2.CLI.run`。
+- Surface kinds：扫描所有有 `info.type` 的 ConstantInfo；**仅 metadata 窄排除**（见下条 repair）。
+- Alias-aware：abbrev/`@[reducible]` 展开 + shared budget。Synthetic dual/single probes。
+- Docs：本条；Python 仍移除。
+
+## 2026-07-29 — D3/S5 reflection: drop name-spelling exclusions
+
+- Context/State：baseline `a0afcb395`；不 commit。
+- Removed blanket **name spelling** filters (`sizeOf` prefix、`_spec` suffix、`noConfusion`/`inj`
+  string match、`isInternalDetail` 名过滤)。
+- Remaining exclusions only：
+  - `isPrivateName`
+  - `isAuxRecursor` / `isNoConfusion` / kernel `.recInfo`
+  - non-ctor decls nested under `Environment.isConstructor` parent（constructor metadata，
+    非 sizeOf/inj 字面拼写）
+- Synthetic：public dual `probe_spec` 与 `sizeOfProbe` 必须命中；single `single_spec` /
+  `sizeOfOnlySelection` 不命中。Product gate 仍 sole `resolveEngineeringRequirementsV1`。
+- Verification：focused build、deletion gate、fast/dev、docs/diff、ci、SBOM。
+
+## 2026-07-29 — D3/S5 exact-resolver durable Lean API surface scanner repair
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 保持；本条为历史 Python lexer 切片（**已被上条 Environment reflection 取代**）；不 commit。
+- Changed（历史）：曾新增 `scripts/check_resolver_api_surface.py` 词法 dual-arg 扫描与 just `--self-test`/`--root`；现已删除。
+- Boundary：见上条 reflection gate。
+
+## 2026-07-29 — D3/S5 exact-resolver durable dual-arg full-header gate repair
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 保持；本条只修 durable gate weakness；不 commit。
+- Changed：`just requirement-resolver-deletion-gate` 用 `rg -U --pcre2` full-header 扫描替换 8 行窗口正反 regex：top-level `def`/`unsafe def` 到第一个 `:=` 的 tempered region 内同时出现 `ResolvedBuildSelectionV1` 与 `CompiledProgramV1`（顺序/same-line/任意行距无关；不扫 body）；`-o --replace '$1'` 输出 `path:line:defName`，sole whitelist=`ProofForgeV2/Targets/Registry.lean:…:resolveEngineeringRequirementsV1`。
+- Synthetic probes（shell variable/printf only，无 repo temp）：same-line dual-arg 必须命中 `evilSameLine`；reverse order 且中间 >8 pad 行必须命中 `evilReverseWide`；single-type 必须 miss。
+- Suite：`Tests/Materialization/RequirementResolverV1.lean` 删除重复旧 8-line dual-arg IO regex；`testDeletionContract` 真实执行同一 just recipe 并断言 sole hit + probes（非 pure theater）；authority 明确在 just/dev-check/ci。
+- Verification（已执行，仍未提交；HEAD `a0afcb395a6117be402df5f0f3f82229a8190d7f`）：`just requirement-resolver-deletion-gate` 打印 sole hit + probes ok；`proof-forge-next-fast-tests`/`proof-forge-next-tests` 含 suite 真实 just 调用；`just docs-check`/`git diff --check`；`just dev-check`；`just ci` 全绿。无 ProofForge 源文件增删 → SBOM pin 不变（未 refresh）。
+- Boundary：无 production Lean 行为变更；formal D3 仍 pending。
+
+## 2026-07-29 — D3/S5 exact-resolver final-review repair (empty-req capability + dual-arg order + residual seam wording)
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 保持不变；本条为 dirty exact-resolver slice 的 final-review repair；**不** commit/push/reset/checkout/amend；formal D1–D4 仍 0/27；**不是** SupportClaim/formal D3；**不**私有化四 target makePlan/lower/emit（S6 scope）。
+- RED/Changed：
+  - `Tests/Materialization/RequirementResolverV1.lean`：真实 S1 可 compile 的 stateless `Echo`（`entry echo(x:UInt64) return x`）sole-mint 路径 `compileValidatedSourceV1` → retained requirements empty → 四 target `resolveEngineeringRequirementsV1` → capability empty 必成功；EVM/Noir 真实 materialize 成功；Solana residual 对 empty-state 要求 initializer、Near residual 要求 non-empty state → 精确记录为 backend-limited、非 resolver 失败。另加 `Hold`（public state+init+view、无 arithmetic）distinct subset retained `state.persistent` 四 target capability+materialize（防硬编码 S2 三项）；wrong version/digest/predicate 仍 inspection-only。
+  - dual-arg deletion gate（just + suite IO）：扫描 `ResolvedBuildSelectionV1→CompiledProgramV1` **与** reverse order，合并 unique def-starts，仅允许 `Registry.resolveEngineeringRequirementsV1`；reverse-order scan 总执行并带 probe 日志/断言。
+- Wording（精确事实，非 overclaim）：AGENTS/RECOVERY/MIGRATION/Common/Protocol/Registry 澄清 shipped aggregate/CLI 仅 capability 后；public residual `Common.resolve`/target makePlan/lower/emit 表征 seam 仍存在、列为 S6 删除 gate；**不是**“类型上所有 alpha route 都不可能”；formal pending。
+- Production：保留 caller-subset 修复、sole mints、Fast 注册、既有 gates；无四 target API 变更。
+- Durable gate：`just requirement-resolver-deletion-gate` 仍在 `dev-check`/`ci`；order-independent dual-arg merge + reverse probe。
+- Verification（本 repair 已执行，仍未提交；HEAD 保持 `a0afcb395a6117be402df5f0f3f82229a8190d7f`）：`lake build Tests.Materialization.RequirementResolverV1`；focused modules Validated/BuildSelection/Targets/EvmSmoke/CLI.Emit/CounterV1Evm；`lake env .lake/build/bin/proof-forge-next-fast-tests`（含 RequirementResolverV1 empty-req+subset）；`just requirement-resolver-deletion-gate`（reverse-order scan executed rg exit 1）；`just sbom-package-files-refresh`（90 files）；`just docs-check`；`git diff --check`；`just dev-check`；`just ci`（含 full tests、product-negative、target-cli-positive/negative、deletion gate）全绿。
+- Boundary：formal TASK-D3-03/SupportClaim/BuildIdentity 仍 pending；无四 target API 变更；未 commit/push/reset/checkout/amend。
+
+## 2026-07-29 — D3/S5 exact-resolver repair (no caller request override)
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 上 dirty D3/S5 exact resolver slice 的 repair；formal D1–D4 仍 0/27；**不是** SupportClaim/formal D3。
+- RED/Changed（tests first）：`Tests/Materialization/RequirementResolverV1.lean` — `#check` 固定 sole mint 类型 `ResolvedBuildSelectionV1 → CompiledProgramV1 → CompileResult ResolvedEngineeringBuildV1`；Counter 四 target capability 断言 `requirementsOf ==` retained SemanticProgramV1 freeze（非 empty/subset）；zero-request 仅 `inspectResolveRequestsV1`/`inspectResolveWithSeedV1` inspection success；request 负例矩阵迁到 inspection seam；deletion/sole-mint rg 含 dual-arg whitelist 与 `CompiledProgramV1.mk`。
+- Production：删除 `resolveEngineeringRequirementsV1` 的 `requested?`/`ProgramRequirementsV1` 参数；product mint 总是 `validateSemanticProgramV1 (semanticV1Of compiled)` 后 exact resolve/store `data.requirements`；`materialize`/`emit` 仍仅 capability。
+- Durable gate：`just requirement-resolver-deletion-gate` 保留 checkSupport/selection+compiled materialize/emit 禁止；新增 ProofForgeV2 内 sole dual-arg public def whitelist=`resolveEngineeringRequirementsV1`（bounded multiline）；sole `ResolvedEngineeringBuildV1.mk`@Registry + sole `CompiledProgramV1.mk`@Pipeline near `compileValidatedSourceV1`。
+- Docs：本条；AGENTS/MIGRATION/RECOVERY 措辞与 retained-only exact mint 对齐（执行事实 only）。
+- Boundary：formal TASK-D3-03/SupportClaim 仍 pending。
+
+## 2026-07-29 — D3/S5 engineering exact requirement resolver vertical cutover
+
+- Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f`；formal D1–D4 仍 0/27 done；D3/S4 static build-selection 与 D3/S5 dual-carrier 已接线。本切片交付 **engineering exact requirement resolver vertical cutover**：**不是** SupportClaim / TargetRegistryV1 / formal resolver / BuildIdentity / OutputSetV1 / predicate implication。
+- RED/Changed（tests first）：新增 `Tests/Materialization/RequirementResolverV1.lean`（四行静态表、index 负例、seed 优先、request inspection 负例、Counter 四 target compile→selection→resolve→capability→materialize、CLI emit/describe S2 ids、descriptor parity、backend alpha defense characterization、executable deletion/sole-mint rg gates）。产品 consumer 机械迁移：`BuildSelectionV1`/`Targets`/`EvmSmoke`/`CLI.Emit`/`CounterV1Evm` 先 capability 再 materialize/emit；characterization 手建 alpha 仅 `Common.resolve`（已删 product `checkSupport`）。`Tests/Fast.lean` 注册并运行该 suite（`just dev-check`/`test-fast` 可见）。
+- Production：
+  - `ProofForgeV2/Targets/RequirementResolverV1.lean`：四 implemented (target,profile) 行 + 每行 S2 trio（`failure.atomic-rollback`/`state.persistent`/`value.checked-arithmetic`，SemVer 1.0.0、`engineeringRequirementDigestV1`、empty predicates）；`CompileResult` seed；DI 仅 rows/inspection；request path 在 uniqueness 后强制 strictly ascending ids，且 known-S2 优先于 predicates（unknown+predicates → `PF-REQ-UNSUPPORTED`）。
+  - `Targets/Registry.lean`：private-ctor `ResolvedEngineeringBuildV1`；sole mint `resolveEngineeringRequirementsV1 (selection, compiled)`（**仅** decode retained SemanticProgramV1 `data.requirements`，无 caller request override；capability 存储同一 retained freeze）；`materializeResult`/`materialize` 仅 capability；删除 `checkSupport` 与 selection+compiled overload。任意 request 矩阵仅 `inspectResolveRequestsV1`/`inspectResolveWithSeedV1` non-capability seam。
+  - `Compiler/Pipeline.lean`：public read-only `mappedAlphaOfV1Id?`/`v1IdOfMappedAlpha?` shared bridge（dual-carrier + resolver）；sole `CompiledProgramV1.mk` 于 `compileValidatedSourceV1`。
+  - `Core/Diagnostic.lean`：`unsupportedRequirementV1`→`PF-REQ-UNSUPPORTED`；`requirementPrecondition`→`PF-REQ-PRECONDITION`。
+  - CLI：`emitProgram` 仅 capability；build/build-counter 在 output path/staging 前调用 resolver；describe-target implemented 输出同源 S2 request identities（不再 alpha `ProgramRequirement` Repr / Noir privateWitness）。
+  - `Targets.Common`：alpha contains 注释为 post-capability backend defense only。
+  - `just requirement-resolver-deletion-gate`：rg 禁止 `def checkSupport` / selection+compiled materialize/emit 签名；sole dual-arg public def=`resolveEngineeringRequirementsV1`；sole `ResolvedEngineeringBuildV1.mk`@Registry 与 sole `CompiledProgramV1.mk`@Pipeline；接入 `dev-check` 与 `ci`。
+- Docs：AGENTS checkpoint / MIGRATION D3 行与 TASK-D3-03 engineering 列 / RECOVERY 完成段 / 本日志；`just target-cli-positive` describe-evm expected 改为 S2 ids。
+- Boundary：无 SupportClaim/claimDigest/predicate implication/registryDigest/BuildIdentity/network join/OutputSetV1；formal TASK-D3-03 仍 pending；四 target maturity/artifact 行为不变。
+
 ## 2026-07-29 — D3/S5 dual-carrier committed-review repair (duplicate-id precedence)
 
 - Context/State：baseline `ad53e0bf74e940a3e5900508b4675c22d0ad057e`（D3/S5 dual-carrier cutover）；formal D1–D4 仍 0/27 done；本条为 committed-review repair only，**不是** SupportClaim/formal D3 完成。

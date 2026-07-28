@@ -22,7 +22,8 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1) :
     CompileResult OutputSet := do
   let selection ← resolveBuildSelectionV1 target none
-  Targets.materializeResult selection compiled
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.materializeResult capability
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

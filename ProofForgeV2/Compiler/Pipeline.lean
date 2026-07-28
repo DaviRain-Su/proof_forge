@@ -111,15 +111,18 @@ def alphaResidualOf (c : CompiledProgramV1) : Semantic.Program := c.alphaResidua
 
 end CompiledProgramV1
 
-/-- Map closed S2 catalog requirement id to residual alpha constructor. -/
-private def mappedAlphaOfV1Id? (id : String) : Option ProgramRequirement :=
+/-- Public read-only engineering bridge: closed S2 catalog id → residual alpha
+    constructor. Shared by dual-carrier gate and engineering requirement resolver.
+    Not SupportClaim / formal CAP resolution. -/
+def mappedAlphaOfV1Id? (id : String) : Option ProgramRequirement :=
   if id == "state.persistent" then some .persistentState
   else if id == "value.checked-arithmetic" then some .checkedArithmetic
   else if id == "failure.atomic-rollback" then some .transactionalRollback
   else none
 
-/-- Inverse: alpha mapped constructor → S2 catalog id. -/
-private def v1IdOfMappedAlpha? : ProgramRequirement → Option String
+/-- Public read-only engineering bridge: residual alpha mapped constructor →
+    S2 catalog id. Shared by dual-carrier gate and engineering requirement resolver. -/
+def v1IdOfMappedAlpha? : ProgramRequirement → Option String
   | .persistentState => some "state.persistent"
   | .checkedArithmetic => some "value.checked-arithmetic"
   | .transactionalRollback => some "failure.atomic-rollback"

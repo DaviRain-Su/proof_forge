@@ -116,11 +116,13 @@ unsafe def run : IO Unit := do
   let first ← liftCompile "materialize EVM" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
       TargetId.evm none
-    Targets.materializeResult selection compiled)
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+    Targets.materializeResult capability)
   let second ← liftCompile "materialize EVM again" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
       TargetId.evm none
-    Targets.materializeResult selection compiled)
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+    Targets.materializeResult capability)
   expect (first == second)
     "ProgramV1 EVM materialization must be deterministic"
   expect (first.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])

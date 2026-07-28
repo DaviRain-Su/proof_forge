@@ -61,20 +61,27 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
       options.programName)
   let compiled ← liftCompileResult
     (Compiler.compileValidatedSourceV1 sourceProgram)
+  -- Product phase: selection → compile → resolve engineering requirements →
+  -- capability → emit. Resolver runs before output path/staging.
+  let capability ← liftCompileResult
+    (Targets.resolveEngineeringRequirementsV1 selection compiled)
   let requestedOutput := FilePath.mk (options.output.getD "build/v2")
   let outputPath := if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-  let manifest ← emitProgram selection compiled outputPath
+  let manifest ← emitProgram capability outputPath
   IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
 
 private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let selection ← resolveSelectionFromFlags
     { target := options.target, profile := options.profile }
-  let outputDir := FilePath.mk (options.output.getD "build/v2")
   let sourceProgram ← liftCompileResult (← Language.Loader.selectProgramV1
     Examples.counterSourceText "<built-in-counter>" Examples.counterModuleNameV1 none)
   let compiled ← liftCompileResult
     (Compiler.compileValidatedSourceV1 sourceProgram)
-  let manifest ← emitProgram selection compiled outputDir
+  -- Resolver before output path/staging.
+  let capability ← liftCompileResult
+    (Targets.resolveEngineeringRequirementsV1 selection compiled)
+  let outputDir := FilePath.mk (options.output.getD "build/v2")
+  let manifest ← emitProgram capability outputDir
   IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
 
 private def listTargets (includeDesignOnly : Bool) : IO Unit := do
@@ -98,4 +105,5 @@ unsafe def run (args : List String) : IO Unit := do
 
 end ProofForgeV2.CLI
 
-unsafe def main (args : List String) : IO Unit := ProofForgeV2.CLI.run args
+-- Top-level `main` lives in `ProofForgeV2.CLI.Exe` (lean_exe root) so this
+-- module can be imported by library/tests without colliding with test mains.

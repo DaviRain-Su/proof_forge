@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.CLI.Toolchain
 
@@ -8,6 +9,7 @@ namespace ProofForgeV2.CLI
 open ProofForgeV2 Targets System
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.RequirementResolverV1
 
 private def writeFileCreatingParent (path : FilePath) (contents : String) : IO Unit := do
   if let some parent := path.parent then
@@ -135,8 +137,10 @@ private def finalize (kind : TargetKind) (outputDir : FilePath) (programName : S
       evidence := s!"{other} is research-only and has no V2 materializer"
     }
 
-private def renderIntoStaging (selection : ResolvedBuildSelectionV1) (program : SemanticProgram)
-    (output : OutputSet) (stagingDir : FilePath) : IO OutputManifest := do
+private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
+    (program : SemanticProgram) (output : OutputSet) (stagingDir : FilePath) :
+    IO OutputManifest := do
+  let selection := Targets.ResolvedEngineeringBuildV1.selectionOf capability
   for file in output.files do
     writeFileCreatingParent (stagingDir / file.path) file.contents
   let finalization ← finalize selection.kind stagingDir program.name
@@ -160,17 +164,19 @@ private def renderIntoStaging (selection : ResolvedBuildSelectionV1) (program : 
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
   return manifest
 
-/-- Product emit path: dual-carrier `CompiledProgramV1` only. Residual alpha
-fields (name/sourceHash/semanticHash) keep artifact bytes and manifests stable. -/
-def emitProgram (selection : ResolvedBuildSelectionV1) (compiled : CompiledProgramV1)
+/-- Product emit path: private engineering capability only.
+    Residual alpha fields (name/sourceHash/semanticHash) keep artifact bytes and
+    manifests stable. No public `(selection, compiled)` overload. -/
+def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath) : IO OutputManifest := do
+  let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
   let program := CompiledProgramV1.alphaResidualOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
   -- backend may impose stricter ABI identifier rules, but path safety is a CLI
   -- boundary and must retain its stable diagnostic independently of target.
   unless validArtifactName program.name do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
-  let output ← match Targets.materializeResult selection compiled with
+  let output ← match Targets.materializeResult capability with
     | .ok output => pure output
     | .error error => throw <| IO.userError error.render
   validateOutputSet program output
@@ -193,7 +199,7 @@ def emitProgram (selection : ResolvedBuildSelectionV1) (compiled : CompiledProgr
   let pid ← IO.Process.getPID
   let staging ← createSiblingStaging parent name pid.toNat 0
   try
-    let manifest ← renderIntoStaging selection program output staging
+    let manifest ← renderIntoStaging capability program output staging
     -- Recheck immediately before publish. This closes the cooperative writer
     -- race and ensures a build without an explicit future `--force` mode never
     -- replaces user data. A non-empty destination created by another process
@@ -338,9 +344,16 @@ def parseListTargetsArgs (args : List String) : IO Bool :=
   | .ok b => pure b
   | .error msg => throw <| IO.userError msg
 
+/-- Format exact S2 request identities for describe-target product text. -/
+private def formatS2RequirementIds (ids : Array String) : String :=
+  let body := String.intercalate ", " ids.toList
+  s!"#[{body}]"
+
 /-- Implemented-registration describe join (shared by product describe + tests).
 Checks residual descriptor `targetId` and `codegenProfile` against the
-registration row. Design-only must not call this. -/
+registration row, then derives exact supported S2 request identities from the
+frozen engineering support index (not residual alpha
+`descriptor.supportedRequirements`). Design-only must not call this. -/
 def describeImplementedJoin
     (reg : StaticBuildRegistrationV1) (descriptor : TargetDescriptor) :
     CompileResult String := do
@@ -358,7 +371,8 @@ def describeImplementedJoin
   unless descriptor.codegenProfile == profile do
     throw <| .registryInvalid
       s!"descriptor profile diverges from static selection for '{reg.targetId}'"
-  pure s!"target={reg.targetId}\nprofile={profile}\nrequirements={repr descriptor.supportedRequirements}"
+  let s2Ids ← supportedS2RequestIdsForRegistrationV1 reg
+  pure s!"target={reg.targetId}\nprofile={profile}\nrequirements={formatS2RequirementIds s2Ids}"
 
 /-- Describe a registration row (product join path for residual descriptors). -/
 def describeRegistrationText (reg : StaticBuildRegistrationV1) : CompileResult String := do

@@ -112,6 +112,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.FrontendParity,
     `Tests.Language.Loader,
     `Tests.Materialization.BuildSelectionV1,
+    `Tests.Materialization.RequirementResolverV1,
     `Tests.Materialization.Targets,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,
@@ -124,7 +125,9 @@ lean_lib ProofForgeV2Tests where
 
 lean_exe proof_forge_next where
   exeName := "proof-forge-next"
-  root := `ProofForgeV2.CLI.Main
+  -- Thin root: top-level `main` only. Product CLI API is `ProofForgeV2.CLI.run`
+  -- in `ProofForgeV2.CLI.Main` (importable by tests without main collision).
+  root := `ProofForgeV2.CLI.Exe
   -- Parser / module loading pulls Init interpreter symbols (e.g. IO.getRandomBytes).
   supportInterpreter := true
 

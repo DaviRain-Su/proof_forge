@@ -84,6 +84,13 @@ just release-check      # 发布预检；非 eligible 主机应明确拒绝
 `just dev-check`/`just ci`和该层聚焦门禁通过后，才进入紧随其后的删除提交。最终目标是
 CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → OutputSetV1`，并让EVM在
 该唯一路径上完成locked solc与Anvil differential。当前工程权威为
-`CompiledProgramV1` dual-carrier（保留 structure-valid SemanticProgramV1 + residual alpha
-Plan/IR），**不是** SupportClaim/formal resolver 完成态。formal task状态与release
-qualification仍按各自真实条件变化，不由本恢复文档代签。
+`CompiledProgramV1` dual-carrier + engineering exact requirement resolver capability
+（`resolveEngineeringRequirementsV1 (selection, compiled)` → private
+`ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
+无 caller request override；静态四行 S2 support index）。**精确边界**：shipped
+aggregate/CLI `materialize`/`emit` 仅接受 capability（capability 之后再抽 residual
+alpha 做 Plan/IR）；**不是**“类型上所有 alpha route 都不可能”——public residual
+`Common.resolve` 与四 target `makePlan`/`lower`/`emit` 表征 seam 仍存在，列为下一
+删除 gate（S6 direct Plan cutover），formal 仍 pending。**不是** SupportClaim/formal
+resolver/BuildIdentity 完成态。formal task状态与release qualification仍按各自真实
+条件变化，不由本恢复文档代签。

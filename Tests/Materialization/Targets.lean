@@ -28,7 +28,9 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .error error => throw <| IO.userError error.render
 
 /-- Characterization helper: target-local resolve→makePlan→lower→emit on bare alpha.
-    Product aggregate `materializeResult` accepts only `CompiledProgramV1`. -/
+    Product aggregate `materializeResult` accepts only `ResolvedEngineeringBuildV1`.
+    Public residual resolve/makePlan/lower/emit still exist as engineering
+    characterization seams (S6 deletion gate), not product aggregate authority. -/
 private def materializeAlphaDirect (kind : TargetKind) (descriptor : TargetDescriptor)
     (sem : SemanticProgram) : CompileResult OutputSet := do
   let resolved ← Targets.resolve kind descriptor sem
@@ -61,15 +63,16 @@ private def materializeAlphaSelected (target : TargetId) (sem : SemanticProgram)
   let descriptor ← match Targets.descriptorForKind? selection.kind with
     | some d => pure d
     | none => .error <| .targetNotImplemented selection.kind
-  -- Support check mirrors product checkSupport without bare-alpha aggregate.
-  Targets.checkSupport selection sem
+  -- Characterization only: residual alpha backend defense via Common.resolve.
+  -- Not product aggregate authority (no checkSupport / no capability mint).
   materializeAlphaDirect selection.kind descriptor sem
 
-/-- Product aggregate path: CompiledProgramV1 only. -/
+/-- Product aggregate path: selection → resolveEngineeringRequirementsV1 → capability. -/
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
     (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
   let selection ← resolveBuildSelectionV1 target profile?
-  Targets.materializeResult selection compiled
+  let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+  Targets.materializeResult capability
 
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
@@ -197,9 +200,8 @@ unsafe def run : IO Unit := do
       "alpha-direct manifest must bind the decoded source"
     expect (output.manifest.semanticHash == counter.semanticHash)
       "alpha-direct manifest must bind the canonical semantics"
-  let noirSel ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
-  let unsupported := Targets.checkSupport noirSel counterWithCall
-  match unsupported with
+  -- Characterization: residual alpha backend defense rejects unsupported reqs.
+  match Targets.resolve .noir Targets.Noir.descriptor counterWithCall with
   | .error (.unsupportedRequirement .synchronousCall .noir) => pure ()
   | _ => throw <| IO.userError "Noir must reject synchronous chain calls"
   let privateCircuit ← liftResult <| materializeAlphaSelected TargetId.noir privateSum
@@ -245,8 +247,8 @@ unsafe def run : IO Unit := do
       .assertEqual (.input 4) (.temp 2)
     ])
     "Noir typed IR must preserve every checked PrivateSum4 addition"
-  let evmSelPrivate ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
-  match Targets.checkSupport evmSelPrivate privateSum with
+  -- Characterization: EVM residual alpha backend defense rejects privateWitness.
+  match Targets.resolve .evm Targets.Evm.descriptor privateSum with
   | .error (.unsupportedRequirement .privateWitness .evm) => pure ()
   | _ => throw <| IO.userError "EVM must reject private witness semantics instead of exposing it"
   let accumulatorOutput ← liftResult <| materializeAlphaSelected TargetId.evm accumulator

@@ -18,7 +18,90 @@ test-fast:
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 
-dev-check: docs-check build test-fast
+# D3/S5 engineering deletion + sole-mint gate (durable just/ci pin).
+# - no checkSupport def/call
+# - no selection+compiled materialize/emit product signatures
+# - sole ResolvedEngineeringBuildV1.mk in Registry.lean
+# - sole CompiledProgramV1.mk in Compiler/Pipeline.lean (compileValidatedSourceV1)
+# Dual-arg sole public API authority is Lean Environment reflection in
+# Tests/Materialization/RequirementResolverV1.lean (run_cmd product gate +
+# synthetic probe self-test). This recipe builds that module so reflection
+# runs even without full Fast/tests; suite runtime does not re-invoke this
+# recipe (one-way: no just↔suite cycle).
+# Public residual Common.resolve / target makePlan/lower/emit characterization
+# seams remain (S6 deletion gate).
+requirement-resolver-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # No fixed /tmp paths: capture rg output in shell variables only.
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "requirement-resolver-deletion-gate: forbidden pattern still present: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      # rg exit 1 = no matches (required); other exits are tool failure
+      if [[ $ec -ne 1 ]]; then
+        echo "requirement-resolver-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local must_path="$2"
+      local label="$3"
+      local hits ec count
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -ne 0 ]]; then
+        echo "requirement-resolver-deletion-gate: $label expected one match (rg exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
+        echo "requirement-resolver-deletion-gate: $label expected sole match in $must_path" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    # Line-anchored / call-site patterns so the suite's own string literals
+    # (and justfile commentary) do not self-fail the gate.
+    fail_if_match '^\s*def checkSupport\b' ProofForgeV2 Tests
+    fail_if_match '\bTargets\.checkSupport\b' ProofForgeV2 Tests
+    fail_if_match '^\s*def materializeResult \(selection' ProofForgeV2
+    fail_if_match '^\s*def materialize \(selection' ProofForgeV2
+    fail_if_match '^\s*def emitProgram \(selection' ProofForgeV2
+    # Sole mints (exact count + path whitelist).
+    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'Registry.lean' \
+      'ResolvedEngineeringBuildV1.mk'
+    expect_one_match 'CompiledProgramV1\.mk' 'Pipeline.lean' \
+      'CompiledProgramV1.mk'
+    # CompiledProgramV1.mk must sit near compileValidatedSourceV1 (sole mint site).
+    set +e
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 12 'CompiledProgramV1\.mk' ProofForgeV2/Compiler 2>&1)"
+    mk_ec=$?
+    set -e
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'compileValidatedSourceV1'; then
+      echo "requirement-resolver-deletion-gate: CompiledProgramV1.mk must be near compileValidatedSourceV1 in Compiler/Pipeline.lean" >&2
+      printf '%s\n' "$mk_ctx" >&2
+      exit 1
+    fi
+    # Lean Environment dual-arg reflection gate (elaboration-time run_cmd).
+    lake build Tests.Materialization.RequirementResolverV1
+    echo "requirement-resolver-deletion-gate: ok"
+
+dev-check: docs-check build test-fast requirement-resolver-deletion-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -638,7 +721,7 @@ target-cli-positive: build
 	printf '%b' 'aleo\tresearch-only\ncosmwasm\tresearch-only\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tresearch-only\nsolana\tplan-only\nsoroban\tresearch-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next describe-target evm > build/describe-evm.stdout
-	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[ProofForgeV2.ProgramRequirement.persistentState, ProofForgeV2.ProgramRequirement.checkedArithmetic,\n  ProofForgeV2.ProgramRequirement.transactionalRollback]\n' > build/describe-evm.expected
+	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.checked-arithmetic]\n' > build/describe-evm.expected
 	cmp -s build/describe-evm.expected build/describe-evm.stdout
 	lake env .lake/build/bin/proof-forge-next describe-target aleo > build/describe-aleo.stdout
 	printf '%b' 'target=aleo\nstatus=research-only\n' > build/describe-aleo.expected
@@ -740,7 +823,7 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative
+ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.
