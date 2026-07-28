@@ -13,6 +13,15 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-28 — B1 recursive Type surface via sole prefix-atom decoder
+
+- Context/State：engineering-only D1 type-surface closure。`decodeTypeV1At` 早已可构造递归 Option/Array/Map，但 `pfType` parser 的 `prefixType` 仅承载 `Map`，Array/Option 依赖 fixed-combo 与 `portableType`，故 `Array Map`/`Option Map`/更深 Option·Array 链在 parser 或 decoder 边界失败；struct field 另走受限 `pfAggregateMember`（`ident : ident` + 可选第二 atom + fixed-combo），不能拼写 Map/递归容器。本切片闭合完整 recursive Type surface（含 struct field）与 span/canonical identity，不改 formal TASK 状态、不引入第二 decoder/fallback、不提高 target maturity。
+- RED/Changed（tests first）：`Tests/Language/ProgramV1TypeSurface.lean` 将 `Array Map UInt64 Bool 4` / `Option Map UInt64 Bool` 从负例翻为正例，并新增更深嵌套正例（四层 Option、Option Array Map、Array Option Map、Map key Option Map、Array Array Map）、recursive-type canonical bytes/sourceHash non-aliasing（Array Map vs Option Map vs Map Array vs Map Option），以及 struct-field Map/Array Map/Option Map/嵌套与 Bytes/Field 正例与 struct-field malformed Map/Option 负例。`ProgramV1Declarations` 为 struct Pair 增加 mapPlain/arrayMap/optionMap 字段。`Tests/Language/ProgramV1SpanJoin.lean` 新增 recursive type program 的 span count/path 与 Type.Array/Map/Option 节点覆盖。实现前真实 RED：`array-map-element` → `PF-SRC-INVALID: Lean parser rejected source`；struct-field Map 在 embed 前同样 parser/decode 边界失败。
+- Production：`ProofForgeV2/Language/Syntax.lean` 将 `prefixType`（`default+1`）从仅 `Map` 扩展为 `Option|Array|Map` same-line prefix + `many (ident|numLit)`；`default+2` fixed-combo 仍优先匹配浅层已知形状；`aggregateField` 改为 `ident : categoryParser pfType`（嵌入 sole Type 表面），struct field 经既有 `collectTypeAtomSyntaxV1`→`decodeTypeV1At` 解码（字段名为首 atom），无第二 type 解释；fixed-combo aggregate 解析器保留为浅层优先匹配。`SpanJoinV1` 未改：atom flatten 已镜像 decoder。
+- Docs：`AGENTS.md` Engineering slice 与 `MIGRATION_MATRIX.md` TASK-D1-01/D1-03 事实行同步（recursive Type 含 struct-field）；本日志条目。
+- Verification：聚焦 `lake build Tests.Language.ProgramV1TypeSurface Tests.Language.ProgramV1SpanJoin Tests.Language.ProgramV1Declarations` 与 focused harness 通过；随后 `proof_forge_next_fast_tests`、sbom/diff/docs/dev-check/ci 按切片门禁执行。
+- Boundary：formal TASK-D1-03 仍 pending；不删除 fixed-combo parsers；不接线 Typed/Semantic/product maturity；无 second decoder/adapter/fallback。
+
 ## 2026-07-28 — D2-07 InvariantABI + admitted ReferenceV1 engineering subset (docs/umbrella integration)
 
 - Context/State：formal TASK-D2-07 / TST-SEM-002 / TST-SEM-003 仍 pending；D2 formal 7/7 pending；D1–D4 formal 仍 0/27 done。本切片交付 LogicalState/StateConforms 地基与 admitted primitive/effect 参考机工程子集，并完成 umbrella import + 矩阵/检查点/实现日志集成；**不**接线 product CLI/materializer，**不**导出正式 `step`，**不**伪称 formal 完成或提高 target maturity。

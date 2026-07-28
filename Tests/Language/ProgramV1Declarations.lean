@@ -36,6 +36,9 @@ private def source : String :=
   "    optionArray : Option Array UInt64 4\n" ++
   "    arrayArray : Array Array UInt64 2 3\n" ++
   "    arrayDeep : Array Option Option Field bn254_fr 4\n" ++
+  "    mapPlain : Map UInt64 Bool\n" ++
+  "    arrayMap : Array Map UInt64 Bool 4\n" ++
+  "    optionMap : Option Map UInt64 Bool\n" ++
   "  enum Choice where\n" ++
   "    | None\n" ++
   "    | Some(UInt64)\n" ++
@@ -103,7 +106,8 @@ unsafe def run : IO Unit := do
   | some (ProgramItemV1.struct declaration) =>
       match declaration.fields.toList with
       | [left, right, tagged, dotted, maybeField, nestedOption, optionBytes,
-          arrayPlain, arrayOption, optionArray, arrayArray, arrayDeep] =>
+          arrayPlain, arrayOption, optionArray, arrayArray, arrayDeep,
+          mapPlain, arrayMap, optionMap] =>
           let taggedOk :=
             match tagged.type_ with
             | .named name => name.raw == "Choice"
@@ -127,6 +131,9 @@ unsafe def run : IO Unit := do
             | .array (.option (.option (.field id))) length =>
                 id.raw == "bn254_fr" && length == 4
             | _ => false
+          let mapPlainOk := mapPlain.type_ == .map (.uint 64) .bool
+          let arrayMapOk := arrayMap.type_ == .array (.map (.uint 64) .bool) 4
+          let optionMapOk := optionMap.type_ == .option (.map (.uint 64) .bool)
           expect (declaration.name.raw == "Pair" && left.name.raw == "left" &&
               left.type_ == .uint 64 && right.name.raw == "right" &&
               right.type_ == .bool && tagged.name.raw == "tagged" && taggedOk &&
@@ -138,7 +145,10 @@ unsafe def run : IO Unit := do
               arrayOption.name.raw == "arrayOption" && arrayOptionOk &&
               optionArray.name.raw == "optionArray" && optionArrayOk &&
               arrayArray.name.raw == "arrayArray" && arrayArrayOk &&
-              arrayDeep.name.raw == "arrayDeep" && arrayDeepOk)
+              arrayDeep.name.raw == "arrayDeep" && arrayDeepOk &&
+              mapPlain.name.raw == "mapPlain" && mapPlainOk &&
+              arrayMap.name.raw == "arrayMap" && arrayMapOk &&
+              optionMap.name.raw == "optionMap" && optionMapOk)
             "struct fields did not retain source order and V1 types"
       | fields => throw <| IO.userError s!"struct fields are incomplete: {repr fields}"
   | other => throw <| IO.userError s!"item 1 is not StructDeclV1: {repr other}"

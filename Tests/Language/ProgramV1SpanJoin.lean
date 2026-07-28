@@ -304,6 +304,43 @@ unsafe def run : IO Unit := do
   expectSpanJoinError "tampered program count"
     (spanJoinV1 baseSource commandStx tamperedProgram)
 
+  -- Recursive Type surface (Array Map / Option Map / deeper nesting) must
+  -- join exact spans for every TypeV1 node without a second type interpretation.
+  let recursiveTypeSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "\n" ++
+    "program RecursiveTypes where\n" ++
+    "  state public arrMap : Array Map UInt64 Bool 4\n" ++
+    "  state public optMap : Option Map UInt64 Bool\n" ++
+    "  state public deep : Option Array Map UInt8 Int8 2\n" ++
+    "  entry ok() : UInt64 do\n" ++
+    "    return 0\n"
+  let (recursiveUnit, recursiveSpans) ←
+    selectWithSpans session recursiveTypeSource none
+  let recursiveExpected ← liftResult "recursive type visits"
+    (canonicalNodeVisitsV1 recursiveUnit.program)
+  expect (recursiveSpans.size == recursiveExpected.size)
+    s!"recursive type span count {recursiveSpans.size} must equal visit count {recursiveExpected.size}"
+  for ((path, _), visit) in recursiveSpans.zip recursiveExpected do
+    expect (path == visit.path)
+      s!"recursive type span path must match at {visit.constructorTag}"
+  -- Type constructor tags for nested Map/Array/Option must appear.
+  let typeTags := recursiveExpected.map (·.constructorTag)
+  expect (typeTags.any (· == "Type.Array"))
+    "recursive type program must emit Type.Array spans"
+  expect (typeTags.any (· == "Type.Map"))
+    "recursive type program must emit Type.Map spans"
+  expect (typeTags.any (· == "Type.Option"))
+    "recursive type program must emit Type.Option spans"
+  -- Nested Array Map must contribute both outer Array and inner Map type nodes
+  -- under the first state declaration type field.
+  let arrayMapTypePaths := recursiveExpected.filter fun visit =>
+    visit.constructorTag == "Type.Array" || visit.constructorTag == "Type.Map" ||
+      visit.constructorTag == "Type.Option"
+  expect (arrayMapTypePaths.size ≥ 6)
+    s!"expected ≥6 nested container type nodes, got {arrayMapTypePaths.size}"
+
   IO.println "Tests.Language.ProgramV1SpanJoin: ok"
 
 end Tests.Language.ProgramV1SpanJoin

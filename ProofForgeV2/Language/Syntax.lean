@@ -146,11 +146,17 @@ prevents the following program item from becoming part of the type. -/
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
     nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
     checkLineEq >> numLit >> checkLineEq >> numLit)
-/-- Same-line prefix-atom form for `Map K V`, where `K` and `V` are arbitrary
-nested prefix types. This gives the ProgramV1 surface the full recursive EBNF
-`Map` grammar while leaving the legacy decoder free to reject it. -/
+/-- Same-line prefix-atom form for recursive `Option` / `Array` / `Map`
+constructors. Payloads may nest arbitrary prefix types (including `Array Map`,
+`Option Map`, and deeper Option/Array chains). Fixed-combo parsers at
+`default+2` still take precedence for known shallow shapes; this rule at
+`default+1` closes the remaining recursive EBNF Type surface through the sole
+`collectTypeAtomSyntaxV1` → `decodeTypeV1At` decoder path. -/
 @[pfType_parser default+1] def prefixType := leading_parser
-  withPosition (nonReservedSymbol "Map " (includeIdent := true) >>
+  withPosition (
+    (nonReservedSymbol "Option " (includeIdent := true) <|>
+      nonReservedSymbol "Array " (includeIdent := true) <|>
+      nonReservedSymbol "Map " (includeIdent := true)) >>
     many (checkLineEq >> (ident <|> numLit)))
 
 declare_syntax_cat pfParam
@@ -283,11 +289,16 @@ syntax "emit " ident "(" pfExpr,* ")" : pfStmt
     checkLineEq >> " := " >> checkLineEq >> categoryParser `pfExpr 0)
 
 declare_syntax_cat pfAggregateMember
-/-- Field name, type introducer, optional same-line second type atom (ident or
-numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. -/
+/-- Struct field: name, colon, then the sole `pfType` surface (portable atoms,
+fixed-combo Array/Option shapes, and recursive Option/Array/Map prefix-atom).
+Terminated by linebreak so the next field starts cleanly. Field decode remains
+`collectTypeAtomSyntaxV1` → `decodeTypeV1At` with the field name as the first
+flattened atom — no second type decoder. -/
 @[pfAggregateMember_parser] def aggregateField := leading_parser
-  withPosition (ident >> " : " >> ident >>
-    (checkLinebreakBefore <|> checkLineEq >> (ident <|> numLit) >> checkLinebreakBefore))
+  withPosition (ident >> " : " >> categoryParser `pfType 0 >> checkLinebreakBefore)
+/-- Fixed-combo aggregate field forms (higher priority than the embedded `pfType`
+base). Kept for known shallow shapes; recursive Option/Array/Map nests are
+carried by the base rule via `prefixType`. -/
 @[pfAggregateMember_parser default+1] def arrayFieldAggregateField := leading_parser
   withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
     checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
