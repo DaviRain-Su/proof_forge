@@ -17,7 +17,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 |---|---|---|
 | D1 | `TASK-D1-01` blocked，D1-02..08 pending | ProgramV1 wire/hash/NodeId 地基很强；CLI 只接通窄 V1 decoder，Lean command/export 仍在旧轨，worker/diagnostic 未完成 |
 | D2 | 7/7 pending | ValidatedSourceV1/ProgramV1 产品路径已跑 CheckV1 + NormalizeV1 structure-gated SemanticProgramV1（**仅 S1 Counter-like 工程子集**）；residual alpha Typed/Semantic 仍供 alpha resolver/materializer；**D2-07 工程子集**已新增 `InvariantABI`（LogicalState/default/initial/conformance）与 admitted `ReferenceV1` primitive/effect 参考机（`admitReferenceProgramSliceV1` + `stepReferenceSliceV1`，直接消费 validated SemanticProgramV1，不经 alpha；**非** formal `step` / TST-SEM-002/003）；**无** product CLI/materializer 接线；正式 SemanticProgramV1 product resolver/materializer 切over、SupportClaim、OutputSetV1、完整 checker 表面、完整 reference corpus 与 formal D2 **仍 pending（未完成）** |
-| D3 | 7/7 pending | 有可运行的 alpha registry/materializer/output/CLI；SupportClaim、BuildIdentity、exact resolver 与 OutputSetV1 不存在 |
+| D3 | 7/7 pending | **D3/S4 工程**：opaque TargetId/CodegenProfileId/NetworkProfileId + static build-selection index/`resolveBuildSelectionV1` 已接线产品 materialize/CLI；SupportClaim、BuildIdentity、formal TargetRegistryV1/`registryDigest`、OutputSetV1 仍不存在 |
 | D4 | 5/5 pending | EVM Plan/Yul/ABI/solc/Anvil 算法已有真实功能，可复用；仍绑定 alpha D2/D3 contract，不能按 D4 完成 |
 
 因此当前产品不是 `active/` 中的旧 v1，也不是正式 D1–D4 新设计完成态；准确 engineering 路径是：
@@ -27,14 +27,14 @@ ValidatedSourceV1 / ProgramV1
   → NormalizeV1 (CheckV1 ok∧analysisComplete + S1 Counter-like lowering)
   → structure-valid SemanticProgramV1 gate (fail closed on wire/unsupported)
   → residual alpha Typed/Semantic carrier
-  → alpha resolver / target-owned Plan/IR / v2alpha1 output
+  → static build-selection resolve → residual alpha Plan/IR / v2alpha1 output
 ```
 
 保留边界（engineering fact，非 formal 完成）：
 
 - S1 Counter-like 工程子集 only（S1 外 CheckV1-ok 形状在 Normalize 门禁 fail closed）
 - formal D2 / D3 仍 pending
-- direct SemanticProgramV1 resolver/materializer carrier、SupportClaim、OutputSetV1 与四 target cutover **未完成**
+- direct SemanticProgramV1 resolver/materializer carrier、SupportClaim、formal TargetRegistryV1/`registryDigest`、BuildIdentity、OutputSetV1 与四 target SemanticProgramV1 cutover **未完成**；工程静态 build-selection authority **已完成**
 
 ## 完成度口径
 
@@ -79,8 +79,8 @@ ValidatedSourceV1 / ProgramV1
 
 | Task | Formal | 新设计要求 | 实际代码与产品接线 | 现有测试事实 | Engineering | 迁移与旧代码处理 |
 |---|---|---|---|---|---|---|
-| `TASK-D3-01` | pending | TargetId、CodegenProfileId、NetworkProfileId三个独立typed parser | `Core/Diagnostic.lean`有TargetId enum/parse；descriptor和manifest中的codegen profile是裸String；无NetworkProfileId产品路径 | target parse/negative覆盖TargetId；无三ID exact parser suite | **可复用地基** | 引入三个独立identity/parser/renderer并迁移CLI/registry；删除裸String dispatch |
-| `TASK-D3-02` | pending | static registry canonical digest、duplicate rejection、exact target/profile lookup | `Targets/Registry.lean`是hardcoded arrays/match；没有完整descriptor/profile payload或duplicate validation | `Tests/Materialization/Targets.lean`检查当前四target行为 | **功能型 alpha** | 建typed static registry和canonical digest；设计-only与implemented lookup按spec fail closed |
+| `TASK-D3-01` | pending | TargetId、CodegenProfileId、NetworkProfileId三个独立typed parser | **工程子集已交付**：`ProofForgeV2/Core/TargetIdentityV1.lean` opaque `TargetId`（1..32 `[a-z][a-z0-9-]{0,31}`）/`CodegenProfileId`/`NetworkProfileId`（SPEC-COMMON profile grammar）+ internal `TargetKind`；descriptor/manifest 使用 typed IDs；NetworkProfileId 不参与 build selection；CLI `--profile` 解析 CodegenProfileId | `Tests/Materialization/BuildSelectionV1.lean` 固定三 ID grammar 边界；旧 enum dispatch 已移除 | **新轨子集**（三 ID typed parser 已接线；formal pending） | formal TaskQualification/full grammar corpus 仍 pending；不得把本切片写成 formal D3-01 done |
+| `TASK-D3-02` | pending | static registry canonical digest、duplicate rejection、exact target/profile lookup | **工程静态 build-selection（非 formal TargetRegistryV1）**：`Targets/BuildSelectionV1.lean` validated `StaticBuildSelectionIndexV1`（4 implemented defaults + 6 design-only empty）；exact/case-sensitive unique target/profile；`resolveBuildSelectionV1`；`PF-TARGET-*`/`PF-PROFILE-UNKNOWN`/`PF-REGISTRY-*`；无 `registryDigest`、无 SupportClaim/payloads | `Tests/Materialization/BuildSelectionV1.lean` 覆盖 index validation/resolve/aggregate/CLI/Counter wire；`Targets.lean` 迁到 selection path | **新轨子集 + 功能型 alpha**（sole selection authority 已接线；formal registry digest/payload 仍缺） | 继续 formal TargetRegistryV1/digest/payload；禁止命名为完整 registry 完成 |
 | `TASK-D3-03` | pending | ProgramRequirements → exact SupportClaim/claimDigest + BuildIdentity/ProfileSupportIndex | `Targets.resolve/checkSupport`只做 `supportedRequirements.contains`；production Lean中没有SupportClaim、BuildIdentity、ProfileSupportIndex | target negative固定unsupported enum；没有predicate/evidence binding矩阵 | **缺失** | 实现exact claim/predicate implication、aggregate diagnostics和binding resolution；`specified`空binding合法，更高grade无真实binding时零输出拒绝 |
 | `TASK-D3-04` | pending | associated Plan/TargetIR protocol含schema、CodegenProfile、validation、EmitContext | `Materialization/Protocol.lean`已有associated `Plan`/`TargetIR`，但method是alpha `makePlan/lower/emit`，缺schema、validateTargetIR、IO EmitContext | target modules证明Plan type未擦除；没有正式boundary compile test | **可复用地基** | 升级接口并让四target直接实现；不得用Unit/string/JSON或兼容adapter保留旧API |
 | `TASK-D3-05` | pending | OutputSetV1、support-decisions、manifest schema/digest、exact file closure与atomic publish | alpha OutputSet/OutputManifest和 `CLI/Emit.lean`具备路径检查、staging rename、no-clobber；schema为 `proof-forge-output/v2alpha1`，没有candidate/build/plan/IR/tool/support digest | `Tests/CLI/Emit.lean`与output shell negatives覆盖alpha原子性；artifact validator固定alpha manifest | **功能型 alpha** | 实现完整v1 manifest/decision-set/closure/rollback；迁移consumer后删除alpha manifest/evidence sidecar contract |

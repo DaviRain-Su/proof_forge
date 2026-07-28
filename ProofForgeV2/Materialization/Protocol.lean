@@ -1,4 +1,5 @@
 import ProofForgeV2.Core.SemanticIR
+import ProofForgeV2.Core.TargetIdentityV1
 
 namespace ProofForgeV2
 
@@ -76,14 +77,15 @@ structure TargetDescriptor where
   callModel : CallModel
   proofModel : ProofModel
   settlementModel : SettlementModel
-  codegenProfile : String
+  codegenProfile : CodegenProfileId
   supportedRequirements : Array ProgramRequirement
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: TargetId/CodegenProfileId have no default identity.
+  deriving BEq, Repr
 
-structure ResolvedProgram (target : TargetId) where
+/-- Target-owned resolved program indexed by internal TargetKind. -/
+structure ResolvedProgram (kind : TargetKind) where
   source : SemanticProgram
   descriptor : TargetDescriptor
-  targetMatches : descriptor.targetId = target
 
 structure OutputFile where
   path : String
@@ -94,22 +96,24 @@ structure OutputFile where
 structure OutputManifest where
   schemaVersion : String := "proof-forge-output/v2alpha1"
   target : TargetId
-  codegenProfile : String
+  codegenProfile : CodegenProfileId
   sourceHash : String
   semanticHash : String
   deployable : Bool
   files : Array String
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: carries opaque TargetId/CodegenProfileId.
+  deriving BEq, Repr
 
 structure OutputSet where
   manifest : OutputManifest
   files : Array OutputFile
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: via OutputManifest identity fields.
+  deriving BEq, Repr
 
-class Materializer (target : TargetId) where
+class Materializer (kind : TargetKind) where
   Plan : Type
   TargetIR : Type
-  makePlan : ResolvedProgram target → CompileResult Plan
+  makePlan : ResolvedProgram kind → CompileResult Plan
   lower : Plan → CompileResult TargetIR
   emit : TargetIR → CompileResult (Array OutputFile)
 

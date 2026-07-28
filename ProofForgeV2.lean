@@ -1,5 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.Source
@@ -67,5 +68,6 @@ import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
+import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.CLI.Emit

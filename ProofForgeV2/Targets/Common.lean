@@ -1,4 +1,5 @@
 import ProofForgeV2.Materialization.Protocol
+import ProofForgeV2.Core.TargetIdentityV1
 
 namespace ProofForgeV2.Targets
 
@@ -19,22 +20,29 @@ def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit
 /-- Revalidate the public `ResolvedProgram` seam before target planning. The
 structure is intentionally inspectable, so a direct constructor call must not
 bypass descriptor equality or requirement support established by `resolve`. -/
-def validateResolved (expected : TargetDescriptor) (resolved : ResolvedProgram target) :
-    CompileResult Unit := do
+def validateResolved (kind : TargetKind) (expected : TargetDescriptor)
+    (resolved : ResolvedProgram kind) : CompileResult Unit := do
   unless resolved.descriptor == expected do
-    throw <| .planInvariant expected.targetId
+    throw <| .planInvariant kind
       "resolved target descriptor does not match the target profile"
+  unless expected.targetId == TargetId.ofKind kind do
+    throw <| .planInvariant kind
+      "resolved target descriptor identity does not match the target kind"
   validateRequirementEnvelope resolved.source
   for requirement in resolved.source.requirements do
     unless expected.supportedRequirements.contains requirement do
-      throw <| .unsupportedRequirement requirement expected.targetId
+      throw <| .unsupportedRequirement requirement kind
 
-def resolve (descriptor : TargetDescriptor) (program : SemanticProgram) : CompileResult (ResolvedProgram descriptor.targetId) := do
+def resolve (kind : TargetKind) (descriptor : TargetDescriptor) (program : SemanticProgram) :
+    CompileResult (ResolvedProgram kind) := do
+  unless descriptor.targetId == TargetId.ofKind kind do
+    throw <| .planInvariant kind
+      "descriptor target identity does not match the requested kind"
   validateRequirementEnvelope program
   for requirement in program.requirements do
     unless descriptor.supportedRequirements.contains requirement do
-      throw <| .unsupportedRequirement requirement descriptor.targetId
-  return { source := program, descriptor, targetMatches := rfl }
+      throw <| .unsupportedRequirement requirement kind
+  return { source := program, descriptor }
 
 def makeOutput (descriptor : TargetDescriptor) (program : SemanticProgram)
     (deployable : Bool) (files : Array OutputFile) : OutputSet :=
@@ -59,7 +67,7 @@ def manifestJson (manifest : OutputManifest) : String :=
   "{\n" ++
     s!"  \"schemaVersion\": \"{manifest.schemaVersion}\",\n" ++
     s!"  \"target\": \"{manifest.target}\",\n" ++
-    s!"  \"codegenProfile\": \"{escapeJson manifest.codegenProfile}\",\n" ++
+    s!"  \"codegenProfile\": \"{escapeJson manifest.codegenProfile.toString}\",\n" ++
     s!"  \"sourceHash\": \"{manifest.sourceHash}\",\n" ++
     s!"  \"semanticHash\": \"{manifest.semanticHash}\",\n" ++
     s!"  \"deployable\": {deployable},\n" ++

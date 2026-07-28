@@ -1,48 +1,6 @@
+import ProofForgeV2.Core.TargetIdentityV1
+
 namespace ProofForgeV2
-
-inductive TargetId where
-  | evm
-  | solana
-  | near
-  | cosmwasm
-  | soroban
-  | icp
-  | noir
-  | openvm
-  | aleo
-  | psy
-  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
-
-namespace TargetId
-
-def toString : TargetId → String
-  | .evm => "evm"
-  | .solana => "solana"
-  | .near => "near"
-  | .cosmwasm => "cosmwasm"
-  | .soroban => "soroban"
-  | .icp => "icp"
-  | .noir => "noir"
-  | .openvm => "openvm"
-  | .aleo => "aleo"
-  | .psy => "psy"
-
-instance : ToString TargetId := ⟨toString⟩
-
-def parse? : String → Option TargetId
-  | "evm" => some .evm
-  | "solana" => some .solana
-  | "near" => some .near
-  | "cosmwasm" => some .cosmwasm
-  | "soroban" => some .soroban
-  | "icp" => some .icp
-  | "noir" => some .noir
-  | "openvm" => some .openvm
-  | "aleo" => some .aleo
-  | "psy" => some .psy
-  | _ => none
-
-end TargetId
 
 inductive ProgramRequirement where
   | persistentState
@@ -83,8 +41,8 @@ end ProgramRequirement
 
 inductive CompileError where
   | unknownTarget (input : String)
-  | targetNotImplemented (target : TargetId)
-  | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetId)
+  | targetNotImplemented (target : TargetKind)
+  | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetKind)
   | invalidProgram (message : String)
   | resourceBound (message : String)
   | effectDisallowed (message : String)
@@ -93,10 +51,13 @@ inductive CompileError where
   | wrongArity (expected actual : Nat)
   | arithmeticOverflow
   | invalidState (name : String)
-  | planInvariant (target : TargetId) (message : String)
+  | planInvariant (target : TargetKind) (message : String)
   | toolchainMissing (tool : String)
   | toolchainMismatch (tool : String) (expected actual : String)
-  | artifactNondeployable (target : TargetId) (reason : String)
+  | artifactNondeployable (target : TargetKind) (reason : String)
+  | unknownProfile (input : String)
+  | registryDuplicate (message : String)
+  | registryInvalid (message : String)
   deriving BEq, Repr
 
 namespace CompileError
@@ -117,6 +78,9 @@ def code : CompileError → String
   | .toolchainMissing .. => "PF-TOOLCHAIN-MISSING"
   | .toolchainMismatch .. => "PF-TOOLCHAIN-MISMATCH"
   | .artifactNondeployable .. => "PF-ARTIFACT-NONDEPLOYABLE"
+  | .unknownProfile .. => "PF-PROFILE-UNKNOWN"
+  | .registryDuplicate .. => "PF-REGISTRY-DUPLICATE"
+  | .registryInvalid .. => "PF-REGISTRY-INVALID"
 
 def message : CompileError → String
   | .unknownTarget input => s!"unknown target '{input}'"
@@ -136,6 +100,9 @@ def message : CompileError → String
   | .toolchainMismatch tool expected actual =>
       s!"toolchain '{tool}' expected '{expected}', found '{actual}'"
   | .artifactNondeployable target reason => s!"{target} output is not deployable: {reason}"
+  | .unknownProfile input => s!"unknown codegen profile '{input}'"
+  | .registryDuplicate detail => detail
+  | .registryInvalid detail => detail
 
 def render (error : CompileError) : String :=
   s!"{error.code}: {error.message}"

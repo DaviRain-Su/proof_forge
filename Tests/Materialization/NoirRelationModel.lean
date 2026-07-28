@@ -131,7 +131,7 @@ private def expectReject (label : String)
 
 private def compileIr (sourceProgram : Source.Program) : IO Targets.Noir.IR := do
   let semantic ← liftResult <| Compiler.compile sourceProgram
-  let resolved ← liftResult <| Targets.resolve Targets.Noir.descriptor semantic
+  let resolved ← liftResult <| Targets.resolve .noir Targets.Noir.descriptor semantic
   let plan ← liftResult <| Targets.Noir.makePlan resolved
   liftResult <| Targets.Noir.lower plan
 

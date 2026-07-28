@@ -5,7 +5,7 @@ namespace ProofForgeV2.Targets.Solana
 open ProofForgeV2
 
 def descriptor : TargetDescriptor := {
-  targetId := .solana
+  targetId := TargetId.solana
   artifactEncoding := .sbpfPlanText
   executionHost := .solanaRuntime
   commitModel := .instructionAtomic
@@ -13,7 +13,7 @@ def descriptor : TargetDescriptor := {
   callModel := .cpi
   proofModel := .none
   settlementModel := .solana
-  codegenProfile := "solana-sbpf-plan-v1"
+  codegenProfile := CodegenProfileId.solanaSbpfPlanV1
   supportedRequirements := #[
     .persistentState, .checkedArithmetic, .transactionalRollback
   ]
@@ -563,7 +563,7 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
 
 /-- Validate the public target-owned Plan before typed IR lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
-  unless plan.codegenProfile == descriptor.codegenProfile &&
+  unless plan.codegenProfile == descriptor.codegenProfile.toString &&
       plan.instructionDiscriminatorDomain == discriminatorDomain &&
       plan.instructionDiscriminatorBytes == discriminatorBytes &&
       plan.stateLayoutDomain == layoutDomain &&
@@ -597,7 +597,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .solana) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .solana "resolved target descriptor does not match the Solana profile"
-  validateResolved descriptor resolved
+  validateResolved .solana descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .solana
@@ -612,7 +612,7 @@ def makePlan (resolved : ResolvedProgram .solana) : CompileResult Plan := do
   let initializer ← makeInitializer stateAccount initializerSource
   let entries ← source.entries.mapM (makeEntry stateAccount)
   let plan : Plan := {
-    codegenProfile := descriptor.codegenProfile
+    codegenProfile := descriptor.codegenProfile.toString
     instructionDiscriminatorDomain := discriminatorDomain
     instructionDiscriminatorBytes := discriminatorBytes
     stateLayoutDomain := layoutDomain
@@ -946,12 +946,5 @@ instance : Materializer .solana where
   makePlan := makePlan
   lower := lower
   emit := emit
-
-def materialize (program : SemanticProgram) : CompileResult OutputSet := do
-  let resolved ← Targets.resolve descriptor program
-  let plan ← makePlan resolved
-  let ir ← lower plan
-  let files ← emit ir
-  return Targets.makeOutput descriptor program false files
 
 end ProofForgeV2.Targets.Solana

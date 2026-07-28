@@ -4,11 +4,12 @@ namespace ProofForgeV2.Targets.Noir
 
 open ProofForgeV2
 
-def codegenProfile : String := "noir-source-u64-relations-v1"
+def codegenProfileString : String := "noir-source-u64-relations-v1"
+def codegenProfile : CodegenProfileId := CodegenProfileId.noirSourceU64RelationsV1
 def sourceDialect : String := "noir-native-u64-relations-v1"
 
 def descriptor : TargetDescriptor := {
-  targetId := .noir
+  targetId := TargetId.noir
   artifactEncoding := .noirSource
   executionHost := .circuit
   commitModel := .externalStateTransition
@@ -140,7 +141,8 @@ structure Plan where
   planHash : String
   states : Array StateField
   relations : Array Relation
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
+  deriving BEq, Repr
 
 inductive ValueRef where
   | input (index : Nat)
@@ -166,7 +168,8 @@ structure IR where
   sourcePlan : Plan
   name : String
   relations : Array RelationIR
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: IR embeds Plan → TargetDescriptor identities.
+  deriving BEq, Repr
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .noir message
@@ -217,9 +220,51 @@ private def validDigest (value : String) : Bool :=
   value.length == 64 && value.toList.all (fun character =>
     "0123456789abcdef".contains character)
 
+/-- Pre-D3 (`481f3398`) `reprStr TargetDescriptor` preimage for Noir planHash.
+D3 made `TargetId`/`CodegenProfileId` opaque structures whose Lean `Repr` is
+`{ value := "…" }`, which would silently change `canonicalPlanHash` bytes.
+This encoder freezes the historical shape:
+- `targetId` as enum wire `ProofForgeV2.TargetId.<name>`
+- `codegenProfile` as Lean `String` Repr (`"…"`)
+- other axes still via their stable enum `reprStr`
+- `supportedRequirements` array Format matching nested structure Repr
+  (first element on the `#[` line; continuations indented to column 29).
+Contract: this must remain byte-identical to the pre-D3 `481f3398`
+`reprStr TargetDescriptor`; the independent golden lives in the materialization
+test suite rather than this production module. -/
+def targetDescriptorLegacyRepr (d : TargetDescriptor) : String :=
+  let legacyTargetIdWire (id : TargetId) : String :=
+    s!"ProofForgeV2.TargetId.{id.toString}"
+  let legacyCodegenProfileWire (profile : CodegenProfileId) : String :=
+    -- Lean `String` Repr surrounds with quotes; profile grammar forbids escapes.
+    s!"\"{profile.toString}\""
+  let legacyRequirementArrayRepr (reqs : Array ProgramRequirement) : String :=
+    if reqs.isEmpty then
+      "#[]"
+    else
+      -- Nested under `  supportedRequirements := #[` (prefix length 29).
+      let indent := String.ofList (List.replicate 29 ' ')
+      let items := reqs.toList.map (fun r => reprStr r)
+      match items with
+      | [] => "#[]"
+      | first :: rest =>
+          let cont := rest.map (fun item => s!",\n{indent}{item}") |> String.join
+          s!"#[{first}{cont}]"
+  "{ targetId := " ++ legacyTargetIdWire d.targetId ++ ",\n" ++
+  "  artifactEncoding := " ++ reprStr d.artifactEncoding ++ ",\n" ++
+  "  executionHost := " ++ reprStr d.executionHost ++ ",\n" ++
+  "  commitModel := " ++ reprStr d.commitModel ++ ",\n" ++
+  "  stateBinding := " ++ reprStr d.stateBinding ++ ",\n" ++
+  "  callModel := " ++ reprStr d.callModel ++ ",\n" ++
+  "  proofModel := " ++ reprStr d.proofModel ++ ",\n" ++
+  "  settlementModel := " ++ reprStr d.settlementModel ++ ",\n" ++
+  "  codegenProfile := " ++ legacyCodegenProfileWire d.codegenProfile ++ ",\n" ++
+  "  supportedRequirements := " ++ legacyRequirementArrayRepr d.supportedRequirements ++
+  " }"
+
 private def canonicalPlanHash (plan : Plan) : String :=
   Crypto.sha256Hex <| ("pf.noir.plan.v1\u0000" ++
-    reprStr plan.targetDescriptor ++ "\u0000" ++
+    targetDescriptorLegacyRepr plan.targetDescriptor ++ "\u0000" ++
     reprStr plan.semanticSchemaVersion ++ "\u0000" ++
     reprStr plan.codegenProfile ++ "\u0000" ++
     reprStr plan.sourceDialect ++ "\u0000" ++
@@ -540,7 +585,7 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
 def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == Semantic.schemaVersion &&
-      plan.codegenProfile == codegenProfile && plan.sourceDialect == sourceDialect &&
+      plan.codegenProfile == codegenProfileString && plan.sourceDialect == sourceDialect &&
       plan.failurePolicy == .unsatisfied && plan.proofStatus == .notProduced &&
       plan.resourceLimits == canonicalLimits do
     throw <| .planInvariant .noir "Noir Plan descriptor/schema/profile policy is not canonical"
@@ -586,7 +631,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .noir) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .noir "resolved target descriptor does not match the Noir profile"
-  validateResolved descriptor resolved
+  validateResolved .noir descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .noir
@@ -614,7 +659,7 @@ def makePlan (resolved : ResolvedProgram .noir) : CompileResult Plan := do
   let unsignedPlan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := Semantic.schemaVersion
-    codegenProfile
+    codegenProfile := codegenProfileString
     sourceDialect
     continuity := if states.isEmpty then .none else .externalPublicPrePost
     failurePolicy := .unsatisfied
@@ -861,12 +906,5 @@ instance : Materializer .noir where
   makePlan := makePlan
   lower := lower
   emit := emit
-
-def materialize (program : SemanticProgram) : CompileResult OutputSet := do
-  let resolved ← Targets.resolve descriptor program
-  let plan ← makePlan resolved
-  let ir ← lower plan
-  let files ← emit ir
-  return Targets.makeOutput descriptor program false files
 
 end ProofForgeV2.Targets.Noir

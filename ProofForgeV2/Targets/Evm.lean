@@ -6,7 +6,7 @@ namespace ProofForgeV2.Targets.Evm
 open ProofForgeV2
 
 def descriptor : TargetDescriptor := {
-  targetId := .evm
+  targetId := TargetId.evm
   artifactEncoding := .evmYul
   executionHost := .evm
   commitModel := .transactionAtomic
@@ -14,7 +14,7 @@ def descriptor : TargetDescriptor := {
   callModel := .synchronous
   proofModel := .none
   settlementModel := .ethereum
-  codegenProfile := "evm-yul-solc-0.8.34-v1"
+  codegenProfile := CodegenProfileId.evmYulSolc0834V1
   supportedRequirements := #[
     .persistentState, .checkedArithmetic, .transactionalRollback
   ]
@@ -435,7 +435,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
 
 def makePlan (resolved : ResolvedProgram .evm) : CompileResult Plan := do
-  validateResolved descriptor resolved
+  validateResolved .evm descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .evm
@@ -599,12 +599,5 @@ instance : Materializer .evm where
   makePlan := makePlan
   lower := lower
   emit := emit
-
-def materialize (program : SemanticProgram) : CompileResult OutputSet := do
-  let resolved ← Targets.resolve descriptor program
-  let plan ← makePlan resolved
-  let ir ← lower plan
-  let files ← emit ir
-  return Targets.makeOutput descriptor program false files
 
 end ProofForgeV2.Targets.Evm

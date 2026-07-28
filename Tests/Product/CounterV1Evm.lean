@@ -6,6 +6,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.BuildSelectionV1
 import Tests.Language.ParserSession
 
 namespace Tests.Product.CounterV1Evm
@@ -97,7 +98,7 @@ unsafe def run : IO Unit := do
     "ProgramV1 typing must preserve Counter state and callables"
 
   let resolved ← liftCompile "resolve EVM" <|
-    Targets.resolve Targets.Evm.descriptor semantic
+    Targets.resolve .evm Targets.Evm.descriptor semantic
   let plan ← liftCompile "make EVM plan" <| Targets.Evm.makePlan resolved
   expect (plan.storageLayout.map (·.name) == #["count"] &&
       plan.entries.map (·.name) == #["increment", "get"])
@@ -107,8 +108,14 @@ unsafe def run : IO Unit := do
   expect (ir.yul.contains "case 0xdd9a82bc" &&
       ir.yul.contains "case 0x6d4ce63c")
     "EVM IR must contain canonical Counter selectors"
-  let first ← liftCompile "materialize EVM" <| Targets.Evm.materialize semantic
-  let second ← liftCompile "materialize EVM again" <| Targets.Evm.materialize semantic
+  let first ← liftCompile "materialize EVM" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    Targets.materializeResult selection semantic)
+  let second ← liftCompile "materialize EVM again" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    Targets.materializeResult selection semantic)
   expect (first == second)
     "ProgramV1 EVM materialization must be deterministic"
   expect (first.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])

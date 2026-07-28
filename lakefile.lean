@@ -111,6 +111,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.SourceAstCanonicalRootDecodeV1,
     `Tests.Language.FrontendParity,
     `Tests.Language.Loader,
+    `Tests.Materialization.BuildSelectionV1,
     `Tests.Materialization.Targets,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,

@@ -627,10 +627,66 @@ product-negative: build
     rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
 
+
+# Exact positive CLI stdout anchors for list/describe (selection surface; no build outputs).
+target-cli-positive: build
+	mkdir -p build
+	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
+	printf '%b' 'evm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\nsolana\tplan-only\n' > build/list-targets.expected
+	cmp -s build/list-targets.expected build/list-targets.stdout
+	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
+	printf '%b' 'aleo\tresearch-only\ncosmwasm\tresearch-only\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tresearch-only\nsolana\tplan-only\nsoroban\tresearch-only\n' > build/list-targets-all.expected
+	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
+	lake env .lake/build/bin/proof-forge-next describe-target evm > build/describe-evm.stdout
+	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[ProofForgeV2.ProgramRequirement.persistentState, ProofForgeV2.ProgramRequirement.checkedArithmetic,\n  ProofForgeV2.ProgramRequirement.transactionalRollback]\n' > build/describe-evm.expected
+	cmp -s build/describe-evm.expected build/describe-evm.stdout
+	lake env .lake/build/bin/proof-forge-next describe-target aleo > build/describe-aleo.stdout
+	printf '%b' 'target=aleo\nstatus=research-only\n' > build/describe-aleo.expected
+	cmp -s build/describe-aleo.expected build/describe-aleo.stdout
+
+
 target-negative: build
-    rm -rf build/v2/openvm-negative build/v2/tool-negative build/v2/tool-mismatch
+    rm -rf build/v2/openvm-negative build/v2/network-negative build/v2/cross-profile-negative \
+      build/v2/uppercase-target-negative build/v2/malformed-target-negative \
+      build/v2/dup-target-negative build/v2/dup-profile-negative \
+      build/v2/tool-negative build/v2/tool-mismatch
+    mkdir -p build
+    # design-only openvm — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target openvm -o build/v2/openvm-negative > build/openvm-negative.log 2>&1; then echo "research-only target unexpectedly built" >&2; exit 1; fi
-    rg -q "PF-TARGET-NOT-IMPLEMENTED" build/openvm-negative.log
+    printf '%s\n' "uncaught exception: PF-TARGET-NOT-IMPLEMENTED: target 'openvm' has research metadata but no compiler implementation" > build/openvm-negative.expected
+    cmp -s build/openvm-negative.expected build/openvm-negative.log
+    test ! -e build/v2/openvm-negative
+    # --network usage error — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target evm --network local -o build/v2/network-negative > build/network-negative.log 2>&1; then echo "--network unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: unknown option '--network'" > build/network-negative.expected
+    cmp -s build/network-negative.expected build/network-negative.log
+    test ! -e build/v2/network-negative
+    # cross-target profile — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target evm --profile near-wasm-raw-u64-v1 -o build/v2/cross-profile-negative > build/cross-profile-negative.log 2>&1; then echo "cross-target profile unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: PF-PROFILE-UNKNOWN: unknown codegen profile 'near-wasm-raw-u64-v1'" > build/cross-profile-negative.expected
+    cmp -s build/cross-profile-negative.expected build/cross-profile-negative.log
+    test ! -e build/v2/cross-profile-negative
+    # uppercase target — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target EVM -o build/v2/uppercase-target-negative > build/uppercase-target-negative.log 2>&1; then echo "uppercase target unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: PF-TARGET-UNKNOWN: unknown target 'EVM'" > build/uppercase-target-negative.expected
+    cmp -s build/uppercase-target-negative.expected build/uppercase-target-negative.log
+    test ! -e build/v2/uppercase-target-negative
+    # malformed target — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target "1evm" -o build/v2/malformed-target-negative > build/malformed-target-negative.log 2>&1; then echo "malformed target unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: PF-TARGET-UNKNOWN: unknown target '1evm'" > build/malformed-target-negative.expected
+    cmp -s build/malformed-target-negative.expected build/malformed-target-negative.log
+    test ! -e build/v2/malformed-target-negative
+    # duplicate --target — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target evm --target near -o build/v2/dup-target-negative > build/dup-target-negative.log 2>&1; then echo "duplicate --target unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: duplicate --target" > build/dup-target-negative.expected
+    cmp -s build/dup-target-negative.expected build/dup-target-negative.log
+    test ! -e build/v2/dup-target-negative
+    # duplicate --profile — exact log
+    if lake env .lake/build/bin/proof-forge-next build-counter --target evm --profile evm-yul-solc-0.8.34-v1 --profile near-wasm-raw-u64-v1 -o build/v2/dup-profile-negative > build/dup-profile-negative.log 2>&1; then echo "duplicate --profile unexpectedly accepted" >&2; exit 1; fi
+    printf '%s\n' "uncaught exception: duplicate --profile" > build/dup-profile-negative.expected
+    cmp -s build/dup-profile-negative.expected build/dup-profile-negative.log
+    test ! -e build/v2/dup-profile-negative
+    # toolchain negatives (require selection success first; substring rg OK)
     if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-negative > build/tool-negative.log 2>&1; then echo "missing solc unexpectedly accepted" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISSING" build/tool-negative.log
     rm -rf build/tool-mismatch-root
@@ -678,12 +734,13 @@ reproducibility: build
 
 # Commit/archive package-boundary audit. It requires a clean committed product
 # tree, so it belongs to release preflight rather than the local product loop.
+
 v2-isolation:
     /usr/bin/python3 -I -S -B scripts/v2_isolation_self_test.py
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-negative
+ci: docs-check build test product-negative target-cli-positive target-negative
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

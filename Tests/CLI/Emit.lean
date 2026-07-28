@@ -1,10 +1,12 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Compiler.Pipeline
 import Tests.Fixtures.SourcePrograms
 
 namespace Tests.CLI.Emit
 
 open ProofForgeV2 System
+open ProofForgeV2.Targets.BuildSelectionV1
 open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -18,7 +20,10 @@ def run : IO Unit := do
   let output := FilePath.mk "build/v2/path-guard/output"
   let rejected ←
     try
-      let _ ← ProofForgeV2.CLI.emitProgram .evm unsafeProgram output
+      let sel ← match resolveBuildSelectionV1 TargetId.evm none with
+        | .ok s => pure s
+        | .error e => throw <| IO.userError e.render
+      let _ ← ProofForgeV2.CLI.emitProgram sel unsafeProgram output
       pure false
     catch error =>
       pure (decide (((toString error).splitOn "PF-OUTPUT-PATH").length > 1))
@@ -32,7 +37,10 @@ def run : IO Unit := do
   IO.FS.writeFile (collision / "important.txt") "preserve-me\n"
   let collisionRejected ←
     try
-      let _ ← ProofForgeV2.CLI.emitProgram .solana counter collision
+      let sel ← match resolveBuildSelectionV1 TargetId.solana none with
+        | .ok s => pure s
+        | .error e => throw <| IO.userError e.render
+      let _ ← ProofForgeV2.CLI.emitProgram sel counter collision
       pure false
     catch error =>
       pure (decide (((toString error).splitOn "PF-OUTPUT-COLLISION").length > 1))

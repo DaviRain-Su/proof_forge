@@ -212,7 +212,7 @@ private def storedUInt64? (storage : HostStorage) (key : String) : Option U64 :=
 
 def run : IO Unit := do
   let semanticProgram ← liftResult <| Compiler.compile accumulatorQualified
-  let resolved ← liftResult <| Targets.resolve Targets.Near.descriptor semanticProgram
+  let resolved ← liftResult <| Targets.resolve .near Targets.Near.descriptor semanticProgram
   let plan ← liftResult <| Targets.Near.makePlan resolved
   let ir ← liftResult <| Targets.Near.lower plan
   let initializer ← findMethod ir "init"

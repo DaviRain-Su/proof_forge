@@ -1,10 +1,12 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.BuildSelectionV1
 import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Materialization.EvmSmoke
 
 open ProofForgeV2
+open ProofForgeV2.Targets.BuildSelectionV1
 open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -15,9 +17,14 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
+private def materializeSelected (target : TargetId) (semantic : SemanticProgram) :
+    CompileResult OutputSet := do
+  let selection ← resolveBuildSelectionV1 target none
+  Targets.materializeResult selection semantic
+
 def run : IO Unit := do
   let semantic ← liftResult "compile Counter" <| Compiler.compile counterQualified
-  let resolved ← liftResult "resolve EVM" <| Targets.resolve Targets.Evm.descriptor semantic
+  let resolved ← liftResult "resolve EVM" <| Targets.resolve .evm Targets.Evm.descriptor semantic
   let plan ← liftResult "plan EVM" <| Targets.Evm.makePlan resolved
   expect (plan.objectName == "Counter" && plan.storageLayout.map (·.name) == #["count"])
     "EVM smoke must preserve the Counter identity and storage layout"
@@ -31,7 +38,7 @@ def run : IO Unit := do
       ir.abi.contains "\"name\":\"get\"")
     "EVM smoke must render the Counter ABI"
 
-  let output ← Targets.materialize .evm semantic
+  let output ← liftResult "materialize EVM" <| materializeSelected TargetId.evm semantic
   expect (output.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
     "EVM smoke must emit deterministic target-owned source artifacts"
   expect (output.manifest.sourceHash == semantic.sourceHash &&

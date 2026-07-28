@@ -2,11 +2,18 @@ import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.BuildSelectionV1
 
 namespace Tests.Materialization
 
 open ProofForgeV2
+open ProofForgeV2.Targets.BuildSelectionV1
 open Tests.Fixtures.SourcePrograms
+
+private def parseProfileFixture (s : String) : IO CodegenProfileId :=
+  match CodegenProfileId.parse? s with
+  | some id => pure id
+  | none => throw <| IO.userError s!"test fixture profile failed grammar: '{s}'"
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -15,6 +22,12 @@ private def liftResult (result : CompileResult α) : IO α :=
   match result with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
+
+/-- Test helper: resolve static selection then materialize (no product raw-TargetId API). -/
+private def materializeSelected (target : TargetId) (semantic : SemanticProgram)
+    (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
+  let selection ← resolveBuildSelectionV1 target profile?
+  Targets.materializeResult selection semantic
 
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
@@ -57,6 +70,27 @@ private partial def nestedNoirPlanExpr : Nat → Targets.Noir.Expr
   | 0 => .literal 0
   | level + 1 => .checkedAdd (nestedNoirPlanExpr level) (.literal 0)
 
+/-- Independent pre-D3 (`481f3398`) Noir descriptor hash preimage golden.
+Kept test-local so production serialization and its oracle cannot drift together. -/
+private def noirDescriptorLegacyReprBaseline : String :=
+  "{ targetId := ProofForgeV2.TargetId.noir,\n" ++
+  "  artifactEncoding := ProofForgeV2.ArtifactEncoding.noirSource,\n" ++
+  "  executionHost := ProofForgeV2.ExecutionHost.circuit,\n" ++
+  "  commitModel := ProofForgeV2.CommitModel.externalStateTransition,\n" ++
+  "  stateBinding := ProofForgeV2.StateBinding.proofInputs,\n" ++
+  "  callModel := ProofForgeV2.CallModel.none,\n" ++
+  "  proofModel := ProofForgeV2.ProofModel.circuitProof,\n" ++
+  "  settlementModel := ProofForgeV2.SettlementModel.externalVerifier,\n" ++
+  "  codegenProfile := \"noir-source-u64-relations-v1\",\n" ++
+  "  supportedRequirements := #[ProofForgeV2.ProgramRequirement.persistentState,\n" ++
+  "                             ProofForgeV2.ProgramRequirement.checkedArithmetic,\n" ++
+  "                             ProofForgeV2.ProgramRequirement.transactionalRollback,\n" ++
+  "                             ProofForgeV2.ProgramRequirement.privateWitness] }"
+
+/-- Independent pre-D3 Accumulator Noir planHash golden. -/
+private def accumulatorPlanHashBaseline : String :=
+  "c3e82cb15aa30228d72fb176bebf452e328d7d605367f7aabfabe9bdd85bfe3f"
+
 set_option maxRecDepth 10000 in
 def run : IO Unit := do
   let counter ← match Compiler.compile counterQualified with
@@ -98,18 +132,19 @@ def run : IO Unit := do
       "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
       #["uint64"] == "7e355592")
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
-  for target in [TargetId.evm, .solana, .near, .noir] do
-    let output ← Targets.materialize target counter
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
+    let output ← liftResult <| materializeSelected target counter
     expect (!output.files.isEmpty) s!"{target} must emit at least one artifact"
     expect (output.manifest.sourceHash == counterQualified.sourceHash)
       "manifest must bind the decoded source"
     expect (output.manifest.semanticHash == counter.semanticHash)
       "manifest must bind the canonical semantics"
-  let unsupported := Targets.checkSupport .noir counterWithCall
+  let noirSel ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let unsupported := Targets.checkSupport noirSel counterWithCall
   match unsupported with
   | .error (.unsupportedRequirement .synchronousCall .noir) => pure ()
   | _ => throw <| IO.userError "Noir must reject synchronous chain calls"
-  let privateCircuit ← Targets.materialize .noir privateSum
+  let privateCircuit ← liftResult <| materializeSelected TargetId.noir privateSum
   expect (privateCircuit.files.any (fun file =>
       file.path == "relations/r0-sum/src/main.nr"))
     "Noir must materialize the private circuit in the same DSL"
@@ -136,7 +171,7 @@ def run : IO Unit := do
   expect (privateInterface.contains
       "\"name\":\"result\",\"sourceName\":\"result\",\"sourceId\":null,\"role\":\"result\",\"visibility\":\"public\",\"type\":\"u64\"")
     "PrivateSum4 interface must expose only the declared public result"
-  let privateResolved ← liftResult <| Targets.resolve Targets.Noir.descriptor privateSum
+  let privateResolved ← liftResult <| Targets.resolve .noir Targets.Noir.descriptor privateSum
   let privatePlan ← liftResult <| Targets.Noir.makePlan privateResolved
   expect (privatePlan.states.isEmpty && privatePlan.continuity == .none &&
       privatePlan.relations.size == 1 && privatePlan.relations[0]!.name == "sum" &&
@@ -152,11 +187,12 @@ def run : IO Unit := do
       .assertEqual (.input 4) (.temp 2)
     ])
     "Noir typed IR must preserve every checked PrivateSum4 addition"
-  match Targets.checkSupport .evm privateSum with
+  let evmSelPrivate ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
+  match Targets.checkSupport evmSelPrivate privateSum with
   | .error (.unsupportedRequirement .privateWitness .evm) => pure ()
   | _ => throw <| IO.userError "EVM must reject private witness semantics instead of exposing it"
-  let accumulatorOutput ← Targets.materialize .evm accumulator
-  let accumulatorResolved ← liftResult <| Targets.resolve Targets.Evm.descriptor accumulator
+  let accumulatorOutput ← liftResult <| materializeSelected TargetId.evm accumulator
+  let accumulatorResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor accumulator
   let accumulatorPlan ← liftResult <| Targets.Evm.makePlan accumulatorResolved
   expect (accumulatorPlan.storageLayout.size == 1 &&
       accumulatorPlan.storageLayout[0]!.name == "total" &&
@@ -240,13 +276,13 @@ def run : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EvmPlan must reserve suffix bytes within the 240-byte output path limit"
   let futureSchema := { accumulator with schemaVersion := Semantic.schemaVersion + 1 }
-  let futureResolved ← liftResult <| Targets.resolve Targets.Evm.descriptor futureSchema
+  let futureResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor futureSchema
   match Targets.Evm.makePlan futureResolved with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EVM must reject unknown SemanticProgram schema versions"
   let omittedRequirements := { accumulator with requirements := #[] }
   let omittedRequirementsResolved ←
-    liftResult <| Targets.resolve Targets.Evm.descriptor omittedRequirements
+    liftResult <| Targets.resolve .evm Targets.Evm.descriptor omittedRequirements
   match Targets.Evm.makePlan omittedRequirementsResolved with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EVM must reject omitted canonical semantic requirements"
@@ -258,7 +294,7 @@ def run : IO Unit := do
     body := #[.store ⟨0⟩ (.param ⟨5⟩)]
   }
   let noncanonicalProgram := { accumulator with initializer := some noncanonicalInitializer }
-  let noncanonicalResolved ← liftResult <| Targets.resolve Targets.Evm.descriptor noncanonicalProgram
+  let noncanonicalResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor noncanonicalProgram
   match Targets.Evm.makePlan noncanonicalResolved with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EVM must reject non-canonical SemanticProgram parameter IDs"
@@ -268,7 +304,7 @@ def run : IO Unit := do
   let deepSemanticProgram := {
     accumulator with entries := accumulator.entries.set! 0 deepSemanticEntry
   }
-  let deepSemanticResolved ← liftResult <| Targets.resolve Targets.Evm.descriptor deepSemanticProgram
+  let deepSemanticResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor deepSemanticProgram
   match Targets.Evm.makePlan deepSemanticResolved with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EVM must reject deep SemanticProgram expressions before lowering"
@@ -277,7 +313,7 @@ def run : IO Unit := do
     initializer := none
     requirements := accumulator.requirements
   }
-  let stateWithoutInitResolved ← liftResult <| Targets.resolve Targets.Evm.descriptor stateWithoutInit
+  let stateWithoutInitResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor stateWithoutInit
   match Targets.Evm.makePlan stateWithoutInitResolved with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EVM must reject stateful programs without an explicit initializer"
@@ -296,14 +332,14 @@ def run : IO Unit := do
   expect (!accumulatorAbi.contains "increment")
     "EVM ABI must not retain the Counter template"
 
-  let solanaResolved ← liftResult <| Targets.resolve Targets.Solana.descriptor accumulator
+  let solanaResolved ← liftResult <| Targets.resolve .solana Targets.Solana.descriptor accumulator
+  let forgedSolanaProfile ← parseProfileFixture "forged-profile"
   let forgedSolanaDescriptor := {
-    Targets.Solana.descriptor with codegenProfile := "forged-profile"
+    Targets.Solana.descriptor with codegenProfile := forgedSolanaProfile
   }
   let forgedSolanaResolved : ResolvedProgram .solana := {
     source := accumulator
     descriptor := forgedSolanaDescriptor
-    targetMatches := rfl
   }
   match Targets.Solana.makePlan forgedSolanaResolved with
   | .error (.planInvariant .solana _) => pure ()
@@ -425,27 +461,27 @@ def run : IO Unit := do
     } with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "SolanaPlan must reject forged parameter origins"
-  let solanaFutureResolved ← liftResult <| Targets.resolve Targets.Solana.descriptor futureSchema
+  let solanaFutureResolved ← liftResult <| Targets.resolve .solana Targets.Solana.descriptor futureSchema
   match Targets.Solana.makePlan solanaFutureResolved with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana must reject unknown SemanticProgram schema versions"
   let solanaOmittedRequirementsResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor omittedRequirements
+    Targets.resolve .solana Targets.Solana.descriptor omittedRequirements
   match Targets.Solana.makePlan solanaOmittedRequirementsResolved with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana must reject omitted canonical semantic requirements"
   let solanaNoncanonicalResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor noncanonicalProgram
+    Targets.resolve .solana Targets.Solana.descriptor noncanonicalProgram
   match Targets.Solana.makePlan solanaNoncanonicalResolved with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana must reject non-canonical SemanticProgram parameter IDs"
   let solanaStateWithoutInitResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor stateWithoutInit
+    Targets.resolve .solana Targets.Solana.descriptor stateWithoutInit
   match Targets.Solana.makePlan solanaStateWithoutInitResolved with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana must reject state-account programs without an initializer"
   let solanaDeepResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor deepSemanticProgram
+    Targets.resolve .solana Targets.Solana.descriptor deepSemanticProgram
   match Targets.Solana.makePlan solanaDeepResolved with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana must reject deep SemanticProgram expressions before lowering"
@@ -486,7 +522,7 @@ def run : IO Unit := do
   expect (partialReference.storage == #[7, 0])
     "reference initialization must start every declared state field at zero"
   let partialResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor partialInitProgram
+    Targets.resolve .solana Targets.Solana.descriptor partialInitProgram
   let partialPlan ← liftResult <| Targets.Solana.makePlan partialResolved
   expect (partialPlan.stateAccount.exactDataLen == 24 &&
       partialPlan.stateAccount.initializedMarker == 0x3b1b7ae87b315ebc)
@@ -515,7 +551,7 @@ def run : IO Unit := do
   expect (readOtherReference.storage == #[0, 0])
     "reference initializer state reads must observe canonical zero storage"
   let readOtherResolved ← liftResult <|
-    Targets.resolve Targets.Solana.descriptor readOtherProgram
+    Targets.resolve .solana Targets.Solana.descriptor readOtherProgram
   let readOtherPlan ← liftResult <| Targets.Solana.makePlan readOtherResolved
   let readOtherIR ← liftResult <| Targets.Solana.lower readOtherPlan
   expect (readOtherIR.handlers[0]!.operations[0]? ==
@@ -526,14 +562,14 @@ def run : IO Unit := do
         some (Targets.Solana.Operation.loadState 0 0 16))
     "Solana initializer must zero all fields before evaluating a state-reading init expression"
 
-  let nearResolved ← liftResult <| Targets.resolve Targets.Near.descriptor accumulator
+  let nearResolved ← liftResult <| Targets.resolve .near Targets.Near.descriptor accumulator
+  let forgedNearProfile ← parseProfileFixture "forged-profile"
   let forgedNearDescriptor := {
-    Targets.Near.descriptor with codegenProfile := "forged-profile"
+    Targets.Near.descriptor with codegenProfile := forgedNearProfile
   }
   let forgedNearResolved : ResolvedProgram .near := {
     source := accumulator
     descriptor := forgedNearDescriptor
-    targetMatches := rfl
   }
   match Targets.Near.makePlan forgedNearResolved with
   | .error (.planInvariant .near _) => pure ()
@@ -665,27 +701,27 @@ def run : IO Unit := do
   match Targets.Near.validatePlan { nearPlan with entries := nearTooManyLocals } with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NearPlan must reject methods above NEAR's 50000-local limit"
-  let nearFutureResolved ← liftResult <| Targets.resolve Targets.Near.descriptor futureSchema
+  let nearFutureResolved ← liftResult <| Targets.resolve .near Targets.Near.descriptor futureSchema
   match Targets.Near.makePlan nearFutureResolved with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NEAR must reject unknown SemanticProgram schema versions"
   let nearOmittedRequirementsResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor omittedRequirements
+    Targets.resolve .near Targets.Near.descriptor omittedRequirements
   match Targets.Near.makePlan nearOmittedRequirementsResolved with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NEAR must reject omitted canonical semantic requirements"
   let nearNoncanonicalResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor noncanonicalProgram
+    Targets.resolve .near Targets.Near.descriptor noncanonicalProgram
   match Targets.Near.makePlan nearNoncanonicalResolved with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NEAR must reject non-canonical SemanticProgram parameter IDs"
   let nearStateWithoutInitResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor stateWithoutInit
+    Targets.resolve .near Targets.Near.descriptor stateWithoutInit
   match Targets.Near.makePlan nearStateWithoutInitResolved with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NEAR must reject KV-state programs without an initializer"
   let nearDeepResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor deepSemanticProgram
+    Targets.resolve .near Targets.Near.descriptor deepSemanticProgram
   match Targets.Near.makePlan nearDeepResolved with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NEAR must reject deep SemanticProgram expressions before lowering"
@@ -737,7 +773,7 @@ def run : IO Unit := do
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
   let partialNearResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor partialInitProgram
+    Targets.resolve .near Targets.Near.descriptor partialInitProgram
   let partialNearPlan ← liftResult <| Targets.Near.makePlan partialNearResolved
   let partialNearIR ← liftResult <| Targets.Near.lower partialNearPlan
   expect (partialNearIR.methods[0]!.operations[3]? ==
@@ -746,7 +782,7 @@ def run : IO Unit := do
         some (Targets.Near.Operation.zeroState partialNearIR.keys[2]!))
     "NEAR initialization must materialize zero for every declared KV field"
   let readOtherNearResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor readOtherProgram
+    Targets.resolve .near Targets.Near.descriptor readOtherProgram
   let readOtherNearPlan ← liftResult <| Targets.Near.makePlan readOtherNearResolved
   let readOtherNearIR ← liftResult <| Targets.Near.lower readOtherNearPlan
   expect (readOtherNearIR.methods[0]!.operations[3]? ==
@@ -781,7 +817,7 @@ def run : IO Unit := do
     manyNearDraft with requirements := Semantic.deriveRequirements manyNearDraft
   }
   let manyNearResolved ← liftResult <|
-    Targets.resolve Targets.Near.descriptor manyNearProgram
+    Targets.resolve .near Targets.Near.descriptor manyNearProgram
   let manyNearPlan ← liftResult <| Targets.Near.makePlan manyNearResolved
   let manyNearIR ← liftResult <| Targets.Near.lower manyNearPlan
   let lastNearKey := manyNearIR.keys[11]!
@@ -795,19 +831,29 @@ def run : IO Unit := do
       s!"(call $pf_storage_read (i64.const 14) (i64.const {lastNearKey.offset})")
     "NEAR WAT must consume the typed key length and offset from its recipe"
 
-  let noirResolved ← liftResult <| Targets.resolve Targets.Noir.descriptor accumulator
+  let noirResolved ← liftResult <| Targets.resolve .noir Targets.Noir.descriptor accumulator
+  let forgedNoirProfile ← parseProfileFixture "forged-profile"
   let forgedNoirDescriptor := {
-    Targets.Noir.descriptor with codegenProfile := "forged-profile"
+    Targets.Noir.descriptor with codegenProfile := forgedNoirProfile
   }
   let forgedNoirResolved : ResolvedProgram .noir := {
     source := accumulator
     descriptor := forgedNoirDescriptor
-    targetMatches := rfl
   }
   match Targets.Noir.makePlan forgedNoirResolved with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "Noir must reject a forged resolved descriptor/profile"
   let noirPlan ← liftResult <| Targets.Noir.makePlan noirResolved
+  -- D3 legacy byte-compat: descriptor planHash preimage must match pre-D3
+  -- `481f3398` enum/String Repr (not current opaque `{ value := … }` Repr).
+  expect (Targets.Noir.targetDescriptorLegacyRepr Targets.Noir.descriptor ==
+      noirDescriptorLegacyReprBaseline)
+    "Noir descriptor legacy wire must equal independent 481f3398 baseline preimage"
+  let opaqueRepr := reprStr Targets.Noir.descriptor
+  expect ((opaqueRepr.splitOn "value :=").length > 1)
+    "current opaque TargetId Repr still differs from legacy wire (encoder required)"
+  expect (noirPlan.planHash == accumulatorPlanHashBaseline)
+    "Accumulator Noir planHash must equal independent pre-D3 481f3398 baseline"
   expect (noirPlan.sourceHash == accumulator.sourceHash &&
       noirPlan.semanticHash == accumulator.semanticHash &&
       noirPlan.states == #[{ sourceId := 0, name := "total" }] &&
@@ -897,22 +943,22 @@ def run : IO Unit := do
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "NoirPlan must reject deep expressions before hashing the Plan"
   let noirFutureResolved ← liftResult <|
-    Targets.resolve Targets.Noir.descriptor futureSchema
+    Targets.resolve .noir Targets.Noir.descriptor futureSchema
   match Targets.Noir.makePlan noirFutureResolved with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "Noir must reject unknown SemanticProgram schema versions"
   let noirOmittedRequirementsResolved ← liftResult <|
-    Targets.resolve Targets.Noir.descriptor omittedRequirements
+    Targets.resolve .noir Targets.Noir.descriptor omittedRequirements
   match Targets.Noir.makePlan noirOmittedRequirementsResolved with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "Noir must reject omitted canonical semantic requirements"
   let noirNoncanonicalResolved ← liftResult <|
-    Targets.resolve Targets.Noir.descriptor noncanonicalProgram
+    Targets.resolve .noir Targets.Noir.descriptor noncanonicalProgram
   match Targets.Noir.makePlan noirNoncanonicalResolved with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "Noir must reject non-canonical SemanticProgram parameter IDs"
   let noirDeepResolved ← liftResult <|
-    Targets.resolve Targets.Noir.descriptor deepSemanticProgram
+    Targets.resolve .noir Targets.Noir.descriptor deepSemanticProgram
   match Targets.Noir.makePlan noirDeepResolved with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "Noir must reject deep SemanticProgram expressions before lowering"
@@ -977,7 +1023,7 @@ def run : IO Unit := do
         body := #[.returnValue (.variable "total")]
       }
     ]
-  match Targets.materializeResult .noir deadInitializerArithmetic with
+  match materializeSelected TargetId.noir deadInitializerArithmetic with
   | .error (.planInvariant .noir message) =>
       expect (message.contains "dead checked arithmetic")
         "Noir must explain why overwritten initializer arithmetic is rejected"
@@ -1002,7 +1048,7 @@ def run : IO Unit := do
         ]
       }
     ]
-  match Targets.materializeResult .noir deadMutationArithmetic with
+  match materializeSelected TargetId.noir deadMutationArithmetic with
   | .error (.planInvariant .noir message) =>
       expect (message.contains "dead checked arithmetic")
         "Noir must explain why overwritten mutate arithmetic is rejected"
@@ -1010,14 +1056,14 @@ def run : IO Unit := do
 
   -- The same supported semantic fragment must compile even when its business
   -- body is not the checked Counter transition.
-  let differentOutput ← Targets.materialize .evm differentLogic
+  let differentOutput ← liftResult <| materializeSelected TargetId.evm differentLogic
   let differentYul ← match differentOutput.files.find? (·.path == "CounterDifferentLogic.yul") with
     | some file => pure file.contents
     | none => throw <| IO.userError "EVM different-logic program must emit Yul"
   expect (differentYul.contains "let expr0 := 99")
     "EVM lowering must preserve a literal return from SemanticProgram"
 
-  let differentSolanaOutput ← Targets.materialize .solana differentLogic
+  let differentSolanaOutput ← liftResult <| materializeSelected TargetId.solana differentLogic
   let differentSolanaPlan ← match differentSolanaOutput.files.find?
       (·.path == "CounterDifferentLogic.sbpf-plan") with
     | some file => pure file.contents
@@ -1025,7 +1071,7 @@ def run : IO Unit := do
   expect (differentSolanaPlan.contains "const_u64 99")
     "Solana lowering must preserve a literal return from SemanticProgram"
 
-  let differentNearOutput ← Targets.materialize .near differentLogic
+  let differentNearOutput ← liftResult <| materializeSelected TargetId.near differentLogic
   let differentNearWat ← match differentNearOutput.files.find?
       (·.path == "CounterDifferentLogic.wat") with
     | some file => pure file.contents
@@ -1033,7 +1079,7 @@ def run : IO Unit := do
   expect (differentNearWat.contains "i64.const 99")
     "NEAR lowering must preserve a literal return from SemanticProgram"
 
-  let differentNoirOutput ← Targets.materialize .noir differentLogic
+  let differentNoirOutput ← liftResult <| materializeSelected TargetId.noir differentLogic
   let differentNoirMutation ← match differentNoirOutput.files.find?
       (·.path == "relations/r1-increment/src/main.nr") with
     | some file => pure file.contents
@@ -1045,13 +1091,13 @@ def run : IO Unit := do
       (·.path == "relations/r2-get/src/main.nr"))
     "Noir lowering must materialize the view relation instead of silently dropping it"
 
-  let nearAccumulator ← Targets.materialize .near accumulator
+  let nearAccumulator ← liftResult <| materializeSelected TargetId.near accumulator
   expect (nearAccumulator.files.any (·.path == "Accumulator.wat"))
     "NEAR Accumulator must emit target-derived WAT"
   expect (nearAccumulator.files.any (·.path == "Accumulator.near-abi.json"))
     "NEAR Accumulator must emit target-derived ABI"
 
-  match Targets.materializeResult .noir accumulator with
+  match materializeSelected TargetId.noir accumulator with
   | .ok output =>
       expect (output.files.any (·.path == "relations/r1-add/src/main.nr") &&
           output.files.any (·.path == "Accumulator.noir-relations.json"))
@@ -1059,7 +1105,7 @@ def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"Noir must lower Accumulator semantics: {error.render}"
 
-  match Targets.materializeResult .solana accumulator with
+  match materializeSelected TargetId.solana accumulator with
   | .ok output =>
       expect (output.files.any (·.path == "Accumulator.sbpf-plan"))
         "Solana Accumulator must emit a target-owned typed audit plan"

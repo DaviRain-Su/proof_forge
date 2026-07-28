@@ -5,7 +5,7 @@ namespace ProofForgeV2.Targets.Near
 open ProofForgeV2
 
 def descriptor : TargetDescriptor := {
-  targetId := .near
+  targetId := TargetId.near
   artifactEncoding := .wasmText
   executionHost := .nearRuntime
   commitModel := .receiptLocal
@@ -13,7 +13,7 @@ def descriptor : TargetDescriptor := {
   callModel := .asynchronousReceipt
   proofModel := .none
   settlementModel := .near
-  codegenProfile := "near-wasm-raw-u64-v1"
+  codegenProfile := CodegenProfileId.nearWasmRawU64V1
   supportedRequirements := #[
     .persistentState, .checkedArithmetic, .transactionalRollback
   ]
@@ -150,7 +150,8 @@ structure Plan where
   storage : StorageLayout
   initializer : Method
   entries : Array Method
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
+  deriving BEq, Repr
 
 structure RegisterLayout where
   input : Nat
@@ -205,7 +206,8 @@ structure IR where
   keys : Array KeyRegion
   memory : MemoryLayout
   methods : Array MethodIR
-  deriving BEq, Inhabited, Repr
+  -- No Inhabited: IR embeds Plan → TargetDescriptor identities.
+  deriving BEq, Repr
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .near message
@@ -602,7 +604,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
 def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == Semantic.schemaVersion &&
-      plan.codegenProfile == descriptor.codegenProfile &&
+      plan.codegenProfile == descriptor.codegenProfile.toString &&
       plan.hostAbi == hostAbiVersion && plan.inputAbi == rawInputAbi &&
       plan.layoutDomain == stateLayoutDomain &&
       plan.hostImports == canonicalImports &&
@@ -637,7 +639,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
 def makePlan (resolved : ResolvedProgram .near) : CompileResult Plan := do
   unless resolved.descriptor == descriptor do
     throw <| .planInvariant .near "resolved target descriptor does not match the NEAR profile"
-  validateResolved descriptor resolved
+  validateResolved .near descriptor resolved
   let source := resolved.source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .near
@@ -654,7 +656,7 @@ def makePlan (resolved : ResolvedProgram .near) : CompileResult Plan := do
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := Semantic.schemaVersion
-    codegenProfile := descriptor.codegenProfile
+    codegenProfile := descriptor.codegenProfile.toString
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
@@ -968,12 +970,5 @@ instance : Materializer .near where
   makePlan := makePlan
   lower := lower
   emit := emit
-
-def materialize (program : SemanticProgram) : CompileResult OutputSet := do
-  let resolved ← Targets.resolve descriptor program
-  let plan ← makePlan resolved
-  let ir ← lower plan
-  let files ← emit ir
-  return Targets.makeOutput descriptor program false files
 
 end ProofForgeV2.Targets.Near
