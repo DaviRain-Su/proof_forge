@@ -1370,6 +1370,113 @@ private def expectCfgInvariantPhase (label : String)
         throw <| IO.userError
           s!"{label}: expected error {repr code}, got {repr failure.error}"
 
+/-- SPEC-SEM-WIRE-001 §5 gives every anonymous primitive shape one structural
+    TypeKey/TypeId. This bounded slice covers leaf primitive keys only; the
+    recursive Array/Map/Option closure and full anonymous rank/reachability
+    algorithm remain separate. Every case drives both the production structure
+    gate and the structure-gated encoder. -/
+private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
+  let distinctTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .uint 16 },
+    { id := 3, name := none, shape := .int 8 },
+    { id := 4, name := none, shape := .int 16 },
+    { id := 5, name := none, shape := .principal },
+    { id := 6, name := none, shape := .unit },
+    { id := 7, name := none, shape := .bytes 0 },
+    { id := 8, name := none, shape := .bytes 1 },
+    { id := 9, name := none, shape := .field bn254FrFieldSpecV1 }
+  ]
+  let p0 ← programWithTypes "PrimitiveTypeKeyP0Distinct" distinctTypes
+  expectCfgOk "P0 distinct primitive anonymous shapes" p0
+  let expectDuplicate (name label : String) (shape : TypeShapeV1) : IO Unit := do
+    let data ← programWithTypes name #[
+      { id := 0, name := none, shape },
+      { id := 1, name := none, shape }
+    ]
+    expectCfgErrCode label .nonCanonical data
+  expectDuplicate "PrimitiveTypeKeyN1Bool" "N1 duplicate Bool" .bool
+  expectDuplicate "PrimitiveTypeKeyN2UInt" "N2 duplicate UInt width" (.uint 32)
+  expectDuplicate "PrimitiveTypeKeyN3Int" "N3 duplicate Int width" (.int 64)
+  expectDuplicate "PrimitiveTypeKeyN4Principal" "N4 duplicate Principal" .principal
+  expectDuplicate "PrimitiveTypeKeyN5Unit" "N5 duplicate Unit" .unit
+  expectDuplicate "PrimitiveTypeKeyN6Bytes" "N6 duplicate Bytes length" (.bytes 8)
+  expectDuplicate "PrimitiveTypeKeyN7Field" "N7 duplicate exact FieldSpec"
+    (.field bn254FrFieldSpecV1)
+  -- Table id/index validation precedes every type graph check.
+  let n8 ← programWithTypes "PrimitiveTypeKeyN8TableIdFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 7, name := none, shape := .bool }
+  ]
+  expectCfgErrCode "N8 table id before primitive uniqueness" .duplicate n8
+  -- Every shallow TypeId reference is checked before primitive interning.
+  let n9 ← programWithTypes "PrimitiveTypeKeyN9ReferenceFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 99 }] }
+  ]
+  expectCfgErrCode "N9 shallow reference before primitive uniqueness"
+    .badReference n9
+  -- Every declaration shape, FieldSpec catalog entry, and Map-key legality
+  -- check completes before primitive interning.
+  let n10 ← programWithTypes "PrimitiveTypeKeyN10ShapeFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .uint 7 }
+  ]
+  expectCfgErrCode "N10 type shape before primitive uniqueness" .badType n10
+  let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
+  let n11 ← programWithTypes "PrimitiveTypeKeyN11FieldFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none,
+      shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } }
+  ]
+  expectCfgErrCode "N11 FieldSpec before primitive uniqueness" .badType n11
+  let n12 ← programWithTypes "PrimitiveTypeKeyN12MapKeyFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .option 0 },
+    { id := 3, name := none, shape := .map 2 0 }
+  ]
+  expectCfgErrCode "N12 Map-key legality before primitive uniqueness"
+    .badType n12
+  -- Primitive interning precedes named-name, canonical-value, callable-
+  -- signature, and requirement phases, preserving one authoritative order.
+  let n13 ← programWithTypes "PrimitiveTypeKeyN13NamedLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := some "Dup",
+      shape := .struct #[{ name := "x", typeId := 0 }] },
+    { id := 3, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[0] }] }
+  ]
+  expectCfgErrCode "N13 primitive uniqueness before named names"
+    .nonCanonical n13
+  let n14 ← programWithTypes "PrimitiveTypeKeyN14ValueLater" #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .bool }
+    ] #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+  expectCfgErrCode "N14 primitive uniqueness before canonical value"
+    .nonCanonical n14
+  let n15 ← programWithTypes "PrimitiveTypeKeyN15SignatureLater" #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .bool }
+    ] #[] #[cfgCallableKindName .pureFn none]
+  expectCfgErrCode "N15 primitive uniqueness before callable signature"
+    .nonCanonical n15
+  let n16Base ← programWithTypes "PrimitiveTypeKeyN16RequirementLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool }
+  ]
+  let n16 : SemanticProgramDataV1 := {
+    n16Base with requirements := { items := #[req "unknown.capability"] }
+  }
+  expectCfgErrCode "N16 primitive uniqueness before requirements"
+    .nonCanonical n16
+
 /-- SPEC-SEM-WIRE-001 §6 callable kind/name presence: initializer is the only
     anonymous kind; entry/view/pureFn/invariant must be named. This test does
     not validate identifier spelling, uniqueness, initializer result/cardinality,
@@ -6642,15 +6749,13 @@ private def testCfgFieldSetTyping : IO Unit := do
 /-- testCfgVariantTagTyping: SPEC-SEM-WIRE-001 §5.1 Op.VariantTag exact
     contract. base ValueId type MUST resolve to a Type.Enum or Type.Option;
     `Instruction.result` MUST be present and its typeId MUST exactly equal
-    the unique UInt32 TypeId (resolved via the `uint32TypeId` helper, which
-    returns `some` only when exactly one `.uint 32` declaration exists). A
-    non-Enum/Option base, a missing UInt32 closure type, a duplicate UInt32
-    closure type, or a wrong result type is `.badCfg` via structure+encode
-    dual path. Each negative isolates VariantTag typing: operands are
-    otherwise valid SSA / dominance definitions and earlier steps pass, so
-    only step j VariantTag typing fails. Uses cfgOpTypes (typeId 2 = UInt32,
-    typeId 3 = Option<UInt8>, typeId 5 = Enum{v(UInt8)}); N4 uses a custom
-    5-type table with a duplicate `.uint 32` declaration. -/
+    the unique UInt32 TypeId (resolved via the `uint32TypeId` helper). N1–N3
+    isolate VariantTag typing and fail `.badCfg` via structure+encode after
+    otherwise-valid SSA/dominance setup. N4 is intentionally different: its
+    duplicate anonymous UInt32 shape is rejected earlier by the authoritative
+    primitive TypeKey interning phase as `.nonCanonical`, before step j runs.
+    Uses cfgOpTypes (typeId 2 = UInt32, typeId 3 = Option<UInt8>, typeId 5 =
+    Enum{v(UInt8)}); N4 uses a custom 5-type duplicate table. -/
 private def testCfgVariantTagTyping : IO Unit := do
   -- POSITIVES
   -- P1: VariantTag on an Enum base. Construct Enum (typeId 5) variant 0
@@ -6736,16 +6841,9 @@ private def testCfgVariantTagTyping : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgErr "N3 variantTag wrong result type" n3
-  -- N4: duplicate UInt32 closure type. Custom type table with TWO `.uint 32`
-  --   declarations (typeId 2 and typeId 4): typeId 0 = Bool, 1 = UInt8,
-  --   2 = UInt32, 3 = Enum{v(UInt8)}, 4 = UInt32 (duplicate). Construct
-  --   Enum (typeId 3) variant 0 with UInt8 → ValueId 1 (typeId 3);
-  --   VariantTag 1 → result ValueId 2 typeId 2 (one of the UInt32 typeIds,
-  --   in range). Because `uint32TypeId` now enforces uniqueness and returns
-  --   `none` on a duplicate anonymous `.uint 32` declaration, the
-  --   VariantTag contract fails → `.badCfg` (structure+encode dual path).
-  --   This pins the uniqueness gate that the prior first-match resolver
-  --   silently bypassed.
+  -- N4: duplicate UInt32 anonymous shape. The authoritative primitive
+  --   TypeKey interning phase now rejects this as `.nonCanonical` before the
+  --   later VariantTag contract attempts to resolve the unique UInt32 TypeId.
   let dupU32Types : Array TypeDeclV1 :=
     #[{ id := 0, name := none, shape := .bool },
       { id := 1, name := none, shape := .uint 8 },
@@ -6762,7 +6860,8 @@ private def testCfgVariantTagTyping : IO Unit := do
              cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
           (.return_ none)
       ] 0]
-  expectCfgErr "N4 variantTag duplicate UInt32 closure type" n4
+  expectCfgErrCode "N4 variantTag duplicate UInt32 anonymous shape"
+    .nonCanonical n4
 
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.VariantPayload` exact static contract.
     Enum bases require in-range variant/payload indices and return the selected
@@ -7012,9 +7111,9 @@ private def testCfgIndexSetTyping : IO Unit := do
             cfgInstr (some (cfgUint8ValueDef 4)) (.indexSet 1 2 3)]
           (.return_ none)] 0]
   expectCfgErr "N8 indexSet wrong result type" n8
-  -- N9: duplicate anonymous UInt8 declarations make the canonical Bytes
-  --   value type ambiguous while all operands/results otherwise match the
-  --   first UInt8 row. The structure gate must fail closed.
+  -- N9: duplicate anonymous UInt8 declarations are rejected by primitive
+  --   TypeKey interning as `.nonCanonical` before the later Bytes IndexSet
+  --   contract resolves its unique UInt8 result/value type.
   let dupU8Types := cfgOpTypes.push
     { id := 8, name := none, shape := .uint 8 }
   let n9 ← programWithTypes "ISetN9DuplicateUInt8" dupU8Types #[]
@@ -7027,7 +7126,8 @@ private def testCfgIndexSetTyping : IO Unit := do
             cfgInstr (some { valueId := 4, typeId := 7 })
               (.indexSet 1 2 3)]
           (.return_ none)] 0]
-  expectCfgErr "N9 indexSet duplicate UInt8 closure type" n9
+  expectCfgErrCode "N9 indexSet duplicate UInt8 anonymous shape"
+    .nonCanonical n9
 
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.CheckedCast` static type/result contract.
     Both source and destination must be UInt/Int TypeIds, and the instruction
@@ -7572,6 +7672,7 @@ def run : IO Unit := do
   testValueBytesPositives
   testValueBytesNegatives
   testValueBytesTransportRegression
+  testPrimitiveAnonymousTypeKeyUniqueness
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness

@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 primitive anonymous TypeKey leaf uniqueness (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 Bool/UInt/Int/Principal/Unit/Bytes/Field 七类 leaf primitive anonymous TypeKey 的 exact-shape uniqueness，不实现 recursive Array/Map/Option closure、完整 anonymous rank/reachability、normalizer、provenance join 或产品接线。
+- RED/Changed：tests-first。新增 `testPrimitiveAnonymousTypeKeyUniqueness`，经 `validateSemanticProgramStructureV1` 与 structure-gated encoder 双 shipped paths 固定 distinct leaf shapes 正向、七类 duplicate `.nonCanonical` 负向，以及 table id→shallow reference→shape/FieldSpec/Map-key legality→primitive interning→named-name/canonical-value/callable-signature/requirements precedence；实现前 duplicate Bool 被 structure gate 接受。既有 VariantTag duplicate UInt32 与 IndexSet duplicate UInt8 fixtures 迁移到新的 authoritative `.nonCanonical` phase；workflow-76/-77 指出的 predecessor phase cases与 stale VariantTag header、workflow-79 指出的 production TypeKey/UInt helper stale comments 均已修复。
+- Production：新增 bounded `validatePrimitiveAnonymousTypeKeyUniquenessV1`，在所有 type shape/FieldSpec/Map-key legality 通过后，只收集 leaf primitive canonical TypeShape bytes，以 private unsigned-lex qsort + adjacent equality 检测 exact duplicate，不改 public type table source order；失败 `.nonCanonical`，随后才进入 named-type name 与 valueBytes phases。
+- Verification：聚焦 production/test build、真实 fast shipped harness、`just dev-check`、SBOM package-file refresh（WireV1 byte count/SHA-256 独立复核）、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；workflow-76/-77/-79 findings 已修复，workflow-80 三路复审 approved、无 findings。
+- Boundary：recursive/full TypeKey closure/ranking/reachability、unused anonymous rejection、provenance join、normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 exact checked computedInvariantSteps (post-CFG fuel step 4.8, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 SPEC §8 invariant closure 的 exact checked `computedInvariantSteps` metadata validation，不实现 evaluator/interpreter、StateConforms、normalizer、产品接线或 proof-bundle。

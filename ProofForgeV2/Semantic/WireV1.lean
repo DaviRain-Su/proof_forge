@@ -37,6 +37,8 @@ import ProofForgeV2.Core.Unicode
         · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of
           recursively legal keys; reject Option/Array/Map/Enum/Unit/Field
           (`.badType`; recursion fuel = types.size)
+        · leaf primitive anonymous TypeKeys are unique by exact shape for
+          Bool/UInt/Int/Principal/Unit/Bytes/Field (`.nonCanonical`)
     - canonical `valueBytes` (SPEC §5), after type-shape and before
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
@@ -97,7 +99,8 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: full TypeKey anonymous ranking/interning, provenance inventory
+  * Not yet: recursive TypeKey closure plus full anonymous ranking/reachability,
+    provenance inventory
     join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
@@ -120,8 +123,8 @@ import ProofForgeV2.Core.Unicode
     and void-op result-presence plus the at-least-two-component callee shape
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
     serializability, exact contracts for the two presence-only families,
-    TypeKey anonymous
-    ranking, provenance inventory join, ProgramV1 normalizer, and product
+    recursive TypeKey closure/full anonymous ranking/reachability, provenance
+    inventory join, ProgramV1 normalizer, and product
     wire remain out of scope pending later slices.)
 -/
 
@@ -2401,19 +2404,16 @@ def checkTerminatorTyping (c : CallableV1)
     result on a value-producing op is an invalid Core trap → `.badCfg`. All
     step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
     ExternalCall/Schedule argument serializability, exact typing for
-    ContextRead/Commit, TypeKey anonymous
-    ranking/interning, provenance join, normalizer, product wire. -/
+    ContextRead/Commit, recursive/full TypeKey closure/ranking/reachability,
+    provenance join, normalizer, product wire. -/
 
 /-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
     Bounded, non-recursive. Like `uint8TypeId` (and unlike first-match
-    `boolTypeId`), this resolver returns `some` only when
-    exactly one `.uint 32` declaration is present, and `none` otherwise
-    (zero or duplicate). SPEC-SEM-WIRE-001 §5.1 `Op.VariantTag` resolves the
-    unique structurally interned UInt32 TypeId; in the absence of TypeKey
-    structural interning (still pending), a duplicate anonymous `.uint 32`
-    declaration is ambiguous and MUST be rejected here rather than silently
-    picking the first. Parallel to `boolTypeId` in shape; the uniqueness
-    gate is what VariantTag's claimed unique-UInt32 contract rests on. -/
+    `boolTypeId`), this defensive resolver returns `some` only when exactly
+    one `.uint 32` declaration is present, and `none` otherwise. The earlier
+    primitive anonymous TypeKey gate is authoritative: duplicates fail there
+    as `.nonCanonical` before step j. This helper still fails closed for direct
+    internal use; recursive/full TypeKey closure and ranking remain pending. -/
 def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
   let mut r : Option TypeIdV1 := none
   let mut dup : Bool := false
@@ -2430,8 +2430,9 @@ def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
 
 /-- The unique TypeId whose shape is `.uint 8`, if exactly one exists.
     Bounded and non-recursive. Bytes IndexGet/IndexSet require the unique
-    structurally interned UInt8 TypeId; while TypeKey interning is pending,
-    duplicate anonymous UInt8 declarations fail closed as `none`. -/
+    structurally interned UInt8 TypeId. The earlier primitive anonymous
+    TypeKey gate rejects duplicates as `.nonCanonical`; this defensive helper
+    still returns `none` for zero or duplicate matches. -/
 def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
   let mut r : Option TypeIdV1 := none
   let mut dup : Bool := false
@@ -2502,11 +2503,10 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     range, type(value) == selected field.typeId, result.typeId == type(base));
     a missing result or any mismatch is `.badCfg`. `Op.VariantTag` carries
     the full §5.1 contract (base must resolve to an Enum or Option,
-    result.typeId == the unique UInt32 TypeId — `uint32TypeId` returns `some`
-    only when exactly one `.uint 32` declaration exists, so a duplicate
-    anonymous UInt32 declaration resolves to `none` and is rejected); a
-    missing result, a non-Enum/Option base, a missing/duplicate UInt32
-    closure type, or a wrong result type is `.badCfg`. The remaining
+    result.typeId == the unique UInt32 TypeId). Duplicate anonymous UInt32
+    declarations are rejected earlier by primitive TypeKey interning as
+    `.nonCanonical`; step j reports `.badCfg` for a missing UInt32 closure
+    type, missing result, non-Enum/Option base, or wrong result type. The remaining
     `Op.VariantPayload` carries its static §5.1 contract (Enum variant/payload
     indices or Option `(1,0)`, with the selected payload/element result type).
     `Op.IndexSet` and `Op.CheckedCast` carry their exact static contracts.
@@ -3165,6 +3165,31 @@ private def validateTypesStructureV1 (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   for decl in types do
     validateTypeDeclShapeV1 decl types
+  pure ()
+
+/-- Leaf primitive anonymous TypeKeys are structurally interned (SPEC §5):
+    Bool, width-specific UInt/Int, Principal, Unit, length-specific Bytes, and
+    the exact catalog Field shape each have at most one TypeId. Their existing
+    canonical TypeShape wire is injective for this leaf subset, so a private
+    byte sort detects duplicates without changing public table order. Recursive
+    Array/Map/Option keys and full anonymous rank/reachability remain separate
+    gates. Runs only after every declaration shape/catalog check succeeds. -/
+private def validatePrimitiveAnonymousTypeKeyUniquenessV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let mut keys : Array ByteArray := #[]
+  for decl in types do
+    let isPrimitive := match decl.shape with
+      | .bool | .uint _ | .int _ | .principal | .unit | .bytes _ | .field _ => true
+      | .array _ _ | .map _ _ | .option _ | .struct _ | .enum _ => false
+    if isPrimitive then
+      keys := keys.push (← encodeTypeShapeV1 decl.shape)
+  let sorted := keys.qsort fun left right =>
+    compareByteArrayLex left right == .lt
+  let mut index : Nat := 1
+  while index < sorted.size do
+    if compareByteArrayLex sorted[index - 1]! sorted[index]! == .eq then
+      return ← err .nonCanonical
+    index := index + 1
   pure ()
 
 /-! ### Canonical valueBytes (SPEC-SEM-WIRE-001 §5)
@@ -4088,7 +4113,8 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
 
 /-- Post-wire structural subset: program root qualifiedName has at least two
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
-    Map-key (SPEC §5), canonical valueBytes (Constant /
+    Map-key plus leaf primitive anonymous TypeKey uniqueness (SPEC §5),
+    canonical valueBytes (Constant /
     Op.Literal / SwitchCase), callable kind/name presence, initializer
     cardinality, per-callable CFG shape + reachability from entry
     + Switch cases nonempty with unique `(typeId,valueBytes)` constants
@@ -4123,8 +4149,9 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     type/result contract (incl. value-producing result-presence and void-op
     result-presence) — NOT ExternalCall/Schedule argument serializability,
     ContextRead/Commit exact contracts, runtime CheckedCast representability,
-    Array/Bytes bounds and Enum tag agreement, TypeKey anonymous ranking/interning, provenance
-    inventory join, or ProgramV1 normalizer. -/
+    Array/Bytes bounds and Enum tag agreement, recursive TypeKey closure/full
+    anonymous ranking/reachability, provenance inventory join, or ProgramV1
+    normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 0) Program root identity shape; intentionally precedes every table/ref/
@@ -4159,9 +4186,11 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     checkTypeIdInRange c.result.typeId typeCount
   for inv in data.invariants do
     checkCallableIdInRange inv.callableId callableCount
-  -- 3) Type-shape / FieldSpec catalog / Map-key legality, then named
-  --   Struct/Enum TypeDecl exact-name uniqueness (SPEC §5/§6).
+  -- 3) Type-shape / FieldSpec catalog / Map-key legality, primitive anonymous
+  --   TypeKey uniqueness, then named Struct/Enum exact-name uniqueness
+  --   (SPEC §5/§6).
   validateTypesStructureV1 data.types
+  validatePrimitiveAnonymousTypeKeyUniquenessV1 data.types
   validateNamedTypeNameUniquenessV1 data.types
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants
