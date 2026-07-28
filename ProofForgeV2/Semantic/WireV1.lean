@@ -149,8 +149,9 @@ import Std.Data.HashMap
     CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
     back-edge coverage, per-callable EffectId contiguous canonical assignment,
-    ValueId SSA definition-table / exactly-once /
-    use-existence, dominance-of-use, def-site TypeId range, terminator
+    per-callable ValueId canonical assignment (parameters, then all block
+    parameters, then all instruction results) / use-existence,
+    dominance-of-use, def-site TypeId range, terminator
     typing, the per-op §4.3/§5.1 type/result contract for value-producing ops
     (incl. exact result presence for Literal/Constant/StateLoad/Construct/
     FieldGet/IndexGet/Unary/Binary/PureCall, the full Op.FieldSet
@@ -2005,42 +2006,43 @@ private def validateCallableEffectIds (c : CallableV1) :
     (every use is in a block dominated by its def's block). All SSA-def-table
     and dominance failures use `.badCfg`. Bounded, non-recursive, total. -/
 
-/-- Collect every ValueId definition site in source order: callable params
-    (defBlockId := entryBlock, i.e. 0), then per block in `c.blocks`: block
-    params (defBlockId := block.id), then each instruction with
-    `result := some vdef` (defBlockId := block.id). Returns `(valueId, blockId)`
-    pairs in source order. Bounded, non-recursive. -/
+/-- Collect every ValueId definition site in the three global allocation
+    passes required by SPEC §6: callable params first; then every block param
+    in BlockId/array order; then every instruction result in
+    BlockId/instruction order. This is deliberately not per-block
+    param/result interleaving. CFG step b has already established
+    `block.id == array index` before production consumes this order. Returns
+    `(valueId, definingBlockId)` pairs. Bounded, non-recursive. -/
 def collectValueDefSites (c : CallableV1) : Array (ValueIdV1 × BlockIdV1) :=
   Id.run do
     let mut sites : Array (ValueIdV1 × BlockIdV1) := #[]
-    -- callable params: defined at entry block (SPEC §6.2 param order first).
     let entryBlock := c.entryBlock
     for p in c.params do
       sites := sites.push (p.valueId, entryBlock)
-    -- block params + instruction results, in block array order.
     for b in c.blocks do
       for bp in b.params do
         sites := sites.push (bp.valueId, b.id)
+    for b in c.blocks do
       for instr in b.instructions do
         match instr.result with
         | some vdef => sites := sites.push (vdef.valueId, b.id)
         | none => pure ()
     pure sites
 
-/-- Check that every ValueId is defined exactly once across the supplied def
-    sites (callable params + block params + instruction results, as produced
-    by `collectValueDefSites`). Duplicate → `.badCfg`. Uses a bounded Array
-    membership scan; callable value count is bounded by maxArrayElements per
-    block and maxTableElements callables. Accepting a precomputed sites array
-    lets the caller build the def table once and reuse it for both
-    exactly-once and use-existence checks. -/
-def checkValueIdDefUniqueness (defSites : Array (ValueIdV1 × BlockIdV1)) :
+/-- Enforce canonical per-callable ValueId assignment over the exact
+    `collectValueDefSites` traversal: encountered IDs are `0,1,...,n-1`.
+    This single O(definitions)-time/O(1)-extra-space check subsumes duplicate,
+    gap, wrong-start, and reordered-definition rejection. It does not claim
+    whole-CFG validation is linear; later ValueId lookups retain their existing
+    bounded complexity. Any mismatch → `.badCfg`. -/
+def checkValueIdCanonicalAssignment
+    (defSites : Array (ValueIdV1 × BlockIdV1)) :
     Except SemanticWireErrorV1 Unit := do
-  let mut seen : Array ValueIdV1 := #[]
-  for (vid, _) in defSites do
-    if seen.any (· == vid) then
+  let mut next : Nat := 0
+  for (valueId, _) in defSites do
+    unless valueId.toNat == next do
       return ← err .badCfg
-    seen := seen.push vid
+    next := next + 1
   pure ()
 
 /-- Every ValueId referenced by a `SemanticOpV1` (uses only; defs are owned by
@@ -2102,16 +2104,14 @@ def checkValueIdUsesExist (c : CallableV1)
         return ← err .badCfg
   pure ()
 
-/-- Per-callable ValueId SSA def-table: exactly-once def + use-existence.
-    Builds `defSites` once via `collectValueDefSites`, runs
-    `checkValueIdDefUniqueness` on it, then runs `checkValueIdUsesExist` with
-    the same array. Dominance-of-use is owned by `validateCallableDominanceOfUse`
-    (step g in `validateCallableCfgShape`); this helper keeps the def-table-only
-    contract for callers that do not yet need dominance. -/
+/-- Per-callable ValueId SSA def-table: canonical contiguous assignment plus
+    use-existence. Builds `defSites` once via the SPEC §6 three-pass collector,
+    validates `0..n-1`, then checks uses against the same array. Canonical
+    assignment subsumes exactly-once. Dominance remains step g. -/
 def validateCallableValueIdSsa (c : CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let defSites := collectValueDefSites c
-  checkValueIdDefUniqueness defSites
+  checkValueIdCanonicalAssignment defSites
   checkValueIdUsesExist c defSites
 
 /-! ### Dominance-of-use (SPEC §6.2 — CFG layer g)
@@ -2298,11 +2298,10 @@ private def checkTypeIdInRange (typeId : TypeIdV1) (typeCount : Nat) :
     non-recursive, total. Emit/externalCall/schedule declaration joins,
     TypeKey anonymous ranking, and provenance join remain out of scope. -/
 
-/-- Collect every ValueId → TypeId definition in source order: callable params
-    (p.valueId, p.typeId), then per block: block params (bp.valueId,
-    bp.typeId), then instruction results (vdef.valueId, vdef.typeId). Source
-    order, bounded, non-recursive. Reuses the step-f exactly-once guarantee;
-    does NOT re-run uniqueness. -/
+/-- Collect every ValueId → TypeId definition in the same three global
+    SPEC §6 passes as `collectValueDefSites`: callable params; all block params;
+    all instruction results. Bounded and non-recursive. Production reaches this
+    only after step-f canonical assignment; no duplicate check is repeated. -/
 def collectValueTypeDefs (c : CallableV1) : Array (ValueIdV1 × TypeIdV1) :=
   Id.run do
     let mut defs : Array (ValueIdV1 × TypeIdV1) := #[]
@@ -2311,6 +2310,7 @@ def collectValueTypeDefs (c : CallableV1) : Array (ValueIdV1 × TypeIdV1) :=
     for b in c.blocks do
       for bp in b.params do
         defs := defs.push (bp.valueId, bp.typeId)
+    for b in c.blocks do
       for instr in b.instructions do
         match instr.result with
         | some vdef => defs := defs.push (vdef.valueId, vdef.typeId)
@@ -3058,9 +3058,9 @@ private def validateCallableCfgShape (c : CallableV1)
   for b in c.blocks do
     for succ in terminatorSuccessors (BlockV1.terminator b) do
       checkBlockIdInRange succ blockCount
-  -- c.5) jump/branch/switch target arg arity == target block params
-  --   (only for in-range targets; step c owns OOR. Arg ValueId→type is
-  --   out of scope — needs the ValueId-definition table from a later slice.)
+  -- c.5) jump/branch/switch target arg arity == target block params.
+  --   Only in-range targets reach this step; step c owns OOR. Positional
+  --   argument TypeId equality is checked later by terminator typing (step i).
   for b in c.blocks do
     for target in terminatorJumpTargets (BlockV1.terminator b) do
       checkJumpTargetArity c.blocks blockCount target
@@ -3082,11 +3082,12 @@ private def validateCallableCfgShape (c : CallableV1)
   -- e.5) EffectId assignment: Emit/ExternalCall/Schedule IDs are contiguous
   --   from zero in BlockId/instruction order, independently per callable.
   validateCallableEffectIds c
-  -- f) ValueId SSA definition-table: exactly-once def + use-existence
-  --   (SPEC §6.2). Build defSites once and reuse for step g; build defTypes
-  --   once and reuse for steps h and i.
+  -- f) Canonical ValueId assignment + use-existence (SPEC §6/§6.2):
+  --   callable params, then all block params, then all instruction results
+  --   must be exactly `0..n-1`, independently per callable. Build defSites
+  --   once and reuse for step g; build defTypes once for h–j.
   let defSites := collectValueDefSites c
-  checkValueIdDefUniqueness defSites
+  checkValueIdCanonicalAssignment defSites
   checkValueIdUsesExist c defSites
   -- g) dominance-of-use (SPEC §6.2): every ValueId use is in a block
   --   dominated by its def's block.
