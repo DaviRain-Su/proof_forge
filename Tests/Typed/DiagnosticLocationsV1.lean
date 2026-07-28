@@ -42,6 +42,10 @@
   * explicit sinks: assign/return/emit/revert/call/schedule/index/for/assert/const
   * localCall → fn Param; state/param/local/const provenance + shadowing
   * statement/expression match + binders; nested if/match PC taint + restore
+  * B7b3cR: if/match related includes exact condition/scrutinee Expr root
+    (+ Param/State decl causes); nested equal-private keeps both control roots;
+    nested lower-secrecy under more-secret outer excludes inner control;
+    primary/erase/code/message/count/order/ok/analysisComplete unchanged
   * equal-label cause union; multi-error order; exact primary/related NodeIds
   * every draft path ∈ canonicalNodeVisitsV1; VisibilityEvidence label parity
   * public checkProgramDisclosure* erase parity; duplicate-fn incomplete
@@ -2362,7 +2366,47 @@ private unsafe def testDiscForEndpointLocations
   expectDiscDraftPaths "disc-for" inv validated.program res.drafts
   expectDiscEraseParity "disc-for" validated res
 
-/-- If private condition taints public return: primary return value; related includes Param (PC). -/
+/-- Path to entry body Block for a named entry. -/
+private def entryBodyPath
+    (tables : TypedDeclTablesV1) (entryName : SourceNameComponentV1) :
+    IO NormalizedSyntacticPathV1 := do
+  let some entryPath := itemPathForNamed? tables .entry entryName |
+    throw <| IO.userError "entryBodyPath: missing entry"
+  liftResult "entry body" (directChildPathV1 entryPath "EntryDecl" "body")
+
+/-- Path to statements[idx] under a Block path. -/
+private def blockStmtPath
+    (blockPath : NormalizedSyntacticPathV1) (idx : Nat) :
+    IO NormalizedSyntacticPathV1 :=
+  liftResult s!"Block.statements[{idx}]"
+    (indexChildPathV1 blockPath "Block" "statements" idx)
+
+/-- B7b3cR: withControlRootEvidence unit — append control root after causes. -/
+private def testWithControlRootEvidenceUnit : IO Unit := do
+  let pDecl : NormalizedSyntacticPathV1 :=
+    #[{ parentTag := "Synthetic", fieldTag := "decl", index := 0 }]
+  let pCtrl : NormalizedSyntacticPathV1 :=
+    #[{ parentTag := "Synthetic", fieldTag := "control", index := 0 }]
+  let priv : VisibilityEvidence := { label := .private_, causes := #[pDecl] }
+  let aug := withControlRootEvidence priv (some pCtrl)
+  expect (aug.label == .private_) "withControlRoot: label unchanged"
+  expect (aug.causes == #[pDecl, pCtrl])
+    "withControlRoot: decl causes first, control root appended"
+  let dup := withControlRootEvidence aug (some pDecl)
+  expect (dup.causes == #[pDecl, pCtrl])
+    "withControlRoot: existing cause not duplicated"
+  let noneKeep := withControlRootEvidence priv none
+  expect (noneKeep.causes == #[pDecl]) "withControlRoot: none leaves causes"
+  -- Join still label-authoritative after augmentation
+  let pubCtrl : VisibilityEvidence :=
+    withControlRootEvidence publicEvidence (some pCtrl)
+  let j := joinVisibilityEvidence priv pubCtrl
+  expect (j.label == .private_) "withControlRoot+join: more-secret wins"
+  expect (j.causes == #[pDecl])
+    "withControlRoot+join: lower-secrecy control root discarded"
+
+/-- If private condition taints public return: primary return value; related =
+    Param (PC decl cause) + exact condition Expr root + sink sites. -/
 private unsafe def testDiscIfPcLocations
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -2381,18 +2425,67 @@ private unsafe def testDiscIfPcLocations
       "disclosure violation: cannot flow 'private' into 'public'")
     "disc-if-pc: message uses joined PC label private"
   let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let ifStmt ← blockStmtPath bodyPath 0
+  let condPath ←
+    liftResult "if cond" (directChildPathV1 ifStmt "Stmt.If" "condition")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-if-pc: entry path"
+  let paramPath ←
+    liftResult "if param" (childPathV1 entryPath "EntryDecl" "params" 0)
+  expect (visitTag visits condPath == some "Expr.Place")
+    "disc-if-pc: condition path is Expr.Place"
   for i in [0:2] do
     let loc ← requireLocation s!"disc-if-pc[{i}]" res.drafts[i]!
     expect (visitTag visits loc.primaryPath == some "Expr.Literal")
       s!"disc-if-pc[{i}]: primary public literal"
-    expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
-      s!"disc-if-pc[{i}]: PC cause Param"
+    expect (loc.relatedPaths.any (· == paramPath))
+      s!"disc-if-pc[{i}]: PC cause Param exact path"
+    expect (loc.relatedPaths.any (· == condPath))
+      s!"disc-if-pc[{i}]: PC control root = Stmt.If condition Expr"
     expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Return")
       s!"disc-if-pc[{i}]: related Stmt.Return"
   expectDiscDraftPaths "disc-if-pc" inv validated.program res.drafts
   expectDiscEraseParity "disc-if-pc" validated res
 
-/-- Match statement private scrutinee: PC taint on public return arms. -/
+/-- Private state as if condition: related includes StateDecl + condition Expr root. -/
+private unsafe def testDiscIfPcStateLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscIfPcState where\n" ++
+    "  state private flag : Bool\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    if flag then\n" ++
+    "      return 1\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-if-pc-state" source
+  expect (!res.ok) "disc-if-pc-state: not ok"
+  expect (res.drafts.size ≥ 1) s!"disc-if-pc-state: ≥1, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let flagName ← mkName "flag"
+  let bodyPath ← entryBodyPath tables runName
+  let ifStmt ← blockStmtPath bodyPath 0
+  let condPath ←
+    liftResult "if-state cond" (directChildPathV1 ifStmt "Stmt.If" "condition")
+  let some statePath := itemPathForNamed? tables .state flagName |
+    throw <| IO.userError "disc-if-pc-state: StateDecl path"
+  let loc ← requireLocation "disc-if-pc-state[0]" res.drafts[0]!
+  expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+    "disc-if-pc-state: primary literal"
+  expect (loc.relatedPaths.any (· == statePath))
+    "disc-if-pc-state: related StateDecl"
+  expect (loc.relatedPaths.any (· == condPath))
+    "disc-if-pc-state: related condition Expr root"
+  expectDiscDraftPaths "disc-if-pc-state" inv validated.program res.drafts
+  expectDiscEraseParity "disc-if-pc-state" validated res
+
+/-- Match statement private scrutinee: PC taint includes Param + scrutinee Expr root. -/
 private unsafe def testDiscMatchStmtLocations
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -2411,15 +2504,30 @@ private unsafe def testDiscMatchStmtLocations
   expect (!res.ok) "disc-match-stmt: not ok"
   expect (res.drafts.size ≥ 2) s!"disc-match-stmt: ≥2, got {res.drafts.size}"
   let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let matchStmt ← blockStmtPath bodyPath 0
+  let scrutPath ←
+    liftResult "match scrut" (directChildPathV1 matchStmt "Stmt.Match" "scrutinee")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-match-stmt: entry path"
+  let paramPath ←
+    liftResult "match param" (childPathV1 entryPath "EntryDecl" "params" 0)
   let loc ← requireLocation "disc-match-stmt[0]" res.drafts[0]!
   expect (visitTag visits loc.primaryPath == some "Expr.Literal")
     "disc-match-stmt: primary literal"
-  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
-    "disc-match-stmt: PC/scrut Param cause"
+  expect (loc.relatedPaths.any (· == paramPath))
+    "disc-match-stmt: PC/scrut Param cause exact"
+  expect (loc.relatedPaths.any (· == scrutPath))
+    "disc-match-stmt: PC control root = Stmt.Match scrutinee Expr"
+  expect (visitTag visits scrutPath == some "Expr.Place")
+    "disc-match-stmt: scrutinee is Expr.Place"
   expectDiscDraftPaths "disc-match-stmt" inv validated.program res.drafts
   expectDiscEraseParity "disc-match-stmt" validated res
 
-/-- Match expression private scrutinee returned: primary match expr; related Param. -/
+/-- Match expression private scrutinee returned: primary match expr; related =
+    Param + scrutinee Expr root (not primary). -/
 private unsafe def testDiscMatchExprLocations
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -2439,13 +2547,31 @@ private unsafe def testDiscMatchExprLocations
   let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
   expect (visitTag visits loc.primaryPath == some "Expr.Match")
     "disc-match-expr: primary Expr.Match"
-  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let retStmt ← blockStmtPath bodyPath 0
+  let matchExpr ←
+    liftResult "match value" (directChildPathV1 retStmt "Stmt.Return" "value")
+  let scrutPath ←
+    liftResult "expr scrut" (directChildPathV1 matchExpr "Expr.Match" "scrutinee")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-match-expr: entry path"
+  let paramPath ←
+    liftResult "expr param" (childPathV1 entryPath "EntryDecl" "params" 0)
+  expect (loc.primaryPath == matchExpr)
+    "disc-match-expr: primary exact Expr.Match path"
+  expect (loc.relatedPaths.any (· == paramPath))
     "disc-match-expr: scrut Param cause"
+  expect (loc.relatedPaths.any (· == scrutPath))
+    "disc-match-expr: scrutinee Expr root in related (not primary)"
+  expect (!loc.relatedPaths.any (· == matchExpr))
+    "disc-match-expr: primary excluded from related"
   expectDiscDraftPaths "disc-match-expr" inv validated.program res.drafts
   expectDiscEraseParity "disc-match-expr" validated res
 
 /-- Binder inherits scrutinee: return of match expr ⇒ primary Expr.Match;
-    related includes Param (scrutinee/binder evidence). -/
+    related includes Param + scrutinee Expr root. -/
 private unsafe def testDiscBinderLeakLocations
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -2465,8 +2591,23 @@ private unsafe def testDiscBinderLeakLocations
   -- Primary = exact value expression submitted to return sink = the match expr.
   expect (visitTag visits loc.primaryPath == some "Expr.Match")
     "disc-binder: primary Expr.Match (return of match expr; not arm Place)"
-  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let retStmt ← blockStmtPath bodyPath 0
+  let matchExpr ←
+    liftResult "binder match" (directChildPathV1 retStmt "Stmt.Return" "value")
+  let scrutPath ←
+    liftResult "binder scrut" (directChildPathV1 matchExpr "Expr.Match" "scrutinee")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-binder: entry path"
+  let paramPath ←
+    liftResult "binder param" (childPathV1 entryPath "EntryDecl" "params" 0)
+  expect (loc.primaryPath == matchExpr) "disc-binder: primary exact match path"
+  expect (loc.relatedPaths.any (· == paramPath))
     "disc-binder: Param cause from scrutinee/binder evidence"
+  expect (loc.relatedPaths.any (· == scrutPath))
+    "disc-binder: scrutinee Expr root in related"
   expectDiscDraftPaths "disc-binder" inv validated.program res.drafts
   expectDiscEraseParity "disc-binder" validated res
 
@@ -2521,7 +2662,7 @@ private unsafe def testDiscEqualLabelCauseUnion
   expectDiscEraseParity "disc-join" validated res
 
 /-- Nested if PC restore: outer public after private branch still OK on public path;
-    private branch still reports. -/
+    private branch still reports (draft count unchanged by control-root repair). -/
 private unsafe def testDiscNestedIfPcRestore
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
@@ -2541,12 +2682,122 @@ private unsafe def testDiscNestedIfPcRestore
     s!"disc-nested-if: exactly one (PC restored), got {res.drafts.size}"
   let loc ← requireLocation "disc-nested-if" res.drafts[0]!
   let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let ifStmt ← blockStmtPath bodyPath 0
+  let condPath ←
+    liftResult "nested-if cond" (directChildPathV1 ifStmt "Stmt.If" "condition")
   expect (visitTag visits loc.primaryPath == some "Expr.Literal")
     "disc-nested-if: primary literal 1"
   expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
     "disc-nested-if: PC Param"
+  expect (loc.relatedPaths.any (· == condPath))
+    "disc-nested-if: PC control root condition Expr"
   expectDiscDraftPaths "disc-nested-if" inv validated.program res.drafts
   expectDiscEraseParity "disc-nested-if" validated res
+
+/-- Nested equal-private ifs: both condition Expr roots retained in related (stable union). -/
+private unsafe def testDiscNestedEqualPrivatePcControls
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscNestedEqPriv where\n" ++
+    "  entry run(private outer : Bool, private inner : Bool) : UInt64 do\n" ++
+    "    if outer then\n" ++
+    "      if inner then\n" ++
+    "        return 1\n" ++
+    "      return 0\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ←
+    discDraftsWithOrigins session "disc-nested-eq-priv" source
+  expect (!res.ok) "disc-nested-eq-priv: not ok"
+  -- return 1 under both private PCs + return 0 under outer only + return 0 public path OK
+  expect (res.drafts.size ≥ 1)
+    s!"disc-nested-eq-priv: ≥1, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let outerIf ← blockStmtPath bodyPath 0
+  let outerCond ←
+    liftResult "outer cond" (directChildPathV1 outerIf "Stmt.If" "condition")
+  let thenBlock ←
+    liftResult "outer then" (directChildPathV1 outerIf "Stmt.If" "thenBlock")
+  let innerIf ← blockStmtPath thenBlock 0
+  let innerCond ←
+    liftResult "inner cond" (directChildPathV1 innerIf "Stmt.If" "condition")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-nested-eq-priv: entry"
+  let outerParam ←
+    liftResult "outer param" (childPathV1 entryPath "EntryDecl" "params" 0)
+  let innerParam ←
+    liftResult "inner param" (childPathV1 entryPath "EntryDecl" "params" 1)
+  -- First draft is return 1 under both private controls
+  let loc ← requireLocation "disc-nested-eq-priv[0]" res.drafts[0]!
+  expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+    "disc-nested-eq-priv: primary literal 1"
+  expect (loc.relatedPaths.any (· == outerParam))
+    "disc-nested-eq-priv: outer Param"
+  expect (loc.relatedPaths.any (· == innerParam))
+    "disc-nested-eq-priv: inner Param"
+  expect (loc.relatedPaths.any (· == outerCond))
+    "disc-nested-eq-priv: outer condition Expr root retained"
+  expect (loc.relatedPaths.any (· == innerCond))
+    "disc-nested-eq-priv: inner condition Expr root retained (equal-label union)"
+  expectDiscDraftPaths "disc-nested-eq-priv" inv validated.program res.drafts
+  expectDiscEraseParity "disc-nested-eq-priv" validated res
+
+/-- Lower-secrecy nested control under more-secret outer PC: inner control excluded. -/
+private unsafe def testDiscNestedLowerSecrecyPcExcluded
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscNestedMix where\n" ++
+    "  entry run(private outer : Bool, flag : Bool) : UInt64 do\n" ++
+    "    if outer then\n" ++
+    "      if flag then\n" ++
+    "        return 1\n" ++
+    "      return 0\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ←
+    discDraftsWithOrigins session "disc-nested-mix" source
+  expect (!res.ok) "disc-nested-mix: not ok"
+  expect (res.drafts.size ≥ 1)
+    s!"disc-nested-mix: ≥1, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let tables := (resolveProgramV1 validated).tables
+  let runName ← mkName "run"
+  let bodyPath ← entryBodyPath tables runName
+  let outerIf ← blockStmtPath bodyPath 0
+  let outerCond ←
+    liftResult "mix outer cond" (directChildPathV1 outerIf "Stmt.If" "condition")
+  let thenBlock ←
+    liftResult "mix outer then" (directChildPathV1 outerIf "Stmt.If" "thenBlock")
+  let innerIf ← blockStmtPath thenBlock 0
+  let innerCond ←
+    liftResult "mix inner cond" (directChildPathV1 innerIf "Stmt.If" "condition")
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-nested-mix: entry"
+  let outerParam ←
+    liftResult "mix outer param" (childPathV1 entryPath "EntryDecl" "params" 0)
+  let innerParam ←
+    liftResult "mix inner param" (childPathV1 entryPath "EntryDecl" "params" 1)
+  let loc ← requireLocation "disc-nested-mix[0]" res.drafts[0]!
+  expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+    "disc-nested-mix: primary literal 1"
+  expect (loc.relatedPaths.any (· == outerParam))
+    "disc-nested-mix: outer private Param retained"
+  expect (loc.relatedPaths.any (· == outerCond))
+    "disc-nested-mix: outer condition Expr root retained"
+  expect (!loc.relatedPaths.any (· == innerParam))
+    "disc-nested-mix: public inner Param excluded (lower-secrecy)"
+  expect (!loc.relatedPaths.any (· == innerCond))
+    "disc-nested-mix: public inner condition Expr root excluded"
+  expectDiscDraftPaths "disc-nested-mix" inv validated.program res.drafts
+  expectDiscEraseParity "disc-nested-mix" validated res
 
 /-- Shadowing: local public shadows private state; no VIS. Negative: private param → public. -/
 private unsafe def testDiscShadowingLocations
@@ -2687,8 +2938,9 @@ unsafe def run : IO Unit := do
   testBoundSiblingMultiOverflow session
   testBoundCycleThenLoopLocations session
   testBoundIncompleteDuplicateFn session
-  -- B7b3c DisclosureCheck locations
+  -- B7b3c DisclosureCheck locations (+ B7b3cR control-root repair)
   testJoinVisibilityEvidenceUnit
+  testWithControlRootEvidenceUnit
   testDiscAssignLocations session
   testDiscReturnLocations session
   testDiscEmitRevertLocations session
@@ -2699,12 +2951,15 @@ unsafe def run : IO Unit := do
   testDiscAssertLocations session
   testDiscForEndpointLocations session
   testDiscIfPcLocations session
+  testDiscIfPcStateLocations session
   testDiscMatchStmtLocations session
   testDiscMatchExprLocations session
   testDiscBinderLeakLocations session
   testDiscMultiErrorOrderLocations session
   testDiscEqualLabelCauseUnion session
   testDiscNestedIfPcRestore session
+  testDiscNestedEqualPrivatePcControls session
+  testDiscNestedLowerSecrecyPcExcluded session
   testDiscShadowingLocations session
   testDiscIncompleteDuplicateFn session
   testDiscAllDraftPathsInVisits session

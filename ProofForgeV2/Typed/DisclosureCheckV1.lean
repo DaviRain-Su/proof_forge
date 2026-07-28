@@ -23,15 +23,17 @@
   Program-counter (PC) label:
     * Entry PC for each body / const check is public_.
     * if_: evaluate condition under current PC; branch bodies run under
-      pc' = joinVisibility(pc, conditionVis). Condition is not itself a public
-      *value* sink, but raises PC for the branches.
+      pc' = joinVisibilityEvidence(pc, withControlRootEvidence(condVis, condPath)).
+      Condition is not itself a public *value* sink, but raises PC for the
+      branches (PC causes = decl causes of condition + condition Expr root).
     * match_ (statement): evaluate scrutinee; arm bodies under
-      pc' = joinVisibility(pc, scrutVis). Pattern binders still inherit scrutVis
-      for *value* flow (unchanged).
+      pc' = joinVisibilityEvidence(pc, withControlRootEvidence(scrutVis, scrutPath)).
+      Pattern binders still inherit raw scrutVis for *value* flow (unchanged).
     * match_ (expression): result visibility =
-      joinVisibility(scrutVis, join of arm value visibilities) so the scrutinee
-      control-taints the expression result; arm expressions are walked under
-      pc' for nested sinks.
+      joinVisibilityEvidence(withControlRootEvidence(scrutVis, scrutPath),
+        join of arm value visibilities) so the scrutinee control-taints the
+      expression result (incl. scrutinee Expr root); arm expressions are walked
+      under pc' for nested sinks.
     * Nested if/match compose by joining PC (monotonic max secrecy). Leaving a
       branch restores the outer PC (pc is a parameter, not a global).
     * assert_: condition is a public sink (EffectCheck maps assert → failure.revert,
@@ -55,6 +57,10 @@
   stable-unique primary-excluding union of value causes + active PC causes +
   sink contract/site. VisibilityEvidence joins keep more-secret causes and
   stable-union equal labels; paths never alter flow decisions.
+  B7b3cR: if/match PC joins and Expr.Match result taint use
+  `withControlRootEvidence` so related includes the exact condition/scrutinee
+  Expr root after declaration causes; nested lower-secrecy controls are still
+  discarded by label-authoritative join.
 
   Duplicate `fn` keys make declaration tables ambiguous: analysisComplete=false,
   ok=false, no flow diagnostics; checkProgramDisclosureV1 surfaces name-resolution
@@ -172,6 +178,18 @@ def joinVisibilityEvidence (a b : VisibilityEvidence) : VisibilityEvidence :=
   if sa > sb then a
   else if sb > sa then b
   else { label := a.label, causes := stableUniqueUnion a.causes b.causes }
+
+/-- Augment computed visibility evidence with the control-input expression root
+    that raised PC (`Stmt.If` condition, `Stmt.Match`/`Expr.Match` scrutinee).
+    Existing declaration/value causes stay first-seen; control root is appended
+    if present and unique. Label and flow decisions are unchanged — callers must
+    still join via `joinVisibilityEvidence` so more-secret outer PC discards a
+    lower-secrecy nested control's causes (including its control root). -/
+def withControlRootEvidence (ev : VisibilityEvidence)
+    (controlRoot? : Option NormalizedSyntacticPathV1) : VisibilityEvidence :=
+  match controlRoot? with
+  | none => ev
+  | some p => { ev with causes := pushUniquePath ev.causes p }
 
 /-- Effective source label at a sink: value secrecy joined with PC. -/
 def effectiveSource (pc valueVis : VisibilityV1) : VisibilityV1 :=
@@ -403,15 +421,16 @@ mutual
               let _ ← exprVisibility tables scope pc ap? a
         pure publicEvidence
     | .match_ scrutinee arms => do
-        -- Expression match: result = join(scrutVis, join of arm values) so the
-        -- scrutinee control-taints the result. Arm expressions walk under
-        -- pc' = join(pc, scrutVis) for nested sinks; binders inherit scrutVis
-        -- for value flow.
+        -- Expression match: result = join(scrutControl, join of arm values) so
+        -- the scrutinee control-taints the result (decl causes + scrutinee Expr
+        -- root). Arm expressions walk under pc' = join(pc, scrutControl);
+        -- binders still inherit raw scrutVis for value flow (decl causes only).
         let sp? ← match exprPath? with
           | none => pure none
           | some ep => directOrFail ep "Expr.Match" "scrutinee"
         let scrutVis ← exprVisibility tables scope pc sp? scrutinee
-        let pc' := joinVisibilityEvidence pc scrutVis
+        let scrutControl := withControlRootEvidence scrutVis sp?
+        let pc' := joinVisibilityEvidence pc scrutControl
         let mut acc : VisibilityEvidence := publicEvidence
         for (arm, i) in arms.zipIdx do
           let binders := patternBinders arm.pattern scrutVis
@@ -424,7 +443,7 @@ mutual
                 | some armPath => directOrFail armPath "ExprMatchArm" "value"
           let v ← exprVisibility tables armScope pc' vp? arm.value
           acc := joinVisibilityEvidence acc v
-        pure (joinVisibilityEvidence scrutVis acc)
+        pure (joinVisibilityEvidence scrutControl acc)
 
   /-- R-value place: field keeps base; index joins base with index expr and
       treats the index expression as a public-required sink under PC. -/
@@ -529,11 +548,12 @@ mutual
         pure []
     | .if_ condition thenBlock elseBlock? => do
         -- Condition is not a public *value* sink; it raises PC for branches.
+        -- PC evidence = decl/value causes of condition + condition Expr root.
         let cp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "condition"
         let condVis ← exprVisibility tables scope pc cp? condition
-        let pc' := joinVisibilityEvidence pc condVis
+        let pc' := joinVisibilityEvidence pc (withControlRootEvidence condVis cp?)
         let tp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.If" "thenBlock"
@@ -547,11 +567,13 @@ mutual
             checkBlock tables scope pc' ep? callablePath? eb
         pure []
     | .match_ scrutinee arms => do
+        -- Scrutinee raises PC with decl causes + scrutinee Expr root.
+        -- Binders still inherit raw scrutVis for value flow.
         let sp? ← match stmtPath? with
           | none => pure none
           | some sp => directOrFail sp "Stmt.Match" "scrutinee"
         let scrutVis ← exprVisibility tables scope pc sp? scrutinee
-        let pc' := joinVisibilityEvidence pc scrutVis
+        let pc' := joinVisibilityEvidence pc (withControlRootEvidence scrutVis sp?)
         for (arm, i) in arms.zipIdx do
           let binders := patternBinders arm.pattern scrutVis
           let bp? ← match stmtPath? with
