@@ -14,17 +14,18 @@
   wire key. Synthetic Unit types and implicit init return terminators bind the
   nearest producing declaration/block node — never an arbitrary inventory pick.
 
-  Inventory construction is exact: duplicate span paths, missing/extra paths,
-  duplicate/nonascending NodeIds, and count mismatches fail closed before any
-  originMap is emitted.
+  Inventory construction is exact and Source-owned: `buildSourceNodeInventoryV1`
+  is a thin projection of `Source.OriginJoinV1.joinOriginsV1`. Duplicate span
+  paths, missing/extra paths, duplicate/nonascending NodeIds, and count
+  mismatches fail closed before any originMap is emitted.
 
-  Path HashMap keys use length-framed `pathLookupKeyV1` (collision-free; not
-  delimiter concatenation). Requirement missing producing sites fail closed
+  Path HashMap keys use Source length-framed `pathLookupKeyV1` (collision-free;
+  not delimiter concatenation). Requirement missing producing sites fail closed
   (no program-root fallback).
 
   Low-level only (caller-trusted; not complete authority):
-    * `buildSourceNodeInventoryV1` / `buildSemanticProvenanceV1` /
-      `rebuildSemanticProvenanceV1`
+    * `buildSourceNodeInventoryV1` (thin Source projection) /
+      `buildSemanticProvenanceV1` / `rebuildSemanticProvenanceV1`
     * `validateSourceNodeInventoryExactV1` (hash + NodeId set/order only —
       does **not** re-check path/start/end against spans)
     * Wire `validateSemanticProvenanceJoinV1` / `semanticProvenanceDigestJoinV1`
@@ -48,6 +49,7 @@ import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.NodeTraversalV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -65,6 +67,7 @@ open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.NodeTraversalV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -128,23 +131,6 @@ private def compareByteArrayLexLocal (left right : ByteArray) : Ordering :=
     else .eq
   loop 0
 
-/-- Collision-free length-framed path key for HashMap lookup.
-
-    Each segment is encoded as `p=<utf8Len>:<parentTag>;f=<utf8Len>:<fieldTag>;i=<index>;`
-    prefixed by segment count. Delimiter characters inside tags cannot forge
-    another path (lengths frame every field). Replaces the unsafe
-    `\x1f`/`\x1e` concatenation that admitted cross-field collisions.
--/
-def pathLookupKeyV1 (path : NormalizedSyntacticPathV1) : String :=
-  Id.run do
-    let mut out := s!"n={path.size};"
-    for seg in path do
-      let pt := seg.parentTag
-      let ft := seg.fieldTag
-      out := out ++
-        s!"p={pt.utf8ByteSize}:{pt};f={ft.utf8ByteSize}:{ft};i={seg.index.toNat};"
-    pure out
-
 private def childPath
     (path : NormalizedSyntacticPathV1)
     (parentTag fieldTag : String) (index : Nat) :
@@ -178,85 +164,25 @@ def sourceIdentityToQualifiedNameV1 (identity : SourceQualifiedNameV1) :
   | .ok qn => pure qn
   | .error e => failIdentity e
 
-/-- Join production NodeIds with span-join spans into SourceNodeInventoryV1.
+/-- Thin projection of Source `joinOriginsV1` into wire `SourceNodeInventoryV1`.
 
-    nodes sorted by NodeId raw bytes unique ascending; inventory.sourceHash is
-    sourceHashV1(source). Fail closed on:
-    * duplicate span paths (before HashMap insert)
-    * missing span for an assignment path
-    * extra span path not present in the assignment table
-    * NodeId collision / non-unique after sort
-    * empty assignment table
-    * span-path count ≠ assignment count
+    Exact NodeId×span construction and length-framed path keys are owned by
+    `ProofForgeV2.Source.OriginJoinV1`. This helper preserves identity-vs-inventory
+    error priority and does not re-implement span join.
 -/
 def buildSourceNodeInventoryV1
     (source : ValidatedSourceV1)
     (sourcePath : ProjectRelativePath)
     (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1)) :
-    Except ProvenanceBuildErrorV1 SourceNodeInventoryV1 := do
-  match validateProjectRelativePath sourcePath with
-  | .error e => return ← failIdentity s!"sourcePath: {e}"
-  | .ok () => pure ()
-  let hash ← mapString (sourceHashV1 source) "sourceHashV1"
-  let table ← mapString
-    (assignNodeIdsV1 source.moduleName source.programIdentity source.program)
-    "assignNodeIdsV1"
-  let assignments := nodeAssignmentsPreorderV1 table
-  if assignments.isEmpty then
-    return ← failInventory "NodeId assignment table is empty"
-  -- Path → span map once; reject duplicate paths before insert (linear).
-  let mut spanByPath : Std.HashMap String SourceByteSpanV1 :=
-    Std.HashMap.emptyWithCapacity spans.size
-  let mut spanPathKeys : Array String := Array.mkEmpty spans.size
-  for (p, sp) in spans do
-    let key := pathLookupKeyV1 p
-    if spanByPath.contains key then
-      return ← failInventory s!"duplicate span path key={key}"
-    spanByPath := spanByPath.insert key sp
-    spanPathKeys := spanPathKeys.push key
-  -- Assignment coverage: every assignment path has a span; track used keys.
-  let mut usedSpanKeys : Std.HashMap String Unit :=
-    Std.HashMap.emptyWithCapacity assignments.size
-  let mut nodes : Array SourceOrigin := #[]
-  for a in assignments do
-    let key := pathLookupKeyV1 a.path
-    match spanByPath.get? key with
-    | none =>
-        return ← failInventory
-          s!"missing span for NodeId assignment tag={a.constructorTag}"
-    | some span =>
-        let origin : SourceOrigin := {
-          sourcePath := sourcePath
-          startByte := span.startByte
-          endByte := span.endByte
-          nodeId := a.nodeId
-        }
-        match validateSourceOrigin origin with
-        | .error e => return ← failInventory s!"invalid origin: {e}"
-        | .ok () => pure ()
-        usedSpanKeys := usedSpanKeys.insert key ()
-        nodes := nodes.push origin
-  -- Extra span paths (present in spans but not in assignment preorder) fail closed.
-  for key in spanPathKeys do
-    unless usedSpanKeys.contains key do
-      return ← failInventory s!"extra span path not in NodeId assignment table key={key}"
-  unless spans.size == assignments.size do
-    return ← failInventory
-      s!"span count {spans.size} != assignment count {assignments.size}"
-  unless usedSpanKeys.size == assignments.size do
-    return ← failInventory "span/assignment path coverage incomplete"
-  let sorted :=
-    nodes.qsort fun a b => compareNodeIdBytes a.nodeId.bytes b.nodeId.bytes == .lt
-  -- Unique ascending NodeIds (reject duplicates and non-ascending after sort).
-  for i in [1:sorted.size] do
-    match sorted[i - 1]?, sorted[i]? with
-    | some prev, some cur =>
-        match compareNodeIdBytes prev.nodeId.bytes cur.nodeId.bytes with
-        | .eq => return ← failInventory "duplicate NodeId in inventory"
-        | .gt => return ← failInventory "inventory NodeIds not ascending after sort"
-        | .lt => pure ()
-    | _, _ => pure ()
-  pure { sourceHash := hash, nodes := sorted }
+    Except ProvenanceBuildErrorV1 SourceNodeInventoryV1 :=
+  match joinOriginsV1 source sourcePath spans with
+  | .ok inv =>
+      .ok {
+        sourceHash := originInventorySourceHashV1 inv
+        nodes := originInventoryOriginsV1 inv
+      }
+  | .error (.identity detail) => failIdentity detail
+  | .error (.inventory detail) => failInventory detail
 
 /-- Low-level NodeId-set inventory check (caller-trusted; **not** full authority).
 

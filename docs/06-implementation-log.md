@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B5 Source-owned OriginJoinV1 (NodeId × span exact inventory)
+
+- Context/State：SpanJoin 已产出 path→span，NodeAssignment 已产出 preorder NodeIds，但 exact join 算法与 length-framed path-key 仍住在 `Semantic.ProvenanceV1`（`buildSourceNodeInventoryV1`/`pathLookupKeyV1`）。本切片工程-only 把 sole exact join 下沉到 Source，使 Semantic provenance 只 thin-project wire `SourceNodeInventoryV1`；不碰 formal TASK/TST/EV、Loader WithOrigins、DiagnosticV1、wire type 迁移或 target maturity。
+- RED/Changed（tests first）：新增 Source-only `Tests/Language/ProgramV1OriginJoin.lean`（Fast/Tests/lakefile 注册）。实现前真实 RED：`no such file or directory` for `ProofForgeV2/Source/OriginJoinV1.lean` / `bad import 'ProofForgeV2.Source.OriginJoinV1'`。GREEN 后固定 join→sourceHash/sourceHashV1、NodeId-sorted origins vs assignNodeIds preorder、path lookup、length-framed non-collision vs legacy delimiter keys、determinism、fail-closed invalid path/dup·missing·extra spans/invalid origin。`Tests/Typed/CheckV1.lean` 机械 retarget path-key 与 inventory 负例到 Source，并 pin Semantic projection 与 Source inventory 字节级 parity。
+- Production：新增 `ProofForgeV2/Source/OriginJoinV1.lean`（private-constructor opaque `OriginInventoryV1`；sole `joinOriginsV1`；expose `originInventorySourceHashV1` / `originInventoryOriginsV1` / `originInventoryLookupPathV1` + `pathLookupKeyV1`；Source-owned `.identity`/`.inventory`；无 Semantic imports）。`Semantic.ProvenanceV1.buildSourceNodeInventoryV1` 改为 thin OriginJoin→wire projection；删除 Semantic `def pathLookupKeyV1` 与 `spanByPath`/`spanPathKeys`/`usedSpanKeys` span-join 局部；保留 identity-vs-inventory 错误优先、NodeId-only inventory check、OriginIndex 经 Source path-key、Normalize source-bound rebuild 权威与既有 carrier bytes。
+- Zero patterns：`ProofForgeV2/Semantic/ProvenanceV1.lean` 无 `def pathLookupKeyV1`/`let mut spanByPath`/`spanPathKeys`/`usedSpanKeys`；`ProofForgeV2/Source/**` 无 `import ProofForgeV2.Semantic`。
+- Docs/umbrella：`ProofForgeV2.lean` import OriginJoin；`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` TASK-D1-01 事实行、本日志；formal 状态不变。
+- Verification：focused `lake build` OriginJoin/ProgramV1OriginJoin/CheckV1/fast_tests + fast harness；rg zero-pattern；随后 sbom/diff/docs/dev-check/ci。
+- Boundary：formal TASK 仍 pending/blocked；无 Loader WithOrigins/Diagnostic 变更；无 second decoder/adapter/fallback；无 wire type 迁出 Semantic；无 target maturity 变化；无 release/governance 路径。
+
 ## 2026-07-29 — B4 delete obsolete `call StringLiteral` ProgramV1 grammar
 
 - Context/State：structured `call QualifiedId(args)` / `schedule QualifiedId(args)` 已是 sole 正向 surface，但 shared grammar 仍保留 `syntax "call " str : pfStmt` 与 decoder arm `pfStmt| call $_callee:str` 仅用于稳定拒绝并产出 decoder 诊断 `portable ProgramV1 calls require a qualified source identity`。本切片工程-only 删除该 obsolete string-call seam，使 legacy `call "…"` 仅在 Lean parser boundary 失败；不碰 formal TASK/TST/EV、B3 golden、或 alpha Core `synchronousCall` carriers。

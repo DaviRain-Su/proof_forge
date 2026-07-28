@@ -23,6 +23,7 @@ import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.NodeTraversalV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
 
@@ -439,6 +440,7 @@ open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.NodeTraversalV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
@@ -936,6 +938,10 @@ private unsafe def testCounterRequirementsAndProvenance
   expect typed.ok "prov: CheckV1.ok"
   expect typed.analysisComplete "prov: CheckV1.analysisComplete"
   let path ← parseTestPath "prov"
+  -- Source OriginJoin is sole exact join; Semantic inventory is a thin projection.
+  let sourceInv ← match joinOriginsV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"prov: source origin join: {repr e}"
   let inventory ← match buildSourceNodeInventoryV1 validated path spans with
     | .ok inv => pure inv
     | .error e => throw <| IO.userError s!"prov: inventory: {repr e}"
@@ -943,6 +949,12 @@ private unsafe def testCounterRequirementsAndProvenance
   let srcHash ← match sourceHashV1 validated with
     | .ok h => pure h
     | .error e => throw <| IO.userError s!"prov: sourceHash: {e}"
+  expect (originInventorySourceHashV1 sourceInv == srcHash)
+    "prov: Source inventory sourceHash == sourceHashV1"
+  expect (inventory.sourceHash == originInventorySourceHashV1 sourceInv)
+    "prov: Semantic projection sourceHash == Source inventory"
+  expect (inventory.nodes == originInventoryOriginsV1 sourceInv)
+    "prov: Semantic projection nodes == Source NodeId-ordered origins"
   expect (inventory.sourceHash == srcHash) "prov: inventory.sourceHash == sourceHashV1"
   match validateSourceNodeInventoryExactV1 validated inventory with
   | .ok () => pure ()
@@ -1113,14 +1125,18 @@ private unsafe def testCounterRequirementsAndProvenance
     | .ok h => pure h
     | .error e => throw <| IO.userError s!"prov: semR: {repr e}"
   expect (semR == semHash) "prov: re-normalize stable semanticHash"
-  -- Inventory negatives: duplicate span path
+  -- Inventory negatives: Source OriginJoin + Semantic thin projection parity.
   let some (p0, sp0) := spans[0]? |
     throw <| IO.userError "prov: spans empty"
   let dupSpans := spans.push (p0, sp0)
+  expect (match joinOriginsV1 validated path dupSpans with
+    | .error (.inventory detail) => detail.startsWith "duplicate span path"
+    | _ => false)
+    "prov: Source duplicate span path rejected"
   expect (match buildSourceNodeInventoryV1 validated path dupSpans with
     | .error (.inventory detail) => detail.startsWith "duplicate span path"
     | _ => false)
-    "prov: duplicate span path rejected"
+    "prov: Semantic projection duplicate span path rejected"
   -- Extra distinct span path absent from the production assignment table.
   let extraPath := p0.push {
     parentTag := "Foreign"
@@ -1128,12 +1144,16 @@ private unsafe def testCounterRequirementsAndProvenance
     index := UInt32.ofNat 0
   }
   let extraSpans := spans.push (extraPath, sp0)
+  expect (match joinOriginsV1 validated path extraSpans with
+    | .error (.inventory detail) => detail.startsWith "extra span path"
+    | _ => false)
+    "prov: Source extra span path rejected"
   expect (match buildSourceNodeInventoryV1 validated path extraSpans with
     | .error (.inventory detail) => detail.startsWith "extra span path"
     | _ => false)
-    "prov: extra span path rejected"
+    "prov: Semantic projection extra span path rejected"
   -- Delimiter-bearing alias: would collide under legacy \x1f/\x1e key encoding
-  -- but is a distinct structural path under length-framed pathLookupKeyV1.
+  -- but is a distinct structural path under Source length-framed pathLookupKeyV1.
   -- [{X, Y\x1fZ, 0}] vs [{X\x1fY, Z, 0}] share one legacy key.
   let aliasA : NormalizedSyntacticPathV1 := #[{
     parentTag := "X", fieldTag := "Y\x1fZ", index := 0 }]
@@ -1143,7 +1163,7 @@ private unsafe def testCounterRequirementsAndProvenance
       legacyDelimiterPathKey aliasB)
     "prov: legacy delimiter keys collide for alias pair"
   expect (pathLookupKeyV1 aliasA != pathLookupKeyV1 aliasB)
-    "prov: length-framed keys distinguish delimiter alias pair"
+    "prov: Source length-framed keys distinguish delimiter alias pair"
   -- Replacing a real span path with aliasA → missing real path detection.
   let mut replacedSpans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1) := #[]
   let mut replaced := false
@@ -1154,11 +1174,16 @@ private unsafe def testCounterRequirementsAndProvenance
     else
       replacedSpans := replacedSpans.push (p, sp)
   expect replaced "prov: replaced first span path with delimiter alias"
+  expect (match joinOriginsV1 validated path replacedSpans with
+    | .error (.inventory detail) =>
+        detail.startsWith "missing span" || detail.startsWith "extra span path"
+    | _ => false)
+    "prov: Source delimiter-alias path swap → missing/extra detection"
   expect (match buildSourceNodeInventoryV1 validated path replacedSpans with
     | .error (.inventory detail) =>
         detail.startsWith "missing span" || detail.startsWith "extra span path"
     | _ => false)
-    "prov: delimiter-alias path swap → missing/extra detection"
+    "prov: Semantic delimiter-alias path swap → missing/extra detection"
   -- Extra alias path (both real and alias present) → extra span rejection.
   let aliasExtraSpans := spans.push (aliasA, sp0)
   expect (match buildSourceNodeInventoryV1 validated path aliasExtraSpans with
@@ -1174,9 +1199,12 @@ private unsafe def testCounterRequirementsAndProvenance
   -- Missing span: drop last span entry
   if spans.size > 0 then
     let missingSpans := spans.pop
+    expect (match joinOriginsV1 validated path missingSpans with
+      | .error (.inventory _) => true | _ => false)
+      "prov: Source missing span path rejected"
     expect (match buildSourceNodeInventoryV1 validated path missingSpans with
       | .error (.inventory _) => true | _ => false)
-      "prov: missing span path rejected"
+      "prov: Semantic projection missing span path rejected"
   -- Structure-valid same-qualifiedName carrier substitution fails authority.
   let altText := wrap "CounterProv" <|
     "  state count : UInt64\n" ++

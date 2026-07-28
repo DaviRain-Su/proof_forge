@@ -37,6 +37,7 @@ import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ProgramV1SpanJoin
+import Tests.Language.ProgramV1OriginJoin
 import Tests.Language.ProgramV1Diagnostics
 import Tests.Language.ProgramV1Bounds
 import Tests.Language.ProgramV1SourceFullTagGolden
@@ -88,6 +89,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
   Tests.Language.ProgramV1SpanJoin.run
+  Tests.Language.ProgramV1OriginJoin.run
   Tests.Language.ProgramV1Diagnostics.run
   Tests.Language.ProgramV1Bounds.run
   Tests.Language.ProgramV1SourceFullTagGolden.run
