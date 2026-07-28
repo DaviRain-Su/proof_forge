@@ -4655,6 +4655,102 @@ private def testInvariantClosureCfgBackEdges : IO Unit := do
   expectCfgInvariantPhase "N4 closure CFG phase wins"
     .invariantClosure .badCfg n4
 
+/-- SPEC §8 forbids logical-state reads in pureFn callables that belong to an
+    invariant closure. Invariant roots may still read state directly, and an
+    unreachable pureFn remains outside this closure-only restriction. Generic
+    StateLoad typing runs before the post-CFG closure gate. -/
+private def testInvariantClosurePureFnStateLoadProhibited : IO Unit := do
+  let state := #[stateRow 0 "flag" 0]
+  let stateReader : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.stateLoad 0)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "stateReader"
+      invariantSteps := some 3
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithState "InvClosureLoadP1Unreachable" cfgBoolTypes #[]
+    state #[{ stateReader with invariantSteps := none }, literalRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 unreachable pureFn StateLoad outside invariant closure" p1
+  let n1Base ← programWithState "InvClosureLoadN1Reachable" cfgBoolTypes #[]
+    state #[stateReader, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn StateLoad" n1
+  expectCfgInvariantPhase "N1 pureFn StateLoad closure phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    root with
+      id := 1
+      kind := .pureFn
+      name := some "middle"
+      invariantSteps := some 6
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 9
+  }
+  let n2Base ← programWithState "InvClosureLoadN2Transitive" cfgBoolTypes #[]
+    state #[stateReader, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn StateLoad" n2
+  expectCfgInvariantPhase "N2 transitive StateLoad closure phase"
+    .invariantClosure .badCfg n2
+  let malformedReader : CallableV1 := {
+    stateReader with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (.stateLoad 0),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n3Base ← programWithState "InvClosureLoadN3CfgFirst" cfgUint8Types #[]
+    state #[malformedReader, root]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 malformed StateLoad before closure restriction" .badCfg n3
+  expectCfgInvariantPhase "N3 generic StateLoad typing phase wins"
+    .cfg .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[stateReader,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 pureFn StateLoad before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 StateLoad closure phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-state-load"] }
+  }
+  expectCfgErrCode "N5 pureFn StateLoad before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 StateLoad closure before requirements"
+    .invariantClosure .badCfg n5
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -6562,6 +6658,7 @@ def run : IO Unit := do
   testInvariantPureFnClosureMembership
   testInvariantPureFnClosureDag
   testInvariantClosureCfgBackEdges
+  testInvariantClosurePureFnStateLoadProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

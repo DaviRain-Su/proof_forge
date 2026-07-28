@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-closure pureFn StateLoad prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只禁止 invariant closure 内 exact reachable pureFn 的 `Op.StateLoad`，不扩张到 invariant root direct StateLoad、unreachable pureFn、其余 forbidden-op families、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantClosurePureFnStateLoadProhibited`，固定 unreachable pureFn StateLoad 双路径正向、direct/transitive reachable closure pureFn StateLoad 双路径负向，以及 generic StateLoad typing→closure restriction→intrinsic fuel→requirements phase precedence；实现前 N1 reachable pureFn StateLoad 被 structure gate 接受；`proof-forge-one-slice-64` 指出的 requirements mixed-invalid 缺口已补齐。
+- Production：新增 bounded `validateInvariantClosurePureFnStateLoadV1`，在 generic CFG/op typing、exact membership、reachable call-graph DAG 与 closure CFG acyclicity之后复用 membership，只扫描 reachable `.pureFn` 并按 callable/block/instruction source order拒绝 `.stateLoad`，失败 `.badCfg`；invariant root direct StateLoad 与 unreachable pureFn StateLoad 保持接受。
+- Verification：聚焦 production/test build、真实 fast harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-64` findings 已修复，`proof-forge-one-slice-65` 三路复审 approved、无 findings。
+- Boundary：remaining closure pureFn forbidden-op families、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-closure callable CFG no-back-edge gate (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 §8 invariant closure 内每个 callable CFG 无 back edge，不实现 pureFn op allowlist、exact checked steps、interpreter或产品接线。

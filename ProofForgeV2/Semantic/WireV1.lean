@@ -3750,6 +3750,26 @@ private def validateInvariantClosureCfgAcyclicV1
             return ← err .badCfg
   pure ()
 
+/-- A pureFn in an invariant closure cannot read logical state (SPEC §8).
+    Generic CFG/op typing and closure graph/CFG acyclicity have already run.
+    Invariant roots remain allowed to use StateLoad directly, and unreachable
+    pureFns remain outside this closure-only restriction. -/
+private def validateInvariantClosurePureFnStateLoadV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let members ← computeInvariantClosureMembershipV1 callables
+  for index in [:callables.size] do
+    if members[index]! then
+      match callables[index]? with
+      | none => return ← err .badCfg
+      | some callable =>
+          if callable.kind == .pureFn then
+            for block in callable.blocks do
+              for instr in block.instructions do
+                match instr.op with
+                | .stateLoad _ => return ← err .badCfg
+                | _ => pure ()
+  pure ()
+
 /-- Every present invariant fuel value is bounded by the schema-fixed 10M
     intrinsic ceiling (SPEC §8). This does not compute expected steps; exact
     closure membership has already been checked. The structure pipeline calls
@@ -3805,6 +3825,8 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     (validateInvariantClosureCallGraphDagV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
     (validateInvariantClosureCfgAcyclicV1 data.callables)
+  liftCfgInvariantValidationPhaseV1 .invariantClosure
+    (validateInvariantClosurePureFnStateLoadV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantFuel
     (validateInvariantStepsIntrinsicCeilingV1 data.callables)
 
