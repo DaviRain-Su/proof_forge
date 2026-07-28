@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B7b2 TypeCheckV1 diagnostic-draft paths
+
+- Context/State：B7b1 已为 NameResolution/CallGraph 接线 `DiagnosticDraftV1` path drafts；TypeCheckV1 仍 emit 空 primary/related。本切片工程-only 把 TypeCheck 单 walk 迁到 canonical ProgramV1 paths，**不**改 Effect/Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：扩展 `Tests/Typed/DiagnosticLocationsV1.lean` 覆盖 TypeCheck 全 family（places/patterns/exprs/match exhaust+arm/stmts/const/callable/invariant）+ erase parity + resolution-not-ok short-circuit + OriginInventory exact NodeId。实现前真实 RED：`Unknown identifier typeCheckProgramDraftsV1`。
+- Production：`ModelV1` 增 const-type/struct-field/enum-variant/callable-result/fn·error·event-param path helpers（sole `childPathV1`/`directChildPathV1`/`indexChildPathV1` + B7b1 item indices；state/const place origin 与 assign related 用 StateDecl/ConstDecl item paths，无 `stateTypePath?`）。`TypeCheckV1` 单 path-threaded draft authority：`typeCheck*Drafts` + additive `typeCheckProgramDraftsV1`；public APIs exact erase；constructor/localCall **arity mismatch 仅 arity locateDraft、不 walk args**（resolve-error 与 revert/emit arity 仍 walk；`TypeCheckCallsV1` exact message arrays）；primary=offending AST；related=decl contracts。
+- Zero patterns：TypeCheck/DiagnosticDraft 无 raw `path.push`；Typed 无 `import ProofForgeV2.Semantic`；无第二 type-check walker；无 Effect/Bound/Disclosure/CheckV1/compiler/CLI/Semantic/target 变更。
+- Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` TASK-D1-01/D1-07 事实行；本日志。formal 状态不变。
+- Verification：focused `lake build` TypeCheck/DiagnosticLocations/TypeCheck* suites + `proof-forge-next-fast-tests`；zero-pattern rg；`just sbom-package-files-refresh` + ordinary gates。
+- Boundary：无 B7b3 located CheckV1 integration、无 B8 CLI bundle、无 formal/release 路径。
+
 ## 2026-07-29 — B7b1 Typed diagnostic-draft path (name-resolution + call-graph)
 
 - Context/State：B7a 已提供 path→NodeId locate 与 Loader `WithOrigins`，但 Typed name-resolution/call-graph 仍 emit 空 primary/related。本切片工程-only 引入 sole Typed draft wrapper，并把 declaration-table + name-resolution + call-graph 迁到 canonical ProgramV1 paths；**不**改 TypeCheck/Effect/Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。

@@ -1,8 +1,8 @@
 /-
-  B7b1: Typed diagnostic-draft path + name-resolution/call-graph location
-  materialization through B7a OriginInventoryV1.
+  B7b1 + B7b2: Typed diagnostic-draft path materialization through B7a
+  OriginInventoryV1.
 
-  Focused coverage:
+  B7b1 (name-resolution / call-graph):
   * unknown Place.Name primary path
   * nested Type.Named (Array/Option) primary path
   * later-primary + first-related duplicate declarations
@@ -10,10 +10,15 @@
   * struct name + enum-variant constructor ambiguity related (Bar EnumDecl)
   * self / two-fn cycles with declaration + callsite related paths
   * stableContext tokens (typed.nr.* / typed.callgraph.cycle)
+  * resolution-before-callgraph phase order after erase
+
+  B7b2 (TypeCheckV1 families):
+  * places / patterns / expressions / match exhaust+arm / statements /
+    const / callable / invariant drafts with primary (+ related for decl contracts)
+  * typeCheckProgramDraftsV1 erase parity vs typeCheckProgramV1
+  * resolution-not-ok short-circuit erase parity
   * every draft path ∈ canonicalNodeVisitsV1
   * locate via selectProgramV1WithOrigins → exact real NodeIds
-  * erase parity for code/message/phase
-  * resolution-before-callgraph phase order after erase
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
@@ -36,6 +41,7 @@ import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
+import ProofForgeV2.Typed.TypeCheckV1
 
 namespace Tests.Typed.DiagnosticLocationsV1
 
@@ -59,6 +65,7 @@ open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
+open ProofForgeV2.Typed.TypeCheckV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -596,6 +603,483 @@ private unsafe def testAllDraftPathsInVisits
     expect (primaryId == (← inventoryNodeId inv loc.primaryPath s!"mp[{i}]"))
       s!"multi-path[{i}]: exact primary NodeId"
 
+/-- Shared: run TypeCheck drafts on a Loader program with origins. -/
+private unsafe def typeCheckDraftsWithOrigins
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × OriginInventoryV1 × TypeCheckProgramDraftResultV1 ×
+        NameResolutionDraftResultV1) := do
+  let (validated, inv) ← selectWithOrigins session label source
+  let resolution := resolveProgramDraftsV1 validated
+  let tc := typeCheckProgramDraftsV1 validated.program resolution
+  pure (validated, inv, tc, resolution)
+
+/-- Assert a draft has location, primary tag, optional related tags, visits membership,
+    erase code/message/phase, and locate primary NodeId. -/
+private def expectTypeCheckDraft
+    (label : String) (inv : OriginInventoryV1) (prog : ProgramV1)
+    (draft : TypedDiagnosticDraftV1)
+    (messageNeedle : String) (primaryTag : String)
+    (relatedTags : Array String) : IO DiagnosticLocationDraftV1 := do
+  expect (draft.diagnostic.message.contains messageNeedle)
+    s!"{label}: message contains {messageNeedle}, got {draft.diagnostic.message}"
+  expect (draft.diagnostic.code == .sourceInvalid || draft.diagnostic.code == .internal)
+    s!"{label}: code"
+  let loc ← requireLocation label draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 prog)
+  expect (pathInVisits visits loc.primaryPath) s!"{label}: primary ∈ visits"
+  let some primaryVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError s!"{label}: primary visit"
+  expect (primaryVisit.constructorTag == primaryTag)
+    s!"{label}: primary tag want {primaryTag} got {primaryVisit.constructorTag}"
+  expect (loc.relatedPaths.size == relatedTags.size)
+    s!"{label}: related count want {relatedTags.size} got {loc.relatedPaths.size}"
+  for (rp, i) in loc.relatedPaths.zipIdx do
+    expect (pathInVisits visits rp) s!"{label}: related[{i}] ∈ visits"
+    let some rv := visits.find? (·.path == rp) |
+      throw <| IO.userError s!"{label}: related visit[{i}]"
+    expect (rv.constructorTag == relatedTags[i]!)
+      s!"{label}: related[{i}] tag want {relatedTags[i]!} got {rv.constructorTag}"
+  let erased := eraseArray #[draft]
+  eraseParity label #[draft] erased
+  let located ← locateAll label inv #[draft]
+  let primaryId ← expectNodeIdSome label located[0]!.primary
+  expect (primaryId == (← inventoryNodeId inv loc.primaryPath s!"{label} primary"))
+    s!"{label}: primary NodeId"
+  if !loc.relatedPaths.isEmpty then
+    expectRelatedNodeIdSet label inv located[0]!.related loc.relatedPaths
+  pure loc
+
+/-- Place.Field unknown field: primary Place.Field; related StructDecl. -/
+private unsafe def testTypeCheckUnknownField
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcField where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  entry run(p : Point) : UInt64 do\n" ++
+    "    return p.missing\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-field" source
+  expect resolution.ok "tc-field: resolution ok"
+  expect (!tc.ok) "tc-field: typecheck not ok"
+  expect (tc.drafts.size ≥ 1) "tc-field: ≥1 draft"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "field 'missing'") |
+    throw <| IO.userError s!"tc-field: missing draft, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-field" inv validated.program draft
+    "field 'missing'" "Place.Field" #["StructDecl"]
+  -- Public erase projection
+  let publicRes := typeCheckProgramV1 validated.program (resolveProgramV1 validated)
+  expect (publicRes.diagnostics.map (·.message) == (eraseArray tc.drafts).map (·.message))
+    "tc-field: public erase messages"
+
+/-- Integer literal out of range (expression family): primary Expr.Literal; related result Type. -/
+private unsafe def testTypeCheckIntegerLiteralRange
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcLit where\n" ++
+    "  entry run() : UInt8 do\n" ++
+    "    return 300\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-lit" source
+  expect resolution.ok "tc-lit: resolution ok"
+  expect (!tc.ok) "tc-lit: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "integer literal") |
+    throw <| IO.userError s!"tc-lit: missing draft, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-lit" inv validated.program draft
+    "integer literal" "Expr.Literal" #["Type.UInt"]
+
+/-- Binary operand type mismatch: primary on rhs Expr.Place; no decl related. -/
+private unsafe def testTypeCheckBinaryMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcBin where\n" ++
+    "  entry run(a : UInt64, b : Bool) : UInt64 do\n" ++
+    "    return a + b\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-bin" source
+  expect resolution.ok "tc-bin: resolution ok"
+  expect (!tc.ok) "tc-bin: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-bin: missing draft, got {tc.drafts.map (·.diagnostic.message)}"
+  let loc ← expectTypeCheckDraft "tc-bin" inv validated.program draft
+    "type mismatch" "Expr.Place" #[]
+  -- Primary is the offending rhs place under Expr.Binary
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some binVisit := visits.find? (·.constructorTag == "Expr.Binary") |
+    throw <| IO.userError "tc-bin: missing binary"
+  -- primary should be a descendant of binary (rhs place), not the binary itself
+  expect (loc.primaryPath != binVisit.path) "tc-bin: primary is operand not binary root"
+
+/-- Constructor arity mismatch: primary Expr.Constructor; related EnumDecl.
+    Surface syntax requires multi-component ctor (`Choice.Some`); single-ident
+    `Pair(...)` decodes as localCall. -/
+private unsafe def testTypeCheckConstructorArity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcCtor where\n" ++
+    "  enum Choice where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  entry run() : Choice do\n" ++
+    "    return Choice.Some(1, 2)\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-ctor" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-ctor: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-ctor: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "constructor arguments") |
+    throw <| IO.userError s!"tc-ctor: missing draft, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-ctor" inv validated.program draft
+    "constructor arguments" "Expr.Constructor" #["EnumDecl"]
+
+/-- Local-call arity: primary Expr.LocalCall; related FnDecl. -/
+private unsafe def testTypeCheckLocalCallArity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcCall where\n" ++
+    "  fn add(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    return a\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return add(1)\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-call" source
+  expect resolution.ok "tc-call: resolution ok"
+  expect (!tc.ok) "tc-call: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "arguments") |
+    throw <| IO.userError s!"tc-call: missing draft, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-call" inv validated.program draft
+    "arguments" "Expr.LocalCall" #["FnDecl"]
+
+/-- Local-call arg type: primary arg literal; related Param. -/
+private unsafe def testTypeCheckLocalCallArgType
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcCallArg where\n" ++
+    "  fn id(a : UInt64) : UInt64 do\n" ++
+    "    return a\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return id(true)\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-call-arg" source
+  expect resolution.ok "tc-call-arg: resolution ok"
+  expect (!tc.ok) "tc-call-arg: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-call-arg: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-call-arg" inv validated.program draft
+    "type mismatch" "Expr.Literal" #["Param"]
+
+/-- String pattern fail-closed: primary Pattern.Literal. -/
+private unsafe def testTypeCheckStringPattern
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcStrPat where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return\n" ++
+    "      match true with\n" ++
+    "      | \"hi\" => 0\n" ++
+    "      | _ => 1\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-str-pat" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-str-pat: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-str-pat: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "string patterns") |
+    throw <| IO.userError s!"tc-str-pat: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-str-pat" inv validated.program draft
+    "string patterns" "Pattern.Literal" #[]
+
+/-- Non-exhaustive enum match: primary Stmt.Match; related EnumDecl. -/
+private unsafe def testTypeCheckNonExhaustive
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcExhaust where\n" ++
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n" ++
+    "  entry run() : Unit do\n" ++
+    "    let c : Color := Color.Red()\n" ++
+    "    match c with\n" ++
+    "    | Color.Red() => do\n" ++
+    "      return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-exhaust" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-exhaust: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-exhaust: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "not exhaustive") |
+    throw <| IO.userError s!"tc-exhaust: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-exhaust" inv validated.program draft
+    "not exhaustive" "Stmt.Match" #["EnumDecl"]
+
+/-- Match arm type mismatch: primary later arm Expr.Literal. -/
+private unsafe def testTypeCheckArmMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcArm where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return\n" ++
+    "      match true with\n" ++
+    "      | true => 1\n" ++
+    "      | false => false\n" ++
+    "      | _ => 0\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-arm" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-arm: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-arm: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "match arm") |
+    throw <| IO.userError s!"tc-arm: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-arm" inv validated.program draft
+    "match arm" "Expr.Literal" #[]
+
+/-- Return type mismatch vs declared result: primary value; related result Type. -/
+private unsafe def testTypeCheckReturnResult
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcRet where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return true\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-ret" source
+  expect resolution.ok "tc-ret: resolution ok"
+  expect (!tc.ok) "tc-ret: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-ret: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-ret" inv validated.program draft
+    "type mismatch" "Expr.Literal" #["Type.UInt"]
+
+/-- Assign state type mismatch: primary value; related StateDecl. -/
+private unsafe def testTypeCheckAssignState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcAssign where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry run() : Unit do\n" ++
+    "    total := true\n" ++
+    "    return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-assign" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-assign: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-assign: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-assign: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-assign" inv validated.program draft
+    "type mismatch" "Expr.Literal" #["StateDecl"]
+
+/-- Assert non-Bool: primary condition expr. -/
+private unsafe def testTypeCheckAssertBool
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcAssert where\n" ++
+    "  entry run() : Unit do\n" ++
+    "    assert 1\n" ++
+    "    return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-assert" source
+  expect resolution.ok "tc-assert: resolution ok"
+  expect (!tc.ok) "tc-assert: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-assert: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-assert" inv validated.program draft
+    "type mismatch" "Expr.Literal" #[]
+
+/-- Revert arity: primary Stmt.Revert; related ErrorDecl. -/
+private unsafe def testTypeCheckRevertArity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcRevert where\n" ++
+    "  error Boom(code : UInt64)\n" ++
+    "  entry run() : Unit do\n" ++
+    "    revert Boom()\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-revert" source
+  expect resolution.ok "tc-revert: resolution ok"
+  expect (!tc.ok) "tc-revert: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "arguments") |
+    throw <| IO.userError s!"tc-revert: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-revert" inv validated.program draft
+    "arguments" "Stmt.Revert" #["ErrorDecl"]
+
+/-- Emit arg type: primary arg; related Param of EventDecl. -/
+private unsafe def testTypeCheckEmitArg
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcEmit where\n" ++
+    "  event Tick(n : UInt64)\n" ++
+    "  entry run() : Unit do\n" ++
+    "    emit Tick(true)\n" ++
+    "    return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-emit" source
+  expect resolution.ok "tc-emit: resolution ok"
+  expect (!tc.ok) "tc-emit: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-emit: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-emit" inv validated.program draft
+    "type mismatch" "Expr.Literal" #["Param"]
+
+/-- Const value type mismatch: primary value; related const type Type.UInt. -/
+private unsafe def testTypeCheckConstValue
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcConst where\n" ++
+    "  const answer : UInt64 := true\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-const" source
+  expect resolution.ok "tc-const: resolution ok"
+  expect (!tc.ok) "tc-const: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-const: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-const" inv validated.program draft
+    "type mismatch" "Expr.Literal" #["Type.UInt"]
+
+/-- Invariant non-Bool predicate: primary predicate expr. -/
+private unsafe def testTypeCheckInvariantPredicate
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcInv where\n" ++
+    "  invariant alwaysOk : 1\n" ++
+    "  entry run() : Unit do\n" ++
+    "    return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-inv" source
+  unless resolution.ok do
+    throw <| IO.userError s!"tc-inv: resolution failed: {resolution.drafts.map (·.diagnostic.message)}"
+  expect (!tc.ok) "tc-inv: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "type mismatch") |
+    throw <| IO.userError s!"tc-inv: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-inv" inv validated.program draft
+    "type mismatch" "Expr.Literal" #[]
+
+/-- Bare return with non-Unit result: primary Stmt.Return; related result type. -/
+private unsafe def testTypeCheckBareReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcBareRet where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-bare-ret" source
+  expect resolution.ok "tc-bare-ret: resolution ok"
+  expect (!tc.ok) "tc-bare-ret: not ok"
+  let some draft := tc.drafts.find?
+      (·.diagnostic.message.contains "empty return") |
+    throw <| IO.userError s!"tc-bare-ret: missing, got {tc.drafts.map (·.diagnostic.message)}"
+  let _ ← expectTypeCheckDraft "tc-bare-ret" inv validated.program draft
+    "empty return" "Stmt.Return" #["Type.UInt"]
+
+/-- Resolution-not-ok short-circuit: drafts are resolution drafts; erase == typeCheckProgramV1. -/
+private unsafe def testTypeCheckResolutionShortCircuit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcShort where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return missing\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-short" source
+  expect (!resolution.ok) "tc-short: resolution not ok"
+  expect (!tc.ok) "tc-short: typecheck not ok"
+  expect (tc.drafts.size == resolution.drafts.size) "tc-short: draft size"
+  expect (tc.drafts.map (·.diagnostic.message) ==
+      resolution.drafts.map (·.diagnostic.message))
+    "tc-short: same messages as resolution"
+  let publicRes := typeCheckProgramV1 validated.program (resolveProgramV1 validated)
+  expect (publicRes.diagnostics.map (·.message) == (eraseArray tc.drafts).map (·.message))
+    "tc-short: public erase parity"
+  -- Located resolution primary still materializes
+  expect (tc.drafts.size ≥ 1) "tc-short: ≥1"
+  let loc ← requireLocation "tc-short" tc.drafts[0]!
+  let located ← locateAll "tc-short" inv tc.drafts
+  let primaryId ← expectNodeIdSome "tc-short" located[0]!.primary
+  expect (primaryId == (← inventoryNodeId inv loc.primaryPath "tc-short"))
+    "tc-short: NodeId"
+
+/-- Every TypeCheck draft path is a canonical visit; multi-family program. -/
+private unsafe def testTypeCheckAllDraftPathsInVisits
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TcMulti where\n" ++
+    "  const c : UInt64 := true\n" ++
+    "  entry run() : UInt8 do\n" ++
+    "    return 300\n"
+  let (validated, inv, tc, resolution) ←
+    typeCheckDraftsWithOrigins session "tc-multi" source
+  expect resolution.ok "tc-multi: resolution ok"
+  expect (!tc.ok) "tc-multi: not ok"
+  expect (tc.drafts.size ≥ 2) "tc-multi: ≥2 type drafts"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  for (draft, i) in tc.drafts.zipIdx do
+    let loc ← requireLocation s!"tc-multi[{i}]" draft
+    expect (pathInVisits visits loc.primaryPath)
+      s!"tc-multi[{i}]: primary ∈ visits"
+    for (rp, j) in loc.relatedPaths.zipIdx do
+      expect (pathInVisits visits rp)
+        s!"tc-multi[{i}].related[{j}] ∈ visits"
+  let located ← locateAll "tc-multi" inv tc.drafts
+  expect (located.size == tc.drafts.size) "tc-multi: locate size"
+  let publicRes := typeCheckProgramV1 validated.program (resolveProgramV1 validated)
+  eraseParity "tc-multi" tc.drafts publicRes.diagnostics
+  expect (publicRes.diagnostics.map (·.message) ==
+      (eraseArray tc.drafts).map (·.message))
+    "tc-multi: full erase messages"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testUnknownPlaceName session
@@ -607,6 +1091,26 @@ unsafe def run : IO Unit := do
   testTwoFnCycleLocations session
   testResolutionBeforeCallGraphOrder session
   testAllDraftPathsInVisits session
+  -- B7b2 TypeCheck locations
+  testTypeCheckUnknownField session
+  testTypeCheckIntegerLiteralRange session
+  testTypeCheckBinaryMismatch session
+  testTypeCheckConstructorArity session
+  testTypeCheckLocalCallArity session
+  testTypeCheckLocalCallArgType session
+  testTypeCheckStringPattern session
+  testTypeCheckNonExhaustive session
+  testTypeCheckArmMismatch session
+  testTypeCheckReturnResult session
+  testTypeCheckAssignState session
+  testTypeCheckAssertBool session
+  testTypeCheckRevertArity session
+  testTypeCheckEmitArg session
+  testTypeCheckConstValue session
+  testTypeCheckInvariantPredicate session
+  testTypeCheckBareReturn session
+  testTypeCheckResolutionShortCircuit session
+  testTypeCheckAllDraftPathsInVisits session
   IO.println "Tests.Typed.DiagnosticLocationsV1: all assertions passed"
 
 end Tests.Typed.DiagnosticLocationsV1

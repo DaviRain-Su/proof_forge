@@ -216,6 +216,100 @@ def itemPathsForNamedKey {V} (table : DeclTableV1 SourceNameComponentV1 V)
         | .ok p => some p
         | .error _ => none
 
+/-- Sole-helper wrappers for declaration sub-paths (B7b2 TypeCheck related).
+    Fail closed to `none` — callers must not fabricate paths. -/
+private def directChildPath?
+    (parent : NormalizedSyntacticPathV1) (parentTag fieldTag : String) :
+    Option NormalizedSyntacticPathV1 :=
+  match directChildPathV1 parent parentTag fieldTag with
+  | .ok p => some p
+  | .error _ => none
+
+private def indexChildPath?
+    (parent : NormalizedSyntacticPathV1) (parentTag fieldTag : String) (index : Nat) :
+    Option NormalizedSyntacticPathV1 :=
+  match indexChildPathV1 parent parentTag fieldTag index with
+  | .ok p => some p
+  | .error _ => none
+
+/-- ConstDecl type child path (const value expected-type related).
+    State assign/place related uses StateDecl item paths via itemPathForNamed?
+    (not StateDecl.type) — no stateTypePath? helper. -/
+def constTypePath? (tables : TypedDeclTablesV1) (name : SourceNameComponentV1) :
+    Option NormalizedSyntacticPathV1 :=
+  (itemPathForNamed? tables .const name).bind fun ip =>
+    directChildPath? ip "ConstDecl" "type"
+
+/-- Struct field path by field name (StructDecl.fields[i]). -/
+def structFieldPath? (tables : TypedDeclTablesV1)
+    (structName fieldName : SourceNameComponentV1) :
+    Option NormalizedSyntacticPathV1 :=
+  match tables.struct.find? structName with
+  | none => none
+  | some (ord, decl) =>
+      match decl.fields.findIdx? (·.name == fieldName) with
+      | none => none
+      | some fi =>
+          (itemPathForOrdinal? tables .struct ord).bind fun ip =>
+            indexChildPath? ip "StructDecl" "fields" fi
+
+/-- Enum variant path by variant name (EnumDecl.variants[i]). -/
+def enumVariantPath? (tables : TypedDeclTablesV1)
+    (enumName variantName : SourceNameComponentV1) :
+    Option NormalizedSyntacticPathV1 :=
+  match tables.enum.find? enumName with
+  | none => none
+  | some (ord, decl) =>
+      match decl.variants.findIdx? (·.name == variantName) with
+      | none => none
+      | some vi =>
+          (itemPathForOrdinal? tables .enum ord).bind fun ip =>
+            indexChildPath? ip "EnumDecl" "variants" vi
+
+/-- Callable result type path for entry/view/fn by name. -/
+def callableResultPath? (tables : TypedDeclTablesV1)
+    (kind : DeclKindV1) (name : SourceNameComponentV1) :
+    Option NormalizedSyntacticPathV1 :=
+  let tag? : Option String :=
+    match kind with
+    | .entry => some "EntryDecl"
+    | .view => some "ViewDecl"
+    | .fn => some "FnDecl"
+    | _ => none
+  match tag? with
+  | none => none
+  | some tag =>
+      (itemPathForNamed? tables kind name).bind fun ip =>
+        directChildPath? ip tag "result"
+
+/-- Fn parameter path at index. -/
+def fnParamPath? (tables : TypedDeclTablesV1)
+    (fnName : SourceNameComponentV1) (paramIndex : Nat) :
+    Option NormalizedSyntacticPathV1 :=
+  (itemPathForNamed? tables .fn fnName).bind fun ip =>
+    indexChildPath? ip "FnDecl" "params" paramIndex
+
+/-- ErrorDecl parameter path at index. -/
+def errorParamPath? (tables : TypedDeclTablesV1)
+    (errorName : SourceNameComponentV1) (paramIndex : Nat) :
+    Option NormalizedSyntacticPathV1 :=
+  (itemPathForNamed? tables .error errorName).bind fun ip =>
+    indexChildPath? ip "ErrorDecl" "params" paramIndex
+
+/-- EventDecl parameter path at index. -/
+def eventParamPath? (tables : TypedDeclTablesV1)
+    (eventName : SourceNameComponentV1) (paramIndex : Nat) :
+    Option NormalizedSyntacticPathV1 :=
+  (itemPathForNamed? tables .event eventName).bind fun ip =>
+    indexChildPath? ip "EventDecl" "params" paramIndex
+
+/-- Optional path as 0-or-1 array (related helper). -/
+def optRelatedPath (p? : Option NormalizedSyntacticPathV1) :
+    Array NormalizedSyntacticPathV1 :=
+  match p? with
+  | some p => #[p]
+  | none => #[]
+
 /-- Sidecar size invariant (engineering check). -/
 def itemIndicesAligned (tables : TypedDeclTablesV1) : Bool :=
   tables.itemIndices.state.size == tables.state.size &&

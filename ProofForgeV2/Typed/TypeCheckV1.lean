@@ -2,6 +2,12 @@
   ProofForgeV2.Typed.TypeCheckV1 — D2-01 expression and statement/body
   type-checking slice.
 
+  B7b2: single path-threaded draft-bearing walk is the authority. Canonical
+  ProgramV1 paths use only NodeTraversalV1 childPath helpers. Public
+  `typeCheckProgramV1` / `typeCheckExpr` / `typeCheckItem` erase drafts;
+  additive `typeCheckProgramDraftsV1` exposes located drafts for
+  materialization through B7a OriginInventoryV1.
+
   Runs after `NameResolutionV1` and assumes every name has already been
   resolved; unresolved names are never reported again from this layer.
 
@@ -29,19 +35,9 @@
       result-context checking, enum exhaustiveness)
 
   Covered statement/body forms:
-    * `let` (annotation takes precedence, otherwise inferred from value)
-    * `assign` (target type must agree with value)
-    * `return` (value must agree with declared result; bare `return` is
-      allowed only when the result type is `Unit`)
-    * `assert` (condition must be `Bool`)
-    * `revert` / `emit` (arguments checked against declared param types)
-    * `if` (condition `Bool`, branches checked in the same result context)
-    * `for` (endpoints must be the same integer width, binder is scoped to
-      the body and does not leak)
-    * `call` / `schedule` (argument expressions are type-checked with no
-      expected type)
-    * declaration bodies wired for `const`, `init` (unit result), `entry`,
-      `view`, `fn`, and `invariant` (bool predicate)
+    * `let` / `assign` / `return` / `assert` / `revert` / `emit` / `if` /
+      `for` / `call` / `schedule` / statement `match`
+    * declaration bodies for `const`, `init`, `entry`, `view`, `fn`, `invariant`
 
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
@@ -56,7 +52,10 @@ import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.QualifiedNameV1
+import ProofForgeV2.Source.WireV1
+import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 
@@ -72,7 +71,10 @@ open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.NodeTraversalV1
 open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.WireV1
+open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 
@@ -111,6 +113,12 @@ def lookupType (scope : TypeCheckScopeV1) (name : SourceNameComponentV1) :
   | some (_, type_, _) => some type_
   | none => none
 
+def lookupBinding (scope : TypeCheckScopeV1) (name : SourceNameComponentV1) :
+    Option (TypeV1 × BindingKindV1) :=
+  match scope.bindings.find? (fun (n, _, _) => n == name) with
+  | some (_, type_, kind) => some (type_, kind)
+  | none => none
+
 private def isLocalOrParam (scope : TypeCheckScopeV1)
     (name : SourceNameComponentV1) : Option BindingKindV1 :=
   match scope.bindings.find? (fun (n, _, _) => n == name) with
@@ -118,28 +126,89 @@ private def isLocalOrParam (scope : TypeCheckScopeV1)
   | some (_, _, .param) => some .param
   | _ => none
 
-/-- Result of type-checking an expression: an inferred type and any diagnostics.
-    The inferred type may be a placeholder (e.g. `Unit`) when diagnostics are
-    non-empty; consumers should check `diagnostics.isEmpty` before using it. -/
+/-- Draft-bearing expression result (authority). -/
+structure TypeCheckResultDraftV1 where
+  type : TypeV1
+  drafts : Array TypedDiagnosticDraftV1
+  /-- Declaration origin for the inferred place/binding type, when known. -/
+  originPath? : Option NormalizedSyntacticPathV1 := none
+  deriving Inhabited
+
+/-- Public unlocated expression result (erase projection). -/
 structure TypeCheckResultV1 where
   type : TypeV1
   diagnostics : Array DiagnosticV1
   deriving Repr, Inhabited
 
+def resultDraft (type : TypeV1) (drafts : Array TypedDiagnosticDraftV1)
+    (originPath? : Option NormalizedSyntacticPathV1 := none) :
+    TypeCheckResultDraftV1 :=
+  { type, drafts, originPath? }
+
 def result (type : TypeV1) (diagnostics : Array DiagnosticV1) :
     TypeCheckResultV1 :=
   { type := type, diagnostics := diagnostics }
 
-/-- Deterministic `expected-vs-actual` diagnostic in left-to-right order. -/
-def expectedActualDiagnostic (expected actual : String) : DiagnosticV1 :=
-  DiagnosticV1.make .sourceInvalid
+def eraseResult (r : TypeCheckResultDraftV1) : TypeCheckResultV1 :=
+  { type := r.type, diagnostics := eraseArray r.drafts }
+
+/-- Attach primary (+ optional related) when a site path is available. -/
+def locateDraft
+    (base : TypedDiagnosticDraftV1)
+    (sitePath? : Option NormalizedSyntacticPathV1)
+    (relatedPaths : Array NormalizedSyntacticPathV1 := #[]) :
+    TypedDiagnosticDraftV1 :=
+  match sitePath? with
+  | none => base
+  | some p => withPaths base p relatedPaths
+
+/-- Child path or path-internal draft (no silent drop, no fabricated NodeId). -/
+def childPathOrDraft
+    (parent : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Except TypedDiagnosticDraftV1 NormalizedSyntacticPathV1 :=
+  match childPathV1 parent parentTag fieldTag index with
+  | .ok p => .ok p
+  | .error detail => .error (pathInternalDraft detail)
+
+def directPathOrDraft
+    (parent : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) :
+    Except TypedDiagnosticDraftV1 NormalizedSyntacticPathV1 :=
+  childPathOrDraft parent parentTag fieldTag 0
+
+/-- Resolve optional child under a parent site; accumulate path-internal drafts. -/
+def resolveChild
+    (parent? : Option NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Option NormalizedSyntacticPathV1 × Array TypedDiagnosticDraftV1 :=
+  match parent? with
+  | none => (none, #[])
+  | some parent =>
+      match childPathOrDraft parent parentTag fieldTag index with
+      | .ok p => (some p, #[])
+      | .error d => (none, #[d])
+
+def resolveDirect
+    (parent? : Option NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) :
+    Option NormalizedSyntacticPathV1 × Array TypedDiagnosticDraftV1 :=
+  resolveChild parent? parentTag fieldTag 0
+
+/-- Deterministic `expected-vs-actual` diagnostic draft. -/
+def expectedActualDiagnosticDraft (expected actual : String) :
+    TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
     s!"type mismatch: expected {expected}, got {actual}"
 
-/-- Defensive internal diagnostic for invariant violations inside the type
-    checker.  Should be unreachable when called from `typeCheckProgramV1`
-    because name resolution is performed first. -/
+def expectedActualDiagnostic (expected actual : String) : DiagnosticV1 :=
+  erase (expectedActualDiagnosticDraft expected actual)
+
+private def internalDiagnosticDraft (message : String) : TypedDiagnosticDraftV1 :=
+  make .internal message
+
 private def internalDiagnostic (message : String) : DiagnosticV1 :=
-  DiagnosticV1.make .internal message
+  erase (internalDiagnosticDraft message)
 
 /-- Render a type for diagnostics.  This is human-readable only and does not
     enter wire/hash identity. -/
@@ -160,40 +229,47 @@ def isIntegerType : TypeV1 → Bool
   | .uint _ | .int _ => true
   | _ => false
 
-/-- Diagnostic emitted when a string literal is used as a pattern.  The
-    surface syntax allows string patterns, but `TypeV1` has no `String`
-    type, so they are fail-closed here. -/
-def stringPatternDiagnostic : DiagnosticV1 :=
-  DiagnosticV1.make .sourceInvalid
+def stringPatternDiagnosticDraft : TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
     "string patterns are not supported (String is not a TypeV1)"
 
-/-- Diagnostic emitted when a later match arm value does not agree with the
-    first arm's result type.  The `armIndex` is 0-based and names the arm
-    where the mismatch was first observed. -/
-def armTypeMismatchDiagnostic (armIndex : Nat) (expected actual : String) : DiagnosticV1 :=
-  DiagnosticV1.make .sourceInvalid
+def stringPatternDiagnostic : DiagnosticV1 :=
+  erase stringPatternDiagnosticDraft
+
+def armTypeMismatchDiagnosticDraft (armIndex : Nat) (expected actual : String) :
+    TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
     s!"match arm {armIndex}: type mismatch: expected {expected}, got {actual}"
 
-/-- Diagnostic emitted when a match is not exhaustive.  For enum-typed
-    scrutinees, `missing` lists the variant raw names in declaration order. -/
-def nonExhaustiveDiagnostic (missing : List String) : DiagnosticV1 :=
-  DiagnosticV1.make .sourceInvalid
+def armTypeMismatchDiagnostic (armIndex : Nat) (expected actual : String) : DiagnosticV1 :=
+  erase (armTypeMismatchDiagnosticDraft armIndex expected actual)
+
+def nonExhaustiveDiagnosticDraft (missing : List String) : TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
     (if missing.isEmpty then "match is not exhaustive"
      else "match is not exhaustive; missing variants: " ++ String.intercalate ", " missing)
 
-/-- Result of checking a pattern against a scrutinee type: the binders
-    introduced into the arm scope and any diagnostics in source order. -/
+def nonExhaustiveDiagnostic (missing : List String) : DiagnosticV1 :=
+  erase (nonExhaustiveDiagnosticDraft missing)
+
+structure PatternCheckResultDraftV1 where
+  bindings : List (SourceNameComponentV1 × TypeV1)
+  drafts : Array TypedDiagnosticDraftV1
+  deriving Inhabited
+
 structure PatternCheckResultV1 where
   bindings : List (SourceNameComponentV1 × TypeV1)
   diagnostics : Array DiagnosticV1
   deriving Inhabited
 
+def patternResultDraft (bindings : List (SourceNameComponentV1 × TypeV1))
+    (drafts : Array TypedDiagnosticDraftV1) : PatternCheckResultDraftV1 :=
+  { bindings, drafts }
+
 def patternResult (bindings : List (SourceNameComponentV1 × TypeV1))
     (diagnostics : Array DiagnosticV1) : PatternCheckResultV1 :=
   { bindings := bindings, diagnostics := diagnostics }
 
-/-- Maximum magnitude allowed for an integer literal of `type_`.
-    `isNegated` is true for literals immediately under unary `neg`. -/
 def integerLiteralBound (type_ : TypeV1) (isNegated : Bool) : Option Nat :=
   match type_ with
   | .uint w => some (Nat.pow 2 w.toNat - 1)
@@ -205,11 +281,29 @@ def integerLiteralBound (type_ : TypeV1) (isNegated : Bool) : Option Nat :=
         some (Nat.pow 2 (w - 1) - 1)
   | _ => none
 
+def integerLiteralDiagnosticDraft (expected : TypeV1) (magnitude : Nat)
+    (isNegated : Bool) : TypedDiagnosticDraftV1 :=
+  let sign := if isNegated then "-" else ""
+  expectedActualDiagnosticDraft (typeName expected)
+    s!"integer literal {sign}{magnitude} out of range"
+
 def integerLiteralDiagnostic (expected : TypeV1) (magnitude : Nat)
     (isNegated : Bool) : DiagnosticV1 :=
-  let sign := if isNegated then "-" else ""
-  expectedActualDiagnostic (typeName expected)
-    s!"integer literal {sign}{magnitude} out of range"
+  erase (integerLiteralDiagnosticDraft expected magnitude isNegated)
+
+def checkExpectedDraft (actual : TypeV1) (expected? : Option TypeV1)
+    (sitePath? : Option NormalizedSyntacticPathV1)
+    (relatedPaths : Array NormalizedSyntacticPathV1)
+    (drafts : Array TypedDiagnosticDraftV1) :
+    TypeV1 × Array TypedDiagnosticDraftV1 :=
+  match expected? with
+  | none => (actual, drafts)
+  | some expected =>
+      if expected == actual then (actual, drafts)
+      else
+        (actual, drafts.push (locateDraft
+          (expectedActualDiagnosticDraft (typeName expected) (typeName actual))
+          sitePath? relatedPaths))
 
 def checkExpected (actual : TypeV1) (expected? : Option TypeV1)
     (diagnostics : Array DiagnosticV1) : TypeV1 × Array DiagnosticV1 :=
@@ -242,6 +336,53 @@ private def isEqualityOp : BinaryOpV1 → Bool
 private def isLogicalOp : BinaryOpV1 → Bool
   | .logicalAnd | .logicalOr => true
   | _ => false
+
+/-- Related path for a constructor result (struct or enum item). -/
+def constructorRelatedPaths (tables : TypedDeclTablesV1)
+    (ctor : SourceQualifiedNameV1) (resType : TypeV1) :
+    Array NormalizedSyntacticPathV1 :=
+  match resType with
+  | .named n =>
+      let comps := ctor.components.toArray
+      match comps with
+      | #[_] =>
+          -- Prefer struct, else enum that owns the bare variant name.
+          match itemPathForNamed? tables .struct n with
+          | some p => #[p]
+          | none => optRelatedPath (itemPathForNamed? tables .enum n)
+      | #[enumName, _] =>
+          optRelatedPath (itemPathForNamed? tables .enum enumName)
+      | _ => optRelatedPath (itemPathForNamed? tables .struct n) ++
+          optRelatedPath (itemPathForNamed? tables .enum n)
+  | _ => #[]
+
+/-- Argument-related path for constructor field/payload at index. -/
+def constructorArgRelatedPaths (tables : TypedDeclTablesV1)
+    (ctor : SourceQualifiedNameV1) (resType : TypeV1) (argIndex : Nat) :
+    Array NormalizedSyntacticPathV1 :=
+  match resType with
+  | .named n =>
+      let comps := ctor.components.toArray
+      match comps with
+      | #[name] =>
+          match tables.struct.find? name with
+          | some (_, sd) =>
+              match sd.fields[argIndex]? with
+              | some f => optRelatedPath (structFieldPath? tables name f.name)
+              | none => optRelatedPath (itemPathForNamed? tables .struct name)
+          | none =>
+              -- Bare enum variant
+              match tables.enum.find? n with
+              | some _ =>
+                  let variantName := name
+                  optRelatedPath (enumVariantPath? tables n variantName)
+              | none =>
+                  -- variant name lookup across enums already resolved
+                  optRelatedPath (itemPathForNamed? tables .enum n)
+      | #[enumName, variantName] =>
+          optRelatedPath (enumVariantPath? tables enumName variantName)
+      | _ => #[]
+  | _ => #[]
 
 /-- Resolve a constructor path to its result type and expected argument types.
     Mirrors `NameResolutionV1.resolveConstructorName`. -/
@@ -287,8 +428,13 @@ def resolveConstructorType (tables : TypedDeclTablesV1)
   | _ =>
       .error (unknownQualifiedNameDiagnostic ctor "constructor")
 
-/-- Resolve a local callee to a `fn` declaration, using the same precedence as
-    `NameResolutionV1.resolveLocalCall`. -/
+/-- Wrap a legacy unlocated DiagnosticV1 as a draft (resolution defensive errors). -/
+private def draftFromDiag (diag : DiagnosticV1)
+    (sitePath? : Option NormalizedSyntacticPathV1)
+    (related : Array NormalizedSyntacticPathV1 := #[]) :
+    TypedDiagnosticDraftV1 :=
+  locateDraft { diagnostic := diag, location := none } sitePath? related
+
 def resolveLocalCallType (scope : TypeCheckScopeV1)
     (tables : TypedDeclTablesV1) (callee : SourceNameComponentV1) :
     Except DiagnosticV1 FnDeclV1 :=
@@ -303,50 +449,73 @@ def resolveLocalCallType (scope : TypeCheckScopeV1)
         | some (kind, _) => .error (wrongCategoryDiagnostic callee kind "function")
         | none => .error (unknownNameDiagnostic callee "function")
 
-/-- Add pattern binders to the arm-local scope. -/
 private def addBindings (scope : TypeCheckScopeV1)
     (bindings : List (SourceNameComponentV1 × TypeV1)) : TypeCheckScopeV1 :=
   bindings.foldl (fun acc (name, type_) => addBinding acc name type_) scope
 
-/-- Check a pattern against a scrutinee type, returning the binders introduced
-    into the arm scope and diagnostics in source order. -/
-partial def typeCheckPattern (tables : TypedDeclTablesV1)
-    (scrutineeType : TypeV1) (pattern : PatternV1) : PatternCheckResultV1 :=
+/-- Binding-origin path for a bare name in scope (state/const only). -/
+def bindingOriginPath? (tables : TypedDeclTablesV1) (scope : TypeCheckScopeV1)
+    (name : SourceNameComponentV1) : Option NormalizedSyntacticPathV1 :=
+  match lookupBinding scope name with
+  | some (_, .state) => itemPathForNamed? tables .state name
+  | some (_, .const) => itemPathForNamed? tables .const name
+  | _ => none
+
+partial def typeCheckPatternDrafts (tables : TypedDeclTablesV1)
+    (scrutineeType : TypeV1)
+    (patternPath? : Option NormalizedSyntacticPathV1)
+    (pattern : PatternV1) : PatternCheckResultDraftV1 :=
   match pattern with
-  | .wildcard => patternResult [] #[]
-  | .bind name => patternResult [(name, scrutineeType)] #[]
+  | .wildcard => patternResultDraft [] #[]
+  | .bind name => patternResultDraft [(name, scrutineeType)] #[]
   | .literal (.bool _) =>
       if scrutineeType == .bool then
-        patternResult [] #[]
+        patternResultDraft [] #[]
       else
-        patternResult [] #[expectedActualDiagnostic "Bool" (typeName scrutineeType)]
+        patternResultDraft [] #[locateDraft
+          (expectedActualDiagnosticDraft "Bool" (typeName scrutineeType))
+          patternPath? #[] ]
   | .literal (.integer magnitude) =>
       if isIntegerType scrutineeType then
         match integerLiteralBound scrutineeType false with
         | some bound =>
             if magnitude <= bound then
-              patternResult [] #[]
+              patternResultDraft [] #[]
             else
-              patternResult [] #[integerLiteralDiagnostic scrutineeType magnitude false]
+              patternResultDraft [] #[locateDraft
+                (integerLiteralDiagnosticDraft scrutineeType magnitude false)
+                patternPath? #[] ]
         | none =>
-            patternResult [] #[expectedActualDiagnostic (typeName scrutineeType) "integer literal"]
+            patternResultDraft [] #[locateDraft
+              (expectedActualDiagnosticDraft (typeName scrutineeType) "integer literal")
+              patternPath? #[] ]
       else
-        patternResult [] #[expectedActualDiagnostic (typeName scrutineeType) "integer literal"]
+        patternResultDraft [] #[locateDraft
+          (expectedActualDiagnosticDraft (typeName scrutineeType) "integer literal")
+          patternPath? #[] ]
   | .literal (.string _) =>
-      patternResult [] #[stringPatternDiagnostic]
+      patternResultDraft [] #[locateDraft stringPatternDiagnosticDraft patternPath? #[] ]
   | .constructor ctor args =>
       match resolveConstructorType tables ctor with
-      | .error diag => patternResult [] #[diag]
+      | .error diag =>
+          patternResultDraft [] #[draftFromDiag diag patternPath?
+            (constructorRelatedPaths tables ctor .unit)]
       | .ok (ctorResultType, expectedTypes) =>
+          let relatedCtor := constructorRelatedPaths tables ctor ctorResultType
           let typeDiag :=
             if ctorResultType != scrutineeType then
-              #[expectedActualDiagnostic (typeName scrutineeType) (typeName ctorResultType)]
+              #[locateDraft
+                (expectedActualDiagnosticDraft (typeName scrutineeType)
+                  (typeName ctorResultType))
+                patternPath? relatedCtor]
             else #[]
           let arityDiag :=
             if expectedTypes.size != args.size then
-              #[expectedActualDiagnostic
-                s!"{expectedTypes.size} constructor arguments"
-                s!"{args.size} constructor arguments"]
+              #[locateDraft
+                (expectedActualDiagnosticDraft
+                  s!"{expectedTypes.size} constructor arguments"
+                  s!"{args.size} constructor arguments")
+                patternPath? relatedCtor]
             else #[]
           let baseDiags := typeDiag ++ arityDiag
           let (bindings, subDiags) := (List.range args.size).foldl
@@ -354,22 +523,29 @@ partial def typeCheckPattern (tables : TypedDeclTablesV1)
               match args[i]? with
               | none => (bs, ds)
               | some sub =>
-                let expectedType? := if i < expectedTypes.size then some expectedTypes[i]! else none
+                let (ap?, pathDs) :=
+                  resolveChild patternPath? "Pattern.Constructor" "args" i
+                let expectedType? :=
+                  if i < expectedTypes.size then some expectedTypes[i]! else none
                 let subRes :=
                   match expectedType? with
-                  | some expectedType => typeCheckPattern tables expectedType sub
-                  | none => typeCheckPattern tables .unit sub
-                (bs ++ subRes.bindings, ds ++ subRes.diagnostics))
+                  | some expectedType =>
+                      typeCheckPatternDrafts tables expectedType ap? sub
+                  | none =>
+                      typeCheckPatternDrafts tables .unit ap? sub
+                (bs ++ subRes.bindings, ds ++ pathDs ++ subRes.drafts))
             ([], #[])
-          patternResult bindings (baseDiags ++ subDiags)
+          patternResultDraft bindings (baseDiags ++ subDiags)
 
-/-- True for wildcard or bind patterns, which make any match exhaustive. -/
+def typeCheckPattern (tables : TypedDeclTablesV1)
+    (scrutineeType : TypeV1) (pattern : PatternV1) : PatternCheckResultV1 :=
+  let r := typeCheckPatternDrafts tables scrutineeType none pattern
+  { bindings := r.bindings, diagnostics := eraseArray r.drafts }
+
 private def isCatchAll : PatternV1 → Bool
   | .wildcard | .bind _ => true
   | _ => false
 
-/-- If `pattern` is a constructor pattern resolving to a variant of `enumName`,
-    return that variant name. -/
 private def coveredEnumVariant (tables : TypedDeclTablesV1)
     (enumName : SourceNameComponentV1) (pattern : PatternV1) :
     Option SourceNameComponentV1 :=
@@ -384,11 +560,10 @@ private def coveredEnumVariant (tables : TypedDeclTablesV1)
       | _ => none
   | _ => none
 
-/-- Check match exhaustiveness and return either an empty array or a single
-    diagnostic naming the missing variants (in declaration order for enums).
-    A wildcard or bind arm makes any scrutinee exhaustive. -/
-def checkExhaustiveness (tables : TypedDeclTablesV1) (scrutineeType : TypeV1)
-    (patterns : Array PatternV1) : Array DiagnosticV1 :=
+def checkExhaustivenessDrafts (tables : TypedDeclTablesV1) (scrutineeType : TypeV1)
+    (patterns : Array PatternV1)
+    (matchPath? : Option NormalizedSyntacticPathV1) :
+    Array TypedDiagnosticDraftV1 :=
   if patterns.any isCatchAll then #[]
   else
     match scrutineeType with
@@ -402,343 +577,494 @@ def checkExhaustiveness (tables : TypedDeclTablesV1) (scrutineeType : TypeV1)
             let coveredList := covered.toList
             let missing := enumDecl.variants.filter (fun v => !coveredList.contains v.name)
             if missing.isEmpty then #[]
-            else #[nonExhaustiveDiagnostic (missing.map (·.name.raw)).toList]
+            else
+              let related := optRelatedPath (itemPathForNamed? tables .enum enumName)
+              #[locateDraft
+                (nonExhaustiveDiagnosticDraft (missing.map (·.name.raw)).toList)
+                matchPath? related]
         | none =>
-            -- Named scrutinee that is not an enum (e.g. struct) or unknown:
-            -- without a catch-all it cannot be exhaustive.
-            #[nonExhaustiveDiagnostic []]
+            #[locateDraft (nonExhaustiveDiagnosticDraft []) matchPath? #[]]
     | _ =>
-        -- Non-enum scrutinees require a catch-all arm.
-        #[nonExhaustiveDiagnostic []]
+        #[locateDraft (nonExhaustiveDiagnosticDraft []) matchPath? #[]]
+
+def checkExhaustiveness (tables : TypedDeclTablesV1) (scrutineeType : TypeV1)
+    (patterns : Array PatternV1) : Array DiagnosticV1 :=
+  eraseArray (checkExhaustivenessDrafts tables scrutineeType patterns none)
 
 mutual
-  /-- Infer/check the type of a place.  Struct field chains and `Array`/`Map`
-      index suffixes are resolved against `tables`. -/
-  partial def typeCheckPlace (scope : TypeCheckScopeV1)
-      (tables : TypedDeclTablesV1) (place : PlaceV1) : TypeCheckResultV1 :=
+  partial def typeCheckPlaceDrafts (scope : TypeCheckScopeV1)
+      (tables : TypedDeclTablesV1)
+      (placePath? : Option NormalizedSyntacticPathV1)
+      (place : PlaceV1) : TypeCheckResultDraftV1 :=
     match place with
     | .name name =>
-        match lookupType scope name with
-        | some type_ => result type_ #[]
+        match lookupBinding scope name with
+        | some (type_, _) =>
+            resultDraft type_ #[] (bindingOriginPath? tables scope name)
         | none =>
-            result .unit #[expectedActualDiagnostic "binding in scope"
-              (s!"unknown name '{renderSourceNameComponentV1 name}'")]
+            resultDraft .unit #[locateDraft
+              (expectedActualDiagnosticDraft "binding in scope"
+                (s!"unknown name '{renderSourceNameComponentV1 name}'"))
+              placePath? #[]]
     | .field base field =>
-        let baseRes := typeCheckPlace scope tables base
-        if !baseRes.diagnostics.isEmpty then
-          baseRes
+        let (bp?, pathDs) := resolveDirect placePath? "Place.Field" "base"
+        let baseRes := typeCheckPlaceDrafts scope tables bp? base
+        if !baseRes.drafts.isEmpty then
+          resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
         else
           match baseRes.type with
           | .named structName =>
               match tables.struct.find? structName with
               | some structDecl =>
                   match structDecl.2.fields.find? (fun f => f.name == field) with
-                  | some fieldDecl => result fieldDecl.type_ #[]
+                  | some fieldDecl =>
+                      let origin? := structFieldPath? tables structName field
+                      resultDraft fieldDecl.type_ pathDs origin?
                   | none =>
-                      result .unit #[expectedActualDiagnostic
-                        (s!"field '{renderSourceNameComponentV1 field}' of {typeName baseRes.type}")
-                        (typeName baseRes.type)]
+                      let related :=
+                        optRelatedPath (itemPathForNamed? tables .struct structName)
+                      resultDraft .unit (pathDs ++ #[locateDraft
+                        (expectedActualDiagnosticDraft
+                          (s!"field '{renderSourceNameComponentV1 field}' of {typeName baseRes.type}")
+                          (typeName baseRes.type))
+                        placePath? related])
               | none =>
-                  result .unit #[expectedActualDiagnostic "struct type"
-                    (typeName baseRes.type)]
+                  resultDraft .unit (pathDs ++ #[locateDraft
+                    (expectedActualDiagnosticDraft "struct type" (typeName baseRes.type))
+                    placePath? #[]])
           | other =>
-              result .unit #[expectedActualDiagnostic "struct type"
-                (typeName other)]
+              resultDraft .unit (pathDs ++ #[locateDraft
+                (expectedActualDiagnosticDraft "struct type" (typeName other))
+                placePath? #[]])
     | .index base idx =>
-        let baseRes := typeCheckPlace scope tables base
-        if !baseRes.diagnostics.isEmpty then
-          baseRes
+        let (bp?, pathDs1) := resolveDirect placePath? "Place.Index" "base"
+        let (ip?, pathDs2) := resolveDirect placePath? "Place.Index" "index"
+        let pathDs := pathDs1 ++ pathDs2
+        let baseRes := typeCheckPlaceDrafts scope tables bp? base
+        if !baseRes.drafts.isEmpty then
+          resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
         else
           match baseRes.type with
           | .array elem _ =>
-              let idxRes := typeCheckExpr scope tables (some (.uint 32)) idx
-              let diags := baseRes.diagnostics ++ idxRes.diagnostics
+              let idxRes := typeCheckExprDrafts scope tables (some (.uint 32)) #[] ip? idx
+              let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
               if idxRes.type == .uint 32 then
-                result elem diags
+                resultDraft elem drafts none
               else
-                result elem (diags.push (expectedActualDiagnostic "UInt32"
-                  (typeName idxRes.type)))
+                resultDraft elem (drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "UInt32" (typeName idxRes.type))
+                  ip? #[]])
           | .map key value =>
-              let idxRes := typeCheckExpr scope tables (some key) idx
-              let diags := baseRes.diagnostics ++ idxRes.diagnostics
+              let idxRes := typeCheckExprDrafts scope tables (some key) #[] ip? idx
+              let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
               if idxRes.type == key then
-                result (TypeV1.option value) diags
+                resultDraft (TypeV1.option value) drafts none
               else
-                result (TypeV1.option value) (diags.push (expectedActualDiagnostic (typeName key)
-                  (typeName idxRes.type)))
+                resultDraft (TypeV1.option value) (drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft (typeName key) (typeName idxRes.type))
+                  ip? #[]])
           | other =>
-              result .unit #[expectedActualDiagnostic "Array or Map"
-                (typeName other)]
+              resultDraft .unit (pathDs ++ #[locateDraft
+                (expectedActualDiagnosticDraft "Array or Map" (typeName other))
+                placePath? #[]])
 
-  /-- Infer/check the type of an expression.
-      `expected?` is propagated left-to-right; integer literals are only
-      accepted when an expected integer type is available. -/
-  partial def typeCheckExpr (scope : TypeCheckScopeV1)
-      (tables : TypedDeclTablesV1) (expected? : Option TypeV1) (expr : ExprV1) :
-      TypeCheckResultV1 :=
+  partial def typeCheckExprDrafts (scope : TypeCheckScopeV1)
+      (tables : TypedDeclTablesV1) (expected? : Option TypeV1)
+      (expectedRelated : Array NormalizedSyntacticPathV1)
+      (exprPath? : Option NormalizedSyntacticPathV1)
+      (expr : ExprV1) : TypeCheckResultDraftV1 :=
     match expr with
     | .literal (.bool _) =>
-        result .bool (checkExpected .bool expected? #[]).2
+        let (type_, drafts) :=
+          checkExpectedDraft .bool expected? exprPath? expectedRelated #[]
+        resultDraft type_ drafts
     | .literal (.integer magnitude) =>
         match expected? with
         | none =>
-            result .unit #[expectedActualDiagnostic "integer type"
-              "integer literal"]
+            resultDraft .unit #[locateDraft
+              (expectedActualDiagnosticDraft "integer type" "integer literal")
+              exprPath? expectedRelated]
         | some expected =>
             if isIntegerType expected then
               match integerLiteralBound expected false with
               | some bound =>
                   if magnitude <= bound then
-                    result expected #[]
+                    resultDraft expected #[]
                   else
-                    result expected #[integerLiteralDiagnostic expected magnitude false]
+                    resultDraft expected #[locateDraft
+                      (integerLiteralDiagnosticDraft expected magnitude false)
+                      exprPath? expectedRelated]
               | none =>
-                  result expected #[expectedActualDiagnostic (typeName expected)
-                    "integer literal"]
+                  resultDraft expected #[locateDraft
+                    (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                    exprPath? expectedRelated]
             else
-              result expected #[expectedActualDiagnostic (typeName expected)
-                "integer literal"]
+              resultDraft expected #[locateDraft
+                (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                exprPath? expectedRelated]
     | .literal (.string _) =>
         match expected? with
         | none =>
-            result .unit #[expectedActualDiagnostic "expected type" "string literal"]
+            resultDraft .unit #[locateDraft
+              (expectedActualDiagnosticDraft "expected type" "string literal")
+              exprPath? expectedRelated]
         | some expected =>
-            result expected #[expectedActualDiagnostic (typeName expected)
-              "string literal"]
+            resultDraft expected #[locateDraft
+              (expectedActualDiagnosticDraft (typeName expected) "string literal")
+              exprPath? expectedRelated]
     | .place p =>
-        let pRes := typeCheckPlace scope tables p
-        let (type_, diags) := checkExpected pRes.type expected? pRes.diagnostics
-        result type_ diags
+        let (pp?, pathDs) := resolveDirect exprPath? "Expr.Place" "place"
+        let pRes := typeCheckPlaceDrafts scope tables pp? p
+        let related :=
+          if expectedRelated.isEmpty then
+            optRelatedPath pRes.originPath?
+          else expectedRelated
+        let (type_, drafts) :=
+          checkExpectedDraft pRes.type expected? exprPath? related (pathDs ++ pRes.drafts)
+        resultDraft type_ drafts pRes.originPath?
     | .unary .neg (.literal (.integer magnitude)) =>
         match expected? with
         | none =>
-            result .unit #[expectedActualDiagnostic "integer type"
-              "integer literal"]
+            resultDraft .unit #[locateDraft
+              (expectedActualDiagnosticDraft "integer type" "integer literal")
+              exprPath? expectedRelated]
         | some expected =>
             if isIntegerType expected then
               match expected with
               | .uint _ =>
                   if magnitude == 0 then
-                    result expected #[]
+                    resultDraft expected #[]
                   else
-                    result expected #[integerLiteralDiagnostic expected magnitude true]
+                    resultDraft expected #[locateDraft
+                      (integerLiteralDiagnosticDraft expected magnitude true)
+                      exprPath? expectedRelated]
               | _ =>
                   match integerLiteralBound expected true with
                   | some bound =>
                       if magnitude <= bound then
-                        result expected #[]
+                        resultDraft expected #[]
                       else
-                        result expected #[integerLiteralDiagnostic expected magnitude true]
+                        resultDraft expected #[locateDraft
+                          (integerLiteralDiagnosticDraft expected magnitude true)
+                          exprPath? expectedRelated]
                   | none =>
-                      result expected #[expectedActualDiagnostic (typeName expected)
-                        "integer literal"]
+                      resultDraft expected #[locateDraft
+                        (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                        exprPath? expectedRelated]
             else
-              result expected #[expectedActualDiagnostic (typeName expected)
-                "integer literal"]
+              resultDraft expected #[locateDraft
+                (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                exprPath? expectedRelated]
     | .unary .bitNot (.literal (.integer magnitude)) =>
         match expected? with
         | none =>
-            result .unit #[expectedActualDiagnostic "integer type"
-              "integer literal"]
+            resultDraft .unit #[locateDraft
+              (expectedActualDiagnosticDraft "integer type" "integer literal")
+              exprPath? expectedRelated]
         | some expected =>
             if isIntegerType expected then
               match integerLiteralBound expected false with
               | some bound =>
                   if magnitude <= bound then
-                    result expected #[]
+                    resultDraft expected #[]
                   else
-                    result expected #[integerLiteralDiagnostic expected magnitude false]
+                    resultDraft expected #[locateDraft
+                      (integerLiteralDiagnosticDraft expected magnitude false)
+                      exprPath? expectedRelated]
               | none =>
-                  result expected #[expectedActualDiagnostic (typeName expected)
-                    "integer literal"]
+                  resultDraft expected #[locateDraft
+                    (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                    exprPath? expectedRelated]
             else
-              result expected #[expectedActualDiagnostic (typeName expected)
-                "integer literal"]
+              resultDraft expected #[locateDraft
+                (expectedActualDiagnosticDraft (typeName expected) "integer literal")
+                exprPath? expectedRelated]
     | .unary op operand =>
+        let (opPath?, pathDs) := resolveDirect exprPath? "Expr.Unary" "operand"
         match op with
         | .neg | .bitNot =>
-            let opRes := typeCheckExpr scope tables none operand
-            let (resType, diags) :=
+            let opRes := typeCheckExprDrafts scope tables none #[] opPath? operand
+            let (resType, drafts) :=
               if isIntegerType opRes.type then
-                (opRes.type, opRes.diagnostics)
+                (opRes.type, pathDs ++ opRes.drafts)
               else
-                (opRes.type, opRes.diagnostics.push
-                  (expectedActualDiagnostic "integer type" (typeName opRes.type)))
-            let (type_, diags) := checkExpected resType expected? diags
-            result type_ diags
+                (opRes.type, pathDs ++ opRes.drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "integer type" (typeName opRes.type))
+                  opPath? #[]])
+            let (type_, drafts) :=
+              checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+            resultDraft type_ drafts
         | .not =>
-            let opRes := typeCheckExpr scope tables (some .bool) operand
-            let diags :=
+            let opRes := typeCheckExprDrafts scope tables (some .bool) #[] opPath? operand
+            let drafts :=
               if opRes.type == .bool then
-                opRes.diagnostics
+                pathDs ++ opRes.drafts
               else
-                opRes.diagnostics.push
-                  (expectedActualDiagnostic "Bool" (typeName opRes.type))
-            let (type_, diags) := checkExpected .bool expected? diags
-            result type_ diags
+                pathDs ++ opRes.drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "Bool" (typeName opRes.type))
+                  opPath? #[]]
+            let (type_, drafts) :=
+              checkExpectedDraft .bool expected? exprPath? expectedRelated drafts
+            resultDraft type_ drafts
     | .binary op lhs rhs =>
+        let (lp?, pathDs1) := resolveDirect exprPath? "Expr.Binary" "lhs"
+        let (rp?, pathDs2) := resolveDirect exprPath? "Expr.Binary" "rhs"
+        let pathDs := pathDs1 ++ pathDs2
         if isArithmeticOp op || isBitwiseOp op then
           let lhsExpected? := expected?.filter isIntegerType
-          let lhsRes := typeCheckExpr scope tables lhsExpected? lhs
-          let (diags, lhsType) :=
+          let lhsRes := typeCheckExprDrafts scope tables lhsExpected? expectedRelated lp? lhs
+          let (drafts, lhsType) :=
             if isIntegerType lhsRes.type then
-              (lhsRes.diagnostics, lhsRes.type)
+              (pathDs ++ lhsRes.drafts, lhsRes.type)
             else
-              (lhsRes.diagnostics.push (expectedActualDiagnostic "integer type"
-                (typeName lhsRes.type)), lhsRes.type)
-          let rhsRes := typeCheckExpr scope tables (some lhsType) rhs
-          let (diags, resType) :=
+              (pathDs ++ lhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "integer type" (typeName lhsRes.type))
+                lp? #[]], lhsRes.type)
+          let rhsRes := typeCheckExprDrafts scope tables (some lhsType) #[] rp? rhs
+          let (drafts, resType) :=
             if lhsType == rhsRes.type then
-              (diags ++ rhsRes.diagnostics, lhsType)
+              (drafts ++ rhsRes.drafts, lhsType)
             else
-              (diags ++ rhsRes.diagnostics ++ #[expectedActualDiagnostic
-                (typeName lhsType) (typeName rhsRes.type)], lhsType)
-          let (type_, diags) := checkExpected resType expected? diags
-          result type_ diags
+              (drafts ++ rhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft (typeName lhsType) (typeName rhsRes.type))
+                rp? #[]], lhsType)
+          let (type_, drafts) :=
+            checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
         else if isShiftOp op then
           let lhsExpected? := expected?.filter isIntegerType
-          let lhsRes := typeCheckExpr scope tables lhsExpected? lhs
-          let (diags, lhsType) :=
+          let lhsRes := typeCheckExprDrafts scope tables lhsExpected? expectedRelated lp? lhs
+          let (drafts, lhsType) :=
             if isIntegerType lhsRes.type then
-              (lhsRes.diagnostics, lhsRes.type)
+              (pathDs ++ lhsRes.drafts, lhsRes.type)
             else
-              (lhsRes.diagnostics.push (expectedActualDiagnostic "integer type"
-                (typeName lhsRes.type)), lhsRes.type)
-          let rhsRes := typeCheckExpr scope tables (some (.uint 32)) rhs
-          let diags := diags ++ rhsRes.diagnostics
-          let diags :=
+              (pathDs ++ lhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "integer type" (typeName lhsRes.type))
+                lp? #[]], lhsRes.type)
+          let rhsRes := typeCheckExprDrafts scope tables (some (.uint 32)) #[] rp? rhs
+          let drafts := drafts ++ rhsRes.drafts
+          let drafts :=
             if rhsRes.type == .uint 32 then
-              diags
+              drafts
             else
-              diags.push (expectedActualDiagnostic "UInt32" (typeName rhsRes.type))
-          -- Literal shift counts must be strictly less than the lhs integer width.
-          let diags :=
+              drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "UInt32" (typeName rhsRes.type))
+                rp? #[]]
+          let drafts :=
             match lhsType, rhs with
             | .uint w, .literal (.integer magnitude) =>
-                if magnitude < w.toNat then diags
-                else diags.push (expectedActualDiagnostic
-                  s!"shift count < {w.toNat}" s!"shift count {magnitude}")
+                if magnitude < w.toNat then drafts
+                else drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft
+                    s!"shift count < {w.toNat}" s!"shift count {magnitude}")
+                  rp? #[]]
             | .int w, .literal (.integer magnitude) =>
-                if magnitude < w.toNat then diags
-                else diags.push (expectedActualDiagnostic
-                  s!"shift count < {w.toNat}" s!"shift count {magnitude}")
-            | _, _ => diags
-          let (type_, diags) := checkExpected lhsType expected? diags
-          result type_ diags
+                if magnitude < w.toNat then drafts
+                else drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft
+                    s!"shift count < {w.toNat}" s!"shift count {magnitude}")
+                  rp? #[]]
+            | _, _ => drafts
+          let (type_, drafts) :=
+            checkExpectedDraft lhsType expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
         else if isEqualityOp op then
-          let lhsRes := typeCheckExpr scope tables none lhs
-          let rhsRes := typeCheckExpr scope tables (some lhsRes.type) rhs
-          let diags := lhsRes.diagnostics ++ rhsRes.diagnostics
-          let diags :=
+          let lhsRes := typeCheckExprDrafts scope tables none #[] lp? lhs
+          let rhsRes := typeCheckExprDrafts scope tables (some lhsRes.type) #[] rp? rhs
+          let drafts := pathDs ++ lhsRes.drafts ++ rhsRes.drafts
+          let drafts :=
             if lhsRes.type == rhsRes.type then
-              diags
+              drafts
             else
-              diags.push (expectedActualDiagnostic (typeName lhsRes.type)
-                (typeName rhsRes.type))
-          let (type_, diags) := checkExpected .bool expected? diags
-          result type_ diags
+              drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft (typeName lhsRes.type) (typeName rhsRes.type))
+                rp? #[]]
+          let (type_, drafts) :=
+            checkExpectedDraft .bool expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
         else if isComparisonOp op then
-          let lhsRes := typeCheckExpr scope tables none lhs
-          let (diags, lhsType) :=
+          let lhsRes := typeCheckExprDrafts scope tables none #[] lp? lhs
+          let (drafts, lhsType) :=
             if isIntegerType lhsRes.type then
-              (lhsRes.diagnostics, lhsRes.type)
+              (pathDs ++ lhsRes.drafts, lhsRes.type)
             else
-              (lhsRes.diagnostics.push (expectedActualDiagnostic "integer type"
-                (typeName lhsRes.type)), lhsRes.type)
-          let rhsRes := typeCheckExpr scope tables (some lhsType) rhs
-          let (diags, resType) :=
+              (pathDs ++ lhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "integer type" (typeName lhsRes.type))
+                lp? #[]], lhsRes.type)
+          let rhsRes := typeCheckExprDrafts scope tables (some lhsType) #[] rp? rhs
+          let (drafts, resType) :=
             if isIntegerType lhsType && lhsType == rhsRes.type then
-              (diags ++ rhsRes.diagnostics, .bool)
+              (drafts ++ rhsRes.drafts, .bool)
             else
-              (diags ++ rhsRes.diagnostics ++ #[expectedActualDiagnostic
-                (typeName lhsType) (typeName rhsRes.type)], .bool)
-          let (type_, diags) := checkExpected resType expected? diags
-          result type_ diags
+              (drafts ++ rhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft (typeName lhsType) (typeName rhsRes.type))
+                rp? #[]], .bool)
+          let (type_, drafts) :=
+            checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
         else if isLogicalOp op then
-          let lhsRes := typeCheckExpr scope tables (some .bool) lhs
-          let rhsRes := typeCheckExpr scope tables (some .bool) rhs
-          let diags := lhsRes.diagnostics ++ rhsRes.diagnostics
-          let diags :=
+          let lhsRes := typeCheckExprDrafts scope tables (some .bool) #[] lp? lhs
+          let rhsRes := typeCheckExprDrafts scope tables (some .bool) #[] rp? rhs
+          let drafts := pathDs ++ lhsRes.drafts ++ rhsRes.drafts
+          let drafts :=
             if lhsRes.type == .bool && rhsRes.type == .bool then
-              diags
+              drafts
             else
               let lhsDiag := if lhsRes.type == .bool then #[] else
-                #[expectedActualDiagnostic "Bool" (typeName lhsRes.type)]
+                #[locateDraft (expectedActualDiagnosticDraft "Bool" (typeName lhsRes.type))
+                  lp? #[]]
               let rhsDiag := if rhsRes.type == .bool then #[] else
-                #[expectedActualDiagnostic "Bool" (typeName rhsRes.type)]
-              diags ++ lhsDiag ++ rhsDiag
-          let (type_, diags) := checkExpected .bool expected? diags
-          result type_ diags
+                #[locateDraft (expectedActualDiagnosticDraft "Bool" (typeName rhsRes.type))
+                  rp? #[]]
+              drafts ++ lhsDiag ++ rhsDiag
+          let (type_, drafts) :=
+            checkExpectedDraft .bool expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
         else
-          result .unit #[expectedActualDiagnostic (typeName (expected?.getD .unit))
-            "binary expression"]
+          resultDraft .unit #[locateDraft
+            (expectedActualDiagnosticDraft (typeName (expected?.getD .unit))
+              "binary expression")
+            exprPath? expectedRelated]
     | .constructor ctor args =>
         let pathRes := resolveConstructorType tables ctor
         match pathRes with
         | .error diag =>
-            let argDiags := args.foldl (fun acc arg =>
-              acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[diag]
-            result (expected?.getD .unit) argDiags
+            let (argDrafts, pathDs) := args.zipIdx.foldl
+              (fun (acc, pds) (arg, i) =>
+                let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                (acc ++ ar.drafts, pds ++ pd))
+              (#[], #[])
+            resultDraft (expected?.getD .unit)
+              (pathDs ++ #[draftFromDiag diag exprPath? #[]] ++ argDrafts)
         | .ok (resType, expectedTypes) =>
-            let diags : Array DiagnosticV1 := #[]
-            let diags :=
-              if expectedTypes.size == args.size then diags
-              else diags.push (expectedActualDiagnostic
-                s!"{expectedTypes.size} constructor arguments"
-                s!"{args.size} constructor arguments")
-            let diags :=
+            let relatedCtor := constructorRelatedPaths tables ctor resType
+            let drafts : Array TypedDiagnosticDraftV1 := #[]
+            let drafts :=
+              if expectedTypes.size == args.size then drafts
+              else drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft
+                  s!"{expectedTypes.size} constructor arguments"
+                  s!"{args.size} constructor arguments")
+                exprPath? relatedCtor]
+            -- Arity mismatch: only the arity locateDraft (no arg walk). Resolve-error
+            -- and matching-arity paths still walk args; revert/emit keep their walks.
+            let (argDrafts, pathDs) :=
               if expectedTypes.size == args.size then
-                (expectedTypes.zip args).foldl (fun acc (expectedType, arg) =>
-                  acc ++ (typeCheckExpr scope tables (some expectedType) arg).diagnostics) diags
-              else diags
-            let (type_, diags) := checkExpected resType expected? diags
-            result type_ diags
+                (expectedTypes.zip args).zipIdx.foldl
+                  (fun (acc, pds) ((expectedType, arg), i) =>
+                    let (ap?, pd) := resolveChild exprPath? "Expr.Constructor" "args" i
+                    let argRelated :=
+                      constructorArgRelatedPaths tables ctor resType i
+                    let ar := typeCheckExprDrafts scope tables (some expectedType)
+                      argRelated ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
+              else
+                (#[], #[])
+            let drafts := pathDs ++ drafts ++ argDrafts
+            let (type_, drafts) :=
+              checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+            resultDraft type_ drafts
     | .localCall callee args =>
         match resolveLocalCallType scope tables callee with
         | .error diag =>
-            let argDiags := args.foldl (fun acc arg =>
-              acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[diag]
-            result (expected?.getD .unit) argDiags
+            let (argDrafts, pathDs) := args.zipIdx.foldl
+              (fun (acc, pds) (arg, i) =>
+                let (ap?, pd) := resolveChild exprPath? "Expr.LocalCall" "args" i
+                let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                (acc ++ ar.drafts, pds ++ pd))
+              (#[], #[])
+            let related := optRelatedPath (itemPathForNamed? tables .fn callee)
+            resultDraft (expected?.getD .unit)
+              (pathDs ++ #[draftFromDiag diag exprPath? related] ++ argDrafts)
         | .ok fnDecl =>
-            let diags : Array DiagnosticV1 := #[]
-            let diags :=
-              if fnDecl.params.size == args.size then diags
-              else diags.push (expectedActualDiagnostic
-                s!"{fnDecl.params.size} arguments" s!"{args.size} arguments")
-            let diags :=
+            let relatedFn := optRelatedPath (itemPathForNamed? tables .fn callee)
+            let drafts : Array TypedDiagnosticDraftV1 := #[]
+            let drafts :=
+              if fnDecl.params.size == args.size then drafts
+              else drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft
+                  s!"{fnDecl.params.size} arguments" s!"{args.size} arguments")
+                exprPath? relatedFn]
+            -- Arity mismatch: only the arity locateDraft (no arg walk).
+            let (argDrafts, pathDs) :=
               if fnDecl.params.size == args.size then
-                (fnDecl.params.zip args).foldl (fun acc (param, arg) =>
-                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
-              else diags
-            let (type_, diags) := checkExpected fnDecl.result expected? diags
-            result type_ diags
+                (fnDecl.params.zip args).zipIdx.foldl
+                  (fun (acc, pds) ((param, arg), i) =>
+                    let (ap?, pd) := resolveChild exprPath? "Expr.LocalCall" "args" i
+                    let argRelated := optRelatedPath (fnParamPath? tables callee i)
+                    let ar := typeCheckExprDrafts scope tables (some param.type_)
+                      argRelated ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
+              else
+                (#[], #[])
+            let drafts := pathDs ++ drafts ++ argDrafts
+            let (type_, drafts) :=
+              checkExpectedDraft fnDecl.result expected? exprPath? expectedRelated drafts
+            resultDraft type_ drafts
     | .match_ scrutinee arms =>
         match arms.toList with
         | [] =>
-            result (expected?.getD .unit) #[internalDiagnostic "empty match expression"]
+            resultDraft (expected?.getD .unit)
+              #[locateDraft (internalDiagnosticDraft "empty match expression")
+                exprPath? #[]]
         | firstArm :: restArms =>
-            let scrutineeRes := typeCheckExpr scope tables none scrutinee
+            let (sp?, pathDs0) := resolveDirect exprPath? "Expr.Match" "scrutinee"
+            let scrutineeRes :=
+              typeCheckExprDrafts scope tables none #[] sp? scrutinee
             let scrutineeType := scrutineeRes.type
-            let firstPatternRes := typeCheckPattern tables scrutineeType firstArm.pattern
+            let (arm0?, pathDs1) := resolveChild exprPath? "Expr.Match" "arms" 0
+            let (pp0?, pathDs2) := resolveDirect arm0? "ExprMatchArm" "pattern"
+            let (vp0?, pathDs3) := resolveDirect arm0? "ExprMatchArm" "value"
+            let firstPatternRes :=
+              typeCheckPatternDrafts tables scrutineeType pp0? firstArm.pattern
             let firstArmScope := addBindings scope firstPatternRes.bindings
-            let firstValueRes := typeCheckExpr firstArmScope tables expected? firstArm.value
+            let firstValueRes :=
+              typeCheckExprDrafts firstArmScope tables expected? expectedRelated
+                vp0? firstArm.value
             let firstArmType := firstValueRes.type
-            let (restDiags, _) := restArms.foldl
+            let (restDrafts, _) := restArms.foldl
               (fun (acc, i) arm =>
-                let patternRes := typeCheckPattern tables scrutineeType arm.pattern
+                let (armP?, pd1) := resolveChild exprPath? "Expr.Match" "arms" i
+                let (pp?, pd2) := resolveDirect armP? "ExprMatchArm" "pattern"
+                let (vp?, pd3) := resolveDirect armP? "ExprMatchArm" "value"
+                let patternRes :=
+                  typeCheckPatternDrafts tables scrutineeType pp? arm.pattern
                 let armScope := addBindings scope patternRes.bindings
-                let valueRes := typeCheckExpr armScope tables expected? arm.value
+                let valueRes :=
+                  typeCheckExprDrafts armScope tables expected? expectedRelated
+                    vp? arm.value
                 let typeDiag :=
                   if valueRes.type == firstArmType then #[]
-                  else #[armTypeMismatchDiagnostic i (typeName firstArmType) (typeName valueRes.type)]
-                (acc ++ patternRes.diagnostics ++ valueRes.diagnostics ++ typeDiag, i + 1))
+                  else #[locateDraft
+                    (armTypeMismatchDiagnosticDraft i (typeName firstArmType)
+                      (typeName valueRes.type))
+                    vp? #[]]
+                (acc ++ pd1 ++ pd2 ++ pd3 ++ patternRes.drafts ++ valueRes.drafts ++
+                  typeDiag, i + 1))
               (#[], 1)
-            let armDiags := scrutineeRes.diagnostics ++ firstPatternRes.diagnostics ++
-              firstValueRes.diagnostics ++ restDiags
-            let exhaustDiags := checkExhaustiveness tables scrutineeType (arms.map (·.pattern))
-            let (type_, diags) := checkExpected firstArmType expected? armDiags
-            result type_ (diags ++ exhaustDiags)
+            let armDrafts := pathDs0 ++ pathDs1 ++ pathDs2 ++ pathDs3 ++
+              scrutineeRes.drafts ++ firstPatternRes.drafts ++
+              firstValueRes.drafts ++ restDrafts
+            let exhaustDrafts :=
+              checkExhaustivenessDrafts tables scrutineeType (arms.map (·.pattern))
+                exprPath?
+            let (type_, drafts) :=
+              checkExpectedDraft firstArmType expected? exprPath? expectedRelated
+                armDrafts
+            resultDraft type_ (drafts ++ exhaustDrafts)
 end
+
+def typeCheckPlace (scope : TypeCheckScopeV1)
+    (tables : TypedDeclTablesV1) (place : PlaceV1) : TypeCheckResultV1 :=
+  eraseResult (typeCheckPlaceDrafts scope tables none place)
+
+def typeCheckExpr (scope : TypeCheckScopeV1)
+    (tables : TypedDeclTablesV1) (expected? : Option TypeV1) (expr : ExprV1) :
+    TypeCheckResultV1 :=
+  eraseResult (typeCheckExprDrafts scope tables expected? #[] none expr)
 
 def scopeFromTables (tables : TypedDeclTablesV1) : TypeCheckScopeV1 :=
   let base := emptyScope
@@ -747,9 +1073,6 @@ def scopeFromTables (tables : TypedDeclTablesV1) : TypeCheckScopeV1 :=
   tables.const.entries.foldl
     (fun acc (n, _, d) => addStateConst acc n d.type_ .const) base
 
-/-- Build a scope containing all state/const bindings plus the parameters of a
-    named callable (`fn`/`entry`/`view`).  Used by tests and future consumers
-    that want to type-check an expression inside a callable body. -/
 def scopeFromCallable (tables : TypedDeclTablesV1)
     (name : SourceNameComponentV1) : Except String TypeCheckScopeV1 := do
   let params ←
@@ -765,194 +1088,353 @@ def scopeFromCallable (tables : TypedDeclTablesV1)
   let base := params.foldl (fun acc p => addParam acc p.name p.type_) base
   pure base
 
-/-- Result of type-checking a whole ProgramV1 source unit. -/
 structure TypeCheckProgramResultV1 where
   diagnostics : Array DiagnosticV1
   ok : Bool
   deriving Repr, Inhabited
 
-private def emptyTypeCheckProgramResult : TypeCheckProgramResultV1 :=
-  { diagnostics := #[], ok := true }
+structure TypeCheckProgramDraftResultV1 where
+  drafts : Array TypedDiagnosticDraftV1
+  ok : Bool
+  deriving Inhabited
+
+private def resultRequiredDiagnosticDraft (expected : TypeV1) :
+    TypedDiagnosticDraftV1 :=
+  expectedActualDiagnosticDraft (typeName expected) "empty return"
 
 private def resultRequiredDiagnostic (expected : TypeV1) : DiagnosticV1 :=
-  expectedActualDiagnostic (typeName expected) "empty return"
+  erase (resultRequiredDiagnosticDraft expected)
 
 mutual
-  /-- Type-check a statement inside a declared result-type context.
-      Returns the updated scope (bindings introduced by this statement that are
-      visible to later statements) and any diagnostics in source order.
-
-      Precondition: name resolution has already succeeded, so every referenced
-      error/event name is present in `tables`.  The `none` branches below are
-      defensive and emit an internal diagnostic. -/
-  partial def typeCheckStmt (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
-      (result : TypeV1) (stmt : StmtV1) : TypeCheckScopeV1 × Array DiagnosticV1 :=
+  partial def typeCheckStmtDrafts (scope : TypeCheckScopeV1)
+      (tables : TypedDeclTablesV1) (result : TypeV1)
+      (resultRelated : Array NormalizedSyntacticPathV1)
+      (stmtPath? : Option NormalizedSyntacticPathV1)
+      (stmt : StmtV1) :
+      TypeCheckScopeV1 × Array TypedDiagnosticDraftV1 :=
     match stmt with
     | .let_ name typeAnn value =>
+        let (vp?, pathDs) := resolveDirect stmtPath? "Stmt.Let" "value"
         match typeAnn with
         | some ann =>
-            let valueRes := typeCheckExpr scope tables (some ann) value
-            (addBinding scope name ann, valueRes.diagnostics)
+            let valueRes :=
+              typeCheckExprDrafts scope tables (some ann) #[] vp? value
+            (addBinding scope name ann, pathDs ++ valueRes.drafts)
         | none =>
-            let valueRes := typeCheckExpr scope tables none value
-            (addBinding scope name valueRes.type, valueRes.diagnostics)
+            let valueRes :=
+              typeCheckExprDrafts scope tables none #[] vp? value
+            (addBinding scope name valueRes.type, pathDs ++ valueRes.drafts)
     | .assign target value =>
-        let targetRes := typeCheckPlace scope tables target
-        let valueExpected? := if targetRes.diagnostics.isEmpty then some targetRes.type else none
-        let valueRes := typeCheckExpr scope tables valueExpected? value
-        let diags := targetRes.diagnostics ++ valueRes.diagnostics
-        let diags :=
-          if targetRes.diagnostics.isEmpty && targetRes.type != valueRes.type then
-            diags.push (expectedActualDiagnostic (typeName targetRes.type) (typeName valueRes.type))
+        let (tp?, pathDs1) := resolveDirect stmtPath? "Stmt.Assign" "target"
+        let (vp?, pathDs2) := resolveDirect stmtPath? "Stmt.Assign" "value"
+        let targetRes := typeCheckPlaceDrafts scope tables tp? target
+        let valueExpected? :=
+          if targetRes.drafts.isEmpty then some targetRes.type else none
+        let valueRelated :=
+          if targetRes.drafts.isEmpty then optRelatedPath targetRes.originPath? else #[]
+        let valueRes :=
+          typeCheckExprDrafts scope tables valueExpected? valueRelated vp? value
+        let drafts := pathDs1 ++ pathDs2 ++ targetRes.drafts ++ valueRes.drafts
+        let drafts :=
+          if targetRes.drafts.isEmpty && targetRes.type != valueRes.type then
+            drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft (typeName targetRes.type)
+                (typeName valueRes.type))
+              vp? valueRelated]
           else
-            diags
-        (scope, diags)
+            drafts
+        (scope, drafts)
     | .return_ (some value) =>
-        let valueRes := typeCheckExpr scope tables (some result) value
-        let diags :=
-          if valueRes.diagnostics.isEmpty && valueRes.type != result then
-            valueRes.diagnostics.push (expectedActualDiagnostic (typeName result) (typeName valueRes.type))
+        let (vp?, pathDs) := resolveDirect stmtPath? "Stmt.Return" "value"
+        let valueRes :=
+          typeCheckExprDrafts scope tables (some result) resultRelated vp? value
+        let drafts :=
+          if valueRes.drafts.isEmpty && valueRes.type != result then
+            pathDs ++ valueRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft (typeName result) (typeName valueRes.type))
+              vp? resultRelated]
           else
-            valueRes.diagnostics
-        (scope, diags)
+            pathDs ++ valueRes.drafts
+        (scope, drafts)
     | .return_ none =>
-        let diags :=
+        let drafts :=
           if result == .unit then #[]
-          else #[resultRequiredDiagnostic result]
-        (scope, diags)
+          else #[locateDraft (resultRequiredDiagnosticDraft result)
+            stmtPath? resultRelated]
+        (scope, drafts)
     | .assert_ condition error? =>
-        let condRes := typeCheckExpr scope tables (some .bool) condition
-        let diags :=
-          if condRes.diagnostics.isEmpty && condRes.type != .bool then
-            condRes.diagnostics.push (expectedActualDiagnostic "Bool" (typeName condRes.type))
+        let (cp?, pathDs) := resolveDirect stmtPath? "Stmt.Assert" "condition"
+        let condRes := typeCheckExprDrafts scope tables (some .bool) #[] cp? condition
+        let drafts :=
+          if condRes.drafts.isEmpty && condRes.type != .bool then
+            pathDs ++ condRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft "Bool" (typeName condRes.type))
+              cp? #[]]
           else
-            condRes.diagnostics
+            pathDs ++ condRes.drafts
         let _ := error?
-        (scope, diags)
+        (scope, drafts)
     | .revert name args =>
         match tables.error.find? name with
         | none =>
-            (scope, #[internalDiagnostic s!"unresolved error name '{name.raw}' in revert"])
+            (scope, #[locateDraft
+              (internalDiagnosticDraft
+                s!"unresolved error name '{name.raw}' in revert")
+              stmtPath? #[]])
         | some (_, decl) =>
-            let diags : Array DiagnosticV1 :=
+            let relatedErr := optRelatedPath (itemPathForNamed? tables .error name)
+            let drafts : Array TypedDiagnosticDraftV1 :=
               if decl.params.size == args.size then #[]
-              else #[expectedActualDiagnostic
-                s!"{decl.params.size} arguments" s!"{args.size} arguments"]
-            let diags :=
+              else #[locateDraft
+                (expectedActualDiagnosticDraft
+                  s!"{decl.params.size} arguments" s!"{args.size} arguments")
+                stmtPath? relatedErr]
+            let (argDrafts, pathDs) :=
               if decl.params.size == args.size then
-                (decl.params.zip args).foldl (fun acc (param, arg) =>
-                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
+                (decl.params.zip args).zipIdx.foldl
+                  (fun (acc, pds) ((param, arg), i) =>
+                    let (ap?, pd) := resolveChild stmtPath? "Stmt.Revert" "args" i
+                    let argRelated := optRelatedPath (errorParamPath? tables name i)
+                    let ar := typeCheckExprDrafts scope tables (some param.type_)
+                      argRelated ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
               else
-                args.foldl (fun acc arg =>
-                  acc ++ (typeCheckExpr scope tables none arg).diagnostics) diags
-            (scope, diags)
+                args.zipIdx.foldl
+                  (fun (acc, pds) (arg, i) =>
+                    let (ap?, pd) := resolveChild stmtPath? "Stmt.Revert" "args" i
+                    let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
+            (scope, pathDs ++ drafts ++ argDrafts)
     | .emit name args =>
         match tables.event.find? name with
         | none =>
-            (scope, #[internalDiagnostic s!"unresolved event name '{name.raw}' in emit"])
+            (scope, #[locateDraft
+              (internalDiagnosticDraft
+                s!"unresolved event name '{name.raw}' in emit")
+              stmtPath? #[]])
         | some (_, decl) =>
-            let diags : Array DiagnosticV1 :=
+            let relatedEv := optRelatedPath (itemPathForNamed? tables .event name)
+            let drafts : Array TypedDiagnosticDraftV1 :=
               if decl.params.size == args.size then #[]
-              else #[expectedActualDiagnostic
-                s!"{decl.params.size} arguments" s!"{args.size} arguments"]
-            let diags :=
+              else #[locateDraft
+                (expectedActualDiagnosticDraft
+                  s!"{decl.params.size} arguments" s!"{args.size} arguments")
+                stmtPath? relatedEv]
+            let (argDrafts, pathDs) :=
               if decl.params.size == args.size then
-                (decl.params.zip args).foldl (fun acc (param, arg) =>
-                  acc ++ (typeCheckExpr scope tables (some param.type_) arg).diagnostics) diags
+                (decl.params.zip args).zipIdx.foldl
+                  (fun (acc, pds) ((param, arg), i) =>
+                    let (ap?, pd) := resolveChild stmtPath? "Stmt.Emit" "args" i
+                    let argRelated := optRelatedPath (eventParamPath? tables name i)
+                    let ar := typeCheckExprDrafts scope tables (some param.type_)
+                      argRelated ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
               else
-                args.foldl (fun acc arg =>
-                  acc ++ (typeCheckExpr scope tables none arg).diagnostics) diags
-            (scope, diags)
+                args.zipIdx.foldl
+                  (fun (acc, pds) (arg, i) =>
+                    let (ap?, pd) := resolveChild stmtPath? "Stmt.Emit" "args" i
+                    let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+                    (acc ++ ar.drafts, pds ++ pd))
+                  (#[], #[])
+            (scope, pathDs ++ drafts ++ argDrafts)
     | .if_ condition thenBlock elseBlock? =>
-        let condRes := typeCheckExpr scope tables (some .bool) condition
-        let condDiags :=
-          if condRes.diagnostics.isEmpty && condRes.type != .bool then
-            condRes.diagnostics.push (expectedActualDiagnostic "Bool" (typeName condRes.type))
+        let (cp?, pathDs1) := resolveDirect stmtPath? "Stmt.If" "condition"
+        let (tp?, pathDs2) := resolveDirect stmtPath? "Stmt.If" "thenBlock"
+        let condRes := typeCheckExprDrafts scope tables (some .bool) #[] cp? condition
+        let condDrafts :=
+          if condRes.drafts.isEmpty && condRes.type != .bool then
+            pathDs1 ++ condRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft "Bool" (typeName condRes.type))
+              cp? #[]]
           else
-            condRes.diagnostics
-        let thenDiags := typeCheckBlock scope tables result thenBlock
-        let elseDiags := match elseBlock? with
-          | some elseBlock => typeCheckBlock scope tables result elseBlock
-          | none => #[]
-        (scope, condDiags ++ thenDiags ++ elseDiags)
+            pathDs1 ++ condRes.drafts
+        let thenDrafts :=
+          typeCheckBlockDrafts scope tables result resultRelated tp? thenBlock
+        let (elseDrafts, pathDs3) := match elseBlock? with
+          | some elseBlock =>
+              let (ep?, pd) := resolveDirect stmtPath? "Stmt.If" "elseBlock"
+              (typeCheckBlockDrafts scope tables result resultRelated ep? elseBlock, pd)
+          | none => (#[], #[])
+        (scope, condDrafts ++ pathDs2 ++ thenDrafts ++ pathDs3 ++ elseDrafts)
     | .for_ binder start endExclusive _ body =>
-        let startRes := typeCheckExpr scope tables none start
-        let (startDiags, startType) :=
+        let (sp?, pathDs1) := resolveDirect stmtPath? "Stmt.For" "start"
+        let (ep?, pathDs2) := resolveDirect stmtPath? "Stmt.For" "endExclusive"
+        let (bp?, pathDs3) := resolveDirect stmtPath? "Stmt.For" "body"
+        let startRes := typeCheckExprDrafts scope tables none #[] sp? start
+        let (startDrafts, startType) :=
           if isIntegerType startRes.type then
-            (startRes.diagnostics, startRes.type)
+            (pathDs1 ++ startRes.drafts, startRes.type)
           else
-            (startRes.diagnostics.push (expectedActualDiagnostic "integer type" (typeName startRes.type)), .unit)
+            (pathDs1 ++ startRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft "integer type" (typeName startRes.type))
+              sp? #[]], .unit)
         let endExpected? := if startType == .unit then none else some startType
-        let endRes := typeCheckExpr scope tables endExpected? endExclusive
-        let endDiags :=
-          if endRes.diagnostics.isEmpty && !isIntegerType endRes.type then
-            endRes.diagnostics.push (expectedActualDiagnostic "integer type" (typeName endRes.type))
+        let endRes :=
+          typeCheckExprDrafts scope tables endExpected? #[] ep? endExclusive
+        let endDrafts :=
+          if endRes.drafts.isEmpty && !isIntegerType endRes.type then
+            pathDs2 ++ endRes.drafts ++ #[locateDraft
+              (expectedActualDiagnosticDraft "integer type" (typeName endRes.type))
+              ep? #[]]
           else
-            endRes.diagnostics
-        let widthDiags :=
-          if isIntegerType startRes.type && isIntegerType endRes.type && startRes.type != endRes.type then
-            #[expectedActualDiagnostic (typeName startRes.type) (typeName endRes.type)]
+            pathDs2 ++ endRes.drafts
+        let widthDrafts :=
+          if isIntegerType startRes.type && isIntegerType endRes.type &&
+              startRes.type != endRes.type then
+            #[locateDraft
+              (expectedActualDiagnosticDraft (typeName startRes.type)
+                (typeName endRes.type))
+              ep? #[]]
           else
             #[]
         let iterType := if isIntegerType startType then startType else .unit
-        let bodyDiags := typeCheckBlock (addBinding scope binder iterType) tables result body
-        (scope, startDiags ++ endDiags ++ widthDiags ++ bodyDiags)
-    | .call externalCall | .schedule externalCall =>
-        let diags := externalCall.args.foldl (fun acc arg =>
-          acc ++ (typeCheckExpr scope tables none arg).diagnostics) #[]
-        (scope, diags)
+        let bodyDrafts :=
+          typeCheckBlockDrafts (addBinding scope binder iterType) tables
+            result resultRelated bp? body
+        (scope, startDrafts ++ endDrafts ++ widthDrafts ++ pathDs3 ++ bodyDrafts)
+    | .call externalCall =>
+        let (cp?, pathDs0) := resolveDirect stmtPath? "Stmt.Call" "call"
+        let (argDrafts, pathDs) := externalCall.args.zipIdx.foldl
+          (fun (acc, pds) (arg, i) =>
+            let (ap?, pd) := resolveChild cp? "ExternalCallExpr" "args" i
+            let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+            (acc ++ ar.drafts, pds ++ pd))
+          (#[], #[])
+        (scope, pathDs0 ++ pathDs ++ argDrafts)
+    | .schedule externalCall =>
+        let (cp?, pathDs0) := resolveDirect stmtPath? "Stmt.Schedule" "call"
+        let (argDrafts, pathDs) := externalCall.args.zipIdx.foldl
+          (fun (acc, pds) (arg, i) =>
+            let (ap?, pd) := resolveChild cp? "ExternalCallExpr" "args" i
+            let ar := typeCheckExprDrafts scope tables none #[] ap? arg
+            (acc ++ ar.drafts, pds ++ pd))
+          (#[], #[])
+        (scope, pathDs0 ++ pathDs ++ argDrafts)
     | .match_ scrutinee arms =>
-        let scrutineeRes := typeCheckExpr scope tables none scrutinee
+        let (sp?, pathDs0) := resolveDirect stmtPath? "Stmt.Match" "scrutinee"
+        let scrutineeRes :=
+          typeCheckExprDrafts scope tables none #[] sp? scrutinee
         let scrutineeType := scrutineeRes.type
-        let armDiags := arms.foldl (fun acc arm =>
-          let patternRes := typeCheckPattern tables scrutineeType arm.pattern
-          let armScope := addBindings scope patternRes.bindings
-          let bodyDiags := typeCheckBlock armScope tables result arm.body
-          acc ++ patternRes.diagnostics ++ bodyDiags) scrutineeRes.diagnostics
-        let exhaustDiags := checkExhaustiveness tables scrutineeType (arms.map (·.pattern))
-        (scope, armDiags ++ exhaustDiags)
+        let (armDrafts, pathDsArms) := arms.zipIdx.foldl
+          (fun (acc, pds) (arm, i) =>
+            let (armP?, pd1) := resolveChild stmtPath? "Stmt.Match" "arms" i
+            let (pp?, pd2) := resolveDirect armP? "StmtMatchArm" "pattern"
+            let (bp?, pd3) := resolveDirect armP? "StmtMatchArm" "body"
+            let patternRes :=
+              typeCheckPatternDrafts tables scrutineeType pp? arm.pattern
+            let armScope := addBindings scope patternRes.bindings
+            let bodyDrafts :=
+              typeCheckBlockDrafts armScope tables result resultRelated bp? arm.body
+            (acc ++ patternRes.drafts ++ bodyDrafts,
+              pds ++ pd1 ++ pd2 ++ pd3))
+          (#[], #[])
+        let exhaustDrafts :=
+          checkExhaustivenessDrafts tables scrutineeType (arms.map (·.pattern))
+            stmtPath?
+        (scope, pathDs0 ++ scrutineeRes.drafts ++ pathDsArms ++ armDrafts ++
+          exhaustDrafts)
 
-  /-- Type-check a block of statements in source order, threading scope through. -/
-  partial def typeCheckBlock (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
-      (result : TypeV1) (block : BlockV1) : Array DiagnosticV1 :=
-    let (_, diags) := block.statements.foldl (fun (accScope, accDiags) stmt =>
-      let (nextScope, stmtDiags) := typeCheckStmt accScope tables result stmt
-      (nextScope, accDiags ++ stmtDiags)) (scope, #[])
-    diags
+  partial def typeCheckBlockDrafts (scope : TypeCheckScopeV1)
+      (tables : TypedDeclTablesV1) (result : TypeV1)
+      (resultRelated : Array NormalizedSyntacticPathV1)
+      (blockPath? : Option NormalizedSyntacticPathV1)
+      (block : BlockV1) : Array TypedDiagnosticDraftV1 :=
+    let (_, drafts) := block.statements.zipIdx.foldl
+      (fun (accScope, accDrafts) (stmt, idx) =>
+        let (stmtPath?, pathDs) :=
+          resolveChild blockPath? "Block" "statements" idx
+        let (nextScope, stmtDrafts) :=
+          typeCheckStmtDrafts accScope tables result resultRelated stmtPath? stmt
+        (nextScope, accDrafts ++ pathDs ++ stmtDrafts))
+      (scope, #[])
+    drafts
 end
 
-/-- Build a scope from state/const bindings plus a callable's parameters.
-    Shared by `init`, `entry`, `view`, and `fn` body checking. -/
+def typeCheckStmt (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
+    (result : TypeV1) (stmt : StmtV1) : TypeCheckScopeV1 × Array DiagnosticV1 :=
+  let (s, drafts) := typeCheckStmtDrafts scope tables result #[] none stmt
+  (s, eraseArray drafts)
+
+def typeCheckBlock (scope : TypeCheckScopeV1) (tables : TypedDeclTablesV1)
+    (result : TypeV1) (block : BlockV1) : Array DiagnosticV1 :=
+  eraseArray (typeCheckBlockDrafts scope tables result #[] none block)
+
 private def scopeFromCallableParams (tables : TypedDeclTablesV1)
     (params : Array ParamV1) : TypeCheckScopeV1 :=
   params.foldl (fun acc p => addParam acc p.name p.type_) (scopeFromTables tables)
 
-/-- Type-check a single top-level declaration body.  State/struct/enum/event/error
-    declarations need no expression typing here; const/init/entry/view/fn/invariant
-    bodies are checked against their declared types. -/
-def typeCheckItem (tables : TypedDeclTablesV1) (item : ProgramItemV1) :
-    Array DiagnosticV1 :=
+/-- Path-threaded item body check (authority). -/
+def typeCheckItemDrafts (tables : TypedDeclTablesV1)
+    (itemPath? : Option NormalizedSyntacticPathV1)
+    (item : ProgramItemV1) : Array TypedDiagnosticDraftV1 :=
   match item with
   | .const decl =>
-      (typeCheckExpr (scopeFromTables tables) tables (some decl.type_) decl.value).diagnostics
+      let (vp?, pathDs1) := resolveDirect itemPath? "ConstDecl" "value"
+      let related := optRelatedPath (constTypePath? tables decl.name)
+      let res := typeCheckExprDrafts (scopeFromTables tables) tables
+        (some decl.type_) related vp? decl.value
+      pathDs1 ++ res.drafts
   | .init decl =>
-      typeCheckBlock (scopeFromCallableParams tables decl.params) tables .unit decl.body
-  | .entry decl | .view decl | .fn decl =>
-      typeCheckBlock (scopeFromCallableParams tables decl.params) tables decl.result decl.body
+      let (bp?, pathDs) := resolveDirect itemPath? "InitDecl" "body"
+      pathDs ++ typeCheckBlockDrafts (scopeFromCallableParams tables decl.params)
+        tables .unit #[] bp? decl.body
+  | .entry decl =>
+      let (bp?, pathDs) := resolveDirect itemPath? "EntryDecl" "body"
+      let related := optRelatedPath (callableResultPath? tables .entry decl.name)
+      pathDs ++ typeCheckBlockDrafts (scopeFromCallableParams tables decl.params)
+        tables decl.result related bp? decl.body
+  | .view decl =>
+      let (bp?, pathDs) := resolveDirect itemPath? "ViewDecl" "body"
+      let related := optRelatedPath (callableResultPath? tables .view decl.name)
+      pathDs ++ typeCheckBlockDrafts (scopeFromCallableParams tables decl.params)
+        tables decl.result related bp? decl.body
+  | .fn decl =>
+      let (bp?, pathDs) := resolveDirect itemPath? "FnDecl" "body"
+      let related := optRelatedPath (callableResultPath? tables .fn decl.name)
+      pathDs ++ typeCheckBlockDrafts (scopeFromCallableParams tables decl.params)
+        tables decl.result related bp? decl.body
   | .invariant decl =>
-      (typeCheckExpr (scopeFromTables tables) tables (some .bool) decl.predicate).diagnostics
+      let (pp?, pathDs) := resolveDirect itemPath? "InvariantDecl" "predicate"
+      let res := typeCheckExprDrafts (scopeFromTables tables) tables
+        (some .bool) #[] pp? decl.predicate
+      pathDs ++ res.drafts
   | _ => #[]
 
-/-- Type-check a fully name-resolved ProgramV1 source unit.
-    If name resolution produced diagnostics, those are returned verbatim and body
-    type checking is skipped to avoid cascading errors. -/
+def typeCheckItem (tables : TypedDeclTablesV1) (item : ProgramItemV1) :
+    Array DiagnosticV1 :=
+  eraseArray (typeCheckItemDrafts tables none item)
+
+/-- Body type-check authority with paths (resolution must already be ok). -/
+def typeCheckProgramBodiesDraftsV1 (program : ProgramV1)
+    (tables : TypedDeclTablesV1) : Array TypedDiagnosticDraftV1 :=
+  program.items.zipIdx.foldl (fun acc (item, itemIndex) =>
+    match programItemPathV1 itemIndex with
+    | .error detail => acc.push (pathInternalDraft detail)
+    | .ok itemPath =>
+        acc ++ typeCheckItemDrafts tables (some itemPath) item) #[]
+
+/-- Additive draft-bearing program type-check.
+    Short-circuits with resolution drafts when resolution is not ok. -/
+def typeCheckProgramDraftsV1 (program : ProgramV1)
+    (resolved : NameResolutionDraftResultV1) : TypeCheckProgramDraftResultV1 :=
+  if !resolved.ok then
+    { drafts := resolved.drafts, ok := false }
+  else
+    let drafts := typeCheckProgramBodiesDraftsV1 program resolved.tables
+    { drafts := drafts, ok := drafts.isEmpty }
+
+/-- Public unlocated projection: erases drafts; preserves code/message/phase/order.
+    Resolution-not-ok short-circuits with `resolved.diagnostics` unchanged. -/
 def typeCheckProgramV1 (program : ProgramV1) (resolved : NameResolutionResultV1) :
     TypeCheckProgramResultV1 :=
   if !resolved.ok then
     { diagnostics := resolved.diagnostics, ok := false }
   else
-    let diags := program.items.foldl (fun acc item =>
-      acc ++ typeCheckItem resolved.tables item) resolved.diagnostics
+    let drafts := typeCheckProgramBodiesDraftsV1 program resolved.tables
+    let diags := eraseArray drafts
     { diagnostics := diags, ok := diags.isEmpty }
 
 end ProofForgeV2.Typed.TypeCheckV1
