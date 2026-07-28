@@ -401,9 +401,9 @@
       "sha256": "dea220e24b4e22b6a8dae9d0b37123e89bb93fb52fc3cd710d124e0016138cec"
     },
     {
-      "bytes": 11252,
+      "bytes": 22934,
       "path": "ProofForgeV2/Typed/BoundCheckV1.lean",
-      "sha256": "a5668457e3d29330d34383381690d6f65320a0a49ebe1499163012073643277a"
+      "sha256": "bd6f69dca34cafbe0a160e93077d0a437eda6da93f9f67e20d5b574c22962e9f"
     },
     {
       "bytes": 20908,

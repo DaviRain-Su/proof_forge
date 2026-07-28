@@ -28,6 +28,15 @@
   * duplicate callsites retained; cycle finite; shadowing; incomplete dup-fn
   * every draft path ∈ canonicalNodeVisitsV1; locate exact NodeId sets
   * public checkProgramEffects* erase parity on code/message/order/ok/analysisComplete
+
+  B7b3b (BoundCheckV1 producer paths):
+  * self / 2- / 3-fn recursion cycles: primary min-ordinal FnDecl; related =
+    remaining SCC FnDecls (ordinal) + in-SCC Expr.LocalCall sites (source order)
+  * loop-product overflow: primary overflowing Stmt.For; related = enclosing
+    callable item + ancestor Stmt.For (fn/entry/view/init; if/match; siblings)
+  * every draft path ∈ canonicalNodeVisitsV1; locate exact NodeId sets
+  * public checkProgramBounds* erase parity on code/message/order/ok/analysisComplete
+  * duplicate-fn incomplete: no invented bound drafts
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
@@ -46,6 +55,7 @@ import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.WireV1
+import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.EffectCheckV1
@@ -71,6 +81,7 @@ open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
+open ProofForgeV2.Typed.BoundCheckV1
 open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.EffectCheckV1
@@ -1552,6 +1563,438 @@ private unsafe def testEffectAllDraftPathsInVisits
   expectEffectDraftPaths "eff-all" inv validated.program res.drafts
   expectEffectEraseParity "eff-all" validated res
 
+/-- B7b3b: BoundCheck draft authority via Loader origins. -/
+private unsafe def boundDraftsWithOrigins
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × OriginInventoryV1 × BoundCheckDraftResultV1) := do
+  let (validated, inv) ← selectWithOrigins session label source
+  let res := checkProgramBoundsDraftsV1 validated
+  pure (validated, inv, res)
+
+private def expectBoundDraftPaths
+    (label : String) (inv : OriginInventoryV1) (prog : ProgramV1)
+    (drafts : Array TypedDiagnosticDraftV1) : IO Unit := do
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 prog)
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    expect (pathInVisits visits loc.primaryPath)
+      s!"{label}[{i}]: primary ∈ visits"
+    for (rp, j) in loc.relatedPaths.zipIdx do
+      expect (pathInVisits visits rp)
+        s!"{label}[{i}].related[{j}] ∈ visits"
+  let located ← locateAll label inv drafts
+  expect (located.size == drafts.size) s!"{label}: locate size"
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    let primaryId ← expectNodeIdSome s!"{label}[{i}]" located[i]!.primary
+    expect (primaryId == (← inventoryNodeId inv loc.primaryPath s!"{label}[{i}] primary"))
+      s!"{label}[{i}]: primary NodeId exact"
+    expectRelatedNodeIdSet s!"{label}[{i}]" inv located[i]!.related loc.relatedPaths
+
+private def expectBoundEraseParity
+    (label : String) (validated : ValidatedSourceV1)
+    (draftRes : BoundCheckDraftResultV1) : IO Unit := do
+  let publicArr := checkProgramBoundsV1 validated
+  let publicRes := checkProgramBoundsResultV1 validated
+  eraseParity label draftRes.drafts publicArr
+  expect (draftRes.ok == publicRes.ok) s!"{label}: ok parity"
+  expect (draftRes.analysisComplete == publicRes.analysisComplete)
+    s!"{label}: analysisComplete parity"
+  expect (publicRes.diagnostics.map (·.message) == publicArr.map (·.message))
+    s!"{label}: result vs array messages"
+  expect (publicArr.map (·.code) == (eraseArray draftRes.drafts).map (·.code))
+    s!"{label}: code order parity"
+  expect (publicArr.map (·.message) == (eraseArray draftRes.drafts).map (·.message))
+    s!"{label}: message order parity"
+  expect (publicArr.all (fun d =>
+      d.code == .resourceBound || d.code == .sourceInvalid || d.code == .internal))
+    s!"{label}: public codes are bound/structural only"
+
+/-- Self-recursion: primary FnDecl f; related includes LocalCall site. -/
+private unsafe def testBoundSelfCycleLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundSelfRec where\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return f()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-self" source
+  expect (!res.ok) "bound-self: not ok"
+  expect res.analysisComplete "bound-self: complete"
+  expect (res.drafts.size == 1) "bound-self: one draft"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.code == .resourceBound) "bound-self: code"
+  expect (draft.diagnostic.message == "unbounded recursion (call cycle): f")
+    "bound-self: message"
+  let loc ← requireLocation "bound-self" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some pVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError "bound-self: primary visit"
+  expect (pVisit.constructorTag == "FnDecl") "bound-self: primary FnDecl"
+  expect (loc.relatedPaths.any fun rp =>
+      (visits.find? (·.path == rp)).map (·.constructorTag) == some "Expr.LocalCall")
+    "bound-self: related LocalCall"
+  expectBoundDraftPaths "bound-self" inv validated.program res.drafts
+  expectBoundEraseParity "bound-self" validated res
+
+/-- Two-fn cycle: primary min-ordinal f; related g + both LocalCalls. -/
+private unsafe def testBoundTwoFnCycleLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundTwoFn where\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return g()\n" ++
+    "  fn g() : UInt64 do\n" ++
+    "    return f()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-two" source
+  expect (!res.ok) "bound-two: not ok"
+  expect (res.drafts.size == 1) "bound-two: one draft"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.message == "unbounded recursion (call cycle): f, g")
+    "bound-two: message"
+  let loc ← requireLocation "bound-two" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let fPath ← liftResult "f" (indexChildPathV1 #[] "Program" "items" 0)
+  let gPath ← liftResult "g" (indexChildPathV1 #[] "Program" "items" 1)
+  expect (loc.primaryPath == fPath) "bound-two: primary min-ordinal f"
+  expect (loc.relatedPaths.any (· == gPath)) "bound-two: related g decl"
+  let callCount := loc.relatedPaths.foldl (fun acc rp =>
+    match visits.find? (·.path == rp) with
+    | some v => if v.constructorTag == "Expr.LocalCall" then acc + 1 else acc
+    | none => acc) 0
+  expect (callCount == 2) s!"bound-two: exactly 2 LocalCall related, got {callCount}"
+  expectBoundDraftPaths "bound-two" inv validated.program res.drafts
+  expectBoundEraseParity "bound-two" validated res
+
+/-- Three-fn cycle: primary a; related b,c + three LocalCalls in source order. -/
+private unsafe def testBoundThreeFnCycleLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundThreeFn where\n" ++
+    "  fn a() : UInt64 do\n" ++
+    "    return b()\n" ++
+    "  fn b() : UInt64 do\n" ++
+    "    return c()\n" ++
+    "  fn c() : UInt64 do\n" ++
+    "    return a()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-three" source
+  expect (!res.ok) "bound-three: not ok"
+  expect (res.drafts.size == 1) "bound-three: one draft"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.message == "unbounded recursion (call cycle): a, b, c")
+    "bound-three: message"
+  let loc ← requireLocation "bound-three" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let aPath ← liftResult "a" (indexChildPathV1 #[] "Program" "items" 0)
+  let bPath ← liftResult "b" (indexChildPathV1 #[] "Program" "items" 1)
+  let cPath ← liftResult "c" (indexChildPathV1 #[] "Program" "items" 2)
+  expect (loc.primaryPath == aPath) "bound-three: primary a"
+  expect (loc.relatedPaths.any (· == bPath)) "bound-three: related b"
+  expect (loc.relatedPaths.any (· == cPath)) "bound-three: related c"
+  -- related order: remaining decls (ordinal) then call sites (edge source order)
+  expect (loc.relatedPaths.size ≥ 5)
+    s!"bound-three: ≥2 decls + 3 calls, got {loc.relatedPaths.size}"
+  expect (loc.relatedPaths[0]! == bPath) "bound-three: related[0]=b"
+  expect (loc.relatedPaths[1]! == cPath) "bound-three: related[1]=c"
+  let callCount := loc.relatedPaths.foldl (fun acc rp =>
+    match visits.find? (·.path == rp) with
+    | some v => if v.constructorTag == "Expr.LocalCall" then acc + 1 else acc
+    | none => acc) 0
+  expect (callCount == 3) s!"bound-three: 3 LocalCall related, got {callCount}"
+  expectBoundDraftPaths "bound-three" inv validated.program res.drafts
+  expectBoundEraseParity "bound-three" validated res
+
+/-- Nested 4096³ overflow in fn: primary innermost Stmt.For; related fn + outer Fors. -/
+private unsafe def testBoundLoopOverflowFnLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundNestFn where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn work() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return total\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return work()\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-loop-fn" source
+  expect (!res.ok) "bound-loop-fn: not ok"
+  expect (res.drafts.size == 1) "bound-loop-fn: one overflow"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.code == .resourceBound) "bound-loop-fn: code"
+  expect (draft.diagnostic.message ==
+      "loop bound product overflows UInt32 in fn 'work' (bound 4096)")
+    "bound-loop-fn: message"
+  let loc ← requireLocation "bound-loop-fn" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let some pVisit := visits.find? (·.path == loc.primaryPath) |
+    throw <| IO.userError "bound-loop-fn: primary visit"
+  expect (pVisit.constructorTag == "Stmt.For") "bound-loop-fn: primary Stmt.For"
+  -- related: FnDecl work + two ancestor Fors
+  expect (loc.relatedPaths.size == 3)
+    s!"bound-loop-fn: related size 3, got {loc.relatedPaths.size}"
+  let some r0 := visits.find? (·.path == loc.relatedPaths[0]!) |
+    throw <| IO.userError "bound-loop-fn: related[0]"
+  expect (r0.constructorTag == "FnDecl") "bound-loop-fn: related[0] FnDecl"
+  expect (loc.relatedPaths.all fun rp =>
+      match visits.find? (·.path == rp) with
+      | some v => v.constructorTag == "FnDecl" || v.constructorTag == "Stmt.For"
+      | none => false)
+    "bound-loop-fn: related only FnDecl/Stmt.For"
+  let forRelated := loc.relatedPaths.filter fun rp =>
+    (visits.find? (·.path == rp)).map (·.constructorTag) == some "Stmt.For"
+  expect (forRelated.size == 2) "bound-loop-fn: two ancestor Fors"
+  -- primary must not appear in related
+  expect (!loc.relatedPaths.any (· == loc.primaryPath))
+    "bound-loop-fn: primary not in related"
+  expectBoundDraftPaths "bound-loop-fn" inv validated.program res.drafts
+  expectBoundEraseParity "bound-loop-fn" validated res
+
+/-- Overflow under entry + if / match; primary Stmt.For; related EntryDecl + ancestors. -/
+private unsafe def testBoundLoopOverflowEntryIfMatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let ifSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundLoopIf where\n" ++
+    "  state total : UInt64\n" ++
+    "  state flag : Bool\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    if flag then\n" ++
+    "      for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "          for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "            total := i\n" ++
+    "    else\n" ++
+    "      total := 0\n" ++
+    "    return total\n"
+  let (vIf, invIf, resIf) ← boundDraftsWithOrigins session "bound-loop-if" ifSource
+  expect (!resIf.ok) "bound-loop-if: not ok"
+  expect (resIf.drafts.size == 1) "bound-loop-if: one draft"
+  let dIf := resIf.drafts[0]!
+  expect (dIf.diagnostic.message.contains "entry 'run'") "bound-loop-if: entry label"
+  let locIf ← requireLocation "bound-loop-if" dIf
+  let visitsIf ← liftResult "visits" (canonicalNodeVisitsV1 vIf.program)
+  expect ((visitsIf.find? (·.path == locIf.primaryPath)).map (·.constructorTag)
+      == some "Stmt.For")
+    "bound-loop-if: primary For"
+  -- related: EntryDecl + two ancestor Fors (outer then mid); mirrors fn-nest contract
+  expect (locIf.relatedPaths.size == 3)
+    s!"bound-loop-if: related size 3, got {locIf.relatedPaths.size}"
+  let some r0If := visitsIf.find? (·.path == locIf.relatedPaths[0]!) |
+    throw <| IO.userError "bound-loop-if: related[0]"
+  expect (r0If.constructorTag == "EntryDecl") "bound-loop-if: related[0] EntryDecl"
+  expect (locIf.relatedPaths.all fun rp =>
+      match visitsIf.find? (·.path == rp) with
+      | some v => v.constructorTag == "EntryDecl" || v.constructorTag == "Stmt.For"
+      | none => false)
+    "bound-loop-if: related only EntryDecl/Stmt.For"
+  let forRelatedIf := locIf.relatedPaths.filter fun rp =>
+    (visitsIf.find? (·.path == rp)).map (·.constructorTag) == some "Stmt.For"
+  expect (forRelatedIf.size == 2) "bound-loop-if: two ancestor Fors"
+  expect (!locIf.relatedPaths.any (· == locIf.primaryPath))
+    "bound-loop-if: primary not in related"
+  expectBoundDraftPaths "bound-loop-if" invIf vIf.program resIf.drafts
+  expectBoundEraseParity "bound-loop-if" vIf resIf
+
+  let matchSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundLoopMatch where\n" ++
+    "  state total : UInt64\n" ++
+    "  state flag : Bool\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    match flag with\n" ++
+    "    | true => do\n" ++
+    "      for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "          for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "            total := i\n" ++
+    "    | false => do\n" ++
+    "      total := 0\n" ++
+    "    return total\n"
+  let (vM, invM, resM) ← boundDraftsWithOrigins session "bound-loop-match" matchSource
+  expect (!resM.ok) "bound-loop-match: not ok"
+  expect (resM.drafts.size == 1) "bound-loop-match: one draft"
+  let locM ← requireLocation "bound-loop-match" resM.drafts[0]!
+  let visitsM ← liftResult "visits" (canonicalNodeVisitsV1 vM.program)
+  expect ((visitsM.find? (·.path == locM.primaryPath)).map (·.constructorTag)
+      == some "Stmt.For")
+    "bound-loop-match: primary For"
+  -- related: EntryDecl + two ancestor Fors (outer then mid); mirrors fn-nest contract
+  expect (locM.relatedPaths.size == 3)
+    s!"bound-loop-match: related size 3, got {locM.relatedPaths.size}"
+  let some r0M := visitsM.find? (·.path == locM.relatedPaths[0]!) |
+    throw <| IO.userError "bound-loop-match: related[0]"
+  expect (r0M.constructorTag == "EntryDecl") "bound-loop-match: related[0] EntryDecl"
+  expect (locM.relatedPaths.all fun rp =>
+      match visitsM.find? (·.path == rp) with
+      | some v => v.constructorTag == "EntryDecl" || v.constructorTag == "Stmt.For"
+      | none => false)
+    "bound-loop-match: related only EntryDecl/Stmt.For"
+  let forRelatedM := locM.relatedPaths.filter fun rp =>
+    (visitsM.find? (·.path == rp)).map (·.constructorTag) == some "Stmt.For"
+  expect (forRelatedM.size == 2) "bound-loop-match: two ancestor Fors"
+  expect (!locM.relatedPaths.any (· == locM.primaryPath))
+    "bound-loop-match: primary not in related"
+  expectBoundDraftPaths "bound-loop-match" invM vM.program resM.drafts
+  expectBoundEraseParity "bound-loop-match" vM resM
+
+/-- Overflow in view and init callables. -/
+private unsafe def testBoundLoopOverflowViewInit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let viewSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundLoopView where\n" ++
+    "  state total : UInt64\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return total\n"
+  let (vV, invV, resV) ← boundDraftsWithOrigins session "bound-loop-view" viewSource
+  expect (!resV.ok) "bound-loop-view: not ok"
+  expect (resV.drafts[0]!.diagnostic.message.contains "view 'peek'")
+    "bound-loop-view: view label"
+  let locV ← requireLocation "bound-loop-view" resV.drafts[0]!
+  let visitsV ← liftResult "visits" (canonicalNodeVisitsV1 vV.program)
+  expect ((visitsV.find? (·.path == locV.relatedPaths[0]!)).map (·.constructorTag)
+      == some "ViewDecl")
+    "bound-loop-view: related ViewDecl"
+  expectBoundDraftPaths "bound-loop-view" invV vV.program resV.drafts
+  expectBoundEraseParity "bound-loop-view" vV resV
+
+  let initSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundLoopInit where\n" ++
+    "  state total : UInt64\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := seed\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return total\n"
+  let (vI, invI, resI) ← boundDraftsWithOrigins session "bound-loop-init" initSource
+  expect (!resI.ok) "bound-loop-init: not ok"
+  expect (resI.drafts[0]!.diagnostic.message.contains "init 'init'")
+    "bound-loop-init: init label"
+  let locI ← requireLocation "bound-loop-init" resI.drafts[0]!
+  let visitsI ← liftResult "visits" (canonicalNodeVisitsV1 vI.program)
+  expect ((visitsI.find? (·.path == locI.relatedPaths[0]!)).map (·.constructorTag)
+      == some "InitDecl")
+    "bound-loop-init: related InitDecl"
+  expectBoundDraftPaths "bound-loop-init" invI vI.program resI.drafts
+  expectBoundEraseParity "bound-loop-init" vI resI
+
+/-- Sibling multi-overflow: two independent overflowing nests → two drafts source order. -/
+private unsafe def testBoundSiblingMultiOverflow
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundSiblings where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry first() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return total\n" ++
+    "  entry second() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return total\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-sib" source
+  expect (!res.ok) "bound-sib: not ok"
+  expect (res.drafts.size == 2) s!"bound-sib: two drafts, got {res.drafts.size}"
+  expect (res.drafts[0]!.diagnostic.message.contains "entry 'first'")
+    "bound-sib: first then second"
+  expect (res.drafts[1]!.diagnostic.message.contains "entry 'second'")
+    "bound-sib: second message"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  for i in [0:2] do
+    let loc ← requireLocation s!"bound-sib[{i}]" res.drafts[i]!
+    expect ((visits.find? (·.path == loc.primaryPath)).map (·.constructorTag)
+        == some "Stmt.For")
+      s!"bound-sib[{i}]: primary For"
+    expect (loc.primaryPath != (← requireLocation s!"bound-sib-other" res.drafts[1-i]!).primaryPath)
+      "bound-sib: distinct primaries"
+  expectBoundDraftPaths "bound-sib" inv validated.program res.drafts
+  expectBoundEraseParity "bound-sib" validated res
+
+/-- Cycle-then-loop phase: cycle draft precedes loop draft; both locate. -/
+private unsafe def testBoundCycleThenLoopLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoundCycleLoop where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return g()\n" ++
+    "  fn g() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return f()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← boundDraftsWithOrigins session "bound-phase" source
+  expect (!res.ok) "bound-phase: not ok"
+  expect (res.drafts.size ≥ 2) s!"bound-phase: ≥2, got {res.drafts.size}"
+  expect (res.drafts[0]!.diagnostic.message.contains "unbounded recursion")
+    "bound-phase: cycle first"
+  expect (res.drafts.any (·.diagnostic.message.contains "loop bound product"))
+    "bound-phase: has loop"
+  expectBoundDraftPaths "bound-phase" inv validated.program res.drafts
+  expectBoundEraseParity "bound-phase" validated res
+
+/-- Incomplete duplicate-fn: analysisComplete=false, no bound drafts. -/
+private unsafe def testBoundIncompleteDuplicateFn
+    (_session : Language.Loader.ParserSession) : IO Unit := do
+  let progName ← mkName "BoundDupFn"
+  let helper ← mkName "helper"
+  let runName ← mkName "run"
+  let ret0 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 0)))] }
+  let ret1 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 1)))] }
+  let u64 : TypeV1 := .uint 64
+  let fnA : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret0 }
+  let fnB : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret1 }
+  let entryDecl : EntryDeclV1 := { name := runName, params := #[], result := u64, body := ret0 }
+  let progAst : ProgramV1 :=
+    { name := progName, items := #[.fn fnA, .fn fnB, .entry entryDecl] }
+  let (tables, _) := (buildTables progAst).run {}
+  expect tables.fn.hasDuplicateKey "bound-dup-fn: hasDuplicateKey"
+  let draftRes := checkBoundsDraftsV1 progAst tables
+  expect (!draftRes.analysisComplete) "bound-dup-fn: analysisComplete=false"
+  expect (!draftRes.ok) "bound-dup-fn: ok=false"
+  expect draftRes.drafts.isEmpty "bound-dup-fn: no bound drafts"
+  let erased := checkBoundsV1 progAst tables
+  expect (erased.diagnostics.isEmpty) "bound-dup-fn: public empty diags"
+  expect (!erased.analysisComplete) "bound-dup-fn: public incomplete"
+  expect (!erased.ok) "bound-dup-fn: public not ok"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testUnknownPlaceName session
@@ -1596,6 +2039,16 @@ unsafe def run : IO Unit := do
   testEffectShadowingLocations session
   testEffectIncompleteDuplicateFn session
   testEffectAllDraftPathsInVisits session
+  -- B7b3b BoundCheck locations
+  testBoundSelfCycleLocations session
+  testBoundTwoFnCycleLocations session
+  testBoundThreeFnCycleLocations session
+  testBoundLoopOverflowFnLocations session
+  testBoundLoopOverflowEntryIfMatch session
+  testBoundLoopOverflowViewInit session
+  testBoundSiblingMultiOverflow session
+  testBoundCycleThenLoopLocations session
+  testBoundIncompleteDuplicateFn session
   IO.println "Tests.Typed.DiagnosticLocationsV1: all assertions passed"
 
 end Tests.Typed.DiagnosticLocationsV1

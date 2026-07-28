@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B7b3b BoundCheckV1 diagnostic-draft paths
+
+- Context/State：B7b1/B7b2/B7b3a 已为 NameResolution/CallGraph/TypeCheck/EffectCheck 接线 `DiagnosticDraftV1` path drafts；BoundCheckV1 仍 emit 空 primary/related。本切片工程-only 把 BoundCheck 单 authority 迁到 draft-bearing paths，**不**改 Effect/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：扩展 `Tests/Typed/DiagnosticLocationsV1.lean` 覆盖 Bound self/2/3-fn cycle（primary min-ordinal FnDecl；related remaining SCC decls + in-SCC LocalCall）、loop overflow（fn/entry/view/init、if/match、sibling multi）、cycle-then-loop phase、dup-fn incomplete、visits membership、OriginInventory exact NodeId、full erase parity；`Tests/Typed/BoundCheckV1.lean` 增 draft erase multi-diag parity。实现前真实 RED：`Unknown identifier checkBoundsDraftsV1` / `Unknown identifier checkProgramBoundsDraftsV1` / `Unknown identifier BoundCheckDraftResultV1`。
+- Production：`BoundCheckV1` sole path-threaded draft authority（`checkBoundsDraftsV1`/`checkProgramBoundsDraftsV1`）；public `checkBoundsV1`/`checkProgramBoundsV1`/`checkProgramBoundsResultV1` 与 `collectCycleDiagnostics`/`collectLoopProductDiagnostics`/`checkLoopBoundsInBody` exact erase；cycle drafts 复用 sole `collectFnCallEdgesV1`（无第二 local-call walk）；loop drafts 单 path-threaded walk + ancestor-For stack + pre-multiply overflow continue；PF-BOUND-001 code/message/phase/order/ok/analysisComplete/shadowing/duplicate-fn incomplete 不变。
+- Zero patterns：BoundCheck/DiagnosticDraft 无 raw `path.push`；Typed 无 `import ProofForgeV2.Semantic`/`Language.Loader`；无第二 cycle/loop walker 或 legacy raw-diagnostic authority；无 Effect/Disclosure/CheckV1/compiler/CLI/Semantic/target 变更。
+- Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` TASK-D1-01/D1-07/D2-03 事实行；本日志。formal 状态不变。
+- Verification：focused `lake build` BoundCheck/DiagnosticLocations/CheckV1/fast_tests + `proof-forge-next-fast-tests`；zero-pattern rg；ordinary gates。
+- Boundary：无 Disclosure/located CheckV1 入口、无 B8 CLI bundle、无 formal/release 路径。
+
 ## 2026-07-29 — B7b3a EffectCheckV1 diagnostic-draft paths
 
 - Context/State：B7b1/B7b2 已为 NameResolution/CallGraph/TypeCheck 接线 `DiagnosticDraftV1` path drafts；EffectCheckV1 仍 emit 空 primary/related。本切片工程-only 把 EffectCheck 单 walk 迁到 canonical ProgramV1 paths 与有限因果 related 证据，**不**改 Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。

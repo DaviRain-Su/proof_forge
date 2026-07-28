@@ -15,6 +15,7 @@ import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Typed.BoundCheckV1
+import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 
@@ -30,6 +31,7 @@ open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Typed.BoundCheckV1
+open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 
@@ -407,6 +409,94 @@ private unsafe def testCycleThenLoopPhaseOrder
   unless msgs.any (·.contains "loop bound product overflows") do
     throw <| IO.userError s!"cycle-then-loop: expected loop overflow, got {msgs}"
 
+/-- B7b3b: draft erase multi-diag parity for cycle+loop and multi-overflow. -/
+private unsafe def testDraftEraseMultiDiagParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let phaseSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ErasePhase where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return g()\n" ++
+    "  fn g() : UInt64 do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    return f()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← session.selectProgramV1 phaseSource
+      "<bound-check-erase-phase>" moduleName none with
+  | .error error => throw <| IO.userError s!"erase-phase: {error.render}"
+  | .ok validated => do
+      let draftRes := checkProgramBoundsDraftsV1 validated
+      let publicArr := checkProgramBoundsV1 validated
+      let publicRes := checkProgramBoundsResultV1 validated
+      expect (draftRes.drafts.size == publicArr.size) "erase-phase: size"
+      expect (draftRes.ok == publicRes.ok) "erase-phase: ok"
+      expect (draftRes.analysisComplete == publicRes.analysisComplete)
+        "erase-phase: analysisComplete"
+      expect ((eraseArray draftRes.drafts).map (·.message) == publicArr.map (·.message))
+        "erase-phase: message order"
+      expect ((eraseArray draftRes.drafts).map (·.code) == publicArr.map (·.code))
+        "erase-phase: code order"
+      expect (publicArr.map (·.message) == publicRes.diagnostics.map (·.message))
+        "erase-phase: result vs array"
+      -- multi-diag: cycle then loop
+      expect (publicArr.size ≥ 2) s!"erase-phase: ≥2 diags, got {publicArr.size}"
+      expect (publicArr[0]!.message.contains "unbounded recursion")
+        "erase-phase: cycle first"
+      expect (publicArr.any (·.message.contains "loop bound product"))
+        "erase-phase: loop present"
+      -- collectors project from same authority
+      let tables := (resolveProgramV1 validated).tables
+      let cycles := collectCycleDiagnostics validated.program tables
+      let loops := collectLoopProductDiagnostics validated.program
+      expect ((cycles ++ loops).map (·.message) == publicArr.map (·.message))
+        "erase-phase: cycle++loop collectors == public"
+
+  let multiSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EraseMulti where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry first() do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "  entry second() do\n" ++
+    "    for i in 0 ..< 4096 bounded 4096 do\n" ++
+    "      for j in 0 ..< 4096 bounded 4096 do\n" ++
+    "        for k in 0 ..< 4096 bounded 4096 do\n" ++
+    "          total := i\n"
+  match ← session.selectProgramV1 multiSource
+      "<bound-check-erase-multi>" moduleName none with
+  | .error error => throw <| IO.userError s!"erase-multi: {error.render}"
+  | .ok validated => do
+      let draftRes := checkProgramBoundsDraftsV1 validated
+      let publicArr := checkProgramBoundsV1 validated
+      expect (draftRes.drafts.size == 2) "erase-multi: two drafts"
+      expect (publicArr.size == 2) "erase-multi: two public"
+      expect ((eraseArray draftRes.drafts).map (·.message) == publicArr.map (·.message))
+        "erase-multi: messages"
+      expect (publicArr[0]!.message.contains "entry 'first'") "erase-multi: first"
+      expect (publicArr[1]!.message.contains "entry 'second'") "erase-multi: second"
+      -- body-only helper erase (first entry body)
+      let bodyOnly : Array DiagnosticV1 :=
+        match validated.program.items.findSome? fun item =>
+          match item with
+          | .entry decl => some (checkLoopBoundsInBody
+              { kindLabel := "entry", name := decl.name.raw } decl.body)
+          | _ => none with
+        | some diags => diags
+        | none => #[]
+      expect (bodyOnly.size == 1) "erase-multi: body-only first entry"
+      expect (bodyOnly[0]!.message.contains "entry 'first'")
+        "erase-multi: body-only message"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testAcyclicChain session
@@ -426,6 +516,7 @@ unsafe def run : IO Unit := do
   testHumanRenderUsesBoundWire session
   testDuplicateFnFailClosed session
   testCycleThenLoopPhaseOrder session
+  testDraftEraseMultiDiagParity session
   IO.println "Tests.Typed.BoundCheckV1: ok"
 
 end Tests.Typed.BoundCheckV1
