@@ -58,10 +58,11 @@ major version 内稳定。
   message-independent order/dedupe、结构 redaction、`normalizeDiagnosticBundleV1` cap 工程
   子集；产品 multi-error bundle 未接线）。**B7a** 已退役 pre-node zero-sentinel：parser/
   duplicate 位置使用显式 `nodeId: null`（`none`），Source `DiagnosticLocateV1` + Loader
-  `selectProgramV1WithOrigins` 提供 path→真实 NodeId 归因基础设施；**B7b**（Typed producers
-  经 child-path helpers 物化真实 primary/related）与 **B8**（public CLI/compiler multi-error
-  bundle）仍 pending。不得把已删除的 zero-sentinel 写入 golden，也不得把 B7a 基础设施写成
-  formal/B7b/B8 完成。
+  `selectProgramV1WithOrigins` 提供 path→真实 NodeId 归因基础设施；**B7b** Typed producers
+  经 child-path helpers + `DiagnosticDraftV1` 物化真实 primary/related 已工程完成
+  （B7b1–B7b3d，含 CheckV1 draft composition 与 additive located API）；**B8**（public
+  CLI/compiler multi-error DiagnosticBundle）仍 pending。不得把已删除的 zero-sentinel 写入
+  golden，也不得把 B7a/B7b 工程子集写成 formal/B8 完成。
 
 ### 排序、去重与 stableContext
 
@@ -193,8 +194,8 @@ expected claim 和 actual/missing；toolchain error 带预期版本/checksum、�
 **实现状态（工程，非 formal）**：**B6** 已实现完整 `DiagnosticV1` record/JSON codec 与
 catalog（见 `ProofForgeV2/Core/DiagnosticV1.lean` + `Tests/Core/DiagnosticV1`）；Loader 单错误
 产品路径与 Typed producers 经 `DiagnosticV1.make` 发出结构化诊断（Typed primary 多为空，
-真实节点归因见 B7）。**B7a** 已提供 Source path locate + pre-node `nodeId=null`，**B7b/B8**
-仍 pending。Syntax preflight 通过 `CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，
+真实节点归因见 B7）。**B7a** 已提供 Source path locate + pre-node `nodeId=null`，**B7b**
+工程已完成（含 B7b3d CheckV1 located composition）；**B8** public bundle 仍 pending。Syntax preflight 通过 `CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，
 human message 只说明超出的 node/nesting/identity limit。CLI 的 16 MiB parser 前文件上限仍是
 `CompileError.invalidProgram` / `PF-SRC-INVALID`；这两个边界不得在证据中混写。
 

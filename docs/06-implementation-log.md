@@ -14,6 +14,15 @@ normative: false
 
 
 
+## 2026-07-29 — B7b3d CheckV1 draft composition + located API
+
+- Context/State：B7b1–B7b3cR 已为 NameResolution/CallGraph/TypeCheck/EffectCheck/BoundCheck/DisclosureCheck 接线 `DiagnosticDraftV1` path drafts；CheckV1 仍为 unlocated 多遍 erase 拼接，无 draft sole authority、无 OriginInventory 绑定的 located 入口。本切片工程-only 闭合 **B7b**：单 draft composition + additive located API；**不**接线 B8 public DiagnosticBundle/CLI multi-error、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：`Tests/Typed/CheckV1.lean` 新增 draft sole-authority / erase parity / 每相位单独与 mixed type+effect+bound+disclosure / cycle structure order / resolution short-circuit / dup-fn incomplete / foreign inventory sourceHash reject / synthetic missing-path all-or-nothing / determinism；`Tests/Typed/DiagnosticLocationsV1.lean` 新增 CheckV1 composition locate exact primary/related NodeId 与 success empty。实现前真实 RED：`TypedCheckDraftResultV1` / `checkProgramTypedDraftResultV1` / `checkProgramTypedLocatedResultV1` / `TypedCheckLocateErrorV1` 缺失。
+- Production：`ProofForgeV2/Typed/CheckV1.lean` 引入 `TypedCheckDraftResultV1` 与 sole `checkProgramTypedDraftWithResolutionV1`（`analyzeFnCallGraphV1` 一次；structure=resolution++cycle；type 仅 resolution.ok 且不重贴 resolution；effect/bound/disclosure 同 skip/`analysisComplete` 合取规则）；`checkProgramTypedDraftResultV1` 仅 `resolveProgramDraftsV1` 一次；legacy `checkProgramTypedWithResolutionV1`/`checkProgramTypedResultV1`/`checkProgramTypedV1` 为 exact erase 投影（legacy resolution 仅 unlocated draft 适配）；additive `checkProgramTypedLocated*`：`sourceHashV1` 精确等于 `originInventorySourceHashV1` 后门禁，全量 draft 经 sole `DiagnosticDraftV1.locateArray` all-or-nothing；`TypedCheckLocateErrorV1` 区分 sourceHash 与 locate；无 sort/dedupe/cap/fallback。
+- Zero patterns：无第二套 phase 树；`locateDiagnosticV1` 仍仅 `DiagnosticDraftV1.lean`；无 Compiler/CLI/Loader/Semantic/Normalize/target/formal 变更。
+- Docs：`AGENTS.md` / `MIGRATION_MATRIX.md` / `docs/specs/diagnostics.md` 写明 **B7b engineering complete** 且 **B8** 与 formal D1/D2/release 仍 pending；本日志。
+- Boundary：无 B8 public bundle、无 B9–B12、无 formal/release 路径；产品 unlocated CheckV1/Normalize 行为保持。
+
 ## 2026-07-29 — B7b3b BoundCheckV1 diagnostic-draft paths
 
 - Context/State：B7b1/B7b2/B7b3a 已为 NameResolution/CallGraph/TypeCheck/EffectCheck 接线 `DiagnosticDraftV1` path drafts；BoundCheckV1 仍 emit 空 primary/related。本切片工程-only 把 BoundCheck 单 authority 迁到 draft-bearing paths，**不**改 Effect/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。

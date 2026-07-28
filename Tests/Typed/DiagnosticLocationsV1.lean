@@ -49,6 +49,12 @@
   * equal-label cause union; multi-error order; exact primary/related NodeIds
   * every draft path ∈ canonicalNodeVisitsV1; VisibilityEvidence label parity
   * public checkProgramDisclosure* erase parity; duplicate-fn incomplete
+
+  B7b3d (CheckV1 draft composition + located API):
+  * checkProgramTypedDraftResultV1 sole authority; erase parity vs legacy
+  * checkProgramTypedLocatedResultV1 exact primary/related NodeIds in phase order
+  * structure / type / effect / bound / disclosure phases represented
+  * foreign inventory sourceHash reject; no B8 sort/dedupe/cap
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
@@ -69,6 +75,7 @@ import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.CallGraphV1
+import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.EffectCheckV1
@@ -96,6 +103,7 @@ open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
 open ProofForgeV2.Typed.BoundCheckV1
 open ProofForgeV2.Typed.CallGraphV1
+open ProofForgeV2.Typed.CheckV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.DisclosureCheckV1
 open ProofForgeV2.Typed.EffectCheckV1
@@ -2884,6 +2892,107 @@ private unsafe def testDiscAllDraftPathsInVisits
   expectDiscDraftPaths "disc-all" inv validated.program res.drafts
   expectDiscEraseParity "disc-all" validated res
 
+/-!
+  B7b3d — CheckV1 composition located NodeIds across structure/type/effect/bound/disclosure.
+-/
+
+/-- Multi-phase CheckV1 located: exact primary/related NodeId sets from every phase
+    in unchanged phase order; draft erase parity; no sort/dedupe. -/
+private unsafe def testCheckV1LocatedComposition
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CheckV1LocCompose where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return total\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return f()\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    total := x\n" ++
+    "    return true\n"
+  let (validated, inv) ← selectWithOrigins session "checkv1-compose" source
+  let draft := checkProgramTypedDraftResultV1 validated
+  let legacy := checkProgramTypedResultV1 validated
+  expect (!draft.ok && draft.analysisComplete) "checkv1-compose: not ok complete"
+  eraseParity "checkv1-compose" draft.drafts legacy.diagnostics
+  expect (draft.ok == legacy.ok && draft.analysisComplete == legacy.analysisComplete)
+    "checkv1-compose: flag parity"
+  let msgs := legacy.diagnostics.map (·.message)
+  let wires := legacy.diagnostics.map (·.code.wire)
+  expect (msgs.any (·.contains "recursive call cycle")) "checkv1-compose: structure"
+  expect (msgs.any (·.contains "type mismatch")) "checkv1-compose: type"
+  expect (wires.any (· == "PF-EFFECT-001")) "checkv1-compose: effect"
+  expect (wires.any (· == "PF-BOUND-001")) "checkv1-compose: bound"
+  expect (wires.any (· == "PF-VIS-001")) "checkv1-compose: disclosure"
+  let si := msgs.findIdx? (·.contains "recursive call cycle")
+  let ti := msgs.findIdx? (·.contains "type mismatch")
+  let ei := wires.findIdx? (· == "PF-EFFECT-001")
+  let bi := wires.findIdx? (· == "PF-BOUND-001")
+  let vi := wires.findIdx? (· == "PF-VIS-001")
+  match si, ti, ei, bi, vi with
+  | some s, some t, some e, some b, some v =>
+      unless s < t && t < e && e < b && b < v do
+        throw <| IO.userError
+          s!"checkv1-compose: phase order s={s} t={t} e={e} b={b} v={v}"
+  | _, _, _, _, _ =>
+      throw <| IO.userError s!"checkv1-compose: missing phase indices wires={wires}"
+  let located ← match checkProgramTypedLocatedResultV1 validated inv with
+    | .ok r => pure r
+    | .error err => throw <| IO.userError s!"checkv1-compose locate: {repr err}"
+  expect (located.diagnostics.size == draft.drafts.size)
+    "checkv1-compose: located size"
+  expect (located.diagnostics.map (·.code.wire) == wires)
+    "checkv1-compose: wire order preserved (no B8 sort)"
+  for i in [0:draft.drafts.size] do
+    let d := draft.drafts[i]!
+    let locd := located.diagnostics[i]!
+    expect (d.diagnostic.code == locd.code) s!"checkv1-compose[{i}]: code"
+    expect (d.diagnostic.message == locd.message) s!"checkv1-compose[{i}]: message"
+    match d.location with
+    | none =>
+        expect (locd.primary == none) s!"checkv1-compose[{i}]: primary none"
+        expect locd.related.isEmpty s!"checkv1-compose[{i}]: related empty"
+    | some loc =>
+        let expectedPrimary ← inventoryNodeId inv loc.primaryPath
+          s!"checkv1-compose[{i}] primary"
+        let primaryId ← expectNodeIdSome s!"checkv1-compose[{i}]" locd.primary
+        expect (primaryId == expectedPrimary)
+          s!"checkv1-compose[{i}]: primary NodeId"
+        expectRelatedNodeIdSet s!"checkv1-compose[{i}]" inv locd.related
+          loc.relatedPaths
+  -- Diagnostics-only located entry matches result diagnostics.
+  let diagsOnly ← match checkProgramTypedLocatedV1 validated inv with
+    | .ok d => pure d
+    | .error err => throw <| IO.userError s!"checkv1-compose diags: {repr err}"
+  expect (diagsOnly.map (·.message) == located.diagnostics.map (·.message))
+    "checkv1-compose: diags-only parity"
+
+/-- CheckV1 success path: empty located diagnostics with matching inventory. -/
+private unsafe def testCheckV1LocatedSuccess
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CheckV1LocOk where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (validated, inv) ← selectWithOrigins session "checkv1-ok" source
+  let draft := checkProgramTypedDraftResultV1 validated
+  expect (draft.ok && draft.analysisComplete && draft.drafts.isEmpty)
+    "checkv1-ok: empty drafts"
+  let located ← match checkProgramTypedLocatedResultV1 validated inv with
+    | .ok r => pure r
+    | .error err => throw <| IO.userError s!"checkv1-ok: {repr err}"
+  expect (located.ok && located.diagnostics.isEmpty) "checkv1-ok: empty located"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testUnknownPlaceName session
@@ -2963,6 +3072,9 @@ unsafe def run : IO Unit := do
   testDiscShadowingLocations session
   testDiscIncompleteDuplicateFn session
   testDiscAllDraftPathsInVisits session
+  -- B7b3d CheckV1 composition + located
+  testCheckV1LocatedComposition session
+  testCheckV1LocatedSuccess session
   IO.println "Tests.Typed.DiagnosticLocationsV1: all assertions passed"
 
 end Tests.Typed.DiagnosticLocationsV1
