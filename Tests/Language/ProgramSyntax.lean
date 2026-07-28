@@ -115,7 +115,7 @@ unsafe def run : IO Unit := do
     "ProgramV1 source hash must be 64-character lower-case SHA-256 hex"
 
   let semantic ← match Compiler.compileValidatedSourceV1 counter with
-  | .ok value => pure value
+  | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
   | .error error => throw <| IO.userError error.render
   expect (semantic.requirements.contains .persistentState)
     "requirements must be inferred from semantic state"

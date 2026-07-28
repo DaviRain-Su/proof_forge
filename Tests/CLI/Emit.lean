@@ -1,35 +1,47 @@
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Compiler.Pipeline
-import Tests.Fixtures.SourcePrograms
+import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.CLI.Emit
 
 open ProofForgeV2 System
+open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
-open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
-def run : IO Unit := do
-  let counter ← match Compiler.compile counterQualified with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
-  let unsafeProgram := { counter with name := "../escaped" }
-  let output := FilePath.mk "build/v2/path-guard/output"
-  let rejected ←
-    try
-      let sel ← match resolveBuildSelectionV1 TargetId.evm none with
-        | .ok s => pure s
-        | .error e => throw <| IO.userError e.render
-      let _ ← ProofForgeV2.CLI.emitProgram sel unsafeProgram output
-      pure false
-    catch error =>
-      pure (decide (((toString error).splitOn "PF-OUTPUT-PATH").length > 1))
-  expect rejected "artifact names must not escape the staging root"
-  expect (!(← (FilePath.mk "build/v2/path-guard/escaped.yul").pathExists))
-    "path traversal must not create an artifact outside the destination"
+unsafe def run : IO Unit := do
+  -- Path-safety pure seam (package-visible). Forged residual names cannot mint
+  -- private-ctor CompiledProgramV1, so PF-OUTPUT-PATH on emitProgram is unreachable
+  -- without a public two-carrier factory; emitProgram still dual-calls
+  -- validProgramArtifactNameV1 on residual name then materializeResult.
+  expect (!ProofForgeV2.CLI.validProgramArtifactNameV1 "../escaped")
+    "artifact names must not escape the staging root"
+  expect (!ProofForgeV2.CLI.validProgramArtifactNameV1 "")
+    "empty artifact names are unsafe"
+  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 "Counter")
+    "legal Counter artifact name must pass path safety"
+
+  let session ← Tests.Language.ParserSession.shared
+  let source ← match ← session.selectProgramV1
+      Examples.counterSourceText "<cli-emit-counter>" Examples.counterModuleNameV1 none with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError e.render
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError e.render
+  -- Real product carrier: residual name is the identity emitProgram gates via
+  -- validArtifactName; Counter must be accepted so later PF-OUTPUT-COLLISION is
+  -- not masked by a path-safety failure.
+  let residual := CompiledProgramV1.alphaResidualOf compiled
+  expect (residual.name == "Counter")
+    "Counter residual alpha name must be the product artifact identity"
+  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 residual.name)
+    "emitProgram residual name must pass the same path-safety predicate"
 
   let collision := FilePath.mk "build/v2/existing-output"
   if ← collision.pathExists then IO.FS.removeDirAll collision
@@ -40,7 +52,7 @@ def run : IO Unit := do
       let sel ← match resolveBuildSelectionV1 TargetId.solana none with
         | .ok s => pure s
         | .error e => throw <| IO.userError e.render
-      let _ ← ProofForgeV2.CLI.emitProgram sel counter collision
+      let _ ← ProofForgeV2.CLI.emitProgram sel compiled collision
       pure false
     catch error =>
       pure (decide (((toString error).splitOn "PF-OUTPUT-COLLISION").length > 1))

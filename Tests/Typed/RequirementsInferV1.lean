@@ -214,7 +214,8 @@ private unsafe def testParity
       let inferred := inferRequirementsV1 validated
       match Compiler.compileValidatedSourceV1 validated with
       | .error e => throw <| IO.userError s!"parity-counter compile: {e.render}"
-      | .ok semantic =>
+      | .ok compiled =>
+          let semantic := Compiler.CompiledProgramV1.alphaResidualOf compiled
           expect (inferred.requirements == semantic.requirements)
             s!"parity-counter: infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
           expect (inferred.requirements == Semantic.deriveRequirements semantic)
@@ -239,7 +240,8 @@ private unsafe def testParity
         s!"ParityPublic: infer got {reqIds inferred.requirements}"
       match Compiler.compileValidatedSourceV1 validated with
       | .error e => throw <| IO.userError s!"ParityPublic compile: {e.render}"
-      | .ok semantic =>
+      | .ok compiled =>
+          let semantic := Compiler.CompiledProgramV1.alphaResidualOf compiled
           expect (inferred.requirements == semantic.requirements)
             s!"ParityPublic: parity infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
 

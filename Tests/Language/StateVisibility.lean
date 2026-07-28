@@ -92,10 +92,10 @@ unsafe def run : IO Unit := do
 
   -- Public / default remain S1-compileable (Normalize gate + residual alpha).
   let semanticDefault ← match Compiler.compileValidatedSourceV1 defaultVis with
-    | .ok value => pure value
+    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
     | .error error => throw <| IO.userError error.render
   let semanticPublic ← match Compiler.compileValidatedSourceV1 pubVis with
-    | .ok value => pure value
+    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
     | .error error => throw <| IO.userError error.render
 
   expect (semanticDefault.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible] &&

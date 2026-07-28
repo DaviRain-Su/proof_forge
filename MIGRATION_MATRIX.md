@@ -17,7 +17,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 |---|---|---|
 | D1 | `TASK-D1-01` blocked，D1-02..08 pending | ProgramV1 wire/hash/NodeId 地基很强；CLI 只接通窄 V1 decoder，Lean command/export 仍在旧轨，worker/diagnostic 未完成 |
 | D2 | 7/7 pending | ValidatedSourceV1/ProgramV1 产品路径已跑 CheckV1 + NormalizeV1 structure-gated SemanticProgramV1（**仅 S1 Counter-like 工程子集**）；residual alpha Typed/Semantic 仍供 alpha resolver/materializer；**D2-07 工程子集**已新增 `InvariantABI`（LogicalState/default/initial/conformance）与 admitted `ReferenceV1` primitive/effect 参考机（`admitReferenceProgramSliceV1` + `stepReferenceSliceV1`，直接消费 validated SemanticProgramV1，不经 alpha；**非** formal `step` / TST-SEM-002/003）；**无** product CLI/materializer 接线；正式 SemanticProgramV1 product resolver/materializer 切over、SupportClaim、OutputSetV1、完整 checker 表面、完整 reference corpus 与 formal D2 **仍 pending（未完成）** |
-| D3 | 7/7 pending | **D3/S4 工程**：opaque TargetId/CodegenProfileId/NetworkProfileId + static build-selection index/`resolveBuildSelectionV1` 已接线产品 materialize/CLI；SupportClaim、BuildIdentity、formal TargetRegistryV1/`registryDigest`、OutputSetV1 仍不存在 |
+| D3 | 7/7 pending | **D3/S4 工程**：opaque TargetId/CodegenProfileId/NetworkProfileId + static build-selection index/`resolveBuildSelectionV1` 已接线产品 materialize/CLI；**D3/S5 工程**：`CompiledProgramV1` dual-carrier（retained structure-valid SemanticProgramV1 + residual alpha）sole product compile/materialize/CLI carrier，engineering dual-carrier consistency gate（非 SupportClaim）；SupportClaim、BuildIdentity、formal TargetRegistryV1/`registryDigest`、OutputSetV1、SemanticProgramV1 直连 Plan lowering 仍不存在 |
 | D4 | 5/5 pending | EVM Plan/Yul/ABI/solc/Anvil 算法已有真实功能，可复用；仍绑定 alpha D2/D3 contract，不能按 D4 完成 |
 
 因此当前产品不是 `active/` 中的旧 v1，也不是正式 D1–D4 新设计完成态；准确 engineering 路径是：
@@ -25,8 +25,9 @@ D1–D4 共 27 个 formal task，当前仍为：
 ```text
 ValidatedSourceV1 / ProgramV1
   → NormalizeV1 (CheckV1 ok∧analysisComplete + S1 Counter-like lowering)
-  → structure-valid SemanticProgramV1 gate (fail closed on wire/unsupported)
-  → residual alpha Typed/Semantic carrier
+  → structure-valid SemanticProgramV1 (retained)
+  → residual alpha Typed/Semantic + dual-carrier consistency gate
+  → CompiledProgramV1 (private ctor; sole product compile success type)
   → static build-selection resolve → residual alpha Plan/IR / v2alpha1 output
 ```
 
@@ -34,7 +35,7 @@ ValidatedSourceV1 / ProgramV1
 
 - S1 Counter-like 工程子集 only（S1 外 CheckV1-ok 形状在 Normalize 门禁 fail closed）
 - formal D2 / D3 仍 pending
-- direct SemanticProgramV1 resolver/materializer carrier、SupportClaim、formal TargetRegistryV1/`registryDigest`、BuildIdentity、OutputSetV1 与四 target SemanticProgramV1 cutover **未完成**；工程静态 build-selection authority **已完成**
+- direct SemanticProgramV1 Plan lowering、SupportClaim、formal TargetRegistryV1/`registryDigest`、BuildIdentity、OutputSetV1 与四 target SemanticProgramV1 cutover **未完成**；工程静态 build-selection authority **已完成**；工程 dual-carrier product cutover **已完成**（仍非 formal D3）
 
 ## 完成度口径
 

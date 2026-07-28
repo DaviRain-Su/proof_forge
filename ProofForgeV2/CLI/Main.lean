@@ -59,11 +59,11 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let sourceProgram ← liftCompileResult (←
     Language.Loader.selectProgramV1 sourceText sourcePath.toString moduleName
       options.programName)
-  let semanticProgram ← liftCompileResult
+  let compiled ← liftCompileResult
     (Compiler.compileValidatedSourceV1 sourceProgram)
   let requestedOutput := FilePath.mk (options.output.getD "build/v2")
   let outputPath := if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-  let manifest ← emitProgram selection semanticProgram outputPath
+  let manifest ← emitProgram selection compiled outputPath
   IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
 
 private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
@@ -72,9 +72,9 @@ private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let outputDir := FilePath.mk (options.output.getD "build/v2")
   let sourceProgram ← liftCompileResult (← Language.Loader.selectProgramV1
     Examples.counterSourceText "<built-in-counter>" Examples.counterModuleNameV1 none)
-  let semanticProgram ← liftCompileResult
+  let compiled ← liftCompileResult
     (Compiler.compileValidatedSourceV1 sourceProgram)
-  let manifest ← emitProgram selection semanticProgram outputDir
+  let manifest ← emitProgram selection compiled outputDir
   IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
 
 private def listTargets (includeDesignOnly : Bool) : IO Unit := do

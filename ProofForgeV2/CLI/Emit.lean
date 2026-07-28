@@ -1,10 +1,12 @@
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.CLI.Toolchain
 
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 Targets System
+open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 
 private def writeFileCreatingParent (path : FilePath) (contents : String) : IO Unit := do
@@ -12,12 +14,17 @@ private def writeFileCreatingParent (path : FilePath) (contents : String) : IO U
     IO.FS.createDirAll parent
   IO.FS.writeFile path contents
 
-private def validArtifactName (value : String) : Bool :=
+/-- Package-visible path-safety predicate for program artifact names.
+    Non-capability inspection only — does not mint carriers or emit. -/
+def validProgramArtifactNameV1 (value : String) : Bool :=
   match value.toList with
   | [] => false
   | first :: rest =>
       (first.isAlpha || first == '_') &&
         rest.all (fun char => char.isAlphanum || char == '_' || char == '-')
+
+private def validArtifactName (value : String) : Bool :=
+  validProgramArtifactNameV1 value
 
 private def safeRelativePath (value : String) : Bool :=
   let path := FilePath.mk value
@@ -153,14 +160,17 @@ private def renderIntoStaging (selection : ResolvedBuildSelectionV1) (program : 
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
   return manifest
 
-def emitProgram (selection : ResolvedBuildSelectionV1) (program : SemanticProgram)
+/-- Product emit path: dual-carrier `CompiledProgramV1` only. Residual alpha
+fields (name/sourceHash/semanticHash) keep artifact bytes and manifests stable. -/
+def emitProgram (selection : ResolvedBuildSelectionV1) (compiled : CompiledProgramV1)
     (outputDir : FilePath) : IO OutputManifest := do
+  let program := CompiledProgramV1.alphaResidualOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
   -- backend may impose stricter ABI identifier rules, but path safety is a CLI
   -- boundary and must retain its stable diagnostic independently of target.
   unless validArtifactName program.name do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
-  let output ← match Targets.materializeResult selection program with
+  let output ← match Targets.materializeResult selection compiled with
     | .ok output => pure output
     | .error error => throw <| IO.userError error.render
   validateOutputSet program output

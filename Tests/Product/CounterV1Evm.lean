@@ -12,6 +12,7 @@ import Tests.Language.ParserSession
 namespace Tests.Product.CounterV1Evm
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Source.NodeAssignmentV1
@@ -66,7 +67,7 @@ unsafe def run : IO Unit := do
   expect (!(nodeAssignmentsPreorderV1 nodeTable).isEmpty)
     "validated ProgramV1 must produce canonical NodeId assignments"
 
-  -- S3: product compile gates through NormalizeV1 structure-valid SemanticProgramV1.
+  -- S3/S5: product compile retains NormalizeV1 structure-valid SemanticProgramV1.
   let carrier1 ← match normalizeProgramV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"Counter Normalize #1: {repr e}"
@@ -86,8 +87,12 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"Counter semanticHash #2: {repr e}"
   expect (h1 == h2) "Counter semanticHashV1 must be deterministic"
 
-  let semantic ← liftCompile "compile ProgramV1" <|
+  let compiled ← liftCompile "compile ProgramV1" <|
     Compiler.compileValidatedSourceV1 source
+  let retained := CompiledProgramV1.semanticV1Of compiled
+  expect (retained.canonicalBytes == carrier1.canonicalBytes)
+    "product compile must retain NormalizeV1 SemanticProgramV1 bytes"
+  let semantic := CompiledProgramV1.alphaResidualOf compiled
   expect (semantic.qualifiedName ==
       "Examples.Counter.ProofForgeV2.Examples.Counter")
     "Typed/Semantic identity must come from ProgramV1 raw components"
@@ -111,11 +116,11 @@ unsafe def run : IO Unit := do
   let first ← liftCompile "materialize EVM" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
       TargetId.evm none
-    Targets.materializeResult selection semantic)
+    Targets.materializeResult selection compiled)
   let second ← liftCompile "materialize EVM again" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
       TargetId.evm none
-    Targets.materializeResult selection semantic)
+    Targets.materializeResult selection compiled)
   expect (first == second)
     "ProgramV1 EVM materialization must be deterministic"
   expect (first.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])

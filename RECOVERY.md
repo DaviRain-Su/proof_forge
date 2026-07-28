@@ -82,5 +82,7 @@ just release-check      # 发布预检；非 eligible 主机应明确拒绝
 每一层只有在新实现成为唯一产品入口、旧consumer引用归零、已有测试迁到新carrier、
 `just dev-check`/`just ci`和该层聚焦门禁通过后，才进入紧随其后的删除提交。最终目标是
 CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → OutputSetV1`，并让EVM在
-该唯一路径上完成locked solc与Anvil differential。formal task状态与release qualification仍按
-各自真实条件变化，不由本恢复文档代签。
+该唯一路径上完成locked solc与Anvil differential。当前工程权威为
+`CompiledProgramV1` dual-carrier（保留 structure-valid SemanticProgramV1 + residual alpha
+Plan/IR），**不是** SupportClaim/formal resolver 完成态。formal task状态与release
+qualification仍按各自真实条件变化，不由本恢复文档代签。

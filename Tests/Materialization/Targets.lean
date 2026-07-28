@@ -1,12 +1,16 @@
 import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Semantics
+import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open Tests.Fixtures.SourcePrograms
 
@@ -23,11 +27,49 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
-/-- Test helper: resolve static selection then materialize (no product raw-TargetId API). -/
-private def materializeSelected (target : TargetId) (semantic : SemanticProgram)
+/-- Characterization helper: target-local resolve→makePlan→lower→emit on bare alpha.
+    Product aggregate `materializeResult` accepts only `CompiledProgramV1`. -/
+private def materializeAlphaDirect (kind : TargetKind) (descriptor : TargetDescriptor)
+    (sem : SemanticProgram) : CompileResult OutputSet := do
+  let resolved ← Targets.resolve kind descriptor sem
+  match kind with
+  | .evm =>
+      let plan ← Targets.Evm.makePlan resolved
+      let ir ← Targets.Evm.lower plan
+      let files ← Targets.Evm.emit ir
+      pure (Targets.makeOutput descriptor sem false files)
+  | .solana =>
+      let plan ← Targets.Solana.makePlan resolved
+      let ir ← Targets.Solana.lower plan
+      let files ← Targets.Solana.emit ir
+      pure (Targets.makeOutput descriptor sem false files)
+  | .near =>
+      let plan ← Targets.Near.makePlan resolved
+      let ir ← Targets.Near.lower plan
+      let files ← Targets.Near.emit ir
+      pure (Targets.makeOutput descriptor sem false files)
+  | .noir =>
+      let plan ← Targets.Noir.makePlan resolved
+      let ir ← Targets.Noir.lower plan
+      let files ← Targets.Noir.emit ir
+      pure (Targets.makeOutput descriptor sem false files)
+  | other => .error <| .targetNotImplemented other
+
+private def materializeAlphaSelected (target : TargetId) (sem : SemanticProgram) :
+    CompileResult OutputSet := do
+  let selection ← resolveBuildSelectionV1 target none
+  let descriptor ← match Targets.descriptorForKind? selection.kind with
+    | some d => pure d
+    | none => .error <| .targetNotImplemented selection.kind
+  -- Support check mirrors product checkSupport without bare-alpha aggregate.
+  Targets.checkSupport selection sem
+  materializeAlphaDirect selection.kind descriptor sem
+
+/-- Product aggregate path: CompiledProgramV1 only. -/
+private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
     (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
   let selection ← resolveBuildSelectionV1 target profile?
-  Targets.materializeResult selection semantic
+  Targets.materializeResult selection compiled
 
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
@@ -92,7 +134,7 @@ private def accumulatorPlanHashBaseline : String :=
   "c3e82cb15aa30228d72fb176bebf452e328d7d605367f7aabfabe9bdd85bfe3f"
 
 set_option maxRecDepth 10000 in
-def run : IO Unit := do
+unsafe def run : IO Unit := do
   let counter ← match Compiler.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
@@ -108,6 +150,13 @@ def run : IO Unit := do
   let accumulator ← match Compiler.compile accumulatorQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
+  -- Product dual-carrier path: real ValidatedSourceV1 Counter through aggregate.
+  let session ← Tests.Language.ParserSession.shared
+  let counterV1 ← liftResult (← session.selectProgramV1
+    Examples.counterSourceText "<targets-product-counter>"
+    Examples.counterModuleNameV1 none)
+  let counterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 counterV1
+  let counterResidual := CompiledProgramV1.alphaResidualOf counterCompiled
   expect (Targets.Evm.Keccak.keccak256Hex ByteArray.empty ==
       "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
     "EVM selector hashing must use Ethereum Keccak-256, not SHA3-256"
@@ -132,19 +181,28 @@ def run : IO Unit := do
       "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
       #["uint64"] == "7e355592")
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
+  -- Product aggregate: CompiledProgramV1 only (no bare-alpha materializeResult).
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
-    let output ← liftResult <| materializeSelected target counter
+    let output ← liftResult <| materializeSelected target counterCompiled
     expect (!output.files.isEmpty) s!"{target} must emit at least one artifact"
+    expect (output.manifest.sourceHash == counterResidual.sourceHash)
+      "product manifest must bind ValidatedSourceV1 sourceHash"
+    expect (output.manifest.semanticHash == counterResidual.semanticHash)
+      "product manifest must bind residual alpha semanticHash"
+  -- Characterization four-target path still exercises alpha residual plan/IR.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
+    let output ← liftResult <| materializeAlphaSelected target counter
+    expect (!output.files.isEmpty) s!"{target} alpha-direct must emit at least one artifact"
     expect (output.manifest.sourceHash == counterQualified.sourceHash)
-      "manifest must bind the decoded source"
+      "alpha-direct manifest must bind the decoded source"
     expect (output.manifest.semanticHash == counter.semanticHash)
-      "manifest must bind the canonical semantics"
+      "alpha-direct manifest must bind the canonical semantics"
   let noirSel ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
   let unsupported := Targets.checkSupport noirSel counterWithCall
   match unsupported with
   | .error (.unsupportedRequirement .synchronousCall .noir) => pure ()
   | _ => throw <| IO.userError "Noir must reject synchronous chain calls"
-  let privateCircuit ← liftResult <| materializeSelected TargetId.noir privateSum
+  let privateCircuit ← liftResult <| materializeAlphaSelected TargetId.noir privateSum
   expect (privateCircuit.files.any (fun file =>
       file.path == "relations/r0-sum/src/main.nr"))
     "Noir must materialize the private circuit in the same DSL"
@@ -191,7 +249,7 @@ def run : IO Unit := do
   match Targets.checkSupport evmSelPrivate privateSum with
   | .error (.unsupportedRequirement .privateWitness .evm) => pure ()
   | _ => throw <| IO.userError "EVM must reject private witness semantics instead of exposing it"
-  let accumulatorOutput ← liftResult <| materializeSelected TargetId.evm accumulator
+  let accumulatorOutput ← liftResult <| materializeAlphaSelected TargetId.evm accumulator
   let accumulatorResolved ← liftResult <| Targets.resolve .evm Targets.Evm.descriptor accumulator
   let accumulatorPlan ← liftResult <| Targets.Evm.makePlan accumulatorResolved
   expect (accumulatorPlan.storageLayout.size == 1 &&
@@ -1023,7 +1081,7 @@ def run : IO Unit := do
         body := #[.returnValue (.variable "total")]
       }
     ]
-  match materializeSelected TargetId.noir deadInitializerArithmetic with
+  match materializeAlphaSelected TargetId.noir deadInitializerArithmetic with
   | .error (.planInvariant .noir message) =>
       expect (message.contains "dead checked arithmetic")
         "Noir must explain why overwritten initializer arithmetic is rejected"
@@ -1048,7 +1106,7 @@ def run : IO Unit := do
         ]
       }
     ]
-  match materializeSelected TargetId.noir deadMutationArithmetic with
+  match materializeAlphaSelected TargetId.noir deadMutationArithmetic with
   | .error (.planInvariant .noir message) =>
       expect (message.contains "dead checked arithmetic")
         "Noir must explain why overwritten mutate arithmetic is rejected"
@@ -1056,14 +1114,14 @@ def run : IO Unit := do
 
   -- The same supported semantic fragment must compile even when its business
   -- body is not the checked Counter transition.
-  let differentOutput ← liftResult <| materializeSelected TargetId.evm differentLogic
+  let differentOutput ← liftResult <| materializeAlphaSelected TargetId.evm differentLogic
   let differentYul ← match differentOutput.files.find? (·.path == "CounterDifferentLogic.yul") with
     | some file => pure file.contents
     | none => throw <| IO.userError "EVM different-logic program must emit Yul"
   expect (differentYul.contains "let expr0 := 99")
     "EVM lowering must preserve a literal return from SemanticProgram"
 
-  let differentSolanaOutput ← liftResult <| materializeSelected TargetId.solana differentLogic
+  let differentSolanaOutput ← liftResult <| materializeAlphaSelected TargetId.solana differentLogic
   let differentSolanaPlan ← match differentSolanaOutput.files.find?
       (·.path == "CounterDifferentLogic.sbpf-plan") with
     | some file => pure file.contents
@@ -1071,7 +1129,7 @@ def run : IO Unit := do
   expect (differentSolanaPlan.contains "const_u64 99")
     "Solana lowering must preserve a literal return from SemanticProgram"
 
-  let differentNearOutput ← liftResult <| materializeSelected TargetId.near differentLogic
+  let differentNearOutput ← liftResult <| materializeAlphaSelected TargetId.near differentLogic
   let differentNearWat ← match differentNearOutput.files.find?
       (·.path == "CounterDifferentLogic.wat") with
     | some file => pure file.contents
@@ -1079,7 +1137,7 @@ def run : IO Unit := do
   expect (differentNearWat.contains "i64.const 99")
     "NEAR lowering must preserve a literal return from SemanticProgram"
 
-  let differentNoirOutput ← liftResult <| materializeSelected TargetId.noir differentLogic
+  let differentNoirOutput ← liftResult <| materializeAlphaSelected TargetId.noir differentLogic
   let differentNoirMutation ← match differentNoirOutput.files.find?
       (·.path == "relations/r1-increment/src/main.nr") with
     | some file => pure file.contents
@@ -1091,13 +1149,13 @@ def run : IO Unit := do
       (·.path == "relations/r2-get/src/main.nr"))
     "Noir lowering must materialize the view relation instead of silently dropping it"
 
-  let nearAccumulator ← liftResult <| materializeSelected TargetId.near accumulator
+  let nearAccumulator ← liftResult <| materializeAlphaSelected TargetId.near accumulator
   expect (nearAccumulator.files.any (·.path == "Accumulator.wat"))
     "NEAR Accumulator must emit target-derived WAT"
   expect (nearAccumulator.files.any (·.path == "Accumulator.near-abi.json"))
     "NEAR Accumulator must emit target-derived ABI"
 
-  match materializeSelected TargetId.noir accumulator with
+  match materializeAlphaSelected TargetId.noir accumulator with
   | .ok output =>
       expect (output.files.any (·.path == "relations/r1-add/src/main.nr") &&
           output.files.any (·.path == "Accumulator.noir-relations.json"))
@@ -1105,7 +1163,7 @@ def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"Noir must lower Accumulator semantics: {error.render}"
 
-  match materializeSelected TargetId.solana accumulator with
+  match materializeAlphaSelected TargetId.solana accumulator with
   | .ok output =>
       expect (output.files.any (·.path == "Accumulator.sbpf-plan"))
         "Solana Accumulator must emit a target-owned typed audit plan"

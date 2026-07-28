@@ -195,7 +195,7 @@ unsafe def run : IO Unit := do
   | .ok _ => throw <| IO.userError "combined namespace/Syntax overflow unexpectedly passed"
 
   let semanticCounter ← match Compiler.compileValidatedSourceV1 counter with
-    | .ok value => pure value
+    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
     | .error error => throw <| IO.userError error.render
   expect (semanticCounter.state.map (·.name) == #["count"] &&
       semanticCounter.entries.map (·.name) == #["increment", "get"])

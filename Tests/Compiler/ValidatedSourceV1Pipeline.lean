@@ -1,16 +1,19 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
--- Large decisive-matrix + S3 gate suite; raise elaboration fuel for nested AST fixtures.
+-- Large decisive-matrix + S3/S5 gate suite; raise elaboration fuel for nested AST fixtures.
 set_option maxRecDepth 4096
 
 namespace Tests.Compiler.ValidatedSourceV1Pipeline
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -22,6 +25,15 @@ open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
+
+private abbrev SemanticProgramV1 := ProofForgeV2.Semantic.WireV1.SemanticProgramV1
+private abbrev SemanticProgramDataV1 := ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1
+private abbrev RequirementRequestV1 := ProofForgeV2.Semantic.WireV1.RequirementRequestV1
+private def validateSemanticProgramV1 :=
+  ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+private def encodeSemanticProgramDataV1 :=
+  ProofForgeV2.Semantic.WireV1.encodeSemanticProgramDataV1
+private def semanticHashV1 := ProofForgeV2.Semantic.WireV1.semanticHashV1
 
 private def expect (c : Bool) (m : String) : IO Unit :=
   unless c do throw <| IO.userError m
@@ -72,10 +84,26 @@ private def validated (module identity : SourceQualifiedNameV1)
     (name : SourceNameComponentV1) (items : Array ProgramItemV1) : IO ValidatedSourceV1 :=
   lift "validate" (validateSourceV1 module identity { name, items })
 
-private def compileOk (label : String) (source : ValidatedSourceV1) : IO Semantic.Program :=
-  match (Compiler.compileValidatedSourceV1 source : CompileResult Semantic.Program) with
+private def compileOk (label : String) (source : ValidatedSourceV1) : IO CompiledProgramV1 :=
+  match Compiler.compileValidatedSourceV1 source with
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
+private def alphaOf (c : CompiledProgramV1) : Semantic.Program :=
+  CompiledProgramV1.alphaResidualOf c
+
+private def expectInvalidPrefix (label wantPrefix : String) (r : CompileResult α) : IO Unit :=
+  match r with
+  | .error e =>
+      expect (e.code == "PF-SRC-INVALID" && e.message.startsWith wantPrefix)
+        s!"{label}: expected PF-SRC-INVALID starting with {wantPrefix}, got {e.render}"
+  | .ok _ => throw <| IO.userError s!"{label}: expected error prefix {wantPrefix}"
+
+/-- Rebuild a structure-valid SemanticProgramV1 from mutated data (test seam only). -/
+private def reencodeCarrier (label : String) (data : SemanticProgramDataV1) : IO SemanticProgramV1 :=
+  match encodeSemanticProgramDataV1 data with
+  | .ok bytes => pure { canonicalBytes := bytes }
+  | .error e => throw <| IO.userError s!"{label}: re-encode failed: {repr e}"
 
 /-- Assert direct Normalize produces structure-valid carrier with deterministic hash. -/
 private def expectNormalizeDeterministic (label : String) (source : ValidatedSourceV1) :
@@ -119,7 +147,8 @@ def run : IO Unit := do
       .return_ (some (var x))]) #[param y]),
     .view (view getN (ret (var x)))]
   let counter ← validated moduleName identity demo counterItems
-  let counterSem ← compileOk "counter S1" counter
+  let counterCompiled ← compileOk "counter S1" counter
+  let counterSem := alphaOf counterCompiled
   expect (counterSem.name == "Demo" && counterSem.qualifiedName == "Tests.Pipeline.Demo")
     "program names must use raw short name and one full pure Name rendering"
   let digest ← lift "source hash" (sourceHashV1 counter)
@@ -140,6 +169,42 @@ def run : IO Unit := do
     "S1 counter residual alpha requirements"
   expectNormalizeDeterministic "counter normalize" counter
 
+  -- D3/S5: retained SemanticProgramV1 structure/requirements + dual-carrier consistency.
+  let retained := CompiledProgramV1.semanticV1Of counterCompiled
+  match validateSemanticProgramV1 retained with
+  | .ok data =>
+      expect (data.requirements.items.size == 3)
+        s!"retained carrier must freeze three S2 requirements, got {data.requirements.items.size}"
+      let expectReq (i : Nat) (id : String) : IO Unit := do
+        let some item := data.requirements.items[i]? |
+          throw <| IO.userError s!"retained missing requirement[{i}]"
+        expect (item.id == id) s!"retained req[{i}] id, got {item.id}"
+        expect (item.version == s2RequirementVersionV1)
+          s!"retained req[{i}] version 1.0.0"
+        expect item.predicates.isEmpty s!"retained req[{i}] empty predicates"
+        let dig ← lift s!"digest {id}" (engineeringRequirementDigestV1 id)
+        expect (item.digest == dig) s!"retained req[{i}] engineering digest"
+      expectReq 0 "failure.atomic-rollback"
+      expectReq 1 "state.persistent"
+      expectReq 2 "value.checked-arithmetic"
+  | .error e => throw <| IO.userError s!"retained carrier structure invalid: {repr e}"
+  let directNorm ← match normalizeProgramV1 counter with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"direct normalize for retention: {repr e}"
+  expect (retained.canonicalBytes == directNorm.canonicalBytes)
+    "compileValidatedSourceV1 must retain NormalizeV1 canonicalBytes"
+  let retainedHash ← match semanticHashV1 retained with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"retained hash: {repr e}"
+  let directHash ← match semanticHashV1 directNorm with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"direct hash: {repr e}"
+  expect (retainedHash == directHash)
+    "compileValidatedSourceV1 semanticHashV1 must match direct normalizeProgramV1"
+  match validateDualCarrierConsistencyV1 retained counterSem with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"counter dual-carrier gate: {e.render}"
+
   -- Accumulator-shaped S1 (distinct names from Counter).
   let accName ← n "Accumulator"
   let accIdentity ← q #["Tests", "Pipeline", "Accumulator"]
@@ -150,7 +215,8 @@ def run : IO Unit := do
       .assign (.name total) (.binary .add (var total) (var amount)),
       .return_ (some (var total))]) #[param amount]),
     .view (view (← n "current") (ret (var total)))]
-  let accSem ← compileOk "accumulator S1" acc
+  let accCompiled ← compileOk "accumulator S1" acc
+  let accSem := alphaOf accCompiled
   expect (accSem.name == "Accumulator" && accSem.state.map (·.name) == #["total"] &&
       accSem.entries.map (·.name) == #["add", "current"])
     "accumulator residual alpha names"
@@ -162,18 +228,18 @@ def run : IO Unit := do
   let cName ← n "C"
   let pathABC ← validated quotedModule (← q #["Root", "A", "B", "C"]) cName
     #[.entry (entry runN (ret (var seed)) #[param seed])]
-  let pathABCSem ← compileOk "multi-component identity" pathABC
+  let pathABCSem := alphaOf (← compileOk "multi-component identity" pathABC)
   expect (pathABCSem.qualifiedName != counterSem.qualifiedName &&
       pathABCSem.qualifiedName == "Root.A.B.C")
     "multi-component identity must lower via Normalize + residual alpha"
   let pathAXC ← validated quotedModule (← q #["Root", "AX", "C"]) (← n "C")
     #[.entry (entry runN (ret (var seed)) #[param seed])]
-  let pathAXCSem ← compileOk "identity boundary twin" pathAXC
+  let pathAXCSem := alphaOf (← compileOk "identity boundary twin" pathAXC)
   expect (pathABCSem.qualifiedName != pathAXCSem.qualifiedName && pathAXCSem.name == "C")
     "distinct component boundaries must remain distinct after Normalize"
   let minimal ← validated quotedModule (← q #["Root", "C"]) cName
     #[.entry (entry runN (ret (var seed)) #[param seed])]
-  let minimalSem ← compileOk "minimum identity" minimal
+  let minimalSem := alphaOf (← compileOk "minimum identity" minimal)
   expect (minimalSem.qualifiedName == "Root.C") "minimum two-component identity must lower"
   -- Embedded-dot program-identity component is Source-legal but Normalize identity
   -- rejects it (Common.QualifiedName Lean-identifier rule) — fail closed.
@@ -190,7 +256,7 @@ def run : IO Unit := do
   let rawNames ← validated moduleName identity demo #[
     .state (state dottedState),
     .entry (entry dottedEntry (ret (var dottedParam)) #[param dottedParam])]
-  let rawSem ← compileOk "raw unqualified names" rawNames
+  let rawSem := alphaOf (← compileOk "raw unqualified names" rawNames)
   expect (rawSem.state[0]!.name == "state.value" &&
       rawSem.entries[0]!.name == "run.call" && rawSem.entries[0]!.params[0]!.name == "arg.value")
     "unqualified names must use raw components"
@@ -202,12 +268,121 @@ def run : IO Unit := do
   let original ← validated moduleName identity demo #[
     .state (state x), .entry (entry runN (ret (var seed)) #[param seed]),
     .view (view getN (ret (var x)))]
-  let a ← compileOk "order original" original; let b ← compileOk "order twin" reordered
+  let a := alphaOf (← compileOk "order original" original)
+  let b := alphaOf (← compileOk "order twin" reordered)
   expect (a.sourceHash != b.sourceHash) "cross-kind source reorder must change sourceHash"
   expect ({ a with sourceHash := "" } == { b with sourceHash := "" })
     "cross-kind reorder must not alter other Semantic fields"
   expect (a.canonicalBytes == b.canonicalBytes && a.semanticHash == b.semanticHash)
     "Semantic canonical bytes and hash must ignore source-order provenance"
+
+  -- Dual-carrier consistency seam negatives (never mint CompiledProgramV1).
+  let baseData ← match validateSemanticProgramV1 retained with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"base data for dual-carrier: {repr e}"
+  let goodAlpha := counterSem
+  let some failR := baseData.requirements.items[0]? |
+    throw <| IO.userError "missing fail req"
+  let some stateR := baseData.requirements.items[1]? |
+    throw <| IO.userError "missing state req"
+  let some arithR := baseData.requirements.items[2]? |
+    throw <| IO.userError "missing arith req"
+  -- wrong version
+  let wrongVerCarrier ← reencodeCarrier "wrong version" {
+    baseData with requirements := {
+      items := #[failR, { stateR with version := { major := 2, minor := 0, patch := 0 } }, arithR]
+    }
+  }
+  expectInvalidPrefix "dual wrong version"
+    "dual-carrier: requirement 'state.persistent' version mismatch"
+    (validateDualCarrierConsistencyV1 wrongVerCarrier goodAlpha)
+  -- wrong digest
+  let zeroDigest : Digest := { algorithm := .sha256, bytes := ByteArray.mk (Array.replicate 32 0) }
+  let wrongDigCarrier ← reencodeCarrier "wrong digest" {
+    baseData with requirements := {
+      items := #[failR, stateR, { arithR with digest := zeroDigest }]
+    }
+  }
+  expectInvalidPrefix "dual wrong digest"
+    "dual-carrier: requirement 'value.checked-arithmetic' digest mismatch"
+    (validateDualCarrierConsistencyV1 wrongDigCarrier goodAlpha)
+  -- nonempty predicates
+  let predCarrier ← reencodeCarrier "nonempty predicates" {
+    baseData with requirements := {
+      items := #[
+        { failR with predicates := #[.boolEquals "flag" true] }, stateR, arithR]
+    }
+  }
+  expectInvalidPrefix "dual nonempty predicates"
+    "dual-carrier: requirement 'failure.atomic-rollback' must have empty predicates"
+    (validateDualCarrierConsistencyV1 predCarrier goodAlpha)
+  -- unknown V1 id (domain-legal, not S2 mapped). Wire order: effect < failure < value.
+  let unkDig ← lift "effect.event dig" (engineeringRequirementDigestV1 "effect.event")
+  let unkReq : RequirementRequestV1 := {
+    id := "effect.event"
+    version := s2RequirementVersionV1
+    digest := unkDig
+    predicates := #[]
+  }
+  let unknownCarrier ← reencodeCarrier "unknown id" {
+    baseData with requirements := { items := #[unkReq, failR, arithR] }
+  }
+  expectInvalidPrefix "dual unknown id"
+    "dual-carrier: unknown requirement id 'effect.event'"
+    (validateDualCarrierConsistencyV1 unknownCarrier goodAlpha)
+  -- missing V1 request (drop state.persistent) → alpha still has persistentState
+  let missingV1Carrier ← reencodeCarrier "missing V1" {
+    baseData with requirements := { items := #[failR, arithR] }
+  }
+  expectInvalid "dual missing V1"
+    "dual-carrier: missing V1 requirement for alpha 'state.persistent'"
+    (validateDualCarrierConsistencyV1 missingV1Carrier goodAlpha)
+  -- extra V1 / missing alpha: V1 has all three, alpha drops persistentState
+  let missingAlpha := {
+    goodAlpha with
+    requirements := goodAlpha.requirements.filter (fun r => r != .persistentState)
+  }
+  expectInvalid "dual missing alpha"
+    "dual-carrier: missing alpha requirement for V1 id 'state.persistent'"
+    (validateDualCarrierConsistencyV1 retained missingAlpha)
+  -- only state.persistent on V1 while alpha still has all three mapped constructors.
+  -- Loop order persistentState → checkedArithmetic → transactionalRollback; first miss
+  -- is checked-arithmetic (exact ToString / catalog id).
+  let onlyStateV1 ← reencodeCarrier "only state V1" {
+    baseData with requirements := { items := #[stateR] }
+  }
+  expectInvalid "dual extra alpha mapped"
+    "dual-carrier: missing V1 requirement for alpha 'value.checked-arithmetic'"
+    (validateDualCarrierConsistencyV1 onlyStateV1 goodAlpha)
+  -- duplicate alpha mapped constructor
+  let dupAlpha := {
+    goodAlpha with requirements := goodAlpha.requirements.push .persistentState
+  }
+  expectInvalid "dual dup alpha"
+    "dual-carrier: duplicate alpha requirement 'state.persistent'"
+    (validateDualCarrierConsistencyV1 retained dupAlpha)
+  -- Structure-valid same-id different-version pair: wire key = (id, SemVer, digest), so
+  -- state.persistent 1.0.0 then 2.0.0 is structure-legal and hits countV1Ids fail-closed.
+  let stateRVer2 := { stateR with version := { major := 2, minor := 0, patch := 0 } }
+  let dupIdCarrier ← reencodeCarrier "dup V1 id different version" {
+    baseData with requirements := {
+      items := #[failR, stateR, stateRVer2, arithR]
+    }
+  }
+  expectInvalid "dual duplicate V1 id"
+    "dual-carrier: duplicate V1 requirement id 'state.persistent'"
+    (validateDualCarrierConsistencyV1 dupIdCarrier goodAlpha)
+  -- Equal-key V1 dups rejected by structure encode; empty carrier remains separate structure-invalid pin.
+  match encodeSemanticProgramDataV1 {
+      baseData with requirements := { items := #[failR, stateR, stateR] }
+    } with
+  | .error _ =>
+      expectInvalidPrefix "dual structure-reject empty carrier"
+        "dual-carrier: semantic structure invalid"
+        (validateDualCarrierConsistencyV1
+          { canonicalBytes := ByteArray.empty } goodAlpha)
+  | .ok _ =>
+      throw <| IO.userError "duplicate V1 requirement keys must fail structure encode"
 
   -- Decisive Normalize-gate negatives (CheckV1 ok, Normalize rejects, no alpha path).
   let privateUnused ← validated moduleName identity demo #[

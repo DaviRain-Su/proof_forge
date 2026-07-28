@@ -2,15 +2,17 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
-import Tests.Fixtures.SourcePrograms
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization.BuildSelectionV1
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
-open Tests.Fixtures.SourcePrograms
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -54,10 +56,10 @@ private def parseProfile (s : String) : IO CodegenProfileId :=
   | some id => pure id
   | none => throw <| IO.userError s!"test fixture profile failed grammar: '{s}'"
 
-private def materializeSelected (target : TargetId) (semantic : SemanticProgram)
+private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
     (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
   let selection ← resolveBuildSelectionV1 target profile?
-  Targets.materializeResult selection semantic
+  Targets.materializeResult selection compiled
 
 private def hasSubstr (haystack needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
@@ -583,15 +585,22 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   expect (viaDefault.codegenProfile == evmDefault.codegenProfile)
     "resolveSelectionFromFlags default profile"
 
-private def testMaterializeIdentity : IO Unit := do
-  let counter ← match Compiler.compile counterQualified with
-    | .ok value => pure value
-    | .error error => throw <| IO.userError error.render
+private unsafe def testMaterializeIdentity : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    Examples.counterSourceText "<build-selection-counter>"
+    Examples.counterModuleNameV1 none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let residual := CompiledProgramV1.alphaResidualOf compiled
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult <| resolveBuildSelectionV1 tid none
-    let output ← liftResult <| Targets.materializeResult selection counter
+    let output ← liftResult <| Targets.materializeResult selection compiled
     expect (!output.files.isEmpty) s!"{tid} must emit artifacts"
     expect (output.manifest.target == tid) s!"manifest target identity for {tid}"
+    expect (output.manifest.sourceHash == residual.sourceHash)
+      s!"manifest sourceHash identity for {tid}"
+    expect (output.manifest.semanticHash == residual.semanticHash)
+      s!"manifest semanticHash identity for {tid}"
     match ← liftResult (registration? tid) with
     | some reg =>
         match reg.defaultProfile with
@@ -607,12 +616,12 @@ private def testMaterializeIdentity : IO Unit := do
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
   let outputDir := System.FilePath.mk "build/v2/build-selection-emit"
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
-  let manifest ← ProofForgeV2.CLI.emitProgram selection counter outputDir
+  let manifest ← ProofForgeV2.CLI.emitProgram selection compiled outputDir
   expect (manifest.target == TargetId.solana) "emitProgram target identity"
   expect (manifest.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "emitProgram profile identity"
   let evmSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
-  let evmOut ← liftResult <| Targets.materializeResult evmSel counter
+  let evmOut ← liftResult <| Targets.materializeResult evmSel compiled
   expect (evmOut.manifest.target.toString == "evm") "EVM manifest target wire"
   expect (evmOut.manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "EVM manifest profile wire"
@@ -620,10 +629,10 @@ private def testMaterializeIdentity : IO Unit := do
   expect (hasSubstr json "\"target\": \"evm\"") "manifest JSON target"
   expect (hasSubstr json "\"codegenProfile\": \"evm-yul-solc-0.8.34-v1\"")
     "manifest JSON profile"
-  let viaSelected ← liftResult <| materializeSelected TargetId.near counter
+  let viaSelected ← liftResult <| materializeSelected TargetId.near compiled
   expect (viaSelected.manifest.target == TargetId.near) "selection-only materialize path"
 
-def run : IO Unit := do
+unsafe def run : IO Unit := do
   testGrammar
   testIndexValidation
   testIndexNegatives

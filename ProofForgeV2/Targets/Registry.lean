@@ -3,10 +3,12 @@ import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 
 /-- All static registrations in canonical TargetId storage order (product seed). -/
@@ -49,10 +51,12 @@ def checkSupport (selection : ResolvedBuildSelectionV1) (program : SemanticProgr
     unless descriptor.supportedRequirements.contains requirement do
       throw <| .unsupportedRequirement requirement selection.kind
 
-/-- Aggregate materialization consumes a resolved build selection only. No raw
-TargetId product overload. Dispatches residual alpha target pipelines by kind. -/
-def materializeResult (selection : ResolvedBuildSelectionV1) (program : SemanticProgram) :
-    CompileResult OutputSet := do
+/-- Aggregate materialization consumes a resolved build selection and a dual-
+carrier `CompiledProgramV1` only. No bare alpha Semantic.Program product overload.
+Internally reads residual alpha for existing target-owned Plan/IR pipelines. -/
+def materializeResult (selection : ResolvedBuildSelectionV1)
+    (compiled : CompiledProgramV1) : CompileResult OutputSet := do
+  let program := CompiledProgramV1.alphaResidualOf compiled
   checkSupport selection program
   match selection.kind with
   | .evm =>
@@ -81,9 +85,9 @@ def materializeResult (selection : ResolvedBuildSelectionV1) (program : Semantic
       return makeOutput Noir.descriptor program false files
   | other => .error <| .targetNotImplemented other
 
-def materialize (selection : ResolvedBuildSelectionV1) (program : SemanticProgram) :
+def materialize (selection : ResolvedBuildSelectionV1) (compiled : CompiledProgramV1) :
     IO OutputSet :=
-  match materializeResult selection program with
+  match materializeResult selection compiled with
   | .ok output => pure output
   | .error error => throw <| IO.userError error.render
 
