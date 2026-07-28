@@ -298,6 +298,49 @@ def run : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "empty SemanticProgramDataV1 must fail structure gate"
 
+  -- Closed productMessageFromWireErrorV1 contract over every SemanticWireErrorV1
+  -- constructor. Expected strings are independent hand-written product literals
+  -- (never built via productMessageFromWireErrorV1 / production match copy).
+  let wireMsgTable :
+      Array (ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 × String) := #[
+    (.truncated, "semantic structure gate: truncated"),
+    (.limitExceeded, "semantic structure gate: limitExceeded"),
+    (.badMagic, "semantic structure gate: badMagic"),
+    (.badTag, "semantic structure gate: badTag"),
+    (.badFieldCount, "semantic structure gate: badFieldCount"),
+    (.badScalar, "semantic structure gate: badScalar"),
+    (.nonCanonical, "semantic structure gate: nonCanonical"),
+    (.duplicate, "semantic structure gate: duplicate"),
+    (.badReference, "semantic structure gate: badReference"),
+    (.badType, "semantic structure gate: badType"),
+    (.badCfg, "semantic structure gate: badCfg"),
+    (.badRequirement, "semantic structure gate: badRequirement"),
+    (.badProvenance, "semantic structure gate: badProvenance"),
+    (.trailingBytes, "semantic structure gate: trailingBytes")
+  ]
+  expect (wireMsgTable.size == 14)
+    s!"SemanticWireErrorV1 product-message table size must be 14, got {wireMsgTable.size}"
+  for i in [0:wireMsgTable.size] do
+    for j in [i+1:wireMsgTable.size] do
+      match wireMsgTable[i]?, wireMsgTable[j]? with
+      | some (ei, wanti), some (ej, wantj) =>
+          expect (ei != ej)
+            s!"wire-message table constructors at {i} and {j} must be unique"
+          expect (wanti != wantj)
+            s!"wire-message table expected strings at {i} and {j} must be unique"
+      | _, _ =>
+          throw <| IO.userError
+            s!"wire-message table index OOB while checking uniqueness ({i},{j})"
+  for (e, want) in wireMsgTable do
+    let got := Compiler.productMessageFromWireErrorV1 e
+    expect (got == want)
+      s!"productMessageFromWireErrorV1 {repr e}: expected {want}, got {got}"
+    -- Anti-repr guard: product text must not dump Lean Repr of the enum.
+    expect (!((got.splitOn "SemanticWireErrorV1.").length > 1))
+      s!"productMessageFromWireErrorV1 must not embed Repr enum path, got {got}"
+    expect (got != toString (repr e))
+      s!"productMessageFromWireErrorV1 must not equal bare Repr, got {got}"
+
   -- Top-level alternatives: CheckV1 runs first (via Normalize typedNotOk).
   -- Well-typed constructors fail at Normalize S1 unsupported detail.
   let hostile := .literal (.string "HOSTILE")

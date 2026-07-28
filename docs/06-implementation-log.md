@@ -13,6 +13,14 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-28 — S3b acceptance hardening (productMessageFromWireErrorV1 closed table + matrix accuracy)
+
+- Context/State：S3 已把 `compileValidatedSourceV1` 接到 NormalizeV1 structure-gated SemanticProgramV1（S1 Counter-like only；residual alpha materializer 保留）。formal TASK-D2-06/D3 与 D1–D4 formal 仍 0/27 done。本切片只做 acceptance hardening：补齐 closed wire-error 产品消息合同测试，并修正矩阵顶层 D2 engineering 结论与产品管线描述；不改 production 行为、不伪称 formal completion。
+- RED/Changed（tests first）：`Tests/Compiler/ValidatedSourceV1Pipeline.lean` 在既有 empty `SemanticProgramDataV1` encode → `semantic structure gate: badCfg` structure-path pin 旁新增 table-driven 合同，覆盖全部 14 个 closed `SemanticWireErrorV1` 构造子（truncated / limitExceeded / badMagic / badTag / badFieldCount / badScalar / nonCanonical / duplicate / badReference / badType / badCfg / badRequirement / badProvenance / trailingBytes）。断言：`table.size == 14`、构造子 pairwise 唯一、expected 字符串 pairwise 唯一、每项 `Compiler.productMessageFromWireErrorV1 e` 精确等于独立手写字面量 `semantic structure gate: <stableName>`，并拒绝 Lean Repr 形态。expected 不经 production match 生成。
+- Docs：`MIGRATION_MATRIX.md` 顶层 D2 Engineering 结论改为 ValidatedSourceV1/ProgramV1 → CheckV1 + NormalizeV1 structure gate（S1 only）+ residual alpha Typed/Semantic 供 resolver/materializer；产品管线 diagram 同步为 Normalize gate 后再 residual alpha；显式保留 S1-only、formal D2/D3 pending、direct SemanticProgramV1 resolver/materializer/SupportClaim/OutputSetV1/四 target cutover 未完成。
+- Boundary：无 production 行为变更；无 fallback/adapter；无 formal claim；无 resolver/OutputSet cutover；无 `ProofForgeV2/**` 编辑。
+- Verification（Implement 已执行，仍未提交；Review 复核）：`lake build proof_forge_next_fast_tests`、`lake env .lake/build/bin/proof-forge-next-fast-tests`、`just dev-check`、`git diff --check`、`just docs-check`、`just ci` 均通过；HEAD 维持 baseline `fb0ef9d6c54855bbf638ecc2c40f910a7af3cb49`；仅三允许路径有未提交 diff。
+
 ## 2026-07-28 — S3 product compile gate via NormalizeV1 structure carrier
 
 - Context/State：formal TASK-D2-06/D3 与 D1–D4 formal 仍 0/27 done。本切片把唯一 ProgramV1 产品成功路径 `Compiler.compileValidatedSourceV1` 接到已 shipped 的 target-neutral `NormalizeV1.normalizeProgramV1` structure gate；不拓宽 S1 表面、不删 alpha Semantic/materializer、不改四 target Plan/IR、不伪称 formal completion。

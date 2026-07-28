@@ -16,20 +16,25 @@ D1–D4 共 27 个 formal task，当前仍为：
 | Milestone | Formal 状态 | Engineering 结论 |
 |---|---|---|
 | D1 | `TASK-D1-01` blocked，D1-02..08 pending | ProgramV1 wire/hash/NodeId 地基很强；CLI 只接通窄 V1 decoder，Lean command/export 仍在旧轨，worker/diagnostic 未完成 |
-| D2 | 7/7 pending | 只有 UInt64 Counter/Accumulator 所需的 alpha Typed/Semantic 子集；正式 SemanticProgramV1、provenance、完整 checker 不存在 |
+| D2 | 7/7 pending | ValidatedSourceV1/ProgramV1 产品路径已跑 CheckV1 + NormalizeV1 structure-gated SemanticProgramV1（**仅 S1 Counter-like 工程子集**）；residual alpha Typed/Semantic 仍供 alpha resolver/materializer；正式 SemanticProgramV1 product resolver/materializer 切over、SupportClaim、OutputSetV1、完整 checker 表面与 formal D2 **仍 pending（未完成）** |
 | D3 | 7/7 pending | 有可运行的 alpha registry/materializer/output/CLI；SupportClaim、BuildIdentity、exact resolver 与 OutputSetV1 不存在 |
 | D4 | 5/5 pending | EVM Plan/Yul/ABI/solc/Anvil 算法已有真实功能，可复用；仍绑定 alpha D2/D3 contract，不能按 D4 完成 |
 
-因此当前产品不是 `active/` 中的旧 v1，也不是正式 D1–D4 新设计完成态；准确描述是：
+因此当前产品不是 `active/` 中的旧 v1，也不是正式 D1–D4 新设计完成态；准确 engineering 路径是：
 
 ```text
-ProgramV1 product subset
-  → alpha Typed.Program
-  → alpha Semantic.Program
-  → alpha descriptor/contains resolver
-  → target-owned alpha Plan/IR
-  → v2alpha1 output
+ValidatedSourceV1 / ProgramV1
+  → NormalizeV1 (CheckV1 ok∧analysisComplete + S1 Counter-like lowering)
+  → structure-valid SemanticProgramV1 gate (fail closed on wire/unsupported)
+  → residual alpha Typed/Semantic carrier
+  → alpha resolver / target-owned Plan/IR / v2alpha1 output
 ```
+
+保留边界（engineering fact，非 formal 完成）：
+
+- S1 Counter-like 工程子集 only（S1 外 CheckV1-ok 形状在 Normalize 门禁 fail closed）
+- formal D2 / D3 仍 pending
+- direct SemanticProgramV1 resolver/materializer carrier、SupportClaim、OutputSetV1 与四 target cutover **未完成**
 
 ## 完成度口径
 
