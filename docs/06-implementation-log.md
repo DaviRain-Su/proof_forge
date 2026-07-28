@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-closure pureFn ContextRead prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.ContextRead` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，不实现 ContextRead exact key/requirement type binding、其余 forbidden-op families、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantClosurePureFnContextReadProhibited`，固定 unreachable pureFn ContextRead 双路径正向、direct/transitive reachable closure pureFn ContextRead 双路径负向，以及 generic result-presence typing→closure restriction→intrinsic fuel→requirements phase precedence；实现前 N1 reachable pureFn ContextRead 被 structure gate 接受。
+- Production：扩展 bounded `validateInvariantClosurePureFnOpsV1`，在既有 StateLoad/StateStore 拒绝基础上按 callable/block/instruction source order拒绝 reachable `.pureFn` 内 `.contextRead`，失败 `.badCfg`；unreachable pureFn ContextRead 与 invariant root direct StateLoad 的既有边界不变。
+- Verification：聚焦 production/test build、真实 fast harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-67` 三路审查 approved、无 findings。
+- Boundary：Commit/Emit/ExternalCall/Schedule closure pureFn restrictions、ContextRead exact contract、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-closure pureFn StateStore prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.StateStore` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，不扩张到 unreachable pureFn、其余 forbidden-op families、exact checked steps、interpreter或产品接线。

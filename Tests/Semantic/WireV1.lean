@@ -4849,6 +4849,104 @@ private def testInvariantClosurePureFnStateStoreProhibited : IO Unit := do
   expectCfgInvariantPhase "N5 StateStore closure before requirements"
     .invariantClosure .badCfg n5
 
+/-- SPEC §8 forbids context reads in pureFn callables that belong to an
+    invariant closure. An unreachable pureFn remains outside this closure-only
+    restriction. Generic ContextRead result-presence validation runs before the
+    post-CFG closure gate. -/
+private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
+  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
+    | .ok key => pure key
+    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let contextReader : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "contextReader"
+      invariantSteps := some 3
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithTypes "InvClosureCtxP1Unreachable" cfgBoolTypes #[]
+    #[{ contextReader with invariantSteps := none }, literalRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 unreachable pureFn ContextRead outside invariant closure" p1
+  let n1Base ← programWithTypes "InvClosureCtxN1Reachable" cfgBoolTypes #[]
+    #[contextReader, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn ContextRead" n1
+  expectCfgInvariantPhase "N1 pureFn ContextRead closure phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    root with
+      id := 1
+      kind := .pureFn
+      name := some "middle"
+      invariantSteps := some 6
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 9
+  }
+  let n2Base ← programWithTypes "InvClosureCtxN2Transitive" cfgBoolTypes #[]
+    #[contextReader, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn ContextRead" n2
+  expectCfgInvariantPhase "N2 transitive ContextRead closure phase"
+    .invariantClosure .badCfg n2
+  let missingResultReader : CallableV1 := {
+    contextReader with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.contextRead ctxKey),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3Base ← programWithTypes "InvClosureCtxN3CfgFirst" cfgBoolTypes #[]
+    #[missingResultReader, root]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 malformed ContextRead before closure restriction" .badCfg n3
+  expectCfgInvariantPhase "N3 generic ContextRead typing phase wins"
+    .cfg .badCfg n3
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[contextReader,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 pureFn ContextRead before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 ContextRead closure phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-context-read"] }
+  }
+  expectCfgErrCode "N5 pureFn ContextRead before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 ContextRead closure before requirements"
+    .invariantClosure .badCfg n5
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -6758,6 +6856,7 @@ def run : IO Unit := do
   testInvariantClosureCfgBackEdges
   testInvariantClosurePureFnStateLoadProhibited
   testInvariantClosurePureFnStateStoreProhibited
+  testInvariantClosurePureFnContextReadProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

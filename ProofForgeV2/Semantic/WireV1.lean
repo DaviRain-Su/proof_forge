@@ -3750,7 +3750,7 @@ private def validateInvariantClosureCfgAcyclicV1
             return ← err .badCfg
   pure ()
 
-/-- A pureFn in an invariant closure cannot read or write logical state
+/-- A pureFn in an invariant closure cannot access logical state or context
     (SPEC §8). Generic CFG/op typing and closure graph/CFG acyclicity have
     already run. Invariant roots remain allowed to use StateLoad directly, and
     unreachable pureFns remain outside this closure-only restriction. -/
@@ -3768,6 +3768,7 @@ private def validateInvariantClosurePureFnOpsV1
                 match instr.op with
                 | .stateLoad _ => return ← err .badCfg
                 | .stateStore _ _ => return ← err .badCfg
+                | .contextRead _ => return ← err .badCfg
                 | _ => pure ()
   pure ()
 
