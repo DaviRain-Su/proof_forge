@@ -21,6 +21,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
     `Tests.Typed.NameResolutionV1,
+    `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
     `Tests.Typed.TypeCheckCallsV1,
     `Tests.Typed.TypeCheckStatementsV1,

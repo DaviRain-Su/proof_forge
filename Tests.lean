@@ -9,6 +9,7 @@ import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
 import Tests.Typed.NameResolutionV1
+import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
 import Tests.Typed.TypeCheckCallsV1
 import Tests.Typed.TypeCheckStatementsV1
@@ -117,6 +118,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
   Tests.Typed.NameResolutionV1.run
+  Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
   Tests.Typed.TypeCheckCallsV1.run
   Tests.Typed.TypeCheckStatementsV1.run

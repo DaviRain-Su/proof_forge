@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B7b1 Typed diagnostic-draft path (name-resolution + call-graph)
+
+- Context/State：B7a 已提供 path→NodeId locate 与 Loader `WithOrigins`，但 Typed name-resolution/call-graph 仍 emit 空 primary/related。本切片工程-only 引入 sole Typed draft wrapper，并把 declaration-table + name-resolution + call-graph 迁到 canonical ProgramV1 paths；**不**改 TypeCheck/Effect/Bound/Disclosure/CheckV1 产品接线、**不**接线 B8 multi-error bundle、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：新增 `Tests/Typed/DiagnosticLocationsV1.lean`（Fast/Tests/lakefile 注册）。实现前真实 RED：`no such file or directory` for `ProofForgeV2/Typed/DiagnosticDraftV1.lean` / `bad import 'ProofForgeV2.Typed.DiagnosticDraftV1'`。GREEN 后固定 unknown Place.Name、nested Type.Named、later+first duplicate decl paths、wrong-category related StateDecl、self/two-fn cycle decl+LocalCall paths、every draft path ∈ `canonicalNodeVisitsV1`、`locateArray` 经 `selectProgramV1WithOrigins` exact NodeId、erase code/message/phase parity、resolution-before-callgraph order。
+- Production：新增 `ProofForgeV2/Typed/DiagnosticDraftV1.lean`（sole Typed wrapper over `DiagnosticV1` + optional `DiagnosticLocationDraftV1`；`make`/`erase`/`eraseArray`/`locate`/`locateArray`；仅此模块调用 `Source.locateDiagnosticV1`；order-preserving 无 sort/dedupe/cap）。`ModelV1` 增 `DeclItemIndicesV1` sidecar + ordinal/key→item-path lookups；diagnostic helpers 为 draft builders + unlocated erase projections，并附 fixed `stableContext`/minimal PfJson。`NameResolutionV1` 单 walk 经 `childPathV1`/`directChildPathV1`/`indexChildPathV1` 线程路径；`resolveProgramDraftsV1` additive；`resolveProgramV1` erase；`ResolutionState` 保持 `diagnostics : Array DiagnosticV1` 与 draft 同步以便现有 `buildTables` 消费者。`CallGraphV1` 引入 site-bearing `FnCallEdgeV1` + sole `analyzeFnCallGraphV1`；`buildFnCallEdges`/`checkCallGraphV1` 为投影；cycle primary=min ordinal fn，related=remaining SCC decls + in-SCC LocalCall paths。
+- Zero patterns：B7b1 scope 无 Typed-local `path.push`；Typed 无 `import ProofForgeV2.Semantic`；`locateDiagnosticV1` 仅 `DiagnosticDraftV1.lean`。
+- Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` TASK-D1-07 事实行；本日志。formal 状态不变。
+- Verification：focused `lake build` DiagnosticDraft/DiagnosticLocations/NameResolution/CallGraph/Effect/Bound/CheckV1/fast_tests + `proof-forge-next-fast-tests`；zero-pattern rg；`just sbom-package-files-refresh` + ordinary gates。
+- Boundary：无 located CheckV1 入口、无 TypeCheck/Effect/Bound/Disclosure path 归因、无 B8 CLI bundle、无 Semantic/Normalize/compiler/CLI/target 变更、无 formal/release 路径。
+
 ## 2026-07-29 — B7a Source-owned located-diagnostic infrastructure
 
 - Context/State：B6 已交付结构化 `DiagnosticV1` carrier/codec，但 pre-node 位置仍写 zero-sentinel `errorSentinelNodeId`，且缺少 Source path→NodeId locate 与 Loader `WithOrigins`。本切片工程-only 只建 B7a 基础设施，**不**改 Typed producer walks（B7b）、**不**接线 public multi-error bundle（B8）、不碰 formal TASK/TST/EV 或 target maturity。
