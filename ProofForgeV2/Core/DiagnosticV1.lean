@@ -9,8 +9,10 @@
   and dedupe keys are message-independent:
     (primary.sourcePath or "", primary.startByte or 0, code.wire, stableContext none→"").
 
-  `errorSentinelNodeId` remains until B7 retires zero-sentinel attribution.
-  `normalizeDiagnosticBundleV1` is shipped but unused by product until B7/B8.
+  B7a retires pre-node zero-sentinel attribution: parser/duplicate origins use
+  explicit `nodeId = none`. Real Typed path→NodeId origins are B7b; public
+  multi-error bundles are B8. `normalizeDiagnosticBundleV1` remains unused by
+  product until B8.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
@@ -19,12 +21,6 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2 (TargetId)
 
 namespace ProofForgeV2.Core.DiagnosticV1
-
-/-- Documented zero-filled 16-byte sentinel used for error-time origins when a
-    canonical traversal `NodeId` has not been assigned.  Retired to explicit
-    `nodeId = none` only in B7. -/
-def errorSentinelNodeId : NodeId where
-  bytes := ByteArray.mk (Array.replicate 16 (0 : UInt8))
 
 /-- Diagnostic severity enum (SPEC-DIAG-001). -/
 inductive DiagnosticSeverityV1 where
@@ -1138,7 +1134,7 @@ private def limitSentinel : DiagnosticV1 :=
 
 /-- Sort/dedupe, then retain at most 100 non-limit diagnostics and append exactly
     one deterministic `PF-DIAG-LIMIT` when truncated.  Idempotent under re-run.
-    Unused by product pipelines until B7/B8. -/
+    Unused by product pipelines until B8. -/
 def normalizeDiagnosticBundleV1 (diagnostics : Array DiagnosticV1) : Array DiagnosticV1 :=
   let hadLimit := diagnostics.any isDiagLimit
   let core := sortAndDedupe (diagnostics.filter (fun d => !isDiagLimit d))

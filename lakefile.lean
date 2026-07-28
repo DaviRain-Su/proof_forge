@@ -70,6 +70,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1TypeSurface,
     `Tests.Language.ProgramV1SpanJoin,
     `Tests.Language.ProgramV1OriginJoin,
+    `Tests.Language.ProgramV1DiagnosticLocate,
     `Tests.Language.ProgramV1Diagnostics,
     `Tests.Language.ProgramV1Bounds,
     `Tests.Language.ProgramV1SourceFullTagGolden.Source,

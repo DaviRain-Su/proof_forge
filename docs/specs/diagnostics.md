@@ -53,9 +53,15 @@ major version 内稳定。
 - Wire JSON 对每个 origin 对象字段为 `sourcePath`、`startByte`、`endByte`、`nodeId`
   （`nodeId` 可为 `null`）；`related` 为该对象数组，始终存在（可为空数组）。
 - 不得把 nullable NodeId 回写 common `SourceOrigin`。
-- 全零 16-byte NodeId sentinel 不是长期 public 契约。**B7** 是实现切片：将 diagnostic 路径上
-  documented zero-sentinel 替换为显式 `nodeId: null`。在 B7 完成前，不得把 sentinel 写入新
-  golden 为“稳定公共语义”，也不得声称迁移已完成；本规格澄清不声称代码已迁移。
+- 全零 16-byte NodeId sentinel 不是长期 public 契约。**B6** 已落地结构化 `DiagnosticV1`
+  carrier/codec（closed code catalog、nullable `DiagnosticOriginV1`、PF-JCS encode/decode、
+  message-independent order/dedupe、结构 redaction、`normalizeDiagnosticBundleV1` cap 工程
+  子集；产品 multi-error bundle 未接线）。**B7a** 已退役 pre-node zero-sentinel：parser/
+  duplicate 位置使用显式 `nodeId: null`（`none`），Source `DiagnosticLocateV1` + Loader
+  `selectProgramV1WithOrigins` 提供 path→真实 NodeId 归因基础设施；**B7b**（Typed producers
+  经 child-path helpers 物化真实 primary/related）与 **B8**（public CLI/compiler multi-error
+  bundle）仍 pending。不得把已删除的 zero-sentinel 写入 golden，也不得把 B7a 基础设施写成
+  formal/B7b/B8 完成。
 
 ### 排序、去重与 stableContext
 
@@ -184,9 +190,12 @@ Requirement rejection 必须带 target、requirementId、version/digest、所有
 expected claim 和 actual/missing；toolchain error 带预期版本/checksum、解析到的 executable
 路径与实际版本，但不输出敏感环境。
 
-当前 alpha 尚未实现上面的完整 `Diagnostic v1` record/JSON/span。Syntax preflight 通过
-`CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，human message 只说明超出的
-node/nesting/identity limit。CLI 的 16 MiB parser 前文件上限仍是
+**实现状态（工程，非 formal）**：**B6** 已实现完整 `DiagnosticV1` record/JSON codec 与
+catalog（见 `ProofForgeV2/Core/DiagnosticV1.lean` + `Tests/Core/DiagnosticV1`）；Loader 单错误
+产品路径与 Typed producers 经 `DiagnosticV1.make` 发出结构化诊断（Typed primary 多为空，
+真实节点归因见 B7）。**B7a** 已提供 Source path locate + pre-node `nodeId=null`，**B7b/B8**
+仍 pending。Syntax preflight 通过 `CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，
+human message 只说明超出的 node/nesting/identity limit。CLI 的 16 MiB parser 前文件上限仍是
 `CompileError.invalidProgram` / `PF-SRC-INVALID`；这两个边界不得在证据中混写。
 
 ## 隐私与安全

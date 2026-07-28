@@ -14,6 +14,16 @@ normative: false
 
 
 
+## 2026-07-29 — B7a Source-owned located-diagnostic infrastructure
+
+- Context/State：B6 已交付结构化 `DiagnosticV1` carrier/codec，但 pre-node 位置仍写 zero-sentinel `errorSentinelNodeId`，且缺少 Source path→NodeId locate 与 Loader `WithOrigins`。本切片工程-only 只建 B7a 基础设施，**不**改 Typed producer walks（B7b）、**不**接线 public multi-error bundle（B8）、不碰 formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：新增 `Tests/Language/ProgramV1DiagnosticLocate.lean`（Fast/Tests/lakefile 注册）。实现前真实 RED：`no such file or directory` for `ProofForgeV2/Source/DiagnosticLocateV1.lean` / `bad import 'ProofForgeV2.Source.DiagnosticLocateV1'`。`ProgramV1Diagnostics` 迁 parser/duplicate/redaction 至显式 `nodeId=none`。GREEN 后固定 WithOrigins sourceHash/lookup parity、root/item primary+related exact NodeId/span、related sort/dedupe、all-or-nothing missing path、empty-origin gate、non-location field preservation、childPathV1 nesting bound、invalid absolute path→PF-SRC-INVALID。
+- Production：`NodeTraversalV1` 公开 sole `childPathV1` + `directChildPathV1`/`indexChildPathV1`，private `push*` 经该 helper（visits byte-stable）。新增 `ProofForgeV2/Source/DiagnosticLocateV1.lean`（location draft `{primaryPath,relatedPaths}` → opaque `OriginInventoryV1` exact lookup → `DiagnosticOriginV1` `nodeId=some`；require empty primary/related；normalizeRelated；fail closed；无 Semantic import）。Loader `primaryFromSpan?` → `nodeId=none`；additive `selectProgramV1WithOrigins` = WithSpans → parse path → `joinOriginsV1`（invalid path→`invalidProgram`/PF-SRC-INVALID；join fail→internal-classified `invalidProgram` message）。删除 `errorSentinelNodeId` 与全部引用。
+- Zero patterns：`rg errorSentinelNodeId` 在 ProofForgeV2/Tests 为零；`ProofForgeV2/Source/**` 无 `import ProofForgeV2.Semantic`；无 second ProgramV1 decoder/adapter/fallback。
+- Docs：`docs/specs/diagnostics.md` 纠正 B6 实现 underclaim，写明 B7a sentinel 退役与 B7b/B8 pending；`docs/modules/source-frontend.md`；`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` TASK-D1-01/D1-07 事实行；本日志。formal 状态不变。
+- Verification：focused `lake build` DiagnosticLocate/ProgramV1DiagnosticLocate/ProgramV1Diagnostics/CheckV1/fast_tests + fast harness；zero-pattern rg；`just sbom-package-files-refresh` + ordinary `just ci`。
+- Boundary：无 B7b Typed locate API、无 B8 CLI bundle、无 Semantic/Normalize/compiler 变更、无 formal/release 路径。
+
 ## 2026-07-29 — B6 DiagnosticV1 ADR-0022 / SPEC-DIAG-001 structured carrier
 
 - Context/State：pre-release `DiagnosticV1` 仅有 9-code enum + `origins : Array SourceOrigin`，无 severity/phase/stableContext/full catalog、无 nullable NodeId、无 PF-JCS decoder、order 依赖 message。本切片工程-only 原子替换为 SPEC-DIAG-001 结构化 v1，机械迁移 Loader 与全部 Typed producers；不碰 B7 real-origin/sentinel 退役、B8 CLI multi-error bundle、formal TASK/TST/EV 或 target maturity。

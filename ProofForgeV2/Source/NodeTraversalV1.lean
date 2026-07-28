@@ -51,20 +51,47 @@ private def depthError : Except String α :=
 private def nodeError : Except String α :=
   fail "source node traversal exceeds the node limit"
 
+/-- Sole bounded canonical child-path encoder for ProgramV1 node paths.
+
+    Preserves the same nesting (`path.size ≥ 255`) and index (`≥ UInt32.size`)
+    bounds as the preorder traversal. Typed producers (B7b) must consume this
+    helper (or the direct/index wrappers) and must not invent a second path
+    encoder. -/
+def childPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Except String NormalizedSyntacticPathV1 := do
+  if path.size >= maxPathEdgesV1 then
+    return ← depthError
+  if index >= UInt32.size then
+    return ← nodeError
+  pure (path.push {
+    parentTag
+    fieldTag
+    index := UInt32.ofNat index
+  })
+
+/-- Direct (index-0) child path — sole wrapper over `childPathV1`. -/
+def directChildPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) :
+    Except String NormalizedSyntacticPathV1 :=
+  childPathV1 path parentTag fieldTag 0
+
+/-- Indexed child path — sole wrapper over `childPathV1` (same body; named for
+    call-site clarity at array fields). -/
+def indexChildPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Except String NormalizedSyntacticPathV1 :=
+  childPathV1 path parentTag fieldTag index
+
 private def pushNodeV1
     (pending : Array WorkItemV1)
     (path : NormalizedSyntacticPathV1)
     (parentTag fieldTag : String) (index : Nat)
     (node : NodeValueV1) : Except String (Array WorkItemV1) := do
-  if path.size >= maxPathEdgesV1 then
-    return ← depthError
-  if index >= UInt32.size then
-    return ← nodeError
-  let childPath := path.push {
-    parentTag
-    fieldTag
-    index := UInt32.ofNat index
-  }
+  let childPath ← childPathV1 path parentTag fieldTag index
   pure (pending.push { node, path := childPath })
 
 private def pushDirectV1

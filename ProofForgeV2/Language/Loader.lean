@@ -3,6 +3,7 @@ import Lean.Util.Path
 import Std.Data.HashSet
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanJoinV1
 
 namespace ProofForgeV2.Language.Loader
@@ -11,6 +12,7 @@ open Lean Parser ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.SpanJoinV1
 open ProofForgeV2.Source.SpanV1
@@ -73,7 +75,8 @@ private def commandSpan? (source : String) (stx : Syntax) : Option SourceByteSpa
   | .error _ => none
 
 /-- Build a diagnostic primary origin from a trustworthy source span.
-    `nodeId` remains the documented zero sentinel until B7 retires it to `none`. -/
+    Pre-node parser/duplicate locations use explicit `nodeId = none` (B7a;
+    zero-sentinel retired). Decoder-internal/no-span remains primary `none`. -/
 private def primaryFromSpan? (fileName : String) (span? : Option SourceByteSpanV1) :
     Option DiagnosticOriginV1 :=
   match span? with
@@ -85,7 +88,7 @@ private def primaryFromSpan? (fileName : String) (span? : Option SourceByteSpanV
         sourcePath := sourcePath,
         startByte := span.startByte,
         endByte := span.endByte,
-        nodeId := some errorSentinelNodeId
+        nodeId := none
       }
 
 private def toDiagnosticV1 (fileName : String) (err : LoaderError) : DiagnosticV1 :=
@@ -418,6 +421,29 @@ unsafe def selectProgramV1WithSpans (session : ParserSession)
           | .ok spans => return .ok (src, spans)
           | .error message => return .error <| .invalidProgram message
 
+/-- Additive Source origin inventory: single decoder → SpanJoin → OriginJoin.
+    Invalid caller project-relative path → `invalidProgram` / PF-SRC-INVALID.
+    Same-snapshot join/inventory failure (impossible for a successful WithSpans
+    pair) → `invalidProgram` with an internal fail-closed message (CompileError
+    has no dedicated internal variant; code stays PF-SRC-INVALID wire via
+    invalidProgram, message classifies the fault). No parser/decoder
+    duplication, fallback, caller-supplied spans, or trusted inventory. -/
+unsafe def selectProgramV1WithOrigins (session : ParserSession)
+    (source fileName moduleName : String) (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × OriginInventoryV1)) := do
+  match ← session.selectProgramV1WithSpans source fileName moduleName requested with
+  | .error error => return .error error
+  | .ok (src, spans) =>
+      match parseProjectRelativePath fileName with
+      | .error detail =>
+          return .error <| .invalidProgram detail
+      | .ok sourcePath =>
+          match joinOriginsV1 src sourcePath spans with
+          | .ok inv => return .ok (src, inv)
+          | .error e =>
+              return .error <| .invalidProgram
+                s!"internal origin inventory join failed: {repr e}"
+
 unsafe def parseProgramsV1WithDiagnostics (session : ParserSession)
     (source fileName moduleName : String) :
     IO (Except (Array DiagnosticV1) (Array ValidatedSourceV1)) := do
@@ -450,6 +476,12 @@ unsafe def selectProgramV1WithSpans (source fileName moduleName : String)
     IO (Except CompileError (ValidatedSourceV1 × Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))) := do
   let session ← ParserSession.create
   session.selectProgramV1WithSpans source fileName moduleName requested
+
+unsafe def selectProgramV1WithOrigins (source fileName moduleName : String)
+    (requested : Option String) :
+    IO (Except CompileError (ValidatedSourceV1 × OriginInventoryV1)) := do
+  let session ← ParserSession.create
+  session.selectProgramV1WithOrigins source fileName moduleName requested
 
 unsafe def parseProgramsV1WithDiagnostics (source fileName moduleName : String) :
     IO (Except (Array DiagnosticV1) (Array ValidatedSourceV1)) := do

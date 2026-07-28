@@ -122,8 +122,10 @@ private unsafe def runParserBoundaryTest : IO DiagnosticV1 := do
       | some origin =>
           expect (origin.sourcePath.value == fileName)
             "parser-boundary origin sourcePath must be the caller-provided label"
-          expect (origin.nodeId == some errorSentinelNodeId)
-            "parser-boundary origin nodeId must be the documented zero sentinel (until B7)"
+          expect (origin.nodeId.isNone)
+            "parser-boundary origin nodeId must be none (B7a pre-node; no zero sentinel)"
+          expect (origin.nodeId == none)
+            "parser-boundary origin nodeId == none"
           let sourceLen := parserBoundarySource.toUTF8.size
           expect (origin.startByte ≤ origin.endByte)
             "parser-boundary origin span must be non-inverted"
@@ -163,8 +165,10 @@ private unsafe def runDuplicateTest : IO DiagnosticV1 := do
       | some origin =>
           expect (origin.sourcePath.value == fileName)
             "duplicate-program origin sourcePath must be the caller-provided label"
-          expect (origin.nodeId == some errorSentinelNodeId)
-            "duplicate-program origin nodeId must be the documented zero sentinel (until B7)"
+          expect (origin.nodeId.isNone)
+            "duplicate-program origin nodeId must be none (B7a pre-node; no zero sentinel)"
+          expect (origin.nodeId == none)
+            "duplicate-program origin nodeId == none"
           let sourceLen := duplicateSource.toUTF8.size
           expect (origin.startByte.toNat ≥ secondProgramStart)
             "duplicate-program origin must start at or before the second program command"
@@ -286,7 +290,7 @@ private def testRedaction : IO Unit := do
     sourcePath := badPath,
     startByte := 0,
     endByte := 1,
-    nodeId := some errorSentinelNodeId
+    nodeId := none
   }
   let badDiag := DiagnosticV1.make .sourceInvalid "leak" (primary := some badOrigin)
   match badDiag.toCanonicalJson with

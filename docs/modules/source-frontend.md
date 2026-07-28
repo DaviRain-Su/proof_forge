@@ -54,7 +54,9 @@ overflow state，并在退回合法 scope 后才构造 identity。CLI 不 elabor
 ## 迁移与兼容边界
 
 **sole source-reading 入口**为 `parseProgramsV1` / `selectProgramV1`（及 additive
-`selectProgramV1WithSpans` / `*WithDiagnostics`）。legacy source-reading/export decoder 家族
+`selectProgramV1WithSpans` / `selectProgramV1WithOrigins` / `*WithDiagnostics`）。
+`WithOrigins` 在同一 immutable snapshot 上串联 SpanJoin→OriginJoin，产出 opaque
+`OriginInventoryV1`（identity/canonical bytes/sourceHash 不变）。legacy source-reading/export decoder 家族
 （`parsePrograms`/`selectProgram`、`decodeProgramCommandChecked`、`decodeType`/`Param`/`Expr`/
 `Statement`/`Item`/`Program`、`proof-forge.program-export.v1` payload 路径）**已删除**；产品
 路径禁止 dual reader、legacy→ProgramV1 adapter 或第二套 ProgramV1 decoder。残存 alpha
@@ -86,9 +88,11 @@ negotiation、unknown/disabled/nonunique default。**`languageVersion` 永不进
 - 本模块规格不冻结 cgroup 布局、polling、OS API 或 host-probe 分类。
 
 诊断 pre-node 位置使用 diagnostic-only `DiagnosticOriginV1`（nullable `nodeId`）；common
-`SourceOrigin` 保持非空 `NodeId`。**B7** 是将 diagnostic 路径上 zero-sentinel 替换为显式
-`nodeId: null` 的实现切片；在 B7 完成前不得把 sentinel 当长期 public golden 语义，也**不**
-因本澄清声称代码已迁移。
+`SourceOrigin` 保持非空 `NodeId`。**B6** 结构化 carrier 已存在；**B7a** 已退役 zero-sentinel
+（parser/duplicate → `nodeId: null`），并提供 Source `DiagnosticLocateV1`（path draft →
+inventory exact lookup → `nodeId=some`）与 `NodeTraversalV1.childPathV1` sole path helpers。
+**B7b** Typed producers 真实路径归因与 **B8** public multi-error bundle 仍 pending；不得把
+B7a 写成 formal 完成或 Typed locate API 已接线。
 
 ## 边界与验收
 
