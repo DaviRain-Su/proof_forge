@@ -320,6 +320,59 @@ def run : IO Unit := do
   ]
   expect (wireMsgTable.size == 14)
     s!"SemanticWireErrorV1 product-message table size must be 14, got {wireMsgTable.size}"
+  -- Exhaustive test-local constructor→table membership guard (no wildcard /
+  -- catch-all). A new SemanticWireErrorV1 constructor makes this match
+  -- non-exhaustive at compile time until the independent table and this guard
+  -- are updated. Incomplete table fails at runtime when the missing ctor is
+  -- exercised below.
+  let tableWant
+      (e : ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1) : Option String :=
+    match e with
+    | .truncated =>
+        (wireMsgTable.find? (fun p => p.1 == .truncated)).map (·.2)
+    | .limitExceeded =>
+        (wireMsgTable.find? (fun p => p.1 == .limitExceeded)).map (·.2)
+    | .badMagic =>
+        (wireMsgTable.find? (fun p => p.1 == .badMagic)).map (·.2)
+    | .badTag =>
+        (wireMsgTable.find? (fun p => p.1 == .badTag)).map (·.2)
+    | .badFieldCount =>
+        (wireMsgTable.find? (fun p => p.1 == .badFieldCount)).map (·.2)
+    | .badScalar =>
+        (wireMsgTable.find? (fun p => p.1 == .badScalar)).map (·.2)
+    | .nonCanonical =>
+        (wireMsgTable.find? (fun p => p.1 == .nonCanonical)).map (·.2)
+    | .duplicate =>
+        (wireMsgTable.find? (fun p => p.1 == .duplicate)).map (·.2)
+    | .badReference =>
+        (wireMsgTable.find? (fun p => p.1 == .badReference)).map (·.2)
+    | .badType =>
+        (wireMsgTable.find? (fun p => p.1 == .badType)).map (·.2)
+    | .badCfg =>
+        (wireMsgTable.find? (fun p => p.1 == .badCfg)).map (·.2)
+    | .badRequirement =>
+        (wireMsgTable.find? (fun p => p.1 == .badRequirement)).map (·.2)
+    | .badProvenance =>
+        (wireMsgTable.find? (fun p => p.1 == .badProvenance)).map (·.2)
+    | .trailingBytes =>
+        (wireMsgTable.find? (fun p => p.1 == .trailingBytes)).map (·.2)
+  -- Drive every current constructor through the exhaustive guard (not only
+  -- rows already present in the table).
+  let allWireCtors : Array ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 := #[
+    .truncated, .limitExceeded, .badMagic, .badTag, .badFieldCount,
+    .badScalar, .nonCanonical, .duplicate, .badReference, .badType,
+    .badCfg, .badRequirement, .badProvenance, .trailingBytes
+  ]
+  expect (allWireCtors.size == 14)
+    s!"exhaustive SemanticWireErrorV1 constructor drive size must be 14, got {allWireCtors.size}"
+  for e in allWireCtors do
+    match tableWant e with
+    | some want =>
+        expect (Compiler.productMessageFromWireErrorV1 e == want)
+          s!"exhaustive tableWant {repr e}: productMessageFromWireErrorV1 expected {want}, got {Compiler.productMessageFromWireErrorV1 e}"
+    | none =>
+        throw <| IO.userError
+          s!"wireMsgTable missing independent row for constructor {repr e}"
   for i in [0:wireMsgTable.size] do
     for j in [i+1:wireMsgTable.size] do
       match wireMsgTable[i]?, wireMsgTable[j]? with
