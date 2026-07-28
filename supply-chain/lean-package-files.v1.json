@@ -421,9 +421,9 @@
       "sha256": "003f698a45e9382125bbc0467ed26977a0cce6fed50b10b134002d6be340dc89"
     },
     {
-      "bytes": 19381,
+      "bytes": 35859,
       "path": "ProofForgeV2/Typed/DisclosureCheckV1.lean",
-      "sha256": "9f9a0f94c1a22ec10f2f792ade89273a1c36a019de3d9b6a856926fe3d400b84"
+      "sha256": "b7565e2d947871d6b02f1bb2dc799a8229e60b2829bf89106d9c171953c652b1"
     },
     {
       "bytes": 37733,

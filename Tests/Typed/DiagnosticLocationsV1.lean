@@ -1,6 +1,6 @@
 /-
-  B7b1 + B7b2 + B7b3a: Typed diagnostic-draft path materialization through B7a
-  OriginInventoryV1.
+  B7b1 + B7b2 + B7b3a + B7b3b + B7b3c: Typed diagnostic-draft path materialization
+  through B7a OriginInventoryV1.
 
   B7b1 (name-resolution / call-graph):
   * unknown Place.Name primary path
@@ -37,6 +37,14 @@
   * every draft path ∈ canonicalNodeVisitsV1; locate exact NodeId sets
   * public checkProgramBounds* erase parity on code/message/order/ok/analysisComplete
   * duplicate-fn incomplete: no invented bound drafts
+
+  B7b3c (DisclosureCheckV1 producer paths):
+  * explicit sinks: assign/return/emit/revert/call/schedule/index/for/assert/const
+  * localCall → fn Param; state/param/local/const provenance + shadowing
+  * statement/expression match + binders; nested if/match PC taint + restore
+  * equal-label cause union; multi-error order; exact primary/related NodeIds
+  * every draft path ∈ canonicalNodeVisitsV1; VisibilityEvidence label parity
+  * public checkProgramDisclosure* erase parity; duplicate-fn incomplete
 -/
 import Tests.Language.ParserSession
 import ProofForgeV2.Core.Common
@@ -58,6 +66,7 @@ import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.CallGraphV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
+import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.EffectCheckV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
@@ -84,6 +93,7 @@ open ProofForgeV2.Source.WireV1
 open ProofForgeV2.Typed.BoundCheckV1
 open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.DiagnosticDraftV1
+open ProofForgeV2.Typed.DisclosureCheckV1
 open ProofForgeV2.Typed.EffectCheckV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
@@ -1995,6 +2005,634 @@ private unsafe def testBoundIncompleteDuplicateFn
   expect (!erased.analysisComplete) "bound-dup-fn: public incomplete"
   expect (!erased.ok) "bound-dup-fn: public not ok"
 
+/-- B7b3c: DisclosureCheck draft authority via Loader origins. -/
+private unsafe def discDraftsWithOrigins
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × OriginInventoryV1 × DisclosureCheckDraftResultV1) := do
+  let (validated, inv) ← selectWithOrigins session label source
+  let res := checkProgramDisclosureDraftsV1 validated
+  pure (validated, inv, res)
+
+private def expectDiscDraftPaths
+    (label : String) (inv : OriginInventoryV1) (prog : ProgramV1)
+    (drafts : Array TypedDiagnosticDraftV1) : IO Unit := do
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 prog)
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    expect (pathInVisits visits loc.primaryPath)
+      s!"{label}[{i}]: primary ∈ visits"
+    for (rp, j) in loc.relatedPaths.zipIdx do
+      expect (pathInVisits visits rp)
+        s!"{label}[{i}].related[{j}] ∈ visits"
+    expect (!loc.relatedPaths.any (· == loc.primaryPath))
+      s!"{label}[{i}]: primary excluded from related"
+  let located ← locateAll label inv drafts
+  expect (located.size == drafts.size) s!"{label}: locate size"
+  for (draft, i) in drafts.zipIdx do
+    let loc ← requireLocation s!"{label}[{i}]" draft
+    let primaryId ← expectNodeIdSome s!"{label}[{i}]" located[i]!.primary
+    expect (primaryId == (← inventoryNodeId inv loc.primaryPath s!"{label}[{i}] primary"))
+      s!"{label}[{i}]: primary NodeId exact"
+    expectRelatedNodeIdSet s!"{label}[{i}]" inv located[i]!.related loc.relatedPaths
+
+private def expectDiscEraseParity
+    (label : String) (validated : ValidatedSourceV1)
+    (draftRes : DisclosureCheckDraftResultV1) : IO Unit := do
+  let publicArr := checkProgramDisclosureV1 validated
+  let publicRes := checkProgramDisclosureResultV1 validated
+  eraseParity label draftRes.drafts publicArr
+  expect (draftRes.ok == publicRes.ok) s!"{label}: ok parity"
+  expect (draftRes.analysisComplete == publicRes.analysisComplete)
+    s!"{label}: analysisComplete parity"
+  expect (publicArr.map (·.code) == (eraseArray draftRes.drafts).map (·.code))
+    s!"{label}: code order parity"
+  expect (publicArr.map (·.message) == (eraseArray draftRes.drafts).map (·.message))
+    s!"{label}: message order parity"
+  expect (publicArr.all (fun d =>
+      d.code == .visibilityViolation || d.code == .sourceInvalid || d.code == .internal))
+    s!"{label}: public codes are vis/structural only"
+
+private def visitTag
+    (visits : Array NodeVisitV1) (path : NormalizedSyntacticPathV1) : Option String :=
+  (visits.find? (·.path == path)).map (·.constructorTag)
+
+/-- True when `child` is a proper extension of `parent` (strict prefix of path edges). -/
+private def pathIsProperExtensionOf
+    (parent child : NormalizedSyntacticPathV1) : Bool :=
+  child.size > parent.size && child.extract 0 parent.size == parent
+
+/-- B7b3c: joinVisibilityEvidence unit — label join + cause retention/union. -/
+private def testJoinVisibilityEvidenceUnit : IO Unit := do
+  let p1 : NormalizedSyntacticPathV1 :=
+    #[{ parentTag := "Synthetic", fieldTag := "a", index := 0 }]
+  let p2 : NormalizedSyntacticPathV1 :=
+    #[{ parentTag := "Synthetic", fieldTag := "b", index := 0 }]
+  let priv1 : VisibilityEvidence := { label := .private_, causes := #[p1] }
+  let pub1 : VisibilityEvidence := { label := .public_, causes := #[p2] }
+  let jPrivPub := joinVisibilityEvidence priv1 pub1
+  expect (jPrivPub.label == .private_)
+    "joinEvidence priv∪pub: label private (more-secret)"
+  expect (jPrivPub.causes == #[p1])
+    "joinEvidence priv∪pub: keeps only private causes"
+  let jPubPriv := joinVisibilityEvidence pub1 priv1
+  expect (jPubPriv.label == .private_)
+    "joinEvidence pub∪priv: label private"
+  expect (jPubPriv.causes == #[p1])
+    "joinEvidence pub∪priv: keeps only private causes"
+  let priv2 : VisibilityEvidence := { label := .private_, causes := #[p2] }
+  let jEq := joinVisibilityEvidence priv1 priv2
+  expect (jEq.label == .private_)
+    "joinEvidence priv∪priv: label private"
+  expect (jEq.causes == #[p1, p2])
+    "joinEvidence priv∪priv: stable-union first-seen left-then-right"
+  let jEqRev := joinVisibilityEvidence priv2 priv1
+  expect (jEqRev.causes == #[p2, p1])
+    "joinEvidence priv∪priv reverse: first-seen order preserved"
+  let comm : VisibilityEvidence := { label := .commitment, causes := #[p1] }
+  let jComm := joinVisibilityEvidence pub1 comm
+  expect (jComm.label == .commitment)
+    "joinEvidence pub∪commitment: label commitment"
+  expect (jComm.causes == #[p1])
+    "joinEvidence pub∪commitment: commitment causes only"
+  -- Equal public keeps empty∪nonempty union
+  let pubEmpty : VisibilityEvidence := publicEvidence
+  let jPub := joinVisibilityEvidence pubEmpty pub1
+  expect (jPub.label == .public_) "joinEvidence public∪public: label public"
+  expect (jPub.causes == #[p2]) "joinEvidence public∪public: stable-union causes"
+
+/-- Assign private param → public state: primary RHS Expr.Place; related Param+StateDecl+target. -/
+private unsafe def testDiscAssignLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscAssign where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry set(private x : UInt64) : UInt64 do\n" ++
+    "    total := x\n" ++
+    "    return total\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-assign" source
+  expect (!res.ok) "disc-assign: not ok"
+  expect res.analysisComplete "disc-assign: complete"
+  expect (res.drafts.size == 1) s!"disc-assign: one draft, got {res.drafts.size}"
+  let draft := res.drafts[0]!
+  expect (draft.diagnostic.code == .visibilityViolation) "disc-assign: code"
+  expect (draft.diagnostic.message ==
+      "disclosure violation: cannot flow 'private' into 'public'")
+    "disc-assign: message"
+  let loc ← requireLocation "disc-assign" draft
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-assign: primary Expr.Place (RHS)"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-assign: related Param"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "StateDecl")
+    "disc-assign: related StateDecl"
+  expect (loc.relatedPaths.any fun rp =>
+      visitTag visits rp == some "Place.Name")
+    "disc-assign: related target Place.Name"
+  expectDiscDraftPaths "disc-assign" inv validated.program res.drafts
+  expectDiscEraseParity "disc-assign" validated res
+
+/-- Private return: primary value expr; related Stmt.Return + EntryDecl + Param. -/
+private unsafe def testDiscReturnLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscReturn where\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-return" source
+  expect (!res.ok) "disc-return: not ok"
+  expect (res.drafts.size == 1) "disc-return: one draft"
+  let loc ← requireLocation "disc-return" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-return: primary Expr.Place"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Return")
+    "disc-return: related Stmt.Return"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "EntryDecl")
+    "disc-return: related EntryDecl"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-return: related Param cause"
+  expectDiscDraftPaths "disc-return" inv validated.program res.drafts
+  expectDiscEraseParity "disc-return" validated res
+
+/-- Emit + revert private arg: two drafts; primary each arg; related op stmts. -/
+private unsafe def testDiscEmitRevertLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscEmitRevert where\n" ++
+    "  event Ev(v : UInt64)\n" ++
+    "  error Boom(v : UInt64)\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    emit Ev(x)\n" ++
+    "    revert Boom(x)\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-emit-revert" source
+  expect (!res.ok) "disc-emit-revert: not ok"
+  expect (res.drafts.size ≥ 2) s!"disc-emit-revert: ≥2, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let loc0 ← requireLocation "disc-emit-revert[0]" res.drafts[0]!
+  let loc1 ← requireLocation "disc-emit-revert[1]" res.drafts[1]!
+  expect (visitTag visits loc0.primaryPath == some "Expr.Place")
+    "disc-emit-revert[0]: primary arg"
+  expect (loc0.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Emit")
+    "disc-emit-revert[0]: related Stmt.Emit"
+  expect (visitTag visits loc1.primaryPath == some "Expr.Place")
+    "disc-emit-revert[1]: primary arg"
+  expect (loc1.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Revert")
+    "disc-emit-revert[1]: related Stmt.Revert"
+  expectDiscDraftPaths "disc-emit-revert" inv validated.program res.drafts
+  expectDiscEraseParity "disc-emit-revert" validated res
+
+/-- Call + schedule private arg. -/
+private unsafe def testDiscCallScheduleLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscCallSchedule where\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    call External.Use(x)\n" ++
+    "    schedule External.Later(x)\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-call-sched" source
+  expect (!res.ok) "disc-call-sched: not ok"
+  expect (res.drafts.size ≥ 2) s!"disc-call-sched: ≥2, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let loc0 ← requireLocation "disc-call-sched[0]" res.drafts[0]!
+  let loc1 ← requireLocation "disc-call-sched[1]" res.drafts[1]!
+  expect (loc0.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Call")
+    "disc-call-sched[0]: related Stmt.Call"
+  expect (loc1.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Schedule")
+    "disc-call-sched[1]: related Stmt.Schedule"
+  expectDiscDraftPaths "disc-call-sched" inv validated.program res.drafts
+  expectDiscEraseParity "disc-call-sched" validated res
+
+/-- Private index: primary index expr; related Place.Index. -/
+private unsafe def testDiscIndexLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscIndex where\n" ++
+    "  state arr : Array UInt64 2\n" ++
+    "  entry run(private i : UInt64) : UInt64 do\n" ++
+    "    return arr[i]\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-index" source
+  expect (!res.ok) "disc-index: not ok"
+  expect (res.drafts.size ≥ 1) "disc-index: ≥1 draft"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  -- First violation is index public sink (during place walk before return).
+  let loc0 ← requireLocation "disc-index[0]" res.drafts[0]!
+  expect (visitTag visits loc0.primaryPath == some "Expr.Place")
+    "disc-index[0]: primary index Expr.Place"
+  expect (loc0.relatedPaths.any fun rp => visitTag visits rp == some "Place.Index")
+    "disc-index[0]: related Place.Index"
+  expectDiscDraftPaths "disc-index" inv validated.program res.drafts
+  expectDiscEraseParity "disc-index" validated res
+
+/-- localCall private arg → public fn param: primary arg; related =
+    entry Param secret (value cause) + drop params[0] (sink contract). -/
+private unsafe def testDiscLocalCallParamLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscLocalCall where\n" ++
+    "  fn drop(x : UInt64) : UInt64 do\n" ++
+    "    return 0\n" ++
+    "  entry run(private secret : UInt64) : UInt64 do\n" ++
+    "    let y : UInt64 := drop(secret)\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-local-call" source
+  expect (!res.ok) "disc-local-call: not ok"
+  expect (res.drafts.size == 1) s!"disc-local-call: one, got {res.drafts.size}"
+  let loc ← requireLocation "disc-local-call" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-local-call: primary arg Expr.Place"
+  let tables := (resolveProgramV1 validated).tables
+  let dropName ← mkName "drop"
+  let runName ← mkName "run"
+  let some fnPath := itemPathForNamed? tables .fn dropName |
+    throw <| IO.userError "disc-local-call: drop FnDecl path"
+  let some dropParamPath := fnParamPath? tables dropName 0 |
+    throw <| IO.userError "disc-local-call: drop params[0] path"
+  let some entryPath := itemPathForNamed? tables .entry runName |
+    throw <| IO.userError "disc-local-call: entry path"
+  let entryParamPath ←
+    liftResult "disc-local-call entry params[0]"
+      (childPathV1 entryPath "EntryDecl" "params" 0)
+  -- Exact related set under public PC: value-cause entry Param + sink drop Param.
+  expect (loc.relatedPaths.size == 2)
+    s!"disc-local-call: related size 2 (entry Param + drop Param), got {loc.relatedPaths.size}"
+  expect (loc.relatedPaths.any (· == entryParamPath))
+    "disc-local-call: related includes entry Param secret (value cause)"
+  expect (loc.relatedPaths.any (· == dropParamPath))
+    "disc-local-call: related includes drop params[0] (sink contract)"
+  expect (pathIsProperExtensionOf fnPath dropParamPath)
+    "disc-local-call: drop Param is proper child of FnDecl drop"
+  expect (loc.relatedPaths.any fun rp => pathIsProperExtensionOf fnPath rp)
+    "disc-local-call: some related path is child of drop FnDecl"
+  expect (pathIsProperExtensionOf entryPath entryParamPath)
+    "disc-local-call: entry Param is proper child of EntryDecl"
+  -- Sink contract Param is under drop, not a second entry-only Param set.
+  let dropRelatedParams := loc.relatedPaths.filter fun rp =>
+    pathIsProperExtensionOf fnPath rp && visitTag visits rp == some "Param"
+  expect (dropRelatedParams.size == 1)
+    s!"disc-local-call: exactly one related Param under drop, got {dropRelatedParams.size}"
+  expect (dropRelatedParams[0]! == dropParamPath)
+    "disc-local-call: drop-related Param == fnParamPath? drop 0"
+  expectDiscDraftPaths "disc-local-call" inv validated.program res.drafts
+  expectDiscEraseParity "disc-local-call" validated res
+
+/-- Const private state init: primary const value; related ConstDecl + StateDecl. -/
+private unsafe def testDiscConstLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscConst where\n" ++
+    "  state private secret : UInt64\n" ++
+    "  const leak : UInt64 := secret\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-const" source
+  expect (!res.ok) "disc-const: not ok"
+  expect (res.drafts.size == 1) "disc-const: one draft"
+  let loc ← requireLocation "disc-const" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-const: primary value Expr.Place"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "ConstDecl")
+    "disc-const: related ConstDecl"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "StateDecl")
+    "disc-const: related StateDecl cause"
+  expectDiscDraftPaths "disc-const" inv validated.program res.drafts
+  expectDiscEraseParity "disc-const" validated res
+
+/-- Assert private condition: primary condition; related Stmt.Assert. -/
+private unsafe def testDiscAssertLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscAssert where\n" ++
+    "  entry run(private flag : Bool) : UInt64 do\n" ++
+    "    assert flag\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-assert" source
+  expect (!res.ok) "disc-assert: not ok"
+  expect (res.drafts.size == 1) "disc-assert: one draft"
+  let loc ← requireLocation "disc-assert" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-assert: primary condition"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Assert")
+    "disc-assert: related Stmt.Assert"
+  expectDiscDraftPaths "disc-assert" inv validated.program res.drafts
+  expectDiscEraseParity "disc-assert" validated res
+
+/-- For private start/end: primary endpoint expr; related Stmt.For. -/
+private unsafe def testDiscForEndpointLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscFor where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry run(private priv : UInt64) : UInt64 do\n" ++
+    "    for i in 0 ..< priv bounded 10 do\n" ++
+    "      total := i\n" ++
+    "    return total\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-for" source
+  expect (!res.ok) "disc-for: not ok"
+  expect (res.drafts.size ≥ 1) "disc-for: ≥1"
+  let loc ← requireLocation "disc-for" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Place")
+    "disc-for: primary end Expr.Place"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.For")
+    "disc-for: related Stmt.For"
+  expectDiscDraftPaths "disc-for" inv validated.program res.drafts
+  expectDiscEraseParity "disc-for" validated res
+
+/-- If private condition taints public return: primary return value; related includes Param (PC). -/
+private unsafe def testDiscIfPcLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscIfPc where\n" ++
+    "  entry run(private flag : Bool) : UInt64 do\n" ++
+    "    if flag then\n" ++
+    "      return 1\n" ++
+    "    else\n" ++
+    "      return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-if-pc" source
+  expect (!res.ok) "disc-if-pc: not ok"
+  expect (res.drafts.size ≥ 2) s!"disc-if-pc: ≥2 arms, got {res.drafts.size}"
+  expect (res.drafts[0]!.diagnostic.message ==
+      "disclosure violation: cannot flow 'private' into 'public'")
+    "disc-if-pc: message uses joined PC label private"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  for i in [0:2] do
+    let loc ← requireLocation s!"disc-if-pc[{i}]" res.drafts[i]!
+    expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+      s!"disc-if-pc[{i}]: primary public literal"
+    expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+      s!"disc-if-pc[{i}]: PC cause Param"
+    expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Stmt.Return")
+      s!"disc-if-pc[{i}]: related Stmt.Return"
+  expectDiscDraftPaths "disc-if-pc" inv validated.program res.drafts
+  expectDiscEraseParity "disc-if-pc" validated res
+
+/-- Match statement private scrutinee: PC taint on public return arms. -/
+private unsafe def testDiscMatchStmtLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscMatchStmt where\n" ++
+    "  entry run(private flag : Bool) : UInt64 do\n" ++
+    "    match flag with\n" ++
+    "    | true => do\n" ++
+    "      return 1\n" ++
+    "    | false => do\n" ++
+    "      return 0\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-match-stmt" source
+  expect (!res.ok) "disc-match-stmt: not ok"
+  expect (res.drafts.size ≥ 2) s!"disc-match-stmt: ≥2, got {res.drafts.size}"
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  let loc ← requireLocation "disc-match-stmt[0]" res.drafts[0]!
+  expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+    "disc-match-stmt: primary literal"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-match-stmt: PC/scrut Param cause"
+  expectDiscDraftPaths "disc-match-stmt" inv validated.program res.drafts
+  expectDiscEraseParity "disc-match-stmt" validated res
+
+/-- Match expression private scrutinee returned: primary match expr; related Param. -/
+private unsafe def testDiscMatchExprLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscMatchExpr where\n" ++
+    "  entry run(private flag : Bool) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match flag with\n" ++
+    "      | true => 1\n" ++
+    "      | false => 0\n" ++
+    "      | _ => 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-match-expr" source
+  expect (!res.ok) "disc-match-expr: not ok"
+  expect (res.drafts.size ≥ 1) "disc-match-expr: ≥1"
+  let loc ← requireLocation "disc-match-expr" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Match")
+    "disc-match-expr: primary Expr.Match"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-match-expr: scrut Param cause"
+  expectDiscDraftPaths "disc-match-expr" inv validated.program res.drafts
+  expectDiscEraseParity "disc-match-expr" validated res
+
+/-- Binder inherits scrutinee: return of match expr ⇒ primary Expr.Match;
+    related includes Param (scrutinee/binder evidence). -/
+private unsafe def testDiscBinderLeakLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscBinder where\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match x with\n" ++
+    "      | y => y\n" ++
+    "      | _ => 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-binder" source
+  expect (!res.ok) "disc-binder: not ok"
+  expect (res.drafts.size ≥ 1) "disc-binder: ≥1"
+  let loc ← requireLocation "disc-binder" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  -- Primary = exact value expression submitted to return sink = the match expr.
+  expect (visitTag visits loc.primaryPath == some "Expr.Match")
+    "disc-binder: primary Expr.Match (return of match expr; not arm Place)"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-binder: Param cause from scrutinee/binder evidence"
+  expectDiscDraftPaths "disc-binder" inv validated.program res.drafts
+  expectDiscEraseParity "disc-binder" validated res
+
+/-- Multi-error source order: private then commitment assign. -/
+private unsafe def testDiscMultiErrorOrderLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscMulti where\n" ++
+    "  state a : UInt64\n" ++
+    "  state b : UInt64\n" ++
+    "  entry run(private x : UInt64, commitment y : UInt64) : UInt64 do\n" ++
+    "    a := x\n" ++
+    "    b := y\n" ++
+    "    return 0\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-multi" source
+  expect (!res.ok) "disc-multi: not ok"
+  expect (res.drafts.size ≥ 2) s!"disc-multi: ≥2, got {res.drafts.size}"
+  expect (res.drafts[0]!.diagnostic.message.contains "private")
+    "disc-multi: first private"
+  expect (res.drafts[1]!.diagnostic.message.contains "commitment")
+    "disc-multi: second commitment"
+  expectDiscDraftPaths "disc-multi" inv validated.program res.drafts
+  expectDiscEraseParity "disc-multi" validated res
+
+/-- Equal-label cause union: private x + private y returned → both Param causes;
+    end-to-end message uses joined label `private`. -/
+private unsafe def testDiscEqualLabelCauseUnion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscJoin where\n" ++
+    "  entry run(private x : UInt64, private y : UInt64) : UInt64 do\n" ++
+    "    return x + y\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-join" source
+  expect (!res.ok) "disc-join: not ok"
+  expect (res.drafts.size == 1) s!"disc-join: one draft, got {res.drafts.size}"
+  expect (res.drafts[0]!.diagnostic.message ==
+      "disclosure violation: cannot flow 'private' into 'public'")
+    "disc-join: message uses joined label private"
+  let loc ← requireLocation "disc-join" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Binary")
+    "disc-join: primary Expr.Binary"
+  let paramRelated := loc.relatedPaths.filter fun rp =>
+    visitTag visits rp == some "Param"
+  expect (paramRelated.size ≥ 2)
+    s!"disc-join: ≥2 Param causes (equal-label union), got {paramRelated.size}"
+  expectDiscDraftPaths "disc-join" inv validated.program res.drafts
+  expectDiscEraseParity "disc-join" validated res
+
+/-- Nested if PC restore: outer public after private branch still OK on public path;
+    private branch still reports. -/
+private unsafe def testDiscNestedIfPcRestore
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscNestedIf where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry run(private flag : Bool) : UInt64 do\n" ++
+    "    if flag then\n" ++
+    "      total := 1\n" ++
+    "    total := 0\n" ++
+    "    return total\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-nested-if" source
+  expect (!res.ok) "disc-nested-if: not ok"
+  -- Only the assign inside private if is a violation; later public assign/return OK.
+  expect (res.drafts.size == 1)
+    s!"disc-nested-if: exactly one (PC restored), got {res.drafts.size}"
+  let loc ← requireLocation "disc-nested-if" res.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 validated.program)
+  expect (visitTag visits loc.primaryPath == some "Expr.Literal")
+    "disc-nested-if: primary literal 1"
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-nested-if: PC Param"
+  expectDiscDraftPaths "disc-nested-if" inv validated.program res.drafts
+  expectDiscEraseParity "disc-nested-if" validated res
+
+/-- Shadowing: local public shadows private state; no VIS. Negative: private param → public. -/
+private unsafe def testDiscShadowingLocations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let okSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscShadowOk where\n" ++
+    "  state private total : UInt64\n" ++
+    "  entry run(amount : UInt64) : UInt64 do\n" ++
+    "    let total : UInt64 := amount\n" ++
+    "    return total\n"
+  let (vOk, invOk, resOk) ← discDraftsWithOrigins session "disc-shadow-ok" okSrc
+  expect resOk.ok "disc-shadow-ok: ok"
+  expect resOk.drafts.isEmpty "disc-shadow-ok: no drafts"
+  expectDiscEraseParity "disc-shadow-ok" vOk resOk
+  let _ := invOk
+
+  let negSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscShadowNeg where\n" ++
+    "  state private secret : UInt64\n" ++
+    "  state public_total : UInt64\n" ++
+    "  entry run(private secret : UInt64) : UInt64 do\n" ++
+    "    public_total := secret\n" ++
+    "    return 0\n"
+  let (vNeg, invNeg, resNeg) ← discDraftsWithOrigins session "disc-shadow-neg" negSrc
+  expect (!resNeg.ok) "disc-shadow-neg: not ok"
+  expect (resNeg.drafts.size == 1) "disc-shadow-neg: one"
+  let loc ← requireLocation "disc-shadow-neg" resNeg.drafts[0]!
+  let visits ← liftResult "visits" (canonicalNodeVisitsV1 vNeg.program)
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "Param")
+    "disc-shadow-neg: Param (not private state)"
+  -- Sink site may include public_total StateDecl; private state must not be the value cause.
+  expect (loc.relatedPaths.any fun rp => visitTag visits rp == some "StateDecl")
+    "disc-shadow-neg: related public sink StateDecl"
+  expectDiscDraftPaths "disc-shadow-neg" invNeg vNeg.program resNeg.drafts
+  expectDiscEraseParity "disc-shadow-neg" vNeg resNeg
+
+/-- Incomplete duplicate-fn: no invented VIS drafts. -/
+private unsafe def testDiscIncompleteDuplicateFn
+    (_session : Language.Loader.ParserSession) : IO Unit := do
+  let progName ← mkName "DiscDupFn"
+  let helper ← mkName "helper"
+  let runName ← mkName "run"
+  let ret0 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 0)))] }
+  let ret1 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 1)))] }
+  let u64 : TypeV1 := .uint 64
+  let fnA : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret0 }
+  let fnB : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret1 }
+  let entryDecl : EntryDeclV1 := { name := runName, params := #[], result := u64, body := ret0 }
+  let progAst : ProgramV1 :=
+    { name := progName, items := #[.fn fnA, .fn fnB, .entry entryDecl] }
+  let (tables, _) := (buildTables progAst).run {}
+  expect tables.fn.hasDuplicateKey "disc-dup-fn: hasDuplicateKey"
+  let draftRes := checkDisclosureDraftsV1 progAst tables
+  expect (!draftRes.analysisComplete) "disc-dup-fn: analysisComplete=false"
+  expect (!draftRes.ok) "disc-dup-fn: ok=false"
+  expect draftRes.drafts.isEmpty "disc-dup-fn: no VIS drafts"
+  let erased := checkDisclosureV1 progAst tables
+  expect (erased.diagnostics.isEmpty) "disc-dup-fn: public empty diags"
+  expect (!erased.analysisComplete) "disc-dup-fn: public incomplete"
+  expect (!erased.ok) "disc-dup-fn: public not ok"
+
+/-- All disclosure draft paths for a mixed sink program are in visits. -/
+private unsafe def testDiscAllDraftPathsInVisits
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DiscAllPaths where\n" ++
+    "  state total : UInt64\n" ++
+    "  event Ev(v : UInt64)\n" ++
+    "  entry run(private x : UInt64, private flag : Bool) : UInt64 do\n" ++
+    "    total := x\n" ++
+    "    if flag then\n" ++
+    "      emit Ev(0)\n" ++
+    "      return 1\n" ++
+    "    return x\n"
+  let (validated, inv, res) ← discDraftsWithOrigins session "disc-all" source
+  expect (!res.ok) "disc-all: not ok"
+  expect (res.drafts.size ≥ 3) s!"disc-all: ≥3, got {res.drafts.size}"
+  expectDiscDraftPaths "disc-all" inv validated.program res.drafts
+  expectDiscEraseParity "disc-all" validated res
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testUnknownPlaceName session
@@ -2049,6 +2687,27 @@ unsafe def run : IO Unit := do
   testBoundSiblingMultiOverflow session
   testBoundCycleThenLoopLocations session
   testBoundIncompleteDuplicateFn session
+  -- B7b3c DisclosureCheck locations
+  testJoinVisibilityEvidenceUnit
+  testDiscAssignLocations session
+  testDiscReturnLocations session
+  testDiscEmitRevertLocations session
+  testDiscCallScheduleLocations session
+  testDiscIndexLocations session
+  testDiscLocalCallParamLocations session
+  testDiscConstLocations session
+  testDiscAssertLocations session
+  testDiscForEndpointLocations session
+  testDiscIfPcLocations session
+  testDiscMatchStmtLocations session
+  testDiscMatchExprLocations session
+  testDiscBinderLeakLocations session
+  testDiscMultiErrorOrderLocations session
+  testDiscEqualLabelCauseUnion session
+  testDiscNestedIfPcRestore session
+  testDiscShadowingLocations session
+  testDiscIncompleteDuplicateFn session
+  testDiscAllDraftPathsInVisits session
   IO.println "Tests.Typed.DiagnosticLocationsV1: all assertions passed"
 
 end Tests.Typed.DiagnosticLocationsV1

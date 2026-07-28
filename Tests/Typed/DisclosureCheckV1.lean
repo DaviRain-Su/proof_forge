@@ -11,6 +11,11 @@
   for-loop endpoint public sinks, commitment lattice, shadowing, default=public,
   multi-error source order, human wire, and duplicate-fn incomplete analysis
   fail-closed.
+
+  B7b3c: draft authority erase parity — checkProgramDisclosureDraftsV1 /
+  checkDisclosureDraftsV1 erase to public code/message/count/order/ok/
+  analysisComplete for every existing positive/negative case (including
+  duplicate-fn incomplete with no invented VIS drafts).
   Engineering subset of TST-VIS-002 implicit disclosure only; authority/custody
   and formal TST-VIS-002 / TASK-D2-04 remain pending. Does not assert full
   product CLI ceremony.
@@ -23,6 +28,7 @@ import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
@@ -38,6 +44,7 @@ open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.DisclosureCheckV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
@@ -47,12 +54,48 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 
 private def moduleName : String := "Tests.DisclosureCheckV1"
 
+private unsafe def selectValidated
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO ValidatedSourceV1 := do
+  match ← session.selectProgramV1 source ("<disclosure-check-" ++ label ++ ">") moduleName none with
+  | .ok validated => pure validated
+  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
 private unsafe def checkSource
     (session : Language.Loader.ParserSession) (label source : String) :
     IO (Array DiagnosticV1) := do
-  match ← session.selectProgramV1 source ("<disclosure-check-" ++ label ++ ">") moduleName none with
-  | .ok validated => pure (checkProgramDisclosureV1 validated)
-  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+  let validated ← selectValidated session label source
+  pure (checkProgramDisclosureV1 validated)
+
+/-- B7b3c: eraseArray(drafts) matches public diagnostics on code/message/count/order
+    and ok/analysisComplete. -/
+private def expectEraseParity
+    (label : String) (validated : ValidatedSourceV1) : IO Unit := do
+  let draftRes := checkProgramDisclosureDraftsV1 validated
+  let publicArr := checkProgramDisclosureV1 validated
+  let publicRes := checkProgramDisclosureResultV1 validated
+  let erased := eraseArray draftRes.drafts
+  expect (draftRes.drafts.size == publicArr.size)
+    s!"{label}: erase size parity ({draftRes.drafts.size} vs {publicArr.size})"
+  expect (draftRes.ok == publicRes.ok) s!"{label}: ok parity"
+  expect (draftRes.analysisComplete == publicRes.analysisComplete)
+    s!"{label}: analysisComplete parity"
+  expect (publicRes.diagnostics.map (·.message) == publicArr.map (·.message))
+    s!"{label}: result vs array messages"
+  for i in [0:publicArr.size] do
+    expect (erased[i]!.code == publicArr[i]!.code) s!"{label}[{i}]: code"
+    expect (erased[i]!.message == publicArr[i]!.message) s!"{label}[{i}]: message"
+    expect (erased[i]!.phase == publicArr[i]!.phase) s!"{label}[{i}]: phase"
+    expect (erased[i]!.primary == none) s!"{label}[{i}]: erased primary empty"
+    expect (erased[i]!.related.isEmpty) s!"{label}[{i}]: erased related empty"
+    expect (publicArr[i]!.primary == none) s!"{label}[{i}]: public primary empty"
+
+private unsafe def checkSourceWithParity
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (Array DiagnosticV1) := do
+  let validated ← selectValidated session label source
+  expectEraseParity label validated
+  pure (checkProgramDisclosureV1 validated)
 
 private def messages (diags : Array DiagnosticV1) : Array String :=
   diags.map (fun d => d.message)
@@ -92,7 +135,7 @@ private unsafe def testPublicCounterOk
     "    return total\n" ++
     "  view get() : UInt64 do\n" ++
     "    return total\n"
-  let diags ← checkSource session "public-counter-ok" source
+  let diags ← checkSourceWithParity session "public-counter-ok" source
   expectOk diags "public-counter-ok"
 
 private unsafe def testPrivateLocalAssignOk
@@ -105,7 +148,7 @@ private unsafe def testPrivateLocalAssignOk
     "  entry set(private x : UInt64) : UInt64 do\n" ++
     "    secret := x\n" ++
     "    return 0\n"
-  let diags ← checkSource session "private-local-ok" source
+  let diags ← checkSourceWithParity session "private-local-ok" source
   expectOk diags "private-local-ok"
 
 private unsafe def testPrivateAssignToPublicRejected
@@ -118,7 +161,7 @@ private unsafe def testPrivateAssignToPublicRejected
     "  entry set(private x : UInt64) : UInt64 do\n" ++
     "    total := x\n" ++
     "    return total\n"
-  let diags ← checkSource session "private-assign-public" source
+  let diags ← checkSourceWithParity session "private-assign-public" source
   expectNotOk diags "private-assign-public"
   expectWireVis001 diags "private-assign-public"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -132,7 +175,7 @@ private unsafe def testPrivateReturnRejected
     "program PrivateReturn where\n" ++
     "  entry run(private x : UInt64) : UInt64 do\n" ++
     "    return x\n"
-  let diags ← checkSource session "private-return" source
+  let diags ← checkSourceWithParity session "private-return" source
   expectNotOk diags "private-return"
   expectWireVis001 diags "private-return"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -147,7 +190,7 @@ private unsafe def testPrivateViewReturnRejected
     "  state private secret : UInt64\n" ++
     "  view peek() : UInt64 do\n" ++
     "    return secret\n"
-  let diags ← checkSource session "private-view-return" source
+  let diags ← checkSourceWithParity session "private-view-return" source
   expectNotOk diags "private-view-return"
   expectWireVis001 diags "private-view-return"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -165,7 +208,7 @@ private unsafe def testPrivateEmitRevertRejected
     "    emit Ev(x)\n" ++
     "    revert Boom(x)\n" ++
     "    return 0\n"
-  let diags ← checkSource session "private-emit-revert" source
+  let diags ← checkSourceWithParity session "private-emit-revert" source
   expectNotOk diags "private-emit-revert"
   expectWireVis001 diags "private-emit-revert"
   let msgs := messages diags
@@ -186,7 +229,7 @@ private unsafe def testPrivateCallScheduleRejected
     "    call External.Use(x)\n" ++
     "    schedule External.Later(x)\n" ++
     "    return 0\n"
-  let diags ← checkSource session "private-call-schedule" source
+  let diags ← checkSourceWithParity session "private-call-schedule" source
   expectNotOk diags "private-call-schedule"
   expectWireVis001 diags "private-call-schedule"
   let msgs := messages diags
@@ -205,7 +248,7 @@ private unsafe def testPrivateIndexRejected
     "  state arr : Array UInt64 2\n" ++
     "  entry run(private i : UInt64) : UInt64 do\n" ++
     "    return arr[i]\n"
-  let diags ← checkSource session "private-index" source
+  let diags ← checkSourceWithParity session "private-index" source
   expectNotOk diags "private-index"
   expectWireVis001 diags "private-index"
   -- Index is a public-required sink; joined rvalue is also private → return sink.
@@ -225,7 +268,7 @@ private unsafe def testCommitmentLattice
     "  entry set(commitment x : UInt64) : UInt64 do\n" ++
     "    total := x\n" ++
     "    return 0\n"
-  let d1 ← checkSource session "commitment-to-public" toPublic
+  let d1 ← checkSourceWithParity session "commitment-to-public" toPublic
   expectNotOk d1 "commitment-to-public"
   expectWireVis001 d1 "commitment-to-public"
   unless contains (messages d1) (flowMsg "commitment" "public") do
@@ -240,7 +283,7 @@ private unsafe def testCommitmentLattice
     "  entry set(commitment x : UInt64) : UInt64 do\n" ++
     "    note := x\n" ++
     "    return 0\n"
-  let d2 ← checkSource session "commitment-to-commitment" toCommit
+  let d2 ← checkSourceWithParity session "commitment-to-commitment" toCommit
   expectOk d2 "commitment-to-commitment"
 
   -- private → commitment rejected
@@ -252,7 +295,7 @@ private unsafe def testCommitmentLattice
     "  entry set(private x : UInt64) : UInt64 do\n" ++
     "    note := x\n" ++
     "    return 0\n"
-  let d3 ← checkSource session "private-to-commitment" privToCommit
+  let d3 ← checkSourceWithParity session "private-to-commitment" privToCommit
   expectNotOk d3 "private-to-commitment"
   expectWireVis001 d3 "private-to-commitment"
   unless contains (messages d3) (flowMsg "private" "commitment") do
@@ -267,7 +310,7 @@ private unsafe def testCommitmentLattice
     "  entry set(amount : UInt64) : UInt64 do\n" ++
     "    secret := amount\n" ++
     "    return 0\n"
-  let d4 ← checkSource session "public-to-private" pubToPriv
+  let d4 ← checkSourceWithParity session "public-to-private" pubToPriv
   expectOk d4 "public-to-private"
 
 private unsafe def testShadowingLocalDoesNotLeakState
@@ -281,7 +324,7 @@ private unsafe def testShadowingLocalDoesNotLeakState
     "  entry run(amount : UInt64) : UInt64 do\n" ++
     "    let total : UInt64 := amount\n" ++
     "    return total\n"
-  let diags ← checkSource session "shadow-state" source
+  let diags ← checkSourceWithParity session "shadow-state" source
   expectOk diags "shadow-state"
 
   -- Param named like public state, private param must not assign to state via unshadowed name...
@@ -295,7 +338,7 @@ private unsafe def testShadowingLocalDoesNotLeakState
     "  entry run(private secret : UInt64) : UInt64 do\n" ++
     "    public_total := secret\n" ++
     "    return 0\n"
-  let dNeg ← checkSource session "shadow-param-neg" neg
+  let dNeg ← checkSourceWithParity session "shadow-param-neg" neg
   expectNotOk dNeg "shadow-param-neg"
   expectWireVis001 dNeg "shadow-param-neg"
   unless contains (messages dNeg) (flowMsg "private" "public") do
@@ -309,7 +352,7 @@ private unsafe def testHumanRenderUsesVisWire
     "program HumanWire where\n" ++
     "  entry run(private x : UInt64) : UInt64 do\n" ++
     "    return x\n"
-  let diags ← checkSource session "human-wire" source
+  let diags ← checkSourceWithParity session "human-wire" source
   expectNotOk diags "human-wire"
   let rendered := diags.map (·.renderHuman)
   unless rendered.any (·.startsWith "PF-VIS-001:") do
@@ -326,7 +369,7 @@ private unsafe def testDefaultVisibilityIsPublic
     "  entry set(private x : UInt64) : UInt64 do\n" ++
     "    total := x\n" ++
     "    return 0\n"
-  let diags ← checkSource session "default-public" source
+  let diags ← checkSourceWithParity session "default-public" source
   expectNotOk diags "default-public"
   expectWireVis001 diags "default-public"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -341,7 +384,7 @@ private unsafe def testDefaultVisibilityIsPublic
     "  entry set(public amount : UInt64) : UInt64 do\n" ++
     "    total := amount\n" ++
     "    return total\n"
-  let d2 ← checkSource session "explicit-public" explicit
+  let d2 ← checkSourceWithParity session "explicit-public" explicit
   expectOk d2 "explicit-public"
 
 private unsafe def testMultiErrorSourceOrder
@@ -356,7 +399,7 @@ private unsafe def testMultiErrorSourceOrder
     "    a := x\n" ++
     "    b := y\n" ++
     "    return 0\n"
-  let diags ← checkSource session "multi-error" source
+  let diags ← checkSourceWithParity session "multi-error" source
   expectNotOk diags "multi-error"
   expectWireVis001 diags "multi-error"
   let msgs := messages diags
@@ -391,6 +434,13 @@ private unsafe def testDuplicateFnFailClosed
     throw <| IO.userError "dup-fn: expected hasDuplicateKey on fn table"
   unless contains (st.diagnostics.map (·.message)) "duplicate fn declaration 'helper'" do
     throw <| IO.userError s!"dup-fn: buildTables missing duplicate diagnostic, got {st.diagnostics.map (·.message)}"
+  let draftRes := checkDisclosureDraftsV1 progAst tables
+  unless !draftRes.analysisComplete do
+    throw <| IO.userError "dup-fn: expected draft analysisComplete = false"
+  unless !draftRes.ok do
+    throw <| IO.userError "dup-fn: expected draft ok = false"
+  unless draftRes.drafts.isEmpty do
+    throw <| IO.userError s!"dup-fn: expected no VIS drafts, got {draftRes.drafts.size}"
   let res := checkDisclosureV1 progAst tables
   unless !res.analysisComplete do
     throw <| IO.userError "dup-fn: expected analysisComplete = false"
@@ -398,6 +448,8 @@ private unsafe def testDuplicateFnFailClosed
     throw <| IO.userError "dup-fn: expected ok = false"
   unless res.diagnostics.isEmpty do
     throw <| IO.userError s!"dup-fn: expected no flow diagnostics, got {messages res.diagnostics}"
+  -- Public erase of incomplete drafts is empty (no invented VIS).
+  expect (eraseArray draftRes.drafts).isEmpty "dup-fn: erase of incomplete empty"
   let composed :=
     if res.analysisComplete then res.diagnostics
     else st.diagnostics ++ res.diagnostics
@@ -416,7 +468,7 @@ private unsafe def testPrivateLetFlowsToPublicAssign
     "    let y : UInt64 := x\n" ++
     "    total := y\n" ++
     "    return 0\n"
-  let diags ← checkSource session "private-let" source
+  let diags ← checkSourceWithParity session "private-let" source
   expectNotOk diags "private-let"
   expectWireVis001 diags "private-let"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -435,7 +487,7 @@ private unsafe def testLocalCallArgIntoPublicParamRejected
     "  entry run(private secret : UInt64) : UInt64 do\n" ++
     "    let y : UInt64 := drop(secret)\n" ++
     "    return 0\n"
-  let d1 ← checkSource session "local-call-public-param" discarded
+  let d1 ← checkSourceWithParity session "local-call-public-param" discarded
   expectNotOk d1 "local-call-public-param"
   expectWireVis001 d1 "local-call-public-param"
   unless contains (messages d1) (flowMsg "private" "public") do
@@ -451,7 +503,7 @@ private unsafe def testLocalCallArgIntoPublicParamRejected
     "  entry run(commitment note : UInt64) : UInt64 do\n" ++
     "    let y : UInt64 := drop(note)\n" ++
     "    return 0\n"
-  let d2 ← checkSource session "local-call-commit-param" commitArg
+  let d2 ← checkSourceWithParity session "local-call-commit-param" commitArg
   expectNotOk d2 "local-call-commit-param"
   expectWireVis001 d2 "local-call-commit-param"
   unless contains (messages d2) (flowMsg "commitment" "public") do
@@ -469,7 +521,7 @@ private unsafe def testLocalCallPrivateToPrivateParamOk
     "  entry run(private secret : UInt64) : UInt64 do\n" ++
     "    let y : UInt64 := drop(secret)\n" ++
     "    return y\n"
-  let diags ← checkSource session "local-call-private-param" source
+  let diags ← checkSourceWithParity session "local-call-private-param" source
   expectOk diags "local-call-private-param"
 
 /-- Const defining expression is a public sink; private state cannot initialize it. -/
@@ -483,7 +535,7 @@ private unsafe def testConstPrivateStateRejected
     "  const leak : UInt64 := secret\n" ++
     "  entry run() : UInt64 do\n" ++
     "    return 0\n"
-  let diags ← checkSource session "const-private-state" source
+  let diags ← checkSourceWithParity session "const-private-state" source
   expectNotOk diags "const-private-state"
   expectWireVis001 diags "const-private-state"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -500,7 +552,7 @@ private unsafe def testConstReturnLaunderingRejected
     "  const leak : UInt64 := secret\n" ++
     "  entry run() : UInt64 do\n" ++
     "    return leak\n"
-  let diags ← checkSource session "const-return-launder" source
+  let diags ← checkSourceWithParity session "const-return-launder" source
   expectNotOk diags "const-return-launder"
   expectWireVis001 diags "const-return-launder"
   unless contains (messages diags) (flowMsg "private" "public") do
@@ -522,7 +574,7 @@ private unsafe def testMatchPrivateScrutineePublicArmsRejected
     "      return 0\n" ++
     "    | _ => do\n" ++
     "      return 0\n"
-  let d1 ← checkSource session "match-stmt-private-scrut" stmt
+  let d1 ← checkSourceWithParity session "match-stmt-private-scrut" stmt
   expectNotOk d1 "match-stmt-private-scrut"
   expectWireVis001 d1 "match-stmt-private-scrut"
   unless contains (messages d1) (flowMsg "private" "public") do
@@ -538,7 +590,7 @@ private unsafe def testMatchPrivateScrutineePublicArmsRejected
     "      | true => 1\n" ++
     "      | false => 0\n" ++
     "      | _ => 0\n"
-  let d2 ← checkSource session "match-expr-private-scrut" expr
+  let d2 ← checkSourceWithParity session "match-expr-private-scrut" expr
   expectNotOk d2 "match-expr-private-scrut"
   expectWireVis001 d2 "match-expr-private-scrut"
   unless contains (messages d2) (flowMsg "private" "public") do
@@ -554,7 +606,7 @@ private unsafe def testMatchPrivateScrutineePublicArmsRejected
     "      match x with\n" ++
     "      | y => y\n" ++
     "      | _ => 0\n"
-  let d3 ← checkSource session "match-binder-leak" binderLeak
+  let d3 ← checkSourceWithParity session "match-binder-leak" binderLeak
   expectNotOk d3 "match-binder-leak"
   expectWireVis001 d3 "match-binder-leak"
   unless contains (messages d3) (flowMsg "private" "public") do
@@ -573,7 +625,7 @@ private unsafe def testMatchPrivateScrutineePublicArmsRejected
     "      return 0\n" ++
     "    | _ => do\n" ++
     "      return 0\n"
-  let d4 ← checkSource session "match-public-scrut" pubMatch
+  let d4 ← checkSourceWithParity session "match-public-scrut" pubMatch
   expectOk d4 "match-public-scrut"
 
 /-- D2-04b PC-label: private/commitment if conditions taint public sinks. -/
@@ -589,7 +641,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "      return 1\n" ++
     "    else\n" ++
     "      return 0\n"
-  let d1 ← checkSource session "if-private-return" retLit
+  let d1 ← checkSourceWithParity session "if-private-return" retLit
   expectNotOk d1 "if-private-return"
   expectWireVis001 d1 "if-private-return"
   unless contains (messages d1) (flowMsg "private" "public") do
@@ -605,7 +657,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "    if flag then\n" ++
     "      total := 1\n" ++
     "    return total\n"
-  let d2 ← checkSource session "if-private-assign-public" assignPub
+  let d2 ← checkSourceWithParity session "if-private-assign-public" assignPub
   expectNotOk d2 "if-private-assign-public"
   expectWireVis001 d2 "if-private-assign-public"
   unless contains (messages d2) (flowMsg "private" "public") do
@@ -621,7 +673,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "    if flag then\n" ++
     "      total := 1\n" ++
     "    return total\n"
-  let d3 ← checkSource session "if-commit-assign-public" commitIf
+  let d3 ← checkSourceWithParity session "if-commit-assign-public" commitIf
   expectNotOk d3 "if-commit-assign-public"
   expectWireVis001 d3 "if-commit-assign-public"
   unless contains (messages d3) (flowMsg "commitment" "public") do
@@ -641,7 +693,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "      call External.Use(0)\n" ++
     "      schedule External.Later(0)\n" ++
     "    return 0\n"
-  let d4 ← checkSource session "if-private-effects" effects
+  let d4 ← checkSourceWithParity session "if-private-effects" effects
   expectNotOk d4 "if-private-effects"
   expectWireVis001 d4 "if-private-effects"
   unless contains (messages d4) (flowMsg "private" "public") do
@@ -659,7 +711,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "    if flag then\n" ++
     "      secret := x\n" ++
     "    return 0\n"
-  let d5 ← checkSource session "if-private-to-private" privOk
+  let d5 ← checkSourceWithParity session "if-private-to-private" privOk
   expectOk d5 "if-private-to-private"
 
   -- public if with public sinks OK
@@ -674,7 +726,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "      return 1\n" ++
     "    else\n" ++
     "      return 0\n"
-  let d6 ← checkSource session "if-public-ok" pubIf
+  let d6 ← checkSourceWithParity session "if-public-ok" pubIf
   expectOk d6 "if-public-ok"
 
   -- Explicit private→public assign without branch still fails (value flow).
@@ -686,7 +738,7 @@ private unsafe def testIfPrivateConditionPublicSinksRejected
     "  entry run(private x : UInt64) : UInt64 do\n" ++
     "    total := x\n" ++
     "    return 0\n"
-  let d7 ← checkSource session "explicit-no-branch" explicit
+  let d7 ← checkSourceWithParity session "explicit-no-branch" explicit
   expectNotOk d7 "explicit-no-branch"
   expectWireVis001 d7 "explicit-no-branch"
   unless contains (messages d7) (flowMsg "private" "public") do
@@ -707,7 +759,7 @@ private unsafe def testAssertConditionPublicSinkNoPcRaise
     "    assert flag\n" ++
     "    total := 1\n" ++
     "    return total\n"
-  let d0 ← checkSource session "assert-public-ok" pubOk
+  let d0 ← checkSourceWithParity session "assert-public-ok" pubOk
   expectOk d0 "assert-public-ok"
 
   -- Private assert condition is itself a public-effect sink.
@@ -720,7 +772,7 @@ private unsafe def testAssertConditionPublicSinkNoPcRaise
     "    assert flag\n" ++
     "    total := 1\n" ++
     "    return total\n"
-  let d1 ← checkSource session "assert-private-cond" priv
+  let d1 ← checkSourceWithParity session "assert-private-cond" priv
   expectNotOk d1 "assert-private-cond"
   expectWireVis001 d1 "assert-private-cond"
   unless contains (messages d1) (flowMsg "private" "public") do
@@ -734,7 +786,7 @@ private unsafe def testAssertConditionPublicSinkNoPcRaise
     "  entry run(private flag : Bool) : UInt64 do\n" ++
     "    assert flag\n" ++
     "    return 0\n"
-  let d2 ← checkSource session "assert-private-only" privOnly
+  let d2 ← checkSourceWithParity session "assert-private-only" privOnly
   expectNotOk d2 "assert-private-only"
   expectWireVis001 d2 "assert-private-only"
   unless contains (messages d2) (flowMsg "private" "public") do
@@ -748,7 +800,7 @@ private unsafe def testAssertConditionPublicSinkNoPcRaise
     "  entry run(commitment flag : Bool) : UInt64 do\n" ++
     "    assert flag\n" ++
     "    return 0\n"
-  let d3 ← checkSource session "assert-commit-cond" commit
+  let d3 ← checkSourceWithParity session "assert-commit-cond" commit
   expectNotOk d3 "assert-commit-cond"
   expectWireVis001 d3 "assert-commit-cond"
   unless contains (messages d3) (flowMsg "commitment" "public") do
@@ -766,7 +818,7 @@ private unsafe def testForEndpointsPublicSink
     "    for i in priv ..< n bounded 10 do\n" ++
     "      total := i\n" ++
     "    return total\n"
-  let d1 ← checkSource session "for-priv-start" privStart
+  let d1 ← checkSourceWithParity session "for-priv-start" privStart
   expectNotOk d1 "for-priv-start"
   expectWireVis001 d1 "for-priv-start"
   unless contains (messages d1) (flowMsg "private" "public") do
@@ -781,7 +833,7 @@ private unsafe def testForEndpointsPublicSink
     "    for i in 0 ..< priv bounded 10 do\n" ++
     "      total := i\n" ++
     "    return total\n"
-  let d2 ← checkSource session "for-priv-end" privEnd
+  let d2 ← checkSourceWithParity session "for-priv-end" privEnd
   expectNotOk d2 "for-priv-end"
   expectWireVis001 d2 "for-priv-end"
   unless contains (messages d2) (flowMsg "private" "public") do
@@ -796,7 +848,7 @@ private unsafe def testForEndpointsPublicSink
     "    for i in 0 ..< note bounded 10 do\n" ++
     "      total := i\n" ++
     "    return total\n"
-  let d3 ← checkSource session "for-commit-end" commitEnd
+  let d3 ← checkSourceWithParity session "for-commit-end" commitEnd
   expectNotOk d3 "for-commit-end"
   expectWireVis001 d3 "for-commit-end"
   unless contains (messages d3) (flowMsg "commitment" "public") do
@@ -812,7 +864,7 @@ private unsafe def testForEndpointsPublicSink
     "    for i in 0 ..< n bounded 10 do\n" ++
     "      total := i\n" ++
     "    return total\n"
-  let d4 ← checkSource session "for-public-ok" pubOk
+  let d4 ← checkSourceWithParity session "for-public-ok" pubOk
   expectOk d4 "for-public-ok"
 
 unsafe def run : IO Unit := do
