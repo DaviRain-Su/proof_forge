@@ -39,6 +39,7 @@ import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ProgramV1SpanJoin
 import Tests.Language.ProgramV1Diagnostics
 import Tests.Language.ProgramV1Bounds
+import Tests.Language.ProgramV1SourceFullTagGolden
 import Tests.Core.DiagnosticV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
@@ -89,6 +90,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1SpanJoin.run
   Tests.Language.ProgramV1Diagnostics.run
   Tests.Language.ProgramV1Bounds.run
+  Tests.Language.ProgramV1SourceFullTagGolden.run
   Tests.Core.DiagnosticV1.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run

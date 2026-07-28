@@ -13,6 +13,18 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+
+## 2026-07-29 — B3 source-driven full-tag ProgramV1 golden
+
+- Context/State：constructed `full-tag-v1` wire golden 已存在且为 field-count/marker/unknown-tag/boundary 负例 base；产品仍缺 source→ValidatedSourceV1 全 tag 的 source-driven golden（command/export 与 Loader 双路径字节/identity/span 对齐）。本切片工程-only 冻结 source-driven package，不碰 formal TASK/TST/EV，不改 constructed full-tag-v1。
+- RED/Changed（tests first）：新增 `Tests/Language/ProgramV1SourceFullTagGolden.lean`（Fast/Tests/lakefile 注册）。实现前真实 RED：`uncaught exception: missing source-full-tag-v1/canonical.bin`。
+- Package：`testdata/golden/source-program-v1/source-full-tag-v1/{source.lean,canonical.bin,manifest.json}`；`source.lean` 为 sole legal DSL authority（module FQN `Tests.Language.ProgramV1SourceFullTagGolden.Source` + `FullTag`；ordinary `café` 与 escaped `«raw.with.dot»` raw identity）；闭合 84 wire / 57 node / 63 edge。
+- Suite：独立 `programPayloadV2` command/export path vs `selectProgramV1WithSpans` Loader path；固定 identity、canonical root bytes、sourceHash、NodeId preorder、span count/path/tag 与 representative exact spans；不手建 authoritative ProgramV1。
+- Oracle：`scripts/reference_source_program_v1_source_golden.py` 独立建模 source-derived value/offsets/encoder（`--self-check`/`--emit`；无 Lean/project import）。
+- Docs：`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` TASK-D1-01 事实行、本日志；formal 状态不变；constructed full-tag-v1 未改。
+- Verification：focused build/fast harness、python self-check、package files present；随后 sbom/diff/docs/dev-check/ci。
+- Boundary：formal TASK 仍 pending/blocked；无 dual reader/fallback；无 target maturity 变化；无 release/governance 路径。
+
 ## 2026-07-29 — B2 ProgramV1 source-bound engineering gate recovery
 
 - Context/State：legacy `Tests/Language/SourceBoundsAcceptance.lean` 已删除且 `dsl-negative` 仅作 quarantine inventory；Root-aware total program identity 溢出（`Root`+255 namespaces+decl = 257）曾落到 `PF-SRC-INVALID: source qualified name must contain 1..256 components`，与 SPEC 的 `PF-BOUND-001` 资源界不一致。本切片恢复完整 ProgramV1 source-bound 工程门禁，不碰 formal TASK/TST/EV。

@@ -71,6 +71,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1SpanJoin,
     `Tests.Language.ProgramV1Diagnostics,
     `Tests.Language.ProgramV1Bounds,
+    `Tests.Language.ProgramV1SourceFullTagGolden.Source,
+    `Tests.Language.ProgramV1SourceFullTagGolden,
     `Tests.Language.AggregateDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
