@@ -12,7 +12,8 @@
   nonempty/typed-value uniqueness), loop bounds, per-callable EffectId
   assignment, ValueId SSA/use-existence/
   dominance, def-site TypeId range,
-  block/terminator typing, and step-j per-op contracts
+  block/terminator typing, step-j per-op contracts, invariant-closure
+  membership/DAG/CFG/op restrictions, and exact checked computedInvariantSteps
   are pinned; provenance join/normalizer/product wire remain pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
@@ -2599,8 +2600,8 @@ private def testNonClosureCallableInvariantSteps : IO Unit := do
 
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root fuel presence: every
     `kind=invariant` root carries `some invariantSteps`. Transitive pureFn
-    membership, exact computation, DAG/op validation, and the 10M ceiling are
-    separate post-CFG gates.
+    membership, DAG/op validation, exact checked computation, and the 10M
+    ceiling are separate post-CFG gates.
     All cases drive both the structure and encoder gates. -/
 private def testInvariantRootStepsPresence : IO Unit := do
   let rootWithoutSteps : CallableV1 := {
@@ -2656,10 +2657,9 @@ private def testInvariantRootStepsPresence : IO Unit := do
   expectCfgErr "N3 invariant root steps before def-site TypeId" n3
 
 /-- SPEC-SEM-WIRE-001 §8 intrinsic invariant fuel ceiling: every present
-    `invariantSteps` value is at most 10,000,000. This gate runs after complete
-    per-callable CFG and exact closure-membership validation and before
-    requirements; exact computation, DAG/op closure, and checked accumulation
-    are separate. -/
+    `invariantSteps` value is at most 10,000,000. Exact checked closure
+    computation now runs first in the same fuel phase; this suite retains the
+    scalar boundary and earlier-phase precedence cases. -/
 private def testInvariantStepsIntrinsicCeiling : IO Unit := do
   let simpleRoot := cfgCallableKindName .invariant (some "safe")
   let p1Base ← programWithTypes "InvCeilingP1Exact" cfgBoolTypes #[]
@@ -2668,20 +2668,21 @@ private def testInvariantStepsIntrinsicCeiling : IO Unit := do
     p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
   expectCfgOk "P1 exact simple invariant steps below ceiling" p1
-  -- Equality with the ceiling passes this bounded gate; a later bad requirement
-  -- makes the carrier invalid without asserting that the non-exact step value
-  -- is a complete valid invariant program.
+  -- A carried value at the scalar ceiling is still invalid when it does not
+  -- equal the exact computed value; exact computation precedes requirements.
   let rootAtCeiling : CallableV1 := {
     simpleRoot with invariantSteps := some 10000000
   }
-  let p2Base ← programWithTypes "InvCeilingP2Boundary" cfgBoolTypes #[]
+  let p2Base ← programWithTypes "InvCeilingP2NonExact" cfgBoolTypes #[]
     #[rootAtCeiling]
   let p2 : SemanticProgramDataV1 := {
     p2Base with
       invariants := #[{ id := 0, name := "safe", callableId := 0 }]
       requirements := { items := #[req "notadomain.boundary"] }
   }
-  expectCfgErrCode "P2 ceiling equality reaches requirements" .badRequirement p2
+  expectCfgErrCode "P2 carried ceiling but non-exact" .badCfg p2
+  expectCfgInvariantPhase "P2 exact computation before requirements"
+    .invariantFuel .badCfg p2
   let rootOverCeiling : CallableV1 := {
     simpleRoot with invariantSteps := some 10000001
   }
@@ -2747,6 +2748,183 @@ private def testInvariantStepsIntrinsicCeiling : IO Unit := do
   }
   expectCfgErrCode "N5 canonical value before invariant ceiling"
     .nonCanonical n5
+
+/-- SPEC §8 exact checked `computedInvariantSteps` over the already-validated
+    invariant-closure DAG. The count is `1 + Σ(block.instructions.size + 1)`
+    plus the computed callee count for every static PureCall occurrence.
+    Positives cover leaf/transitive/duplicate-call/multi-block shapes;
+    negatives isolate exact metadata mismatch, duplicate-edge undercount,
+    closure accumulation above the intrinsic ceiling, and phase order. -/
+private def testInvariantStepsExactComputation : IO Unit := do
+  let simpleRoot := cfgCallableKindName .invariant (some "safe")
+  let p1Base ← programWithTypes "InvExactP1LeafRoot" cfgBoolTypes #[]
+    #[simpleRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P1 exact leaf invariant steps" p1
+  let leaf : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "leaf"
+      invariantSteps := some 3
+  }
+  let directRoot : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 6
+  }
+  let p2Base ← programWithTypes "InvExactP2Direct" cfgBoolTypes #[]
+    #[leaf, directRoot]
+  let p2 : SemanticProgramDataV1 := {
+    p2Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P2 direct closure exact steps" p2
+  let duplicateRoot : CallableV1 := {
+    directRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[]),
+          cfgInstr (some (cfgValueDef 1)) (.pureCall 0 #[])]
+        (.return_ (some 1))]
+      invariantSteps := some 10
+  }
+  let p3Base ← programWithTypes "InvExactP3DuplicateCalls" cfgBoolTypes #[]
+    #[leaf, duplicateRoot]
+  let p3 : SemanticProgramDataV1 := {
+    p3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P3 duplicate PureCall occurrences counted" p3
+  let multiBlockRoot : CallableV1 := {
+    (cfgCallable #[] ) with
+      id := 0
+      kind := .invariant
+      name := some "safe"
+      blocks := #[
+        cfgBlockInstrs 0
+          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+          (.jump (cfgJumpTarget 1)),
+        cfgBlockInstrs 1
+          #[cfgInstr (some (cfgValueDef 1)) (.unary .not 0)]
+          (.return_ (some 1))]
+      invariantSteps := some 5
+  }
+  let p4Base ← programWithTypes "InvExactP4MultiBlock" cfgBoolTypes #[]
+    #[multiBlockRoot]
+  let p4 : SemanticProgramDataV1 := {
+    p4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgOk "P4 every block terminator counted" p4
+  let wrongLeafRoot : CallableV1 := {
+    simpleRoot with invariantSteps := some 3
+  }
+  let n1Base ← programWithTypes "InvExactN1LeafMismatch" cfgBoolTypes #[]
+    #[wrongLeafRoot]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N1 leaf root exact mismatch" .badCfg n1
+  expectCfgInvariantPhase "N1 leaf mismatch fuel phase"
+    .invariantFuel .badCfg n1
+  let wrongLeaf : CallableV1 := { leaf with invariantSteps := some 4 }
+  let n2Base ← programWithTypes "InvExactN2CalleeMismatch" cfgBoolTypes #[]
+    #[wrongLeaf, directRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N2 closure callee exact mismatch" .badCfg n2
+  expectCfgInvariantPhase "N2 callee mismatch fuel phase"
+    .invariantFuel .badCfg n2
+  let wrongDirectRoot : CallableV1 := {
+    directRoot with invariantSteps := some 7
+  }
+  let n3Base ← programWithTypes "InvExactN3RootMismatch" cfgBoolTypes #[]
+    #[leaf, wrongDirectRoot]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 caller exact mismatch" .badCfg n3
+  expectCfgInvariantPhase "N3 caller mismatch fuel phase"
+    .invariantFuel .badCfg n3
+  let undercountedDuplicateRoot : CallableV1 := {
+    duplicateRoot with invariantSteps := some 7
+  }
+  let n4Base ← programWithTypes "InvExactN4DuplicateUndercount" cfgBoolTypes #[]
+    #[leaf, undercountedDuplicateRoot]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N4 duplicate PureCall undercount" .badCfg n4
+  expectCfgInvariantPhase "N4 duplicate undercount fuel phase"
+    .invariantFuel .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-exact-steps"] }
+  }
+  expectCfgErrCode "N5 exact mismatch before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 exact mismatch fuel before requirements"
+    .invariantFuel .badCfg n5
+  let badCfgWrongRoot : CallableV1 := {
+    wrongLeafRoot with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 1)]
+        (.return_ none)]
+  }
+  let n6Base ← programWithTypes "InvExactN6CfgFirst" cfgBoolTypes #[]
+    #[badCfgWrongRoot]
+  let n6 : SemanticProgramDataV1 := {
+    n6Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N6 CFG before exact steps" .badReference n6
+  expectCfgInvariantPhase "N6 CFG phase before exact steps"
+    .cfg .badReference n6
+  -- Hard-coded exact metadata for a duplicate-call chain through pureFn id 20.
+  -- The invariant root repeats that same shape and computes to 14,680,060,
+  -- above the 10M intrinsic ceiling, while all carried metadata remains ≤10M.
+  let exactPureSteps : Array UInt64 := #[
+    3, 10, 24, 52, 108, 220, 444, 892, 1788, 3580, 7164,
+    14332, 28668, 57340, 114684, 229372, 458748, 917500,
+    1835004, 3670012, 7340028]
+  let mut largeClosure : Array CallableV1 := #[{
+    leaf with name := some "f0", invariantSteps := some exactPureSteps[0]!
+  }]
+  for index in [1:exactPureSteps.size] do
+    let calleeId := UInt32.ofNat (index - 1)
+    let callable : CallableV1 := {
+      (cfgCallable #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall calleeId #[]),
+          cfgInstr (some (cfgValueDef 1)) (.pureCall calleeId #[])]
+        (.return_ (some 1))]) with
+        id := UInt32.ofNat index
+        name := some s!"f{index}"
+        invariantSteps := some exactPureSteps[index]!
+    }
+    largeClosure := largeClosure.push callable
+  let largeRootId := UInt32.ofNat exactPureSteps.size
+  let largeCalleeId := UInt32.ofNat (exactPureSteps.size - 1)
+  let largeRoot : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall largeCalleeId #[]),
+        cfgInstr (some (cfgValueDef 1)) (.pureCall largeCalleeId #[])]
+      (.return_ (some 1))]) with
+      id := largeRootId
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some maxInvariantStepsV1
+  }
+  largeClosure := largeClosure.push largeRoot
+  let n7Base ← programWithTypes "InvExactN7ComputedAboveCeiling" cfgBoolTypes #[]
+    largeClosure
+  let n7 : SemanticProgramDataV1 := {
+    n7Base with invariants := #[{ id := 0, name := "safe", callableId := largeRootId }]
+  }
+  expectCfgErrCode "N7 computed closure exceeds intrinsic ceiling" .badCfg n7
+  expectCfgInvariantPhase "N7 checked accumulation fuel phase"
+    .invariantFuel .badCfg n7
 
 private def testCfgShapeAndReachability : IO Unit := do
   -- Positive 1: single-block callable, return terminator (re-pin).
@@ -4343,6 +4521,7 @@ private def testInvariantPureFnClosureMembership : IO Unit := do
       blocks := #[cfgBlockInstrs 0
         #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
         (.return_ (some 0))]
+      invariantSteps := some 3
   }
   let p2Base ← programWithTypes "InvClosureMembershipP2UnusedNone"
     cfgBoolTypes #[] #[unused, literalRoot]
@@ -7411,6 +7590,7 @@ def run : IO Unit := do
   testNonClosureCallableInvariantSteps
   testInvariantRootStepsPresence
   testInvariantStepsIntrinsicCeiling
+  testInvariantStepsExactComputation
   testInvariantRootStateStoreProhibited
   testInvariantRootContextReadProhibited
   testInvariantRootCommitProhibited

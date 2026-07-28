@@ -67,6 +67,10 @@ import ProofForgeV2.Core.Unicode
       `Op.StateStore`, `Op.ContextRead`, `Op.Commit`, `Op.Emit`,
       `Op.ExternalCall`, and `Op.Schedule`; invariant-root direct StateLoad and
       unreachable pureFns retain their separate documented scope (`.badCfg`)
+    - post-CFG `computedInvariantSteps` is exact over the closure DAG: checked
+      local block/instruction/terminator cost plus every static PureCall
+      occurrence, including duplicates, via a reverse Kahn pass; carried
+      metadata must match and the computed value must stay ≤10M (`.badCfg`)
     - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
       before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
@@ -93,9 +97,8 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: full TypeKey
-    anonymous ranking/interning, exact invariant-closure checked step
-    computation, provenance inventory join, ProgramV1 normalizer, product
+  * Not yet: full TypeKey anonymous ranking/interning, provenance inventory
+    join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
@@ -3565,7 +3568,8 @@ private def validateInvariantLoopBoundsShapeV1 (callables : Array CallableV1) :
     `Op.PureCall` callees. When no invariant callable exists, every pureFn is
     also provably rootless and therefore outside all closures. Exact transitive
     pureFn membership, reachable call-graph DAG, and closure-CFG acyclicity are
-    checked post-CFG; exact step computation and op validation remain separate. -/
+    checked post-CFG; op restrictions and exact checked step computation follow
+    those structural gates. -/
 private def validateNonClosureCallableInvariantStepsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let hasInvariantRoot := callables.any (·.kind == .invariant)
@@ -3585,9 +3589,8 @@ private def validateNonClosureCallableInvariantStepsV1
 
 /-- Every invariant root carries fuel metadata (SPEC §8). This bounded gate
     validates `some` presence only; exact pureFn membership, reachable
-    call-graph DAG, and closure-CFG acyclicity are checked post-CFG, while exact
-    step computation, op validation, and checked accumulation remain separate.
-    The intrinsic ceiling is checked post-CFG. This presence
+    call-graph DAG, closure-CFG acyclicity, op restrictions, and exact checked
+    step computation are checked post-CFG. This presence
     gate runs after non-closure absence checks and before declaration join/CFG
     validation. -/
 private def validateInvariantRootStepsPresenceV1
@@ -3664,8 +3667,8 @@ private def computeInvariantClosureMembershipV1
 /-- A pureFn carries invariant fuel metadata iff it is transitively reachable
     from an invariant root through `Op.PureCall` (SPEC §8). Presence is checked
     here after complete generic CFG/op validation; reachable call-graph DAG
-    and closure-CFG acyclicity validation run next, while op allowlists and
-    exact checked step values remain separate slices. Other callable-kind
+    and closure-CFG acyclicity validation run next; op restrictions and exact
+    checked step values follow in later post-CFG subphases. Other callable-kind
     presence rules remain in the earlier signature gates. -/
 private def validatePureFnInvariantClosureMembershipV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
@@ -3687,7 +3690,7 @@ private def validatePureFnInvariantClosureMembershipV1
     duplicate static edges independently, and processes each member once.
     Generic CFG/op typing and exact membership already ran; all edge facts are
     rechecked fail-closed. Unreachable pureFn cycles are outside this gate.
-    Closure-CFG back edges and exact step computation remain separate. -/
+    Closure-CFG back edges and exact step computation run afterward. -/
 private def validateInvariantClosureCallGraphDagV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let members ← computeInvariantClosureMembershipV1 callables
@@ -3781,11 +3784,92 @@ private def validateInvariantClosurePureFnOpsV1
                 | _ => pure ()
   pure ()
 
+/-- Add one contribution to an invariant step total without wraparound. The
+    schema-fixed 10M ceiling is stricter than UInt64 overflow, so rejecting as
+    soon as this bound is crossed simultaneously enforces checked UInt64
+    accumulation and the intrinsic limit (SPEC §8). -/
+private def addInvariantStepsCheckedV1 (lhs rhs : UInt64) :
+    Except SemanticWireErrorV1 UInt64 := do
+  let total := lhs.toNat + rhs.toNat
+  if maxInvariantStepsV1.toNat < total then return ← err .badCfg
+  pure (UInt64.ofNat total)
+
+/-- Compute and validate exact `computedInvariantSteps` for every callable in
+    the already-validated invariant-closure DAG (SPEC §8). Local cost is
+    `1 + sum(block.instructions.size + 1)`; every static PureCall occurrence
+    adds its callee's full computed cost, including duplicate edges. A reverse
+    adjacency Kahn pass starts at leaves, so each instruction edge and closure
+    member is processed once. Generic CFG/op typing, exact closure membership,
+    call-graph DAG, closure-CFG acyclicity, and op restrictions have already
+    run; every fact is nevertheless rechecked fail-closed. -/
+private def validateInvariantStepsExactV1
+    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+  let members ← computeInvariantClosureMembershipV1 callables
+  let callableCount := callables.size
+  let mut remainingCalls := Array.mk (List.replicate callableCount 0)
+  let mut callersByCallee : Array (Array Nat) :=
+    Array.mk (List.replicate callableCount #[])
+  let mut totals := Array.mk (List.replicate callableCount (0 : UInt64))
+  let mut memberCount : Nat := 0
+  for callerIndex in [:callableCount] do
+    if members[callerIndex]! then
+      memberCount := memberCount + 1
+      match callables[callerIndex]? with
+      | none => return ← err .badCfg
+      | some caller =>
+          let mut intrinsicTotal : UInt64 := 1
+          for block in caller.blocks do
+            let next ← addInvariantStepsCheckedV1 intrinsicTotal
+              (UInt64.ofNat (block.instructions.size + 1))
+            intrinsicTotal := next
+            for instr in block.instructions do
+              match instr.op with
+              | .pureCall calleeId _ =>
+                  let calleeIndex := calleeId.toNat
+                  match callables[calleeIndex]? with
+                  | none => return ← err .badCfg
+                  | some callee =>
+                      unless callee.kind == .pureFn && members[calleeIndex]! do
+                        return ← err .badCfg
+                      remainingCalls := remainingCalls.set! callerIndex
+                        (remainingCalls[callerIndex]! + 1)
+                      callersByCallee := callersByCallee.set! calleeIndex
+                        (callersByCallee[calleeIndex]!.push callerIndex)
+              | _ => pure ()
+          totals := totals.set! callerIndex intrinsicTotal
+  let mut ready : Array Nat := #[]
+  for index in [:callableCount] do
+    if members[index]! && remainingCalls[index]! == 0 then
+      ready := ready.push index
+  let mut cursor : Nat := 0
+  let mut processed : Nat := 0
+  while cursor < ready.size do
+    let calleeIndex := ready[cursor]!
+    cursor := cursor + 1
+    processed := processed + 1
+    match callables[calleeIndex]? with
+    | none => return ← err .badCfg
+    | some callee =>
+        match callee.invariantSteps with
+        | none => return ← err .badCfg
+        | some carried =>
+            unless carried == totals[calleeIndex]! do return ← err .badCfg
+    let calleeSteps := totals[calleeIndex]!
+    for callerIndex in callersByCallee[calleeIndex]! do
+      let nextTotal ← addInvariantStepsCheckedV1 totals[callerIndex]! calleeSteps
+      totals := totals.set! callerIndex nextTotal
+      let remaining := remainingCalls[callerIndex]!
+      if remaining == 0 then return ← err .badCfg
+      let nextRemaining := remaining - 1
+      remainingCalls := remainingCalls.set! callerIndex nextRemaining
+      if nextRemaining == 0 then ready := ready.push callerIndex
+  unless processed == memberCount do return ← err .badCfg
+  pure ()
+
 /-- Every present invariant fuel value is bounded by the schema-fixed 10M
-    intrinsic ceiling (SPEC §8). This does not compute expected steps; exact
-    closure membership has already been checked. The structure pipeline calls
-    it after complete per-callable CFG and closure validation and before
-    requirements. -/
+    intrinsic ceiling (SPEC §8). Exact checked computation for closure members
+    has already run. This residual scan keeps the scalar metadata boundary
+    explicit and runs before requirements. -/
 private def validateInvariantStepsIntrinsicCeilingV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
@@ -3838,6 +3922,8 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     (validateInvariantClosureCfgAcyclicV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
     (validateInvariantClosurePureFnOpsV1 data.callables)
+  liftCfgInvariantValidationPhaseV1 .invariantFuel
+    (validateInvariantStepsExactV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantFuel
     (validateInvariantStepsIntrinsicCeilingV1 data.callables)
 

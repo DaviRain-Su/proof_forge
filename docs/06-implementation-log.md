@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 exact checked computedInvariantSteps (post-CFG fuel step 4.8, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 SPEC §8 invariant closure 的 exact checked `computedInvariantSteps` metadata validation，不实现 evaluator/interpreter、StateConforms、normalizer、产品接线或 proof-bundle。
+- RED/Changed：tests-first。新增 `testInvariantStepsExactComputation`，经 structure/encoder 双 shipped paths 固定 leaf root、direct closure、duplicate PureCall occurrence 与 multi-block local cost 正向，leaf/callee/caller metadata mismatch、duplicate-edge undercount、computed closure 超过 10M 负向，以及 CFG→closure→fuel→requirements phase precedence；实现前 N1 non-exact leaf metadata 被 structure gate 接受。既有 ceiling equality fixture 按 exact-before-requirements contract 迁移，membership unused-root fixture 修正为 exact local cost。
+- Production：新增 bounded `validateInvariantStepsExactV1`：在 generic CFG、exact closure membership、reachable call-graph DAG、closure CFG acyclicity 与 op restrictions 后，构造 duplicate-preserving callee→callers reverse adjacency，从 leaves 以 Kahn 顺序线性传播 `1 + Σ(block.instructions.size + 1) + Σ(each PureCall occurrence calleeSteps)`；`addInvariantStepsCheckedV1` 在 schema 10M intrinsic ceiling 下提前 fail closed，从而同时防 UInt64 wrap 与超界；每个 closure member carried metadata 必须 exact 相等，否则 `.badCfg`/`.invariantFuel`。
+- Verification：聚焦 production/test build、真实 fast harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-75` 三路审查 approved、无 findings。
+- Boundary：reference evaluator、StateConforms、TypeKey/provenance join/normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-closure pureFn Schedule prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.Schedule` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，从而闭合 SPEC §8 当前 pureFn forbidden-op allowlist；不实现 ExternalCall/Schedule argument serializability、exact checked steps、interpreter或产品接线。
