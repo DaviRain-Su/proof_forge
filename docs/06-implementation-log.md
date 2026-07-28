@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 recursive anonymous TypeKey structural classes (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合匿名 Array/Map/Option 的 recursive child structural-class uniqueness 与不经过 named anchor 的 anonymous-container cycle rejection，不实现 named-prefix、anonymous canonical rank/order、usage closure/missing/unreferenced rejection、完整 named-body cycle 必须含 Option 规则、normalizer、provenance join或产品接线。
+- RED/Changed：tests-first。新增 `testRecursiveAnonymousTypeKeyUniqueness`，实现前 duplicate Array 被 structure gate 接受；双 shipped paths 固定 distinct/duplicate Array·Map·Option、nested class equality、自/双节点 Option 与 Array↔Option/Map-value↔Option anonymous cycles、合法 named+Option anchors、同 body 不同 reserved named identities、table/ref/shape/FieldSpec/Map-key→primitive→recursive→named/value/signature/requirements precedence；public non-wire `TypeKeyValidationPhaseV1` seam由 production gate直接消费并固定同为 `.nonCanonical` 的 primitiveLeaf→recursiveAnonymous 顺序。class seam另固定不同 child TypeId 的同结构 class equality与 tag/length/operand-order non-aliasing；10k strictly acyclic Option chain 经 structure+encoder 固定线性空间资源边界。
+- Production：新增 `computeStructuralTypeClassIdsV1`：显式 stack 的 iterative gray/black DFS，每 TypeId 只保存 fixed-size signature/class ID；primitive与 named reserved-ID anchors 为 terminal，anonymous containers以 child structural class IDs组成 signature，经 `Std.HashMap` exact-key lookup/insert interning（不迭代 map，hash collision 由 byte equality 处理），避免 nested-key Θ(n²) 展开；validator private sort anonymous class IDs并拒绝 duplicate/cycle为 `.nonCanonical`，公开 table order不变。主控审计发现的初版 nested-byte quadratic 风险、非法 named self-cycle 资源 fixture、不可观察 same-error phase claim与复杂度注释均已在进入 review 前修复。
+- Verification：worker RED/GREEN与主控独立 fast shipped harness、`just dev-check`、SBOM refresh 幂等与 WireV1 字节数/SHA-256 精确 pin、`just docs-check`、`git diff --check`、普通 `just ci` 均已通过；`proof-forge-one-slice-83` 三路只读复审 approved、无 findings。
+- Boundary：完整 TypeKey canonical bytes/rank/reachability/usage closure、named-body Option-cycle legality、provenance join、normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 primitive anonymous TypeKey leaf uniqueness (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 Bool/UInt/Int/Principal/Unit/Bytes/Field 七类 leaf primitive anonymous TypeKey 的 exact-shape uniqueness，不实现 recursive Array/Map/Option closure、完整 anonymous rank/reachability、normalizer、provenance join 或产品接线。

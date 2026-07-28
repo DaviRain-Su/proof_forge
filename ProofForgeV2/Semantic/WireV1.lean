@@ -1,5 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
+import Std.Data.HashMap
 
 /-!
   ProofForgeV2.Semantic.WireV1 — closed SemanticProgramV1 model + root wire codec
@@ -39,6 +40,30 @@ import ProofForgeV2.Core.Unicode
           (`.badType`; recursion fuel = types.size)
         · leaf primitive anonymous TypeKeys are unique by exact shape for
           Bool/UInt/Int/Principal/Unit/Bytes/Field (`.nonCanonical`)
+        · anonymous `.array`/`.map`/`.option` are interned by exact recursive
+          child structural **class** identity (fixed-size structural-class
+          signatures built from children's structural class IDs, not the
+          final child TypeId and not nested child keys, so two structurally-
+          equivalent child graphs receive the same class and the per-TypeId
+          state stays constant-size — no Θ(n²) nested-byte expansion);
+          signatures are interned to sequential class IDs via a `Std.HashMap`
+          used only for lookup/insert (never iterated), with hash collisions
+          resolved by exact byte equality; Named Struct/Enum are terminal
+          `named(reserved TypeId)` anchors that terminate class expansion and
+          keep two same-shape named declarations distinct; anonymous-container
+          cycles that pass through no named anchor are rejected
+          (`.nonCanonical`), via a bounded iterative gray/black DFS over the
+          types table (explicit stack, no host map iteration, no nested
+          structural rescans — only a constant number of bounded linear
+          passes plus a private O(n log n) class-ID sort, no unbounded recursion
+          or stack-depth risk). This slice rejects only
+          anonymous-container cycles without a named anchor; the full SPEC rule
+          that a recursive cycle must simultaneously pass through `Option` and
+          a reserved named key (and the named-body type-graph rules around it)
+          is deferred. The structural-class signature is an internal fixed-size
+          equality token, **not** the SPEC canonical unsigned-lexicographic
+          anonymous TypeKey/ranking bytes; named-prefix anchors and anonymous
+          canonical rank/order remain deferred.
     - canonical `valueBytes` (SPEC §5), after type-shape and before
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
@@ -99,11 +124,18 @@ import ProofForgeV2.Core.Unicode
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: recursive TypeKey closure plus full anonymous ranking/reachability,
-    provenance inventory
+  * Not yet: recursive/full TypeKey closure with named-prefix anchors,
+    full anonymous ranking/reachability (the SPEC canonical unsigned-
+    lexicographic anonymous TypeKey/ranking bytes), the full SPEC rule that a
+    recursive cycle must simultaneously pass through `Option` and a reserved
+    named key (and the named-body type-graph rules around it), and usage
+    closure/missing/unreferenced rejection, provenance inventory
     join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
-    the §5.1 value-producing subset. (CFG shape + reachability from entry,
+    the §5.1 value-producing subset. (Structural-class equality for anonymous
+    `.array`/`.map`/`.option` and anonymous-container-cycle rejection (without
+    a named anchor) are now covered via fixed-size structural-class signatures;
+    CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
     back-edge coverage, per-callable EffectId contiguous canonical assignment,
     ValueId SSA definition-table / exactly-once /
@@ -123,7 +155,11 @@ import ProofForgeV2.Core.Unicode
     and void-op result-presence plus the at-least-two-component callee shape
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
     serializability, exact contracts for the two presence-only families,
-    recursive TypeKey closure/full anonymous ranking/reachability, provenance
+    recursive/full TypeKey closure with named-prefix anchors, full anonymous
+    ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
+    TypeKey/ranking bytes), the full SPEC rule that recursive cycles pass
+    simultaneously through `Option` and a reserved named key, and usage
+    closure/missing/unreferenced rejection, provenance
     inventory join, ProgramV1 normalizer, and product
     wire remain out of scope pending later slices.)
 -/
@@ -1702,7 +1738,10 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     does not (transport only). See module header API contracts.
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
-    declaration refs → type-shape/FieldSpec/Map-key → named TypeDecl-name
+    declaration refs → type-shape/FieldSpec/Map-key → primitive leaf
+    anonymous TypeKey uniqueness → recursive anonymous container structural-
+    class uniqueness (anonymous-container-cycle rejection without a named
+    anchor) → named TypeDecl-name
     uniqueness → canonical valueBytes (Constant / Op.Literal / SwitchCase) →
     grouped same-error duplicate phase
     {Constant-name, logicalState-name, EventDecl/ErrorDecl-name,
@@ -3171,9 +3210,12 @@ private def validateTypesStructureV1 (types : Array TypeDeclV1) :
     Bool, width-specific UInt/Int, Principal, Unit, length-specific Bytes, and
     the exact catalog Field shape each have at most one TypeId. Their existing
     canonical TypeShape wire is injective for this leaf subset, so a private
-    byte sort detects duplicates without changing public table order. Recursive
-    Array/Map/Option keys and full anonymous rank/reachability remain separate
-    gates. Runs only after every declaration shape/catalog check succeeds. -/
+    byte sort detects duplicates without changing public table order. This is
+    the `primitiveLeaf` subphase of `validateTypeKeyPhasesV1`, ordered before
+    the `recursiveAnonymous` subphase; both report the same public
+    `.nonCanonical` wire error while the phase seam makes precedence
+    observable. Full anonymous rank/reachability remains pending. Runs only
+    after every declaration shape/catalog check succeeds. -/
 private def validatePrimitiveAnonymousTypeKeyUniquenessV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
   let mut keys : Array ByteArray := #[]
@@ -3191,6 +3233,307 @@ private def validatePrimitiveAnonymousTypeKeyUniquenessV1
       return ← err .nonCanonical
     index := index + 1
   pure ()
+
+/-- Fixed-size internal structural-class signature builder (SPEC §5
+    engineering subset). This is **not** the SPEC canonical unsigned-
+    lexicographic anonymous TypeKey/ranking bytes; that ranking/order is a
+    separate normalizer concern and remains deferred. The signature is a
+    deterministic, injective, fixed-size byte encoding used only for exact
+    structural-class equality and interning, so the per-TypeId state stays
+    constant size regardless of recursion depth (avoiding the Θ(n²)
+    nested-byte expansion of inlining full child structural keys). Tag framing
+    follows the SPEC `typeKey` shape: `u16le(tagLen) || tag || u32le(fieldCount)
+    || concat(u32le(fieldLen) || field)`; the Field SchemaId field uses
+    canonical length-prefixed UTF-8 bytes (`u32le len || utf8`) matching
+    `encodeString` framing (the outer field length wraps it again).
+
+    Signatures are:
+    · primitive leaves: tag + exact shape params (uint/int width, bytes
+      length, field SchemaId + modulusBE);
+    · named Struct/Enum: `tag("named", [u32le reservedId])` — a terminal
+      anchor that does not recurse into the named body, so two same-shape
+      named declarations keep distinct reserved identity;
+    · anonymous `.array`/`.map`/`.option`: tag + child **structural class
+      IDs** (not final child TypeIds, not nested child keys) plus the
+      container's own shape params (Array length). Two different child TypeIds
+      whose reachable structure is identical receive the same child class ID
+      and therefore the same container signature/class. -/
+private def structuralClassSignatureTag (tag : String)
+    (fields : Array ByteArray) : ByteArray := Id.run do
+  let tagBytes := tag.toUTF8
+  let tagLen := encodeU16le (UInt16.ofNat tagBytes.size)
+  let fieldCount := encodeU32le (UInt32.ofNat fields.size)
+  let mut out := (tagLen.append tagBytes).append fieldCount
+  for field in fields do
+    out := out.append ((encodeU32le (UInt32.ofNat field.size)).append field)
+  pure out
+
+private def lengthPrefixedUtf8 (s : String) : ByteArray :=
+  let raw := s.toUTF8
+  (encodeU32le (UInt32.ofNat raw.size)).append raw
+
+/-- Fixed-size signature for a terminal (non-anonymous-container) node. Named
+    Struct/Enum and primitive leaves resolve here without recursion. -/
+private def terminalStructuralSignature (decl : TypeDeclV1) : ByteArray :=
+  match decl.shape with
+  | .bool => structuralClassSignatureTag "bool" #[]
+  | .uint w => structuralClassSignatureTag "uint" #[encodeU16le w]
+  | .int w => structuralClassSignatureTag "int" #[encodeU16le w]
+  | .principal => structuralClassSignatureTag "principal" #[]
+  | .unit => structuralClassSignatureTag "unit" #[]
+  | .bytes len => structuralClassSignatureTag "bytes" #[encodeU32le len]
+  | .field spec =>
+      structuralClassSignatureTag "field"
+        #[lengthPrefixedUtf8 spec.id.value, spec.modulusBE]
+  | .struct _ | .enum _ =>
+      -- Named Struct/Enum: terminal anchor keyed by reserved TypeId only.
+      structuralClassSignatureTag "named" #[encodeU32le (UInt32.ofNat decl.id.toNat)]
+  | _ => structuralClassSignatureTag "unknown" #[]
+
+/-- Children TypeIds that an anonymous container recurses through. Named
+    Struct/Enum and primitive leaves have no recursive children: their
+    signature is terminal. -/
+private def anonymousContainerChildren (shape : TypeShapeV1) :
+    Option (Array TypeIdV1) :=
+  match shape with
+  | .array element _ => some #[element]
+  | .map key value => some #[key, value]
+  | .option element => some #[element]
+  | _ => none
+
+/-- Compose a fixed-size anonymous-container signature from black children's
+    structural class IDs plus the container's own shape params. The signature
+    is constant-size (tag + one u32 per child class ID + Array length); it
+    never inlines nested child keys. -/
+private def anonymousContainerSignature (shape : TypeShapeV1)
+    (childClassIds : Array UInt32) : ByteArray := Id.run do
+  match shape with
+  | .array _ length =>
+      let mut fieldBytes : Array ByteArray := #[]
+      for cid in childClassIds do fieldBytes := fieldBytes.push (encodeU32le cid)
+      fieldBytes := fieldBytes.push (encodeU32le length)
+      pure (structuralClassSignatureTag "array" fieldBytes)
+  | .map _ _ =>
+      let mut fieldBytes : Array ByteArray := #[]
+      for cid in childClassIds do fieldBytes := fieldBytes.push (encodeU32le cid)
+      pure (structuralClassSignatureTag "map" fieldBytes)
+  | .option _ =>
+      let mut fieldBytes : Array ByteArray := #[]
+      for cid in childClassIds do fieldBytes := fieldBytes.push (encodeU32le cid)
+      pure (structuralClassSignatureTag "option" fieldBytes)
+  | _ => pure (structuralClassSignatureTag "unknown" #[])
+
+/-- Is this TypeDecl a named Struct/Enum (terminal structural anchor)? -/
+private def isNamedStructOrEnum (decl : TypeDeclV1) : Bool :=
+  match decl.shape with
+  | .struct _ | .enum _ => decl.name.isSome
+  | _ => false
+
+/-- Compute a structural class ID per TypeId (SPEC §5 engineering subset).
+    Each TypeId receives a fixed-size structural-class signature:
+    · primitive leaves and named Struct/Enum get a terminal signature;
+    · anonymous `.array`/`.map`/`.option` get a signature built from their
+      children's already-computed structural class IDs (not final child
+      TypeIds), so two structurally-equivalent child graphs receive the same
+      child class ID and the same container class. Identical signatures are
+    interned to a single sequential class ID via a `Std.HashMap` used only for
+    lookup/insert (never iterated); hash collisions are resolved by exact
+    byte equality (`ByteArray.instBEq`), so distinct signatures never collapse.
+
+    Anonymous-container cycle rejection (SPEC §5): a bounded iterative DFS
+    over the types table assigns each TypeId a memoized class ID. Only
+    anonymous containers are marked in-progress (gray); primitive leaves and
+    named anchors resolve to a terminal signature and become black without
+    recursion, so reaching a gray node is always an anonymous-container cycle
+    with no named anchor, rejected as `.nonCanonical`. Each node is entered
+    and exited at most once (memoization short-circuits re-entry to black);
+    there are no nested structural rescans — the DFS visits each node a
+    constant number of times and class materialization is one bounded linear
+    pass. This class computation uses expected `O(n)` time and `O(n)` space
+    (one HashMap lookup/insert per node, constant-size signature composition);
+    the consuming validator separately collects class IDs linearly and sorts
+    them in `O(n log n)`. There is no host map iteration, unbounded recursion,
+    stack-depth risk (explicit stack array), or nested-byte expansion.
+
+    Prerequisites: the production caller has already validated table IDs,
+    shallow references, type shapes/FieldSpec/Map-key legality, and primitive
+    leaf uniqueness. This helper defensively rejects OOR/cycles but does not
+    replace those earlier structure phases.
+
+    Scope: this slice rejects only anonymous-container cycles that pass
+    through no named anchor. The full SPEC rule that a recursive cycle must
+    simultaneously pass through `Option` and a reserved named key (and the
+    named-body type-graph rules around it) is **deferred**; legal examples in
+    this slice only demonstrate that recursion through a named anchor is
+    accepted, not that every named recursion is legal. Runs after leaf
+    primitive interning. -/
+def computeStructuralTypeClassIdsV1 (types : Array TypeDeclV1) :
+    Except SemanticWireErrorV1 (Array UInt32) := do
+  let n := types.size
+  let mut color : Array Nat := Array.replicate n 0
+  let mut classIds : Array (Option UInt32) := Array.replicate n none
+  let mut classes : Std.HashMap ByteArray UInt32 :=
+    Std.HashMap.emptyWithCapacity n
+  let mut nextClass : UInt32 := 0
+  let mut stack : Array (Nat × Nat) := #[]
+  let mut root := 0
+  while h : root < n do
+    if color[root]! == 0 then
+      stack := stack.push (0, root)
+      while stack.isEmpty == false do
+        let (kind, tid) := stack.back!
+        stack := stack.pop
+        if kind == 1 then
+          -- exit: compose anonymous-container signature from black child
+          -- class IDs and intern to a class ID.
+          match types[tid]? with
+          | none => return ← err .badReference
+          | some decl =>
+            match anonymousContainerChildren decl.shape with
+            | none => pure ()
+            | some childIds =>
+              let mut childClasses : Array UInt32 := #[]
+              let mut missing := false
+              let mut ci := 0
+              while h2 : ci < childIds.size do
+                let cid := childIds[ci]
+                match classIds[cid.toNat]? with
+                | some (some cls) => childClasses := childClasses.push cls
+                | _ => missing := true
+                ci := ci + 1
+              if missing then return ← err .nonCanonical
+              let sig := anonymousContainerSignature decl.shape childClasses
+              let (existing, updated) := classes.getThenInsertIfNew? sig nextClass
+              let cls := existing.getD nextClass
+              classes := updated
+              if existing.isNone then nextClass := nextClass + 1
+              classIds := classIds.set! tid (some cls)
+              color := color.set! tid 2
+        else
+          -- enter
+          match color[tid]! with
+          | 2 => pure ()  -- memoized
+          | 1 => return ← err .nonCanonical  -- anonymous-container cycle
+          | _ =>
+            match types[tid]? with
+            | none => return ← err .badReference
+            | some decl =>
+              if isNamedStructOrEnum decl then
+                let sig := terminalStructuralSignature decl
+                let (existing, updated) := classes.getThenInsertIfNew? sig nextClass
+                let cls := existing.getD nextClass
+                classes := updated
+                if existing.isNone then nextClass := nextClass + 1
+                classIds := classIds.set! tid (some cls)
+                color := color.set! tid 2
+              else match anonymousContainerChildren decl.shape with
+                | none =>
+                  let sig := terminalStructuralSignature decl
+                  let (existing, updated) := classes.getThenInsertIfNew? sig nextClass
+                  let cls := existing.getD nextClass
+                  classes := updated
+                  if existing.isNone then nextClass := nextClass + 1
+                  classIds := classIds.set! tid (some cls)
+                  color := color.set! tid 2
+                | some childIds =>
+                  color := color.set! tid 1
+                  stack := stack.push (1, tid)
+                  let mut ci := childIds.size
+                  while h3 : ci > 0 do
+                    ci := ci - 1
+                    stack := stack.push (0, (childIds[ci]!).toNat)
+    root := root + 1
+  -- Materialize the per-TypeId class ID array (every node is black here).
+  let mut out : Array UInt32 := Array.replicate n 0
+  let mut i := 0
+  while h : i < n do
+    match classIds[i]? with
+    | some (some cls) => out := out.set! i cls
+    | _ => return ← err .nonCanonical
+    i := i + 1
+  pure out
+
+/-- Recursive anonymous structural-class uniqueness (SPEC §5). Anonymous
+    `.array`/`.map`/`.option` are interned by exact recursive child structural
+    class identity, not by final child TypeId. Two anonymous containers with
+    structurally-equivalent child graphs receive the same structural class;
+    a duplicate anonymous container class is rejected as `.nonCanonical`.
+    Anonymous-container cycles that pass through no named anchor are rejected
+    during class computation (`.nonCanonical`); the full SPEC rule requiring
+    recursive cycles to pass simultaneously through `Option` and a reserved
+    named key is deferred. This is the `recursiveAnonymous` subphase of
+    `validateTypeKeyPhasesV1`, ordered after the `primitiveLeaf` subphase;
+    both report the same public `.nonCanonical` wire error while the phase
+    seam makes precedence observable. Runs after leaf primitive interning and
+    before named-name/canonical-value/signature/requirement phases. -/
+private def validateRecursiveAnonymousTypeKeyUniquenessV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let classIds ← computeStructuralTypeClassIdsV1 types
+  -- Collect anonymous container class IDs and reject duplicates via a
+  -- private sort + adjacent comparison. Public table order is unchanged.
+  let mut anonClasses : Array UInt32 := #[]
+  let mut i := 0
+  while i < types.size do
+    match types[i]? with
+    | some decl =>
+      match decl.shape with
+      | .array _ _ | .map _ _ | .option _ =>
+        anonClasses := anonClasses.push (classIds[i]!)
+      | _ => pure ()
+    | none => pure ()
+    i := i + 1
+  let sorted := anonClasses.qsort fun a b => a < b
+  let mut j := 1
+  while j < sorted.size do
+    if sorted[j - 1]! == sorted[j]! then
+      return ← err .nonCanonical
+    j := j + 1
+  pure ()
+
+/-! ### TypeKey validation phase seam (SPEC §5)
+
+    Leaf primitive anonymous TypeKey uniqueness and recursive anonymous
+    container structural-class uniqueness both report the same public wire
+    error `.nonCanonical`. To make their precedence observable to focused
+    tests without changing the public wire contract, this closed phase seam
+    mirrors the `CfgInvariantValidationPhaseV1` pattern: a non-serialized
+    phase enum plus the unchanged public error, consumed exactly by the
+    structure gate which erases only `phase`. The phase is not serialized and
+    does not appear in any wire/CLI output. -/
+
+/-- Closed non-wire phase distinguishing the two TypeKey uniqueness subphases
+    that share the public `.nonCanonical` error. -/
+inductive TypeKeyValidationPhaseV1
+  | primitiveLeaf
+  | recursiveAnonymous
+  deriving BEq, Repr
+
+/-- Internal phase plus the unchanged public wire error. -/
+structure TypeKeyValidationFailureV1 where
+  phase : TypeKeyValidationPhaseV1
+  error : SemanticWireErrorV1
+  deriving BEq, Repr
+
+private def liftTypeKeyValidationPhaseV1
+    (phase : TypeKeyValidationPhaseV1)
+    (result : Except SemanticWireErrorV1 Unit) :
+    Except TypeKeyValidationFailureV1 Unit :=
+  match result with
+  | .ok () => .ok ()
+  | .error error => .error { phase, error }
+
+/-- Runs the exact stable §5 TypeKey segment used by the structure gate:
+    leaf primitive anonymous TypeKey uniqueness first, then recursive
+    anonymous container structural-class uniqueness (anonymous-container-cycle
+    rejection without a named anchor). Type-shape/FieldSpec/Map-key legality
+    and shallow reference range are earlier prerequisites. The public wire
+    error is unchanged; only the phase is exposed for focused tests. -/
+def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
+    Except TypeKeyValidationFailureV1 Unit := do
+  liftTypeKeyValidationPhaseV1 .primitiveLeaf
+    (validatePrimitiveAnonymousTypeKeyUniquenessV1 types)
+  liftTypeKeyValidationPhaseV1 .recursiveAnonymous
+    (validateRecursiveAnonymousTypeKeyUniquenessV1 types)
 
 /-! ### Canonical valueBytes (SPEC-SEM-WIRE-001 §5)
 
@@ -4113,8 +4456,11 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
 
 /-- Post-wire structural subset: program root qualifiedName has at least two
     components, table IDs, shallow declaration refs, type-shape/FieldSpec/
-    Map-key plus leaf primitive anonymous TypeKey uniqueness (SPEC §5),
-    canonical valueBytes (Constant /
+    Map-key plus leaf primitive anonymous TypeKey uniqueness plus recursive
+    anonymous `.array`/`.map`/`.option` structural-class uniqueness (fixed-size
+    structural-class signatures, not nested child keys) with anonymous-
+    container-cycle rejection (without a named anchor; SPEC §5), canonical
+    valueBytes (Constant /
     Op.Literal / SwitchCase), callable kind/name presence, initializer
     cardinality, per-callable CFG shape + reachability from entry
     + Switch cases nonempty with unique `(typeId,valueBytes)` constants
@@ -4149,9 +4495,12 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     type/result contract (incl. value-producing result-presence and void-op
     result-presence) — NOT ExternalCall/Schedule argument serializability,
     ContextRead/Commit exact contracts, runtime CheckedCast representability,
-    Array/Bytes bounds and Enum tag agreement, recursive TypeKey closure/full
-    anonymous ranking/reachability, provenance inventory join, or ProgramV1
-    normalizer. -/
+    Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
+    with named-prefix anchors, full anonymous ranking/reachability (SPEC
+    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes), the full
+    SPEC rule that recursive cycles pass simultaneously through `Option` and a
+    reserved named key, and usage closure/missing/unreferenced rejection,
+    provenance inventory join, or ProgramV1 normalizer. -/
 def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   -- 0) Program root identity shape; intentionally precedes every table/ref/
@@ -4186,11 +4535,17 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
     checkTypeIdInRange c.result.typeId typeCount
   for inv in data.invariants do
     checkCallableIdInRange inv.callableId callableCount
-  -- 3) Type-shape / FieldSpec catalog / Map-key legality, primitive anonymous
-  --   TypeKey uniqueness, then named Struct/Enum exact-name uniqueness
-  --   (SPEC §5/§6).
+  -- 3) Type-shape / FieldSpec catalog / Map-key legality, then the TypeKey
+  --   uniqueness segment via the exact phase seam: leaf primitive anonymous
+  --   TypeKey uniqueness first, then recursive anonymous container
+  --   structural-class uniqueness (anonymous-container-cycle rejection
+  --   without a named anchor), then named Struct/Enum exact-name uniqueness
+  --   (SPEC §5/§6). The phase seam preserves the public `.nonCanonical` wire
+  --   error while exposing the subphase to focused tests.
   validateTypesStructureV1 data.types
-  validatePrimitiveAnonymousTypeKeyUniquenessV1 data.types
+  match validateTypeKeyPhasesV1 data.types with
+  | .ok () => pure ()
+  | .error failure => throw failure.error
   validateNamedTypeNameUniquenessV1 data.types
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
   validateConstantsValueBytesV1 data.types data.constants

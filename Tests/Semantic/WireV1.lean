@@ -3,7 +3,10 @@
 
   Pins schema/magic, empty/minimal root round-trip, hash identity, structure
   gate (program qualifiedName ≥2 components, id/index, shallow refs,
-  type-shape/FieldSpec/Map-key, canonical valueBytes for Constant/Op.Literal/
+  type-shape/FieldSpec/Map-key, leaf primitive plus recursive anonymous
+  `.array`/`.map`/`.option` structural-class uniqueness (fixed-size
+  structural-class signatures, not nested child keys) with anonymous-
+  container-cycle rejection (without a named anchor), canonical valueBytes for Constant/Op.Literal/
   SwitchCase, requirements domain/order/
   predicates/enumContains), nesting fuel maxNesting=256, provenance
   envelope-only stub + validate always badProvenance, Digest raw-32 wire,
@@ -14,7 +17,10 @@
   dominance, def-site TypeId range,
   block/terminator typing, step-j per-op contracts, invariant-closure
   membership/DAG/CFG/op restrictions, and exact checked computedInvariantSteps
-  are pinned; provenance join/normalizer/product wire remain pending. Step j
+  are pinned; named-prefix/anonymous canonical rank/order, the full SPEC rule
+  that recursive cycles pass simultaneously through Option and a reserved
+  named key, usage closure, provenance join/normalizer/product wire remain
+  pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
   Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, and Emit
@@ -1370,11 +1376,30 @@ private def expectCfgInvariantPhase (label : String)
         throw <| IO.userError
           s!"{label}: expected error {repr code}, got {repr failure.error}"
 
+/-- Pin the stable TypeKey subphase even when the primitive-leaf and
+    recursive-anonymous subphases share the same public `.nonCanonical`
+    value. The production structure gate consumes this exact phase-aware
+    helper and erases only the phase. -/
+private def expectTypeKeyPhase (label : String)
+    (phase : TypeKeyValidationPhaseV1) (code : SemanticWireErrorV1)
+    (types : Array TypeDeclV1) : IO Unit := do
+  match validateTypeKeyPhasesV1 types with
+  | .ok () =>
+      throw <| IO.userError s!"{label}: expected phase failure {repr phase}"
+  | .error failure =>
+      unless failure.phase == phase do
+        throw <| IO.userError
+          s!"{label}: expected phase {repr phase}, got {repr failure.phase}"
+      unless failure.error == code do
+        throw <| IO.userError
+          s!"{label}: expected error {repr code}, got {repr failure.error}"
+
 /-- SPEC-SEM-WIRE-001 §5 gives every anonymous primitive shape one structural
     TypeKey/TypeId. This bounded slice covers leaf primitive keys only; the
-    recursive Array/Map/Option closure and full anonymous rank/reachability
-    algorithm remain separate. Every case drives both the production structure
-    gate and the structure-gated encoder. -/
+    recursive anonymous container structural-class uniqueness and cycle-
+    rejection algorithm is pinned by
+    `testRecursiveAnonymousTypeKeyUniqueness`. Every case drives both the
+    production structure gate and the structure-gated encoder. -/
 private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
   let distinctTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
@@ -1476,6 +1501,359 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
   }
   expectCfgErrCode "N16 primitive uniqueness before requirements"
     .nonCanonical n16
+
+/-- SPEC-SEM-WIRE-001 §5 anonymous `.array`/`.map`/`.option` TypeKeys are
+    interned by exact recursive child structural-class identity, not by the
+    final child TypeId: two anonymous containers with structurally-equivalent
+    child graphs receive the same structural class. Anonymous-container cycles
+    that pass through no named anchor are illegal; recursion through a named
+    `named(reserved TypeId)` anchor is accepted. This gate runs after leaf
+    primitive interning and before named-name/canonical-value/signature/
+    requirement phases. The shipped behavior is pinned through
+    `validateSemanticProgramStructureV1` + the structure-gated encoder on
+    every case; the public class seam `computeStructuralTypeClassIdsV1` is
+    exercised directly to prove structural-class identity invariants, and the
+    public phase seam `validateTypeKeyPhasesV1` is exercised to make the
+    primitive-leaf vs recursive-anonymous precedence observable (both share
+    the public `.nonCanonical` wire error). These seam assertions complement,
+    not replace, the shipped gate. The long-chain positive uses a strictly
+    acyclic fixture (named struct field references the terminal Bool, not
+    itself and not an Option); the deferred SPEC rule that a named-body cycle
+    must include Option is not exercised as a positive. -/
+private def testRecursiveAnonymousTypeKeyUniqueness : IO Unit := do
+  -- Positives: distinct Array element/length, Map key/value, Option element
+  -- structural classes. None of these duplicates another container shape.
+  let p0Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := none, shape := .array 0 8 },
+    { id := 4, name := none, shape := .array 1 4 },
+    { id := 5, name := none, shape := .map 0 1 },
+    { id := 6, name := none, shape := .map 1 0 },
+    { id := 7, name := none, shape := .option 0 },
+    { id := 8, name := none, shape := .option 1 }
+  ]
+  let p0 ← programWithTypes "RecursiveTypeKeyP0Distinct" p0Types
+  expectCfgOk "P0 distinct anonymous container structural classes" p0
+  -- Helper: duplicate exact container shape → `.nonCanonical` on both
+  -- shipped paths (structure gate + structure-gated encoder).
+  let expectDup (name label : String)
+      (types : Array TypeDeclV1) : IO Unit := do
+    let data ← programWithTypes name types
+    expectCfgErrCode label .nonCanonical data
+  -- N1 duplicate exact Array structural class (same element + length).
+  expectDup "RecursiveTypeKeyN1Array" "N1 duplicate Array structural class" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  -- N2 duplicate exact Map structural class (same key + value).
+  expectDup "RecursiveTypeKeyN2Map" "N2 duplicate Map structural class" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .map 0 1 },
+    { id := 3, name := none, shape := .map 0 1 }
+  ]
+  -- N3 duplicate exact Option structural class (same element).
+  expectDup "RecursiveTypeKeyN3Option" "N3 duplicate Option structural class" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .option 0 },
+    { id := 2, name := none, shape := .option 0 }
+  ]
+  -- N4 nested structural duplicate: two `Option (Array Bool 4)` with the
+  -- same inner structure collapse to one structural class.
+  expectDup "RecursiveTypeKeyN4Nested" "N4 nested duplicate structural class" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .option 1 },
+    { id := 3, name := none, shape := .option 1 }
+  ]
+  -- N5 self Option cycle: anonymous `Option T` where `T == self`. No named
+  -- anchor, so this is an illegal anonymous-container cycle.
+  let n5 ← programWithTypes "RecursiveTypeKeyN5SelfOption" #[
+    { id := 0, name := none, shape := .option 0 }
+  ]
+  expectCfgErrCode "N5 self Option cycle" .nonCanonical n5
+  -- N6 two-node Option cycle: `Option T` → `Option S` → `Option T` with no
+  -- named anchor.
+  let n6 ← programWithTypes "RecursiveTypeKeyN6TwoNodeOption" #[
+    { id := 0, name := none, shape := .option 1 },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  expectCfgErrCode "N6 two-node Option cycle" .nonCanonical n6
+  -- N7 Array↔Option cycle: anonymous Array<Option<Array<...>>> forms a cycle
+  -- without a named anchor.
+  let n7 ← programWithTypes "RecursiveTypeKeyN7ArrayOption" #[
+    { id := 0, name := none, shape := .array 1 4 },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  expectCfgErrCode "N7 Array Option cycle" .nonCanonical n7
+  -- N8 Map-value↔Option cycle: anonymous Map key→Option→Map cycle.
+  let n8 ← programWithTypes "RecursiveTypeKeyN8MapValueOption" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .map 0 2 },
+    { id := 2, name := none, shape := .option 1 }
+  ]
+  expectCfgErrCode "N8 Map value Option cycle" .nonCanonical n8
+  -- P1 legal recursion through a named Struct/Enum anchor: a named Struct
+  -- field points back at a container that holds an Option of the named
+  -- Struct. The named reserved TypeId is the terminal structural anchor, so
+  -- the recursive Option class resolves through `named(reserved TypeId)`.
+  -- This slice only demonstrates that recursion through a named anchor is
+  -- accepted; the full SPEC rule that a recursive cycle must simultaneously
+  -- pass through `Option` and a reserved named key is deferred.
+  let p1Types : Array TypeDeclV1 := #[
+    { id := 0, name := some "Node",
+      shape := .struct #[{ name := "tail", typeId := 1 }] },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  let p1 ← programWithTypes "RecursiveTypeKeyP1NamedAnchor" p1Types
+  expectCfgOk "P1 legal recursion through named Struct anchor" p1
+  -- P2 legal recursion through a named Enum anchor.
+  let p2Types : Array TypeDeclV1 := #[
+    { id := 0, name := some "Tree",
+      shape := .enum #[{ name := "leaf", payloadTypes := #[1] }] },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  let p2 ← programWithTypes "RecursiveTypeKeyP2NamedEnumAnchor" p2Types
+  expectCfgOk "P2 legal recursion through named Enum anchor" p2
+  -- P3 named identities stay distinct even with the same body shape. Two
+  -- Option containers each wrap a same-body-but-different-reserved-Id named
+  -- Struct declaration; the two Option classes differ (the named anchor
+  -- carries the reserved TypeId), so both shipped paths accept the program.
+  let p3Types : Array TypeDeclV1 := #[
+    { id := 0, name := some "A",
+      shape := .struct #[{ name := "x", typeId := 4 }] },
+    { id := 1, name := some "B",
+      shape := .struct #[{ name := "x", typeId := 4 }] },
+    { id := 2, name := none, shape := .option 0 },
+    { id := 3, name := none, shape := .option 1 },
+    { id := 4, name := none, shape := .bool }
+  ]
+  let p3 ← programWithTypes "RecursiveTypeKeyP3NamedDistinct" p3Types
+  expectCfgOk "P3 Option containers over distinct named anchors distinct" p3
+  -- Class-seam evidence for P3: the two Option containers (ids 2,3) over
+  -- different reserved named anchors receive distinct structural class IDs.
+  let p3Classes ← expectOk "P3 class computation"
+    (computeStructuralTypeClassIdsV1 p3Types)
+  expect (p3Classes[2]! != p3Classes[3]!)
+    "P3 Option classes over distinct named anchors must differ"
+  -- Seam S1: structurally-equivalent child graphs at different TypeIds
+  -- receive the same structural class. Two separate `Array Bool 4` nodes
+  -- (different TypeIds, identical structure) share one class; the validator
+  -- rejects the duplicate anonymous class, but the seam proves equivalence.
+  let s1Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  let s1Classes ← expectOk "S1 class computation over duplicate structure"
+    (computeStructuralTypeClassIdsV1 s1Types)
+  expect (s1Classes[1]! == s1Classes[2]!)
+    "S1 structurally-equivalent Array nodes must share a class"
+  expect (s1Classes[0]! != s1Classes[1]!)
+    "S1 Bool leaf must differ from Array class"
+  let s1 ← programWithTypes "RecursiveTypeKeyS1DuplicateRejected" s1Types
+  expectCfgErrCode "S1 duplicate class rejected by shipped gate"
+    .nonCanonical s1
+  -- Seam S2: nested structural equivalence. Two `Option (Array Bool 4)` at
+  -- different TypeIds (built over separate-but-equivalent inner Array nodes)
+  -- share one class.
+  let s2Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := none, shape := .option 1 },
+    { id := 4, name := none, shape := .option 2 }
+  ]
+  let s2Classes ← expectOk "S2 nested class computation"
+    (computeStructuralTypeClassIdsV1 s2Types)
+  expect (s2Classes[1]! == s2Classes[2]!)
+    "S2 inner Array classes equal"
+  expect (s2Classes[3]! == s2Classes[4]!)
+    "S2 Option classes over equivalent inner Arrays equal"
+  -- Seam S3: distinct tags / lengths / Map operand order yield distinct
+  -- classes. Array Bool 4 vs Array Bool 8 vs Option Bool vs Map Bool UInt8
+  -- vs Map UInt8 Bool all differ.
+  let s3Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := none, shape := .array 0 8 },
+    { id := 4, name := none, shape := .option 0 },
+    { id := 5, name := none, shape := .map 0 1 },
+    { id := 6, name := none, shape := .map 1 0 }
+  ]
+  let s3Classes ← expectOk "S3 distinct-structure class computation"
+    (computeStructuralTypeClassIdsV1 s3Types)
+  expect (s3Classes[2]! != s3Classes[3]!) "S3 Array lengths differ"
+  expect (s3Classes[2]! != s3Classes[4]!) "S3 Array vs Option differ"
+  expect (s3Classes[5]! != s3Classes[6]!) "S3 Map operand order differs"
+  -- Long-chain resource regression: a 10000-deep acyclic chain of anonymous
+  -- Option nodes anchored at a single named Struct must complete the
+  -- structure gate without quadratic memory. The fixture is strictly
+  -- acyclic and respects id == array index: id 0 is the named anchor (its
+  -- field references the terminal Bool at id chainDepth+1), id 1..chainDepth
+  -- are anonymous Option nodes where Option i wraps Option(i-1) (Option 1
+  -- wraps the named anchor 0), and id chainDepth+1 is the terminal Bool. No
+  -- named-body cycle is constructed (the named struct field references Bool,
+  -- not itself and not an Option), so this stays within the legal acyclic
+  -- subset that this slice accepts; the deferred SPEC rule that a named-body
+  -- cycle must include Option is not exercised here. Each Option node has a
+  -- distinct structural class (different nesting depth), so no duplicate
+  -- anonymous class is reported. Exercises linear-space class computation on
+  -- a real shipped path (structure gate + encoder).
+  let chainDepth : Nat := 10000
+  let boolId : UInt32 := UInt32.ofNat (chainDepth + 1)
+  let mut chainTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Anchor",
+      shape := .struct #[{ name := "v", typeId := boolId }] }
+  ]
+  let mut i := 1
+  while i ≤ chainDepth do
+    -- Array index i, id i: Option i wraps Option(i-1) (Option 1 wraps anchor).
+    chainTypes := chainTypes.push
+      { id := UInt32.ofNat i, name := none, shape := .option (UInt32.ofNat (i - 1)) }
+    i := i + 1
+  -- Terminal Bool at array index chainDepth+1, id chainDepth+1.
+  chainTypes := chainTypes.push
+    { id := boolId, name := none, shape := .bool }
+  let chain ← programWithTypes "RecursiveTypeKeyLongChain" chainTypes
+  expectCfgOk "Long chain (10k Option nodes) structure gate" chain
+  -- Also confirm the seam returns a class per node without blowing up.
+  let _ ← expectOk "Long chain class computation"
+    (computeStructuralTypeClassIdsV1 chainTypes)
+  -- Phase precedence: leaf primitive interning runs before recursive
+  -- anonymous structural-class uniqueness. A duplicate primitive plus a
+  -- duplicate anonymous container fails on the primitive-leaf phase first.
+  -- The public wire error stays `.nonCanonical`; the phase seam observes
+  -- `.primitiveLeaf`. This makes the ordering observable (the public code
+  -- alone cannot distinguish the two subphases).
+  let prec1Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := none, shape := .array 0 4 }
+  ]
+  let prec1 ← programWithTypes "RecursiveTypeKeyPrec1PrimitiveFirst" prec1Types
+  expectCfgErrCode "Prec1 primitive duplicate before recursive (wire)"
+    .nonCanonical prec1
+  expectTypeKeyPhase "Prec1 primitive duplicate before recursive (phase)"
+    .primitiveLeaf .nonCanonical prec1Types
+  -- A pure recursive duplicate (no primitive duplicate) must report the
+  -- `.recursiveAnonymous` phase with the same public `.nonCanonical` wire
+  -- error, proving the recursive subphase is reachable and ordered after
+  -- the primitive-leaf subphase.
+  let prec1bTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  expectTypeKeyPhase "Prec1b pure recursive duplicate phase"
+    .recursiveAnonymous .nonCanonical prec1bTypes
+  -- A pure recursive anonymous cycle (no primitive duplicate) must also
+  -- report the `.recursiveAnonymous` phase.
+  let prec1cTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .option 1 },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  expectTypeKeyPhase "Prec1c pure recursive cycle phase"
+    .recursiveAnonymous .nonCanonical prec1cTypes
+  -- Phase precedence: table id/index validation precedes the TypeKey
+  -- segment. A bad table id plus a duplicate recursive container fails on
+  -- the table-id check first (`.duplicate`).
+  let prec2a ← programWithTypes "RecursiveTypeKeyPrec2aTableIdFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 7, name := none, shape := .array 0 4 },
+    { id := 8, name := none, shape := .array 0 4 }
+  ]
+  expectCfgErrCode "Prec2a table id before recursive" .duplicate prec2a
+  -- Phase precedence: shallow reference range precedes the TypeKey segment.
+  -- An OOR container child fails as `.badReference` first, even when a
+  -- duplicate Array structural class would also exist.
+  let prec2b ← programWithTypes "RecursiveTypeKeyPrec2bRefFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 99 4 },
+    { id := 2, name := none, shape := .array 99 4 }
+  ]
+  expectCfgErrCode "Prec2b shallow ref before recursive" .badReference prec2b
+  -- Phase precedence: type-shape legality precedes the TypeKey segment. An
+  -- invalid Array length (>4096) plus a duplicate Array fails on the shape
+  -- check first (`.badType`).
+  let prec2c ← programWithTypes "RecursiveTypeKeyPrec2cArrayLengthFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 5000 },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := none, shape := .array 0 4 }
+  ]
+  expectCfgErrCode "Prec2c invalid Array length before recursive" .badType
+    prec2c
+  -- Phase precedence: FieldSpec catalog legality precedes the TypeKey
+  -- segment. An invalid FieldSpec (wrong modulus) plus a duplicate Option
+  -- fails on the FieldSpec check first (`.badType`).
+  let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
+  let prec2d ← programWithTypes "RecursiveTypeKeyPrec2dFieldSpecFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none,
+      shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } },
+    { id := 2, name := none, shape := .option 0 },
+    { id := 3, name := none, shape := .option 0 }
+  ]
+  expectCfgErrCode "Prec2d invalid FieldSpec before recursive" .badType prec2d
+  -- Phase precedence: Map-key legality precedes the TypeKey segment. An
+  -- illegal Map key fails as `.badType` first, even when a duplicate Option
+  -- also exists.
+  let prec3 ← programWithTypes "RecursiveTypeKeyPrec3MapKeyFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .option 0 },
+    { id := 2, name := none, shape := .map 1 0 },
+    { id := 3, name := none, shape := .option 0 }
+  ]
+  expectCfgErrCode "Prec3 Map-key legality before recursive" .badType prec3
+  -- Phase precedence: recursive structural uniqueness runs before named
+  -- type-name uniqueness. A recursive duplicate + duplicate named names
+  -- fails on the recursive duplicate first.
+  let prec4 ← programWithTypes "RecursiveTypeKeyPrec4NamedLater" #[
+    { id := 0, name := some "Dup",
+      shape := .struct #[{ name := "x", typeId := 4 }] },
+    { id := 1, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[4] }] },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .array 2 4 },
+    { id := 4, name := none, shape := .array 2 4 }
+  ]
+  expectCfgErrCode "Prec4 recursive before named names" .nonCanonical prec4
+  -- Phase precedence: recursive structural uniqueness runs before canonical
+  -- valueBytes. A recursive duplicate + a malformed Constant value fails on
+  -- the recursive duplicate first.
+  let prec5 ← programWithTypes "RecursiveTypeKeyPrec5ValueLater"
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .array 0 4 },
+      { id := 2, name := none, shape := .array 0 4 }]
+    #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+  expectCfgErrCode "Prec5 recursive before canonical value" .nonCanonical
+    prec5
+  -- Phase precedence: recursive structural uniqueness runs before callable
+  -- signature.
+  let prec6 ← programWithTypes "RecursiveTypeKeyPrec6SignatureLater"
+    #[{ id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .array 0 4 },
+      { id := 2, name := none, shape := .array 0 4 }]
+    #[] #[cfgCallableKindName .pureFn none]
+  expectCfgErrCode "Prec6 recursive before callable signature" .nonCanonical
+    prec6
+  -- Phase precedence: recursive structural uniqueness runs before
+  -- requirements.
+  let prec7Base ← programWithTypes "RecursiveTypeKeyPrec7RequirementLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  let prec7 : SemanticProgramDataV1 := {
+    prec7Base with requirements := { items := #[req "unknown.capability"] }
+  }
+  expectCfgErrCode "Prec7 recursive before requirements" .nonCanonical prec7
 
 /-- SPEC-SEM-WIRE-001 §6 callable kind/name presence: initializer is the only
     anonymous kind; entry/view/pureFn/invariant must be named. This test does
@@ -7673,6 +8051,7 @@ def run : IO Unit := do
   testValueBytesNegatives
   testValueBytesTransportRegression
   testPrimitiveAnonymousTypeKeyUniqueness
+  testRecursiveAnonymousTypeKeyUniqueness
   testCallableKindNamePresence
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
