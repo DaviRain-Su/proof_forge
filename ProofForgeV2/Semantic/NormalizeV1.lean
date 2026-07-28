@@ -1,0 +1,472 @@
+/-
+  ProofForgeV2.Semantic.NormalizeV1 — S1 Semantic normalizer vertical contract.
+
+  Owns the first ProgramV1 → SemanticProgramV1 lowering seam:
+    * consumes ValidatedSourceV1
+    * requires Typed.CheckV1.checkProgramTypedResultV1 with ok=true and
+      analysisComplete=true (fail closed otherwise; no carrier on typed failure)
+    * lowers the shipped Counter-like ProgramV1 subset into SemanticProgramDataV1
+    * returns SemanticProgramV1 only via WireV1 structure-gated
+      encodeSemanticProgramDataV1 (authoritative path; no alpha Semantic.Program
+      or Typed.Program bridge)
+
+  Supported S1 surface (everything else fails closed at this boundary):
+    * declarations: public primitive state (UInt64 only), init, entry, view
+    * statements: bare-place assign to state, return (some/none); init may omit
+      return (implicit return none)
+    * expressions: bare place (param or state name) and binary add only
+    * types: anonymous UInt64 + Unit (init result); one TypeId per distinct shape
+    * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
+      invariantSteps=none; empty constants/events/errors/invariants/requirements
+
+  Out of scope for this slice:
+    * exact RequirementsV1 merge (emits empty ProgramRequirementsV1.items)
+    * SemanticProvenanceV1 join
+    * product compileValidatedSourceV1 / CLI cutover
+    * registry / resolver / materializer / OutputSetV1
+    * interpreter / target changes
+    * formal TASK-D2-06 / TST-SEM-001 completion
+-/
+import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Source.AstDeclV1
+import ProofForgeV2.Source.AstProgramItemV1
+import ProofForgeV2.Source.AstProgramV1
+import ProofForgeV2.Source.AstSpineDeclV1
+import ProofForgeV2.Source.AstSpineV1
+import ProofForgeV2.Source.AstSupportV1
+import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.QualifiedNameV1
+import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Typed.CheckV1
+
+namespace ProofForgeV2.Semantic.NormalizeV1
+
+open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstProgramV1
+open ProofForgeV2.Source.AstSpineDeclV1
+open ProofForgeV2.Source.AstSupportV1
+open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Typed.CheckV1
+
+-- Source AST namespaces kept selective/qualified to avoid Wire name clashes
+-- (StateDeclV1, BlockV1, VisibilityV1, …).
+private abbrev SrcType := ProofForgeV2.Source.AstV1.TypeV1
+private abbrev SrcVis := ProofForgeV2.Source.AstV1.VisibilityV1
+private abbrev SrcExpr := ProofForgeV2.Source.AstSpineV1.ExprV1
+private abbrev SrcStmt := ProofForgeV2.Source.AstSpineV1.StmtV1
+private abbrev SrcPlace := ProofForgeV2.Source.AstSpineV1.PlaceV1
+private abbrev SrcBlock := ProofForgeV2.Source.AstSpineV1.BlockV1
+/-- Fail-closed normalizer errors. Typed-not-ok never yields a carrier. -/
+inductive NormalizeErrorV1 where
+  | typedNotOk (diagnostics : Array DiagnosticV1)
+  | unsupported (detail : String)
+  | identity (detail : String)
+  | wire (error : SemanticWireErrorV1)
+  deriving Repr
+
+private def failUnsupported (detail : String) : Except NormalizeErrorV1 α :=
+  .error (.unsupported detail)
+
+private def failIdentity (detail : String) : Except NormalizeErrorV1 α :=
+  .error (.identity detail)
+
+private def raw (n : SourceNameComponentV1) : String := n.raw
+
+/-- Map source program identity to Common.QualifiedName (≥2 components for Wire). -/
+def programIdentityToQualifiedNameV1 (identity : SourceQualifiedNameV1) :
+    Except NormalizeErrorV1 QualifiedName := do
+  let comps := (NonEmptyArray.toArray identity.components).map (·.raw)
+  unless comps.size ≥ 2 do
+    return ← failIdentity "semantic program qualifiedName requires ≥2 components"
+  match parseQualifiedName comps with
+  | .ok qn => pure qn
+  | .error e => failIdentity e
+
+private def mapVisibility : SrcVis → VisibilityV1
+  | .public_ => .public_
+  | .private_ => .private_
+  | .commitment => .commitment
+
+/-- S1 type interning: only anonymous UInt64 and Unit, first-seen order. -/
+structure TypeInternerV1 where
+  types : Array TypeDeclV1
+
+private def emptyInterner : TypeInternerV1 := ⟨#[]⟩
+
+private def shapeEq (a b : TypeShapeV1) : Bool :=
+  match a, b with
+  | .uint wa, .uint wb => wa == wb
+  | .unit, .unit => true
+  | .bool, .bool => true
+  | _, _ => false
+
+private def findTypeId (interner : TypeInternerV1) (shape : TypeShapeV1) :
+    Option TypeIdV1 := Id.run do
+  let mut i : Nat := 0
+  for d in interner.types do
+    if shapeEq d.shape shape then
+      return some (UInt32.ofNat i)
+    i := i + 1
+  pure none
+
+private def internShape (interner : TypeInternerV1) (shape : TypeShapeV1) :
+    TypeInternerV1 × TypeIdV1 :=
+  match findTypeId interner shape with
+  | some tid => (interner, tid)
+  | none =>
+      let tid := UInt32.ofNat interner.types.size
+      let decl : TypeDeclV1 := { id := tid, name := none, shape := shape }
+      ({ types := interner.types.push decl }, tid)
+
+private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
+    Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
+  match ty with
+  | .uint 64 => pure (internShape interner (.uint 64))
+  | .unit => pure (internShape interner .unit)
+  | .uint w => failUnsupported s!"S1 normalizer supports only UInt64, got UInt{w}"
+  | .bool => failUnsupported "S1 normalizer does not support Bool type"
+  | .int w => failUnsupported s!"S1 normalizer does not support Int{w}"
+  | .principal => failUnsupported "S1 normalizer does not support Principal"
+  | .named n => failUnsupported s!"S1 normalizer does not support named type '{raw n}'"
+  | .array _ _ => failUnsupported "S1 normalizer does not support Array"
+  | .map _ _ => failUnsupported "S1 normalizer does not support Map"
+  | .option _ => failUnsupported "S1 normalizer does not support Option"
+  | .bytes _ => failUnsupported "S1 normalizer does not support Bytes"
+  | .field _ => failUnsupported "S1 normalizer does not support Field"
+
+/-- Param/local env: bare name → (ValueId, TypeId). -/
+structure LocalEnvV1 where
+  bindings : Array (String × ValueIdV1 × TypeIdV1)
+
+private def emptyEnv : LocalEnvV1 := ⟨#[]⟩
+
+private def envLookup (env : LocalEnvV1) (name : String) :
+    Option (ValueIdV1 × TypeIdV1) :=
+  env.bindings.findSome? fun (n, vid, tid) =>
+    if n == name then some (vid, tid) else none
+
+private def envInsert (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
+    (tid : TypeIdV1) : LocalEnvV1 :=
+  ⟨env.bindings.push (name, vid, tid)⟩
+
+/-- State name → (StateId, TypeId). -/
+structure StateTableV1 where
+  rows : Array (String × StateIdV1 × TypeIdV1)
+
+private def stateLookup (table : StateTableV1) (name : String) :
+    Option (StateIdV1 × TypeIdV1) :=
+  table.rows.findSome? fun (n, sid, tid) =>
+    if n == name then some (sid, tid) else none
+
+/-- Lowering accumulator for one callable body. -/
+structure BodyStateV1 where
+  instructions : Array InstructionV1
+  nextValueId : ValueIdV1
+  env : LocalEnvV1
+
+private def lowerPlace
+    (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
+  match place with
+  | .name n =>
+      let key := raw n
+      match envLookup st.env key with
+      | some (vid, tid) => pure (vid, tid, st)
+      | none =>
+          match stateLookup states key with
+          | none =>
+              failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+          | some (sid, tid) =>
+              let vid := st.nextValueId
+              let instr : InstructionV1 := {
+                result := some { valueId := vid, typeId := tid }
+                op := .stateLoad sid
+              }
+              pure (vid, tid, {
+                instructions := st.instructions.push instr
+                nextValueId := vid + 1
+                env := st.env
+              })
+  | .field _ _ => failUnsupported "S1 normalizer does not support field places"
+  | .index _ _ => failUnsupported "S1 normalizer does not support index places"
+
+private partial def lowerExpr
+    (expr : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
+  match expr with
+  | .place p => lowerPlace p st states
+  | .binary op lhs rhs =>
+      if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then do
+        let (lVid, lTid, st1) ← lowerExpr lhs st states
+        let (rVid, rTid, st2) ← lowerExpr rhs st1 states
+        unless lTid == rTid do
+          return ← failUnsupported "S1 binary add requires equal operand types"
+        let vid := st2.nextValueId
+        let instr : InstructionV1 := {
+          result := some { valueId := vid, typeId := lTid }
+          op := .binary BinaryOpV1.add lVid rVid
+        }
+        pure (vid, lTid, {
+          instructions := st2.instructions.push instr
+          nextValueId := vid + 1
+          env := st2.env
+        })
+      else
+        failUnsupported "S1 normalizer supports only binary add"
+  | .literal _ => failUnsupported "S1 normalizer does not support literals"
+  | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
+  | .unary _ _ => failUnsupported "S1 normalizer does not support unary expressions"
+  | .localCall _ _ => failUnsupported "S1 normalizer does not support localCall"
+  | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
+
+private def lowerStmt
+    (stmt : SrcStmt) (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × Option (Option ValueIdV1)) :=
+  match stmt with
+  | .assign target value => do
+      match target with
+      | .name n =>
+          let key := raw n
+          -- Match Typed/EffectCheck param-before-state resolution: a bare name
+          -- that is bound as a param/local is not a state write target. S1 only
+          -- lowers unshadowed state assigns; param assigns fail closed.
+          match envLookup st.env key with
+          | some _ =>
+              failUnsupported
+                s!"S1 assign target must be a state place, not a param '{key}'"
+          | none =>
+              match stateLookup states key with
+              | none =>
+                  failUnsupported s!"S1 assign target '{key}' must be a state place"
+              | some (sid, expectedTid) =>
+                  let (vid, tid, st1) ← lowerExpr value st states
+                  unless tid == expectedTid do
+                    return ← failUnsupported
+                      s!"S1 assign type mismatch for state '{key}'"
+                  let instr : InstructionV1 := {
+                    result := none
+                    op := .stateStore sid vid
+                  }
+                  pure ({
+                    instructions := st1.instructions.push instr
+                    nextValueId := st1.nextValueId
+                    env := st1.env
+                  }, none)
+      | .field _ _ => failUnsupported "S1 assign does not support field targets"
+      | .index _ _ => failUnsupported "S1 assign does not support index targets"
+  | .return_ none => pure (st, some none)
+  | .return_ (some e) => do
+      let (vid, _tid, st1) ← lowerExpr e st states
+      pure (st1, some (some vid))
+  | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
+  | .if_ _ _ _ => failUnsupported "S1 normalizer does not support if"
+  | .match_ _ _ => failUnsupported "S1 normalizer does not support match statements"
+  | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
+  | .assert_ _ _ => failUnsupported "S1 normalizer does not support assert"
+  | .revert _ _ => failUnsupported "S1 normalizer does not support revert"
+  | .emit _ _ => failUnsupported "S1 normalizer does not support emit"
+  | .call _ => failUnsupported "S1 normalizer does not support call"
+  | .schedule _ => failUnsupported "S1 normalizer does not support schedule"
+
+private def lowerBlock
+    (body : SrcBlock) (params : Array ParameterV1) (states : StateTableV1)
+    (allowImplicitReturnNone : Bool) :
+    Except NormalizeErrorV1 (Array InstructionV1 × TerminatorV1) := do
+  let mut env := emptyEnv
+  for p in params do
+    env := envInsert env p.name p.valueId p.typeId
+  let mut st : BodyStateV1 := {
+    instructions := #[]
+    nextValueId := UInt32.ofNat params.size
+    env := env
+  }
+  let mut term : Option (Option ValueIdV1) := none
+  for stmt in body.statements do
+    match term with
+    | some _ =>
+        return ← failUnsupported
+          "S1 normalizer does not support statements after return"
+    | none =>
+        let (st', t?) ← lowerStmt stmt st states
+        st := st'
+        term := t?
+  match term with
+  | some v => pure (st.instructions, TerminatorV1.return_ v)
+  | none =>
+      if allowImplicitReturnNone then
+        pure (st.instructions, TerminatorV1.return_ none)
+      else
+        failUnsupported "S1 normalizer requires explicit return for entry/view"
+
+private def lowerParams
+    (ps : Array ParamV1) (interner : TypeInternerV1) :
+    Except NormalizeErrorV1 (TypeInternerV1 × Array ParameterV1) := do
+  let mut interner := interner
+  let mut out : Array ParameterV1 := #[]
+  let mut i : Nat := 0
+  for p in ps do
+    let (interner', tid) ← internSourceType interner p.type_
+    interner := interner'
+    out := out.push {
+      valueId := UInt32.ofNat i
+      name := raw p.name
+      typeId := tid
+      visibility := mapVisibility p.visibility
+    }
+    i := i + 1
+  pure (interner, out)
+
+private def mkCallable
+    (id : CallableIdV1) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1) :
+    CallableV1 :=
+  {
+    id
+    kind
+    name
+    params
+    result
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions
+      terminator
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+
+/-- Core lowering after Typed CheckV1 has succeeded.
+
+  Two-pass over ProgramV1 items (not NameResolution tables):
+  1. Collect/validate all public UInt64 states into a complete logicalState table
+     (IDs are source-order among state decls, independent of callable position).
+  2. Lower init/entry/view bodies against that complete table.
+-/
+def lowerProgramDataV1 (source : ValidatedSourceV1) :
+    Except NormalizeErrorV1 SemanticProgramDataV1 := do
+  let qn ← programIdentityToQualifiedNameV1 source.programIdentity
+  let program := source.program
+  let mut interner := emptyInterner
+  let mut stateRows : Array StateDeclV1 := #[]
+  let mut stateTable : StateTableV1 := ⟨#[]⟩
+
+  -- Pass 1: complete state table (source order among state items only).
+  for item in program.items do
+    match item with
+    | .state s =>
+        unless s.visibility == ProofForgeV2.Source.AstV1.VisibilityV1.public_ do
+          return ← failUnsupported
+            s!"S1 normalizer supports only public state, got non-public '{raw s.name}'"
+        let (interner', tid) ← internSourceType interner s.type_
+        interner := interner'
+        let sid := UInt32.ofNat stateRows.size
+        stateRows := stateRows.push {
+          id := sid
+          name := raw s.name
+          typeId := tid
+          visibility := VisibilityV1.public_
+        }
+        stateTable := {
+          rows := stateTable.rows.push (raw s.name, sid, tid)
+        }
+    | _ => pure ()
+
+  -- Pass 2: lower supported callables; reject unsupported item kinds.
+  let mut callables : Array CallableV1 := #[]
+  let mut callableId : Nat := 0
+  for item in program.items do
+    match item with
+    | .state _ => pure ()
+    | .init d =>
+        let (interner', params) ← lowerParams d.params interner
+        interner := interner'
+        let (interner'', unitTid) := internShape interner .unit
+        interner := interner''
+        let (instrs, term) ← lowerBlock d.body params stateTable true
+        callables := callables.push (mkCallable
+          (UInt32.ofNat callableId) .initializer none params
+          { typeId := unitTid, visibility := VisibilityV1.public_ } instrs term)
+        callableId := callableId + 1
+    | .entry e =>
+        let (interner', params) ← lowerParams e.params interner
+        interner := interner'
+        let (interner'', resultTid) ← internSourceType interner e.result
+        interner := interner''
+        let (instrs, term) ← lowerBlock e.body params stateTable false
+        callables := callables.push (mkCallable
+          (UInt32.ofNat callableId) .entry (some (raw e.name)) params
+          { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
+        callableId := callableId + 1
+    | .view v =>
+        let (interner', params) ← lowerParams v.params interner
+        interner := interner'
+        let (interner'', resultTid) ← internSourceType interner v.result
+        interner := interner''
+        let (instrs, term) ← lowerBlock v.body params stateTable false
+        callables := callables.push (mkCallable
+          (UInt32.ofNat callableId) .view (some (raw v.name)) params
+          { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
+        callableId := callableId + 1
+    | .struct _ =>
+        return ← failUnsupported "S1 normalizer does not support struct"
+    | .enum _ =>
+        return ← failUnsupported "S1 normalizer does not support enum"
+    | .const _ =>
+        return ← failUnsupported "S1 normalizer does not support const"
+    | .event _ =>
+        return ← failUnsupported "S1 normalizer does not support event"
+    | .error _ =>
+        return ← failUnsupported "S1 normalizer does not support error"
+    | .fn _ =>
+        return ← failUnsupported "S1 normalizer does not support fn"
+    | .invariant _ =>
+        return ← failUnsupported "S1 normalizer does not support invariant"
+    | .extensionReq _ =>
+        return ← failUnsupported "S1 normalizer does not support extension"
+    | .proof _ =>
+        return ← failUnsupported "S1 normalizer does not support proof"
+
+  pure {
+    qualifiedName := qn
+    types := interner.types
+    constants := #[]
+    logicalState := stateRows
+    events := #[]
+    errors := #[]
+    callables := callables
+    invariants := #[]
+    requirements := { items := #[] }
+  }
+
+/-- Structure-gated encode is the sole path to a SemanticProgramV1 carrier. -/
+def encodeCarrierV1 (data : SemanticProgramDataV1) :
+    Except NormalizeErrorV1 SemanticProgramV1 :=
+  match encodeSemanticProgramDataV1 data with
+  | .ok bytes => pure ⟨bytes⟩
+  | .error e => .error (.wire e)
+
+/-- Public S1 normalizer entry: CheckV1 gate → direct ProgramV1 lower → Wire encode.
+
+  S1 lowering walks `source.program.items` directly after the CheckV1 gate
+  (no separate NameResolution re-walk; CheckV1 already resolved).
+-/
+def normalizeProgramV1 (source : ValidatedSourceV1) :
+    Except NormalizeErrorV1 SemanticProgramV1 := do
+  let typed := checkProgramTypedResultV1 source
+  unless typed.ok && typed.analysisComplete do
+    return ← .error (.typedNotOk typed.diagnostics)
+  let data ← lowerProgramDataV1 source
+  encodeCarrierV1 data
+
+end ProofForgeV2.Semantic.NormalizeV1

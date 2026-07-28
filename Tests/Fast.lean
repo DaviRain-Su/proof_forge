@@ -40,6 +40,9 @@ import Tests.Core.DiagnosticV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
+-- S1 NormalizeV1 suite is defined in Tests/Typed/CheckV1.lean under namespace
+-- Tests.Semantic.NormalizeV1 and invoked from Tests.Typed.CheckV1.run (ordinary
+-- CI + fast path both hit that root).
 
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
