@@ -13,7 +13,7 @@ grammars, plus an internal `TargetKind` witness for residual alpha dispatch.
 and no `TargetId → TargetKind` conversion surface.
 
 `TargetKind` remains a public Lean type because residual alpha
-`Materializer`/`ResolvedProgram`/`CompileError` still index by kind. That is an
+`Materializer`/`CompileError` still index by kind. That is an
 internal dispatch witness, not a second product input face.
 
 There is **no** public `CodegenProfileId.ofString!` bang constructor. Shipped

@@ -117,6 +117,183 @@ def sizeOfOnlySelection (_s : ResolvedBuildSelectionV1) : Unit := ()
 
 end DualArgProbe
 
+/-! Synthetic residual emission-bypass probes. These deliberately shape public
+    types as capability-free SemanticProgram→Plan / Plan→IR / IR→files chains.
+    The product gate under `ProofForgeV2` must reject renames/aliases of this form;
+    probes live under Tests prefix and prove the scanner catches them. -/
+namespace ResidualBypassProbe
+
+/-- Opaque stand-ins so probes do not import private target Residual APIs. -/
+structure ProbePlan where
+  tag : Unit := ()
+  deriving Inhabited
+structure ProbeIR where
+  tag : Unit := ()
+  deriving Inhabited
+
+/-- Capability-free SemanticProgram → Plan (forbidden product shape). -/
+def probeSemToPlan (_p : SemanticProgram) : CompileResult ProbePlan :=
+  .ok {}
+
+/-- Capability-free Plan → IR (forbidden product shape). -/
+def probePlanToIR (_plan : ProbePlan) : CompileResult ProbeIR :=
+  .ok {}
+
+/-- Capability-free IR → OutputFile array (forbidden product shape). -/
+def probeIRToFiles (_ir : ProbeIR) : CompileResult (Array OutputFile) :=
+  .ok #[]
+
+/-- Renamed residual planFromAlpha shape (must still be caught by type scan). -/
+def planFromAlphaRenamed (_p : SemanticProgram) : CompileResult ProbePlan :=
+  .ok {}
+
+/-- Reducible alias of SemanticProgram (alias expand must catch). -/
+abbrev SemanticAlias := SemanticProgram
+
+def probeViaSemanticAlias (_p : SemanticAlias) : CompileResult ProbePlan :=
+  .ok {}
+
+/-- Result-type alias of CompileResult ProbePlan (result expand must catch). -/
+abbrev PlanResultAlias := CompileResult ProbePlan
+
+def probeViaResultAlias (_p : SemanticProgram) : PlanResultAlias :=
+  .ok {}
+
+/-- Two-step abbrev chain on the input carrier. -/
+abbrev SemanticAliasChain := SemanticAlias
+
+def probeViaAbbrevChain (_p : SemanticAliasChain) : CompileResult ProbePlan :=
+  .ok {}
+
+/-- Reducible-def chain (attribute reducible, not opaque). -/
+@[reducible] def SemanticReducible := SemanticProgram
+@[reducible] def PlanResultReducible := CompileResult ProbePlan
+
+def probeViaReducibleChain (_p : SemanticReducible) : PlanResultReducible :=
+  .ok {}
+
+/-- Opaque function with forbidden Semantic→Plan type (must be scanned as opaqueInfo). -/
+opaque opaqueSemToPlan (_p : SemanticProgram) : CompileResult ProbePlan
+
+/-- Direct public constructor whose field type embeds a forbidden emission chain.
+    Scanner must walk ctor field types (not only top-level defnInfo). -/
+structure DirectCtorBypass where
+  planFromAlpha : SemanticProgram → CompileResult ProbePlan
+
+/-- Direct mandatory capability binder: authorized (not residual bypass). -/
+def probeCapabilityPlan
+    (_c : Targets.ResolvedEngineeringBuildV1) : CompileResult ProbePlan :=
+  .ok {}
+
+/-- Direct mandatory capability binder → IR: authorized. -/
+def probeCapabilityIR
+    (_c : Targets.ResolvedEngineeringBuildV1) : CompileResult ProbeIR :=
+  .ok {}
+
+/-- Direct mandatory capability binder + later ordinary mandatory params: authorized. -/
+def probeCapabilityThenPlan
+    (_c : Targets.ResolvedEngineeringBuildV1) (_extra : Nat) : CompileResult ProbeIR :=
+  .ok {}
+
+/-- Transparent alias of capability; direct binder of alias is authorized after expand. -/
+abbrev CapabilityAlias := Targets.ResolvedEngineeringBuildV1
+
+def probeViaCapabilityAlias
+    (_c : CapabilityAlias) : CompileResult ProbeIR :=
+  .ok {}
+
+/-- Result-only capability mention + IR (no direct capability *input* binder).
+    Capability appears only in the result type; Plan→IR remains forbidden. -/
+def probeResultOnlyCapIR (_plan : ProbePlan) :
+    CompileResult (Targets.ResolvedEngineeringBuildV1 → ProbeIR) :=
+  .ok (fun _ => {})
+
+/-- Option-wrapped capability binder is NOT direct mandatory capability authorization.
+    Plan→IR emission remains forbidden. -/
+def probeOptionCapBinder
+    (_c : Option Targets.ResolvedEngineeringBuildV1) (_plan : ProbePlan) :
+    CompileResult ProbeIR :=
+  .ok {}
+/-- Pure validation control (Semantic → Unit): not an emission chain. -/
+def probeValidateOnly (_p : SemanticProgram) : CompileResult Unit :=
+  .ok ()
+
+/-- Capability-bearing structure ctor control: first field is direct mandatory
+    capability binder on `.mk` → authorized. -/
+structure CapabilityCtorControl where
+  capability : Targets.ResolvedEngineeringBuildV1
+  plan : ProbePlan
+
+/-- Structure providing a real constructor parent name `CtorParentProbe.mk`. -/
+structure CtorParentProbe where
+  tag : Unit := ()
+  deriving Inhabited
+
+/-- User-declared forbidden emission under constructor-name parent
+    `CtorParentProbe.mk.*`. Hierarchical name is intentional: must be scanned
+    (narrow Lean-generated leaf list must not swallow this user API). -/
+def CtorParentProbe.mk.planFromAlphaNested (_p : SemanticProgram) :
+    CompileResult ProbePlan :=
+  .ok {}
+
+/-- Transparent alias whose expansion body is a nested forbidden Pi.
+    Classifier must expand the alias and discover Semantic→Plan. -/
+abbrev NestedSemToPlan := SemanticProgram → CompileResult ProbePlan
+
+def probeViaNestedAliasPi (_f : NestedSemToPlan) : Unit := ()
+
+/-- Reducible alias expansion body is nested forbidden Pi. -/
+@[reducible] def NestedSemToPlanReducible := SemanticProgram → CompileResult ProbePlan
+
+def probeViaNestedReduciblePi (_f : NestedSemToPlanReducible) : Unit := ()
+
+/-- Pure (unwrapped) Semantic→Plan — forbidden without capability. -/
+def probePureSemToPlan (_p : SemanticProgram) : ProbePlan := {}
+
+/-- Pure Plan→IR — forbidden without capability. -/
+def probePurePlanToIR (_plan : ProbePlan) : ProbeIR := {}
+
+/-- IR → Array OutputFile (wrapper-independent files chain) — forbidden. -/
+def probeIRToArrayFiles (_ir : ProbeIR) : Array OutputFile := #[]
+
+/-- IR → IO (Array OutputFile) — forbidden. -/
+def probeIRToIOArrayFiles (_ir : ProbeIR) : IO (Array OutputFile) :=
+  pure #[]
+
+/-- IR → IO OutputSet (OutputSet appears under IO) — forbidden. -/
+def probeIRToIOOutputSet (_ir : ProbeIR) : IO (Option OutputSet) :=
+  pure none
+
+/-- Capability-gated IR → Array OutputFile — allowed. -/
+def probeCapIRToArrayFiles
+    (_c : Targets.ResolvedEngineeringBuildV1) (_ir : ProbeIR) : Array OutputFile :=
+  #[]
+
+/-- Capability-gated IR → IO (Array OutputFile) — allowed. -/
+def probeCapIRToIOArrayFiles
+    (_c : Targets.ResolvedEngineeringBuildV1) (_ir : ProbeIR) :
+    IO (Array OutputFile) :=
+  pure #[]
+
+/-- Capability-gated IR → IO OutputSet — allowed. -/
+def probeCapIRToIOOutputSet
+    (_c : Targets.ResolvedEngineeringBuildV1) (_ir : ProbeIR) :
+    IO (Option OutputSet) :=
+  pure none
+
+/-- Capability-gated pure Plan→IR — allowed. -/
+def probeCapPurePlanToIR
+    (_c : Targets.ResolvedEngineeringBuildV1) (_plan : ProbePlan) : ProbeIR :=
+  {}
+
+/-- Synthetic carrier-like structure whose public ctor field is a forbidden
+    Plan→IR function. Environment scan must not skip this ctor; classifier on
+    the full ctor type must report forbidden. -/
+structure ProbePlanCarrier where
+  lowerPlan : ProbePlan → ProbeIR
+
+end ResidualBypassProbe
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
@@ -710,24 +887,36 @@ private def testRequestResolveNegativesOnInspection : IO Unit := do
     (inspectResolveRequestsV1 supported { items := #[unknownWithPred] })
     "PF-REQ-UNSUPPORTED" "inspection non-catalog + predicates is unsupported"
 
-/-- Characterization: alpha Common.resolve still rejects unsupported requirements.
-    Not a product aggregate path. Reuses real residual alpha from Counter and
-    injects an unsupported requirement locally via `{ p with requirements := … }`. -/
+/-- S6: product support authority rejects unsupported request matrices on the
+    inspection seam; public residual Common.resolve is gone (deletion contract).
+    Dual-carrier Counter still mints capability only for exact retained freeze. -/
 private unsafe def testBackendAlphaDefense : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     Examples.counterSourceText "<req-resolver-backend-def>"
     Examples.counterModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  let base := CompiledProgramV1.alphaResidualOf compiled
-  let tainted : SemanticProgram := { base with requirements := #[.privateWitness] }
-  match Targets.resolve .evm Targets.Evm.descriptor tainted with
-  | .error (.unsupportedRequirement .privateWitness .evm) => pure ()
-  | .error e =>
-      expect (e.code == "PF-REQ-UNSUPPORTED")
-        s!"backend defense must report PF-REQ-UNSUPPORTED, got {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "EVM resolve must not accept privateWitness as supported"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
+  -- Product path succeeds for exact retained freeze.
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  expect (Targets.ResolvedEngineeringBuildV1.targetIdOf capability == TargetId.evm)
+    "capability mint for Counter on EVM"
+  -- Unsupported non-catalog id is rejected on inspection (not residual resolve).
+  let unknown : RequirementRequestV1 := {
+    id := "effect.synchronous-call"
+    version := s2RequirementVersionV1
+    digest := zeroDigest
+    predicates := #[]
+  }
+  let rows ← liftResult productSupportRowsV1
+  let supported ← match rows[0]? with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing first support row"
+  expectErrorCode
+    (inspectResolveRequestsV1 supported { items := #[unknown] })
+    "PF-REQ-UNSUPPORTED" "inspection rejects unsupported requirement class"
+  -- Public residual resolve/makePlan absence is asserted in testDeletionContract.
 
 /-- Run `rg` over product/test trees; exit 0 with empty stdout = no matches. -/
 private def rgExpectEmpty (pattern : String) (paths : Array String) (label : String) :
@@ -781,16 +970,41 @@ private def testDeletionContract : IO Unit := do
   rgExpectEmpty ("^\\s*def emitProgram " ++ "\\(selection") #["ProofForgeV2"]
     "deletion: no selection-parameter emitProgram"
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
-    #["ProofForgeV2"] "Registry.lean"
+    #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint ResolvedEngineeringBuild capability"
   rgExpectOneContaining ("CompiledProgramV1" ++ "\\.mk")
     #["ProofForgeV2"] "Pipeline.lean"
     "sole mint CompiledProgram carrier"
+  -- S6: public residual resolve / validateResolved / makePlan closed.
+  rgExpectEmpty ("^\\s*def " ++ "resolve\\b") #["ProofForgeV2/Targets/Common.lean"]
+    "deletion: no public Common.resolve"
+  rgExpectEmpty ("^\\s*def " ++ "validateResolved\\b") #["ProofForgeV2"]
+    "deletion: no public validateResolved"
+  rgExpectEmpty ("^\\s*def " ++ "makePlan\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public makePlan"
+  rgExpectEmpty ("^\\s*def " ++ "lower\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public lower"
+  rgExpectEmpty ("^\\s*def " ++ "emit\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public emit"
+  rgExpectEmpty ("^\\s*def " ++ "planFromResidualAlpha\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public planFromResidualAlpha"
+  rgExpectEmpty ("^\\s*def " ++ "planFromAlpha\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public planFromAlpha residual bypass"
+  rgExpectEmpty ("^\\s*def " ++ "lowerPlan\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public lowerPlan residual bypass"
+  rgExpectEmpty ("^\\s*def " ++ "filesFromIR\\b") #["ProofForgeV2/Targets"]
+    "deletion: no public filesFromIR residual emit bypass"
+  rgExpectEmpty ("namespace Residual") #["ProofForgeV2/Targets"]
+    "deletion: no Residual characterization emission namespace"
+  rgExpectEmpty ("^\\s*structure " ++ "ResolvedProgram\\b") #["ProofForgeV2"]
+    "deletion: no public ResolvedProgram residual carrier"
+  rgExpectEmpty ("supportedRequirements" ++ "\\.contains") #["ProofForgeV2"]
+    "deletion: no supportedRequirements.contains acceptance"
 
 private unsafe def testCapabilityMintUniqueness : IO Unit := do
   -- Private-ctor sole mint: only resolveEngineeringRequirementsV1 may call .mk.
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
-    #["ProofForgeV2"] "Registry.lean"
+    #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint capability constructor"
   -- CompiledProgramV1.mk sole mint in Compiler/Pipeline.lean (compileValidatedSourceV1).
   rgExpectOneContaining ("CompiledProgramV1" ++ "\\.mk")
@@ -840,9 +1054,9 @@ may only be `ProofForgeV2.Targets.resolveEngineeringRequirementsV1`.
 
 - Environment: library umbrella + shipped CLI root (`CLI.Main`)
 - Public = name prefix + not private-mangled (`isPrivateName`)
-- All typed ConstantInfo kinds scanned; **metadata-only** skip (no sizeOf/_spec/
-  inj/noConfusion **spelling** filters): `isAuxRecursor`, `isNoConfusion`, kernel
-  `.recInfo`, non-ctor nested under `Environment.isConstructor` parent
+- All typed ConstantInfo kinds scanned; **metadata-only** skip via authoritative
+  Lean flags only: `isAuxRecursor`, `isNoConfusion`, kernel `.recInfo`
+  (no broad parent-is-constructor exclusion)
 - Type walk: shared total node budget worklist; alias expand (abbrev / reducible)
   costs budget; expanded-name cycle set; no opaque/regular bulk unfold
 - Early success when both carriers observed; hits sorted by `Name.lt`
@@ -961,14 +1175,20 @@ private def typeMentionsBothCarriers
     else
       DualCarrierTypeScan.doesNotMentionBoth
 
-/-- Metadata-backed generated eliminators only (no name-spelling filters).
-    - `isAuxRecursor` — casesOn/recOn/… (env tag)
-    - `isNoConfusion` — noConfusion family (env extension)
-    - kernel `.recInfo`
-    Nested lemmas under a **constructor** name (inj/injEq/sizeOf_spec/_flat_ctor)
-    are identified via `Environment.isConstructor` on the parent (constructor
-    metadata), not via sizeOf/_spec/inj string matching. That keeps user APIs
-    named `probe_spec` / `sizeOfProbe` visible. -/
+/-- Metadata-backed generated eliminators (authoritative Lean flags + narrow
+    enumeration of Lean-generated constructor children only).
+    - `isAuxRecursor` / `isNoConfusion` / kernel `.recInfo`
+    - Exact leaf under a constructor parent: `inj` | `injEq` | `sizeOf_spec` |
+      `_flat_ctor` only (not every nested name under a constructor).
+    User APIs under `Ctor.mk.planFromAlphaNested` remain visible. -/
+private def isLeanGeneratedCtorChild (env : Environment) (n : Name) : Bool :=
+  match n with
+  | .str parent leaf =>
+      env.isConstructor parent
+        && (leaf == "inj" || leaf == "injEq" || leaf == "sizeOf_spec"
+            || leaf == "_flat_ctor")
+  | _ => false
+
 private def isMetadataGeneratedEliminator
     (env : Environment) (n : Name) (info : ConstantInfo) : Bool :=
   isAuxRecursor env n
@@ -976,14 +1196,7 @@ private def isMetadataGeneratedEliminator
     || match info with
        | .recInfo _ => true
        | _ => false
-    || match n with
-       | .str parent _ =>
-           -- Any non-ctor decl nested under a constructor (Lean generates
-           -- inj/injEq/sizeOf_spec/_flat_ctor here). Public dual-field `.mk`
-           -- itself remains a constructor and is not excluded.
-           env.isConstructor parent
-             && !(match info with | .ctorInfo _ => true | _ => false)
-       | _ => false
+    || isLeanGeneratedCtorChild env n
 
 /-- Candidate: every public typed ConstantInfo under `namePrefix`, except private
     mangled names and metadata-confirmed generated eliminators. -/
@@ -1266,6 +1479,476 @@ private def assertTypeScanBudgetSelfTest (env : Environment) : Except String Uni
     | .doesNotMentionBoth =>
         .error s!"budget self-test: under-budget ({nodes - 1} < {nodes}) wide spine must exhaust"
 
+/-!
+## Residual emission-bypass type-chain reflection gate (S6 repair)
+
+Public `ProofForgeV2` declarations (defn / opaque / ctor) whose types form
+capability-free SemanticProgram→Plan, Plan→IR, or IR→OutputFile/OutputSet
+chains are forbidden.
+
+### Single worklist / state machine
+
+One classifier, one shared state, one explicit stack. No separate multi-function
+telescope re-scan paths.
+
+**State**
+- `remaining` — deterministic total **traversal-step** ceiling (not unique-node
+  exactness; charged duplicate visits are allowed and count)
+- `inputNames` / `resultNames` — const names seen in function domains vs codomains
+- `expanded` — transparent abbrev/`@[reducible]` aliases already scheduled
+- `directMandatoryCap` — a top-level explicit mandatory binder domain peels to
+  exact `ResolvedEngineeringBuildV1`
+
+**Frames**
+- `topTelescope` — walking the top-level Π-spine body chain
+- `input` — scanning a function domain (top-level binder or nested)
+- `output` — scanning a function codomain / result
+
+**Rules**
+1. Every stack pop charges **1** fuel first.
+2. `forall` / `app` / `lam` / `let` / `proj` / `mdata` children and alias-expansion
+   bodies are pushed on the **same** stack (no uncharged Expr recursion).
+3. Start frame is `topTelescope`. Top-level `forall`: domain is scanned as
+   `input` (and, when `BinderInfo.default`, a charged head-peel checks exact
+   capability authorization); body continues as `topTelescope`. Nested `forall`
+   (not topTelescope): domain→`input`, body→`output`.
+4. Authorization: only domain head after transparent alias peel is exactly
+   `ResolvedEngineeringBuildV1`. `Option`/`Prod`/result-only capability do not
+   authorize. Finding capability does **not** early-return; full type is always
+   scanned to the fuel boundary.
+5. Alias expansion uses the shared `expanded` set; expansion body is pushed on
+   the stack (never mark-and-drop).
+6. After the stack drains, forbid when `!directMandatoryCap` and collected
+   input/result names form an effectful Semantic→Plan, Plan→IR, or IR→files chain.
+
+`residualMaxTraversalSteps` is the per-declaration traversal-step ceiling.
+-/
+
+private def residualCapabilityN : Name :=
+  ``ProofForgeV2.Targets.ResolvedEngineeringBuildV1
+
+private def residualSemanticProgramN : Name :=
+  ``ProofForgeV2.SemanticProgram
+
+private def residualOutputFileN : Name :=
+  ``ProofForgeV2.OutputFile
+
+private def residualOutputSetN : Name :=
+  ``ProofForgeV2.OutputSet
+
+private def residualProbePlanN : Name :=
+  ``Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlan
+
+private def residualProbeIRN : Name :=
+  ``Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbeIR
+
+/-- Per-declaration deterministic traversal-step ceiling (charged pops + expands). -/
+private def residualMaxTraversalSteps : Nat := 100_000
+
+/-- Backward-compatible name used by older comments/tests. -/
+private def residualMaxTypeNodes : Nat := residualMaxTraversalSteps
+
+private def residualPlanNames : Array Name :=
+  #[
+    residualProbePlanN,
+    ``ProofForgeV2.Targets.Evm.Plan,
+    ``ProofForgeV2.Targets.Solana.Plan,
+    ``ProofForgeV2.Targets.Near.Plan,
+    ``ProofForgeV2.Targets.Noir.Plan
+  ]
+
+private def residualIRNames : Array Name :=
+  #[
+    residualProbeIRN,
+    ``ProofForgeV2.Targets.Evm.IR,
+    ``ProofForgeV2.Targets.Solana.IR,
+    ``ProofForgeV2.Targets.Near.IR,
+    ``ProofForgeV2.Targets.Noir.IR
+  ]
+
+private def nameSetHasAny (names : NameSet) (cands : Array Name) : Bool :=
+  cands.any names.contains
+
+/-- Scan context for a worklist frame. -/
+private inductive ResidualFrameCtx where
+  | topTelescope
+  | input
+  | output
+  deriving BEq, Repr, Inhabited
+
+private structure ResidualFrame where
+  expr : Expr
+  ctx : ResidualFrameCtx
+  deriving Inhabited
+
+private structure ResidualClassifierState where
+  remaining : Nat
+  inputNames : NameSet := {}
+  resultNames : NameSet := {}
+  expanded : NameSet := {}
+  directMandatoryCap : Bool := false
+
+/-- Instrumentation for O(1)-stack scaling regressions (test-only).
+    `currentDepth` / `maxStack` are maintained by ±1 / +n on pop/push — never
+    via container `.length`. `steps` counts every charged fuel unit (worklist
+    pop, alias expand, capability peel). -/
+private structure ResidualWorklistStats where
+  currentDepth : Nat := 0
+  maxStack : Nat := 0
+  pushes : Nat := 0
+  pops : Nat := 0
+  steps : Nat := 0
+
+private def ResidualClassifierState.recordConst (st : ResidualClassifierState)
+    (ctx : ResidualFrameCtx) (n : Name) : ResidualClassifierState :=
+  match ctx with
+  | .topTelescope =>
+      -- Non-Π content under topTelescope is the top-level result.
+      { st with resultNames := st.resultNames.insert n }
+  | .input =>
+      { st with inputNames := st.inputNames.insert n }
+  | .output =>
+      { st with resultNames := st.resultNames.insert n }
+
+/-- Charged head-peel for top-level mandatory binder domains.
+    Each step consumes 1 fuel from `st.remaining`. Transparent aliases use a
+    **local** expand set only (does not poison the worklist `expanded` set so
+    the subsequent full domain scan still pushes expansion bodies). App peels
+    follow the function side only. Returns updated state and peel fuel units
+    charged (for stats.steps). -/
+private def peelBinderRootForCapability (env : Environment)
+    (st : ResidualClassifierState) (domain : Expr) :
+    Except String (ResidualClassifierState × Nat) :=
+  Id.run do
+    let mut remaining := st.remaining
+    let mut e := domain
+    let mut localExpanded : NameSet := {}
+    let mut charged : Nat := 0
+    let mut guard : Nat := 0
+    while guard ≤ residualMaxTraversalSteps do
+      if remaining == 0 then
+        return .error "residual type scan: shared traversal budget exhausted"
+      remaining := remaining - 1
+      charged := charged + 1
+      guard := guard + 1
+      match e with
+      | .mdata _ b =>
+          e := b
+      | .app f _ =>
+          e := f
+      | .const n _ =>
+          if localExpanded.contains n then
+            return .ok ({
+              st with
+              remaining
+              directMandatoryCap := st.directMandatoryCap || (n == residualCapabilityN)
+            }, charged)
+          else
+            match tryUnfoldCarrierAlias env n with
+            | none =>
+                return .ok ({
+                  st with
+                  remaining
+                  directMandatoryCap := st.directMandatoryCap || (n == residualCapabilityN)
+                }, charged)
+            | some value =>
+                if remaining == 0 then
+                  return .error "residual type scan: budget exhausted on alias expand"
+                remaining := remaining - 1
+                charged := charged + 1
+                localExpanded := localExpanded.insert n
+                e := value
+      | _ =>
+          return .ok ({ st with remaining }, charged)
+    .error "residual type scan: binder peel step ceiling exceeded"
+/-- Core residual type classifier: single worklist + shared state.
+    Stack is a **List** (cons/pop-head) so push/pop are O(1) — never
+    `Array.extract` prefix copies. Returns
+    `(isForbiddenEmission, worklistStats)`.
+
+    Chain detection is **wrapper-independent**: Semantic→Plan, Plan→IR, and
+    IR→OutputFile/OutputSet depend only on `inputNames`/`resultNames` carrier
+    presence (IO/Array/CompileResult/Except wrappers are traversed so carriers
+    inside them still count; wrappers themselves are not required). -/
+private def classifyResidualTypeWithStats (env : Environment) (budget : Nat)
+    (root : Expr) : Except String (Bool × ResidualWorklistStats) :=
+  Id.run do
+    let mut st : ResidualClassifierState := { remaining := budget }
+    -- LIFO List: cons/pop-head O(1). Depth tracked by counters only (no .length).
+    let mut stack : List ResidualFrame :=
+      [{ expr := root, ctx := .topTelescope }]
+    let mut stats : ResidualWorklistStats :=
+      { currentDepth := 1, maxStack := 1, pushes := 1, pops := 0, steps := 0 }
+    while !stack.isEmpty do
+      if st.remaining == 0 then
+        return .error "residual type scan: shared traversal budget exhausted"
+      let frame := stack.head!
+      stack := stack.tail!
+      -- Pop: depth −1, fuel −1, steps +1 (worklist pop).
+      stats := {
+        stats with
+        pops := stats.pops + 1
+        steps := stats.steps + 1
+        currentDepth := stats.currentDepth - 1
+      }
+      st := { st with remaining := st.remaining - 1 }
+      let e := frame.expr
+      let ctx : ResidualFrameCtx :=
+        match e, frame.ctx with
+        | .forallE .., .topTelescope => .topTelescope
+        | _, .topTelescope => .output
+        | _, c => c
+      match e with
+      | .forallE _ d b bi =>
+          match ctx with
+          | .topTelescope =>
+              if bi == BinderInfo.default then
+                match peelBinderRootForCapability env st d with
+                | .error err => return .error err
+                | .ok (st', peelSteps) =>
+                    st := st'
+                    stats := { stats with steps := stats.steps + peelSteps }
+              stack := { expr := b, ctx := .topTelescope } :: stack
+              stack := { expr := d, ctx := .input } :: stack
+              stats := {
+                stats with
+                pushes := stats.pushes + 2
+                currentDepth := stats.currentDepth + 2
+                maxStack := max stats.maxStack (stats.currentDepth + 2)
+              }
+          | .input | .output =>
+              stack := { expr := b, ctx := .output } :: stack
+              stack := { expr := d, ctx := .input } :: stack
+              stats := {
+                stats with
+                pushes := stats.pushes + 2
+                currentDepth := stats.currentDepth + 2
+                maxStack := max stats.maxStack (stats.currentDepth + 2)
+              }
+      | .const n _ =>
+          st := ResidualClassifierState.recordConst st ctx n
+          if !st.expanded.contains n then
+            match tryUnfoldCarrierAlias env n with
+            | none => pure ()
+            | some value =>
+                if st.remaining == 0 then
+                  return .error "residual type scan: budget exhausted on alias expand"
+                st := {
+                  st with
+                  remaining := st.remaining - 1
+                  expanded := st.expanded.insert n
+                }
+                stack := { expr := value, ctx } :: stack
+                stats := {
+                  stats with
+                  steps := stats.steps + 1
+                  pushes := stats.pushes + 1
+                  currentDepth := stats.currentDepth + 1
+                  maxStack := max stats.maxStack (stats.currentDepth + 1)
+                }
+      | .app f a =>
+          stack := { expr := a, ctx } :: stack
+          stack := { expr := f, ctx } :: stack
+          stats := {
+            stats with
+            pushes := stats.pushes + 2
+            currentDepth := stats.currentDepth + 2
+            maxStack := max stats.maxStack (stats.currentDepth + 2)
+          }
+      | .lam _ t b _ =>
+          stack := { expr := b, ctx } :: stack
+          stack := { expr := t, ctx } :: stack
+          stats := {
+            stats with
+            pushes := stats.pushes + 2
+            currentDepth := stats.currentDepth + 2
+            maxStack := max stats.maxStack (stats.currentDepth + 2)
+          }
+      | .letE _ t v b _ =>
+          stack := { expr := b, ctx } :: stack
+          stack := { expr := v, ctx } :: stack
+          stack := { expr := t, ctx } :: stack
+          stats := {
+            stats with
+            pushes := stats.pushes + 3
+            currentDepth := stats.currentDepth + 3
+            maxStack := max stats.maxStack (stats.currentDepth + 3)
+          }
+      | .mdata _ b =>
+          stack := { expr := b, ctx } :: stack
+          stats := {
+            stats with
+            pushes := stats.pushes + 1
+            currentDepth := stats.currentDepth + 1
+            maxStack := max stats.maxStack (stats.currentDepth + 1)
+          }
+      | .proj _ _ b =>
+          stack := { expr := b, ctx } :: stack
+          stats := {
+            stats with
+            pushes := stats.pushes + 1
+            currentDepth := stats.currentDepth + 1
+            maxStack := max stats.maxStack (stats.currentDepth + 1)
+          }
+      | .bvar _ | .fvar _ | .mvar _ | .sort _ | .lit _ =>
+          pure ()
+    -- Depth must drain; pushes − pops = 0 net frames.
+    if stats.currentDepth != 0 || stats.pushes != stats.pops then
+      return .error s!"residual worklist invariant: depth={stats.currentDepth} pushes={stats.pushes} pops={stats.pops}"
+    if st.directMandatoryCap then
+      return .ok (false, stats)
+    let hasSemIn := st.inputNames.contains residualSemanticProgramN
+    let hasPlanIn := nameSetHasAny st.inputNames residualPlanNames
+    let hasIRIn := nameSetHasAny st.inputNames residualIRNames
+    let hasPlanOut := nameSetHasAny st.resultNames residualPlanNames
+    let hasIROut := nameSetHasAny st.resultNames residualIRNames
+    let hasOutOut :=
+      st.resultNames.contains residualOutputFileN
+        || st.resultNames.contains residualOutputSetN
+    let semToPlan := hasSemIn && hasPlanOut
+    let planToIR := hasPlanIn && hasIROut
+    let irToFiles := hasIRIn && hasOutOut
+    .ok (semToPlan || planToIR || irToFiles, stats)
+
+/-- Core residual type classifier (boolean only). -/
+private def classifyResidualType (env : Environment) (budget : Nat) (root : Expr) :
+    Except String Bool :=
+  match classifyResidualTypeWithStats env budget root with
+  | .error e => .error e
+  | .ok (b, _) => .ok b
+
+/-- Public API name kept for tests/gates. -/
+private def typeContainsForbiddenEmissionChain (env : Environment) (budget : Nat)
+    (root : Expr) : Except String Bool :=
+  classifyResidualType env budget root
+
+/-- Public typed ConstantInfo kinds subject to residual emission-chain scanning. -/
+private def isResidualScanKind (info : ConstantInfo) : Bool :=
+  match info with
+  | .defnInfo _ | .opaqueInfo _ | .ctorInfo _ => true
+  | _ => false
+
+private def residualScanDecl
+    (env : Environment) (n : Name) (info : ConstantInfo) : Except String Bool :=
+  if isPrivateName n then
+    .ok false
+  else if isMetadataGeneratedEliminator env n info then
+    .ok false
+  else if !isResidualScanKind info then
+    .ok false
+  else
+    -- All public defn/opaque/ctor types use the same classifier (no packaging skip).
+    classifyResidualType env residualMaxTraversalSteps info.type
+private def residualProductForbidden (env : Environment) : Except String (Array Name) :=
+  let acc : Except String (Array Name) :=
+    env.constants.fold
+      (fun acc n info =>
+        match acc with
+        | .error e => .error e
+        | .ok hits =>
+            if !(Name.mkSimple "ProofForgeV2").isPrefixOf n then .ok hits
+            else
+              match residualScanDecl env n info with
+              | .error e => .error e
+              | .ok true => .ok (hits.push n)
+              | .ok false => .ok hits)
+      (Except.ok #[])
+  match acc with
+  | .error e => .error e
+  | .ok hits => .ok (hits.qsort Name.lt)
+
+private def residualExpectedProbes : Array Name :=
+  #[
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeSemToPlan,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probePlanToIR,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToFiles,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.planFromAlphaRenamed,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaSemanticAlias,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaResultAlias,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaAbbrevChain,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaReducibleChain,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.opaqueSemToPlan,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.DirectCtorBypass.mk,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.DirectCtorBypass.planFromAlpha,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeResultOnlyCapIR,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeOptionCapBinder,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.CtorParentProbe.mk.planFromAlphaNested,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaNestedAliasPi,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaNestedReduciblePi,
+    -- Wrapper-independent pure / files chains.
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probePureSemToPlan,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probePurePlanToIR,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToArrayFiles,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToIOArrayFiles,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToIOOutputSet,
+    -- Ctor with function-valued forbidden field (full type scan, no packaging skip).
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlanCarrier.mk,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlanCarrier.lowerPlan
+  ].qsort Name.lt
+
+private def residualAllowedControls : Array Name :=
+  #[
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapabilityPlan,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapabilityIR,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapabilityThenPlan,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaCapabilityAlias,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeValidateOnly,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.CapabilityCtorControl.mk,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToArrayFiles,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToIOArrayFiles,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToIOOutputSet,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapPurePlanToIR
+  ]
+
+private def assertResidualBypassProductGate (env : Environment) : Except String Unit :=
+  match residualProductForbidden env with
+  | .error e => .error e
+  | .ok hits =>
+      if hits.isEmpty then
+        .ok ()
+      else
+        .error s!"residual emission-bypass product surface: forbidden public declaration(s): {formatNameList hits}"
+
+private def assertResidualBypassProbeSelfTest (env : Environment) : Except String Unit :=
+  let probePrefix := `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe
+  let acc : Except String (Array Name) :=
+    env.constants.fold
+      (fun acc n info =>
+        match acc with
+        | .error e => .error e
+        | .ok hits =>
+            if !probePrefix.isPrefixOf n then .ok hits
+            else
+              match residualScanDecl env n info with
+              | .error e => .error e
+              | .ok true => .ok (hits.push n)
+              | .ok false => .ok hits)
+      (Except.ok #[])
+  match acc with
+  | .error e => .error e
+  | .ok hits =>
+      let hits := hits.qsort Name.lt
+      let unexpected := dualArgUnexpected hits residualExpectedProbes
+      let missing := dualArgMissing hits residualExpectedProbes
+      if !unexpected.isEmpty then
+        .error s!"residual bypass self-test: unexpected probe hit(s): {formatNameList unexpected}"
+      else if !missing.isEmpty then
+        .error s!"residual bypass self-test: missing expected probe(s): {formatNameList missing}"
+      else
+        let leaked := residualAllowedControls.filter fun n => hits.any (· == n)
+        if !leaked.isEmpty then
+          .error s!"residual bypass self-test: allowed control wrongly hit: {formatNameList leaked}"
+        else
+          -- Presence of opaque/ctor kinds in expected set proves multi-kind scan.
+          let hasOpaque := hits.any (· ==
+            `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.opaqueSemToPlan)
+          let hasCtor := hits.any (· ==
+            `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.DirectCtorBypass.mk)
+          if !hasOpaque || !hasCtor then
+            .error "residual bypass self-test: expected opaqueInfo + ctorInfo hits"
+          else
+            .ok ()
+
 -- Elaboration-time product dual-arg gate (lake build / Fast / full).
 run_cmd do
   match assertProductDualArgSurface (← getEnv) with
@@ -1281,6 +1964,189 @@ run_cmd do
 -- Elaboration-time shared-budget + alias type-scan self-test.
 run_cmd do
   match assertTypeScanBudgetSelfTest (← getEnv) with
+  | .ok () => pure ()
+  | .error message => throwError message
+
+/-- Build `d0 → d1 → … → result` (explicit mandatory binders). -/
+private def mkForallSpine (domains : List Expr) (result : Expr) : Expr :=
+  match domains with
+  | [] => result
+  | d :: rest =>
+      Expr.forallE `x d (mkForallSpine rest result) BinderInfo.default
+
+/-- Independent hand count for `Nat → Nat → Nat → Nat` under the shipped worklist:
+    3× top-level forall pop + 3× charged binder-root peels (const Nat) +
+    3× domain const pops + 1× result const pop = 10 traversal steps. -/
+private def residualNatArrow3ExactSteps : Nat := 10
+
+/-- Left-associated app spine: `((Nat Nat) Nat) …` — pending stack width grows
+    with spine length (observable maxStack). -/
+private def mkLeftAppSpine (leafCount : Nat) : Expr :=
+  match leafCount with
+  | 0 => Expr.const ``Nat []
+  | n + 1 =>
+      let rec go (i : Nat) (acc : Expr) : Expr :=
+        match i with
+        | 0 => acc
+        | i + 1 => go i (Expr.app acc (Expr.const ``Nat []))
+      go n (Expr.const ``Nat [])
+
+/-- Balanced binary app tree over `leafCount` Nat leaves (maxStack ~ log). -/
+private partial def mkBalancedAppTree (leafCount : Nat) : Expr :=
+  if leafCount ≤ 1 then
+    Expr.const ``Nat []
+  else
+    let mid := leafCount / 2
+    Expr.app (mkBalancedAppTree mid) (mkBalancedAppTree (leafCount - mid))
+
+/-- Focused residual budget / capability / O(1)-stack scale self-tests against the
+    **shipped** `classifyResidualTypeWithStats` worklist only. -/
+private def assertResidualBudgetSelfTest (env : Environment) : Except String Unit :=
+  let natTy := Expr.const ``Nat []
+  let tyA := mkForallSpine [natTy, natTy, natTy] natTy
+  let stepsA := residualNatArrow3ExactSteps
+  match classifyResidualTypeWithStats env stepsA tyA with
+  | .error e =>
+      .error s!"residual budget A: exact steps {stepsA} must succeed, got {e}"
+  | .ok (true, _) =>
+      .error "residual budget A: Nat arrows must not be classified as emission chains"
+  | .ok (false, statsA) =>
+      -- steps include peels+pops; depth/push-pop invariants.
+      if statsA.steps != stepsA then
+        .error s!"residual budget A: expected steps={stepsA}, got {statsA.steps}"
+      else if statsA.currentDepth != 0 || statsA.pushes != statsA.pops then
+        .error s!"residual budget A: depth/push-pop invariant failed depth={statsA.currentDepth} p={statsA.pushes}/{statsA.pops}"
+      else if statsA.pops != 7 then
+        .error s!"residual budget A: expected worklist pops=7, got {statsA.pops}"
+      else
+        match classifyResidualType env (stepsA - 1) tyA with
+        | .ok _ =>
+            .error "residual budget A: steps-1 must exhaust"
+        | .error msg =>
+            if (msg.splitOn "budget").length ≤ 1 then
+              .error s!"residual budget A: expected budget error, got {msg}"
+            else
+              let capTy := Expr.const residualCapabilityN []
+              let tyB := mkForallSpine [capTy] natTy
+              let stepsB : Nat := 4
+              match classifyResidualTypeWithStats env stepsB tyB with
+              | .error e =>
+                  .error s!"residual budget B: exact steps {stepsB} must succeed, got {e}"
+              | .ok (true, _) =>
+                  .error "residual budget B: direct capability binder must authorize"
+              | .ok (false, statsB) =>
+                  if statsB.steps != stepsB || statsB.currentDepth != 0 || statsB.pushes != statsB.pops then
+                    .error s!"residual budget B: steps/depth invariant failed steps={statsB.steps}"
+                  else
+                    match classifyResidualType env (stepsB - 1) tyB with
+                    | .ok _ =>
+                        .error "residual budget B: capability type steps-1 must exhaust"
+                    | .error msgB =>
+                        if (msgB.splitOn "budget").length ≤ 1 then
+                          .error s!"residual budget B: expected budget error, got {msgB}"
+                        else
+                          let checkSpine (leaves : Nat) : Except String ResidualWorklistStats :=
+                            let spine := mkLeftAppSpine leaves
+                            let need := natAppSpineNodeCount leaves
+                            if need ≥ residualMaxTraversalSteps then
+                              .error s!"spine {leaves} exceeds ceiling"
+                            else
+                              match classifyResidualTypeWithStats env residualMaxTraversalSteps spine with
+                              | .error e => .error e
+                              | .ok (true, _) =>
+                                  .error s!"spine {leaves} must not be an emission chain"
+                              | .ok (false, s) =>
+                                  if s.currentDepth != 0 || s.pushes != s.pops then
+                                    .error s!"spine {leaves}: depth/push-pop invariant"
+                                  else if s.pops > 4 * leaves + 8 || s.pushes > 4 * leaves + 8 then
+                                    .error s!"spine {leaves}: ops not linear pops={s.pops} pushes={s.pushes}"
+                                  else if s.steps > 4 * leaves + 8 then
+                                    .error s!"spine {leaves}: steps {s.steps} not linear"
+                                  else if s.maxStack > leaves + 4 then
+                                    .error s!"spine {leaves}: maxStack {s.maxStack} exceeds linear bound"
+                                  else
+                                    .ok s
+                          match checkSpine 10000 with
+                          | .error e => .error s!"residual scale 10k: {e}"
+                          | .ok s10 =>
+                              match checkSpine 20000 with
+                              | .error e => .error s!"residual scale 20k: {e}"
+                              | .ok s20 =>
+                                  if s20.pops > 3 * s10.pops || s20.steps > 3 * s10.steps then
+                                    .error s!"residual scale: superlinear 10k→20k pops {s10.pops}→{s20.pops} steps {s10.steps}→{s20.steps}"
+                                  else
+                                    let bal := mkBalancedAppTree 10000
+                                    match classifyResidualTypeWithStats env residualMaxTraversalSteps bal with
+                                    | .error e => .error s!"residual balanced 10k: {e}"
+                                    | .ok (true, _) =>
+                                        .error "residual balanced 10k must not be emission chain"
+                                    | .ok (false, sb) =>
+                                        if sb.currentDepth != 0 || sb.pushes != sb.pops then
+                                          .error "residual balanced: depth/push-pop invariant"
+                                        else if sb.maxStack ≥ s10.maxStack then
+                                          .error s!"residual balanced maxStack {sb.maxStack} should be < left-spine {s10.maxStack}"
+                                        else if sb.pops > 4 * 10000 + 8 || sb.steps > 4 * 10000 + 8 then
+                                          .error s!"residual balanced ops not linear"
+                                        else
+                                          .ok ()
+
+/-- C) Alias expansion body embeds nested forbidden Pi — residualScanDecl must hit. -/
+private def assertResidualNestedAliasProbe (env : Environment) : Except String Unit :=
+  let n := `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaNestedAliasPi
+  match env.find? n with
+  | none => .error s!"residual nested-alias probe missing: {n}"
+  | some info =>
+      match residualScanDecl env n info with
+      | .error e => .error s!"residual nested-alias scan error: {e}"
+      | .ok false =>
+          .error "residual nested-alias: expected forbidden emission chain hit"
+      | .ok true =>
+          let n2 := `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeViaNestedReduciblePi
+          match env.find? n2 with
+          | none => .error s!"residual nested-reducible probe missing: {n2}"
+          | some info2 =>
+              match residualScanDecl env n2 info2 with
+              | .error e => .error s!"residual nested-reducible scan error: {e}"
+              | .ok false =>
+                  .error "residual nested-reducible: expected forbidden emission chain hit"
+              | .ok true =>
+                  -- Synthetic carrier-like ctor with function-valued forbidden field.
+                  let n3 := `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlanCarrier.mk
+                  match env.find? n3 with
+                  | none => .error s!"residual ProbePlanCarrier.mk missing"
+                  | some info3 =>
+                      match residualScanDecl env n3 info3 with
+                      | .error e => .error s!"residual ProbePlanCarrier.mk scan: {e}"
+                      | .ok false =>
+                          -- Fallback: direct shipped classifier on full ctor type.
+                          match classifyResidualType env residualMaxTraversalSteps info3.type with
+                          | .error e => .error e
+                          | .ok false =>
+                              .error "residual ProbePlanCarrier.mk: expected forbidden Plan→IR field chain"
+                          | .ok true => .ok ()
+                      | .ok true => .ok ()
+
+-- S6 residual emission-bypass type-chain product gate.
+run_cmd do
+  match assertResidualBypassProductGate (← getEnv) with
+  | .ok () => pure ()
+  | .error message => throwError message
+
+-- Residual bypass synthetic renamed/alias probe self-test.
+run_cmd do
+  match assertResidualBypassProbeSelfTest (← getEnv) with
+  | .ok () => pure ()
+  | .error message => throwError message
+
+-- Residual type-scan shared total traversal-step self-test (A/B/F).
+run_cmd do
+  match assertResidualBudgetSelfTest (← getEnv) with
+  | .ok () => pure ()
+  | .error message => throwError message
+
+-- Nested alias/reducible Pi discovery via residualScanDecl (C).
+run_cmd do
+  match assertResidualNestedAliasProbe (← getEnv) with
   | .ok () => pure ()
   | .error message => throwError message
 

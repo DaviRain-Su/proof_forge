@@ -89,8 +89,14 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
 无 caller request override；静态四行 S2 support index）。**精确边界**：shipped
 aggregate/CLI `materialize`/`emit` 仅接受 capability（capability 之后再抽 residual
-alpha 做 Plan/IR）；**不是**“类型上所有 alpha route 都不可能”——public residual
-`Common.resolve` 与四 target `makePlan`/`lower`/`emit` 表征 seam 仍存在，列为下一
-删除 gate（S6 direct Plan cutover），formal 仍 pending。**不是** SupportClaim/formal
-resolver/BuildIdentity 完成态。formal task状态与release qualification仍按各自真实
-条件变化，不由本恢复文档代签。
+alpha 做 Plan/IR）。**D3/S6 工程**：public residual Common resolve / validateResolved /
+public makePlan 与 supportedRequirements membership 作为 product acceptance 已关闭；
+cycle-free `EngineeringBuildV1` leaf sole mint；四 target 仅 capability-gated
+`planFromCapability`/`irFromCapability`/`buildFromCapability`（+ descriptor/
+validatePlan/validateIR inspection）；Registry 直接 capability dispatch；public
+`namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
+Semantic→Plan→IR→files bypass 已删除；dead public `ResolvedProgram` 已删除；
+private target lower 仅 capability 内部；`s6-plan-cutover-deletion-gate` + Lean
+residual type-chain reflection（defn/opaque/ctor）已接入 dev/ci。仍**不是** SupportClaim/formal resolver/
+BuildIdentity/`OutputSetV1`/SemanticProgramV1 直连 Plan 完成态。formal task状态与
+release qualification仍按各自真实条件变化，不由本恢复文档代签。

@@ -21,15 +21,16 @@ test-fast:
 # D3/S5 engineering deletion + sole-mint gate (durable just/ci pin).
 # - no checkSupport def/call
 # - no selection+compiled materialize/emit product signatures
-# - sole ResolvedEngineeringBuildV1.mk in Registry.lean
+# - sole ResolvedEngineeringBuildV1.mk in EngineeringBuildV1.lean
 # - sole CompiledProgramV1.mk in Compiler/Pipeline.lean (compileValidatedSourceV1)
 # Dual-arg sole public API authority is Lean Environment reflection in
 # Tests/Materialization/RequirementResolverV1.lean (run_cmd product gate +
 # synthetic probe self-test). This recipe builds that module so reflection
 # runs even without full Fast/tests; suite runtime does not re-invoke this
 # recipe (one-way: no just↔suite cycle).
-# Public residual Common.resolve / target makePlan/lower/emit characterization
-# seams remain (S6 deletion gate).
+# S6 closed public residual resolve/makePlan/emit product seams. Alpha residual
+# is only private post-capability Plan-body data (no public Residual namespace;
+# see s6-plan-cutover-deletion-gate).
 requirement-resolver-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -83,7 +84,7 @@ requirement-resolver-deletion-gate:
     fail_if_match '^\s*def materialize \(selection' ProofForgeV2
     fail_if_match '^\s*def emitProgram \(selection' ProofForgeV2
     # Sole mints (exact count + path whitelist).
-    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'Registry.lean' \
+    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
     expect_one_match 'CompiledProgramV1\.mk' 'Pipeline.lean' \
       'CompiledProgramV1.mk'
@@ -101,7 +102,108 @@ requirement-resolver-deletion-gate:
     lake build Tests.Materialization.RequirementResolverV1
     echo "requirement-resolver-deletion-gate: ok"
 
-dev-check: docs-check build test-fast requirement-resolver-deletion-gate
+# S6: public residual alpha Plan authority closed (resolve/validateResolved/makePlan/
+# supportedRequirements.contains as acceptance). Capability-gated target entries
+# are the sole product Plan/materialize path.
+s6-plan-cutover-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "s6-plan-cutover-deletion-gate: forbidden pattern still present: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "s6-plan-cutover-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local must_path="$2"
+      local label="$3"
+      local hits ec count
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -ne 0 ]]; then
+        echo "s6-plan-cutover-deletion-gate: $label expected one match (rg exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
+        echo "s6-plan-cutover-deletion-gate: $label expected sole match in $must_path" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    # Public residual resolve / validateResolved closed in Common.
+    fail_if_match '^\s*def resolve\b' ProofForgeV2/Targets/Common.lean
+    fail_if_match '^\s*def validateResolved\b' ProofForgeV2
+    # No public makePlan (ResolvedProgram or otherwise) under Targets.
+    fail_if_match '^\s*def makePlan\b' ProofForgeV2/Targets
+    # No product call sites to residual resolve (space after resolve excludes
+    # resolveEngineeringRequirementsV1). Doc comments must not use this form.
+    fail_if_match 'Targets\.resolve\s' ProofForgeV2
+    fail_if_match 'Common\.resolve\s' ProofForgeV2
+    # supportedRequirements.contains is not product acceptance authority.
+    fail_if_match 'supportedRequirements\.contains' ProofForgeV2
+    # No public emit / lower / residual plan-alpha / Residual emission bypass under Targets.
+    fail_if_match '^\s*def emit\b' ProofForgeV2/Targets
+    fail_if_match '^\s*def lower\b' ProofForgeV2/Targets
+    fail_if_match '^\s*def planFromResidualAlpha\b' ProofForgeV2/Targets
+    fail_if_match '^\s*def planFromAlpha\b' ProofForgeV2/Targets
+    fail_if_match '^\s*def lowerPlan\b' ProofForgeV2/Targets
+    fail_if_match '^\s*def filesFromIR\b' ProofForgeV2/Targets
+    fail_if_match 'namespace Residual' ProofForgeV2/Targets
+    # Dead public residual carrier deleted.
+    fail_if_match '^\s*structure ResolvedProgram\b' ProofForgeV2
+    # Each implemented target must expose capability-gated public entries only.
+    for tgt in Evm Solana Near Noir; do
+      set +e
+      pfc="$(rg --glob '*.lean' -n --no-heading '^\s*def planFromCapability\b' "ProofForgeV2/Targets/${tgt}.lean" 2>&1)"
+      pfc_ec=$?
+      bfc="$(rg --glob '*.lean' -n --no-heading '^\s*def buildFromCapability\b' "ProofForgeV2/Targets/${tgt}.lean" 2>&1)"
+      bfc_ec=$?
+      set -e
+      if [[ $pfc_ec -ne 0 ]]; then
+        echo "s6-plan-cutover-deletion-gate: missing public planFromCapability in ${tgt}.lean" >&2
+        printf '%s\n' "$pfc" >&2
+        exit 1
+      fi
+      if [[ $bfc_ec -ne 0 ]]; then
+        echo "s6-plan-cutover-deletion-gate: missing public buildFromCapability in ${tgt}.lean" >&2
+        printf '%s\n' "$bfc" >&2
+        exit 1
+      fi
+    done
+    # Sole capability mint in EngineeringBuild leaf next to resolveEngineeringRequirementsV1.
+    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
+      'ResolvedEngineeringBuildV1.mk'
+    set +e
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 40 'ResolvedEngineeringBuildV1\.mk' ProofForgeV2/Targets/EngineeringBuildV1.lean 2>&1)"
+    mk_ec=$?
+    set -e
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'resolveEngineeringRequirementsV1'; then
+      echo "s6-plan-cutover-deletion-gate: ResolvedEngineeringBuildV1.mk must be near resolveEngineeringRequirementsV1" >&2
+      printf '%s\n' "$mk_ctx" >&2
+      exit 1
+    fi
+    lake build Tests.Materialization.RequirementResolverV1
+    echo "s6-plan-cutover-deletion-gate: ok"
+
+dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -823,7 +925,7 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate
+ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

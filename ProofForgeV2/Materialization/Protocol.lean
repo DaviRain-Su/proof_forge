@@ -78,19 +78,20 @@ structure TargetDescriptor where
   proofModel : ProofModel
   settlementModel : SettlementModel
   codegenProfile : CodegenProfileId
-  /-- Residual alpha backend defense / characterization list. Product support
-      authority is the engineering exact requirement resolver
+  /-- Residual alpha characterization / describe-target list only.
+      Product support authority is the engineering exact requirement resolver
       (`RequirementResolverV1` static index + `resolveEngineeringRequirementsV1`),
-      not this field. Public residual target routes that read this list still
-      exist (next deletion gate: S6); formal SupportClaim still pending. -/
+      not this field. S6 closed public residual routes that treated this list as
+      acceptance authority (residual Common resolve / validateResolved /
+      supportedRequirements membership checks). Formal SupportClaim still pending. -/
   supportedRequirements : Array ProgramRequirement
   -- No Inhabited: TargetId/CodegenProfileId have no default identity.
   deriving BEq, Repr
 
-/-- Target-owned resolved program indexed by internal TargetKind. -/
-structure ResolvedProgram (kind : TargetKind) where
-  source : SemanticProgram
-  descriptor : TargetDescriptor
+/-- S6 deleted dead public residual `ResolvedProgram` carrier.
+    Product Plan/materialize inputs are only `ResolvedEngineeringBuildV1`
+    via target `planFromCapability` / `buildFromCapability`. Formal
+    ResolvedProgram/SupportClaim still pending as a future design object. -/
 
 structure OutputFile where
   path : String
@@ -115,11 +116,13 @@ structure OutputSet where
   -- No Inhabited: via OutputManifest identity fields.
   deriving BEq, Repr
 
+/-- Associated Plan/TargetIR type witnesses only.
+    S6: capability-gated target entries own plan/lower/emit
+    (`planFromCapability` / `buildFromCapability`). No public
+    SemanticProgram→Plan, Plan→TargetIR, or TargetIR→OutputFile product
+    chains. -/
 class Materializer (kind : TargetKind) where
   Plan : Type
   TargetIR : Type
-  makePlan : ResolvedProgram kind → CompileResult Plan
-  lower : Plan → CompileResult TargetIR
-  emit : TargetIR → CompileResult (Array OutputFile)
 
 end ProofForgeV2

@@ -102,17 +102,16 @@ unsafe def run : IO Unit := do
       semantic.entries.map (·.name) == #["increment", "get"])
     "ProgramV1 typing must preserve Counter state and callables"
 
-  let resolved ← liftCompile "resolve EVM" <|
-    Targets.resolve .evm Targets.Evm.descriptor semantic
-  let plan ← liftCompile "make EVM plan" <| Targets.Evm.makePlan resolved
+  let plan ← liftCompile "plan EVM" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+    Targets.Evm.planFromCapability capability)
   expect (plan.storageLayout.map (·.name) == #["count"] &&
       plan.entries.map (·.name) == #["increment", "get"])
     "EVM-owned plan must derive Counter layout and entries"
 
-  let ir ← liftCompile "lower EVM IR" <| Targets.Evm.lower plan
-  expect (ir.yul.contains "case 0xdd9a82bc" &&
-      ir.yul.contains "case 0x6d4ce63c")
-    "EVM IR must contain canonical Counter selectors"
+  -- S6: no public Plan→IR; capability materialize is sole emit path.
   let first ← liftCompile "materialize EVM" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
       TargetId.evm none
@@ -127,8 +126,14 @@ unsafe def run : IO Unit := do
     "ProgramV1 EVM materialization must be deterministic"
   expect (first.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
     "ProgramV1 EVM materialization must emit target-owned Yul and ABI artifacts"
+  let yul ← match first.files.find? (·.path == "Counter.yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "missing Counter.yul"
+  expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
+    "EVM Yul must contain canonical Counter selectors"
   expect (first.manifest.sourceHash == semantic.sourceHash &&
       first.manifest.semanticHash == semantic.semanticHash)
     "EVM manifest must bind ProgramV1 source and semantic hashes"
+  let _ := plan
 
 end Tests.Product.CounterV1Evm

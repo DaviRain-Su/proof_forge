@@ -1,23 +1,16 @@
 import ProofForgeV2.Targets.Common
+import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets.Solana
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.DescriptorDataV1
 
-def descriptor : TargetDescriptor := {
-  targetId := TargetId.solana
-  artifactEncoding := .sbpfPlanText
-  executionHost := .solanaRuntime
-  commitModel := .instructionAtomic
-  stateBinding := .explicitAccounts
-  callModel := .cpi
-  proofModel := .none
-  settlementModel := .solana
-  codegenProfile := CodegenProfileId.solanaSbpfPlanV1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
-}
+/-- Shared descriptor data (single source: DescriptorDataV1). -/
+def descriptor : TargetDescriptor := DescriptorDataV1.solana
 
 def discriminatorDomain : String := "proof-forge-solana-v1:"
 def layoutDomain : String := "proof-forge-solana-layout-v1:"
@@ -158,13 +151,16 @@ structure HandlerIR where
   deriving BEq, Inhabited, Repr
 
 /-- Typed, plan-level sBPF audit IR. It is intentionally not an ELF or an
-assembler input until the pinned sBPF toolchain/backend exists. -/
+assembler input until the pinned sBPF toolchain/backend exists.
+    Private `mk`: public Plan→IR construction is capability-gated only
+    (`irFromCapability`). -/
 structure IR where
+  private mk ::
   sourcePlan : Plan
   name : String
   stateAccount : StateAccount
   handlers : Array HandlerIR
-  deriving BEq, Inhabited, Repr
+  deriving BEq, Repr
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .solana message
@@ -594,11 +590,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if hasDuplicates (handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "handler discriminators collide"
 
-def makePlan (resolved : ResolvedProgram .solana) : CompileResult Plan := do
-  unless resolved.descriptor == descriptor do
-    throw <| .planInvariant .solana "resolved target descriptor does not match the Solana profile"
-  validateResolved .solana descriptor resolved
-  let source := resolved.source
+/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
+private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
+  validateRequirementEnvelope source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .solana
       s!"semantic schema version {source.schemaVersion} is not supported; expected {Semantic.schemaVersion}"
@@ -624,6 +618,14 @@ def makePlan (resolved : ResolvedProgram .solana) : CompileResult Plan := do
   }
   validatePlan plan
   return plan
+
+/-- Capability-gated public plan entry (S6). -/
+def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
+    throw <| .planInvariant .solana "engineering capability kind is not Solana"
+  let source := CompiledProgramV1.alphaResidualOf
+    (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromAlpha source
 
 private structure LoweredExpr where
   operations : Array Operation
@@ -796,7 +798,7 @@ def validateIR (ir : IR) : CompileResult Unit := do
   unless ir.handlers == expectedHandlers do
     throw <| .planInvariant .solana "typed Solana IR operations are not the exact lowering of its source Plan"
 
-def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   let handlers := #[lowerHandler plan plan.initializer] ++
     plan.entries.map (lowerHandler plan)
@@ -925,7 +927,7 @@ private def renderIdl (ir : IR) : String :=
     "  \"instructions\": [\n    " ++ handlers ++ "\n  ]\n" ++
     "}\n"
 
-def emit (ir : IR) : CompileResult (Array OutputFile) := do
+private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   validateIR ir
   return #[
     {
@@ -940,11 +942,24 @@ def emit (ir : IR) : CompileResult (Array OutputFile) := do
     }
   ]
 
+/-- Replace handlers on an existing IR (private `mk`; for validateIR characterization). -/
+def withHandlers (ir : IR) (handlers : Array HandlerIR) : IR :=
+  { ir with handlers }
+
+/-- Capability-gated public IR inspection (S6 repair). Input must be
+    `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files. -/
+def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+  let plan ← planFromCapability capability
+  lower plan
+
+/-- Capability-gated public materialize entry (S6). -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let ir ← irFromCapability capability
+  emitFromIR ir
+
 instance : Materializer .solana where
   Plan := Plan
   TargetIR := IR
-  makePlan := makePlan
-  lower := lower
-  emit := emit
 
 end ProofForgeV2.Targets.Solana

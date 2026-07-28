@@ -13,6 +13,58 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-29 — D3/S6 residual emission bypass closed (final R7 facts)
+
+- Context/State：baseline `2ea73c8d02e54d1eb139d2b38c56331e692cb4bb` 工作树；formal 仍 0/27；
+  **不是** SupportClaim / TargetRegistryV1 / BuildIdentity / OutputSetV1 /
+  SemanticProgramV1 native Plan / formal D3；不抬高四 target maturity。
+- Production：
+  - 删除四 target public `namespace Residual` 与
+    `planFromAlpha` / `lowerPlan` / `filesFromIR`。
+  - 删除 dead public `ResolvedProgram`。
+  - 公开 API：`planFromCapability` / `irFromCapability` / `buildFromCapability`
+    （仅 `ResolvedEngineeringBuildV1`）+ descriptor/`validatePlan`/`validateIR`；
+    private `makePlanFromAlpha`/`lower`/`emitFromIR` 仅 capability 内部。
+- Residual public-surface type classifier（`Tests/.../RequirementResolverV1`）：
+  - **Single worklist** + **shared fuel**（`residualMaxTraversalSteps` traversal-step ceiling）
+  - **O(1)** List cons/pop-head；`currentDepth`/`maxStack` 由 ±1/+n 维护（**无** `.length`）
+  - `steps` 计入 worklist pop + alias expand + capability peel
+  - **Direct mandatory** capability binder 授权；Option/result-only 不授权；不提前返回
+  - **defn + opaque + ctor** 同一 classifier（**无** packaging-ctor skip）；Near/Solana/Noir
+    `IR` 使用 `private mk`（Plan→IR 仅 capability `irFromCapability`）
+  - Nested Π + alias；**wrapper-independent** Semantic→Plan / Plan→IR /
+    IR→OutputFile|OutputSet
+  - Linear scale：10k/20k left-app + balanced；instrumented pushes/pops/steps/maxStack
+- Tests：capability IR/host models；NEAR WAT hash+len；Noir exact source；EVM
+  PF-VIS-001 product negative；TargetIrFixtures 仅 PrivateSum4 isolated。
+- Durable gates：`s6-plan-cutover-deletion-gate` + residual reflection +
+  `requirement-resolver-deletion-gate`。
+- Boundary：formal/maturity 不变；不 commit。
+
+
+## 2026-07-29 — D3/S6 capability-only direct Plan cutover
+
+- Context/State：baseline `2ea73c8d02e54d1eb139d2b38c56331e692cb4bb`；formal D1–D4 仍 0/27；
+  **不是** SupportClaim / TargetRegistryV1 / BuildIdentity / OutputSetV1 /
+  SemanticProgramV1 native Plan / formal D3 完成；不抬高四 target maturity。
+- Production：
+  - `Targets/EngineeringBuildV1.lean` cycle-free leaf：private-ctor
+    `ResolvedEngineeringBuildV1` + sole mint `resolveEngineeringRequirementsV1`
+   （exact retained SemanticProgramV1 requirements + dual-carrier mapped-S2 parity）。
+  - `Targets/DescriptorDataV1.lean`：四 implemented descriptor 单一数据源。
+  - 删除 public `Common.resolve` / `validateResolved` 与
+    `supportedRequirements` membership product acceptance。
+  - 四 target：public `planFromCapability` / `buildFromCapability`；private
+    `makePlanFromAlpha` / `lower` / emit；`Materializer` 仅 Plan/TargetIR 类型见证。
+  - 后续 repair（见上条）删除 public Residual emission surface 与 dead ResolvedProgram。
+  - `Registry.materializeResult` 直接 capability dispatch；`alphaResidualOf` 仅
+    post-capability Plan-body data（documented）。
+- Tests：RequirementResolver/Targets/EvmSmoke/NearHostModel/NoirRelationModel/
+  BuildSelection/CounterV1Evm/CLI.Emit 迁到 capability 路径。
+- Durable gate：`just s6-plan-cutover-deletion-gate`；接入 `dev-check`/`ci`。
+- Docs：AGENTS/RECOVERY/MIGRATION/本日志事实更新 only。
+- Boundary：formal pending；artifact 行为/maturity 不变；implement phase 不 commit。
+
 ## 2026-07-29 — D3/S5 exact-resolver dual-arg gate → Lean Environment reflection
 
 - Context/State：baseline `a0afcb395a6117be402df5f0f3f82229a8190d7f` 保持；本条替换 Python source lexer 为 Lean Environment reflection durable API gate；**不** commit。

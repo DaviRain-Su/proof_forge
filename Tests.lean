@@ -94,6 +94,7 @@ import Tests.Language.FrontendParity
 import Tests.Language.Loader
 import Tests.Materialization.BuildSelectionV1
 import Tests.Materialization.RequirementResolverV1
+import Tests.Materialization.TargetIrFixtures
 import Tests.Materialization.Targets
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.NearHostModel

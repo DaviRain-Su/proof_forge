@@ -1,11 +1,33 @@
 import ProofForgeV2.Compiler.Pipeline
-import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Targets.Near
+import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization.NearHostModel
 
 open ProofForgeV2
-open Tests.Fixtures.SourcePrograms
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.BuildSelectionV1
+
+/-- ProgramV1 Accumulator source (S1 dual-carrier compatible). -/
+private def accumulatorSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program Accumulator where\n" ++
+  "  state total : UInt64\n\n" ++
+  "  init(seed : UInt64) do\n" ++
+  "    total := seed\n\n" ++
+  "  entry add(amount : UInt64) : UInt64 do\n" ++
+  "    total := total + amount\n" ++
+  "    return total\n\n" ++
+  "  view current() : UInt64 do\n" ++
+  "    return total\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def accumulatorModuleNameV1 : String := "Examples.Accumulator"
 
 private abbrev HostStorage := Array (String × ByteArray)
 private abbrev U64 := _root_.UInt64
@@ -210,11 +232,18 @@ private def findMethod (ir : Targets.Near.IR) (name : String) : IO Targets.Near.
 private def storedUInt64? (storage : HostStorage) (key : String) : Option U64 :=
   storageLookup? storage key >>= decodeUInt64LE
 
-def run : IO Unit := do
-  let semanticProgram ← liftResult <| Compiler.compile accumulatorQualified
-  let resolved ← liftResult <| Targets.resolve .near Targets.Near.descriptor semanticProgram
-  let plan ← liftResult <| Targets.Near.makePlan resolved
-  let ir ← liftResult <| Targets.Near.lower plan
+unsafe def run : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    accumulatorSourceText "<near-host-accumulator>"
+    accumulatorModuleNameV1 none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  -- S6 repair: production capability-gated IR inspection (not TargetIrFixtures).
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
   let initializer ← findMethod ir "init"
   let add ← findMethod ir "add"
   let current ← findMethod ir "current"

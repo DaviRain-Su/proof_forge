@@ -231,6 +231,8 @@ private def findRegistration (index : StaticBuildSelectionIndexV1) (target : Tar
 mint: product `resolveBuildSelectionV1`). Aggregate product `materializeResult`
 / `emitProgram` require private `ResolvedEngineeringBuildV1` from
 `resolveEngineeringRequirementsV1` (selection is a prerequisite, not sufficient).
+S6: public residual Common resolve / target makePlan seams
+are closed; capability-gated target entries are the sole Plan/materialize path.
 Forged/alternate catalogs may produce inspections or registration rows only. -/
 structure BuildSelectionInspectionV1 where
   targetId : TargetId

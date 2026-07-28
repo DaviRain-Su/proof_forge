@@ -1,24 +1,17 @@
 import ProofForgeV2.Targets.Common
+import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Evm.Keccak
 
 namespace ProofForgeV2.Targets.Evm
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.DescriptorDataV1
 
-def descriptor : TargetDescriptor := {
-  targetId := TargetId.evm
-  artifactEncoding := .evmYul
-  executionHost := .evm
-  commitModel := .transactionAtomic
-  stateBinding := .contractStorage
-  callModel := .synchronous
-  proofModel := .none
-  settlementModel := .ethereum
-  codegenProfile := CodegenProfileId.evmYulSolc0834V1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
-}
+/-- Shared descriptor data (single source: DescriptorDataV1). -/
+def descriptor : TargetDescriptor := DescriptorDataV1.evm
 
 /-- Target-owned binding from a semantic state identity to an EVM storage slot. -/
 structure StorageBinding where
@@ -434,9 +427,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless returned do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
 
-def makePlan (resolved : ResolvedProgram .evm) : CompileResult Plan := do
-  validateResolved .evm descriptor resolved
-  let source := resolved.source
+/-- Private residual alpha → Plan body. Support already decided by capability mint;
+    no supportedRequirements membership / residual resolve gate. Plan integrity
+    (schema / canonical requirements / shape budget) still enforced. -/
+private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
+  validateRequirementEnvelope source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .evm
       s!"semantic schema version {source.schemaVersion} is not supported; expected {Semantic.schemaVersion}"
@@ -462,6 +457,15 @@ def makePlan (resolved : ResolvedProgram .evm) : CompileResult Plan := do
   }
   validatePlan plan
   return plan
+
+/-- Capability-gated public plan entry (S6). Residual alpha is temporary Plan-body
+    data via `alphaResidualOf` after capability — not support authority. -/
+def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .evm do
+    throw <| .planInvariant .evm "engineering capability kind is not EVM"
+  let source := CompiledProgramV1.alphaResidualOf
+    (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromAlpha source
 
 private structure RenderedExpr where
   code : String
@@ -583,21 +587,32 @@ private def renderAbi (plan : Plan) : String :=
   let items := constructor ++ entries
   "[\n  " ++ String.intercalate ",\n  " items.toList ++ "\n]\n"
 
-def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   return { objectName := plan.objectName, yul := renderYul plan, abi := renderAbi plan }
 
-def emit (ir : IR) : CompileResult (Array OutputFile) :=
+private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) :=
   .ok #[
     { path := s!"{ir.objectName}.yul", mediaType := "text/yul", contents := ir.yul },
     { path := s!"{ir.objectName}.abi.json", mediaType := "application/json", contents := ir.abi }
   ]
 
+/-- Capability-gated public IR inspection (S6 repair). Input must be
+    `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files.
+    Not a residual Plan→IR bypass. -/
+def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+  let plan ← planFromCapability capability
+  lower plan
+
+/-- Capability-gated public materialize entry (S6). Sole path from residual alpha
+    Plan body to emitted files for this target. -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let ir ← irFromCapability capability
+  emitFromIR ir
+
 instance : Materializer .evm where
   Plan := Plan
   TargetIR := IR
-  makePlan := makePlan
-  lower := lower
-  emit := emit
 
 end ProofForgeV2.Targets.Evm

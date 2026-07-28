@@ -1,27 +1,20 @@
 import ProofForgeV2.Targets.Common
+import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets.Noir
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.DescriptorDataV1
 
 def codegenProfileString : String := "noir-source-u64-relations-v1"
 def codegenProfile : CodegenProfileId := CodegenProfileId.noirSourceU64RelationsV1
 def sourceDialect : String := "noir-native-u64-relations-v1"
 
-def descriptor : TargetDescriptor := {
-  targetId := TargetId.noir
-  artifactEncoding := .noirSource
-  executionHost := .circuit
-  commitModel := .externalStateTransition
-  stateBinding := .proofInputs
-  callModel := .none
-  proofModel := .circuitProof
-  settlementModel := .externalVerifier
-  codegenProfile
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback, .privateWitness
-  ]
-}
+/-- Shared descriptor data (single source: DescriptorDataV1). -/
+def descriptor : TargetDescriptor := DescriptorDataV1.noir
 
 inductive StateContinuity where
   | none
@@ -163,8 +156,11 @@ structure RelationIR where
   deriving BEq, Inhabited, Repr
 
 /-- Exact typed circuit recipe. Rendering source is later than Plan-to-IR
-validation so source strings cannot rediscover business semantics. -/
+validation so source strings cannot rediscover business semantics.
+    Private `mk`: public Plan→IR construction is capability-gated only
+    (`irFromCapability`). -/
 structure IR where
+  private mk ::
   sourcePlan : Plan
   name : String
   relations : Array RelationIR
@@ -628,11 +624,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.planHash == canonicalPlanHash plan do
     throw <| .planInvariant .noir "complete Plan hash is not canonical"
 
-def makePlan (resolved : ResolvedProgram .noir) : CompileResult Plan := do
-  unless resolved.descriptor == descriptor do
-    throw <| .planInvariant .noir "resolved target descriptor does not match the Noir profile"
-  validateResolved .noir descriptor resolved
-  let source := resolved.source
+/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
+private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
+  validateRequirementEnvelope source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .noir
       s!"semantic schema version {source.schemaVersion} is not supported"
@@ -675,6 +669,14 @@ def makePlan (resolved : ResolvedProgram .noir) : CompileResult Plan := do
   let plan := { unsignedPlan with planHash := canonicalPlanHash unsignedPlan }
   validatePlan plan
   return plan
+
+/-- Capability-gated public plan entry (S6). -/
+def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .noir do
+    throw <| .planInvariant .noir "engineering capability kind is not Noir"
+  let source := CompiledProgramV1.alphaResidualOf
+    (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromAlpha source
 
 private structure LoweredExpr where
   operations : Array Operation
@@ -782,7 +784,7 @@ def validateIR (ir : IR) : CompileResult Unit := do
     throw <| .planInvariant .noir
       "typed Noir IR operations are not the exact lowering of their source Plan"
 
-def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   let ir : IR := {
     sourcePlan := plan
@@ -879,7 +881,7 @@ private def renderInterface (ir : IR) : String :=
     "  \"relations\": [\n    " ++ relations ++ "\n  ]\n" ++
     "}\n"
 
-def emit (ir : IR) : CompileResult (Array OutputFile) := do
+private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   validateIR ir
   let mut files : Array OutputFile := #[{
     path := s!"{ir.name}.noir-relations.json"
@@ -900,11 +902,24 @@ def emit (ir : IR) : CompileResult (Array OutputFile) := do
     }
   return files
 
+/-- Replace relations on an existing IR (private `mk`; for validateIR characterization). -/
+def withRelations (ir : IR) (relations : Array RelationIR) : IR :=
+  { ir with relations }
+
+/-- Capability-gated public IR inspection (S6 repair). Input must be
+    `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files. -/
+def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+  let plan ← planFromCapability capability
+  lower plan
+
+/-- Capability-gated public materialize entry (S6). -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let ir ← irFromCapability capability
+  emitFromIR ir
+
 instance : Materializer .noir where
   Plan := Plan
   TargetIR := IR
-  makePlan := makePlan
-  lower := lower
-  emit := emit
 
 end ProofForgeV2.Targets.Noir

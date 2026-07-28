@@ -1,11 +1,57 @@
 import ProofForgeV2.Compiler.Pipeline
-import Tests.Fixtures.SourcePrograms
 import ProofForgeV2.Targets.Noir
+import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Language.Loader
+import Tests.Language.ParserSession
+import Tests.Fixtures.SourcePrograms
+import Tests.Materialization.TargetIrFixtures
 
 namespace Tests.Materialization.NoirRelationModel
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.BuildSelectionV1
 open Tests.Fixtures.SourcePrograms
+
+private def counterSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program Counter where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry increment(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def accumulatorSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program Accumulator where\n" ++
+  "  state total : UInt64\n\n" ++
+  "  init(seed : UInt64) do\n" ++
+  "    total := seed\n\n" ++
+  "  entry add(amount : UInt64) : UInt64 do\n" ++
+  "    total := total + amount\n" ++
+  "    return total\n\n" ++
+  "  view current() : UInt64 do\n" ++
+  "    return total\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def privateSumSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PrivateSum4 where\n" ++
+  "  entry sum(private a : UInt64, private b : UInt64, private c : UInt64, private d : UInt64) : UInt64 do\n" ++
+  "    return a + b + c + d\n\n" ++
+  "end ProofForgeV2.Examples\n"
 
 private abbrev U64 := _root_.UInt64
 
@@ -129,11 +175,17 @@ private def expectReject (label : String)
   | .error _ => pure ()
   | .ok () => throw <| IO.userError s!"{label} unexpectedly satisfied the relation"
 
-private def compileIr (sourceProgram : Source.Program) : IO Targets.Noir.IR := do
-  let semantic ← liftResult <| Compiler.compile sourceProgram
-  let resolved ← liftResult <| Targets.resolve .noir Targets.Noir.descriptor semantic
-  let plan ← liftResult <| Targets.Noir.makePlan resolved
-  liftResult <| Targets.Noir.lower plan
+private unsafe def compileIrFromProgramV1 (sourceText moduleName path : String) :
+    IO Targets.Noir.IR := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 sourceText path moduleName none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  -- S6 repair: production capability-gated IR inspection (not TargetIrFixtures).
+  let _plan ← liftResult <| Targets.Noir.planFromCapability capability
+  liftResult <| Targets.Noir.irFromCapability capability
 
 private def findRelation (ir : Targets.Noir.IR)
     (name : String) : IO Targets.Noir.RelationIR :=
@@ -175,12 +227,14 @@ private def privateSumInputs (relation : Targets.Noir.RelationIR)
 
 private structure StatefulCase where
   label : String
-  sourceProgram : Source.Program
+  sourceText : String
+  moduleName : String
+  path : String
   mutateName : String
   viewName : String
 
-private def checkStatefulLifecycle (test : StatefulCase) : IO Unit := do
-  let ir ← compileIr test.sourceProgram
+private unsafe def checkStatefulLifecycle (test : StatefulCase) : IO Unit := do
+  let ir ← compileIrFromProgramV1 test.sourceText test.moduleName test.path
   let initializer ← findRelation ir "init"
   let mutate ← findRelation ir test.mutateName
   let viewRelation ← findRelation ir test.viewName
@@ -240,9 +294,12 @@ private def checkStatefulLifecycle (test : StatefulCase) : IO Unit := do
     statefulInputs viewRelation true 12 0 12 true 13
   expectReject s!"{test.label} view with wrong result" viewRelation viewWrongResult
 
-private def checkPrivateSum4 : IO Unit := do
-  let ir ← compileIr privateSum4Qualified
-  let relation ← findRelation ir "sum"
+/-- Isolated residual-only PrivateSum4 host accept/reject via test-local
+    RelationIR fixture. S1 dual-carrier cannot express privateWitness; this is
+    **not** product IR/emission evidence (product path is
+    `checkPrivateSum4ProductClosed`). -/
+private def checkPrivateSum4ResidualRelationModel : IO Unit := do
+  let relation := Tests.Materialization.TargetIrFixtures.privateSum4RelationIR
   let parameterBindings := relation.sourceRelation.inputs.filter fun binding =>
     match binding.role with
     | .parameter _ => true
@@ -252,8 +309,14 @@ private def checkPrivateSum4 : IO Unit := do
   expect (parameterBindings.size == 4 &&
       parameterBindings.all (fun binding => binding.visibility == .witness) &&
       resultBindings.size == 1 && resultBindings[0]!.visibility == .verifier)
-    "PrivateSum4 must bind four private witnesses and one verifier-visible result"
-
+    "PrivateSum4 fixture must bind four private witnesses and one verifier-visible result"
+  expect (relation.operations == #[
+      .checkedAdd 0 (.input 0) (.input 1),
+      .checkedAdd 1 (.temp 0) (.input 2),
+      .checkedAdd 2 (.temp 1) (.input 3),
+      .assertEqual (.input 4) (.temp 2)
+    ])
+    "PrivateSum4 fixture must preserve every checked addition"
   let valid ← liftModel "PrivateSum4 valid inputs" <|
     privateSumInputs relation #[1, 2, 3, 4] 10
   expectAccept "PrivateSum4 1+2+3+4=10" relation valid
@@ -261,19 +324,51 @@ private def checkPrivateSum4 : IO Unit := do
     privateSumInputs relation #[1, 2, 3, 4] 11
   expectReject "PrivateSum4 wrong public result" relation wrongResult
 
-def run : IO Unit := do
+/-- S6 product path: privateWitness / private params fail closed before emit.
+    Shipped path: CheckV1 disclosure rejects private→public return as
+    `PF-VIS-001` (via Normalize typed gate). Alternate closed phases:
+    `PF-SRC-INVALID` (unsupported shape) or later capability
+    `PF-REQ-UNSUPPORTED` / `PF-REGISTRY-INVALID`. Never vacuous pure (). -/
+private unsafe def checkPrivateSum4ProductClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 privateSumSourceText "<noir-private-sum>"
+      "Examples.PrivateSum4" none with
+  | .error e =>
+      expect (e.code == "PF-SRC-INVALID" || e.code.startsWith "PF-")
+        s!"PrivateSum4 selectProgramV1 must fail closed with PF-*, got {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.code == "PF-VIS-001" || e.code == "PF-SRC-INVALID")
+            s!"PrivateSum4 product compile must fail closed (PF-VIS-001 or PF-SRC-INVALID), got {e.render}"
+      | .ok compiled =>
+          let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+          match Targets.resolveEngineeringRequirementsV1 selection compiled with
+          | .error e =>
+              expect (e.code == "PF-REQ-UNSUPPORTED" || e.code == "PF-REGISTRY-INVALID")
+                s!"PrivateSum4 capability mint must fail closed, got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError
+                "PrivateSum4 must not mint engineering capability (privateWitness outside S2)"
+
+unsafe def run : IO Unit := do
   checkStatefulLifecycle {
     label := "Counter"
-    sourceProgram := counterQualified
+    sourceText := counterSourceText
+    moduleName := "Examples.Counter"
+    path := "<noir-rel-counter>"
     mutateName := "increment"
     viewName := "get"
   }
   checkStatefulLifecycle {
     label := "Accumulator"
-    sourceProgram := accumulatorQualified
+    sourceText := accumulatorSourceText
+    moduleName := "Examples.Accumulator"
+    path := "<noir-rel-accumulator>"
     mutateName := "add"
     viewName := "current"
   }
-  checkPrivateSum4
+  checkPrivateSum4ResidualRelationModel
+  checkPrivateSum4ProductClosed
 
 end Tests.Materialization.NoirRelationModel

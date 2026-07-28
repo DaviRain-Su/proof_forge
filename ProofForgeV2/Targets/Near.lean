@@ -1,23 +1,16 @@
 import ProofForgeV2.Targets.Common
+import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.DescriptorDataV1
 
-def descriptor : TargetDescriptor := {
-  targetId := TargetId.near
-  artifactEncoding := .wasmText
-  executionHost := .nearRuntime
-  commitModel := .receiptLocal
-  stateBinding := .hostKeyValue
-  callModel := .asynchronousReceipt
-  proofModel := .none
-  settlementModel := .near
-  codegenProfile := CodegenProfileId.nearWasmRawU64V1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
-}
+/-- Shared descriptor data (single source: DescriptorDataV1). -/
+def descriptor : TargetDescriptor := DescriptorDataV1.near
 
 def hostAbiVersion : String := "near-host-abi-v1"
 def rawInputAbi : String := "packed-raw-little-endian-u64"
@@ -197,8 +190,11 @@ structure MethodIR where
   deriving BEq, Inhabited, Repr
 
 /-- Typed NEAR host-call/Wasm recipe. Rendering WAT is deliberately later than
-the exact Plan-to-recipe binding check. -/
+the exact Plan-to-recipe binding check.
+    Private `mk`: public Plan→IR construction is capability-gated only
+    (`irFromCapability`); residual packaging ctor is not a product emission API. -/
 structure IR where
+  private mk ::
   sourcePlan : Plan
   name : String
   imports : Array HostImport
@@ -636,11 +632,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if hasDuplicates (methods.map (·.name)) then
     throw <| .planInvariant .near "NEAR export names must be unique"
 
-def makePlan (resolved : ResolvedProgram .near) : CompileResult Plan := do
-  unless resolved.descriptor == descriptor do
-    throw <| .planInvariant .near "resolved target descriptor does not match the NEAR profile"
-  validateResolved .near descriptor resolved
-  let source := resolved.source
+/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
+private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
+  validateRequirementEnvelope source
   unless source.schemaVersion == Semantic.schemaVersion do
     throw <| .planInvariant .near
       s!"semantic schema version {source.schemaVersion} is not supported; expected {Semantic.schemaVersion}"
@@ -671,6 +665,14 @@ def makePlan (resolved : ResolvedProgram .near) : CompileResult Plan := do
   }
   validatePlan plan
   return plan
+
+/-- Capability-gated public plan entry (S6). -/
+def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .near do
+    throw <| .planInvariant .near "engineering capability kind is not NEAR"
+  let source := CompiledProgramV1.alphaResidualOf
+    (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromAlpha source
 
 private def align8 (value : Nat) : Nat :=
   ((value + 7) / 8) * 8
@@ -803,7 +805,7 @@ def validateIR (ir : IR) : CompileResult Unit := do
     throw <| .planInvariant .near
       "typed NEAR IR methods/operations are not the exact lowering of their source Plan"
 
-def lower (plan : Plan) : CompileResult IR := do
+private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
   let keys := makeKeyRegions plan
   let memory := makeMemoryLayout plan keys
@@ -949,7 +951,7 @@ private def renderAbi (plan : Plan) : String :=
     "  \"exports\": [\n    " ++ exports ++ "\n  ]\n" ++
     "}\n"
 
-def emit (ir : IR) : CompileResult (Array OutputFile) := do
+private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   validateIR ir
   return #[
     {
@@ -964,11 +966,24 @@ def emit (ir : IR) : CompileResult (Array OutputFile) := do
     }
   ]
 
+/-- Replace methods on an existing IR (private `mk`; for validateIR characterization). -/
+def withMethods (ir : IR) (methods : Array MethodIR) : IR :=
+  { ir with methods }
+
+/-- Capability-gated public IR inspection (S6 repair). Input must be
+    `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files. -/
+def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
+  let plan ← planFromCapability capability
+  lower plan
+
+/-- Capability-gated public materialize entry (S6). -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let ir ← irFromCapability capability
+  emitFromIR ir
+
 instance : Materializer .near where
   Plan := Plan
   TargetIR := IR
-  makePlan := makePlan
-  lower := lower
-  emit := emit
 
 end ProofForgeV2.Targets.Near

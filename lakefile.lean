@@ -113,6 +113,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.Loader,
     `Tests.Materialization.BuildSelectionV1,
     `Tests.Materialization.RequirementResolverV1,
+    `Tests.Materialization.TargetIrFixtures,
     `Tests.Materialization.Targets,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,
