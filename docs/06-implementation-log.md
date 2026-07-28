@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-closure pureFn Schedule prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.Schedule` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，从而闭合 SPEC §8 当前 pureFn forbidden-op allowlist；不实现 ExternalCall/Schedule argument serializability、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantClosurePureFnScheduleProhibited`，固定 unreachable pureFn Schedule 双路径正向、direct/transitive reachable closure pureFn Schedule 双路径负向，以及 generic void-result/EffectId/callee-shape/SSA/dominance validation→closure restriction→intrinsic fuel→requirements phase precedence；实现前 N1 reachable pureFn Schedule 被 structure gate 接受；`proof-forge-one-slice-72` 指出的 defined-but-nondominating Schedule argument 隔离测试已补齐，`proof-forge-one-slice-73` 进一步要求的 module-header 显式 closed-subset bullet 也已加入。
+- Production：扩展 bounded `validateInvariantClosurePureFnOpsV1`，在既有 StateLoad/StateStore/ContextRead/Commit/Emit/ExternalCall 拒绝基础上按 callable/block/instruction source order拒绝 reachable `.pureFn` 内 `.schedule`，失败 `.badCfg`；unreachable pureFn Schedule 与 invariant root direct StateLoad 的既有边界不变。
+- Verification：聚焦 production/test build、真实 fast harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-72/-73` findings 已闭合，`proof-forge-one-slice-74` 三路复审 approved、无 findings。
+- Boundary：ExternalCall/Schedule argument serializability、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-closure pureFn ExternalCall prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.ExternalCall` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，不实现 ExternalCall argument serializability、Schedule closure restriction、exact checked steps、interpreter或产品接线。

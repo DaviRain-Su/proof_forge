@@ -63,6 +63,10 @@ import ProofForgeV2.Core.Unicode
     - post-CFG invariant roots reject direct `Op.StateStore`, `Op.ContextRead`,
       `Op.Commit`, `Op.Emit`, `Op.ExternalCall`, and `Op.Schedule` while
       retaining direct `Op.StateLoad` (`.badCfg`)
+    - post-CFG exact reachable invariant-closure pureFns reject `Op.StateLoad`,
+      `Op.StateStore`, `Op.ContextRead`, `Op.Commit`, `Op.Emit`,
+      `Op.ExternalCall`, and `Op.Schedule`; invariant-root direct StateLoad and
+      unreachable pureFns retain their separate documented scope (`.badCfg`)
     - post-CFG every present `invariantSteps ≤ maxInvariantStepsV1` (10M),
       before requirements (`.badCfg`)
     - requirement key order/uniqueness, RequirementId domain segment,
@@ -90,9 +94,8 @@ import ProofForgeV2.Core.Unicode
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
   * Not yet: full TypeKey
-    anonymous ranking/interning, remaining invariant-closure pureFn op
-    allowlist/exact checked step computation, provenance inventory
-    join, ProgramV1 normalizer, product
+    anonymous ranking/interning, exact invariant-closure checked step
+    computation, provenance inventory join, ProgramV1 normalizer, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (CFG shape + reachability from entry,
     jump/branch/switch target arg arity == target block params, loopBounds
@@ -3751,8 +3754,9 @@ private def validateInvariantClosureCfgAcyclicV1
   pure ()
 
 /-- A pureFn in an invariant closure cannot access logical state or context,
-    create commitments, emit events, or perform synchronous external calls
-    (SPEC §8). Generic CFG/op typing and closure graph/CFG acyclicity have
+    create commitments, emit events, perform synchronous external calls, or
+    schedule asynchronous workflows (SPEC §8). Generic CFG/op typing and
+    closure graph/CFG acyclicity have
     already run. Invariant roots remain allowed to use StateLoad directly, and
     unreachable pureFns remain outside this closure-only restriction. -/
 private def validateInvariantClosurePureFnOpsV1
@@ -3773,6 +3777,7 @@ private def validateInvariantClosurePureFnOpsV1
                 | .commit _ => return ← err .badCfg
                 | .emit _ _ _ => return ← err .badCfg
                 | .externalCall _ _ _ => return ← err .badCfg
+                | .schedule _ _ _ => return ← err .badCfg
                 | _ => pure ()
   pure ()
 
