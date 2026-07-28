@@ -5044,6 +5044,157 @@ private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
   expectCfgInvariantPhase "N5 Commit closure before requirements"
     .invariantClosure .badCfg n5
 
+/-- SPEC §8 forbids event emission in pureFn callables that belong to an
+    invariant closure. An unreachable pureFn remains outside this closure-only
+    restriction. Generic Emit declaration/result/EffectId validation runs
+    before the post-CFG closure gate. -/
+private def testInvariantClosurePureFnEmitProhibited : IO Unit := do
+  let emitter : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr none (.emit 0 0 #[]),
+        cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "emitter"
+      invariantSteps := some 4
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 7
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithEvents "InvClosureEmitP1Unreachable" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]]
+    #[{ emitter with invariantSteps := none }, literalRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 unreachable pureFn Emit outside invariant closure" p1
+  let n1Base ← programWithEvents "InvClosureEmitN1Reachable" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[emitter, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn Emit" n1
+  expectCfgInvariantPhase "N1 pureFn Emit closure phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    root with
+      id := 1
+      kind := .pureFn
+      name := some "middle"
+      invariantSteps := some 7
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 10
+  }
+  let n2Base ← programWithEvents "InvClosureEmitN2Transitive" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[emitter, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn Emit" n2
+  expectCfgInvariantPhase "N2 transitive Emit closure phase"
+    .invariantClosure .badCfg n2
+  let malformedEmitter : CallableV1 := {
+    emitter with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.emit 0 0 #[]),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n3Base ← programWithEvents "InvClosureEmitN3CfgFirst" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[malformedEmitter, root]
+  let n3 : SemanticProgramDataV1 := {
+    n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 malformed Emit before closure restriction" .badCfg n3
+  expectCfgInvariantPhase "N3 generic Emit typing phase wins"
+    .cfg .badCfg n3
+  let missingEventEmitter : CallableV1 := {
+    emitter with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.emit 0 99 #[]),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3EventBase ← programWithEvents "InvClosureEmitN3MissingEvent" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[missingEventEmitter, root]
+  let n3Event : SemanticProgramDataV1 := {
+    n3EventBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 unresolved EventDecl before closure" .badCfg n3Event
+  expectCfgInvariantPhase "N3 unresolved EventDecl generic phase wins"
+    .cfg .badCfg n3Event
+  let n3ArityBase ← programWithEvents "InvClosureEmitN3Arity" cfgBoolTypes
+    #[eventRow 0 "Ping" #[interfaceField "flag" 0]] #[emitter, root]
+  let n3Arity : SemanticProgramDataV1 := {
+    n3ArityBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 Emit arg arity before closure" .badCfg n3Arity
+  expectCfgInvariantPhase "N3 Emit arg arity generic phase wins"
+    .cfg .badCfg n3Arity
+  let wrongArgTypeEmitter : CallableV1 := {
+    emitter with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1),
+          cfgInstr none (.emit 0 0 #[0]),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n3TypeBase ← programWithEvents "InvClosureEmitN3Type" cfgUint8Types
+    #[eventRow 0 "Ping" #[interfaceField "flag" 0]] #[wrongArgTypeEmitter, root]
+  let n3Type : SemanticProgramDataV1 := {
+    n3TypeBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 Emit arg type before closure" .badCfg n3Type
+  expectCfgInvariantPhase "N3 Emit arg type generic phase wins"
+    .cfg .badCfg n3Type
+  let badEffectIdEmitter : CallableV1 := {
+    emitter with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.emit 1 0 #[]),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3EffectBase ← programWithEvents "InvClosureEmitN3EffectId" cfgBoolTypes
+    #[eventRow 0 "Ping" #[]] #[badEffectIdEmitter, root]
+  let n3Effect : SemanticProgramDataV1 := {
+    n3EffectBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 Emit EffectId before closure" .badCfg n3Effect
+  expectCfgInvariantPhase "N3 Emit EffectId generic phase wins"
+    .cfg .badCfg n3Effect
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[emitter,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 pureFn Emit before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 Emit closure phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-emit"] }
+  }
+  expectCfgErrCode "N5 pureFn Emit before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 Emit closure before requirements"
+    .invariantClosure .badCfg n5
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -6955,6 +7106,7 @@ def run : IO Unit := do
   testInvariantClosurePureFnStateStoreProhibited
   testInvariantClosurePureFnContextReadProhibited
   testInvariantClosurePureFnCommitProhibited
+  testInvariantClosurePureFnEmitProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness
