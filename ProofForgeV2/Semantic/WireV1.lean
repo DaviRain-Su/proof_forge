@@ -38,6 +38,12 @@ import Std.Data.HashMap
         · Map key legality: Bool|UInt|Int|Principal|Bytes|Struct of
           recursively legal keys; reject Option/Array/Map/Enum/Unit/Field
           (`.badType`; recursion fuel = types.size)
+        · named-prefix rank: all `name=some` named Struct/Enum TypeDecls
+          must occupy a contiguous prefix of the `types` table; any named
+          declaration after an anonymous declaration is `.nonCanonical`
+          (runs before leaf primitive interning and recursive anonymous
+          structural-class uniqueness, after type-shape/FieldSpec/Map-key
+          legality and shallow reference range)
         · leaf primitive anonymous TypeKeys are unique by exact shape for
           Bool/UInt/Int/Principal/Unit/Bytes/Field (`.nonCanonical`)
         · anonymous `.array`/`.map`/`.option` are interned by exact recursive
@@ -62,8 +68,9 @@ import Std.Data.HashMap
           a reserved named key (and the named-body type-graph rules around it)
           is deferred. The structural-class signature is an internal fixed-size
           equality token, **not** the SPEC canonical unsigned-lexicographic
-          anonymous TypeKey/ranking bytes; named-prefix anchors and anonymous
-          canonical rank/order remain deferred.
+          anonymous TypeKey/ranking bytes. Named contiguous-prefix rank is
+          enforced above; full named-anchor closure/body-cycle validation and
+          anonymous canonical rank/order remain deferred.
     - canonical `valueBytes` (SPEC §5), after type-shape and before
       requirements: Constant / Op.Literal / SwitchCase reuse one type-driven
       decoder; full-consume + encode(decode)==bytes else `.nonCanonical`
@@ -124,7 +131,8 @@ import Std.Data.HashMap
       acceptance.
     - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
       (join unimplemented).
-  * Not yet: recursive/full TypeKey closure with named-prefix anchors,
+  * Not yet: recursive/full TypeKey closure beyond the enforced named-prefix rank,
+    including named-anchor body/cycle validation,
     full anonymous ranking/reachability (the SPEC canonical unsigned-
     lexicographic anonymous TypeKey/ranking bytes), the full SPEC rule that a
     recursive cycle must simultaneously pass through `Option` and a reserved
@@ -155,7 +163,8 @@ import Std.Data.HashMap
     and void-op result-presence plus the at-least-two-component callee shape
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
     serializability, exact contracts for the two presence-only families,
-    recursive/full TypeKey closure with named-prefix anchors, full anonymous
+    recursive/full TypeKey closure beyond the enforced named-prefix rank,
+    including named-anchor body/cycle validation, full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
     TypeKey/ranking bytes), the full SPEC rule that recursive cycles pass
     simultaneously through `Option` and a reserved named key, and usage
@@ -1738,10 +1747,10 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     does not (transport only). See module header API contracts.
 
     Stable order (SPEC §6.2 engineering subset): table id/index → shallow
-    declaration refs → type-shape/FieldSpec/Map-key → primitive leaf
-    anonymous TypeKey uniqueness → recursive anonymous container structural-
-    class uniqueness (anonymous-container-cycle rejection without a named
-    anchor) → named TypeDecl-name
+    declaration refs → type-shape/FieldSpec/Map-key → named TypeDecl contiguous-
+    prefix rank → primitive leaf anonymous TypeKey uniqueness → recursive
+    anonymous container structural-class uniqueness (anonymous-container-cycle
+    rejection without a named anchor) → named TypeDecl-name
     uniqueness → canonical valueBytes (Constant / Op.Literal / SwitchCase) →
     grouped same-error duplicate phase
     {Constant-name, logicalState-name, EventDecl/ErrorDecl-name,
@@ -3206,6 +3215,33 @@ private def validateTypesStructureV1 (types : Array TypeDeclV1) :
     validateTypeDeclShapeV1 decl types
   pure ()
 
+/-- SPEC §5 named TypeDecl contiguous-prefix rank: all `name=some` named
+    Struct/Enum declarations must occupy a contiguous prefix of the `types`
+    table (indices `0 .. namedCount-1`). Any named declaration appearing
+    after an anonymous declaration is `.nonCanonical`. This is the
+    `namedPrefix` subphase of `validateTypeKeyPhasesV1`, ordered before the
+    `primitiveLeaf` and `recursiveAnonymous` subphases; it shares the public
+    `.nonCanonical` wire error while the phase seam makes precedence
+    observable. Runs only after table id/index, shallow reference range, and
+    type-shape/Map-key legality succeed. Named-name uniqueness, canonical
+    valueBytes, callable signature, and requirements are later successors.
+    The SPEC canonical anonymous sort/rank bytes, named-body cycle legality,
+    and usage closure remain deferred. The scan is a single forward pass with
+    O(n) time and O(1) extra space: once an anonymous declaration is seen, a
+    `seenAnonymous` flag is set and any subsequent `name=some` declaration is
+    rejected. -/
+private def validateNamedPrefixRankV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let mut seenAnonymous := false
+  for decl in types do
+    match decl.name with
+    | some _ =>
+      if seenAnonymous then
+        return ← err .nonCanonical
+    | none =>
+      seenAnonymous := true
+  pure ()
+
 /-- Leaf primitive anonymous TypeKeys are structurally interned (SPEC §5):
     Bool, width-specific UInt/Int, Principal, Unit, length-specific Bytes, and
     the exact catalog Field shape each have at most one TypeId. Their existing
@@ -3492,18 +3528,20 @@ private def validateRecursiveAnonymousTypeKeyUniquenessV1
 
 /-! ### TypeKey validation phase seam (SPEC §5)
 
-    Leaf primitive anonymous TypeKey uniqueness and recursive anonymous
-    container structural-class uniqueness both report the same public wire
-    error `.nonCanonical`. To make their precedence observable to focused
-    tests without changing the public wire contract, this closed phase seam
-    mirrors the `CfgInvariantValidationPhaseV1` pattern: a non-serialized
-    phase enum plus the unchanged public error, consumed exactly by the
-    structure gate which erases only `phase`. The phase is not serialized and
-    does not appear in any wire/CLI output. -/
+    Named-prefix rank, leaf primitive anonymous TypeKey uniqueness, and
+    recursive anonymous container structural-class uniqueness all report the
+    same public wire error `.nonCanonical`. To make their precedence
+    observable to focused tests without changing the public wire contract,
+    this closed phase seam mirrors the `CfgInvariantValidationPhaseV1`
+    pattern: a non-serialized phase enum plus the unchanged public error,
+    consumed exactly by the structure gate which erases only `phase`. The
+    phase is not serialized and does not appear in any wire/CLI output. -/
 
-/-- Closed non-wire phase distinguishing the two TypeKey uniqueness subphases
-    that share the public `.nonCanonical` error. -/
+/-- Closed non-wire phase distinguishing the three TypeKey subphases that
+    share the public `.nonCanonical` error: `namedPrefix` (named contiguous
+    prefix rank), `primitiveLeaf`, and `recursiveAnonymous`. -/
 inductive TypeKeyValidationPhaseV1
+  | namedPrefix
   | primitiveLeaf
   | recursiveAnonymous
   deriving BEq, Repr
@@ -3523,13 +3561,16 @@ private def liftTypeKeyValidationPhaseV1
   | .error error => .error { phase, error }
 
 /-- Runs the exact stable §5 TypeKey segment used by the structure gate:
-    leaf primitive anonymous TypeKey uniqueness first, then recursive
-    anonymous container structural-class uniqueness (anonymous-container-cycle
-    rejection without a named anchor). Type-shape/FieldSpec/Map-key legality
-    and shallow reference range are earlier prerequisites. The public wire
-    error is unchanged; only the phase is exposed for focused tests. -/
+    named contiguous-prefix rank first, then leaf primitive anonymous TypeKey
+    uniqueness, then recursive anonymous container structural-class uniqueness
+    (anonymous-container-cycle rejection without a named anchor). Type-shape/
+    FieldSpec/Map-key legality and shallow reference range are earlier
+    prerequisites. The public wire error is unchanged; only the phase is
+    exposed for focused tests. -/
 def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
     Except TypeKeyValidationFailureV1 Unit := do
+  liftTypeKeyValidationPhaseV1 .namedPrefix
+    (validateNamedPrefixRankV1 types)
   liftTypeKeyValidationPhaseV1 .primitiveLeaf
     (validatePrimitiveAnonymousTypeKeyUniquenessV1 types)
   liftTypeKeyValidationPhaseV1 .recursiveAnonymous
@@ -3772,7 +3813,9 @@ private def checkUniqueDeclarationNamesV1 (names : Array String) :
   pure ()
 
 /-- Named Struct/Enum TypeDecl names are exact-string unique (SPEC §5/§6).
-    Full named-prefix/TypeKey closure and identifier grammar/NFC are separate. -/
+    Named contiguous-prefix rank is enforced earlier. Anonymous canonical
+    rank/order, usage closure, full named-anchor body/cycle validation, the
+    remaining TypeKey closure, and identifier grammar/NFC stay separate. -/
 private def validateNamedTypeNameUniquenessV1 (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut names : Array String := #[]
@@ -4536,12 +4579,13 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   for inv in data.invariants do
     checkCallableIdInRange inv.callableId callableCount
   -- 3) Type-shape / FieldSpec catalog / Map-key legality, then the TypeKey
-  --   uniqueness segment via the exact phase seam: leaf primitive anonymous
-  --   TypeKey uniqueness first, then recursive anonymous container
-  --   structural-class uniqueness (anonymous-container-cycle rejection
-  --   without a named anchor), then named Struct/Enum exact-name uniqueness
-  --   (SPEC §5/§6). The phase seam preserves the public `.nonCanonical` wire
-  --   error while exposing the subphase to focused tests.
+  --   uniqueness segment via the exact phase seam: named contiguous-prefix
+  --   rank first, then leaf primitive anonymous TypeKey uniqueness, then
+  --   recursive anonymous container structural-class uniqueness
+  --   (anonymous-container-cycle rejection without a named anchor), then
+  --   named Struct/Enum exact-name uniqueness (SPEC §5/§6). The phase seam
+  --   preserves the public `.nonCanonical` wire error while exposing the
+  --   subphase to focused tests.
   validateTypesStructureV1 data.types
   match validateTypeKeyPhasesV1 data.types with
   | .ok () => pure ()

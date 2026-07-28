@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 named TypeDecl contiguous-prefix rank (structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合 `types` table 的 named contiguous prefix：全部 `name=some` Struct/Enum 必须占据 `types[0..namedCount)`，不实现 anonymous canonical sort/rank bytes、usage closure、完整 named-body cycle legality、normalizer、provenance join或产品接线。
+- RED/Changed：tests-first。新增 `testNamedTypePrefixRank`；实现前 N1 anonymous→named 被 structure gate接受，真实 fast harness 以 expected `.nonCanonical` 未出现而 RED。双 shipped structure/encoder paths固定 anonymous-only/all-named/named-prefix+anonymous正向、anonymous→named与 named→anonymous→named负向、namedPrefix→primitiveLeaf→recursiveAnonymous same-error phase seam、table/ref/shape/FieldSpec/Map-key predecessor及 named-name/value/signature/CFG/requirements successor；手工 raw envelope另固定 transport decoder精确保留 interleaved table，而 structure/encoder/carrier拒绝。既有 type-shape、valueBytes 与 shared CFG-op type fixtures及全部关联 TypeId引用机械迁移到 named-first排列。
+- Production：新增 bounded `validateNamedPrefixRankV1` 单次前向扫描；首个 anonymous 后出现任意 named declaration即 `.nonCanonical`，O(n) time/O(1) extra space，不排序、不改 table order。`TypeKeyValidationPhaseV1` 新增 `.namedPrefix`，production structure gate直接消费 namedPrefix→primitiveLeaf→recursiveAnonymous，并保持 table/ref/type-shape legality在前、named-name/value/signature/CFG/requirements在后；transport decode不调用 structure gate。
+- Verification：implementation worker RED/GREEN、主控独立 fast shipped harness、`just dev-check`、SBOM refresh 幂等、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；workflow-84/-85/-86 的 stale comment/status findings 均已修复，workflow-87 三路复审 approved、无 findings。
+- Boundary：anonymous canonical TypeKey bytes/rank/order、usage closure/missing/unreferenced、完整 named-body cycle必须同时经过 Option+reserved named key、identifier grammar/NFC、provenance join、normalizer/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 recursive anonymous TypeKey structural classes (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只闭合匿名 Array/Map/Option 的 recursive child structural-class uniqueness 与不经过 named anchor 的 anonymous-container cycle rejection，不实现 named-prefix、anonymous canonical rank/order、usage closure/missing/unreferenced rejection、完整 named-body cycle 必须含 Option 规则、normalizer、provenance join或产品接线。

@@ -121,9 +121,9 @@
       "sha256": "298982e8606f44166175629f783c9265f6bc02abd88964dce4bb506bbf76a7fd"
     },
     {
-      "bytes": 206994,
+      "bytes": 209475,
       "path": "ProofForgeV2/Semantic/WireV1.lean",
-      "sha256": "582b3ce059191bf591cfe18704494a1a298ead2b22ad2e2872afb068518cbd87"
+      "sha256": "4cf51cd296d28b2ebc2f1cb44a22bce58fa6206cff5ef01754d9eeb658d39f8f"
     },
     {
       "bytes": 1200,

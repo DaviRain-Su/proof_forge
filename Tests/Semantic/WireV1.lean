@@ -17,7 +17,8 @@
   dominance, def-site TypeId range,
   block/terminator typing, step-j per-op contracts, invariant-closure
   membership/DAG/CFG/op restrictions, and exact checked computedInvariantSteps
-  are pinned; named-prefix/anonymous canonical rank/order, the full SPEC rule
+  are pinned; named-prefix contiguous-rank is covered, while anonymous
+  canonical rank/order, the full SPEC rule
   that recursive cycles pass simultaneously through Option and a reserved
   named key, usage closure, provenance join/normalizer/product wire remain
   pending. Step j
@@ -552,27 +553,28 @@ private def testTypeShapePositives : IO Unit := do
   }
   expectOk "widths/lengths structure" (validateSemanticProgramStructureV1 okWidths)
   let _ ← expectOk "widths/lengths encode" (encodeSemanticProgramDataV1 okWidths)
-  -- named nonempty struct + enum
+  -- named nonempty struct + enum (named declarations occupy a contiguous
+  -- prefix per SPEC §5; anonymous types follow).
   let okNamed : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .uint 32 },
       {
-        id := 1
+        id := 0
         name := some "Point"
         shape := .struct #[
-          { name := "x", typeId := 0 },
-          { name := "y", typeId := 0 }
+          { name := "x", typeId := 2 },
+          { name := "y", typeId := 2 }
         ]
       },
       {
-        id := 2
+        id := 1
         name := some "Color"
         shape := .enum #[
           { name := "Red", payloadTypes := #[] },
-          { name := "Blue", payloadTypes := #[0] }
+          { name := "Blue", payloadTypes := #[2] }
         ]
-      }
+      },
+      { id := 2, name := none, shape := .uint 32 }
     ]
   }
   expectOk "named struct/enum structure" (validateSemanticProgramStructureV1 okNamed)
@@ -602,18 +604,18 @@ private def testTypeShapePositives : IO Unit := do
   }
   expectOk "map primitive keys structure" (validateSemanticProgramStructureV1 okMapPrim)
   let _ ← expectOk "map primitive keys encode" (encodeSemanticProgramDataV1 okMapPrim)
-  -- Map over Struct-of-UInt key
+  -- Map over Struct-of-UInt key (named Key occupies prefix index 0).
   let okMapStruct : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .uint 32 },
       {
-        id := 1
+        id := 0
         name := some "Key"
-        shape := .struct #[{ name := "a", typeId := 0 }]
+        shape := .struct #[{ name := "a", typeId := 1 }]
       },
+      { id := 1, name := none, shape := .uint 32 },
       { id := 2, name := none, shape := .bool },
-      { id := 3, name := none, shape := .map 1 2 }
+      { id := 3, name := none, shape := .map 0 2 }
     ]
   }
   expectOk "map struct key structure" (validateSemanticProgramStructureV1 okMapStruct)
@@ -702,19 +704,19 @@ private def testTypeShapeNegatives : IO Unit := do
   }
   expectErr "zero modulus" .badType
     (validateSemanticProgramStructureV1 badFieldMod)
-  -- duplicate field / variant names
+  -- duplicate field / variant names (named S occupies prefix index 0).
   let badDupField : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .uint 8 },
       {
-        id := 1
+        id := 0
         name := some "S"
         shape := .struct #[
-          { name := "x", typeId := 0 },
-          { name := "x", typeId := 0 }
+          { name := "x", typeId := 1 },
+          { name := "x", typeId := 1 }
         ]
-      }
+      },
+      { id := 1, name := none, shape := .uint 8 }
     ]
   }
   expectErr "dup field names" .duplicate
@@ -784,14 +786,14 @@ private def testTypeShapeNegatives : IO Unit := do
   let badMapStructOption : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .option 0 },
       {
-        id := 2
+        id := 0
         name := some "BadKey"
-        shape := .struct #[{ name := "inner", typeId := 1 }]
+        shape := .struct #[{ name := "inner", typeId := 2 }]
       },
-      { id := 3, name := none, shape := .map 2 0 }
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .option 1 },
+      { id := 3, name := none, shape := .map 0 1 }
     ]
   }
   expectErr "map struct-of-option key" .badType
@@ -801,14 +803,14 @@ private def testTypeShapeNegatives : IO Unit := do
   let badMapStructField : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .field bn254FrFieldSpecV1 },
       {
-        id := 1
+        id := 0
         name := some "FieldKey"
-        shape := .struct #[{ name := "f", typeId := 0 }]
+        shape := .struct #[{ name := "f", typeId := 1 }]
       },
+      { id := 1, name := none, shape := .field bn254FrFieldSpecV1 },
       { id := 2, name := none, shape := .bool },
-      { id := 3, name := none, shape := .map 1 2 }
+      { id := 3, name := none, shape := .map 0 2 }
     ]
   }
   expectErr "map struct-of-field key" .badType
@@ -818,15 +820,15 @@ private def testTypeShapeNegatives : IO Unit := do
   let badMapStructMap : SemanticProgramDataV1 := {
     data0 with
     types := #[
-      { id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .uint 8 },
-      { id := 2, name := none, shape := .map 0 1 },
       {
-        id := 3
+        id := 0
         name := some "MapKey"
-        shape := .struct #[{ name := "m", typeId := 2 }]
+        shape := .struct #[{ name := "m", typeId := 3 }]
       },
-      { id := 4, name := none, shape := .map 3 0 }
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 8 },
+      { id := 3, name := none, shape := .map 1 2 },
+      { id := 4, name := none, shape := .map 0 1 }
     ]
   }
   expectErr "map struct-of-map key" .badType
@@ -1008,37 +1010,38 @@ private def testValueBytesPositives : IO Unit := do
     #[constOf 0 "m" 0 (leBytesFromNat (p - 1) 32)]
   expectValueOk "field 0" field0
   expectValueOk "field p-1" fieldPm1
-  -- named Struct of two UInt8
+  -- named Struct of two UInt8 (named Pair occupies prefix index 0).
   let structTypes : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .uint 8 },
     {
-      id := 1
+      id := 0
       name := some "Pair"
       shape := .struct #[
-        { name := "a", typeId := 0 },
-        { name := "b", typeId := 0 }
+        { name := "a", typeId := 1 },
+        { name := "b", typeId := 1 }
       ]
-    }
+    },
+    { id := 1, name := none, shape := .uint 8 }
   ]
   let structP ← programWithTypes "VBStruct" structTypes
-    #[constOf 0 "p" 1 (ByteArray.mk #[0x10, 0x20])]
+    #[constOf 0 "p" 0 (ByteArray.mk #[0x10, 0x20])]
   expectValueOk "struct two u8" structP
-  -- Enum variant 0 empty + variant with UInt8 payload
+  -- Enum variant 0 empty + variant with UInt8 payload (named E occupies
+  -- prefix index 0).
   let enumTypes : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .uint 8 },
     {
-      id := 1
+      id := 0
       name := some "E"
       shape := .enum #[
         { name := "A", payloadTypes := #[] },
-        { name := "B", payloadTypes := #[0] }
+        { name := "B", payloadTypes := #[1] }
       ]
-    }
+    },
+    { id := 1, name := none, shape := .uint 8 }
   ]
   let enum0 ← programWithTypes "VBEnum0" enumTypes
-    #[constOf 0 "a" 1 (u32le 0)]
+    #[constOf 0 "a" 0 (u32le 0)]
   let enum1 ← programWithTypes "VBEnum1" enumTypes
-    #[constOf 0 "b" 1 ((u32le 1).append (ByteArray.mk #[0x99]))]
+    #[constOf 0 "b" 0 ((u32le 1).append (ByteArray.mk #[0x99]))]
   expectValueOk "enum v0 empty" enum0
   expectValueOk "enum v1 payload" enum1
   -- Map Bool→UInt8 empty and one sorted entry (false→7)
@@ -1437,10 +1440,10 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
   expectCfgErrCode "N8 table id before primitive uniqueness" .duplicate n8
   -- Every shallow TypeId reference is checked before primitive interning.
   let n9 ← programWithTypes "PrimitiveTypeKeyN9ReferenceFirst" #[
-    { id := 0, name := none, shape := .bool },
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 99 }] },
     { id := 1, name := none, shape := .bool },
-    { id := 2, name := some "S",
-      shape := .struct #[{ name := "x", typeId := 99 }] }
+    { id := 2, name := none, shape := .bool }
   ]
   expectCfgErrCode "N9 shallow reference before primitive uniqueness"
     .badReference n9
@@ -1470,13 +1473,15 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
     .badType n12
   -- Primitive interning precedes named-name, canonical-value, callable-
   -- signature, and requirement phases, preserving one authoritative order.
+  -- Named declarations occupy the contiguous prefix; the duplicate anonymous
+  -- Bool pair triggers the primitive-leaf subphase before named-name checks.
   let n13 ← programWithTypes "PrimitiveTypeKeyN13NamedLater" #[
-    { id := 0, name := none, shape := .bool },
-    { id := 1, name := none, shape := .bool },
-    { id := 2, name := some "Dup",
-      shape := .struct #[{ name := "x", typeId := 0 }] },
-    { id := 3, name := some "Dup",
-      shape := .enum #[{ name := "v", payloadTypes := #[0] }] }
+    { id := 0, name := some "Dup",
+      shape := .struct #[{ name := "x", typeId := 2 }] },
+    { id := 1, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .bool }
   ]
   expectCfgErrCode "N13 primitive uniqueness before named names"
     .nonCanonical n13
@@ -2160,6 +2165,247 @@ private def testNamedTypeNameUniqueness : IO Unit := do
   let n8 ← programWithTypes "NamedTypeNameN8CfgLater" duplicateTypes #[]
     #[badCfgCallable]
   expectCfgErrCode "N8 named types before CFG" .duplicate n8
+
+/-- SPEC-SEM-WIRE-001 §5 named TypeDecl contiguous-prefix rank: all
+    `name=some` named Struct/Enum declarations must occupy a contiguous prefix
+    of the `types` table (indices `0 .. namedCount-1`). Any named declaration
+    appearing after an anonymous declaration is `.nonCanonical` on both shipped
+    paths (structure gate + structure-gated encoder). Transport decode is
+    unchanged. The `namedPrefix` subphase of `validateTypeKeyPhasesV1` runs
+    before the `primitiveLeaf` and `recursiveAnonymous` subphases; table id/
+    index, shallow references, and type-shape/FieldSpec/Map-key legality are
+    earlier prerequisites, while named-name uniqueness, canonical valueBytes,
+    callable signature, and requirements are later successors. -/
+private def testNamedTypePrefixRank : IO Unit := do
+  -- P0: anonymous-only type table — no named declarations, legal.
+  let p0 ← programWithTypes "NamedPrefixP0Anonymous" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 }
+  ]
+  expectCfgOk "P0 anonymous-only type table" p0
+  -- P1: all-named type table — contiguous prefix covers the whole table.
+  --   Two named Enum declarations, each with one variant whose payloadTypes
+  --   is empty (a legal shape: enum variants must be nonempty, but each
+  --   variant's payload list may be empty). No recursive named-body
+  --   reference is constructed, so the deferred SPEC named-body cycle
+  --   legality rule is not exercised as a positive.
+  let p1 ← programWithTypes "NamedPrefixP1AllNamed" #[
+    { id := 0, name := some "E1",
+      shape := .enum #[{ name := "a", payloadTypes := #[] }] },
+    { id := 1, name := some "E2",
+      shape := .enum #[{ name := "b", payloadTypes := #[] }] }
+  ]
+  expectCfgOk "P1 all-named contiguous prefix" p1
+  -- P2: named prefix + anonymous suffix — named declarations at indices 0,1
+  -- followed by anonymous declarations. Legal: the named prefix is contiguous.
+  let p2 ← programWithTypes "NamedPrefixP2NamedThenAnon" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 2 }] },
+    { id := 1, name := some "E",
+      shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .array 2 4 }
+  ]
+  expectCfgOk "P2 named prefix then anonymous suffix" p2
+  -- N1: anonymous→named — an anonymous declaration precedes a named one, so
+  -- the named declarations are not a contiguous prefix.
+  let n1 ← programWithTypes "NamedPrefixN1AnonBeforeNamed" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectCfgErrCode "N1 anonymous before named" .nonCanonical n1
+  -- N2: named→anonymous→named — the named prefix is broken by an anonymous
+  -- declaration in the middle; the second named declaration is out of prefix.
+  let n2 ← programWithTypes "NamedPrefixN2NamedAnonNamed" #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 2 }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := some "E",
+      shape := .enum #[{ name := "v", payloadTypes := #[1] }] }
+  ]
+  expectCfgErrCode "N2 named then anonymous then named" .nonCanonical n2
+  -- Phase precedence: namedPrefix runs before primitiveLeaf. A broken prefix
+  -- plus a duplicate primitive Bool must report the `.namedPrefix` phase first
+  -- (both share the public `.nonCanonical` wire error).
+  let phase1Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  let phase1 ← programWithTypes "NamedPrefixPhase1PrefixBeforePrimitive"
+    phase1Types
+  expectCfgErrCode "Phase1 prefix before primitive (wire)" .nonCanonical phase1
+  expectTypeKeyPhase "Phase1 prefix before primitive (phase)"
+    .namedPrefix .nonCanonical phase1Types
+  -- Phase precedence: namedPrefix runs before recursiveAnonymous. A broken
+  -- prefix plus a duplicate anonymous Array class must report `.namedPrefix`.
+  let phase2Types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 },
+    { id := 3, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectTypeKeyPhase "Phase2 prefix before recursive"
+    .namedPrefix .nonCanonical phase2Types
+  -- Phase seam regression: a pure primitive duplicate (no named declarations)
+  -- still reports `.primitiveLeaf`; a pure recursive duplicate still reports
+  -- `.recursiveAnonymous`. The new phase does not disturb existing ordering.
+  let purePrimTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .bool }
+  ]
+  expectTypeKeyPhase "Phase seam pure primitive duplicate" .primitiveLeaf
+    .nonCanonical purePrimTypes
+  let pureRecTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .array 0 4 },
+    { id := 2, name := none, shape := .array 0 4 }
+  ]
+  expectTypeKeyPhase "Phase seam pure recursive duplicate" .recursiveAnonymous
+    .nonCanonical pureRecTypes
+  -- Predecessor ordering: table id/index precedes namedPrefix. A bad table id
+  -- plus a broken prefix fails on the table-id check first (`.duplicate`).
+  let pre1 ← programWithTypes "NamedPrefixPre1TableIdFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 7, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectCfgErrCode "Pre1 table id before prefix" .duplicate pre1
+  -- Predecessor ordering: shallow reference range precedes namedPrefix. An OOR
+  -- child plus a broken prefix fails as `.badReference` first.
+  let pre2 ← programWithTypes "NamedPrefixPre2RefFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 99 }] }
+  ]
+  expectCfgErrCode "Pre2 shallow ref before prefix" .badReference pre2
+  -- Predecessor ordering: type-shape legality precedes namedPrefix. An invalid
+  -- integer width plus a broken prefix fails as `.badType` first.
+  let pre3 ← programWithTypes "NamedPrefixPre3ShapeFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 7 },
+    { id := 2, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectCfgErrCode "Pre3 type shape before prefix" .badType pre3
+  -- Predecessor ordering: FieldSpec catalog legality precedes namedPrefix. An
+  -- invalid FieldSpec modulus plus a broken prefix fails as `.badType` first.
+  let zeroMod := ByteArray.mk (Array.replicate 32 (0 : UInt8))
+  let pre4 ← programWithTypes "NamedPrefixPre4FieldSpecFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none,
+      shape := .field { id := bn254FrFieldSpecV1.id, modulusBE := zeroMod } },
+    { id := 2, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectCfgErrCode "Pre4 FieldSpec before prefix" .badType pre4
+  -- Predecessor ordering: Map-key legality precedes namedPrefix. An illegal
+  -- Map key plus a broken prefix fails as `.badType` first.
+  let pre5 ← programWithTypes "NamedPrefixPre5MapKeyFirst" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .option 0 },
+    { id := 2, name := none, shape := .map 1 0 },
+    { id := 3, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  expectCfgErrCode "Pre5 Map-key legality before prefix" .badType pre5
+  -- Successor ordering: namedPrefix precedes named-name uniqueness. A broken
+  -- prefix plus duplicate named names fails on the prefix first.
+  let post1 ← programWithTypes "NamedPrefixPost1NamedNamesLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "Dup",
+      shape := .struct #[{ name := "x", typeId := 0 }] },
+    { id := 2, name := some "Dup",
+      shape := .enum #[{ name := "v", payloadTypes := #[0] }] }
+  ]
+  expectCfgErrCode "Post1 prefix before named names" .nonCanonical post1
+  -- Successor ordering: namedPrefix precedes canonical valueBytes.
+  let post2 ← programWithTypes "NamedPrefixPost2ValueLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ] #[constOf 0 "bad" 0 (ByteArray.mk #[2])]
+  expectCfgErrCode "Post2 prefix before canonical value" .nonCanonical post2
+  -- Successor ordering: namedPrefix precedes callable signature.
+  let post3 ← programWithTypes "NamedPrefixPost3SignatureLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ] #[] #[cfgCallableKindName .pureFn none]
+  expectCfgErrCode "Post3 prefix before callable signature" .nonCanonical post3
+  -- Successor ordering: namedPrefix precedes requirements.
+  let post4Base ← programWithTypes "NamedPrefixPost4RequirementLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  let post4 : SemanticProgramDataV1 := {
+    post4Base with requirements := { items := #[req "unknown.capability"] }
+  }
+  expectCfgErrCode "Post4 prefix before requirements" .nonCanonical post4
+  -- Successor ordering: namedPrefix precedes per-callable CFG. A broken
+  --   prefix plus a signature-valid but CFG-invalid callable fails on the
+  --   prefix first (`.nonCanonical`); removing/deferring the prefix gate
+  --   would expose the later `.badCfg`. The callable is not signature-invalid
+  --   (pureFn "f" with a Bool result); the CFG invalidity is an out-of-range
+  --   jump target (block id 9 with no such block).
+  let cfgInvalidCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 0 }) (cfgBoolLit 0)]
+      (.jump (cfgJumpTarget 9))] with
+      id := 0
+  }
+  let post5 ← programWithTypes "NamedPrefixPost5CfgLater" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ] #[] #[cfgInvalidCallable]
+  expectCfgErrCode "Post5 prefix before CFG" .nonCanonical post5
+  -- Transport regression: `decodeSemanticProgramDataV1` is structure-free and
+  --   must accept an interleaved anonymous→named TypeDecl carrier exactly as
+  --   shipped, while the structure gate, the structure-gated encoder, and the
+  --   carrier re-encode path (`decodeSemanticProgramV1`) all reject it as
+  --   `.nonCanonical`. The raw envelope is hand-assembled with the low-level
+  --   encode helpers (not `encodeSemanticProgramDataV1`, which is
+  --   structure-gated), mirroring `testValueBytesTransportRegression`.
+  let trBase ← emptyProgram "NamedPrefixTransport"
+  let trTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := some "S",
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  let trQnB ← expectOk "tr qn" (encodeQualifiedName trBase.qualifiedName)
+  let trTypesB ← expectOk "tr types" (encodeArray encodeTypeDeclV1 trTypes)
+  let trEmptyState ← expectOk "tr state" (encodeArray encodeStateDeclV1 #[])
+  let trEmptyEvents ← expectOk "tr events" (encodeArray encodeEventDeclV1 #[])
+  let trEmptyErrors ← expectOk "tr errors" (encodeArray encodeErrorDeclV1 #[])
+  let trEmptyCallables ←
+    expectOk "tr callables" (encodeArray encodeCallableV1 #[])
+  let trEmptyInvariants ←
+    expectOk "tr inv" (encodeArray encodeInvariantDeclV1 #[])
+  let trEmptyConstants ←
+    expectOk "tr consts" (encodeArray encodeConstantV1 #[])
+  let trReqB ←
+    expectOk "tr reqs" (encodeProgramRequirementsV1 { items := #[] })
+  let trBody ← expectOk "tr body" (encodeTagged "SemanticProgram.Data" #[
+    trQnB, trTypesB, trEmptyConstants, trEmptyState, trEmptyEvents,
+    trEmptyErrors, trEmptyCallables, trEmptyInvariants, trReqB
+  ])
+  let trMagic := semanticProgramMagicV1.toUTF8.push 0
+  let trBytes := trMagic.append trBody
+  let trDecoded ← expectOk "tr transport accepts interleaved prefix"
+    (decodeSemanticProgramDataV1 trBytes)
+  expect (trDecoded.types == trTypes)
+    "tr interleaved TypeDecl table preserved on transport"
+  expectErr "tr structure rejects interleaved prefix" .nonCanonical
+    (validateSemanticProgramStructureV1 trDecoded)
+  expectErr "tr encode rejects interleaved prefix" .nonCanonical
+    (encodeSemanticProgramDataV1 trDecoded)
+  expectErr "tr carrier rejects interleaved prefix" .nonCanonical
+    (decodeSemanticProgramV1 trBytes)
 
 /-- SPEC-SEM-WIRE-001 §6 Constant names are exact-string unique within
     the constants table. Identifier grammar/NFC and other declaration tables
@@ -4328,22 +4574,61 @@ private def testCfgBlockParamTypeAndTerminatorTyping : IO Unit := do
     declared operand contract. Void/side-effecting ops with `result := none`
     are skipped (no result-type check this slice). All failures → `.badCfg`.
     Uses an 8-type fixture table:
-      typeId 0 = Bool, 1 = UInt8, 2 = UInt32, 3 = Option<UInt8>,
-      typeId 4 = Struct{a:UInt8, b:UInt8}, 5 = Enum{V(UInt8)},
-      typeId 6 = Map<UInt8,UInt8>, 7 = Bytes(4). -/
+      typeId 0 = Struct{a:UInt8, b:UInt8}, 1 = Enum{V(UInt8)},
+      typeId 2 = Bool, 3 = UInt8, 4 = UInt32, 5 = Option<UInt8>,
+      typeId 6 = Map<UInt8,UInt8>, 7 = Bytes(4). Named declarations occupy the
+      contiguous prefix (SPEC §5). -/
 
 private def cfgOpTypes : Array TypeDeclV1 :=
-  #[{ id := 0, name := none, shape := .bool },
-    { id := 1, name := none, shape := .uint 8 },
-    { id := 2, name := none, shape := .uint 32 },
-    { id := 3, name := none, shape := .option 1 },
-    { id := 4, name := some "S",
-       shape := .struct #[{ name := "a", typeId := 1 },
-                          { name := "b", typeId := 1 }] },
-    { id := 5, name := some "E",
-       shape := .enum #[{ name := "v", payloadTypes := #[1] }] },
-    { id := 6, name := none, shape := .map 1 1 },
+  #[{ id := 0, name := some "S",
+       shape := .struct #[{ name := "a", typeId := 3 },
+                          { name := "b", typeId := 3 }] },
+    { id := 1, name := some "E",
+       shape := .enum #[{ name := "v", payloadTypes := #[3] }] },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .uint 8 },
+    { id := 4, name := none, shape := .uint 32 },
+    { id := 5, name := none, shape := .option 3 },
+    { id := 6, name := none, shape := .map 3 3 },
     { id := 7, name := none, shape := .bytes 4 }]
+
+/-- `cfgOpTypes`-specific helpers. The named-prefix migration moved
+    Bool→typeId 2, UInt8→3, UInt32→4, Option→5, Struct→0, Enum→1 (Map/Bytes
+    unchanged). These mirror the shared `cfg*` helpers but use the migrated
+    `cfgOpTypes` typeIds so callers keep their original intent. -/
+private def cfgOpBoolDef (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 2 }
+
+private def cfgOpBoolLit (byte : UInt8) : SemanticOpV1 :=
+  .literal 2 (ByteArray.mk #[byte])
+
+private def cfgOpU8Def (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 3 }
+
+private def cfgOpU8Lit (byte : UInt8) : SemanticOpV1 :=
+  .literal 3 (ByteArray.mk #[byte])
+
+private def cfgOpU32Def (valueId : ValueIdV1) : ValueDefV1 :=
+  { valueId, typeId := 4 }
+
+private def cfgOpU32Lit (value : UInt32) : SemanticOpV1 :=
+  .literal 4 (leBytesFromNat value.toNat 4)
+
+/-- `cfgCallableResult` with the default resultTypeId fixed to `cfgOpTypes`
+    Bool (typeId 2). -/
+private def cfgOpCallableResult (blocks : Array BlockV1)
+    (resultTypeId : TypeIdV1 := 2) : CallableV1 :=
+  {
+    id := 0
+    kind := .pureFn
+    name := some "f"
+    params := #[]
+    result := { typeId := resultTypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks
+    loopBounds := #[]
+    invariantSteps := none
+  }
 
 /-- Program builder that also accepts logicalState (cfgOpTyping needs a State
     row for stateLoad). -/
@@ -6184,12 +6469,12 @@ private def cfgPureFn1 : CallableV1 :=
     id := 1
     kind := .pureFn
     name := some "g"
-    params := #[{ valueId := 0, name := "x", typeId := 1,
+    params := #[{ valueId := 0, name := "x", typeId := 3,
                   visibility := .public_ }]
-    result := { typeId := 1, visibility := .public_ }
+    result := { typeId := 3, visibility := .public_ }
     entryBlock := 0
     blocks := #[cfgBlockInstrs 0
-      #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1)]
+      #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1)]
       (.return_ (some 1))]
     loopBounds := #[]
     invariantSteps := none
@@ -6203,7 +6488,7 @@ private def cfgEntry0 : CallableV1 :=
     kind := .entry
     name := some "e"
     params := #[]
-    result := { typeId := 0, visibility := .public_ }
+    result := { typeId := 2, visibility := .public_ }
     entryBlock := 0
     blocks := #[cfgBlock 0 (.return_ none)]
     loopBounds := #[]
@@ -6213,60 +6498,60 @@ private def cfgEntry0 : CallableV1 :=
 private def testCfgOpTyping : IO Unit := do
   -- P1: literal result.typeId == op.typeId (UInt8 literal → result UInt8).
   let p1 ← programWithTypes "OpP1Lit" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P1 literal result==typeId" p1
   -- P2: constant load — result.typeId == data.constants[constantId].typeId.
-  --   constantId 0 has typeId 1 (UInt8); result ValueDef typeId 1.
+  --   constantId 0 has typeId 3 (UInt8); result ValueDef typeId 3.
   let p2 ← programWithTypes "OpP2Const" cfgOpTypes
-    #[constOf 0 "c" 1 (ByteArray.mk #[3])]
-    #[cfgCallableResult
+    #[constOf 0 "c" 3 (ByteArray.mk #[3])]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (.constant 0)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (.constant 0)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P2 constant load result==constant.typeId" p2
   -- P3: stateLoad — result.typeId == data.logicalState[stateId].typeId.
-  --   stateId 0 has typeId 1 (UInt8); result ValueDef typeId 1.
+  --   stateId 0 has typeId 3 (UInt8); result ValueDef typeId 3.
   let p3 ← programWithState "OpP3State" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (.stateLoad 0)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (.stateLoad 0)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P3 stateLoad result==state.typeId" p3
-  -- P4: construct Struct — constructorIndex 0, 2 UInt8 args, result==4.
+  -- P4: construct Struct — constructorIndex 0, 2 UInt8 args, result==0.
   --   Args are ValueIds 1 and 2 defined as UInt8 literals; result ValueId 3
-  --   has typeId 4 (the struct type). Operands 1/2 are UInt8 (typeId 1).
+  --   has typeId 0 (the struct type). Operands 1/2 are UInt8 (typeId 3).
   let p4 ← programWithTypes "OpP4ConstructStruct" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 3, typeId := 4 })
-               (.construct 4 0 #[1, 2]) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 3, typeId := 0 })
+               (.construct 0 0 #[1, 2]) ]
           (.return_ (some 3))
-      ] 4]
+      ] 0]
   expectCfgOk "P4 construct Struct 2 UInt8 args result==struct" p4
-  -- P5: fieldGet Struct — base is a constructed Struct at ValueId 1 (typeId 4);
-  --   fieldGet 1 1 → result ValueId 2 typeId 1 (fields[1].typeId == UInt8).
+  -- P5: fieldGet Struct — base is a constructed Struct at ValueId 1 (typeId 0);
+  --   fieldGet 1 1 → result ValueId 2 typeId 3 (fields[1].typeId == UInt8).
   let p5 ← programWithTypes "OpP5FieldGet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.fieldGet 1 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (.fieldGet 1 1) ]
           (.return_ (some 2))
-      ] 1]
+      ] 3]
   expectCfgOk "P5 fieldGet Struct fieldIndex 1 result==field.typeId" p5
   -- P6: indexGet Array — base Array<UInt8,2>, index UInt32, result==element.
-  --   Dedicated type table: typeId 0 Bool, 1 UInt8, 2 UInt32,
+  --   Dedicated anonymous type table: typeId 0 Bool, 1 UInt8, 2 UInt32,
   --   3 Array<UInt8, length 2>, 4 Option<UInt8>.
   let arrTypes : Array TypeDeclV1 :=
     #[{ id := 0, name := none, shape := .bool },
@@ -6288,80 +6573,80 @@ private def testCfgOpTyping : IO Unit := do
           (.return_ (some 3))
       ] 1]
   expectCfgOk "P6 indexGet Array UInt32 index result==element" p6
-  -- P7: unary not Bool → result Bool. Operand ValueId 1 (Bool, typeId 0);
-  --   result ValueId 2 typeId 0 (Bool).
+  -- P7: unary not Bool → result Bool. Operand ValueId 1 (Bool, typeId 2);
+  --   result ValueId 2 typeId 2 (Bool).
   let p7 ← programWithTypes "OpP7UnaryNot" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
-             cfgInstr (some (cfgValueDef 2)) (.unary .not 1) ]
+          #[ cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
+             cfgInstr (some (cfgOpBoolDef 2)) (.unary .not 1) ]
           (.return_ (some 2))
-      ] 0]
+      ] 2]
   expectCfgOk "P7 unary not Bool→Bool" p7
   -- P8: binary add UInt8+UInt8 → UInt8. Operands ValueId 1,2 (UInt8);
-  --   result ValueId 3 typeId 1 (UInt8).
+  --   result ValueId 3 typeId 3 (UInt8).
   let p8 ← programWithTypes "OpP8BinaryAdd" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .add 1 2) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some (cfgOpU8Def 3)) (.binary .add 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgOk "P8 binary add UInt8+UInt8→UInt8" p8
   -- P9: pureCall — callee pureFn (id 1), arg type matches param (UInt8),
   --   result==callee.result.typeId (UInt8). Callable 0 calls Callable 1.
   let p9 ← programWithTypes "OpP9PureCall" cfgOpTypes #[]
-    #[ cfgCallableResult
+    #[ cfgOpCallableResult
           #[ cfgBlockInstrs 0
-              #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
-                 cfgInstr (some (cfgUint8ValueDef 2)) (.pureCall 1 #[1]) ]
+              #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 5),
+                 cfgInstr (some (cfgOpU8Def 2)) (.pureCall 1 #[1]) ]
               (.return_ (some 2))
-          ] 1,
+          ] 3,
       cfgPureFn1 ]
   expectCfgOk "P9 pureCall pureFn arg matches result==callee.result" p9
   -- NEGATIVES (all .badCfg via structure+encode).
   -- N1: construct Struct wrong arg count (1 arg, expects 2).
   let n1 ← programWithTypes "OpN1ConstructArgCount" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 3, typeId := 4 })
-               (.construct 4 0 #[1]) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 3, typeId := 0 })
+               (.construct 0 0 #[1]) ]
           (.return_ (some 3))
-      ] 4]
+      ] 0]
   expectCfgErr "N1 construct wrong arg count" n1
   -- N2: construct Struct arg type mismatch (arg is Bool, field expects UInt8).
   let n2 ← programWithTypes "OpN2ConstructArgType" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 3, typeId := 4 })
-               (.construct 4 0 #[1, 2]) ]
+          #[ cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 3, typeId := 0 })
+               (.construct 0 0 #[1, 2]) ]
           (.return_ (some 3))
-      ] 4]
+      ] 0]
   expectCfgErr "N2 construct arg type mismatch" n2
-  -- N3: fieldGet on non-struct base (base type UInt8, typeId 1).
+  -- N3: fieldGet on non-struct base (base type UInt8, typeId 3).
   let n3 ← programWithTypes "OpN3FieldGetNonStruct" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.fieldGet 1 0) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (.fieldGet 1 0) ]
           (.return_ (some 2))
-      ] 1]
+      ] 3]
   expectCfgErr "N3 fieldGet on non-struct base" n3
   -- N4: fieldGet fieldIndex OOR (base Struct with 2 fields, fieldIndex 5).
   let n4 ← programWithTypes "OpN4FieldGetOOR" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.fieldGet 1 5) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (.fieldGet 1 5) ]
           (.return_ (some 2))
-      ] 1]
+      ] 3]
   expectCfgErr "N4 fieldGet fieldIndex OOR" n4
   -- N5: indexGet Array wrong index type (UInt8 not UInt32).
   let n5 ← programWithTypes "OpN5IndexGetArrayIdxType" arrTypes #[]
@@ -6378,78 +6663,78 @@ private def testCfgOpTyping : IO Unit := do
   expectCfgErr "N5 indexGet Array wrong index type" n5
   -- N6: indexGet Map result not Option<value>. Map<UInt8,UInt8> at typeId 6;
   --   base ValueId 1 typeId 6 (Map) built via construct empty Map
-  --   (constructorIndex 0, args #[]); index ValueId 2 (UInt8, typeId 1);
-  --   result ValueId 3 declared typeId 1 (UInt8) but the contract requires
-  --   the unique Option<value> TypeId (typeId 3 in cfgOpTypes). The declared
+  --   (constructorIndex 0, args #[]); index ValueId 2 (UInt8, typeId 3);
+  --   result ValueId 3 declared typeId 3 (UInt8) but the contract requires
+  --   the unique Option<value> TypeId (typeId 5 in cfgOpTypes). The declared
   --   result.typeId mismatch → .badCfg.
   let n6 ← programWithTypes "OpN6IndexGetMapResult" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some { valueId := 1, typeId := 6 })
                (.construct 6 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-            cfgInstr (some (cfgUint8ValueDef 3)) (.indexGet 1 2) ]
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+            cfgInstr (some (cfgOpU8Def 3)) (.indexGet 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgErr "N6 indexGet Map result not Option<value>" n6
   -- N7: unary neg on UInt8 (neg requires Int or Field).
   let n7 ← programWithTypes "OpN7UnaryNegUInt8" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.unary .neg 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (.unary .neg 1) ]
           (.return_ (some 2))
-      ] 1]
+      ] 3]
   expectCfgErr "N7 unary neg on UInt8" n7
   -- N8: binary add operand type mismatch (lhs UInt8, rhs Bool).
   let n8 ← programWithTypes "OpN8BinaryAddMismatch" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .add 1 2) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
+             cfgInstr (some (cfgOpU8Def 3)) (.binary .add 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgErr "N8 binary add operand type mismatch" n8
-  -- N9: binary eq result not Bool (declared result.typeId 1 = UInt8, must be Bool).
+  -- N9: binary eq result not Bool (declared result.typeId 3 = UInt8, must be Bool).
   let n9 ← programWithTypes "OpN9BinaryEqResult" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .eq 1 2) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some (cfgOpU8Def 3)) (.binary .eq 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgErr "N9 binary eq result not Bool" n9
-  -- N10: binary shift rhs not UInt32 (rhs is UInt8, typeId 1; shl rhs must be UInt32).
+  -- N10: binary shift rhs not UInt32 (rhs is UInt8, typeId 3; shl rhs must be UInt32).
   let n10 ← programWithTypes "OpN10BinaryShiftRhs" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .shl 1 2) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 3)) (.binary .shl 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgErr "N10 binary shift rhs not UInt32" n10
   -- N11: pureCall non-pureFn callee (callee id 0 is .entry).
   --   Two callables: id 0 entry (callee), id 1 pureFn that calls id 0.
   let n11 ← programWithTypes "OpN11PureCallNonPure" cfgOpTypes #[]
     #[ cfgEntry0,
-      { cfgCallableResult
+      { cfgOpCallableResult
         #[ cfgBlockInstrs 0
-            #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
-               cfgInstr (some (cfgUint8ValueDef 2)) (.pureCall 0 #[1]) ]
+            #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 5),
+               cfgInstr (some (cfgOpU8Def 2)) (.pureCall 0 #[1]) ]
             (.return_ (some 2))
-        ] 1 with id := 1 } ]
+        ] 3 with id := 1 } ]
   expectCfgErr "N11 pureCall non-pureFn callee" n11
   -- N12: pureCall arg type mismatch (callee param UInt8, arg is Bool).
   let n12 ← programWithTypes "OpN12PureCallArgType" cfgOpTypes #[]
-    #[ cfgCallableResult
+    #[ cfgOpCallableResult
           #[ cfgBlockInstrs 0
-              #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
-                 cfgInstr (some (cfgUint8ValueDef 2)) (.pureCall 1 #[1]) ]
+              #[ cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
+                 cfgInstr (some (cfgOpU8Def 2)) (.pureCall 1 #[1]) ]
               (.return_ (some 2))
-          ] 1,
+          ] 3,
       cfgPureFn1 ]
   expectCfgErr "N12 pureCall arg type mismatch" n12
 
@@ -6476,12 +6761,12 @@ private def cfgSingleComponentCalleeName : IO QualifiedName := do
   | .ok n => pure n
   | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
 
--- A fresh spurious-result ValueDef at `valueId` with typeId 1 (UInt8, in
+-- A fresh spurious-result ValueDef at `valueId` with typeId 3 (UInt8, in
 -- `cfgOpTypes` range) — registered as a def site by `collectValueTypeDefs`
 -- (step h range ok), not used anywhere (use-existence only requires
 -- uses→defs), so the ONLY step-j failure is the void-op result-presence.
 private def cfgSpuriousVoidResult (valueId : ValueIdV1) : ValueDefV1 :=
-  { valueId, typeId := 1 }
+  { valueId, typeId := 3 }
 
 private def testCfgVoidOpResultPresence : IO Unit := do
   let calleeName ← cfgCalleeName
@@ -6489,103 +6774,103 @@ private def testCfgVoidOpResultPresence : IO Unit := do
   -- P1: StateStore — ValueId 0 (UInt8 lit) exactly matches state type;
   --   state row present (stateId 0). result none, return none.
   let p1 ← programWithState "VoidP1StateStore" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
+          #[ cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
              cfgInstr none (.stateStore 0 0) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P1 stateStore result none" p1
   -- P2: Assert — condition ValueId 0 (Bool lit), assert_ 0 none #[] result none.
   let p2 ← programWithTypes "VoidP2Assert" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.assert_ 0 none #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P2 assert result none" p2
   -- P3: Emit — exact empty EventDecl, result none.
   let p3 ← programWithEvents "VoidP3Emit" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.emit 0 0 #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P3 emit result none" p3
   -- P4: ExternalCall — externalCall 0 calleeName #[] result none.
   let p4 ← programWithTypes "VoidP4ExternalCall" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.externalCall 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P4 externalCall result none" p4
   -- P5: Schedule — schedule 0 calleeName #[] result none.
   let p5 ← programWithTypes "VoidP5Schedule" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.schedule 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P5 schedule result none" p5
   -- NEGATIVES (spurious result := some _ on the void op; expectCfgErr .badCfg,
   --   dual path structure+encode). The spurious result ValueDef uses a fresh
-  --   ValueId 5 (not used elsewhere) with typeId 1 (UInt8, in range) so
+  --   ValueId 5 (not used elsewhere) with typeId 3 (UInt8, in range) so
   --   steps a–i all pass and ONLY step j void-op result-presence fails.
   -- N1: StateStore with spurious result some.
   let n1 ← programWithState "VoidN1StateStore" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
+          #[ cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
              cfgInstr (some (cfgSpuriousVoidResult 5)) (.stateStore 0 0) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N1 stateStore spurious result" n1
   -- N2: Assert with spurious result some.
   let n2 ← programWithTypes "VoidN2Assert" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr (some (cfgSpuriousVoidResult 5)) (.assert_ 0 none #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N2 assert spurious result" n2
   -- N3: Emit with valid empty EventDecl and spurious result some.
   let n3 ← programWithEvents "VoidN3Emit" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr (some (cfgSpuriousVoidResult 5)) (.emit 0 0 #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N3 emit spurious result" n3
   -- N4: ExternalCall with spurious result some.
   let n4 ← programWithTypes "VoidN4ExternalCall" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr (some (cfgSpuriousVoidResult 5))
                (.externalCall 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N4 externalCall spurious result" n4
   -- N5: Schedule with spurious result some.
   let n5 ← programWithTypes "VoidN5Schedule" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr (some (cfgSpuriousVoidResult 5))
                (.schedule 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N5 schedule spurious result" n5
 
 /-! ### step j extension: value-producing result presence (SPEC-SEM-WIRE-001
@@ -6613,52 +6898,52 @@ private def testCfgValueOpResultPresence : IO Unit := do
   -- P1: Literal with result present (typed family — exact typeId already
   --   covered by testCfgOpTyping P1; here re-pinned for the presence slice).
   let p1 ← programWithTypes "PresP1Lit" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P1 literal result present" p1
   -- P2: Constant with result present.
   let p2 ← programWithTypes "PresP2Const" cfgOpTypes
-    #[constOf 0 "c" 1 (ByteArray.mk #[3])]
-    #[cfgCallableResult
+    #[constOf 0 "c" 3 (ByteArray.mk #[3])]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (.constant 0)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (.constant 0)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P2 constant result present" p2
   -- P3: StateLoad with result present.
   let p3 ← programWithState "PresP3State" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (.stateLoad 0)]
+          #[cfgInstr (some (cfgOpU8Def 0)) (.stateLoad 0)]
           (.return_ (some 0))
-      ] 1]
+      ] 3]
   expectCfgOk "P3 stateLoad result present" p3
   -- P4: Construct (Struct) with result present.
   let p4 ← programWithTypes "PresP4Construct" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 3, typeId := 4 })
-               (.construct 4 0 #[1, 2]) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 3, typeId := 0 })
+               (.construct 0 0 #[1, 2]) ]
           (.return_ (some 3))
-      ] 4]
+      ] 0]
   expectCfgOk "P4 construct result present" p4
   -- P5: FieldGet with result present.
   let p5 ← programWithTypes "PresP5FieldGet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.fieldGet 1 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (.fieldGet 1 1) ]
           (.return_ (some 2))
-      ] 1]
+      ] 3]
   expectCfgOk "P5 fieldGet result present" p5
   -- P6: IndexGet (Array) with result present.
   let arrTypes : Array TypeDeclV1 :=
@@ -6681,122 +6966,122 @@ private def testCfgValueOpResultPresence : IO Unit := do
   expectCfgOk "P6 indexGet result present" p6
   -- P7: Unary (not Bool) with result present.
   let p7 ← programWithTypes "PresP7Unary" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
-             cfgInstr (some (cfgValueDef 2)) (.unary .not 1) ]
+          #[ cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
+             cfgInstr (some (cfgOpBoolDef 2)) (.unary .not 1) ]
           (.return_ (some 2))
-      ] 0]
+      ] 2]
   expectCfgOk "P7 unary result present" p7
   -- P8: Binary (add UInt8) with result present.
   let p8 ← programWithTypes "PresP8Binary" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr (some (cfgUint8ValueDef 3)) (.binary .add 1 2) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr (some (cfgOpU8Def 3)) (.binary .add 1 2) ]
           (.return_ (some 3))
-      ] 1]
+      ] 3]
   expectCfgOk "P8 binary result present" p8
   -- P9: PureCall with result present.
   let p9 ← programWithTypes "PresP9PureCall" cfgOpTypes #[]
-    #[ cfgCallableResult
+    #[ cfgOpCallableResult
           #[ cfgBlockInstrs 0
-              #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
-                 cfgInstr (some (cfgUint8ValueDef 2)) (.pureCall 1 #[1]) ]
+              #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 5),
+                 cfgInstr (some (cfgOpU8Def 2)) (.pureCall 1 #[1]) ]
               (.return_ (some 2))
-          ] 1,
+          ] 3,
       cfgPureFn1 ]
   expectCfgOk "P9 pureCall result present" p9
   -- P10: FieldSet (deferred family) with result present. base/value are
-  --   defined UInt8 literals; result ValueId 3 typeId 1 (in range). Input
-  --   typing is NOT checked this slice.
+  --   defined UInt8 literals; result ValueId 3 typeId 0 (Struct, in range).
+  --   Input typing is NOT checked this slice.
   --   NOTE: FieldSet now carries the full §5.1 contract (base must be a
   --   Struct, fieldIndex in range, type(value) == field.typeId, result.typeId
   --   == type(base)). P10 here re-pins presence with a valid Struct base so
   --   the full FieldSet typing test lives in testCfgFieldSetTyping.
   let p10 ← programWithTypes "PresP10FieldSet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
-             cfgInstr (some { valueId := 3, typeId := 4 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 0 })
                (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P10 fieldSet result present" p10
   -- P11: VariantTag with result present. NOTE: VariantTag now carries the
   --   full §5.1 contract (base must be Enum/Option, result.typeId == unique
   --   UInt32 TypeId). P11 here re-pins presence with a valid Enum base so
   --   the full VariantTag typing test lives in testCfgVariantTagTyping.
   let p11 ← programWithTypes "PresP11VariantTag" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 5 })
-               (.construct 5 0 #[10]),
-             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 1 })
+               (.construct 1 0 #[10]),
+             cfgInstr (some (cfgOpU32Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P11 variantTag result present" p11
   -- P12: VariantPayload result present with a valid Option-some base.
   let p12 ← programWithTypes "PresP12VariantPayload" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 3 })
-               (.construct 3 1 #[10]),
-             cfgInstr (some (cfgUint8ValueDef 2))
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 1 #[10]),
+             cfgInstr (some (cfgOpU8Def 2))
                (.variantPayload 1 1 0) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P12 variantPayload result present" p12
   -- P13: IndexSet result present with a valid Map<U8,U8> base and exact
   --   key/value types, so the exact static contract also passes.
   let p13 ← programWithTypes "PresP13IndexSet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some { valueId := 1, typeId := 6 })
                (.construct 6 0 #[]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 2),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 2),
              cfgInstr (some { valueId := 4, typeId := 6 })
                (.indexSet 1 2 3) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P13 indexSet result present" p13
   -- P14: CheckedCast with a valid UInt8→UInt8 exact contract and result.
   let p14 ← programWithTypes "PresP14CheckedCast" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 3) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P14 checkedCast result present" p14
   -- P15: ContextRead (deferred family) with result present. The key is a
-  --   valid SchemaId; result ValueId 1 typeId 1 (in range).
+  --   valid SchemaId; result ValueId 1 typeId 3 (UInt8, in range).
   let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
     | .ok k => pure k
     | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
   let p15 ← programWithTypes "PresP15ContextRead" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (.contextRead ctxKey) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (.contextRead ctxKey) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P15 contextRead result present" p15
   -- P16: Commit (deferred family) with result present.
   let p16 ← programWithTypes "PresP16Commit" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.commit 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (.commit 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P16 commit result present" p16
   -- NEGATIVES (result := none on each value-producing op; expectCfgErr
   --   .badCfg, structure+encode dual path). Each op's ValueId operands are
@@ -6806,51 +7091,51 @@ private def testCfgValueOpResultPresence : IO Unit := do
   --   and use-existence are unaffected by the missing result.
   -- N1: Literal with result none.
   let n1 ← programWithTypes "PresN1Lit" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[cfgInstr none (cfgUint8Lit 7)]
+          #[cfgInstr none (cfgOpU8Lit 7)]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N1 literal result none" n1
   -- N2: Constant with result none.
   let n2 ← programWithTypes "PresN2Const" cfgOpTypes
-    #[constOf 0 "c" 1 (ByteArray.mk #[3])]
-    #[cfgCallableResult
+    #[constOf 0 "c" 3 (ByteArray.mk #[3])]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[cfgInstr none (.constant 0)]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N2 constant result none" n2
   -- N3: StateLoad with result none.
   let n3 ← programWithState "PresN3State" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[cfgInstr none (.stateLoad 0)]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N3 stateLoad result none" n3
   -- N4: Construct with result none (operands defined first).
   let n4 ← programWithTypes "PresN4Construct" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
-             cfgInstr none (.construct 4 0 #[1, 2]) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
+             cfgInstr none (.construct 0 0 #[1, 2]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N4 construct result none" n4
   -- N5: FieldGet with result none (base defined first).
   let n5 ← programWithTypes "PresN5FieldGet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
              cfgInstr none (.fieldGet 1 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N5 fieldGet result none" n5
   -- N6: IndexGet with result none (base + index defined first).
   let n6 ← programWithTypes "PresN6IndexGet" arrTypes #[]
@@ -6867,113 +7152,113 @@ private def testCfgValueOpResultPresence : IO Unit := do
   expectCfgErr "N6 indexGet result none" n6
   -- N7: Unary with result none (operand defined first).
   let n7 ← programWithTypes "PresN7Unary" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
              cfgInstr none (.unary .not 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N7 unary result none" n7
   -- N8: Binary with result none (operands defined first).
   let n8 ← programWithTypes "PresN8Binary" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 2),
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 2),
              cfgInstr none (.binary .add 1 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N8 binary result none" n8
   -- N9: PureCall with result none (arg defined first).
   let n9 ← programWithTypes "PresN9PureCall" cfgOpTypes #[]
-    #[ cfgCallableResult
+    #[ cfgOpCallableResult
           #[ cfgBlockInstrs 0
-              #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 5),
+              #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 5),
                  cfgInstr none (.pureCall 1 #[1]) ]
               (.return_ none)
-          ] 0,
+          ] 2,
       cfgPureFn1 ]
   expectCfgErr "N9 pureCall result none" n9
   -- N10: FieldSet with result none (presence gate). Uses a valid Struct
-  --   base (ValueId 1, typeId 4) and a valid value (UInt8, field 0 type) so
+  --   base (ValueId 1, typeId 0) and a valid value (UInt8, field 0 type) so
   --   steps a–i and the FieldSet typing preconditions all pass and ONLY the
   --   missing result fails. Isolates the presence gate.
   let n10 ← programWithTypes "PresN10FieldSet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
              cfgInstr none (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N10 fieldSet result none" n10
   -- N11: VariantTag with result none. NOTE: VariantTag now carries the full
-  --   §5.1 contract; N11 uses a valid Enum base (ValueId 1, typeId 5) so
+  --   §5.1 contract; N11 uses a valid Enum base (ValueId 1, typeId 1) so
   --   steps a–i and the VariantTag typing preconditions all pass and ONLY
   --   the missing result fails. Isolates the presence gate.
   let n11 ← programWithTypes "PresN11VariantTag" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 5 })
-               (.construct 5 0 #[10]),
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 1 })
+               (.construct 1 0 #[10]),
              cfgInstr none (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N11 variantTag result none" n11
   -- N12: VariantPayload with a valid Option-some base but result none, so
   --   only the result-presence gate fails.
   let n12 ← programWithTypes "PresN12VariantPayload" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 3 })
-               (.construct 3 1 #[10]),
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 1 #[10]),
              cfgInstr none (.variantPayload 1 1 0) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N12 variantPayload result none" n12
   -- N13: valid Map<U8,U8> IndexSet with result none, so only the presence
   --   requirement fails.
   let n13 ← programWithTypes "PresN13IndexSet" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some { valueId := 1, typeId := 6 })
                (.construct 6 0 #[]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 2),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 2),
              cfgInstr none (.indexSet 1 2 3) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N13 indexSet result none" n13
   -- N14: CheckedCast with result none.
   let n14 ← programWithTypes "PresN14CheckedCast" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr none (.checkedCast 1 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr none (.checkedCast 1 3) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N14 checkedCast result none" n14
   -- N15: ContextRead with result none.
   let n15 ← programWithTypes "PresN15ContextRead" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr none (.contextRead ctxKey) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N15 contextRead result none" n15
   -- N16: Commit with result none.
   let n16 ← programWithTypes "PresN16Commit" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
              cfgInstr none (.commit 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N16 commit result none" n16
   -- REGRESSION: the void rule is unchanged — every void family with
   --   result := none remains accepted. (P1–P5 of testCfgVoidOpResultPresence
@@ -6981,46 +7266,46 @@ private def testCfgValueOpResultPresence : IO Unit := do
   --   as expectCfgOk; re-asserted here so the presence slice does not
   --   silently regress the void rule.)
   let r1 ← programWithState "PresRegStateStore" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 7),
+          #[ cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
              cfgInstr none (.stateStore 0 0) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "Reg stateStore result none still accepted" r1
   let r2 ← programWithTypes "PresRegAssert" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.assert_ 0 none #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "Reg assert result none still accepted" r2
   let r3 ← programWithEvents "PresRegEmit" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.emit 0 0 #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "Reg emit result none still accepted" r3
   let r4 ← programWithTypes "PresRegExternalCall" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.externalCall 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "Reg externalCall result none still accepted" r4
   let r5 ← programWithTypes "PresRegSchedule" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[ cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
              cfgInstr none (.schedule 0 calleeName #[]) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "Reg schedule result none still accepted" r5
 
 /-- testCfgFieldSetTyping: SPEC-SEM-WIRE-001 §5.1 Op.FieldSet exact contract.
@@ -7037,91 +7322,91 @@ private def testCfgFieldSetTyping : IO Unit := do
   --   ValueId 1 (typeId 4); value ValueId 2 (UInt8); result ValueId 3
   --   typeId 4 (== type(base)).
   let p1 ← programWithTypes "FSetP1FirstField" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
-             cfgInstr (some { valueId := 3, typeId := 4 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 0 })
                (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P1 fieldSet first field result==struct" p1
   -- P2: FieldSet on a later field (index 1). value ValueId 2 (UInt8); result
   --   ValueId 3 typeId 4 (== type(base)).
   let p2 ← programWithTypes "FSetP2LaterField" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7),
-             cfgInstr (some { valueId := 3, typeId := 4 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 7),
+             cfgInstr (some { valueId := 3, typeId := 0 })
                (.fieldSet 1 1 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P2 fieldSet later field result==struct" p2
   -- NEGATIVES (all .badCfg via structure+encode dual path; operands are
   --   otherwise valid SSA/dominance definitions so each negative isolates
   --   FieldSet typing).
   -- N1: non-Struct base. base is a UInt8 literal (typeId 1), not a Struct.
   let n1 ← programWithTypes "FSetN1NonStructBase" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
-             cfgInstr (some { valueId := 3, typeId := 1 })
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 3 })
                (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N1 fieldSet non-Struct base" n1
   -- N2: out-of-range fieldIndex. base Struct has 2 fields (indices 0,1);
   --   fieldIndex 2 is OOR. value is a valid UInt8; result typeId 4.
   let n2 ← programWithTypes "FSetN2OORFieldIndex" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
-             cfgInstr (some { valueId := 3, typeId := 4 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 0 })
                (.fieldSet 1 2 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N2 fieldSet out-of-range fieldIndex" n2
   -- N3: wrong value type. base Struct field 0 expects UInt8 (typeId 1) but
   --   value is Bool (typeId 0). result typeId 4 (== type(base)).
   let n3 ← programWithTypes "FSetN3WrongValueType" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
-             cfgInstr (some { valueId := 3, typeId := 4 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
+             cfgInstr (some { valueId := 3, typeId := 0 })
                (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N3 fieldSet wrong value type" n3
   -- N4: wrong result type. base Struct (typeId 4), field 0 expects UInt8,
   --   value UInt8, but result.typeId is 1 (UInt8) instead of 4 (struct).
   let n4 ← programWithTypes "FSetN4WrongResultType" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
-             cfgInstr (some { valueId := 1, typeId := 4 })
-               (.construct 4 0 #[10, 11]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 9),
-             cfgInstr (some { valueId := 3, typeId := 1 })
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10, 11]),
+             cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 9),
+             cfgInstr (some { valueId := 3, typeId := 3 })
                (.fieldSet 1 0 2) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N4 fieldSet wrong result type" n4
 
 /-- testCfgVariantTagTyping: SPEC-SEM-WIRE-001 §5.1 Op.VariantTag exact
@@ -7140,39 +7425,39 @@ private def testCfgVariantTagTyping : IO Unit := do
   --   with a UInt8 payload (ValueId 10) → ValueId 1 (typeId 5); VariantTag
   --   1 → result ValueId 2 typeId 2 (the unique UInt32 TypeId).
   let p1 ← programWithTypes "VTagP1Enum" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 5 })
-               (.construct 5 0 #[10]),
-             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 1 })
+               (.construct 1 0 #[10]),
+             cfgInstr (some (cfgOpU32Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P1 variantTag Enum base result==UInt32" p1
   -- P2: VariantTag on an Option-some base. Construct Option-some (typeId 3,
   --   ctorIdx 1) with a UInt8 (ValueId 10) → ValueId 1 (typeId 3);
   --   VariantTag 1 → result ValueId 2 typeId 2 (UInt32).
   let p2 ← programWithTypes "VTagP2OptionSome" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 3 })
-               (.construct 3 1 #[10]),
-             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 1 #[10]),
+             cfgInstr (some (cfgOpU32Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P2 variantTag Option-some base result==UInt32" p2
   -- P3: VariantTag on an Option-none base. Construct Option-none (typeId 3,
   --   ctorIdx 0, no args) → ValueId 1 (typeId 3); VariantTag 1 → result
   --   ValueId 2 typeId 2 (UInt32).
   let p3 ← programWithTypes "VTagP3OptionNone" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some { valueId := 1, typeId := 3 })
-               (.construct 3 0 #[]),
-             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some { valueId := 1, typeId := 5 })
+               (.construct 5 0 #[]),
+             cfgInstr (some (cfgOpU32Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgOk "P3 variantTag Option-none base result==UInt32" p3
   -- NEGATIVES (all .badCfg via structure+encode dual path; operands are
   --   otherwise valid SSA/dominance definitions so each negative isolates
@@ -7180,12 +7465,12 @@ private def testCfgVariantTagTyping : IO Unit := do
   -- N1: non-Enum/Option base (primitive). base is a UInt8 literal
   --   (typeId 1), not Enum/Option; result typeId 2 (UInt32, in range).
   let n1 ← programWithTypes "VTagN1PrimitiveBase" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-             cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+             cfgInstr (some (cfgOpU32Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 2]
   expectCfgErr "N1 variantTag non-Enum/Option base" n1
   -- N2: no UInt32 closure type. Custom type table without a UInt32 shape:
   --   typeId 0 = Bool, 1 = UInt8, 2 = Enum{v(UInt8)} (no UInt32). Construct
@@ -7193,51 +7478,52 @@ private def testCfgVariantTagTyping : IO Unit := do
   --   VariantTag 1 → result ValueId 2 typeId 0 (Bool, in range). The
   --   `uint32TypeId` helper returns none → `.badCfg`.
   let noU32Types : Array TypeDeclV1 :=
-    #[{ id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .uint 8 },
-      { id := 2, name := some "E",
-         shape := .enum #[{ name := "v", payloadTypes := #[1] }] }]
+    #[{ id := 0, name := some "E",
+         shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 8 }]
   let n2 ← programWithTypes "VTagN2NoUInt32Type" noU32Types #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 2 })
-               (.construct 2 0 #[10]),
-             cfgInstr (some (cfgValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some { valueId := 10, typeId := 2 })
+               (.literal 2 (ByteArray.mk #[1])),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10]),
+             cfgInstr (some { valueId := 2, typeId := 1 }) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 1]
   expectCfgErr "N2 variantTag no UInt32 closure type" n2
-  -- N3: wrong result type. base Enum (typeId 5), the unique UInt32 TypeId
-  --   is typeId 2, but result.typeId is 1 (UInt8) instead of 2.
+  -- N3: wrong result type. base Enum (typeId 1), the unique UInt32 TypeId
+  --   is typeId 4, but result.typeId is 3 (UInt8) instead of 4.
   let n3 ← programWithTypes "VTagN3WrongResultType" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 5 })
-               (.construct 5 0 #[10]),
-             cfgInstr (some (cfgUint8ValueDef 2)) (.variantTag 1) ]
+          #[ cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+             cfgInstr (some { valueId := 1, typeId := 3 })
+               (.construct 3 0 #[10]),
+             cfgInstr (some (cfgOpU8Def 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 4]
   expectCfgErr "N3 variantTag wrong result type" n3
   -- N4: duplicate UInt32 anonymous shape. The authoritative primitive
   --   TypeKey interning phase now rejects this as `.nonCanonical` before the
   --   later VariantTag contract attempts to resolve the unique UInt32 TypeId.
   let dupU32Types : Array TypeDeclV1 :=
-    #[{ id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .uint 8 },
-      { id := 2, name := none, shape := .uint 32 },
-      { id := 3, name := some "E",
-         shape := .enum #[{ name := "v", payloadTypes := #[1] }] },
+    #[{ id := 0, name := some "E",
+         shape := .enum #[{ name := "v", payloadTypes := #[2] }] },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 8 },
+      { id := 3, name := none, shape := .uint 32 },
       { id := 4, name := none, shape := .uint 32 }]
   let n4 ← programWithTypes "VTagN4DupUInt32Type" dupU32Types #[]
     #[cfgCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-             cfgInstr (some { valueId := 1, typeId := 3 })
-               (.construct 3 0 #[10]),
+             cfgInstr (some { valueId := 1, typeId := 0 })
+               (.construct 0 0 #[10]),
              cfgInstr (some (cfgUInt32ValueDef 2)) (.variantTag 1) ]
           (.return_ none)
-      ] 0]
+      ] 1]
   expectCfgErrCode "N4 variantTag duplicate UInt32 anonymous shape"
     .nonCanonical n4
 
@@ -7249,103 +7535,103 @@ private def testCfgVariantTagTyping : IO Unit := do
 private def testCfgVariantPayloadTyping : IO Unit := do
   -- P1: Enum variant 0 payload 0 is UInt8, so the result is UInt8.
   let p1 ← programWithTypes "VPayloadP1Enum" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 5 })
-              (.construct 5 0 #[10]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 1 })
+              (.construct 1 0 #[10]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 0 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 variantPayload Enum payload result" p1
   -- P2: Option-some `(1,0)` returns the Option element UInt8.
   let p2 ← programWithTypes "VPayloadP2Option" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 3 })
-              (.construct 3 1 #[10]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 1 #[10]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 1 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 variantPayload Option-some result" p2
   -- N1: primitive base is neither Enum nor Option.
   let n1 ← programWithTypes "VPayloadN1Primitive" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 0 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N1 variantPayload primitive base" n1
   -- N2: Enum variant index is out of range.
   let n2 ← programWithTypes "VPayloadN2VariantOor" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 5 })
-              (.construct 5 0 #[10]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 1 })
+              (.construct 1 0 #[10]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 1 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 variantPayload Enum variant OOR" n2
   -- N3: Enum payload index is out of range.
   let n3 ← programWithTypes "VPayloadN3PayloadOor" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 5 })
-              (.construct 5 0 #[10]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 1 })
+              (.construct 1 0 #[10]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 0 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 variantPayload Enum payload OOR" n3
   -- N4: Option-none variant 0 has no payload.
   let n4 ← programWithTypes "VPayloadN4OptionNone" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some { valueId := 1, typeId := 3 })
-              (.construct 3 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 0 #[]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 0 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 variantPayload Option-none" n4
   -- N5: Option-some permits payload index 0 only.
   let n5 ← programWithTypes "VPayloadN5OptionPayloadOor" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 3 })
-              (.construct 3 1 #[10]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 5 })
+              (.construct 5 1 #[10]),
+            cfgInstr (some (cfgOpU8Def 2))
               (.variantPayload 1 1 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N5 variantPayload Option payload OOR" n5
   -- N6: selected Enum payload is UInt8 but result is Bool.
   let n6 ← programWithTypes "VPayloadN6WrongResult" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some { valueId := 1, typeId := 5 })
-              (.construct 5 0 #[10]),
-            cfgInstr (some (cfgValueDef 2))
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some { valueId := 1, typeId := 1 })
+              (.construct 1 0 #[10]),
+            cfgInstr (some (cfgOpBoolDef 2))
               (.variantPayload 1 0 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N6 variantPayload wrong result type" n6
   -- N7: an empty Enum variant has no payload index 0.
   let emptyVariantTypes : Array TypeDeclV1 :=
-    #[{ id := 0, name := none, shape := .bool },
-      { id := 1, name := none, shape := .uint 8 },
-      { id := 2, name := some "E",
-         shape := .enum #[{ name := "Empty", payloadTypes := #[] }] }]
+    #[{ id := 0, name := some "E",
+         shape := .enum #[{ name := "Empty", payloadTypes := #[] }] },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 8 }]
   let n7 ← programWithTypes "VPayloadN7EmptyVariant" emptyVariantTypes #[]
     #[cfgCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some { valueId := 1, typeId := 2 })
-              (.construct 2 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2))
+          #[cfgInstr (some { valueId := 1, typeId := 0 })
+              (.construct 0 0 #[]),
+            cfgInstr (some { valueId := 2, typeId := 2 })
               (.variantPayload 1 0 0)]
-          (.return_ none)] 0]
+          (.return_ none)] 1]
   expectCfgErr "N7 variantPayload empty Enum variant" n7
 
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.IndexSet` static type/result contract for
@@ -7353,141 +7639,141 @@ private def testCfgVariantPayloadTyping : IO Unit := do
     these fixtures drive the real structure+encode gate. -/
 private def testCfgIndexSetTyping : IO Unit := do
   let indexSetTypes := cfgOpTypes.push
-    { id := 8, name := none, shape := .array 1 2 }
+    { id := 8, name := none, shape := .array 3 2 }
   -- P1: Array<U8,2>, UInt32 index, UInt8 value, Array result.
   let p1 ← programWithTypes "ISetP1Array" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
             cfgInstr (some { valueId := 1, typeId := 8 })
               (.construct 8 0 #[10, 11]),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 8 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 indexSet Array" p1
   -- P2: Bytes<4>, UInt32 index, UInt8 value, Bytes result.
   let p2 ← programWithTypes "ISetP2Bytes" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 7 })
               (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 7 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 indexSet Bytes" p2
   -- P3: Map<U8,U8>, exact key/value, Map result.
   let p3 ← programWithTypes "ISetP3Map" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 6 })
               (.construct 6 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 6 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P3 indexSet Map" p3
   -- N1: primitive base is not index-settable.
   let n1 ← programWithTypes "ISetN1Primitive" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
-            cfgInstr (some (cfgUint8ValueDef 4)) (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
+            cfgInstr (some (cfgOpU8Def 4)) (.indexSet 1 2 3)]
+          (.return_ none)] 2]
   expectCfgErr "N1 indexSet primitive base" n1
   -- N2: Array index must be UInt32, not Bool.
   let n2 ← programWithTypes "ISetN2ArrayIndex" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
             cfgInstr (some { valueId := 1, typeId := 8 })
               (.construct 8 0 #[10, 11]),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 8 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 indexSet Array wrong index" n2
   -- N3: Array value must equal element type.
   let n3 ← programWithTypes "ISetN3ArrayValue" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 10)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 11)) (cfgUint8Lit 2),
+          #[cfgInstr (some (cfgOpU8Def 10)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 11)) (cfgOpU8Lit 2),
             cfgInstr (some { valueId := 1, typeId := 8 })
               (.construct 8 0 #[10, 11]),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpBoolDef 3)) (cfgOpBoolLit 1),
             cfgInstr (some { valueId := 4, typeId := 8 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 indexSet Array wrong value" n3
   -- N4: Bytes index must be UInt32.
   let n4 ← programWithTypes "ISetN4BytesIndex" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 7 })
               (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 7 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 indexSet Bytes wrong index" n4
   -- N5: Bytes value must be UInt8.
   let n5 ← programWithTypes "ISetN5BytesValue" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 7 })
               (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpBoolDef 3)) (cfgOpBoolLit 1),
             cfgInstr (some { valueId := 4, typeId := 7 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N5 indexSet Bytes wrong value" n5
   -- N6: Map index must match key type.
   let n6 ← programWithTypes "ISetN6MapKey" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 6 })
               (.construct 6 0 #[]),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 6 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N6 indexSet Map wrong key" n6
   -- N7: Map value must match value type.
   let n7 ← programWithTypes "ISetN7MapValue" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 6 })
               (.construct 6 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgValueDef 3)) (cfgBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpBoolDef 3)) (cfgOpBoolLit 1),
             cfgInstr (some { valueId := 4, typeId := 6 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N7 indexSet Map wrong value" n7
   -- N8: result type must equal base type.
   let n8 ← programWithTypes "ISetN8WrongResult" indexSetTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 6 })
               (.construct 6 0 #[]),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 1),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
-            cfgInstr (some (cfgUint8ValueDef 4)) (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 1),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
+            cfgInstr (some (cfgOpU8Def 4)) (.indexSet 1 2 3)]
+          (.return_ none)] 2]
   expectCfgErr "N8 indexSet wrong result type" n8
   -- N9: duplicate anonymous UInt8 declarations are rejected by primitive
   --   TypeKey interning as `.nonCanonical` before the later Bytes IndexSet
@@ -7495,15 +7781,15 @@ private def testCfgIndexSetTyping : IO Unit := do
   let dupU8Types := cfgOpTypes.push
     { id := 8, name := none, shape := .uint 8 }
   let n9 ← programWithTypes "ISetN9DuplicateUInt8" dupU8Types #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 7 })
               (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (cfgUInt32Lit 0),
-            cfgInstr (some (cfgUint8ValueDef 3)) (cfgUint8Lit 9),
+            cfgInstr (some (cfgOpU32Def 2)) (cfgOpU32Lit 0),
+            cfgInstr (some (cfgOpU8Def 3)) (cfgOpU8Lit 9),
             cfgInstr (some { valueId := 4, typeId := 7 })
               (.indexSet 1 2 3)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErrCode "N9 indexSet duplicate UInt8 anonymous shape"
     .nonCanonical n9
 
@@ -7518,89 +7804,89 @@ private def testCfgCheckedCastTyping : IO Unit := do
     { id := 9, name := none, shape := .int 32 }
   -- P1: UInt8 -> UInt32.
   let p1 ← programWithTypes "CastP1UIntUInt" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgUInt32ValueDef 2)) (.checkedCast 1 2)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpU32Def 2)) (.checkedCast 1 4)]
+          (.return_ none)] 2]
   expectCfgOk "P1 checkedCast UInt to UInt" p1
   -- P2: UInt32 -> Int8.
   let p2 ← programWithTypes "CastP2UIntInt" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+          #[cfgInstr (some (cfgOpU32Def 1)) (cfgOpU32Lit 7),
             cfgInstr (some { valueId := 2, typeId := 8 })
               (.checkedCast 1 8)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 checkedCast UInt to Int" p2
   -- P3: Int8 -> UInt8.
   let p3 ← programWithTypes "CastP3IntUInt" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 8 })
               (.literal 8 (ByteArray.mk #[1])),
-            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
-          (.return_ none)] 0]
+            cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 3)]
+          (.return_ none)] 2]
   expectCfgOk "P3 checkedCast Int to UInt" p3
   -- P4: Int8 -> Int32.
   let p4 ← programWithTypes "CastP4IntInt" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 8 })
               (.literal 8 (ByteArray.mk #[0xff])),
             cfgInstr (some { valueId := 2, typeId := 9 })
               (.checkedCast 1 9)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P4 checkedCast Int to Int" p4
   -- N1: Bool is not a legal cast source.
   let n1 ← programWithTypes "CastN1BoolSource" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 3)]
+          (.return_ none)] 2]
   expectCfgErr "N1 checkedCast Bool source" n1
   -- N2: Bytes is not a legal cast source.
   let n2 ← programWithTypes "CastN2BytesSource" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some { valueId := 1, typeId := 7 })
               (.literal 7 (ByteArray.mk #[1, 2, 3, 4])),
-            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 1)]
-          (.return_ none)] 0]
+            cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 3)]
+          (.return_ none)] 2]
   expectCfgErr "N2 checkedCast Bytes source" n2
   -- N3: Bool is not a legal cast destination.
   let n3 ← programWithTypes "CastN3BoolDestination" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgValueDef 2)) (.checkedCast 1 0)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpBoolDef 2)) (.checkedCast 1 2)]
+          (.return_ none)] 2]
   expectCfgErr "N3 checkedCast Bool destination" n3
   -- N4: Bytes is not a legal cast destination.
   let n4 ← programWithTypes "CastN4BytesDestination" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr (some { valueId := 2, typeId := 7 })
               (.checkedCast 1 7)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 checkedCast Bytes destination" n4
   -- N5: result.typeId must exactly equal toType.
   let n5 ← programWithTypes "CastN5WrongResult" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 2)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 4)]
+          (.return_ none)] 2]
   expectCfgErr "N5 checkedCast wrong result type" n5
   -- N6: toType must resolve to an in-range UInt/Int declaration.
   let n6 ← programWithTypes "CastN6MissingDestination" castTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgUint8ValueDef 2)) (.checkedCast 1 99)]
-          (.return_ none)] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpU8Def 2)) (.checkedCast 1 99)]
+          (.return_ none)] 2]
   expectCfgErr "N6 checkedCast missing destination type" n6
 
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.StateStore` exact declaration/type contract.
@@ -7611,56 +7897,56 @@ private def testCfgCheckedCastTyping : IO Unit := do
 private def testCfgStateStoreTyping : IO Unit := do
   -- P1: UInt8 value exactly matches UInt8 state.
   let p1 ← programWithState "StoreP1UInt8" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr none (.stateStore 0 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 stateStore UInt8 exact" p1
   -- P2: Bool value exactly matches Bool state.
   let p2 ← programWithState "StoreP2Bool" cfgOpTypes #[]
-    #[stateRow 0 "flag" 0]
-    #[cfgCallableResult
+    #[stateRow 0 "flag" 2]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
             cfgInstr none (.stateStore 0 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 stateStore Bool exact" p2
   -- P3: stateId selects the second declaration, whose type is UInt32.
   let p3 ← programWithState "StoreP3SelectedState" cfgOpTypes #[]
-    #[stateRow 0 "flag" 0, stateRow 1 "count" 2]
-    #[cfgCallableResult
+    #[stateRow 0 "flag" 2, stateRow 1 "count" 4]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+          #[cfgInstr (some (cfgOpU32Def 1)) (cfgOpU32Lit 7),
             cfgInstr none (.stateStore 1 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P3 stateStore selected declaration" p3
   -- N1: stateId does not resolve in an empty logicalState table.
   let n1 ← programWithTypes "StoreN1MissingState" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr none (.stateStore 0 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N1 stateStore missing state" n1
   -- N2: Bool value does not match the selected UInt8 state.
   let n2 ← programWithState "StoreN2WrongValue" cfgOpTypes #[]
-    #[stateRow 0 "s" 1]
-    #[cfgCallableResult
+    #[stateRow 0 "s" 3]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
             cfgInstr none (.stateStore 0 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 stateStore wrong value type" n2
   -- N3: lookup must use the selected stateId rather than another row's type.
   let n3 ← programWithState "StoreN3WrongSelectedState" cfgOpTypes #[]
-    #[stateRow 0 "flag" 0, stateRow 1 "count" 2]
-    #[cfgCallableResult
+    #[stateRow 0 "flag" 2, stateRow 1 "count" 4]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 1),
             cfgInstr none (.stateStore 1 1)]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 stateStore selected type mismatch" n3
 
 /-- SPEC-SEM-WIRE-001 §5.1/§6 `Op.Assert` exact condition/error join.
@@ -7670,93 +7956,93 @@ private def testCfgStateStoreTyping : IO Unit := do
 private def testCfgAssertTyping : IO Unit := do
   -- P1: standard assertion failure form — Bool condition, no error, no args.
   let p1 ← programWithTypes "AssertP1Standard" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
             cfgInstr none (.assert_ 0 none #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 assert standard" p1
   -- P2: declared error with two positional args of exact field types.
   let p2 ← programWithErrors "AssertP2Declared" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 0),
             cfgInstr none (.assert_ 0 (some 0) #[1, 2])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 assert declared error args" p2
   -- P3: errorId selects the second declaration and its UInt32 field.
   let p3 ← programWithErrors "AssertP3SelectedError" cfgOpTypes
     #[errorRow 0 "Empty" #[],
-      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+      errorRow 1 "CountFailure" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU32Def 1)) (cfgOpU32Lit 7),
             cfgInstr none (.assert_ 0 (some 1) #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P3 assert selected error" p3
   -- N1: condition must be Bool, not UInt8.
   let n1 ← programWithTypes "AssertN1Condition" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 0)) (cfgUint8Lit 1),
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 1),
             cfgInstr none (.assert_ 0 none #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N1 assert non-Bool condition" n1
   -- N2: errorId none requires args empty.
   let n2 ← programWithTypes "AssertN2StandardArgs" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr none (.assert_ 0 none #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 assert standard args nonempty" n2
   -- N3: declared errorId must resolve.
   let n3 ← programWithTypes "AssertN3MissingError" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
             cfgInstr none (.assert_ 0 (some 0) #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 assert missing error" n3
   -- N4: declared error arg count must equal fields.size.
   let n4 ← programWithErrors "AssertN4Arity" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr none (.assert_ 0 (some 0) #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 assert error arg count" n4
   -- N5: declared error args must match field types positionally.
   let n5 ← programWithErrors "AssertN5ArgType" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 1),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 1),
             cfgInstr none (.assert_ 0 (some 0) #[1, 2])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N5 assert error arg type" n5
   -- N6: lookup must use the selected errorId rather than another row's shape.
   let n6 ← programWithErrors "AssertN6SelectedError" cfgOpTypes
-    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 0],
-      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 2],
+      errorRow 1 "CountFailure" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-            cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+          #[cfgInstr (some (cfgOpBoolDef 0)) (cfgOpBoolLit 1),
+            cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
             cfgInstr none (.assert_ 0 (some 1) #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N6 assert selected error arg type" n6
 
 /-- SPEC-SEM-WIRE-001 §6 `Term.Revert` exact ErrorDecl join. errorId must
@@ -7766,70 +8052,70 @@ private def testCfgRevertTyping : IO Unit := do
   -- P1: zero-field declared error with no args.
   let p1 ← programWithErrors "RevertP1Empty" cfgOpTypes
     #[errorRow 0 "Failure" #[]]
-    #[cfgCallableResult
-      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 0]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 2]
   expectCfgOk "P1 revert empty error" p1
   -- P2: two args match ErrorDecl fields in source order.
   let p2 ← programWithErrors "RevertP2Args" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0)]
-          (.revert 0 #[1, 2])] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 0)]
+          (.revert 0 #[1, 2])] 2]
   expectCfgOk "P2 revert declared args" p2
   -- P3: errorId selects the second declaration and its UInt32 field.
   let p3 ← programWithErrors "RevertP3Selected" cfgOpTypes
     #[errorRow 0 "Empty" #[],
-      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+      errorRow 1 "CountFailure" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7)]
-          (.revert 1 #[1])] 0]
+          #[cfgInstr (some (cfgOpU32Def 1)) (cfgOpU32Lit 7)]
+          (.revert 1 #[1])] 2]
   expectCfgOk "P3 revert selected error" p3
   -- N1: errorId must resolve.
   let n1 ← programWithTypes "RevertN1MissingError" cfgOpTypes #[]
-    #[cfgCallableResult
-      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 0]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0 #[] (.revert 0 #[])] 2]
   expectCfgErr "N1 revert missing error" n1
   -- N2: args count must equal fields.size.
   let n2 ← programWithErrors "RevertN2Arity" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7)]
-          (.revert 0 #[1])] 0]
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7)]
+          (.revert 0 #[1])] 2]
   expectCfgErr "N2 revert arg count" n2
   -- N3: args must match field types positionally.
   let n3 ← programWithErrors "RevertN3ArgType" cfgOpTypes
-    #[errorRow 0 "Failure" #[interfaceField "code" 1]]
-    #[cfgCallableResult
+    #[errorRow 0 "Failure" #[interfaceField "code" 3]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0)]
-          (.revert 0 #[1])] 0]
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0)]
+          (.revert 0 #[1])] 2]
   expectCfgErr "N3 revert arg type" n3
   -- N4: lookup must use selected errorId rather than another row's field type.
   let n4 ← programWithErrors "RevertN4Selected" cfgOpTypes
-    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 0],
-      errorRow 1 "CountFailure" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+    #[errorRow 0 "FlagFailure" #[interfaceField "flag" 2],
+      errorRow 1 "CountFailure" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0)]
-          (.revert 1 #[1])] 0]
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0)]
+          (.revert 1 #[1])] 2]
   expectCfgErr "N4 revert selected error arg type" n4
   -- N5 (review repair): distinct two-field types supplied in reverse order
   --   must fail, pinning source-order positional matching rather than a
   --   non-positional/multiset check.
   let n5 ← programWithErrors "RevertN5ReversedArgs" cfgOpTypes
     #[errorRow 0 "Failure"
-        #[interfaceField "code" 1, interfaceField "fatal" 0]]
-    #[cfgCallableResult
+        #[interfaceField "code" 3, interfaceField "fatal" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7)]
-          (.revert 0 #[1, 2])] 0]
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 7)]
+          (.revert 0 #[1, 2])] 2]
   expectCfgErr "N5 revert reversed positional args" n5
 
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.Emit` exact EventDecl join. eventId must
@@ -7839,78 +8125,78 @@ private def testCfgEmitTyping : IO Unit := do
   -- P1: zero-field event with no args.
   let p1 ← programWithEvents "EmitP1Empty" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 emit empty event" p1
   -- P2: two args match EventDecl fields in source order.
   let p2 ← programWithEvents "EmitP2Args" cfgOpTypes
     #[eventRow 0 "Tick"
-        #[interfaceField "count" 1, interfaceField "final" 0]]
-    #[cfgCallableResult
+        #[interfaceField "count" 3, interfaceField "final" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
-            cfgInstr (some (cfgValueDef 2)) (cfgBoolLit 0),
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpBoolDef 2)) (cfgOpBoolLit 0),
             cfgInstr none (.emit 0 0 #[1, 2])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 emit declared args" p2
   -- P3: eventId selects the second declaration and its UInt32 field.
   let p3 ← programWithEvents "EmitP3Selected" cfgOpTypes
     #[eventRow 0 "Ping" #[],
-      eventRow 1 "Count" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+      eventRow 1 "Count" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUInt32ValueDef 1)) (cfgUInt32Lit 7),
+          #[cfgInstr (some (cfgOpU32Def 1)) (cfgOpU32Lit 7),
             cfgInstr none (.emit 0 1 #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P3 emit selected event" p3
   -- N1: eventId must resolve.
   let n1 ← programWithTypes "EmitN1MissingEvent" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N1 emit missing event" n1
   -- N2: args count must equal fields.size.
   let n2 ← programWithEvents "EmitN2Arity" cfgOpTypes
     #[eventRow 0 "Tick"
-        #[interfaceField "count" 1, interfaceField "final" 0]]
-    #[cfgCallableResult
+        #[interfaceField "count" 3, interfaceField "final" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgUint8ValueDef 1)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7),
             cfgInstr none (.emit 0 0 #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 emit arg count" n2
   -- N3: args must match field types positionally.
   let n3 ← programWithEvents "EmitN3ArgType" cfgOpTypes
-    #[eventRow 0 "Tick" #[interfaceField "count" 1]]
-    #[cfgCallableResult
+    #[eventRow 0 "Tick" #[interfaceField "count" 3]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
             cfgInstr none (.emit 0 0 #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 emit arg type" n3
   -- N4: lookup must use selected eventId rather than another row's type.
   let n4 ← programWithEvents "EmitN4Selected" cfgOpTypes
-    #[eventRow 0 "Flag" #[interfaceField "flag" 0],
-      eventRow 1 "Count" #[interfaceField "count" 2]]
-    #[cfgCallableResult
+    #[eventRow 0 "Flag" #[interfaceField "flag" 2],
+      eventRow 1 "Count" #[interfaceField "count" 4]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
             cfgInstr none (.emit 0 1 #[1])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 emit selected event arg type" n4
   -- N5: distinct field types supplied in reverse order must fail.
   let n5 ← programWithEvents "EmitN5ReversedArgs" cfgOpTypes
     #[eventRow 0 "Tick"
-        #[interfaceField "count" 1, interfaceField "final" 0]]
-    #[cfgCallableResult
+        #[interfaceField "count" 3, interfaceField "final" 2]]
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
-          #[cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 0),
-            cfgInstr (some (cfgUint8ValueDef 2)) (cfgUint8Lit 7),
+          #[cfgInstr (some (cfgOpBoolDef 1)) (cfgOpBoolLit 0),
+            cfgInstr (some (cfgOpU8Def 2)) (cfgOpU8Lit 7),
             cfgInstr none (.emit 0 0 #[1, 2])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N5 emit reversed positional args" n5
 
 /-- SPEC-SEM-WIRE-001 §6 ExternalCall/Schedule callee shape: unlike the
@@ -7922,35 +8208,35 @@ private def testCfgExternalCalleeShape : IO Unit := do
   let single ← cfgSingleComponentCalleeName
   -- P1/P2: both effect families accept a two-component callee.
   let p1 ← programWithTypes "CalleeP1External" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 qualified #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 externalCall qualified callee" p1
   let p2 ← programWithTypes "CalleeP2Schedule" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 qualified #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 schedule qualified callee" p2
   -- P3: the lower bound is not an exact-two restriction.
   let three ← match parseQualifiedName #["org", "mod", "callee"] with
     | .ok n => pure n
     | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
   let p3 ← programWithTypes "CalleeP3Three" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 three #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P3 externalCall three-component callee" p3
   -- N1/N2: one component is valid for the common carrier but invalid for
   -- ExternalCall/Schedule. expectCfgErr checks structure and encode paths.
   let n1 ← programWithTypes "CalleeN1External" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0 #[cfgInstr none (.externalCall 0 single #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N1 externalCall single-component callee" n1
   let n2 ← programWithTypes "CalleeN2Schedule" cfgOpTypes #[]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 single #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 schedule single-component callee" n2
 
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
@@ -7961,23 +8247,23 @@ private def testCfgEffectIdOrder : IO Unit := do
   -- P1: all three effect families receive contiguous IDs in one block.
   let p1 ← programWithEvents "EffectP1Families" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[]),
             cfgInstr none (.externalCall 1 calleeName #[]),
             cfgInstr none (.schedule 2 calleeName #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P1 effectId all families" p1
   -- P2: numbering follows BlockId order across reachable blocks.
   let p2 ← programWithEvents "EffectP2Blocks" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[])]
           (.jump (cfgJumpTarget 1)),
         cfgBlockInstrs 1
           #[cfgInstr none (.schedule 1 calleeName #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgOk "P2 effectId across blocks" p2
   -- P3: EffectId numbering resets independently for each callable.
   let c0 := cfgCallableResult
@@ -7995,37 +8281,37 @@ private def testCfgEffectIdOrder : IO Unit := do
   -- N1: first effect ID must be zero.
   let n1 ← programWithEvents "EffectN1StartsAtOne" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
-      #[cfgBlockInstrs 0 #[cfgInstr none (.emit 1 0 #[])] (.return_ none)] 0]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0 #[cfgInstr none (.emit 1 0 #[])] (.return_ none)] 2]
   expectCfgErr "N1 effectId starts at one" n1
   -- N2: duplicate IDs across effect families are invalid.
   let n2 ← programWithEvents "EffectN2Duplicate" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[]),
             cfgInstr none (.externalCall 0 calleeName #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N2 effectId duplicate" n2
   -- N3: gaps are invalid even when IDs remain increasing.
   let n3 ← programWithEvents "EffectN3Gap" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[]),
             cfgInstr none (.schedule 2 calleeName #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N3 effectId gap" n3
   -- N4: later block cannot restart or reverse numbering.
   let n4 ← programWithEvents "EffectN4BlockOrder" cfgOpTypes
     #[eventRow 0 "Ping" #[]]
-    #[cfgCallableResult
+    #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr none (.emit 0 0 #[])]
           (.jump (cfgJumpTarget 1)),
         cfgBlockInstrs 1
           #[cfgInstr none (.schedule 0 calleeName #[])]
-          (.return_ none)] 0]
+          (.return_ none)] 2]
   expectCfgErr "N4 effectId block order" n4
 
 def run : IO Unit := do
@@ -8056,6 +8342,7 @@ def run : IO Unit := do
   testCallableNameUniqueness
   testCallableParameterNameUniqueness
   testNamedTypeNameUniqueness
+  testNamedTypePrefixRank
   testConstantNameUniqueness
   testLogicalStateNameUniqueness
   testEventNameUniqueness
