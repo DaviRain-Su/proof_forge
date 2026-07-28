@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+
+## 2026-07-28 — S2 exact requirements freeze + exact-attribution SemanticProvenanceV1 join (Counter / S1)
+
+- Context/State：formal TASK-D2-05/D2-06/TST-SEM-001 仍 pending，D1–D4 formal 仍 0/27 done。本切片在 S1 NormalizeV1 Counter 表面上闭合 exact requirements freeze 与 **span-bound** source-authority provenance join；不接线 product compile/CLI、不伪称 formal completion。
+- RED/Changed：authority 不再接受 caller `SourceNodeInventoryV1`；`testCounterRequirementsAndProvenance` 增加 coordinated path/span mutation 负向（保留 NodeId+sourceHash 时 low-level 可自洽，authority validate/digest 必拒；span-bound inventory exact 拒；权威 construction 仍绿）；保留 multi-site、delimiter、carrier-substitution、missing-site、foreign hash/module、requirements freeze。
+- Production：权威 API `NormalizeV1.validateSemanticProvenanceV1`/`semanticProvenanceDigestV1`/`normalizeProgramWithProvenanceV1` 仅消费 `ValidatedSourceV1`+`ProjectRelativePath`+spans，内部 `buildSourceNodeInventoryV1`；`buildSemanticProvenanceV1`/`rebuildSemanticProvenanceV1`/`validateSourceNodeInventoryExactV1`（NodeId-set only）/`Wire *JoinV1` 明确为 low-level；新增 `validateSourceNodeInventorySpanBoundExactV1` 比较每个 path/start/end/nodeId。
+- Verification：`lake build proof_forge_next_fast_tests` + fast harness 已通过（含 `Tests.Semantic.NormalizeV1: ok`、`Tests.Semantic.WireV1: ok`）；`just dev-check`、`just sbom-package-files-refresh`、`git diff --check`、`just docs-check` 与普通 `just ci` 均已执行并通过。既有唯一 warning 仍为 `AstSpineDecodeV1.lean` unused `termination_by`。HEAD 维持 baseline，尚未提交。
+- Boundary：formal 仍 pending；attribution 仅 S1 Counter surface；product 路径仍 alpha。
+
 ## 2026-07-28 — D2-06 canonical per-callable ValueId assignment (structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；formal D1–D4 仍为 0/27 done。本切片只闭合 SPEC §6 per-callable ValueId canonical allocation：callable parameters → 全部 block parameters（BlockId order）→ 全部 instruction results（BlockId/instruction order），每 callable 独立精确为 `0..n-1`；不接线 Typed/compile/CLI/product，不扩 provenance/normalizer/TypeKey，不伪称 formal TASK/TST/EV 完成。

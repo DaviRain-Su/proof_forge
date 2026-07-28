@@ -14,7 +14,8 @@ import Std.Data.HashMap
   Engineering limits for this slice:
   * Full nested encode/decode tables for records, TypeShape, Visibility,
     CallableKind, ops, terminators, entities, and requirement predicates.
-  * Root round-trip + SHA-256 hash + provenance **envelope-only** encode/decode.
+  * Root round-trip + SHA-256 hash + provenance envelope encode/decode with
+    complete fail-closed join validate (join-gated digest).
   * Nesting fuel: every tagged wire value shares `withTaggedNesting` (enter
     when `nesting < maxNesting` (=256), leave after body). Non-tagged scalars
     (u32/string/Digest/arrays of scalars) do not consume fuel. Current model
@@ -128,20 +129,24 @@ import Std.Data.HashMap
       structure-free identity check.
     - `validateSemanticProgramV1` / `semanticHashV1`: re-encode identity plus
       explicit structure gate (hash only after both succeed).
-  * Provenance engineering stub (not formal join):
+  * Provenance engineering subset (SPEC §6.1 fail-closed join for complete
+    carriers; S2 Counter path produces accepted provenance via NormalizeV1
+    authoritative APIs that rebuild from ValidatedSourceV1):
     - `encodeSemanticProvenanceV1` / `decodeSemanticProvenanceV1`: closed
       envelope transport + re-encode identity only.
-    - `semanticProvenanceDigestV1`: SHA-256 of envelope bytes after
-      encode/decode round-trip of that envelope. **Does not** run source/
-      NodeId inventory join and must not be read as formal provenance
-      acceptance.
-    - `validateSemanticProvenanceV1`: always `.badProvenance` in this slice
-      (join unimplemented).
+    - `validateSemanticProvenanceJoinV1` / `semanticProvenanceDigestJoinV1`:
+      **low-level caller-expected join helpers only** (not SPEC authority).
+      Caller supplies expectedSourceHash + expectedOriginMap; checks schema,
+      sourceModule prefix of sourceIdentity, qualifiedName, hash equality,
+      exact originMap equality, inventory membership, entity coverage.
+      Incomplete/foreign/wrong → `.badProvenance`. Production authority is
+      `NormalizeV1.validateSemanticProvenanceV1` (source+path+spans rebuild
+      inventory; never caller inventory; re-normalize + rebuild).
   * Not yet: recursive/full TypeKey closure beyond the enforced named-prefix
     rank, full anonymous ranking/reachability (the SPEC canonical unsigned-
     lexicographic anonymous TypeKey/ranking bytes), and usage
-    closure/missing/unreferenced rejection, provenance inventory
-    join, ProgramV1 normalizer, product
+    closure/missing/unreferenced rejection, full formal provenance
+    inventory construction from contained frontend, product
     CheckV1/compile/CLI wiring, op type contracts beyond
     the §5.1 value-producing subset. (Structural-class equality for anonymous
     `.array`/`.map`/`.option` and anonymous-container-cycle rejection (without
@@ -176,8 +181,7 @@ import Std.Data.HashMap
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
     TypeKey/ranking bytes), and usage
-    closure/missing/unreferenced rejection, provenance
-    inventory join, ProgramV1 normalizer, and product
+    closure/missing/unreferenced rejection, product
     wire remain out of scope pending later slices. The complete SPEC §5
     cycle condition is now closed by `recursiveAnonymous` + `namedBodyCycle`.)
 -/
@@ -5050,22 +5054,266 @@ def decodeSemanticProvenanceV1 (bytes : ByteArray) :
     return ← err .nonCanonical
   pure data
 
-/-- Envelope-only digest stub: SHA-256 of encode/decode-roundtripped envelope bytes.
-    **Not** formal provenance acceptance — does not run source/NodeId inventory join. -/
-def semanticProvenanceDigestV1 (p : SemanticProvenanceV1) :
-    Except SemanticWireErrorV1 Digest := do
+/-! ### Provenance complete join (SPEC §6.1 engineering subset) -/
+
+/-- Collect every semantic entity that must appear in a complete originMap. -/
+def collectProgramEntityRefsV1 (data : SemanticProgramDataV1) :
+    Array SemanticEntityRefV1 := Id.run do
+  let mut out : Array SemanticEntityRefV1 := #[]
+  for t in data.types do
+    out := out.push (.typeRef t.id)
+  for c in data.constants do
+    out := out.push (.constant c.id)
+  for s in data.logicalState do
+    out := out.push (.state s.id)
+  for e in data.events do
+    out := out.push (.event e.id)
+  for e in data.errors do
+    out := out.push (.errorRef e.id)
+  for c in data.callables do
+    out := out.push (.callable c.id)
+    for b in c.blocks do
+      out := out.push (.block c.id b.id)
+      let mut ii : Nat := 0
+      for _instr in b.instructions do
+        out := out.push (.instruction c.id b.id (UInt32.ofNat ii))
+        ii := ii + 1
+      out := out.push (.terminator c.id b.id)
+    -- ValueIds: callable params → all block params → all instruction results
+    for p in c.params do
+      out := out.push (.value c.id p.valueId)
+    for b in c.blocks do
+      for bp in b.params do
+        out := out.push (.value c.id bp.valueId)
+    for b in c.blocks do
+      for instr in b.instructions do
+        match instr.result with
+        | some vd => out := out.push (.value c.id vd.valueId)
+        | none => pure ()
+    -- EffectIds present on Emit/ExternalCall/Schedule
+    for b in c.blocks do
+      for instr in b.instructions do
+        match instr.op with
+        | .emit effectId _ _ => out := out.push (.effect c.id effectId)
+        | .externalCall effectId _ _ => out := out.push (.effect c.id effectId)
+        | .schedule effectId _ _ => out := out.push (.effect c.id effectId)
+        | _ => pure ()
+  for inv in data.invariants do
+    out := out.push (.invariant inv.id)
+  let mut ri : Nat := 0
+  for _req in data.requirements.items do
+    out := out.push (.requirement (UInt32.ofNat ri))
+    ri := ri + 1
+  pure out
+
+private def compareSourceOriginWire
+    (left right : SourceOrigin) : Except SemanticWireErrorV1 Ordering := do
+  let lB ← encodeSourceOrigin left
+  let rB ← encodeSourceOrigin right
+  pure (compareByteArrayLex lB rB)
+
+/-- O(1) inventory membership via wire-key HashMap (exact path/start/end/nodeId). -/
+private def buildOriginMemberSetV1
+    (inventory : SourceNodeInventoryV1) :
+    Except SemanticWireErrorV1 (Std.HashMap ByteArray Unit) := do
+  let mut m : Std.HashMap ByteArray Unit :=
+    Std.HashMap.emptyWithCapacity inventory.nodes.size
+  for n in inventory.nodes do
+    mapCommon (validateSourceOrigin n)
+    let kb ← encodeSourceOrigin n
+    m := m.insert kb ()
+  pure m
+
+/-- sourceModule components must be a (possibly equal) prefix of sourceIdentity.
+
+    Binds module identity into the join without importing Source AST into Wire.
+    Production callers pass Common.QualifiedName projections of ValidatedSourceV1
+    moduleName / programIdentity; incomplete transport tests may pass equal names.
+-/
+private def qualifiedNameIsPrefixV1
+    (modName full : QualifiedName) : Bool :=
+  let pc := modName.components.toArray
+  let fc := full.components.toArray
+  if pc.size > fc.size then
+    false
+  else
+    Id.run do
+      let mut i := 0
+      while i < pc.size do
+        match pc[i]?, fc[i]? with
+        | some a, some b =>
+            if a != b then return false
+        | _, _ => return false
+        i := i + 1
+      pure true
+
+/-- Exact originMap equality: same length, same entity+origins per index
+    (caller supplies originMaps already sorted by entity wire key). -/
+private def originMapsExactEqualV1
+    (left right : Array OriginBindingV1) : Bool :=
+  if left.size != right.size then
+    false
+  else
+    Id.run do
+      let mut i := 0
+      while i < left.size do
+        match left[i]?, right[i]? with
+        | some a, some b =>
+            if !(a.entity == b.entity) then return false
+            if a.origins.size != b.origins.size then return false
+            let mut j := 0
+            while j < a.origins.size do
+              match a.origins[j]?, b.origins[j]? with
+              | some oa, some ob =>
+                  if oa != ob then return false
+              | _, _ => return false
+              j := j + 1
+        | _, _ => return false
+        i := i + 1
+      pure true
+
+/-- Low-level join helper: accepts caller-supplied expectedSourceHash and
+    expectedOriginMap. **Not** the source-bound SPEC authority — that is
+    `NormalizeV1.validateSemanticProvenanceV1`, which recomputes both from
+    ValidatedSourceV1. Callers can self-certify with this helper; production
+    paths must not treat it as complete provenance acceptance. -/
+def validateSemanticProvenanceJoinV1
+    (sourceModule : QualifiedName)
+    (sourceIdentity : QualifiedName)
+    (expectedSourceHash : Digest)
+    (expectedOriginMap : Array OriginBindingV1)
+    (nodeInventory : SourceNodeInventoryV1)
+    (program : SemanticProgramV1)
+    (provenance : SemanticProvenanceV1) : Except SemanticWireErrorV1 Unit := do
+  -- schema exact
+  unless provenance.schema.value == semanticProvenanceSchemaIdV1 do
+    return ← err .badProvenance
+  mapCommon (validateSchemaId provenance.schema)
+  -- sourceModule binds module identity (prefix of sourceIdentity)
+  mapCommon (validateQualifiedName sourceModule)
+  mapCommon (validateQualifiedName sourceIdentity)
+  unless qualifiedNameIsPrefixV1 sourceModule sourceIdentity do
+    return ← err .badProvenance
+  -- program structure + data
+  let data ← match validateSemanticProgramV1 program with
+    | .ok d => pure d
+    | .error _ => return ← err .badProvenance
+  -- qualifiedName exact vs program and sourceIdentity
+  unless provenance.qualifiedName == data.qualifiedName do
+    return ← err .badProvenance
+  unless provenance.qualifiedName == sourceIdentity do
+    return ← err .badProvenance
+  -- digests well-formed
+  mapCommon (validateDigest provenance.sourceHash)
+  mapCommon (validateDigest provenance.semanticHash)
+  mapCommon (validateDigest nodeInventory.sourceHash)
+  mapCommon (validateDigest expectedSourceHash)
+  -- Authoritative sourceHash: expected (source snapshot) == provenance == inventory.
+  -- Mutually replaced foreign hashes that only agree with each other fail here.
+  unless provenance.sourceHash == expectedSourceHash do
+    return ← err .badProvenance
+  unless nodeInventory.sourceHash == expectedSourceHash do
+    return ← err .badProvenance
+  unless provenance.sourceHash == nodeInventory.sourceHash do
+    return ← err .badProvenance
+  -- semanticHash exact vs program
+  let expectedSem ← match semanticHashV1 program with
+    | .ok h => pure h
+    | .error _ => return ← err .badProvenance
+  unless provenance.semanticHash == expectedSem do
+    return ← err .badProvenance
+  -- Exact originMap vs caller-rebuilt attribution (not mere inventory membership).
+  unless originMapsExactEqualV1 provenance.originMap expectedOriginMap do
+    return ← err .badProvenance
+  -- originMap size limit already on encode; nonempty coverage enforced below
+  unless provenance.originMap.size ≤ maxOriginBindings do
+    return ← err .badProvenance
+  -- Expected entity set (exact coverage)
+  let expected := collectProgramEntityRefsV1 data
+  -- Build encode-keyed maps for expected entities
+  let mut expectedKeys : Array ByteArray := #[]
+  for e in expected do
+    let kb ← match encodeSemanticEntityRefV1 e with
+      | .ok b => pure b
+      | .error _ => return ← err .badProvenance
+    expectedKeys := expectedKeys.push kb
+  -- Sort expected keys for membership / uniqueness checks
+  let expectedSorted :=
+    expectedKeys.qsort fun a b => compareByteArrayLex a b == .lt
+  -- Detect duplicate expected keys (should not happen for well-formed programs)
+  if expectedSorted.size > 0 then
+    for i in [1:expectedSorted.size] do
+      if compareByteArrayLex expectedSorted[i - 1]! expectedSorted[i]! == .eq then
+        return ← err .badProvenance
+  -- Walk originMap: entity order unique ascending, exact set match
+  unless provenance.originMap.size == expected.size do
+    return ← err .badProvenance
+  let originMembers ← buildOriginMemberSetV1 nodeInventory
+  let mut prevEntityKey? : Option ByteArray := none
+  let mut seenKeys : Array ByteArray := #[]
+  for binding in provenance.originMap do
+    -- Requirement index range
+    match binding.entity with
+    | .requirement idx =>
+        unless idx.toNat < data.requirements.items.size do
+          return ← err .badProvenance
+    | _ => pure ()
+    let entityKey ← match encodeSemanticEntityRefV1 binding.entity with
+      | .ok b => pure b
+      | .error _ => return ← err .badProvenance
+    -- unique ascending by entity encode
+    match prevEntityKey? with
+    | none => pure ()
+    | some prev =>
+        match compareByteArrayLex prev entityKey with
+        | .lt => pure ()
+        | .eq | .gt => return ← err .badProvenance
+    prevEntityKey? := some entityKey
+    seenKeys := seenKeys.push entityKey
+    -- origins nonempty
+    if binding.origins.isEmpty then
+      return ← err .badProvenance
+    unless binding.origins.size ≤ maxOriginsPerBinding do
+      return ← err .badProvenance
+    -- origins unique ascending by common SourceOrigin wire key
+    let mut prevOrigin? : Option SourceOrigin := none
+    for origin in binding.origins do
+      mapCommon (validateSourceOrigin origin)
+      let originKey ← encodeSourceOrigin origin
+      unless originMembers.contains originKey do
+        return ← err .badProvenance
+      match prevOrigin? with
+      | none => pure ()
+      | some prev =>
+          let cmp ← compareSourceOriginWire prev origin
+          match cmp with
+          | .lt => pure ()
+          | .eq | .gt => return ← err .badProvenance
+      prevOrigin? := some origin
+  -- Exact set equality: seen keys (already ascending unique) == expected sorted
+  unless seenKeys.size == expectedSorted.size do
+    return ← err .badProvenance
+  for i in [:seenKeys.size] do
+    unless compareByteArrayLex seenKeys[i]! expectedSorted[i]! == .eq do
+      return ← err .badProvenance
+  pure ()
+
+/-- Low-level join-gated digest helper (see `validateSemanticProvenanceJoinV1`).
+    Not the source-bound SPEC authority; production uses
+    `NormalizeV1.semanticProvenanceDigestV1`. -/
+def semanticProvenanceDigestJoinV1
+    (sourceModule : QualifiedName)
+    (sourceIdentity : QualifiedName)
+    (expectedSourceHash : Digest)
+    (expectedOriginMap : Array OriginBindingV1)
+    (nodeInventory : SourceNodeInventoryV1)
+    (program : SemanticProgramV1)
+    (p : SemanticProvenanceV1) : Except SemanticWireErrorV1 Digest := do
+  validateSemanticProvenanceJoinV1
+    sourceModule sourceIdentity expectedSourceHash expectedOriginMap
+    nodeInventory program p
   let bytes ← encodeSemanticProvenanceV1 p
   let _ ← decodeSemanticProvenanceV1 bytes
   pure (sha256Bytes bytes)
-
-/-- Fail-closed join stub for this engineering slice. Always `.badProvenance`.
-    Full source/NodeId inventory join remains unimplemented (formal pending). -/
-def validateSemanticProvenanceV1
-    (_sourceModule : QualifiedName)
-    (_sourceIdentity : QualifiedName)
-    (_nodeInventory : SourceNodeInventoryV1)
-    (_program : SemanticProgramV1)
-    (_provenance : SemanticProvenanceV1) : Except SemanticWireErrorV1 Unit :=
-  err .badProvenance
 
 end ProofForgeV2.Semantic.WireV1

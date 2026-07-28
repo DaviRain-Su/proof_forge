@@ -9,7 +9,8 @@
   container-cycle rejection (without a named anchor), canonical valueBytes for Constant/Op.Literal/
   SwitchCase, requirements domain/order/
   predicates/enumContains), nesting fuel maxNesting=256, provenance
-  envelope-only stub + validate always badProvenance, Digest raw-32 wire,
+  envelope transport + incomplete/foreign join negatives (complete S2
+  positive join only in Normalize suite), Digest raw-32 wire,
   and invalid-carrier invariants projection.
   callable kind/name presence, CFG shape/reachability (including Switch
   nonempty/typed-value uniqueness), loop bounds, per-callable EffectId
@@ -130,7 +131,10 @@ private def v1_0_0 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
 private def emptyProvenance (name : String) : IO SemanticProvenanceV1 := do
-  let qn ← match parseQualifiedName #[name] with
+  -- Match minimalValidProgram / emptyProgram qualifiedName shape Tests.<name>
+  -- so incomplete-map / foreign-sourceHash negatives isolate join conditions
+  -- rather than failing first on qualifiedName mismatch.
+  let qn ← match parseQualifiedName #["Tests", name] with
     | .ok n => pure n
     | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
   let schema ← match parseSchemaId semanticProvenanceSchemaIdV1 with
@@ -329,22 +333,41 @@ private def testProvenanceEnvelope : IO Unit := do
   expect (decoded == p) "provenance structural equality"
   expect (decoded.schema.value == semanticProvenanceSchemaIdV1)
     "provenance schema field"
-  let dig ← expectOk "prov digest" (semanticProvenanceDigestV1 p)
-  expect (dig == sha256Bytes bytes)
-    "provenance digest is envelope-only SHA-256 (not formal join)"
+  -- Incomplete empty originMap fails the join-gated digest.
+  let data ← minimalValidProgram "EmptySem"
+  let progBytes ← expectOk "enc prog for dig" (encodeSemanticProgramDataV1 data)
+  let carrier ← expectOk "carrier for dig" (decodeSemanticProgramV1 progBytes)
+  let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
+  expectErr "prov digest requires complete join" .badProvenance
+    (semanticProvenanceDigestJoinV1
+      p.qualifiedName p.qualifiedName zeroDigest #[] inv carrier p)
   let badMagic := ("pf.wrong-provenance.v1".toUTF8.push 0).append
     (bytes.extract (semanticProvenanceMagicV1.toUTF8.size + 1) bytes.size)
   expectErr "prov wrong magic" .badMagic (decodeSemanticProvenanceV1 badMagic)
 
-private def testProvenanceValidateAlwaysBad : IO Unit := do
+private def testProvenanceValidateIncompleteBad : IO Unit := do
+  -- Empty originMap on an otherwise minimal program is incomplete → .badProvenance.
   let p ← emptyProvenance "EmptySem"
   let data ← minimalValidProgram "EmptySem"
   let bytes ← expectOk "enc prog" (encodeSemanticProgramDataV1 data)
   let carrier ← expectOk "carrier" (decodeSemanticProgramV1 bytes)
   let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
-  expectErr "validate provenance always bad" .badProvenance
-    (validateSemanticProvenanceV1
-      p.qualifiedName p.qualifiedName inv carrier p)
+  expectErr "validate provenance incomplete empty map" .badProvenance
+    (validateSemanticProvenanceJoinV1
+      p.qualifiedName p.qualifiedName zeroDigest #[] inv carrier p)
+  -- Foreign sourceHash still bad even with empty map (expected hash is true zero).
+  let pForeign := { p with sourceHash := oneDigest }
+  expectErr "validate provenance foreign sourceHash" .badProvenance
+    (validateSemanticProvenanceJoinV1
+      pForeign.qualifiedName pForeign.qualifiedName zeroDigest #[] inv carrier pForeign)
+  -- Mutually replaced foreign inventory+provenance hashes still fail when
+  -- expectedSourceHash is the authoritative snapshot hash.
+  let invForeign : SourceNodeInventoryV1 := { sourceHash := oneDigest, nodes := #[] }
+  let pBothForeign := { p with sourceHash := oneDigest }
+  expectErr "validate mutually foreign hashes vs expected" .badProvenance
+    (validateSemanticProvenanceJoinV1
+      pBothForeign.qualifiedName pBothForeign.qualifiedName
+      zeroDigest #[] invForeign carrier pBothForeign)
 
 private def testDigestWireRaw32 : IO Unit := do
   -- DigestEquals predicate encodes Digest as 32 raw bytes (no sha256: prefix).
@@ -1292,17 +1315,19 @@ private def testValueBytesTransportRegression : IO Unit := do
     (validateSemanticProgramStructureV1 decoded)
   expectErr "encode rejects garbage valueBytes" .nonCanonical
     (encodeSemanticProgramDataV1 decoded)
-  -- Minimal structurally valid program still green; provenance still always
-  -- bad. (Zero-callable `emptyProgram` is no longer structurally valid under
-  -- the SPEC §6 entry/view presence gate.)
+  -- Minimal structurally valid program still green; incomplete provenance
+  -- (empty originMap) still fails the complete join. (Zero-callable
+  -- `emptyProgram` is no longer structurally valid under the SPEC §6
+  -- entry/view presence gate.)
   let empty ← minimalValidProgram "VBEmptyStill"
   expectValueOk "minimal still" empty
   let p ← emptyProvenance "VBEmptyStill"
   let inv : SourceNodeInventoryV1 := { sourceHash := zeroDigest, nodes := #[] }
   let enc ← expectOk "enc minimal" (encodeSemanticProgramDataV1 empty)
   let carrier ← expectOk "carrier minimal" (decodeSemanticProgramV1 enc)
-  expectErr "provenance still bad" .badProvenance
-    (validateSemanticProvenanceV1 p.qualifiedName p.qualifiedName inv carrier p)
+  expectErr "provenance incomplete still bad" .badProvenance
+    (validateSemanticProvenanceJoinV1
+      p.qualifiedName p.qualifiedName zeroDigest #[] inv carrier p)
 
 /-! ### CFG shape + reachability + block-param arity + loopBounds (D2-06 CFG layers)
 
@@ -9506,7 +9531,7 @@ def run : IO Unit := do
   testProgramQualifiedNameShape
   testSemanticHash
   testProvenanceEnvelope
-  testProvenanceValidateAlwaysBad
+  testProvenanceValidateIncompleteBad
   testDigestWireRaw32
   testInvariantsProjectionInvalid
   testMinimalNestedTypeRoundtrip

@@ -15,6 +15,13 @@
     * source text → Loader V1 → Typed.CheckV1.ok → NormalizeV1 →
       WireV1 validate / decodeSemanticProgramV1 byte identity / semanticHashV1
     * Counter-like public UInt64 state + init/entry/view with exact CFG ops
+    * S2 exact ProgramRequirementsV1 freeze (SPEC wire order; engineering
+      digests; empty predicates) before encode/hash
+    * S2 complete SemanticProvenanceV1 companion: authority is
+      NormalizeV1.normalizeProgramWithProvenanceV1 / validateSemanticProvenanceV1 /
+      semanticProvenanceDigestV1 over source+path+spans only (rebuild inventory
+      internally; no caller inventory); exact path attribution; coordinated
+      path/span mutation rejected; Wire/Provenance build helpers low-level only
     * state-after-init positive; param-shadow assign negative
     * repeated normalization deterministic (canonicalBytes + semanticHash)
     * typed-not-ok and unsupported ProgramV1 shapes fail closed (no carrier)

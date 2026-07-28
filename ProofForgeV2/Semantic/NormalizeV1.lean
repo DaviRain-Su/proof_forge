@@ -10,25 +10,29 @@
       encodeSemanticProgramDataV1 (authoritative path; no alpha Semantic.Program
       or Typed.Program bridge)
 
-  Supported S1 surface (everything else fails closed at this boundary):
+  Supported S1/S2 surface (everything else fails closed at this boundary):
     * declarations: public primitive state (UInt64 only), init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none)
     * expressions: bare place (param or state name) and binary add only
     * types: anonymous UInt64 + Unit (init result); one TypeId per distinct shape
     * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
-      invariantSteps=none; empty constants/events/errors/invariants/requirements
+      invariantSteps=none; empty constants/events/errors/invariants
+    * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
+      before encode/hash; companion provenance only via
+      `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
+      public authority validate/digest never accept caller inventory)
 
   Out of scope for this slice:
-    * exact RequirementsV1 merge (emits empty ProgramRequirementsV1.items)
-    * SemanticProvenanceV1 join
     * product compileValidatedSourceV1 / CLI cutover
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target changes
-    * formal TASK-D2-06 / TST-SEM-001 completion
+    * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Semantic.ProvenanceV1
+import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -39,13 +43,17 @@ import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.QualifiedNameV1
+import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Typed.CheckV1
 
 namespace ProofForgeV2.Semantic.NormalizeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticV1
+open ProofForgeV2.Semantic.ProvenanceV1
+open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -53,7 +61,9 @@ open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
+open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Source.WireV1
 open ProofForgeV2.Typed.CheckV1
 
 -- Source AST namespaces kept selective/qualified to avoid Wire name clashes
@@ -437,6 +447,10 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | .proof _ =>
         return ← failUnsupported "S1 normalizer does not support proof"
 
+  -- S2: freeze exact ProgramRequirementsV1 before encode/hash.
+  let requirements ← match freezeProgramRequirementsV1 program with
+    | .ok r => pure r
+    | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
   pure {
     qualifiedName := qn
     types := interner.types
@@ -446,7 +460,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     errors := #[]
     callables := callables
     invariants := #[]
-    requirements := { items := #[] }
+    requirements
   }
 
 /-- Structure-gated encode is the sole path to a SemanticProgramV1 carrier. -/
@@ -456,10 +470,12 @@ def encodeCarrierV1 (data : SemanticProgramDataV1) :
   | .ok bytes => pure ⟨bytes⟩
   | .error e => .error (.wire e)
 
-/-- Public S1 normalizer entry: CheckV1 gate → direct ProgramV1 lower → Wire encode.
+/-- Public S1/S2 normalizer entry: CheckV1 gate → direct ProgramV1 lower →
+    S2 requirements freeze → Wire encode.
 
   S1 lowering walks `source.program.items` directly after the CheckV1 gate
-  (no separate NameResolution re-walk; CheckV1 already resolved).
+  (no separate NameResolution re-walk; CheckV1 already resolved). Requirements
+  are frozen into SemanticProgramDataV1 before the sole structure-gated encode.
 -/
 def normalizeProgramV1 (source : ValidatedSourceV1) :
     Except NormalizeErrorV1 SemanticProgramV1 := do
@@ -468,5 +484,103 @@ def normalizeProgramV1 (source : ValidatedSourceV1) :
     return ← .error (.typedNotOk typed.diagnostics)
   let data ← lowerProgramDataV1 source
   encodeCarrierV1 data
+
+private def mapProvenanceError (e : ProvenanceBuildErrorV1) :
+    NormalizeErrorV1 :=
+  match e with
+  | .identity d => .identity d
+  | .inventory d => .unsupported s!"provenance inventory: {d}"
+  | .unsupported d => .unsupported d
+  | .wire w => .wire w
+
+/-- Internally rebuild production inventory from immutable frontend inputs.
+
+    Authority never accepts a caller-supplied `SourceNodeInventoryV1`.
+-/
+private def rebuildTrustedInventoryV1
+    (source : ValidatedSourceV1)
+    (sourcePath : ProjectRelativePath)
+    (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1)) :
+    Except NormalizeErrorV1 SourceNodeInventoryV1 :=
+  match buildSourceNodeInventoryV1 source sourcePath spans with
+  | .ok inv => pure inv
+  | .error e => .error (mapProvenanceError e)
+
+/-- Source-bound authoritative provenance validation (SPEC §6.1 engineering).
+
+    Consumes only trusted immutable inputs:
+      * `ValidatedSourceV1` (module + identity + ProgramV1)
+      * production `ProjectRelativePath`
+      * production span table from the same frontend snapshot
+
+    Never accepts a caller-supplied `SourceNodeInventoryV1`. Internally:
+      1. `buildSourceNodeInventoryV1 source sourcePath spans`
+      2. `normalizeProgramV1 source` and require exact carrier byte identity
+      3. rebuild expected provenance from that trusted inventory and require
+         exact equality with the supplied companion
+
+    Coordinated inventory path/span substitution that preserves NodeId set
+    cannot self-certify: authority rebuilds path/start/end/nodeId from spans.
+    Low-level `buildSemanticProvenanceV1` / Wire `*JoinV1` remain
+    caller-trusted helpers only.
+-/
+def validateSemanticProvenanceV1
+    (source : ValidatedSourceV1)
+    (sourcePath : ProjectRelativePath)
+    (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))
+    (program : SemanticProgramV1)
+    (provenance : SemanticProvenanceV1) :
+    Except NormalizeErrorV1 Unit := do
+  let trustedInventory ← rebuildTrustedInventoryV1 source sourcePath spans
+  let expectedCarrier ← normalizeProgramV1 source
+  unless expectedCarrier.canonicalBytes == program.canonicalBytes do
+    return ← failIdentity
+      "semantic carrier does not match normalizeProgramV1 of source snapshot"
+  match rebuildSemanticProvenanceV1 source program trustedInventory with
+  | .error e => return ← .error (mapProvenanceError e)
+  | .ok expected =>
+      unless provenance == expected do
+        return ← failIdentity
+          "provenance does not exactly match rebuilt attribution for source snapshot"
+      pure ()
+
+/-- Source-bound authoritative provenance digest: validate then SHA-256 envelope.
+
+    Same trusted inputs as `validateSemanticProvenanceV1` (no caller inventory).
+-/
+def semanticProvenanceDigestV1
+    (source : ValidatedSourceV1)
+    (sourcePath : ProjectRelativePath)
+    (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))
+    (program : SemanticProgramV1)
+    (p : SemanticProvenanceV1) :
+    Except NormalizeErrorV1 Digest := do
+  validateSemanticProvenanceV1 source sourcePath spans program p
+  match encodeSemanticProvenanceV1 p with
+  | .error e => .error (.wire e)
+  | .ok bytes =>
+      match decodeSemanticProvenanceV1 bytes with
+      | .error e => .error (.wire e)
+      | .ok _ => pure (sha256Bytes bytes)
+
+/-- Sole authoritative construction path for S2 Counter carrier + provenance.
+
+    Builds inventory internally from `source + sourcePath + spans`, normalizes,
+    builds provenance, and runs public authority validation. Does not accept a
+    caller inventory. Transient inventory can be rebuilt from the same immutable
+    inputs via `buildSourceNodeInventoryV1` when tests need it.
+-/
+def normalizeProgramWithProvenanceV1
+    (source : ValidatedSourceV1)
+    (sourcePath : ProjectRelativePath)
+    (spans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1)) :
+    Except NormalizeErrorV1 (SemanticProgramV1 × SemanticProvenanceV1) := do
+  let trustedInventory ← rebuildTrustedInventoryV1 source sourcePath spans
+  let carrier ← normalizeProgramV1 source
+  let provenance ← match buildSemanticProvenanceV1 source carrier trustedInventory with
+    | .ok p => pure p
+    | .error e => return ← .error (mapProvenanceError e)
+  validateSemanticProvenanceV1 source sourcePath spans carrier provenance
+  pure (carrier, provenance)
 
 end ProofForgeV2.Semantic.NormalizeV1
