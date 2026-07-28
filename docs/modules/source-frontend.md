@@ -91,8 +91,11 @@ negotiation、unknown/disabled/nonunique default。**`languageVersion` 永不进
 `SourceOrigin` 保持非空 `NodeId`。**B6** 结构化 carrier 已存在；**B7a** 已退役 zero-sentinel
 （parser/duplicate → `nodeId: null`），并提供 Source `DiagnosticLocateV1`（path draft →
 inventory exact lookup → `nodeId=some`）与 `NodeTraversalV1.childPathV1` sole path helpers。
-**B7b** Typed producers 真实路径归因与 **B8** public multi-error bundle 仍 pending；不得把
-B7a 写成 formal 完成或 Typed locate API 已接线。
+**B7b1–B7b3d** 工程已完成：Typed 各 producer 产出 canonical primary/related path drafts，且
+`CheckV1` 提供 additive、`sourceHash`-gated located API（`checkProgramTypedLocated*`）；
+不得把该工程 API 写成 public compiler/CLI multi-error 产品接线。**B8** public compiler/CLI
+`DiagnosticBundle` 仍 pending。不得把 B7a/B7b 写成 formal D1/D2 完成、release 完成或
+contained frontend 完成；formal 与 release 仍 unassessed/pending。
 
 ## 边界与验收
 
