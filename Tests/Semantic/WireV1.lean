@@ -5195,6 +5195,154 @@ private def testInvariantClosurePureFnEmitProhibited : IO Unit := do
   expectCfgInvariantPhase "N5 Emit closure before requirements"
     .invariantClosure .badCfg n5
 
+/-- SPEC §8 forbids synchronous external calls in pureFn callables that belong
+    to an invariant closure. An unreachable pureFn remains outside this
+    closure-only restriction. Generic void-result, EffectId, callee-shape, and
+    SSA validation runs before the post-CFG closure gate; argument
+    serializability remains deferred. -/
+private def testInvariantClosurePureFnExternalCallProhibited : IO Unit := do
+  let callee ← match parseQualifiedName #["mod", "callee"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let shortCallee ← match parseQualifiedName #["callee"] with
+    | .ok name => pure name
+    | .error e => throw <| IO.userError s!"parseQualifiedName: {e}"
+  let caller : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr none (.externalCall 0 callee #[]),
+        cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+      (.return_ (some 0))]) with
+      id := 0
+      name := some "caller"
+      invariantSteps := some 4
+  }
+  let root : CallableV1 := {
+    (cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some (cfgValueDef 0)) (.pureCall 0 #[])]
+      (.return_ (some 0))]) with
+      id := 1
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 7
+  }
+  let literalRoot : CallableV1 := {
+    root with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+      invariantSteps := some 3
+  }
+  let p1Base ← programWithTypes "InvClosureCallP1Unreachable" cfgBoolTypes #[]
+    #[{ caller with invariantSteps := none }, literalRoot]
+  let p1 : SemanticProgramDataV1 := {
+    p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgOk "P1 unreachable pureFn ExternalCall outside invariant closure" p1
+  let n1Base ← programWithTypes "InvClosureCallN1Reachable" cfgBoolTypes #[]
+    #[caller, root]
+  let n1 : SemanticProgramDataV1 := {
+    n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErr "N1 reachable pureFn ExternalCall" n1
+  expectCfgInvariantPhase "N1 pureFn ExternalCall closure phase"
+    .invariantClosure .badCfg n1
+  let middle : CallableV1 := {
+    root with
+      id := 1
+      kind := .pureFn
+      name := some "middle"
+      invariantSteps := some 7
+  }
+  let transitiveRoot : CallableV1 := {
+    root with
+      id := 2
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
+        (.return_ (some 0))]
+      invariantSteps := some 10
+  }
+  let n2Base ← programWithTypes "InvClosureCallN2Transitive" cfgBoolTypes #[]
+    #[caller, middle, transitiveRoot]
+  let n2 : SemanticProgramDataV1 := {
+    n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
+  }
+  expectCfgErr "N2 transitive closure pureFn ExternalCall" n2
+  expectCfgInvariantPhase "N2 transitive ExternalCall closure phase"
+    .invariantClosure .badCfg n2
+  let badResultCaller : CallableV1 := {
+    caller with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgValueDef 0)) (.externalCall 0 callee #[]),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+  }
+  let n3ResultBase ← programWithTypes "InvClosureCallN3Result" cfgBoolTypes #[]
+    #[badResultCaller, root]
+  let n3Result : SemanticProgramDataV1 := {
+    n3ResultBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 ExternalCall result before closure" .badCfg n3Result
+  expectCfgInvariantPhase "N3 ExternalCall result generic phase wins"
+    .cfg .badCfg n3Result
+  let badEffectCaller : CallableV1 := {
+    caller with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.externalCall 1 callee #[]),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3EffectBase ← programWithTypes "InvClosureCallN3Effect" cfgBoolTypes #[]
+    #[badEffectCaller, root]
+  let n3Effect : SemanticProgramDataV1 := {
+    n3EffectBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 ExternalCall EffectId before closure" .badCfg n3Effect
+  expectCfgInvariantPhase "N3 ExternalCall EffectId generic phase wins"
+    .cfg .badCfg n3Effect
+  let badCalleeCaller : CallableV1 := {
+    caller with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.externalCall 0 shortCallee #[]),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3CalleeBase ← programWithTypes "InvClosureCallN3Callee" cfgBoolTypes #[]
+    #[badCalleeCaller, root]
+  let n3Callee : SemanticProgramDataV1 := {
+    n3CalleeBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 ExternalCall callee before closure" .badCfg n3Callee
+  expectCfgInvariantPhase "N3 ExternalCall callee generic phase wins"
+    .cfg .badCfg n3Callee
+  let badSsaCaller : CallableV1 := {
+    caller with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr none (.externalCall 0 callee #[99]),
+          cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
+        (.return_ (some 0))]
+  }
+  let n3SsaBase ← programWithTypes "InvClosureCallN3Ssa" cfgBoolTypes #[]
+    #[badSsaCaller, root]
+  let n3Ssa : SemanticProgramDataV1 := {
+    n3SsaBase with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
+  }
+  expectCfgErrCode "N3 ExternalCall SSA before closure" .badCfg n3Ssa
+  expectCfgInvariantPhase "N3 ExternalCall SSA generic phase wins"
+    .cfg .badCfg n3Ssa
+  let n4 : SemanticProgramDataV1 := {
+    n1 with callables := #[caller,
+      { root with invariantSteps := some (maxInvariantStepsV1 + 1) }]
+  }
+  expectCfgErrCode "N4 pureFn ExternalCall before intrinsic fuel" .badCfg n4
+  expectCfgInvariantPhase "N4 ExternalCall closure phase wins"
+    .invariantClosure .badCfg n4
+  let n5 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-external-call"] }
+  }
+  expectCfgErrCode "N5 pureFn ExternalCall before requirements" .badCfg n5
+  expectCfgInvariantPhase "N5 ExternalCall closure before requirements"
+    .invariantClosure .badCfg n5
+
 /-- A second pureFn callable (id 1) with one UInt8 param and UInt8 result,
     for pureCall tests. -/
 private def cfgPureFn1 : CallableV1 :=
@@ -7107,6 +7255,7 @@ def run : IO Unit := do
   testInvariantClosurePureFnContextReadProhibited
   testInvariantClosurePureFnCommitProhibited
   testInvariantClosurePureFnEmitProhibited
+  testInvariantClosurePureFnExternalCallProhibited
   testCfgShapeAndReachability
   testCfgSwitchCasesNonempty
   testCfgSwitchCaseValueUniqueness

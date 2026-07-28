@@ -3751,10 +3751,10 @@ private def validateInvariantClosureCfgAcyclicV1
   pure ()
 
 /-- A pureFn in an invariant closure cannot access logical state or context,
-    create commitments, or emit events (SPEC §8). Generic CFG/op typing and
-    closure graph/CFG acyclicity have already run. Invariant roots remain
-    allowed to use StateLoad directly, and unreachable pureFns remain outside
-    this closure-only restriction. -/
+    create commitments, emit events, or perform synchronous external calls
+    (SPEC §8). Generic CFG/op typing and closure graph/CFG acyclicity have
+    already run. Invariant roots remain allowed to use StateLoad directly, and
+    unreachable pureFns remain outside this closure-only restriction. -/
 private def validateInvariantClosurePureFnOpsV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   let members ← computeInvariantClosureMembershipV1 callables
@@ -3772,6 +3772,7 @@ private def validateInvariantClosurePureFnOpsV1
                 | .contextRead _ => return ← err .badCfg
                 | .commit _ => return ← err .badCfg
                 | .emit _ _ _ => return ← err .badCfg
+                | .externalCall _ _ _ => return ← err .badCfg
                 | _ => pure ()
   pure ()
 

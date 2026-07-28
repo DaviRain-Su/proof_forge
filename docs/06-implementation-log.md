@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-28 — D2-06 invariant-closure pureFn ExternalCall prohibition (post-CFG closure step 4.7, structure-gate-only)
+
+- Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.ExternalCall` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，不实现 ExternalCall argument serializability、Schedule closure restriction、exact checked steps、interpreter或产品接线。
+- RED/Changed：tests-first。新增 `testInvariantClosurePureFnExternalCallProhibited`，固定 unreachable pureFn ExternalCall 双路径正向、direct/transitive reachable closure pureFn ExternalCall 双路径负向，以及 generic void-result/EffectId/callee-shape/SSA validation→closure restriction→intrinsic fuel→requirements phase precedence；实现前 N1 reachable pureFn ExternalCall 被 structure gate 接受。
+- Production：扩展 bounded `validateInvariantClosurePureFnOpsV1`，在既有 StateLoad/StateStore/ContextRead/Commit/Emit 拒绝基础上按 callable/block/instruction source order拒绝 reachable `.pureFn` 内 `.externalCall`，失败 `.badCfg`；unreachable pureFn ExternalCall 与 invariant root direct StateLoad 的既有边界不变。
+- Verification：聚焦 production/test build、真实 fast harness、`just dev-check`、SBOM refresh、`just docs-check`、`git diff --check` 与普通 `just ci` 均已通过；`proof-forge-one-slice-71` 三路审查 approved、无 findings。
+- Boundary：Schedule closure pureFn restriction、ExternalCall/Schedule argument serializability、exact checked step computation、interpreter/product wire及formal completion仍 pending。
+
 ## 2026-07-28 — D2-06 invariant-closure pureFn Emit prohibition (post-CFG closure step 4.7, structure-gate-only)
 
 - Context/State：formal TASK-D2-06/TST-SEM-001 仍 pending；本切片只把 `Op.Emit` 加入 invariant closure exact reachable pureFn 的 forbidden-op 子集，不扩张到其余 effect families、exact checked steps、interpreter或产品接线。
