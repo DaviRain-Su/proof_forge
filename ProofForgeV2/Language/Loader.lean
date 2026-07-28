@@ -72,42 +72,36 @@ private def commandSpan? (source : String) (stx : Syntax) : Option SourceByteSpa
   | .ok span => some span
   | .error _ => none
 
-private def originsFromSpan? (fileName : String) (span? : Option SourceByteSpanV1) :
-    Array SourceOrigin :=
+/-- Build a diagnostic primary origin from a trustworthy source span.
+    `nodeId` remains the documented zero sentinel until B7 retires it to `none`. -/
+private def primaryFromSpan? (fileName : String) (span? : Option SourceByteSpanV1) :
+    Option DiagnosticOriginV1 :=
   match span? with
-  | none => #[]
+  | none => none
   | some span =>
     match parseProjectRelativePath fileName with
-    | .error _ => #[]
-    | .ok sourcePath => #[{
+    | .error _ => none
+    | .ok sourcePath => some {
         sourcePath := sourcePath,
         startByte := span.startByte,
         endByte := span.endByte,
-        nodeId := errorSentinelNodeId
-      }]
+        nodeId := some errorSentinelNodeId
+      }
 
 private def toDiagnosticV1 (fileName : String) (err : LoaderError) : DiagnosticV1 :=
   match err with
-  | .parserBoundary message span? => {
-      code := .sourceInvalid,
-      message := s!"Lean parser rejected source: {message}",
-      origins := originsFromSpan? fileName span?
-    }
-  | .invalidProgram message => {
-      code := .sourceInvalid,
-      message := message,
-      origins := #[]
-    }
-  | .resourceBound message => {
-      code := .resourceBound,
-      message := message,
-      origins := #[]
-    }
-  | .duplicateProgram name span? => {
-      code := .sourceInvalid,
-      message := s!"duplicate program '{renderSourceQualified name}'",
-      origins := originsFromSpan? fileName span?
-    }
+  | .parserBoundary message span? =>
+      DiagnosticV1.make .sourceInvalid
+        s!"Lean parser rejected source: {message}"
+        (primary := primaryFromSpan? fileName span?)
+  | .invalidProgram message =>
+      DiagnosticV1.make .sourceInvalid message
+  | .resourceBound message =>
+      DiagnosticV1.make .resourceBound message
+  | .duplicateProgram name span? =>
+      DiagnosticV1.make .sourceInvalid
+        s!"duplicate program '{renderSourceQualified name}'"
+        (primary := primaryFromSpan? fileName span?)
 
 /-- Decoder errors from `Language.decodeProgramCommandV1Checked` are only
 `invalidProgram` or `resourceBound` in the ProgramV1 product slice.  All other

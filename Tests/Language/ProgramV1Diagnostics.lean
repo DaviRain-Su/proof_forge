@@ -89,8 +89,10 @@ private unsafe def runResourceBoundTest : IO DiagnosticV1 := do
         "oversized source diagnostic code must stay PF-SRC-INVALID per SPEC-DIAG-001"
       expect (diag.message == "source exceeds the 16 MiB limit")
         "source-size diagnostic message mismatch"
-      expect (diag.origins == #[])
-        "source-size diagnostic must carry no origins"
+      expect (diag.primary == none)
+        "source-size diagnostic must carry no primary origin"
+      expect (diag.related == #[])
+        "source-size diagnostic must carry empty related"
       expect (legacyCode == "PF-SRC-INVALID")
         "legacy loader must preserve PF-SRC-INVALID for source-size over-limit"
       expect (legacyMessage == diag.message)
@@ -115,18 +117,20 @@ private unsafe def runParserBoundaryTest : IO DiagnosticV1 := do
         "parser-boundary diagnostic message mismatch"
       expect (diag.renderHuman == legacyRender)
         "parser-boundary human rendering must match legacy CompileError.render"
-      expect (diag.origins.size == 1)
-        "parser-boundary diagnostic must carry one origin"
-      let origin := diag.origins[0]!
-      expect (origin.sourcePath.value == fileName)
-        "parser-boundary origin sourcePath must be the caller-provided label"
-      expect (origin.nodeId == errorSentinelNodeId)
-        "parser-boundary origin nodeId must be the documented zero sentinel"
-      let sourceLen := parserBoundarySource.toUTF8.size
-      expect (origin.startByte ≤ origin.endByte)
-        "parser-boundary origin span must be non-inverted"
-      expect (origin.endByte.toNat ≤ sourceLen)
-        "parser-boundary origin span must lie within the source snapshot"
+      match diag.primary with
+      | none => throw <| IO.userError "parser-boundary diagnostic must carry primary origin"
+      | some origin =>
+          expect (origin.sourcePath.value == fileName)
+            "parser-boundary origin sourcePath must be the caller-provided label"
+          expect (origin.nodeId == some errorSentinelNodeId)
+            "parser-boundary origin nodeId must be the documented zero sentinel (until B7)"
+          let sourceLen := parserBoundarySource.toUTF8.size
+          expect (origin.startByte ≤ origin.endByte)
+            "parser-boundary origin span must be non-inverted"
+          expect (origin.endByte.toNat ≤ sourceLen)
+            "parser-boundary origin span must lie within the source snapshot"
+      expect (diag.related == #[])
+        "parser-boundary related must be empty"
       pure diag
   | .ok _ =>
       throw <| IO.userError "parser-boundary source unexpectedly passed diagnostics loader"
@@ -154,20 +158,22 @@ private unsafe def runDuplicateTest : IO DiagnosticV1 := do
         "duplicate-program diagnostic message mismatch"
       expect (diag.renderHuman == legacyRender)
         "duplicate-program human rendering must match legacy CompileError.render"
-      expect (diag.origins.size == 1)
-        "duplicate-program diagnostic must carry one origin"
-      let origin := diag.origins[0]!
-      expect (origin.sourcePath.value == fileName)
-        "duplicate-program origin sourcePath must be the caller-provided label"
-      expect (origin.nodeId == errorSentinelNodeId)
-        "duplicate-program origin nodeId must be the documented zero sentinel"
-      let sourceLen := duplicateSource.toUTF8.size
-      expect (origin.startByte.toNat ≥ secondProgramStart)
-        "duplicate-program origin must start at or before the second program command"
-      expect (origin.endByte.toNat ≤ sourceLen)
-        "duplicate-program origin span must lie within the source snapshot"
-      expect (origin.startByte < origin.endByte)
-        "duplicate-program origin must be a non-empty span"
+      match diag.primary with
+      | none => throw <| IO.userError "duplicate-program diagnostic must carry primary origin"
+      | some origin =>
+          expect (origin.sourcePath.value == fileName)
+            "duplicate-program origin sourcePath must be the caller-provided label"
+          expect (origin.nodeId == some errorSentinelNodeId)
+            "duplicate-program origin nodeId must be the documented zero sentinel (until B7)"
+          let sourceLen := duplicateSource.toUTF8.size
+          expect (origin.startByte.toNat ≥ secondProgramStart)
+            "duplicate-program origin must start at or before the second program command"
+          expect (origin.endByte.toNat ≤ sourceLen)
+            "duplicate-program origin span must lie within the source snapshot"
+          expect (origin.startByte < origin.endByte)
+            "duplicate-program origin must be a non-empty span"
+      expect (diag.related == #[])
+        "duplicate-program related must be empty"
       pure diag
   | .ok _ =>
       throw <| IO.userError "duplicate source unexpectedly passed diagnostics loader"
@@ -189,8 +195,10 @@ private unsafe def runDecoderInternalTest : IO DiagnosticV1 := do
         "decoder-internal diagnostic message mismatch"
       expect (diag.renderHuman == legacyRender)
         "decoder-internal human rendering must match legacy CompileError.render"
-      expect (diag.origins == #[])
-        "decoder-internal diagnostic must carry no origins"
+      expect (diag.primary == none)
+        "decoder-internal diagnostic must carry no primary origin"
+      expect (diag.related == #[])
+        "decoder-internal related must be empty"
       pure diag
   | .ok _ =>
       throw <| IO.userError "decoder-internal source unexpectedly passed diagnostics loader"
@@ -211,8 +219,8 @@ private unsafe def runMultipleProgramsSelectionTest : IO Unit := do
         "multiple-program selection diagnostic message mismatch"
       expect (diag.renderHuman == legacyRender)
         "multiple-program selection human rendering must match legacy CompileError.render"
-      expect (diag.origins == #[])
-        "multiple-program selection diagnostic must carry no origins"
+      expect (diag.primary == none)
+        "multiple-program selection diagnostic must carry no primary origin"
   | .ok _ =>
       throw <| IO.userError "multiple-program source unexpectedly passed diagnostics loader"
 
@@ -232,8 +240,8 @@ private unsafe def runMissingProgramTest : IO Unit := do
         "missing-program diagnostic message mismatch"
       expect (diag.renderHuman == legacyRender)
         "missing-program human rendering must match legacy CompileError.render"
-      expect (diag.origins == #[])
-        "missing-program diagnostic must carry no origins"
+      expect (diag.primary == none)
+        "missing-program diagnostic must carry no primary origin"
   | .ok _ =>
       throw <| IO.userError "missing-program request unexpectedly passed diagnostics loader"
 
@@ -260,31 +268,27 @@ private def testCanonicalJsonRoundTrip (diag : DiagnosticV1) : IO Unit := do
       unless containsSubstr rendered "PF-SRC-INVALID" ||
              containsSubstr rendered "PF-BOUND-001" do
         throw <| IO.userError "canonical JSON missing wire code"
-      if containsSubstr rendered "/" then
+      if containsSubstr rendered "\"sourcePath\":\"/" then
         throw <| IO.userError "canonical JSON must not contain absolute host path"
-      match parsePfJcs rendered with
-      | .ok value =>
-          match renderPfJcs value with
+      match DiagnosticV1.fromCanonicalJson rendered with
+      | .ok decoded =>
+          match decoded.toCanonicalJson with
           | .ok rendered2 =>
               expect (rendered == rendered2)
                 "canonical JSON must re-render deterministically"
           | .error e => throw <| IO.userError s!"re-render failed: {e}"
-      | .error e => throw <| IO.userError s!"parse of canonical JSON failed: {e}"
+      | .error e => throw <| IO.userError s!"decode of canonical JSON failed: {e}"
   | .error e => throw <| IO.userError s!"canonical JSON render failed: {e}"
 
 private def testRedaction : IO Unit := do
   let badPath : ProjectRelativePath := { value := "/etc/passwd.lean" }
-  let badOrigin : SourceOrigin := {
+  let badOrigin : DiagnosticOriginV1 := {
     sourcePath := badPath,
     startByte := 0,
     endByte := 1,
-    nodeId := errorSentinelNodeId
+    nodeId := some errorSentinelNodeId
   }
-  let badDiag : DiagnosticV1 := {
-    code := .sourceInvalid,
-    message := "leak",
-    origins := #[badOrigin]
-  }
+  let badDiag := DiagnosticV1.make .sourceInvalid "leak" (primary := some badOrigin)
   match badDiag.toCanonicalJson with
   | .ok _ => throw <| IO.userError "canonical JSON must redact absolute sourcePath"
   | .error _ => pure ()
@@ -296,22 +300,17 @@ private def testSortAndDedupe (parserBoundaryDiag duplicateDiag decoderInternalD
   expect (sorted.size == 3) "sortAndDedupe must collapse the duplicate parser-boundary diagnostic"
   let sortedAgain := DiagnosticV1.sortAndDedupe sorted
   expect (sorted == sortedAgain) "sortAndDedupe must be idempotent"
-  -- Empty origins sort before any origin.
+  -- Empty primary (path="", start=0) sorts before any primary-carrying diagnostic
+  -- when codes and stableContext match.
   expect (sorted[0]! == decoderInternalDiag)
-    "decoder-internal diagnostic must sort first (empty origins)"
-  -- Between the two origin-carrying diagnostics, derive the expected order from
-  -- their actual origin start bytes instead of hard-coding it to span positions.
+    "decoder-internal diagnostic must sort first (empty primary)"
   let originCarrying := #[parserBoundaryDiag, duplicateDiag]
   let ordered := Array.qsort originCarrying fun a b =>
-    let ao := a.origins[0]!
-    let bo := b.origins[0]!
-    if ao.startByte.toNat < bo.startByte.toNat then true
-    else if ao.startByte.toNat > bo.startByte.toNat then false
-    else a.message < b.message
+    DiagnosticV1.compareOrderKey a b == .lt
   expect (sorted[1]! == ordered[0]!)
-    "first origin-carrying diagnostic order must match actual origin start bytes"
+    "first origin-carrying diagnostic order must match order key"
   expect (sorted[2]! == ordered[1]!)
-    "second origin-carrying diagnostic order must match actual origin start bytes"
+    "second origin-carrying diagnostic order must match order key"
 
 unsafe def run : IO Unit := do
   let parserBoundaryDiag ← runParserBoundaryTest

@@ -55,8 +55,6 @@ open ProofForgeV2.Typed.CallGraphV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 
-def emptyOrigins : Array SourceOrigin := #[]
-
 /-- Checked `UInt32` multiply.  Returns `none` when the mathematical product is
     not representable in `UInt32` (i.e. ≥ 2^32). -/
 def mulUInt32Checked (a b : UInt32) : Option UInt32 :=
@@ -70,17 +68,14 @@ def recursionCycleDiagnostic (tables : TypedDeclTablesV1) (scc : Array Nat) :
     DiagnosticV1 :=
   let members := (scc.qsort (· < ·)).map (fnNameAt tables)
   let memberText := String.intercalate ", " members.toList
-  { code := .resourceBound
-    message := s!"unbounded recursion (call cycle): {memberText}"
-    origins := emptyOrigins }
+  DiagnosticV1.make .resourceBound
+    s!"unbounded recursion (call cycle): {memberText}"
 
 /-- Diagnostic for a loop nest whose iteration-count product overflows UInt32. -/
 def loopProductOverflowDiagnostic (kindLabel name : String) (bound : UInt32) :
     DiagnosticV1 :=
-  { code := .resourceBound
-    message :=
-      s!"loop bound product overflows UInt32 in {kindLabel} '{name}' (bound {bound.toNat})"
-    origins := emptyOrigins }
+  DiagnosticV1.make .resourceBound
+    s!"loop bound product overflows UInt32 in {kindLabel} '{name}' (bound {bound.toNat})"
 
 /-- Enclosing callable identity for loop diagnostics. -/
 structure CallableLabel where

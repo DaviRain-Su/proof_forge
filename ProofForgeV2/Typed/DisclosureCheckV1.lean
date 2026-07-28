@@ -94,7 +94,6 @@ open ProofForgeV2.Typed.NameResolutionV1
 instance : Inhabited VisibilityV1 where
   default := .public_
 
-def emptyOrigins : Array SourceOrigin := #[]
 
 /-- Secrecy rank: larger means more secret. -/
 def secrecy : VisibilityV1 → Nat
@@ -117,10 +116,8 @@ def visibilityLabel : VisibilityV1 → String
   | .private_ => "private"
 
 def visibilityViolationDiagnostic (src sink : VisibilityV1) : DiagnosticV1 :=
-  { code := .visibilityViolation
-    message :=
-      s!"disclosure violation: cannot flow '{visibilityLabel src}' into '{visibilityLabel sink}'"
-    origins := emptyOrigins }
+  DiagnosticV1.make .visibilityViolation
+    s!"disclosure violation: cannot flow '{visibilityLabel src}' into '{visibilityLabel sink}'"
 
 /-- Effective source at a sink: value secrecy joined with the current PC label. -/
 def effectiveSource (pc valueVis : VisibilityV1) : VisibilityV1 :=

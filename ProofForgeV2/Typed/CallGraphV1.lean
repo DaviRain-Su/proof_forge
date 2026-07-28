@@ -320,9 +320,7 @@ def recursiveCycleDiagnostic (tables : TypedDeclTablesV1) (scc : Array Nat) :
     DiagnosticV1 :=
   let members := (scc.qsort (· < ·)).map (fnNameAt tables)
   let memberText := String.intercalate ", " members.toList
-  { code := .sourceInvalid,
-    message := s!"recursive call cycle: {memberText}",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid s!"recursive call cycle: {memberText}"
 
 /-- Result of call-graph acyclicity checking. -/
 structure CallGraphResultV1 where

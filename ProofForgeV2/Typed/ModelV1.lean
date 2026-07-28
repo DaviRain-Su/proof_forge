@@ -112,53 +112,42 @@ structure NameResolutionResultV1 where
   ok : Bool
 deriving Repr
 
-/-- Empty diagnostics origin: NameResolutionV1 does not own source spans. -/
-def emptyOrigins : Array SourceOrigin := #[]
-
+/-- Typed name-resolution diagnostics: empty primary/related until B7 attribution. -/
 def unknownNameDiagnostic (name : SourceNameComponentV1) (expected : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"unknown name '{name.raw}' (expected {expected})",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"unknown name '{name.raw}' (expected {expected})"
 
 def wrongCategoryDiagnostic (name : SourceNameComponentV1) (actual : DeclKindV1)
     (expected : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"name '{name.raw}' resolved to {actual} but expected {expected}",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"name '{name.raw}' resolved to {actual} but expected {expected}"
 
 def ambiguousNameDiagnostic (name : SourceNameComponentV1) (expected : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"ambiguous name '{name.raw}' (expected {expected})",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"ambiguous name '{name.raw}' (expected {expected})"
 
 def duplicateDeclarationDiagnostic (name : SourceNameComponentV1)
     (kind : DeclKindV1) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"duplicate {kind} declaration '{name.raw}'",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"duplicate {kind} declaration '{name.raw}'"
 
 def sourceQualifiedNameV1ToString (name : SourceQualifiedNameV1) : String :=
   String.intercalate "." ((NonEmptyArray.toArray name.components).map (·.raw) |>.toList)
 
 def unknownQualifiedNameDiagnostic (name : SourceQualifiedNameV1) (expected : String) :
     DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"unknown name '{sourceQualifiedNameV1ToString name}' (expected {expected})",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"unknown name '{sourceQualifiedNameV1ToString name}' (expected {expected})"
 
 def localAsFunctionDiagnostic (name : SourceNameComponentV1) (kind : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"name '{name.raw}' is bound as a {kind} but used as a function",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"name '{name.raw}' is bound as a {kind} but used as a function"
 
 def duplicateInitDiagnostic : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := "duplicate init declaration",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid "duplicate init declaration"
 
 def duplicateExtensionReqDiagnostic (name : SourceQualifiedNameV1) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"duplicate extension requirement '{sourceQualifiedNameV1ToString name}'",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"duplicate extension requirement '{sourceQualifiedNameV1ToString name}'"
 
 end ProofForgeV2.Typed.ModelV1

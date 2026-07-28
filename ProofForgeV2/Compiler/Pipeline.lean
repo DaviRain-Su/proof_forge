@@ -50,9 +50,7 @@ private def compileErrorFromDiagnosticV1 (diag : DiagnosticV1) : CompileError :=
   | .resourceBound => .resourceBound diag.message
   | .effectDisallowed => .effectDisallowed diag.message
   | .visibilityViolation => .visibilityViolation diag.message
-  | .sourceInvalid | .internal | .toolchainMissing | .toolchainMismatch
-  | .targetNotImplemented | .outputAtomicity =>
-      .invalidProgram diag.message
+  | _ => .invalidProgram diag.message
 
 /-- Closed, hand-written summary for structure-gate wire failures.
     Stable product text — never Lean `repr` (not a contract). -/

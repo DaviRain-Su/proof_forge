@@ -319,13 +319,10 @@ def viewAllowed : EffectKindV1 → Bool
   | .stateRead | .failureRevert => true
   | _ => false
 
-def emptyOrigins : Array SourceOrigin := #[]
-
 def effectDisallowedDiagnostic (kindLabel name : String) (effect : EffectKindV1) :
     DiagnosticV1 :=
-  { code := .effectDisallowed
-    message := s!"{kindLabel} '{name}' does not allow effect '{effect.wire}'"
-    origins := emptyOrigins }
+  DiagnosticV1.make .effectDisallowed
+    s!"{kindLabel} '{name}' does not allow effect '{effect.wire}'"
 
 /-- One fixed-point step: `next[v] = direct[v] ∪ ⋃_{w ∈ adj[v]} current[w]`. -/
 def fixedPointStep (fnCount : Nat) (adj : Array (Array Nat))

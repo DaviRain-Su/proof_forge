@@ -132,15 +132,14 @@ def result (type : TypeV1) (diagnostics : Array DiagnosticV1) :
 
 /-- Deterministic `expected-vs-actual` diagnostic in left-to-right order. -/
 def expectedActualDiagnostic (expected actual : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"type mismatch: expected {expected}, got {actual}",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"type mismatch: expected {expected}, got {actual}"
 
 /-- Defensive internal diagnostic for invariant violations inside the type
     checker.  Should be unreachable when called from `typeCheckProgramV1`
     because name resolution is performed first. -/
 private def internalDiagnostic (message : String) : DiagnosticV1 :=
-  { code := .internal, message := message, origins := emptyOrigins }
+  DiagnosticV1.make .internal message
 
 /-- Render a type for diagnostics.  This is human-readable only and does not
     enter wire/hash identity. -/
@@ -165,26 +164,22 @@ def isIntegerType : TypeV1 → Bool
     surface syntax allows string patterns, but `TypeV1` has no `String`
     type, so they are fail-closed here. -/
 def stringPatternDiagnostic : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := "string patterns are not supported (String is not a TypeV1)",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    "string patterns are not supported (String is not a TypeV1)"
 
 /-- Diagnostic emitted when a later match arm value does not agree with the
     first arm's result type.  The `armIndex` is 0-based and names the arm
     where the mismatch was first observed. -/
 def armTypeMismatchDiagnostic (armIndex : Nat) (expected actual : String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message := s!"match arm {armIndex}: type mismatch: expected {expected}, got {actual}",
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    s!"match arm {armIndex}: type mismatch: expected {expected}, got {actual}"
 
 /-- Diagnostic emitted when a match is not exhaustive.  For enum-typed
     scrutinees, `missing` lists the variant raw names in declaration order. -/
 def nonExhaustiveDiagnostic (missing : List String) : DiagnosticV1 :=
-  { code := .sourceInvalid,
-    message :=
-      if missing.isEmpty then "match is not exhaustive"
-      else "match is not exhaustive; missing variants: " ++ String.intercalate ", " missing,
-    origins := emptyOrigins }
+  DiagnosticV1.make .sourceInvalid
+    (if missing.isEmpty then "match is not exhaustive"
+     else "match is not exhaustive; missing variants: " ++ String.intercalate ", " missing)
 
 /-- Result of checking a pattern against a scrutinee type: the binders
     introduced into the arm scope and any diagnostics in source order. -/

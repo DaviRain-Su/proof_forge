@@ -14,6 +14,17 @@ normative: false
 
 
 
+## 2026-07-29 — B6 DiagnosticV1 ADR-0022 / SPEC-DIAG-001 structured carrier
+
+- Context/State：pre-release `DiagnosticV1` 仅有 9-code enum + `origins : Array SourceOrigin`，无 severity/phase/stableContext/full catalog、无 nullable NodeId、无 PF-JCS decoder、order 依赖 message。本切片工程-only 原子替换为 SPEC-DIAG-001 结构化 v1，机械迁移 Loader 与全部 Typed producers；不碰 B7 real-origin/sentinel 退役、B8 CLI multi-error bundle、formal TASK/TST/EV 或 target maturity。
+- RED/Changed（tests first）：重写 `Tests/Core/DiagnosticV1.lean`（全 catalog uniqueness/ranks/defaults、nullable NodeId、related 全序、全字段 PF-JCS encode/decode、unknown/trailing/noncanonical 拒绝、message-independent order/dedupe、结构 redaction、normalize 100/101/200/idempotent `PF-DIAG-LIMIT`、`renderHuman`）。`Tests/Language/ProgramV1Diagnostics.lean` 从 `origins[]` 迁 `primary`/`related`，保留 human 字节与 zero-sentinel `some` 行为。实现前旧 carrier 无法满足新 suite 字段/decoder/cap 契约（结构 RED：无 `DiagnosticOriginV1`/`fromCanonicalJson`/`normalizeDiagnosticBundleV1`/59-code catalog）。
+- Production：原子替换 `ProofForgeV2/Core/DiagnosticV1.lean`（无 dual reader）：`DiagnosticCodeV1` 59 codes exact wire+rank+default severity/phase；`DiagnosticOriginV1`；Core-local `RequirementKeyV1`/`ExtensionKeyV1`；`DiagnosticV1.make` smart constructor；sole PF-JCS encoder+decoder；message-independent `sortAndDedupe`；unused `normalizeDiagnosticBundleV1`；`errorSentinelNodeId` 保留。Loader primary+sentinel；Typed Model/TypeCheck/CallGraph/Effect/Bound/Disclosure 经 `make` 空 primary/related；CheckV1 相位拼接不变；Pipeline/TypedV1 三 special CompileError 映射 + 其余 catalog fail-closed→`invalidProgram`。
+- Repair（same slice）：`fromPfJson` 中 extension/expected 双 `let` 同物理行已拆开；`compareOptionReq`/`compareOptionExt` 补全 SemVer prerelease/build 与 Digest raw-byte 总序，避免同 order-key 仅 digest/build 不同时 `sortAndDedupe` 代表非确定；`Tests/Core/DiagnosticV1.lean` 增 `testRequirementExtensionTotalOrder`。`docs/specs/diagnostics.md` 规范 underclaim 不在本切片 allowed paths（留 follow-up）。
+- Zero patterns：Typed/DiagnosticV1 无 `origins : Array SourceOrigin` / `origins := emptyOrigins`；Core tests 无 `".origins"` / JSON `"origins"`；无 alpha runtime `PF-SEM-*` catalog codes。
+- Docs：`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` TASK-D1-07 事实行、本日志；formal 状态不变。
+- Verification：`lake build Tests.Core.DiagnosticV1 Tests.Language.ProgramV1Diagnostics`；`lake build proof_forge_next_fast_tests` + `proof-forge-next-fast-tests`（含 DiagnosticV1/ProgramV1Diagnostics ok）；`just sbom-package-files-refresh`。
+- Boundary：无 B7/B8、无 CLI multi-error、无 fallback/adapter/第二 decoder、无 formal/release 路径。
+
 ## 2026-07-29 — B5 Source-owned OriginJoinV1 (NodeId × span exact inventory)
 
 - Context/State：SpanJoin 已产出 path→span，NodeAssignment 已产出 preorder NodeIds，但 exact join 算法与 length-framed path-key 仍住在 `Semantic.ProvenanceV1`（`buildSourceNodeInventoryV1`/`pathLookupKeyV1`）。本切片工程-only 把 sole exact join 下沉到 Source，使 Semantic provenance 只 thin-project wire `SourceNodeInventoryV1`；不碰 formal TASK/TST/EV、Loader WithOrigins、DiagnosticV1、wire type 迁移或 target maturity。
