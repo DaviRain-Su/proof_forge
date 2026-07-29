@@ -1,10 +1,20 @@
+/-
+  Cycle-free locked external-tool runner (D3/S7b).
+
+  Direct dependencies only: Lean JSON + Core.Diagnostic + Core.Crypto.
+  No Core.Source, Targets, Registry, or CLI imports.
+  Mechanical move of the former CLI tool runner; product authority lives here.
+  Not formal ToolchainIdentity / hermetic supervisor.
+-/
 import Lean.Data.Json.FromToJson
 import Lean.Data.Json.Parser
-import ProofForgeV2.Core.Source
+import ProofForgeV2.Core.Diagnostic
+import ProofForgeV2.Core.Crypto
 
-namespace ProofForgeV2.CLI.Toolchain
+namespace ProofForgeV2.Materialization.LockedToolchainV1
 
 open Lean ProofForgeV2 System
+open ProofForgeV2.Crypto
 
 structure LockedRuntimeFile where
   path : String
@@ -205,7 +215,7 @@ private def lockedProcessEnvironment (tool : LockedTool) (executable : FilePath)
     let realPath ← IO.FS.realPath candidate
     unless realPath.toString.startsWith (root.toString ++ "/") do
       throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: runtime file escaped tool root for {tool.id}"
-    let actualHash := Crypto.sha256Hex (← IO.FS.readBinFile realPath)
+    let actualHash := sha256Hex (← IO.FS.readBinFile realPath)
     unless actualHash == runtimeFile.sha256 do
       throwCompile <| .toolchainMismatch s!"{tool.id}:{runtimeFile.path}" runtimeFile.sha256 actualHash
   match tool.runtimeLibrarySubdir with
@@ -271,7 +281,7 @@ private def verifyRegularFile (label : String) (path : FilePath) (expectedHash :
     mismatch s!"{label} gained an additional hard link while being verified"
   unless before.byteSize == after.byteSize && after.byteSize.toNat == bytes.size do
     mismatch s!"{label} changed size while being verified"
-  let actualHash := Crypto.sha256Hex bytes
+  let actualHash := sha256Hex bytes
   unless actualHash == expectedHash do
     throwCompile <| .toolchainMismatch label expectedHash actualHash
   return realPath
@@ -394,7 +404,7 @@ private def verifyBundleFile (statTool : VerifiedSystemTool) (root : FilePath)
   unless after.type == .file && after.numLinks == 1 && after.byteSize == before.byteSize &&
       after.byteSize.toNat == bytes.size do
     mismatch s!"bundle file '{locked.path}' changed while being verified"
-  let actualHash := Crypto.sha256Hex bytes
+  let actualHash := sha256Hex bytes
   unless actualHash == locked.sha256 do
     throwCompile <| .toolchainMismatch s!"bundle:{locked.path}" locked.sha256 actualHash
 
@@ -526,7 +536,7 @@ def resolve (id : String) : IO VerifiedTool := do
     mismatch s!"executable must have exactly one hard link for {id}"
   let realPath ← IO.FS.realPath candidate
   let binary ← IO.FS.readBinFile realPath
-  let actualHash := Crypto.sha256Hex binary
+  let actualHash := sha256Hex binary
   unless actualHash == tool.executableSha256 do
     throwCompile <| .toolchainMismatch id tool.executableSha256 actualHash
   let environment ← lockedProcessEnvironment tool realPath
@@ -547,4 +557,4 @@ def resolve (id : String) : IO VerifiedTool := do
     throwCompile <| .toolchainMismatch id tool.expectedVersion observed.trimAscii.copy
   return verified
 
-end ProofForgeV2.CLI.Toolchain
+end ProofForgeV2.Materialization.LockedToolchainV1

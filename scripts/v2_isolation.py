@@ -49,7 +49,6 @@ CORE_SOURCE_IMPORT_RE = re.compile(
 )
 CORE_SOURCE_IMPORT_ALLOWLIST = {
     "ProofForgeV2.lean",
-    "ProofForgeV2/CLI/Toolchain.lean",
     "ProofForgeV2/Compiler/Pipeline.lean",
     "ProofForgeV2/Core/Typed.lean",
     "ProofForgeV2/Language/ProgramExport.lean",

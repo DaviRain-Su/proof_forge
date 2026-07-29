@@ -13,6 +13,34 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-29 — D3/S7b capability-bound engineering finalization authority cutover
+
+- Context/State：baseline `fccf2128aac0ffd2b97a3ca229b90af2e5789451`；formal D1–D4 仍 0/27 done；
+  **不是** formal OutputSetV1 / proof-forge.output.v1 / BuildIdentity / SupportClaim /
+  ToolchainIdentity / hermetic supervisor / SemanticProgramV1-native Plan；不抬高四
+  target maturity 或 deployability；on-disk schema 仍 `proof-forge-output/v2alpha1`。
+- RED/Changed（tests first）：新增 `Tests/Materialization/EngineeringFinalizationV1.lean`
+  （sole mint + capability/artifact binding、四 target exact extra/deployable/note、
+  EVM `.bin`/NEAR `.wasm` real extras、base-byte preservation、Solana/Noir zero-tool notes、
+  tool-failure zero publish、NEAR missing zero-output 不削弱 EVM、CLI authority deletion
+  pins）。生产：
+  - `ProofForgeV2/Materialization/LockedToolchainV1.lean`：cycle-free locked tool runner
+    （Lean JSON + Core.Diagnostic + Core.Crypto only；无 Core.Source/Targets/Registry/CLI）。
+  - 删除 `ProofForgeV2/CLI/Toolchain.lean`（无 re-export shim）。
+  - `ProofForgeV2/Materialization/EngineeringFinalizationV1.lean`：private-ctor
+    `FinalizedArtifactsV1` + sole `mintFinalizedArtifactsV1`（capability↔artifacts
+    target/profile/kind/residual name/hashes；extra paths via sole
+    `safeRelativeArtifactPathV1` unique vs base；fail closed 无 partial carrier）。
+  - `Targets/{Evm,Near,Solana,Noir}/FinalizeV1.lean`：target-owned IO adapters
+    （EVM/NEAR 机械保留 solc/wat2wasm args/notes/header checks；Solana/Noir 零 tool）。
+  - `Targets/Registry.finalizeMaterializedArtifactsV1` sole runtime TargetKind dispatch。
+  - `CLI/Emit.lean` publisher-only：无 finalizeEvm/finalizeNear/Toolchain/solc·wat2wasm
+    product authority；保留 path/collision/staging/base-write/private v2alpha1/race/rename。
+- Durable gate：`just s7b-finalize-authority-deletion-gate` 接入 `dev-check`/`ci`
+  （与 s5/s6/s7a 并列）；`scripts/v2_isolation.py` 移除 CLI/Toolchain Core.Source allowlist。
+- Boundary：formal TASK-D3-05/D4-04 / OutputSetV1 / ToolchainIdentity 仍 pending；不声称
+  formal evidence / release qualification。
+
 ## 2026-07-29 — D3/S7a engineering MaterializedArtifactsV1 carrier cutover
 
 - Context/State：baseline `fe6e86d91c35b6be6529cd27999a67b1acbac1fb`；formal D1–D4 仍 0/27 done；

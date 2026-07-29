@@ -2,8 +2,8 @@ import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
+import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.CLI.Toolchain
 
 namespace ProofForgeV2.CLI
 
@@ -75,72 +75,6 @@ private def validateMaterializedCarrier
       throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate artifact path '{file.path}'"
     paths := paths.push file.path
 
-private structure Finalization where
-  deployable : Bool
-  extraFiles : Array String := #[]
-  evidence : String
-
-private def finalizeEvm (outputDir : FilePath) (programName : String) : IO Finalization := do
-  let source := s!"{programName}.yul"
-  let solc ← Toolchain.resolve "solc"
-  let process ← solc.run #["--strict-assembly", "--bin", source] (some outputDir)
-  if process.exitCode == 0 then
-    let binary := (process.stdout.splitOn "Binary representation:\n").getLast!.trimAscii.copy
-    if binary.isEmpty then
-      throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: solc returned no bytecode"
-    IO.FS.writeFile (outputDir / s!"{programName}.bin") (binary ++ "\n")
-    pure {
-      deployable := true
-      extraFiles := #[s!"{programName}.bin"]
-      evidence := s!"solc {solc.version} sha256={solc.executableSha256} completed successfully"
-    }
-  else
-    throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: solc failed\n{process.stderr}"
-
-private def finalizeNear (outputDir : FilePath) (programName : String) : IO Finalization := do
-  let source := s!"{programName}.wat"
-  let target := s!"{programName}.wasm"
-  let wat2wasm ← Toolchain.resolve "wat2wasm"
-  let process ← wat2wasm.run #[source, "-o", target] (some outputDir)
-  if process.exitCode == 0 then
-    let targetPath := outputDir / target
-    unless ← targetPath.pathExists do
-      throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm returned no Wasm artifact"
-    let metadata ← targetPath.symlinkMetadata
-    unless metadata.type == .file do
-      throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output is not a regular file"
-    let wasm ← IO.FS.readBinFile targetPath
-    unless wasm.size >= 8 && wasm[0]! == 0x00 && wasm[1]! == 0x61 &&
-        wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
-        wasm[5]! == 0x00 && wasm[6]! == 0x00 && wasm[7]! == 0x00 do
-      throw <| IO.userError
-        "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output has an invalid Wasm header/version"
-    pure {
-      deployable := true
-      extraFiles := #[target]
-      evidence := s!"wat2wasm {wat2wasm.version} sha256={wat2wasm.executableSha256} completed; runtime remains separate"
-    }
-  else
-    throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: wat2wasm failed\n{process.stderr}"
-
-private def finalize (kind : TargetKind) (outputDir : FilePath) (programName : String) :
-    IO Finalization :=
-  match kind with
-  | .evm => finalizeEvm outputDir programName
-  | .near => finalizeNear outputDir programName
-  | .solana => pure {
-      deployable := false
-      evidence := "no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable"
-    }
-  | .noir => pure {
-      deployable := false
-      evidence := "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
-    }
-  | other => pure {
-      deployable := false
-      evidence := s!"{other} is research-only and has no V2 materializer"
-    }
-
 /-- Private legacy-engineering on-disk v2alpha1 field bag (CLI publisher only).
     Not a public product carrier; exact wire bytes match pre-S7a `manifestJson`. -/
 private structure LegacyOutputManifestV2Alpha1 where
@@ -176,25 +110,47 @@ structure EmitReceiptV1 where
   deployable : Bool
   deriving BEq, Repr
 
+/-- Publisher dual-defense for finalized extra paths (D3/S7b).
+
+    Mirrors `validateMaterializedCarrier` path ownership: safety, uniqueness vs
+    base files, and uniqueness among extras. Mint already gates these; this is
+    defense-in-depth with historical PF-OUTPUT-PATH wires so a mint regression
+    cannot publish colliding/dup files lists. Package-visible for focused tests. -/
+def validateFinalizedExtraPathsForPublishV1
+    (basePaths : Array String) (extraFiles : Array String) : IO Unit := do
+  let mut paths : Array String := basePaths
+  for file in extraFiles do
+    unless safeRelativePath file do
+      throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe finalized artifact path '{file}'"
+    if paths.contains file then
+      throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate finalized artifact path '{file}'"
+    paths := paths.push file
+
+/-- Publisher-only staging render (D3/S7b).
+
+    Owns base-file writes, dual-defense extra-path checks, private v2alpha1
+    manifest/evidence rendering from finalized-carrier fields only. Finalization
+    authority (tools, deployability, notes) is sole Registry
+    `finalizeMaterializedArtifactsV1` → target adapters → `FinalizedArtifactsV1`. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (program : SemanticProgram) (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EmitReceiptV1 := do
   let selection := Targets.ResolvedEngineeringBuildV1.selectionOf capability
   for file in MaterializedArtifactsV1.filesOf artifacts do
     writeFileCreatingParent (stagingDir / file.path) file.contents
-  let finalization ← finalize selection.kind stagingDir program.name
-  for file in finalization.extraFiles do
-    unless safeRelativePath file do
-      throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe finalized artifact path '{file}'"
+  let finalized ← Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
   let basePaths :=
     (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
+  -- Dual-defense: safety + uniqueness vs base + uniqueness among extras.
+  validateFinalizedExtraPathsForPublishV1 basePaths
+    (FinalizedArtifactsV1.extraFilesOf finalized)
   let manifest : LegacyOutputManifestV2Alpha1 := {
     target := MaterializedArtifactsV1.targetIdOf artifacts
     codegenProfile := MaterializedArtifactsV1.codegenProfileIdOf artifacts
     sourceHash := MaterializedArtifactsV1.residualSourceHashOf artifacts
     semanticHash := MaterializedArtifactsV1.residualSemanticHashOf artifacts
-    deployable := finalization.deployable
-    files := basePaths ++ finalization.extraFiles
+    deployable := FinalizedArtifactsV1.deployableOf finalized
+    files := basePaths ++ FinalizedArtifactsV1.extraFilesOf finalized
   }
   IO.FS.writeFile (stagingDir / "manifest.json") (renderLegacyManifestJsonV2Alpha1 manifest)
   let deployable := if manifest.deployable then "true" else "false"
@@ -203,7 +159,7 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     s!"  \"sourceHash\": \"{program.sourceHash}\",\n" ++
     s!"  \"semanticHash\": \"{program.semanticHash}\",\n" ++
     s!"  \"deployable\": {deployable},\n" ++
-    s!"  \"note\": \"{Targets.escapeJson finalization.evidence}\"\n" ++
+    s!"  \"note\": \"{Targets.escapeJson (FinalizedArtifactsV1.evidenceNoteOf finalized)}\"\n" ++
     "}\n"
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
   return {

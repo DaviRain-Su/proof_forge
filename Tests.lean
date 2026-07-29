@@ -103,6 +103,7 @@ import Tests.Materialization.NoirRelationModel
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
+import Tests.Materialization.EngineeringFinalizationV1
 
 
 unsafe def main : IO Unit := do
@@ -203,6 +204,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.BuildSelectionV1.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.OutputEnvelopeV1.run
+  Tests.Materialization.EngineeringFinalizationV1.run
   Tests.Materialization.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.NearHostModel.run

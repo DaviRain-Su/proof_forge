@@ -105,7 +105,9 @@ structure OutputFile where
     SemanticProgram→Plan, Plan→TargetIR, or TargetIR→OutputFile product
     chains. S7a: public alpha `OutputSet` / `OutputManifest` deleted;
     aggregate files chain ends at private-ctor `MaterializedArtifactsV1`
-    (capability-only mint). Formal OutputSetV1 still pending. -/
+    (capability-only mint). S7b: locked-tool finalization is
+    `finalizeMaterializedArtifactsV1` → private-ctor `FinalizedArtifactsV1`
+    (CLI publisher-only). Formal OutputSetV1 still pending. -/
 class Materializer (kind : TargetKind) where
   Plan : Type
   TargetIR : Type

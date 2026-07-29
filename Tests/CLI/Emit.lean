@@ -69,7 +69,7 @@ unsafe def run : IO Unit := do
   -- Full local gate: `PROOF_FORGE_HOST_ISOLATION_TEST=1 just test` or `just check`.
   match ← IO.getEnv "PROOF_FORGE_HOST_ISOLATION_TEST" with
   | some "1" =>
-      ProofForgeV2.CLI.Toolchain.environmentIsolationSelfTest
+      ProofForgeV2.Materialization.LockedToolchainV1.environmentIsolationSelfTest
   | _ => pure ()
 
 end Tests.CLI.Emit

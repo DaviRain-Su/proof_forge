@@ -42,6 +42,7 @@ import Tests.Core.DiagnosticV1
 import Tests.Product.CounterV1Evm
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.OutputEnvelopeV1
+import Tests.Materialization.EngineeringFinalizationV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 -- S1 NormalizeV1 suite is defined in Tests/Typed/CheckV1.lean under namespace
@@ -93,6 +94,7 @@ unsafe def main : IO Unit := do
   Tests.Product.CounterV1Evm.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.OutputEnvelopeV1.run
+  Tests.Materialization.EngineeringFinalizationV1.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   IO.println "proof-forge-next-fast-tests: ok"

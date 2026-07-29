@@ -292,7 +292,91 @@ s7-output-envelope-deletion-gate:
     lake build Tests.Materialization.OutputEnvelopeV1
     echo "s7-output-envelope-deletion-gate: ok"
 
-dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate
+# D3/S7b engineering finalization-authority deletion + sole-mint gate.
+# - no CLI/Toolchain.lean or CLI.Toolchain product imports
+# - no finalizeEvm/finalizeNear or solc/wat2wasm product ids in CLI
+# - sole FinalizedArtifactsV1.mk near mintFinalizedArtifactsV1
+# - sole finalizeMaterializedArtifactsV1 in Registry
+# Lean suite: Tests/Materialization/EngineeringFinalizationV1.lean
+# (one-way: gate builds that module; suite does not re-invoke this recipe).
+# Not formal OutputSetV1 / ToolchainIdentity / BuildIdentity.
+s7b-finalize-authority-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "s7b-finalize-authority-deletion-gate: forbidden pattern still present: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "s7b-finalize-authority-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local must_path="$2"
+      local label="$3"
+      local hits ec count
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -ne 0 ]]; then
+        echo "s7b-finalize-authority-deletion-gate: $label expected one match (rg exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
+        echo "s7b-finalize-authority-deletion-gate: $label expected sole match in $must_path" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    # CLI Toolchain module deleted; no product re-exports.
+    if [[ -e ProofForgeV2/CLI/Toolchain.lean ]]; then
+      echo "s7b-finalize-authority-deletion-gate: ProofForgeV2/CLI/Toolchain.lean must be deleted" >&2
+      exit 1
+    fi
+    # Import form only (comments/tests may mention the deleted path).
+    fail_if_match 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
+    fail_if_match '^\s*def finalizeEvm\b' ProofForgeV2
+    fail_if_match '^\s*def finalizeNear\b' ProofForgeV2
+    # solc/wat2wasm product tool resolve ids must not appear in CLI Emit publisher.
+    fail_if_match 'resolve "solc"' ProofForgeV2/CLI
+    fail_if_match 'resolve "wat2wasm"' ProofForgeV2/CLI
+    # Sole FinalizedArtifactsV1 mint.
+    expect_one_match 'FinalizedArtifactsV1\.mk' 'EngineeringFinalizationV1.lean' \
+      'FinalizedArtifactsV1.mk'
+    set +e
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 40 'FinalizedArtifactsV1\.mk' ProofForgeV2/Materialization 2>&1)"
+    mk_ec=$?
+    set -e
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'mintFinalizedArtifactsV1'; then
+      echo "s7b-finalize-authority-deletion-gate: FinalizedArtifactsV1.mk must be near mintFinalizedArtifactsV1" >&2
+      printf '%s\n' "$mk_ctx" >&2
+      exit 1
+    fi
+    # Sole Registry finalize dispatch.
+    expect_one_match '^\s*def finalizeMaterializedArtifactsV1\b' 'Registry.lean' \
+      'finalizeMaterializedArtifactsV1'
+    # LockedToolchain must not import Core.Source / CLI.
+    fail_if_match 'import ProofForgeV2\.Core\.Source' ProofForgeV2/Materialization/LockedToolchainV1.lean
+    fail_if_match 'import ProofForgeV2\.CLI' ProofForgeV2/Materialization/LockedToolchainV1.lean
+    lake build Tests.Materialization.EngineeringFinalizationV1
+    echo "s7b-finalize-authority-deletion-gate: ok"
+
+dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -1014,7 +1098,7 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate
+ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

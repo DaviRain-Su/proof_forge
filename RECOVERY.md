@@ -103,6 +103,12 @@ aggregate `materializeResult` 返回 private-ctor `MaterializedArtifactsV1`（so
 identity/hashes + retained `semanticHashV1` Digest + ordered files）；已删 public
 `OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`；CLI private legacy-engineering
 v2alpha1 renderer 保持 on-disk manifest/evidence 字节兼容；
-`s7-output-envelope-deletion-gate` 已接入 dev/ci。仍**不是** SupportClaim/formal resolver/
-BuildIdentity/`OutputSetV1`/SemanticProgramV1 直连 Plan 完成态。formal task状态与
+`s7-output-envelope-deletion-gate` 已接入 dev/ci。**D3/S7b 工程**：locked-tool
+finalization 已迁出 CLI：`Materialization/LockedToolchainV1`（无 Core.Source/CLI）；
+private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
+`finalizeMaterializedArtifactsV1` → Evm/Near/Solana/Noir FinalizeV1 adapters；
+CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
+exact on-disk v2alpha1/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
+dev/ci。仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
+ToolchainIdentity/SemanticProgramV1 直连 Plan 完成态。formal task状态与
 release qualification仍按各自真实条件变化，不由本恢复文档代签。
