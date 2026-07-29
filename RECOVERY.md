@@ -37,6 +37,36 @@ ValidatedSourceV1
 5. qualification代码继续按 [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 隔离，
    不混入产品迁移。
 
+## 工程迁移完成口径
+
+当前仍**不是**新架构迁移完成态。只有以下条件全部满足，才能把 engineering migration 写成完成：
+
+1. CLI source path 只走 supervised safe-open → worker，产品 `IO.FS.readFile`、双 open 与 fallback 归零。
+2. shipped ProgramV1 产品表面都经 CheckV1 → NormalizeV1 生成 structure-valid `SemanticProgramV1`，不再仅是 Counter-like S1。
+3. `CompiledProgramV1` 不再是 dual-carrier；`alphaResidual` / `alphaResidualOf` / `Semantic.fromTyped` 无产品调用。
+4. `ProgramRequirementsV1` 是唯一 requirement authority；不存在 V1 freeze、alpha `deriveRequirements`、未接线 Infer 三轨并存。
+5. EVM/Solana/NEAR/Noir 四个 Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
+6. 产品可达 registry digest、SupportClaim/decision、BuildIdentity、Plan/IR identity 与 `OutputSetV1` 已接线，v2alpha1 transitional sidecars 退役。
+7. legacy `Core/Source`、alpha Typed/Semantic 与旧 compiler入口的产品 consumer 归零；测试先迁后删。
+8. 聚焦/deletion/reflection gates、`just dev-check`、普通 `just ci`、docs/SBOM 全绿。
+
+formal TASK/TST/EV/qualification 是独立轴，不由上述 engineering completion 代签；也不得用 formal pending 否定已经成为唯一产品 authority 的工程切片。
+
+## 产品迁移 Wave DAG
+
+```text
+Wave 1  D1 supervised frontend + CLI cutover
+  → Wave 2  full SemanticProgramV1 producer + requirements single authority
+           → four target SemanticProgramV1-native Plan → delete alpha dual-carrier
+  → Wave 3  SupportClaim + BuildIdentity + Materializer identity + OutputSetV1 + supervisors
+  → Wave 4  D4 EVM + D5 Solana + D6 NEAR + D7 Noir target completion
+  → Wave 5  D8 aggregate/security/repro/clean-room/review
+```
+
+当前 wave 是 **Wave 1**：B11b2 把 B11a safe-open/source read 纳入 shared killable monotonic budget并产生 live `sourceOpenFailed`；随后 B12 原子切 CLI，删除进程内 source open。与 B11b2 文件不重叠的 D1-03/04 residual 只先做精确盘点，再选择单个 bounded slice。
+
+并发规则：`main` 是唯一集成权威。允许从 exact clean `main` 创建临时隔离 worktree 推进接口已冻结、文件 allowlist 完全不重叠的 leaf lanes；worker 不编辑 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、实现日志、umbrella、suite注册、`lakefile.lean`、justfile或SBOM pin。主代理只读审查并串行集成，聚合门禁通过后立即删除临时 worktree/branch。shared-core cutover、文档、package pin与提交始终串行。
+
 ## 当前结果
 
 - `docs-check`/`dev-check`/`ci` 已不再运行 Stage-0 或 TaskQualification；历史审计由
