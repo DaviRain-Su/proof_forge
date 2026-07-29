@@ -120,12 +120,19 @@ if [[ "$OVER_LIMIT_SIZE" != "$((16 * 1024 * 1024 + 1))" ]]; then
   exit 1
 fi
 
-# ---- Failure vectors: exact diagnostics, zero output, no success stdout ----
+# ---- Failure vectors: exact diagnostics, exit 3, zero output, no success stdout ----
 for fixture in identity-over-limit namespace-over-limit namespace-and-expression-over-limit \
                expression-over-limit nodes-over-limit source-over-limit; do
   out="${fixture}-out"
-  if run_cli "${fixture}.lean" "$out"; then
+  ec=0
+  run_cli "${fixture}.lean" "$out" || ec=$?
+  if [[ "$ec" -eq 0 ]]; then
     echo "$fixture: unexpectedly succeeded" >&2
+    cat "$LOG_DIR/${fixture}.lean.cli.log" >&2
+    exit 1
+  fi
+  if [[ "$ec" -ne 3 ]]; then
+    echo "$fixture: expected exit 3, got $ec" >&2
     cat "$LOG_DIR/${fixture}.lean.cli.log" >&2
     exit 1
   fi

@@ -14,6 +14,15 @@ normative: false
 
 
 
+## 2026-07-29 — B8b product diagnostic bundle cutover
+
+- Context/State：B8a 已提供 inert `DiagnosticBundleV1`/`DiagnosticResultV1`/`mkFailureBundleV1`/`selectExitCode`；产品仍经 `selectProgramV1` + `compileValidatedSourceV1` 单错误 `CompileError`（含 Pipeline `diags[0]?`）。本切片 engineering-only 做 sole atomic B8b product cutover；**不**做 formal TASK/TST/EV、JSON envelope/receipts、Emit/Toolchain bundle、OutputSet 或 target maturity。
+- RED/Changed（tests first）：新增 `testdata/invalid/DiagnosticMultiV1.lean`、`Tests/Compiler/DiagnosticPipelineV1.lean`、`Tests/CLI/DiagnosticsV1.lean`；迁移 `ProgramV1Diagnostics` 离 `*WithDiagnostics`；注册 lakefile/`Tests`/`Tests.Fast`。实现前真实 RED：product APIs 缺失（`selectProgramV1Product` / `normalizeProgramLocatedV1` / `compileProgramProductV1` absent）；CLI multi-error 仍单错误/uncaught exception exit 1。
+- Production：`Loader.selectProgramV1Product` 单次 syntax-preserving parse/select→SpanJoin→OriginJoin→`DiagnosticResultV1`；删除 `*WithDiagnostics` 与 raw array failure carrier。`NormalizeV1.normalizeProgramLocatedV1` 仅调 `checkProgramTypedLocatedResultV1` 一次 + `mkFailureBundleV1` 全量 located diags，再 S1 lower；unlocated `normalizeProgramV1` 保留非产品。`Compiler.compileProgramProductV1` 保留完整 bundle，residual alpha 失败 fail-closed 安全结构化诊断（无 PF-SEM 泄漏）；删除 Pipeline `diags[0]?`/`compileErrorFromDiagnosticV1`/`compileErrorFromNormalizeV1`；`compileValidatedSourceV1` 仅非产品 fixture 便利。CLI `build`/`build-counter` 仅 product chain；stderr 全量 human；`selectExitCode`；usage exit 2；Counter 逻辑路径 `Examples/Counter.lean`。`source-bounds` 固定失败 exit 3；`product-negative` 固定 usage exit 2 / bad-module exit 3。
+- Repair（P1/P2 + orchestrator audit）：`parseTarget` 未知 `--target` 改 `failUsage` exit 2 plain message（禁止 `IO.userError`/`CompileError.render`/uncaught exit 1）；`Tests.CLI.DiagnosticsV1` 增 unknown-target exit 2 与 `build-counter` success exit 0，并修正 parser-boundary 的 `--root` 相对 output 检查到真实 destination；`source-frontend` sole product 入口改为 `selectProgramV1Product`、产品 Typed 诊断 authority 改为 located Normalize 并移除 live `*WithDiagnostics` 声称；`MIGRATION_MATRIX` D1 结论/D1-02/D1-06 产品 CLI、legacy source-reader 删除事实与 D1-07 B6/B8b 接线同步；`RECOVERY.md` 与 `Typed/CheckV1.lean` header 同步 located product authority。
+- Docs：`docs/specs/diagnostics.md` / `cli.md` / `modules/source-frontend.md` / `cli-orchestrator.md` / `AGENTS.md` / `MIGRATION_MATRIX.md` / 本日志；formal `TASK-D1-07` 仍 pending；Emit/Toolchain 未声称迁 bundle。
+- Boundary：无 JSON envelope/receipts、无 worker/safe-open、无 OutputSet、无 formal/release；global alpha `CompileError`/`CompileResult` 保留。
+
 ## 2026-07-29 — B8a DiagnosticBundleV1 / DiagnosticResultV1 foundation
 
 - Context/State：B6–B7b 已交付结构化 `DiagnosticV1`、path locate 与 CheckV1 draft composition；`normalizeDiagnosticBundleV1` 仍无 public failure-bundle 载体。本切片工程-only 引入 inert `DiagnosticBundleV1`/`DiagnosticResultV1` 地基，**不**接线 Loader/Normalize/Compiler/CLI 产品路径，**不**改 alpha `CompileResult`/`CompileError`，不做 B8b product cutover 或 formal TASK/TST/EV。

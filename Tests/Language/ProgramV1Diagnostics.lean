@@ -1,5 +1,12 @@
+/-
+  Loader product diagnostic surface (B8b).
+
+  Migrated off obsolete raw `*WithDiagnostics` APIs onto sole product
+  `selectProgramV1Product` → `DiagnosticResultV1` / `DiagnosticBundleV1`.
+-/
 import Tests.Language.ParserSession
 import ProofForgeV2.Language.Loader
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.Common
 
@@ -7,6 +14,7 @@ namespace Tests.Language.ProgramV1Diagnostics
 
 open ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.SpanV1
 
@@ -74,6 +82,11 @@ private def multipleProgramsSource : String :=
   "  view get() : UInt64 do\n" ++
   "    return 1\n"
 
+private def soleDiag (label : String) (bundle : DiagnosticBundleV1) : IO DiagnosticV1 := do
+  let diagnostics := DiagnosticBundleV1.diagnostics bundle
+  expect (diagnostics.size == 1) s!"{label} must return exactly one diagnostic"
+  pure diagnostics[0]!
+
 private unsafe def runResourceBoundTest : IO DiagnosticV1 := do
   let oversizedSource := mkOversizedSource
   let session ← Tests.Language.ParserSession.shared
@@ -81,10 +94,9 @@ private unsafe def runResourceBoundTest : IO DiagnosticV1 := do
   let (legacyMessage, legacyCode) ← match legacy with
     | .error e => pure (e.message, e.code)
     | .ok _ => throw <| IO.userError "oversized source unexpectedly passed legacy loader"
-  match ← session.selectProgramV1WithDiagnostics oversizedSource fileName "Root" none with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1) "resource-bound error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product oversizedSource fileName "Root" none with
+  | .error bundle =>
+      let diag ← soleDiag "resource-bound" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "oversized source diagnostic code must stay PF-SRC-INVALID per SPEC-DIAG-001"
       expect (diag.message == "source exceeds the 16 MiB limit")
@@ -99,7 +111,7 @@ private unsafe def runResourceBoundTest : IO DiagnosticV1 := do
         "source-size diagnostic message must match legacy message body"
       pure diag
   | .ok _ =>
-      throw <| IO.userError "oversized source unexpectedly passed diagnostics loader"
+      throw <| IO.userError "oversized source unexpectedly passed product loader"
 
 private unsafe def runParserBoundaryTest : IO DiagnosticV1 := do
   let session ← Tests.Language.ParserSession.shared
@@ -107,10 +119,9 @@ private unsafe def runParserBoundaryTest : IO DiagnosticV1 := do
   let legacyRender ← match legacy with
     | .error e => pure e.render
     | .ok _ => throw <| IO.userError "parser-boundary source unexpectedly passed legacy loader"
-  match ← session.selectProgramV1WithDiagnostics parserBoundarySource fileName "Root" none with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1) "parser-boundary error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product parserBoundarySource fileName "Root" none with
+  | .error bundle =>
+      let diag ← soleDiag "parser-boundary" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "parser-boundary diagnostic code must be PF-SRC-INVALID"
       expect (diag.message == "Lean parser rejected source: failed to parse file")
@@ -135,7 +146,7 @@ private unsafe def runParserBoundaryTest : IO DiagnosticV1 := do
         "parser-boundary related must be empty"
       pure diag
   | .ok _ =>
-      throw <| IO.userError "parser-boundary source unexpectedly passed diagnostics loader"
+      throw <| IO.userError "parser-boundary source unexpectedly passed product loader"
 
 private unsafe def runDuplicateTest : IO DiagnosticV1 := do
   let session ← Tests.Language.ParserSession.shared
@@ -150,10 +161,9 @@ private unsafe def runDuplicateTest : IO DiagnosticV1 := do
       | some second => pure second
       | none => throw <| IO.userError "could not locate second program keyword"
     | none => throw <| IO.userError "could not locate first program keyword"
-  match ← session.selectProgramV1WithDiagnostics duplicateSource fileName "Root" none with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1) "duplicate-program error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product duplicateSource fileName "Root" none with
+  | .error bundle =>
+      let diag ← soleDiag "duplicate-program" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "duplicate-program diagnostic code must be PF-SRC-INVALID"
       expect (diag.message == "duplicate program 'Root.Dup'")
@@ -180,7 +190,7 @@ private unsafe def runDuplicateTest : IO DiagnosticV1 := do
         "duplicate-program related must be empty"
       pure diag
   | .ok _ =>
-      throw <| IO.userError "duplicate source unexpectedly passed diagnostics loader"
+      throw <| IO.userError "duplicate source unexpectedly passed product loader"
 
 private unsafe def runDecoderInternalTest : IO DiagnosticV1 := do
   let session ← Tests.Language.ParserSession.shared
@@ -188,11 +198,9 @@ private unsafe def runDecoderInternalTest : IO DiagnosticV1 := do
   let legacyRender ← match legacy with
     | .error e => pure e.render
     | .ok _ => throw <| IO.userError "decoder-internal source unexpectedly passed legacy loader"
-  match ← session.selectProgramV1WithDiagnostics decoderInternalSource fileName "Root" none with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1)
-        "decoder-internal error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product decoderInternalSource fileName "Root" none with
+  | .error bundle =>
+      let diag ← soleDiag "decoder-internal" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "decoder-internal diagnostic code must be PF-SRC-INVALID"
       expect (diag.message == "Lean command is outside the portable program DSL")
@@ -205,7 +213,7 @@ private unsafe def runDecoderInternalTest : IO DiagnosticV1 := do
         "decoder-internal related must be empty"
       pure diag
   | .ok _ =>
-      throw <| IO.userError "decoder-internal source unexpectedly passed diagnostics loader"
+      throw <| IO.userError "decoder-internal source unexpectedly passed product loader"
 
 private unsafe def runMultipleProgramsSelectionTest : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -213,10 +221,9 @@ private unsafe def runMultipleProgramsSelectionTest : IO Unit := do
   let legacyRender ← match legacy with
     | .error e => pure e.render
     | .ok _ => throw <| IO.userError "multiple-program source unexpectedly passed legacy loader"
-  match ← session.selectProgramV1WithDiagnostics multipleProgramsSource fileName "Root" none with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1) "multiple-program selection error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product multipleProgramsSource fileName "Root" none with
+  | .error bundle =>
+      let diag ← soleDiag "multiple-program selection" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "multiple-program selection diagnostic code must be PF-SRC-INVALID"
       expect (diag.message == "source contains multiple programs; pass --program <qualified-name>")
@@ -226,7 +233,7 @@ private unsafe def runMultipleProgramsSelectionTest : IO Unit := do
       expect (diag.primary == none)
         "multiple-program selection diagnostic must carry no primary origin"
   | .ok _ =>
-      throw <| IO.userError "multiple-program source unexpectedly passed diagnostics loader"
+      throw <| IO.userError "multiple-program source unexpectedly passed product loader"
 
 private unsafe def runMissingProgramTest : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -234,10 +241,9 @@ private unsafe def runMissingProgramTest : IO Unit := do
   let legacyRender ← match legacy with
     | .error e => pure e.render
     | .ok _ => throw <| IO.userError "missing-program request unexpectedly passed legacy loader"
-  match ← session.selectProgramV1WithDiagnostics validSingleSource fileName "Root" (some "Root.Missing") with
-  | .error diagnostics =>
-      expect (diagnostics.size == 1) "missing-program error must return exactly one diagnostic"
-      let diag := diagnostics[0]!
+  match ← session.selectProgramV1Product validSingleSource fileName "Root" (some "Root.Missing") with
+  | .error bundle =>
+      let diag ← soleDiag "missing-program" bundle
       expect (diag.code.wire == "PF-SRC-INVALID")
         "missing-program diagnostic code must be PF-SRC-INVALID"
       expect (diag.message == "program 'Root.Missing' was not found")
@@ -247,24 +253,21 @@ private unsafe def runMissingProgramTest : IO Unit := do
       expect (diag.primary == none)
         "missing-program diagnostic must carry no primary origin"
   | .ok _ =>
-      throw <| IO.userError "missing-program request unexpectedly passed diagnostics loader"
+      throw <| IO.userError "missing-program request unexpectedly passed product loader"
 
 private unsafe def runSuccessPathTest : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  match ← session.parseProgramsV1WithDiagnostics validSingleSource fileName "Root" with
-  | .ok programs =>
-      expect (programs.size == 1) "valid source must produce exactly one program"
-      match programs[0]? with
-      | some prog =>
-          let identityComponents := NonEmptyArray.toArray prog.programIdentity.components
-          match identityComponents with
-          | #[_, c] =>
-              expect (c.raw == "Counter")
-                "valid program declaration name must be Counter"
-          | _ => throw <| IO.userError "valid program identity must be module.name qualified"
-      | none => throw <| IO.userError "valid source must produce exactly one program"
-  | .error diagnostics =>
-      throw <| IO.userError s!"valid source unexpectedly failed diagnostics loader: {diagnostics.map (·.message)}"
+  match ← session.selectProgramV1Product validSingleSource fileName "Root" none with
+  | .ok (prog, _inv) =>
+      let identityComponents := NonEmptyArray.toArray prog.programIdentity.components
+      match identityComponents with
+      | #[_, c] =>
+          expect (c.raw == "Counter")
+            "valid program declaration name must be Counter"
+      | _ => throw <| IO.userError "valid program identity must be module.name qualified"
+  | .error bundle =>
+      throw <| IO.userError
+        s!"valid source unexpectedly failed product loader: {DiagnosticBundleV1.renderHuman bundle}"
 
 private def testCanonicalJsonRoundTrip (diag : DiagnosticV1) : IO Unit := do
   match diag.toCanonicalJson with

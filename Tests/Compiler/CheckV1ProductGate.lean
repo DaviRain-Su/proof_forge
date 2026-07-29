@@ -192,6 +192,8 @@ def runAst : IO Unit := do
   expectNormalizeOk "accumulator-ast-normalize" acc
 
   -- Type-only: Bool return from UInt64 entry → PF-SRC-INVALID type mismatch.
+  -- Full multi-error product bundle path is covered by DiagnosticPipelineV1;
+  -- non-product compileValidatedSourceV1 remains a fixture convenience.
   let typeOnly ← validated moduleQ identity demo #[
     .entry (mkEntry runN (ret (.literal (.bool true))))]
   expectRender "type-only"

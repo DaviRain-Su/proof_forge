@@ -1,21 +1,25 @@
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Compiler
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
 /-- Compatibility compiler entry for hand-built alpha fixtures. Product source
-loading uses `compileValidatedSourceV1`; this function does not participate in
-the ProgramV1 frontend path. -/
+loading uses `compileProgramProductV1`; this function does not participate in
+the ProgramV1 product frontend path. -/
 def compile (source : Source.Program) : CompileResult Semantic.Program := do
   let typed ← Typed.check source
   return Semantic.fromTyped source.sourceHash typed
@@ -41,17 +45,6 @@ private def semanticSourceHash (source : ValidatedSourceV1) : CompileResult Stri
       "validated ProgramV1 source hash must contain 64 lowercase hex characters"
   pure suffix
 
-/-- Map a multi-pass `DiagnosticV1` onto the single-error product carrier.
-    Wire codes stay stable: PF-BOUND-001 / PF-EFFECT-001 / PF-VIS-001 /
-    PF-SRC-INVALID (and PF-INTERNAL → invalidProgram). Local replica of the
-    TypedV1 private mapper so Pipeline stays independent of TypedV1 internals. -/
-private def compileErrorFromDiagnosticV1 (diag : DiagnosticV1) : CompileError :=
-  match diag.code with
-  | .resourceBound => .resourceBound diag.message
-  | .effectDisallowed => .effectDisallowed diag.message
-  | .visibilityViolation => .visibilityViolation diag.message
-  | _ => .invalidProgram diag.message
-
 /-- Closed, hand-written summary for structure-gate wire failures.
     Stable product text — never Lean `repr` (not a contract). -/
 private def renderSemanticWireErrorSummaryV1 : SemanticWireErrorV1 → String
@@ -70,43 +63,83 @@ private def renderSemanticWireErrorSummaryV1 : SemanticWireErrorV1 → String
   | .badProvenance => "badProvenance"
   | .trailingBytes => "trailingBytes"
 
-/-- Product `invalidProgram` message for Normalize `.wire` failures. -/
+/-- Product `invalidProgram` message for Normalize `.wire` failures (non-product). -/
 def productMessageFromWireErrorV1 (e : SemanticWireErrorV1) : String :=
   s!"semantic structure gate: {renderSemanticWireErrorSummaryV1 e}"
 
-/-- Map NormalizeV1 failures to product `CompileError`.
-    * `.typedNotOk` preserves exact CheckV1 phase-ordered wires
-      (resourceBound / effectDisallowed / visibilityViolation / invalidProgram).
-    * `.unsupported` / `.identity` / `.wire` map to stable `invalidProgram`
-      text (no new formal DiagnosticCode inventing). -/
-private def compileErrorFromNormalizeV1 (err : NormalizeErrorV1) : CompileError :=
+/-- Map residual alpha `CompileError` into a structured failure bundle.
+    Never leaks alpha `PF-SEM-*` codes onto the product diagnostic surface. -/
+private def residualAlphaFailureBundle (err : CompileError) : DiagnosticBundleV1 :=
   match err with
-  | .typedNotOk diags =>
-      match diags[0]? with
-      | some diag => compileErrorFromDiagnosticV1 diag
-      | none => .invalidProgram "typed multi-pass analysis incomplete"
-  | .unsupported detail => .invalidProgram detail
-  | .identity detail => .invalidProgram detail
-  | .wire e => .invalidProgram (productMessageFromWireErrorV1 e)
+  | .effectDisallowed msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .effectDisallowed msg]
+  | .visibilityViolation msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .visibilityViolation msg]
+  | .resourceBound msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .resourceBound msg]
+  | .invalidProgram msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .sourceInvalid msg]
+  | _ =>
+      mkFailureBundleV1 #[
+        DiagnosticV1.make .internal "residual materialization failed"
+          (actual := some (PfJson.string "residualAlpha"))]
 
-/-- Production target-neutral compiler boundary for ProgramV1.
+/-- Sole product compiler entry (B8b).
 
-    Gate order (S3):
-    1. `NormalizeV1.normalizeProgramV1` — CheckV1 (ok ∧ analysisComplete) then
-       S1 lowering into structure-gated `SemanticProgramV1` (sole success path).
-    2. On Normalize success only: residual alpha `Typed.checkV1` +
-       `Semantic.fromTyped` so Registry / EVM / NEAR / Solana / Noir Plan APIs
-       continue to consume alpha `Semantic.Program` without adapter or dual path.
+    Gate order:
+    1. `NormalizeV1.normalizeProgramLocatedV1` — located CheckV1 (ok ∧
+       analysisComplete) then S1 structure-gated SemanticProgramV1. Preserves
+       the complete diagnostic bundle (no first-error truncation).
+    2. On located Normalize success only: residual alpha `Typed.checkV1` +
+       `Semantic.fromTyped` for Registry / EVM / NEAR / Solana / Noir Plan APIs.
 
     Fail closed: Normalize rejection never falls back to alpha-only compile.
-    No flag, dual source reader, alpha→SemanticProgramV1 adapter, or
-    target-specific semantic branch. The Normalize carrier is discarded after
-    the gate; residual materializers stay on alpha Semantic. -/
+    Impossible residual alpha failures become public-safe structured diagnostics
+    (no `PF-SEM-*` leakage). Pattern-matches `DiagnosticResultV1` only.
+-/
+def compileProgramProductV1
+    (source : ValidatedSourceV1) (inv : OriginInventoryV1) :
+    DiagnosticResultV1 Semantic.Program :=
+  match normalizeProgramLocatedV1 source inv with
+  | .error bundle => .error bundle
+  | .ok _carrier =>
+      match Typed.checkV1 source with
+      | .error err => .error (residualAlphaFailureBundle err)
+      | .ok typed =>
+          match semanticSourceHash source with
+          | .error err => .error (residualAlphaFailureBundle err)
+          | .ok sourceHash =>
+              .ok (Semantic.fromTyped sourceHash typed)
+
+/-- Non-product typed-not-ok mapping for hand-built fixtures only.
+
+    Takes the first phase-ordered multipass diagnostic (CheckV1 order; not
+    `mkFailureBundleV1` sort). Product paths must use `compileProgramProductV1`
+    and never erase a bundle to a single `CompileError`.
+-/
+private def nonProductTypedNotOk (diags : Array DiagnosticV1) : CompileError :=
+  match diags.toList with
+  | [] => .invalidProgram "typed multi-pass analysis incomplete"
+  | d :: _ =>
+      match d.code with
+      | .resourceBound => .resourceBound d.message
+      | .effectDisallowed => .effectDisallowed d.message
+      | .visibilityViolation => .visibilityViolation d.message
+      | _ => .invalidProgram d.message
+
+/-- Non-product compatibility compiler for hand-built `ValidatedSourceV1` fixtures.
+
+    Uses unlocated `normalizeProgramV1`. Typed multi-pass failures map via
+    `nonProductTypedNotOk` (fixture convenience only). Product Loader/CLI must
+    use `compileProgramProductV1` and preserve full `DiagnosticBundleV1`.
+-/
 def compileValidatedSourceV1 (source : ValidatedSourceV1) : CompileResult Semantic.Program := do
   match normalizeProgramV1 source with
-  | .error err => .error (compileErrorFromNormalizeV1 err)
+  | .error (.typedNotOk diags) => .error (nonProductTypedNotOk diags)
+  | .error (.unsupported detail) => .error (.invalidProgram detail)
+  | .error (.identity detail) => .error (.invalidProgram detail)
+  | .error (.wire e) => .error (.invalidProgram (productMessageFromWireErrorV1 e))
   | .ok _carrier =>
-      -- Residual alpha carrier for current Registry/target materializers.
       let typed ← Typed.checkV1 source
       let sourceHash ← semanticSourceHash source
       pure (Semantic.fromTyped sourceHash typed)

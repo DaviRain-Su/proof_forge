@@ -29,21 +29,23 @@
   phases still run so multi-error reporting is useful (e.g. call-graph cycle +
   type error + bound cycle + disclosure share one composed result).
 
-  Product wiring: `Typed.checkV1` runs the unlocated multi-pass checker as a
-  fail-closed gate before alpha supported-shape validation and alpha Typed IR
-  lowering.  `compileValidatedSourceV1` / CLI `build` inherit the gate via that
-  single product Typed boundary (no dual source readers; alpha IR lowering
-  retained).  Located CheckV1 APIs are additive engineering surfaces only —
-  B8 public DiagnosticBundle / CLI multi-error wiring remains pending.
+  Product wiring (B8b engineering): `normalizeProgramLocatedV1` invokes
+  `checkProgramTypedLocatedResultV1` exactly once on the sourceHash-bound
+  `OriginInventoryV1`; this located result is the product diagnostic authority
+  and reaches CLI through `DiagnosticBundleV1` without first-error erasure.
+  `Typed.checkV1` remains a residual alpha supported-shape / Typed-IR lowering
+  path after located Normalize success; its unlocated `CompileError` projection
+  is not the product diagnostic authority.
 
   Deliberately outside this composition module:
-    * replacing alpha Typed/Semantic IR lowering
+    * replacing residual alpha Typed/Semantic IR lowering
     * authority / custody analysis and disclosure.commit operator
     * formal full-coverage TST-VIS-002 / TASK-D2-04 (engineering subset only)
     * SemanticProgramV1 / provenance / exact resolver / OutputSetV1
     * unifying CallGraph `.sourceInvalid` cycles with Bound `.resourceBound`
     * new DiagnosticCodeV1 constructors beyond those owned by existing phases
-    * B8 public compiler/CLI DiagnosticBundle normalize/sort/dedupe/cap
+    * DiagnosticBundle normalization/rendering and CLI orchestration (owned by
+      Core/Normalize/Compiler/CLI B8b surfaces)
     * formal TASK-D2-* completion claims
 -/
 import ProofForgeV2.Core.Common

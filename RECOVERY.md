@@ -41,8 +41,10 @@ ValidatedSourceV1
 
 - `docs-check`/`dev-check`/`ci` 已不再运行 Stage-0 或 TaskQualification；历史审计由
   `governance-check` 显式运行，release host preflight 在当前主机准确返回 `PF-HOST-INELIGIBLE`。
-- CLI `build`/`build-counter` 只调用 `selectProgramV1` 与 `compileValidatedSourceV1`；
-  `Typed.checkV1` 直接消费 ProgramV1，不构造 legacy `Source.Program`。
+- CLI `build`/`build-counter` 产品诊断路径只调用 `selectProgramV1Product` →
+  `normalizeProgramLocatedV1` → `compileProgramProductV1`，保留完整 located
+  `DiagnosticBundleV1` 并按 `selectExitCode` 退出；成功后仍由 residual alpha
+  `Typed.checkV1` 直接消费 ProgramV1 供现有 materializer 使用，不构造 legacy `Source.Program`。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成

@@ -20,6 +20,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.TypedNameIndex,
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
+    `Tests.Compiler.DiagnosticPipelineV1,
     `Tests.Typed.NameResolutionV1,
     `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
@@ -124,6 +125,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.CounterV1Evm,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,
+    `Tests.CLI.DiagnosticsV1,
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1
   ]

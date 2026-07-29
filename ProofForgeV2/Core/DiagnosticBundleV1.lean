@@ -30,9 +30,12 @@
   `DiagnosticResultV1` is a product-only foundation type and does not replace
   or modify global alpha `CompileResult` / `CompileError`.
 
-  B8a is engineering-only and inert: no Loader / Normalize / Compiler / CLI
-  product callers. B8b performs the sole atomic product cutover. Formal
-  TASK-D1-07 remains pending.
+  B8a delivered this inert foundation. **B8b** (engineering) performs the sole
+  atomic product cutover: Loader → located Normalize → Compiler → CLI consume
+  `DiagnosticResultV1` / `mkFailureBundleV1` / `selectExitCode` without first-
+  error truncation. Formal TASK-D1-07 remains pending. Full JSON result
+  envelope/receipts, Emit/Toolchain bundle migration, and OutputSet remain
+  out of scope.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticV1

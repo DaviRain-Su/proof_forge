@@ -161,13 +161,17 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 多个 diagnostics 取最高优先级：70 > 7 > 6 > 5 > 4 > 3 > 2。
 
-### B8a engineering note（非 product cutover）
+### B8b product diagnostic exit（engineering）
 
-`ProofForgeV2/Core/DiagnosticBundleV1.lean` 提供 inert `DiagnosticBundleV1.selectExitCode`：
-仅考虑 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note 中立；`PF-INTERNAL` → 70；phase
-deploy/verify → 7；emit/tool → 6；plan/lower → 5；resolve → 4；source/type/effect/semantic → 3。
-**B8a 未接线** CLI/compiler 产品路径；alpha 单错误 `CompileError` exit 行为不变。**B8b** 才做
-sole atomic product cutover；formal `TASK-D1-07` 仍 pending。
+`build` / `build-counter` 产品路径经 Loader product → located Normalize → product Compiler，
+失败时 stderr 一次打印全部 `DiagnosticBundleV1.renderHuman` 行，exit 为
+`DiagnosticBundleV1.selectExitCode`：仅 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note
+中立；`PF-INTERNAL` → 70；phase deploy/verify → 7；emit/tool → 6；plan/lower → 5；
+resolve → 4；source/type/effect/semantic → 3。CLI usage/config（缺 `--module`/未知选项/
+未知 `--target`/非法 argv）**exit 2**（`failUsage` plain message），**不是** diagnostic，
+且不发明 `PF-CLI-USAGE`、不 throw `CompileError.render` / uncaught-exception exit 1。
+Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。Full JSON
+result envelope/receipts 与 formal `TASK-D1-07` 仍 pending。
 
 ## Secret、Inputs 与副作用
 

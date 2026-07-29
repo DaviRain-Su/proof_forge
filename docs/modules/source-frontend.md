@@ -53,18 +53,23 @@ overflow state，并在退回合法 scope 后才构造 identity。CLI 不 elabor
 
 ## 迁移与兼容边界
 
-**sole source-reading 入口**为 `parseProgramsV1` / `selectProgramV1`（及 additive
-`selectProgramV1WithSpans` / `selectProgramV1WithOrigins` / `*WithDiagnostics`）。
-`WithOrigins` 在同一 immutable snapshot 上串联 SpanJoin→OriginJoin，产出 opaque
-`OriginInventoryV1`（identity/canonical bytes/sourceHash 不变）。legacy source-reading/export decoder 家族
-（`parsePrograms`/`selectProgram`、`decodeProgramCommandChecked`、`decodeType`/`Param`/`Expr`/
-`Statement`/`Item`/`Program`、`proof-forge.program-export.v1` payload 路径）**已删除**；产品
-路径禁止 dual reader、legacy→ProgramV1 adapter 或第二套 ProgramV1 decoder。残存 alpha
-`Core/Source` / Typed-alpha carriers（若仍存在）仅供 D2 consumer 清理，**不是**产品 dual
-reader，也不得从 CLI/Loader 重新挂回。
+**sole product Loader 入口**为 `selectProgramV1Product`：同一 parser snapshot 上 parse/select →
+SpanJoin → OriginJoin，返回 `DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)`。
+**非产品库 API** 为 `parseProgramsV1` / `selectProgramV1` / `selectProgramV1WithSpans` /
+`selectProgramV1WithOrigins`（`WithOrigins` 在同一 immutable snapshot 上串联 SpanJoin→OriginJoin，
+产出 opaque `OriginInventoryV1`；identity/canonical bytes/sourceHash 不变）。
+已删除的 raw `*WithDiagnostics` / `Except (Array DiagnosticV1)` failure carrier **不得**复活。
+legacy source-reading/export decoder 家族（`parsePrograms`/`selectProgram`、
+`decodeProgramCommandChecked`、`decodeType`/`Param`/`Expr`/`Statement`/`Item`/`Program`、
+`proof-forge.program-export.v1` payload 路径）**已删除**；产品路径禁止 dual reader、
+legacy→ProgramV1 adapter 或第二套 ProgramV1 decoder。残存 alpha `Core/Source` /
+Typed-alpha carriers（若仍存在）仅供 D2 consumer 清理，**不是**产品 dual reader，
+也不得从 CLI/Loader 重新挂回。
 
-ProgramV1 到 Typed 的产品边界是 `Typed.checkV1`，它直接消费 `ValidatedSourceV1`，不构造
-legacy `Source.Program`。source hash 只来自 `sourceHashV1`。NodeId 由
+ProgramV1 的产品诊断 Typed 边界是 `normalizeProgramLocatedV1` 对
+`checkProgramTypedLocatedResultV1` 的单次调用；成功后 residual alpha `Typed.checkV1` 只负责
+现有 Typed IR/materializer bridge，不是产品诊断 authority。两者都直接消费
+`ValidatedSourceV1`，不构造 legacy `Source.Program`。source hash 只来自 `sourceHashV1`。NodeId 由
 `assignNodeIdsV1(moduleName, programIdentity, program)` 从 validated source 派生；文件路径、span、
 comment 与 allocation history 不参与 identity/hash。
 
@@ -93,9 +98,12 @@ negotiation、unknown/disabled/nonunique default。**`languageVersion` 永不进
 inventory exact lookup → `nodeId=some`）与 `NodeTraversalV1.childPathV1` sole path helpers。
 **B7b1–B7b3d** 工程已完成：Typed 各 producer 产出 canonical primary/related path drafts，且
 `CheckV1` 提供 additive、`sourceHash`-gated located API（`checkProgramTypedLocated*`）；
-不得把该工程 API 写成 public compiler/CLI multi-error 产品接线。**B8** public compiler/CLI
-`DiagnosticBundle` 仍 pending。不得把 B7a/B7b 写成 formal D1/D2 完成、release 完成或
-contained frontend 完成；formal 与 release 仍 unassessed/pending。
+**B8b** 已接线 sole product Loader 入口 `selectProgramV1Product`：同一 parser snapshot 上
+parse/select → SpanJoin → OriginJoin，返回 `DiagnosticResultV1 (ValidatedSourceV1 ×
+OriginInventoryV1)`；产品路径不再使用 raw diagnostic-array carrier 或
+`*WithDiagnostics`。非产品兼容面保留 `selectProgramV1` / `WithSpans` / `WithOrigins`。
+不得把 B8b 工程 cutover 写成 formal D1/D2 完成、release 完成或 contained frontend 完成；
+formal 与 release 仍 unassessed/pending。
 
 ## 边界与验收
 

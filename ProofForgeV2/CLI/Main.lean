@@ -1,11 +1,13 @@
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 System
+open ProofForgeV2.Core.DiagnosticBundleV1
 
 private def usage : String :=
   "ProofForge V2 alpha\n\n" ++
@@ -15,6 +17,9 @@ private def usage : String :=
   "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>]\n" ++
   "  proof-forge-next build-counter --target <target> [-o <dir>]\n"
 
+/-- Deterministic project-relative path for the built-in Counter product path. -/
+private def counterLogicalSourcePath : String := "Examples/Counter.lean"
+
 private structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -23,10 +28,28 @@ private structure BuildOptions where
   programName : Option String := none
   root : String := "."
 
+/-- CLI usage/config failure: exit 2, plain message on stderr (not a diagnostic). -/
+private def failUsage (message : String) : IO α := do
+  IO.eprintln message
+  IO.Process.exit 2
+
+/-- Product diagnostic failure: full human bundle on stderr, no success stdout,
+    exact `DiagnosticBundleV1.selectExitCode`. -/
+private def failBundle (bundle : DiagnosticBundleV1) : IO α := do
+  let text := DiagnosticBundleV1.renderHuman bundle
+  unless text.isEmpty do
+    IO.eprintln text
+  let code := DiagnosticBundleV1.selectExitCode bundle
+  let exitByte : UInt8 :=
+    if code ≥ 256 then 70 else UInt8.ofNat code
+  IO.Process.exit exitByte
+
+/-- Argv target parse: usage/config exit 2 (plain message). Not a product
+    diagnostic and must not throw `IO.userError` / uncaught-exception exit 1. -/
 private def parseTarget (value : String) : IO TargetId :=
   match TargetId.parse? value with
   | some target => pure target
-  | none => throw <| IO.userError <| (CompileError.unknownTarget value).render
+  | none => failUsage s!"unknown target '{value}'"
 
 private partial def parseBuildArgs (args : List String) (options : BuildOptions := {}) : IO BuildOptions := do
   match args with
@@ -38,68 +61,72 @@ private partial def parseBuildArgs (args : List String) (options : BuildOptions 
   | "--root" :: value :: rest => parseBuildArgs rest { options with root := value }
   | value :: rest =>
       if value.startsWith "-" then
-        throw <| IO.userError s!"unknown option '{value}'"
+        failUsage s!"unknown option '{value}'"
       else if options.source.isSome then
-        throw <| IO.userError "only one source file may be compiled"
+        failUsage "only one source file may be compiled"
       else
         parseBuildArgs rest { options with source := some value }
 
 private def validateSourceArgument (source : String) : IO Unit := do
   unless source.endsWith ".lean" do
-    throw <| IO.userError "source path must end in .lean"
+    failUsage "source path must end in .lean"
   unless !source.startsWith "/" && !(source.splitOn "/").contains ".." do
-    throw <| IO.userError "source path must be relative to --root and cannot traverse parents"
+    failUsage "source path must be relative to --root and cannot traverse parents"
 
 private def ensureContainedSource (root source : FilePath) : IO FilePath := do
   let rootPath ← IO.FS.realPath root
   let sourcePath ← IO.FS.realPath (root / source)
   let pathPrefix := rootPath.toString ++ "/"
   unless sourcePath.toString.startsWith pathPrefix do
-    throw <| IO.userError "source symlink escapes --root"
+    failUsage "source symlink escapes --root"
   return sourcePath
-
-private def liftCompileResult (result : Except CompileError α) : IO α :=
-  match result with
-  | .ok value => pure value
-  | .error error => throw <| IO.userError error.render
 
 private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let target ← match options.target with
     | some target => pure target
-    | none => throw <| IO.userError "--target is required"
+    | none => failUsage "--target is required"
   let source ← match options.source with
     | some source => pure source
-    | none => throw <| IO.userError "source file is required"
+    | none => failUsage "source file is required"
   let moduleName ← match options.moduleName with
     | some moduleName => pure moduleName
-    | none => throw <| IO.userError "--module is required for canonical ProgramV1 identity"
+    | none => failUsage "--module is required for canonical ProgramV1 identity"
   validateSourceArgument source
   let root := FilePath.mk options.root
   unless ← root.pathExists do
-    throw <| IO.userError s!"root directory not found: {root}"
+    failUsage s!"root directory not found: {root}"
   let sourcePath ← ensureContainedSource root (FilePath.mk source)
   let sourceText ← IO.FS.readFile sourcePath
-  let sourceProgram ← liftCompileResult (←
-    Language.Loader.selectProgramV1 sourceText sourcePath.toString moduleName
-      options.programName)
-  let semanticProgram ← liftCompileResult
-    (Compiler.compileValidatedSourceV1 sourceProgram)
-  let requestedOutput := FilePath.mk options.output
-  let outputPath := if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-  let manifest ← emitProgram target semanticProgram outputPath
-  IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
+  -- Logical project-relative path for diagnostic origins (not absolute realPath).
+  let logicalPath := source
+  match ← Language.Loader.selectProgramV1Product
+      sourceText logicalPath moduleName options.programName with
+  | .error bundle => failBundle bundle
+  | .ok (sourceProgram, origins) =>
+      match Compiler.compileProgramProductV1 sourceProgram origins with
+      | .error bundle => failBundle bundle
+      | .ok semanticProgram =>
+          let requestedOutput := FilePath.mk options.output
+          let outputPath :=
+            if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
+          let manifest ← emitProgram target semanticProgram outputPath
+          IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
 
 private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let target ← match options.target with
     | some target => pure target
-    | none => throw <| IO.userError "--target is required"
+    | none => failUsage "--target is required"
   let outputDir := FilePath.mk options.output
-  let sourceProgram ← liftCompileResult (← Language.Loader.selectProgramV1
-    Examples.counterSourceText "<built-in-counter>" Examples.counterModuleNameV1 none)
-  let semanticProgram ← liftCompileResult
-    (Compiler.compileValidatedSourceV1 sourceProgram)
-  let manifest ← emitProgram target semanticProgram outputDir
-  IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
+  match ← Language.Loader.selectProgramV1Product
+      Examples.counterSourceText counterLogicalSourcePath
+      Examples.counterModuleNameV1 none with
+  | .error bundle => failBundle bundle
+  | .ok (sourceProgram, origins) =>
+      match Compiler.compileProgramProductV1 sourceProgram origins with
+      | .error bundle => failBundle bundle
+      | .ok semanticProgram =>
+          let manifest ← emitProgram target semanticProgram outputDir
+          IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
 
 private def listTargets : IO Unit := do
   for target in Targets.phase1 do
@@ -120,7 +147,9 @@ unsafe def run (args : List String) : IO Unit := do
   | ["describe-target", target] => describeTarget target
   | "build" :: rest => buildSource (← parseBuildArgs rest)
   | "build-counter" :: rest => buildCounter (← parseBuildArgs rest)
-  | _ => IO.println usage
+  | _ =>
+      IO.eprintln usage
+      IO.Process.exit 2
 
 end ProofForgeV2.CLI
 

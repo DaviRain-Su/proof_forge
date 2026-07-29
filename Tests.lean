@@ -9,6 +9,7 @@ import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
+import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Typed.NameResolutionV1
 import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
@@ -105,6 +106,7 @@ import Tests.Materialization.NoirRelationModel
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
+import Tests.CLI.DiagnosticsV1
 
 
 unsafe def main : IO Unit := do
@@ -119,6 +121,7 @@ unsafe def main : IO Unit := do
   Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
+  Tests.Compiler.DiagnosticPipelineV1.run
   Tests.Typed.NameResolutionV1.run
   Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
@@ -215,4 +218,5 @@ unsafe def main : IO Unit := do
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
+  Tests.CLI.DiagnosticsV1.run
   IO.println "proof-forge-next-tests: ok"

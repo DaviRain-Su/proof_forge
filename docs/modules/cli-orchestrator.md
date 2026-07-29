@@ -38,6 +38,12 @@ development in-process 路径若发出 observation 投影，assurance class 必�
 （`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
 controller-bound + controller-event attribution 下成立，禁止 silent fallback）。
 
+**B8b engineering：** `build`/`build-counter` 仅走 once-parsed product chain
+（`selectProgramV1Product` → `compileProgramProductV1`）；失败 stderr 全量 human bundle +
+`selectExitCode`；usage exit 2；source/type/effect/semantic 典型 exit 3。Built-in Counter
+逻辑路径为项目相对 `Examples/Counter.lean`。Full JSON envelope、supervised `receipts`、
+safe-open/worker、Emit/Toolchain typed migration 仍 out of scope。
+
 覆盖全部命令/flags、multi-program、unknown target/profile/network、exit priority、JSON/human、
 TTY、signals、private file/FD、build network prohibition、deploy bundle revalidation、proof
 mismatch、output force、parser default `1.0.0`、supervised `receipts` 形状。关联

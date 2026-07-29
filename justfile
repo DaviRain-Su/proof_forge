@@ -620,10 +620,10 @@ dsl-negative: build
 
 product-negative: build
     rm -rf build/v2/module-required-negative build/v2/module-parse-negative
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi; if [ "$ec" -ne 2 ]; then echo "missing --module must exit 2, got $ec" >&2; cat build/module-required-negative.log >&2; exit 1; fi
     rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
     test ! -e build/v2/module-required-negative
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
     rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
 

@@ -64,9 +64,16 @@ major version 内稳定。
   `DiagnosticBundleV1` / `DiagnosticResultV1` 工程地基（private constructor、sole total
   `mkFailureBundleV1` 复用 `normalizeDiagnosticBundleV1` + validate/encode、fail-closed 固定
   `PF-INTERNAL`、read-only diagnostics、deterministic human/PF-JCS array render、exit priority
-  selection）；**无** Loader/Normalize/Compiler/CLI product caller 接线。**B8b**（sole atomic
-  product multi-error cutover）与 formal `TASK-D1-07` 仍 pending。不得把已删除的 zero-sentinel
-  写入 golden，也不得把 B7a/B7b/B8a 工程子集写成 formal/B8b 完成。
+  selection）。**B8b** 已完成 sole atomic product multi-error cutover：Loader
+  `selectProgramV1Product`（单次 parse→SpanJoin→OriginJoin）→ Normalize
+  `normalizeProgramLocatedV1`（`checkProgramTypedLocatedResultV1` 一次、全量 located
+  诊断经 `mkFailureBundleV1`）→ Compiler `compileProgramProductV1`（保留完整 bundle，
+  residual alpha 失败 fail-closed 为安全结构化诊断）→ CLI `build`/`build-counter`
+  全量 `renderHuman` + `selectExitCode`；usage/config 仍 exit 2（无 `PF-CLI-USAGE`）。
+  非产品兼容面保留 unlocated `normalizeProgramV1`/`compileValidatedSourceV1`/
+  `selectProgramV1*`；**无**产品路径把 bundle 擦回单 `CompileError`。Full JSON
+  envelope/receipts、Emit/Toolchain bundle、OutputSet 与 formal `TASK-D1-07` 仍 pending。
+  不得把已删除的 zero-sentinel 写入 golden，也不得把 B8b 工程 cutover 写成 formal 完成。
 
 ### 排序、去重与 stableContext
 
@@ -196,15 +203,19 @@ expected claim 和 actual/missing；toolchain error 带预期版本/checksum、�
 路径与实际版本，但不输出敏感环境。
 
 **实现状态（工程，非 formal）**：**B6** 已实现完整 `DiagnosticV1` record/JSON codec 与
-catalog（见 `ProofForgeV2/Core/DiagnosticV1.lean` + `Tests/Core/DiagnosticV1`）；Loader 单错误
-产品路径与 Typed producers 经 `DiagnosticV1.make` 发出结构化诊断（Typed primary 多为空，
-真实节点归因见 B7）。**B7a** 已提供 Source path locate + pre-node `nodeId=null`，**B7b**
-工程已完成（含 B7b3d CheckV1 located composition）；**B8a** inert `DiagnosticBundleV1` 地基已落地
-（`ProofForgeV2/Core/DiagnosticBundleV1.lean` + `Tests/Core/DiagnosticBundleV1`；产品未接线）；
-**B8b** public compiler/CLI multi-error cutover 与 formal 仍 pending。Syntax preflight 通过
-`CompileError.resourceBound` 保留稳定 code `PF-BOUND-001`，
-human message 只说明超出的 node/nesting/identity limit。CLI 的 16 MiB parser 前文件上限仍是
-`CompileError.invalidProgram` / `PF-SRC-INVALID`；这两个边界不得在证据中混写。
+catalog（见 `ProofForgeV2/Core/DiagnosticV1.lean` + `Tests/Core/DiagnosticV1`）；Loader
+parser/selection producers 与 Typed producers 经 `DiagnosticV1.make` 发出结构化诊断，B8b
+产品入口再以 `mkFailureBundleV1` 封装（真实节点归因见 B7）。**B7a** 已提供 Source path locate +
+pre-node `nodeId=null`，**B7b**
+工程已完成（含 B7b3d CheckV1 located composition）；**B8a** inert `DiagnosticBundleV1` 地基与
+**B8b** product Loader/Normalize/Compiler/CLI multi-error cutover 已落地
+（`DiagnosticBundleV1` + `selectProgramV1Product` + `normalizeProgramLocatedV1` +
+`compileProgramProductV1` + CLI full-bundle render/exit；`Tests/CLI/DiagnosticsV1`、
+`Tests/Compiler/DiagnosticPipelineV1`）；formal 仍 pending。Syntax preflight 的产品路径以
+`DiagnosticCodeV1.resourceBound` 保留 `PF-BOUND-001`，非产品兼容面仍投影为
+`CompileError.resourceBound`；human message 只说明超出的 node/nesting/identity limit。CLI 的
+16 MiB parser 前文件上限在产品 bundle 中为 `DiagnosticCodeV1.sourceInvalid` /
+`PF-SRC-INVALID`，非产品兼容面仍为 `CompileError.invalidProgram`；这两个边界不得在证据中混写。
 
 ## 隐私与安全
 
