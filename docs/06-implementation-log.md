@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-29 — B11a native component-by-component safe-open foundation
+
+- Context/State：B10 已有非产品 one-request worker；本切片 engineering-only 落地可独立验证的 source safe-open primitive。**不**做 read deadline、killable supervisor、memory/process enforcement、receipt、CLI product cutover、contained assurance、formal TASK/TST/EV 或 target 变更。
+- RED/Changed（tests first）：先新增 `Tests/Frontend/SafeOpenV1.lean` 并注册 full/fast harness；production module 尚不存在时聚焦 build 以 missing `ProofForgeV2.Frontend.SafeOpenV1` 真实 RED。GREEN 后固定 closed fault-wire round-trip、regular/empty/repeat determinism、relative root、root/leaf/intermediate symlink、hardlink、真实 permission denied、directory/FIFO nonblocking rejection、missing，以及 full-only exact 16 MiB accept / +1 pre-read reject。并发 truncate/grow/rebind 与 device/socket 明确留 B11b host-isolated resource matrix，未伪装成已测。
+- Production：新增 `ProofForgeV2/Frontend/SafeOpenV1.lean` opaque `SafeSourceSnapshotV1` 与 closed redacted `SafeOpenFaultV1`；package-owned C FFI 从 `/` 对 trusted absolute root 与 validated `ProjectRelativePath` 逐 component `openat`，目录/leaf 均 no-follow/nonblocking/close-on-exec，parents directory-only，leaf regular 且 `st_nlink==1`。initial `fstat` 在读前强制 `<=maxSourceBytes`，读取 initial size 后探测一个 byte，再 exact 比较 fd/path device/inode/mode/link-count/size/mtime/ctime；所有成功/失败路径关闭 fd 并释放 buffer/path，未知 native label 在 Lean 边界 fail closed。
+- Build/Closure：`lakefile.lean` 新增 native static library；macOS 经 `/usr/bin/xcrun` 动态解析 active clang/SDK（尊重 `DEVELOPER_DIR`，不硬编码 `/Applications/Xcode.app`），非 macOS 使用 `getLeanCc`。历史 `proof-forge.lean-package-files.v1` schema 名保持不变，但 refresh/closure/oracle 三处 file-set 同步扩为 `ProofForgeV2/**` 下 `.lean/.c/.h`，native C 与 wrapper 已进入 committed 96-file pin。
+- Verification：重建并执行 fast/full aggregate 均通过；full suite 实际覆盖 16 MiB 边界。`just dev-check`、`just sbom`、`git diff --check` 与普通 `just ci` 均通过；唯一 warning 仍是既有 `AstSpineDecodeV1.lean` unused `termination_by`。独立集成审查发现的 permission 行为缺口与固定 Xcode 路径已修复；最终窄 C/FFI 审查 P0/P1=0，确认 ABI、所有权、fd/malloc cleanup、bounds、stat join 与 closed fault；其余 stronger filesystem sealing/read-race harness 不在本切片合同内。
+- Boundary：该 API 尚未由 CLI、worker 或 supervisor 调用；filesystem read 仍可能在 parent 中阻塞，不能声称 `darwin-development-observed` supervisor、Linux `contained`、formal `TST-RESOURCE-001` 或 TASK-D1-08 完成。下一 bounded slices 为 B11a2 receipt pure model、B11b Darwin development-observed supervisor，再由 B12 原子 CLI cutover。
+
 ## 2026-07-29 — B10 standalone one-request frontend worker
 
 - Context/State：B9/B9R 已冻结 one-frame protocol 与 allocation bounds；本切片 engineering-only 落地非产品 standalone worker。**不**做 safe-open、supervisor、timeout/OOM/process containment、resource receipt、CLI product cutover、target/profile 输入或 formal TASK/TST/EV。

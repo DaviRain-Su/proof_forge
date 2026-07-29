@@ -1030,10 +1030,12 @@ def resolve_closure(root: Path, locks: list[dict[str, object]]) -> dict[str, obj
     pinned_files = load_package_files_manifest(root)
     package_files = ["ProofForgeV2.lean"]
     package_root = root / "ProofForgeV2"
+    package_source_suffixes = {".lean", ".c", ".h"}
     if package_root.is_dir():
         package_files.extend(
             str(path.relative_to(root))
-            for path in sorted(package_root.rglob("*.lean"))
+            for path in sorted(package_root.rglob("*"))
+            if path.suffix in package_source_suffixes
         )
     if len(package_files) > MAX_FILE_SET:
         fail("PF-SBOM-LIMIT", "lean package file set exceeds the pinned budget")

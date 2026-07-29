@@ -47,8 +47,10 @@ ValidatedSourceV1
   `Typed.checkV1` 直接消费 ProgramV1 供现有 materializer 使用，不构造 legacy `Source.Program`。
 - B10 已新增一请求一进程的 `proof-forge-frontend-worker-v1`：stdin/stdout 只承载
   `Frontend.Req/Ok/Err.v1`，与产品 Loader 共享单 parser snapshot，并由真实子进程测试固定
-  deterministic bytes 与 64/65/70 abnormal exits。它尚未由 CLI 调用，也没有 safe-open、
-  supervisor、resource receipt 或 containment 声明。
+  deterministic bytes 与 64/65/70 abnormal exits。B11a 已新增 package-owned native safe-open
+  foundation（component no-follow、regular/single-link、16 MiB pre-read gate、read probe、fd/path
+  metadata recheck 与 closed redacted faults）。两者均尚未由 CLI/supervisor 串联；read deadline、
+  resource receipt、process/memory enforcement 与 contained assurance 仍缺失。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成
