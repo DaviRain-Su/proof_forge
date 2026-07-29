@@ -8,13 +8,13 @@ locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Develope
 default: dev-check
 
 build:
-    lake build ProofForgeV2 proof_forge_next
+    lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1
 
-test:
+test: build
     lake build proof_forge_next_tests
     lake env .lake/build/bin/proof-forge-next-tests
 
-test-fast:
+test-fast: build
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 

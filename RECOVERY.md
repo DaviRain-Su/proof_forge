@@ -45,6 +45,10 @@ ValidatedSourceV1
   `normalizeProgramLocatedV1` → `compileProgramProductV1`，保留完整 located
   `DiagnosticBundleV1` 并按 `selectExitCode` 退出；成功后仍由 residual alpha
   `Typed.checkV1` 直接消费 ProgramV1 供现有 materializer 使用，不构造 legacy `Source.Program`。
+- B10 已新增一请求一进程的 `proof-forge-frontend-worker-v1`：stdin/stdout 只承载
+  `Frontend.Req/Ok/Err.v1`，与产品 Loader 共享单 parser snapshot，并由真实子进程测试固定
+  deterministic bytes 与 64/65/70 abnormal exits。它尚未由 CLI 调用，也没有 safe-open、
+  supervisor、resource receipt 或 containment 声明。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成
@@ -52,8 +56,10 @@ ValidatedSourceV1
   缺失不再阻塞 EVM，而 release checker 继续要求完整 global bundle。这仍是 alpha
   Typed/Semantic/Plan/Output 路径，不代表正式 D1–D4 contract 或 task completion；本切片也未新增
   Anvil runtime 结论。
-- 旧 Lean command/export/Loader API 仍仅供历史 characterization tests，未被产品 CLI 调用；
-  它们已列入矩阵的D1退役清单，只有ProgramV1替代门禁通过后才删除。
+- legacy Source source-reading/export decoder 已删除；Lean command/export 与 Loader 只读
+  ProgramV1。非产品 `selectProgramV1*` library helpers 仍保留给测试/嵌入方，B10 worker 的
+  spans payload API 与产品 origin API 共享同一私有 parse/select/SpanJoin snapshot；无 adapter、
+  dual reader 或第二套 ProgramV1 decoder。
 - [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md) 已逐项记录 D1–D4 的 requirement、实现文件、
   产品接线、测试事实、缺口和删除门槛；formal仍为0/27 done。
 - [`QUALIFICATION_INVENTORY.md`](QUALIFICATION_INVENTORY.md) 已确认 qualification 子系统为

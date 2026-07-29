@@ -12,7 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-29 — B10 standalone one-request frontend worker
 
+- Context/State：B9/B9R 已冻结 one-frame protocol 与 allocation bounds；本切片 engineering-only 落地非产品 standalone worker。**不**做 safe-open、supervisor、timeout/OOM/process containment、resource receipt、CLI product cutover、target/profile 输入或 formal TASK/TST/EV。
+- RED/Changed（tests first）：新增 `Tests/Frontend/WorkerV1.lean`，实现前 import 因 `ProofForgeV2.Frontend.WorkerV1` 不存在而 RED；随后固定 Counter success/reconstruct + product OriginInventory parity、Loader spans/canonical bytes parity、parser/invalid-UTF8/unknown-version priority、exact multi-program selection、direct determinism/protocol fault，以及真实 worker subprocess 的 success/Err-frame/determinism、malformed/truncated/declared-oversize/argv zero-stdout + exact exit/stderr token。注册 `Tests.lean`/`Tests.Fast.lean`/`lakefile.lean`。
+- Production：新增 `WorkerV1.lean`（exact 1.0.0 → UTF-8 → single Loader call；valid source failures encode request-bound `Frontend.Err.v1`）与 `WorkerMainV1.lean`/`proof-forge-frontend-worker-v1`（one request to EOF；complete response before intentional stdout write；usage/protocol/internal exits 64/65/70）。Loader 抽取 private `selectProgramV1ProductSnapshot`，产品 OriginJoin 与 worker preorder-span payload 共享同一 parse/select/SpanJoin snapshot；无 reparse、adapter、fallback 或第二 ProgramV1 decoder。
+- Bounds/Process：stdin 以 64 KiB chunks bounded-read，最多探测 `maxProtocolBytes+1`；valid success/failure exit 0，abnormal stderr 仅稳定 public-safe token。worker 自身不 file-open/network/spawn/cache/output-stage，也不接受 target/profile；EOF timeout 与 process/resource enforcement 明确留给 B11 supervisor。
+- Build/Tests：`just build` 同时构建 CLI 与 worker，`test`/`test-fast` 依赖该 build，保证 clean invocation 的 subprocess binary 存在；聚焦 build、fast aggregate（含真实 subprocess）、`just dev-check`、`just target-negative` 与普通 `just ci` 全部通过。
+- Review：独立窄审 P0/P1=0；broken-pipe partial transport、bounded chunk accumulation 与 root-CWD test path 三项 P2 均未越过 B10 合同，前者已明确由未来 supervisor 按 protocol failure 处理。
+- Boundary：产品 CLI 仍走 in-process source open/Loader，不能声称 contained、formal/hermetic 或 TASK-D1-08 完成；下一工程切片为 B11 safe-open + supervisor/receipt，再由 B12 原子 CLI cutover。
 
 ## 2026-07-29 — B9R FrontendProtocolV1 selector + diagnostic array bounds repair
 

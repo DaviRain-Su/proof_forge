@@ -1,8 +1,8 @@
 /-
-  ProofForgeV2.Frontend.ProtocolV1 — B9 inert versioned frontend request/response wire.
+  ProofForgeV2.Frontend.ProtocolV1 — B9/B9R versioned frontend request/response wire.
 
-  Closed one-frame tagged binary protocol for the future contained frontend worker.
-  This module is intentionally inert: no worker executable, process spawn, safe-open,
+  Closed one-frame tagged binary protocol consumed by the B10 standalone frontend
+  worker. This codec module remains pure: no process spawn, file open, safe-open,
   supervisor, receipts, CLI/Loader/Compiler product cutover, or target wiring.
 
   Wire frames (exactly one request or one response frame to EOF; no streaming):
@@ -50,7 +50,8 @@
     decodeCanonicalSourceAstBytesV1 → assignNodeIdsV1 zip spans → joinOriginsV1
   There is no second ProgramV1 decoder and no caller-trusted OriginInventory constructor.
 
-  Formal TASK-D1-08 / contained assurance remain pending; B9/B9R does not claim them.
+  Formal TASK-D1-08 / contained assurance remain pending; the B10 standalone worker
+  is not safe-open, supervised, contained, receipt-producing, or a product cutover.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticV1

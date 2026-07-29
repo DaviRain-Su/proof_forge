@@ -128,13 +128,19 @@ lean_lib ProofForgeV2Tests where
     `Tests.CLI.DiagnosticsV1,
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1,
-    `Tests.Frontend.ProtocolV1
+    `Tests.Frontend.ProtocolV1,
+    `Tests.Frontend.WorkerV1
   ]
 
 lean_exe proof_forge_next where
   exeName := "proof-forge-next"
   root := `ProofForgeV2.CLI.Main
   -- Parser / module loading pulls Init interpreter symbols (e.g. IO.getRandomBytes).
+  supportInterpreter := true
+
+lean_exe proof_forge_frontend_worker_v1 where
+  exeName := "proof-forge-frontend-worker-v1"
+  root := `ProofForgeV2.Frontend.WorkerMainV1
   supportInterpreter := true
 
 lean_exe proof_forge_next_tests where

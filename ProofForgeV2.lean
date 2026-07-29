@@ -48,6 +48,7 @@ import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.DiagnosticLocateV1
 import ProofForgeV2.Frontend.ProtocolV1
+import ProofForgeV2.Frontend.WorkerV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1

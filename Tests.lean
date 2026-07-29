@@ -6,6 +6,7 @@ import Tests.Core.Semantics
 import Tests.Core.DiagnosticV1
 import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
+import Tests.Frontend.WorkerV1
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
@@ -119,6 +120,7 @@ unsafe def main : IO Unit := do
   Tests.Core.DiagnosticV1.run
   Tests.Core.DiagnosticBundleV1.run
   Tests.Frontend.ProtocolV1.run
+  Tests.Frontend.WorkerV1.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run

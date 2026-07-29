@@ -73,16 +73,17 @@ ProgramV1 的产品诊断 Typed 边界是 `normalizeProgramLocatedV1` 对
 `assignNodeIdsV1(moduleName, programIdentity, program)` 从 validated source 派生；文件路径、span、
 comment 与 allocation history 不参与 identity/hash。
 
-当前 in-process CLI loader 尚未实现规范 contained frontend worker，因此输出仍是 development
-级；这不妨碍普通产品测试，但不能声称 formal/hermetic evidence。
+当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 尚未接入产品，也没有
+safe-open、supervisor 或 containment。因此输出仍是 development 级；这不妨碍普通产品测试，
+但不能声称 formal/hermetic evidence。
 
-## FrontendProtocolV1（B9 inert foundation + B9R bounds repair）
+## FrontendProtocolV1 与 standalone worker（B9/B9R/B10）
 
 **B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
-request/response 地基，供未来 contained frontend worker 使用。**本切片 inert**：无 worker
-可执行体、process spawn、safe-open、supervisor/receipt、CLI/Loader/Compiler 产品切换或
-target 变更。**B9R** 修复两处边界：去掉任意 4096-byte selector 语义上限；在 `parsePfJcs`
-分配诊断数组前做 top-level PF-JCS 条目预扫描。
+request/response 地基；该历史切片当时 inert。**B9R** 修复两处边界：去掉任意 4096-byte
+selector 语义上限；在 `parsePfJcs` 分配诊断数组前做 top-level PF-JCS 条目预扫描。
+**B10** 在不改变 wire 的前提下新增非产品 standalone worker；仍无 safe-open、supervisor/receipt、
+CLI/Loader/Compiler 产品切换或 target 变更。
 
 | 帧 | Tag | 载荷 |
 |---|---|---|
@@ -114,9 +115,29 @@ request `sourceBytes` 的 range/count 门禁。`reconstructFrontendSuccessV1` �
 ProgramV1 decoder、无 caller-trusted OriginInventory 构造）。
 
 `requestDigest` = `domainSeparatedSha256("proof-forge.frontend-request.v1", exact request bytes)`。
-聚焦套件：`Tests/Frontend/ProtocolV1.lean`（含 B9R：>4096 legal plain QN selector round-trip、
-selector 声明长度 bomb、102-entry tiny PF-JCS bomb、嵌套逗号不误计、100+PF-DIAG-LIMIT=101
-round-trip、101 non-limit raw noncanonical）。B10 worker 实现与 formal TASK-D1-08 仍 pending。
+协议聚焦套件：`Tests/Frontend/ProtocolV1.lean`（含 B9R：>4096 legal plain QN selector
+round-trip、selector 声明长度 bomb、102-entry tiny PF-JCS bomb、嵌套逗号不误计、
+100+PF-DIAG-LIMIT=101 round-trip、101 non-limit raw noncanonical）。
+
+### B10 standalone one-request worker
+
+`ProofForgeV2/Frontend/WorkerV1.lean` 只消费已进入 stdin 的完整 request：先解码协议，随后按
+**exact `1.0.0` language version → source UTF-8 → Loader** 的固定优先级处理。Loader 新增
+`selectProgramV1FrontendPayload`，与 `selectProgramV1Product` 共享 private
+parse/select/SpanJoin snapshot；worker 只在 SpanJoin 后移除 path 并传 canonical-preorder spans，
+不 reparse、不构造 caller-trusted inventory，也不引入第二 decoder。
+
+`proof-forge-frontend-worker-v1` 每进程只处理一个 request，frame 读到 EOF；正常 success 与
+有效 request 的 source/parser diagnostic failure 都输出一个完整 `Frontend.Ok.v1` /
+`Frontend.Err.v1` 并 exit 0。argv misuse、malformed/truncated/oversize protocol 与 internal fault
+分别使用稳定 stderr token 及 exit 64/65/70；异常路径在 intentional stdout write 前失败。
+`Tests/Frontend/WorkerV1.lean` 同时固定 direct parity 与真实 subprocess success/failure、两进程
+byte determinism、malformed/truncated/declared-oversize/argv 的 zero-stdout + exact exit/token。
+`just build`、`test` 与 `test-fast` 会先构建该 worker，避免 clean invocation 依赖陈旧二进制。
+
+B10 **不**读取路径、不 spawn 子进程、不接受 target/profile、不写 cache/artifact；但它也**不**
+提供 safe-open、timeout/OOM/process containment、supervisor/receipt 或 CLI product cutover。
+这些属于 B11/B12；formal TASK-D1-08 仍 pending。
 
 ## Parser version 与 identity 边界（ADR-0022 D1）
 
