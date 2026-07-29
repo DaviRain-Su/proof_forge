@@ -124,16 +124,17 @@ unsafe def run : IO Unit := do
     Targets.materializeResult capability)
   expect (first == second)
     "ProgramV1 EVM materialization must be deterministic"
-  expect (first.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
+  let firstFiles := MaterializedArtifactsV1.filesOf first
+  expect (firstFiles.map (·.path) == #["Counter.yul", "Counter.abi.json"])
     "ProgramV1 EVM materialization must emit target-owned Yul and ABI artifacts"
-  let yul ← match first.files.find? (·.path == "Counter.yul") with
+  let yul ← match firstFiles.find? (·.path == "Counter.yul") with
     | some f => pure f.contents
     | none => throw <| IO.userError "missing Counter.yul"
   expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
     "EVM Yul must contain canonical Counter selectors"
-  expect (first.manifest.sourceHash == semantic.sourceHash &&
-      first.manifest.semanticHash == semantic.semanticHash)
-    "EVM manifest must bind ProgramV1 source and semantic hashes"
+  expect (MaterializedArtifactsV1.residualSourceHashOf first == semantic.sourceHash &&
+      MaterializedArtifactsV1.residualSemanticHashOf first == semantic.semanticHash)
+    "EVM carrier must bind ProgramV1 residual source and semantic hashes"
   let _ := plan
 
 end Tests.Product.CounterV1Evm

@@ -20,7 +20,7 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1) :
-    CompileResult OutputSet := do
+    CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 target none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
@@ -44,21 +44,22 @@ unsafe def run : IO Unit := do
 
   -- S6: no public Plan→IR; capability materialize is sole emit path.
   let output ← liftResult "materialize EVM" <| materializeSelected TargetId.evm compiled
-  expect (output.files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
     "EVM smoke must emit deterministic target-owned source artifacts"
-  let yul ← match output.files.find? (·.path == "Counter.yul") with
+  let yul ← match files.find? (·.path == "Counter.yul") with
     | some f => pure f.contents
     | none => throw <| IO.userError "EVM smoke missing Counter.yul"
-  let abi ← match output.files.find? (·.path == "Counter.abi.json") with
+  let abi ← match files.find? (·.path == "Counter.abi.json") with
     | some f => pure f.contents
     | none => throw <| IO.userError "EVM smoke missing Counter.abi.json"
   expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
     "EVM smoke must render canonical increment/get selectors"
   expect (abi.contains "\"name\":\"increment\"" && abi.contains "\"name\":\"get\"")
     "EVM smoke must render the Counter ABI"
-  expect (output.manifest.sourceHash == semantic.sourceHash &&
-      output.manifest.semanticHash == semantic.semanticHash)
-    "EVM smoke manifest must bind source and semantic hashes"
+  expect (MaterializedArtifactsV1.residualSourceHashOf output == semantic.sourceHash &&
+      MaterializedArtifactsV1.residualSemanticHashOf output == semantic.semanticHash)
+    "EVM smoke carrier must bind residual source and semantic hashes"
   -- plan is still capability-gated and used for layout assertions above
   let _ := plan
 

@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
+import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.CLI.Toolchain
 
@@ -28,11 +29,9 @@ def validProgramArtifactNameV1 (value : String) : Bool :=
 private def validArtifactName (value : String) : Bool :=
   validProgramArtifactNameV1 value
 
+/-- CLI path dual defense uses the sole package helper (no local reimplementation). -/
 private def safeRelativePath (value : String) : Bool :=
-  let path := FilePath.mk value
-  !value.isEmpty && value.toUTF8.size <= 240 && !path.isAbsolute &&
-    !(path.components.contains "..") && !(path.components.contains ".") &&
-    !value.contains "\u0000" && !value.contains "\r" && !value.contains "\n"
+  safeRelativeArtifactPathV1 value
 
 private def pathType? (path : FilePath) : IO (Option IO.FS.FileType) :=
   try
@@ -57,14 +56,19 @@ private partial def createSiblingStaging (parent : FilePath) (name : String)
   catch _ =>
     createSiblingStaging parent name pid (attempt + 1)
 
-private def validateOutputSet (program : SemanticProgram) (output : OutputSet) : IO Unit := do
-  unless output.manifest.sourceHash == program.sourceHash &&
-      output.manifest.semanticHash == program.semanticHash do
-    throw <| IO.userError "PF-OUTPUT-MANIFEST: materializer manifest does not bind the compiled program"
+/-- CLI re-check of capability-bound materialize carrier vs residual alpha.
+    Preserves historical PF-OUTPUT-MANIFEST / PF-OUTPUT-PATH error ordering for
+    the emit path (mint already validates; this is dual defense + stable wires). -/
+private def validateMaterializedCarrier
+    (program : SemanticProgram) (artifacts : MaterializedArtifactsV1) : IO Unit := do
+  unless MaterializedArtifactsV1.residualSourceHashOf artifacts == program.sourceHash &&
+      MaterializedArtifactsV1.residualSemanticHashOf artifacts == program.semanticHash do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: materializer manifest does not bind the compiled program"
   unless validArtifactName program.name do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
   let mut paths : Array String := #[]
-  for file in output.files do
+  for file in MaterializedArtifactsV1.filesOf artifacts do
     unless safeRelativePath file.path do
       throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe artifact path '{file.path}'"
     if paths.contains file.path then
@@ -137,22 +141,62 @@ private def finalize (kind : TargetKind) (outputDir : FilePath) (programName : S
       evidence := s!"{other} is research-only and has no V2 materializer"
     }
 
+/-- Private legacy-engineering on-disk v2alpha1 field bag (CLI publisher only).
+    Not a public product carrier; exact wire bytes match pre-S7a `manifestJson`. -/
+private structure LegacyOutputManifestV2Alpha1 where
+  schemaVersion : String := "proof-forge-output/v2alpha1"
+  target : TargetId
+  codegenProfile : CodegenProfileId
+  sourceHash : String
+  semanticHash : String
+  deployable : Bool
+  files : Array String
+
+/-- Private legacy-engineering renderer — byte-identical to pre-S7a public
+    `Targets.manifestJson` for `proof-forge-output/v2alpha1`. -/
+private def renderLegacyManifestJsonV2Alpha1 (manifest : LegacyOutputManifestV2Alpha1) :
+    String :=
+  let files := String.intercalate "," <|
+    manifest.files.toList.map fun path => s!"\"{Targets.escapeJson path}\""
+  let deployable := if manifest.deployable then "true" else "false"
+  "{\n" ++
+    s!"  \"schemaVersion\": \"{manifest.schemaVersion}\",\n" ++
+    s!"  \"target\": \"{manifest.target}\",\n" ++
+    s!"  \"codegenProfile\": \"{Targets.escapeJson manifest.codegenProfile.toString}\",\n" ++
+    s!"  \"sourceHash\": \"{manifest.sourceHash}\",\n" ++
+    s!"  \"semanticHash\": \"{manifest.semanticHash}\",\n" ++
+    s!"  \"deployable\": {deployable},\n" ++
+    s!"  \"files\": [{files}]\n" ++
+    "}\n"
+
+/-- CLI emit receipt (stdout / tests). Not formal OutputManifest / OutputSetV1. -/
+structure EmitReceiptV1 where
+  target : TargetId
+  codegenProfile : CodegenProfileId
+  deployable : Bool
+  deriving BEq, Repr
+
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
-    (program : SemanticProgram) (output : OutputSet) (stagingDir : FilePath) :
-    IO OutputManifest := do
+    (program : SemanticProgram) (artifacts : MaterializedArtifactsV1)
+    (stagingDir : FilePath) : IO EmitReceiptV1 := do
   let selection := Targets.ResolvedEngineeringBuildV1.selectionOf capability
-  for file in output.files do
+  for file in MaterializedArtifactsV1.filesOf artifacts do
     writeFileCreatingParent (stagingDir / file.path) file.contents
   let finalization ← finalize selection.kind stagingDir program.name
   for file in finalization.extraFiles do
     unless safeRelativePath file do
       throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe finalized artifact path '{file}'"
-  let manifest := {
-    output.manifest with
+  let basePaths :=
+    (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
+  let manifest : LegacyOutputManifestV2Alpha1 := {
+    target := MaterializedArtifactsV1.targetIdOf artifacts
+    codegenProfile := MaterializedArtifactsV1.codegenProfileIdOf artifacts
+    sourceHash := MaterializedArtifactsV1.residualSourceHashOf artifacts
+    semanticHash := MaterializedArtifactsV1.residualSemanticHashOf artifacts
     deployable := finalization.deployable
-    files := output.manifest.files ++ finalization.extraFiles
+    files := basePaths ++ finalization.extraFiles
   }
-  IO.FS.writeFile (stagingDir / "manifest.json") (Targets.manifestJson manifest)
+  IO.FS.writeFile (stagingDir / "manifest.json") (renderLegacyManifestJsonV2Alpha1 manifest)
   let deployable := if manifest.deployable then "true" else "false"
   let evidence := "{\n" ++
     s!"  \"target\": \"{selection.targetId}\",\n" ++
@@ -162,13 +206,19 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     s!"  \"note\": \"{Targets.escapeJson finalization.evidence}\"\n" ++
     "}\n"
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
-  return manifest
+  return {
+    target := manifest.target
+    codegenProfile := manifest.codegenProfile
+    deployable := manifest.deployable
+  }
 
 /-- Product emit path: private engineering capability only.
     Residual alpha fields (name/sourceHash/semanticHash) keep artifact bytes and
-    manifests stable. No public `(selection, compiled)` overload. -/
+    v2alpha1 on-disk manifests stable via private legacy-engineering renderer.
+    No public `(selection, compiled)` overload. Returns `EmitReceiptV1` (not
+    public OutputManifest). Formal OutputSetV1 still pending. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
-    (outputDir : FilePath) : IO OutputManifest := do
+    (outputDir : FilePath) : IO EmitReceiptV1 := do
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
   let program := CompiledProgramV1.alphaResidualOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
@@ -176,10 +226,10 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   -- boundary and must retain its stable diagnostic independently of target.
   unless validArtifactName program.name do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
-  let output ← match Targets.materializeResult capability with
+  let artifacts ← match Targets.materializeResult capability with
     | .ok output => pure output
     | .error error => throw <| IO.userError error.render
-  validateOutputSet program output
+  validateMaterializedCarrier program artifacts
   let name ← match outputDir.fileName with
     | some name => pure name
     | none => throw <| IO.userError "PF-OUTPUT-PATH: output directory must have a final component"
@@ -199,7 +249,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   let pid ← IO.Process.getPID
   let staging ← createSiblingStaging parent name pid.toNat 0
   try
-    let manifest ← renderIntoStaging capability program output staging
+    let receipt ← renderIntoStaging capability program artifacts staging
     -- Recheck immediately before publish. This closes the cooperative writer
     -- race and ensures a build without an explicit future `--force` mode never
     -- replaces user data. A non-empty destination created by another process
@@ -208,7 +258,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
       throw <| IO.userError
         s!"PF-OUTPUT-COLLISION: output appeared during build: {destination}"
     IO.FS.rename staging destination
-    return manifest
+    return receipt
   catch error =>
     removePathIfPresent staging
     throw error

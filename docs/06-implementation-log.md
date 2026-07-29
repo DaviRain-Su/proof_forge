@@ -13,6 +13,26 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-29 — D3/S7a engineering MaterializedArtifactsV1 carrier cutover
+
+- Context/State：baseline `fe6e86d91c35b6be6529cd27999a67b1acbac1fb`；formal D1–D4 仍 0/27 done；
+  **不是** formal OutputSetV1 / proof-forge.output.v1 / BuildIdentity / SupportClaim /
+  hermetic output / SemanticProgramV1-native Plan；不抬高四 target maturity 或 deployability。
+- RED/Changed（tests first）：新增 `Tests/Materialization/OutputEnvelopeV1.lean`
+  （四 target capability binding、retained `semanticHashV1` Digest、transitional residual
+  hashes、deterministic ordered paths/bytes、mint path/dup/identity-drift negatives、
+  deletion/sole-mint pins、Environment reflection）。生产：
+  - `ProofForgeV2/Materialization/MaterializedArtifactsV1.lean`：private-ctor carrier +
+    sole `mintMaterializedArtifactsV1`（selection↔descriptor parity、residual hex bridge、
+    retained digests、safe/non-dup/nonempty paths；fail closed 无 partial carrier）。
+  - `Targets/Registry.materializeResult` → `CompileResult MaterializedArtifactsV1`。
+  - 删除 public `OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`/`validateOutputSet`。
+  - `CLI/Emit.lean`：private legacy-engineering v2alpha1 renderer + `EmitReceiptV1`；
+    保留 exact on-disk `manifest.json`/`evidence.json`/artifact 字节与 PF-OUTPUT 错误序。
+- Durable gate：`just s7-output-envelope-deletion-gate` 接入 `dev-check`/`ci`（与 s5/s6 并列）。
+- Boundary：formal TASK-D3-05 / OutputSetV1 仍 pending；CLI finalize（solc/wat2wasm）未迁出；
+  residual-alpha Plan body 未变；不声称 formal evidence / release qualification。
+
 ## 2026-07-29 — D3/S6 residual emission bypass closed (final R7 facts)
 
 - Context/State：baseline `2ea73c8d02e54d1eb139d2b38c56331e692cb4bb` 工作树；formal 仍 0/27；

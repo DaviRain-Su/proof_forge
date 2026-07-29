@@ -99,28 +99,13 @@ structure OutputFile where
   contents : String
   deriving BEq, Inhabited, Repr
 
-structure OutputManifest where
-  schemaVersion : String := "proof-forge-output/v2alpha1"
-  target : TargetId
-  codegenProfile : CodegenProfileId
-  sourceHash : String
-  semanticHash : String
-  deployable : Bool
-  files : Array String
-  -- No Inhabited: carries opaque TargetId/CodegenProfileId.
-  deriving BEq, Repr
-
-structure OutputSet where
-  manifest : OutputManifest
-  files : Array OutputFile
-  -- No Inhabited: via OutputManifest identity fields.
-  deriving BEq, Repr
-
 /-- Associated Plan/TargetIR type witnesses only.
     S6: capability-gated target entries own plan/lower/emit
     (`planFromCapability` / `buildFromCapability`). No public
     SemanticProgram→Plan, Plan→TargetIR, or TargetIR→OutputFile product
-    chains. -/
+    chains. S7a: public alpha `OutputSet` / `OutputManifest` deleted;
+    aggregate files chain ends at private-ctor `MaterializedArtifactsV1`
+    (capability-only mint). Formal OutputSetV1 still pending. -/
 class Materializer (kind : TargetKind) where
   Plan : Type
   TargetIR : Type

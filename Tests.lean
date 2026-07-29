@@ -94,6 +94,7 @@ import Tests.Language.FrontendParity
 import Tests.Language.Loader
 import Tests.Materialization.BuildSelectionV1
 import Tests.Materialization.RequirementResolverV1
+import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.TargetIrFixtures
 import Tests.Materialization.Targets
 import Tests.Materialization.EvmSmoke
@@ -201,6 +202,7 @@ unsafe def main : IO Unit := do
   Tests.Language.SourceSpan.run
   Tests.Materialization.BuildSelectionV1.run
   Tests.Materialization.RequirementResolverV1.run
+  Tests.Materialization.OutputEnvelopeV1.run
   Tests.Materialization.run
   Tests.Materialization.EvmSmoke.run
   Tests.Materialization.NearHostModel.run

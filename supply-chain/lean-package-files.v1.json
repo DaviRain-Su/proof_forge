@@ -1,14 +1,14 @@
 {
   "files": [
     {
-      "bytes": 3108,
+      "bytes": 3168,
       "path": "ProofForgeV2.lean",
-      "sha256": "67eb7c1326cd5d3a9f000ab9263a811f3cdabcde9fda1d6d224aa316963fcc17"
+      "sha256": "78df90aa194bac0b83113b15772cf96b79a6538b2e4701f15ec332e6bf390d1e"
     },
     {
-      "bytes": 20182,
+      "bytes": 22662,
       "path": "ProofForgeV2/CLI/Emit.lean",
-      "sha256": "7e729bf38176c8e06ddacff97575903112a16532371567b7a54c736bdab990b1"
+      "sha256": "1f172cf473a9f2f8102e35864f8f06018b7a4e8d6e2c9dec59c55035f5b7ea40"
     },
     {
       "bytes": 368,
@@ -126,9 +126,14 @@
       "sha256": "20f434726524a8cdb1424c4aba85f0ea232bd42fe8d7ccbe17db8dfe48b8419e"
     },
     {
-      "bytes": 3383,
+      "bytes": 9345,
+      "path": "ProofForgeV2/Materialization/MaterializedArtifactsV1.lean",
+      "sha256": "fbb4486267eb7a4eb476caf9d7dc11649674290825414fd5792d12033db40e66"
+    },
+    {
+      "bytes": 3101,
       "path": "ProofForgeV2/Materialization/Protocol.lean",
-      "sha256": "10265a8935c70abf013199d5dc4cb5c5623c83c6652a1feb0c85503ff1ba8869"
+      "sha256": "35b64b8ed2bec7e6c48cf6d178bc5af3037a8470c3c742d6a0958153ae2cd3ad"
     },
     {
       "bytes": 8879,
@@ -371,9 +376,9 @@
       "sha256": "45900f15e10605441a57f97729d98b622f8b4e6ea00b5d076abd2a4629e0e8ba"
     },
     {
-      "bytes": 2248,
+      "bytes": 1493,
       "path": "ProofForgeV2/Targets/Common.lean",
-      "sha256": "2eb5627f74b7c1415418134ec5dc96619c4a998a1dcd00a2136e49bfca537f6b"
+      "sha256": "4cffa652583a7af77cee0ad7604a2c51762bd3a29ff76726136b17402c38019c"
     },
     {
       "bytes": 2725,
@@ -406,9 +411,9 @@
       "sha256": "101fc3138d63b91182f5951e3115acd3ed9e7d329fd4cf88e2476ce4271871c2"
     },
     {
-      "bytes": 3219,
+      "bytes": 3374,
       "path": "ProofForgeV2/Targets/Registry.lean",
-      "sha256": "f104cccc90600b443e6cec7253fb566874383d42a2d4cbe8ac67223c469590b6"
+      "sha256": "8371e9eda71261751f9d51c112bd52501744e9a43245c690b982817f63fe5b62"
     },
     {
       "bytes": 16213,

@@ -38,7 +38,7 @@ private def liftResult (result : CompileResult α) : IO α :=
 
 /-- Product aggregate path: selection → resolveEngineeringRequirementsV1 → capability. -/
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
-    (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
+    (profile? : Option CodegenProfileId := none) : CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 target profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
@@ -220,11 +220,12 @@ unsafe def run : IO Unit := do
   -- Product aggregate: CompiledProgramV1 only (no bare-alpha materializeResult).
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let output ← liftResult <| materializeSelected target counterCompiled
-    expect (!output.files.isEmpty) s!"{target} must emit at least one artifact"
-    expect (output.manifest.sourceHash == counterResidual.sourceHash)
-      "product manifest must bind ValidatedSourceV1 sourceHash"
-    expect (output.manifest.semanticHash == counterResidual.semanticHash)
-      "product manifest must bind residual alpha semanticHash"
+    expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
+      s!"{target} must emit at least one artifact"
+    expect (MaterializedArtifactsV1.residualSourceHashOf output == counterResidual.sourceHash)
+      "product carrier must bind ValidatedSourceV1 residual sourceHash"
+    expect (MaterializedArtifactsV1.residualSemanticHashOf output == counterResidual.semanticHash)
+      "product carrier must bind residual alpha semanticHash"
   -- S6: residual alpha-direct materialize closed; product capability path above covers Counter.
   -- Synchronous-call / privateWitness: product support inspection (not residual planFromAlpha).
   -- PrivateSum4 host accept/reject: Tests.Materialization.NoirRelationModel fixture.

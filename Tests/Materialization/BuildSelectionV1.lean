@@ -57,7 +57,7 @@ private def parseProfile (s : String) : IO CodegenProfileId :=
   | none => throw <| IO.userError s!"test fixture profile failed grammar: '{s}'"
 
 private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
-    (profile? : Option CodegenProfileId := none) : CompileResult OutputSet := do
+    (profile? : Option CodegenProfileId := none) : CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 target profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
@@ -607,18 +607,19 @@ private unsafe def testMaterializeIdentity : IO Unit := do
     let capability ← liftResult <|
       Targets.resolveEngineeringRequirementsV1 selection compiled
     let output ← liftResult <| Targets.materializeResult capability
-    expect (!output.files.isEmpty) s!"{tid} must emit artifacts"
-    expect (output.manifest.target == tid) s!"manifest target identity for {tid}"
-    expect (output.manifest.sourceHash == residual.sourceHash)
-      s!"manifest sourceHash identity for {tid}"
-    expect (output.manifest.semanticHash == residual.semanticHash)
-      s!"manifest semanticHash identity for {tid}"
+    expect (!(MaterializedArtifactsV1.filesOf output).isEmpty) s!"{tid} must emit artifacts"
+    expect (MaterializedArtifactsV1.targetIdOf output == tid)
+      s!"carrier target identity for {tid}"
+    expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
+      s!"carrier residual sourceHash identity for {tid}"
+    expect (MaterializedArtifactsV1.residualSemanticHashOf output == residual.semanticHash)
+      s!"carrier residual semanticHash identity for {tid}"
     match ← liftResult (registration? tid) with
     | some reg =>
         match reg.defaultProfile with
         | some defP =>
-            expect (output.manifest.codegenProfile == defP)
-              s!"manifest profile identity for {tid}"
+            expect (MaterializedArtifactsV1.codegenProfileIdOf output == defP)
+              s!"carrier profile identity for {tid}"
         | none => throw <| IO.userError "implemented without default"
     | none => throw <| IO.userError "missing reg"
   match resolveBuildSelectionV1 TargetId.openvm none with
@@ -630,22 +631,29 @@ private unsafe def testMaterializeIdentity : IO Unit := do
     Targets.resolveEngineeringRequirementsV1 selection compiled
   let outputDir := System.FilePath.mk "build/v2/build-selection-emit"
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
-  let manifest ← ProofForgeV2.CLI.emitProgram capability outputDir
-  expect (manifest.target == TargetId.solana) "emitProgram target identity"
-  expect (manifest.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
+  let receipt ← ProofForgeV2.CLI.emitProgram capability outputDir
+  expect (receipt.target == TargetId.solana) "emitProgram target identity"
+  expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "emitProgram profile identity"
   let evmSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let evmCap ← liftResult <| Targets.resolveEngineeringRequirementsV1 evmSel compiled
   let evmOut ← liftResult <| Targets.materializeResult evmCap
-  expect (evmOut.manifest.target.toString == "evm") "EVM manifest target wire"
-  expect (evmOut.manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
-    "EVM manifest profile wire"
-  let json := Targets.manifestJson evmOut.manifest
+  expect ((MaterializedArtifactsV1.targetIdOf evmOut).toString == "evm")
+    "EVM carrier target wire"
+  expect (MaterializedArtifactsV1.codegenProfileIdOf evmOut ==
+      CodegenProfileId.evmYulSolc0834V1)
+    "EVM carrier profile wire"
+  -- On-disk v2alpha1 (private CLI renderer) after real emit for EVM wire bytes.
+  let evmDir := System.FilePath.mk "build/v2/build-selection-emit-evm"
+  if ← evmDir.pathExists then IO.FS.removeDirAll evmDir
+  let _ ← ProofForgeV2.CLI.emitProgram evmCap evmDir
+  let json ← IO.FS.readFile (evmDir / "manifest.json")
   expect (hasSubstr json "\"target\": \"evm\"") "manifest JSON target"
   expect (hasSubstr json "\"codegenProfile\": \"evm-yul-solc-0.8.34-v1\"")
     "manifest JSON profile"
   let viaSelected ← liftResult <| materializeSelected TargetId.near compiled
-  expect (viaSelected.manifest.target == TargetId.near) "selection-only materialize path"
+  expect (MaterializedArtifactsV1.targetIdOf viaSelected == TargetId.near)
+    "selection-only materialize path"
 
 unsafe def run : IO Unit := do
   testGrammar

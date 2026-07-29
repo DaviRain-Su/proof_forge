@@ -203,7 +203,96 @@ s6-plan-cutover-deletion-gate:
     lake build Tests.Materialization.RequirementResolverV1
     echo "s6-plan-cutover-deletion-gate: ok"
 
-dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate
+# D3/S7a engineering deletion + sole-mint gate (durable just/ci pin).
+# - no public OutputSet / OutputManifest structures
+# - no public makeOutput / manifestJson / validateOutputSet product defs
+# - sole MaterializedArtifactsV1.mk in Materialization/MaterializedArtifactsV1.lean
+# - materializeResult returns MaterializedArtifactsV1
+# Lean Environment reflection + runtime suite: Tests/Materialization/OutputEnvelopeV1.lean
+# (one-way: gate builds that module; suite does not re-invoke this recipe).
+# Not formal OutputSetV1 / proof-forge.output.v1 / BuildIdentity.
+s7-output-envelope-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "s7-output-envelope-deletion-gate: forbidden pattern still present: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "s7-output-envelope-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local must_path="$2"
+      local label="$3"
+      local hits ec count
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -ne 0 ]]; then
+        echo "s7-output-envelope-deletion-gate: $label expected one match (rg exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
+        echo "s7-output-envelope-deletion-gate: $label expected sole match in $must_path" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    # Public alpha product surfaces deleted.
+    fail_if_match '^\s*structure OutputSet\b' ProofForgeV2
+    fail_if_match '^\s*structure OutputManifest\b' ProofForgeV2
+    fail_if_match '^\s*def makeOutput\b' ProofForgeV2
+    fail_if_match '^\s*def manifestJson\b' ProofForgeV2
+    fail_if_match '^\s*def validateOutputSet\b' ProofForgeV2
+    # Sole mint of MaterializedArtifactsV1.
+    expect_one_match 'MaterializedArtifactsV1\.mk' 'MaterializedArtifactsV1.lean' \
+      'MaterializedArtifactsV1.mk'
+    set +e
+    # Wide context: private .mk sits at the end of mintMaterializedArtifactsV1.
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 60 'MaterializedArtifactsV1\.mk' ProofForgeV2/Materialization 2>&1)"
+    mk_ec=$?
+    set -e
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'mintMaterializedArtifactsV1'; then
+      echo "s7-output-envelope-deletion-gate: MaterializedArtifactsV1.mk must be near mintMaterializedArtifactsV1" >&2
+      printf '%s\n' "$mk_ctx" >&2
+      exit 1
+    fi
+    # materializeResult signature returns the new carrier.
+    set +e
+    mat_hits="$(rg --glob '*.lean' -n --no-heading 'def materializeResult' ProofForgeV2/Targets/Registry.lean 2>&1)"
+    mat_ec=$?
+    set -e
+    if [[ $mat_ec -ne 0 ]] || ! printf '%s\n' "$mat_hits" | grep -q 'MaterializedArtifactsV1'; then
+      # Signature may span two lines — check following context.
+      set +e
+      mat_ctx="$(rg --glob '*.lean' -n --no-heading -A 2 'def materializeResult' ProofForgeV2/Targets/Registry.lean 2>&1)"
+      set -e
+      if ! printf '%s\n' "$mat_ctx" | grep -q 'MaterializedArtifactsV1'; then
+        echo "s7-output-envelope-deletion-gate: materializeResult must return MaterializedArtifactsV1" >&2
+        printf '%s\n' "$mat_ctx" >&2
+        exit 1
+      fi
+    fi
+    lake build Tests.Materialization.OutputEnvelopeV1
+    echo "s7-output-envelope-deletion-gate: ok"
+
+dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -925,7 +1014,7 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate
+ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

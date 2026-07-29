@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Common
+import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets
@@ -45,31 +46,32 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
     Plan-body data for existing target-owned Plan/IR algorithms
     (`CompiledProgramV1.alphaResidualOf`) — never as support authority.
     Support was decided at `resolveEngineeringRequirementsV1`.
-    No residual Common resolve, no public makePlan, no
-    supportedRequirements membership acceptance. Formal SupportClaim still
+    Target Plan/IR/emit algorithms and artifact bytes are unchanged; the
+    aggregate product carrier is private-ctor `MaterializedArtifactsV1`
+    (sole mint via `mintMaterializedArtifactsV1` after capability-gated emit).
+    No residual Common resolve, no public makePlan, no public OutputSet/
+    makeOutput product surface. Formal SupportClaim / OutputSetV1 still
     pending; not SemanticProgramV1 native Plan lowering. -/
 def materializeResult (capability : ResolvedEngineeringBuildV1) :
-    CompileResult OutputSet := do
+    CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
-  let compiled := ResolvedEngineeringBuildV1.compiledOf capability
-  -- Temporary Plan-body data only (post-capability); not support authority.
-  let program := CompiledProgramV1.alphaResidualOf compiled
   match selection.kind with
   | .evm =>
       let files ← Evm.buildFromCapability capability
-      return makeOutput Evm.descriptor program false files
+      mintMaterializedArtifactsV1 capability Evm.descriptor files
   | .solana =>
       let files ← Solana.buildFromCapability capability
-      return makeOutput Solana.descriptor program false files
+      mintMaterializedArtifactsV1 capability Solana.descriptor files
   | .near =>
       let files ← Near.buildFromCapability capability
-      return makeOutput Near.descriptor program false files
+      mintMaterializedArtifactsV1 capability Near.descriptor files
   | .noir =>
       let files ← Noir.buildFromCapability capability
-      return makeOutput Noir.descriptor program false files
+      mintMaterializedArtifactsV1 capability Noir.descriptor files
   | other => .error <| .targetNotImplemented other
 
-def materialize (capability : ResolvedEngineeringBuildV1) : IO OutputSet :=
+def materialize (capability : ResolvedEngineeringBuildV1) :
+    IO MaterializedArtifactsV1 :=
   match materializeResult capability with
   | .ok output => pure output
   | .error error => throw <| IO.userError error.render

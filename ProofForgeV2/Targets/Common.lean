@@ -22,34 +22,11 @@ def validateRequirementEnvelope (program : SemanticProgram) : CompileResult Unit
       throw <| .invalidProgram s!"duplicate semantic requirement '{requirement}'"
     seen := seen.push requirement
 
-def makeOutput (descriptor : TargetDescriptor) (program : SemanticProgram)
-    (deployable : Bool) (files : Array OutputFile) : OutputSet :=
-  {
-    manifest := {
-      target := descriptor.targetId
-      codegenProfile := descriptor.codegenProfile
-      sourceHash := program.sourceHash
-      semanticHash := program.semanticHash
-      deployable
-      files := files.map (·.path)
-    }
-    files
-  }
-
+/-- JSON string escape shared by CLI private legacy-engineering evidence /
+    v2alpha1 on-disk renderer. S7a deleted public `makeOutput` / `manifestJson`
+    / `OutputSet` / `OutputManifest` product surfaces; disk bytes are owned by
+    the private CLI publisher. Formal OutputSetV1 still pending. -/
 def escapeJson (input : String) : String :=
   input.replace "\\" "\\\\" |>.replace "\"" "\\\"" |>.replace "\n" "\\n"
-
-def manifestJson (manifest : OutputManifest) : String :=
-  let files := String.intercalate "," <| manifest.files.toList.map fun path => s!"\"{escapeJson path}\""
-  let deployable := if manifest.deployable then "true" else "false"
-  "{\n" ++
-    s!"  \"schemaVersion\": \"{manifest.schemaVersion}\",\n" ++
-    s!"  \"target\": \"{manifest.target}\",\n" ++
-    s!"  \"codegenProfile\": \"{escapeJson manifest.codegenProfile.toString}\",\n" ++
-    s!"  \"sourceHash\": \"{manifest.sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{manifest.semanticHash}\",\n" ++
-    s!"  \"deployable\": {deployable},\n" ++
-    s!"  \"files\": [{files}]\n" ++
-    "}\n"
 
 end ProofForgeV2.Targets

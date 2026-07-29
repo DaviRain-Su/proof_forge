@@ -260,8 +260,9 @@ def probeIRToArrayFiles (_ir : ProbeIR) : Array OutputFile := #[]
 def probeIRToIOArrayFiles (_ir : ProbeIR) : IO (Array OutputFile) :=
   pure #[]
 
-/-- IR → IO OutputSet (OutputSet appears under IO) — forbidden. -/
-def probeIRToIOOutputSet (_ir : ProbeIR) : IO (Option OutputSet) :=
+/-- IR → IO MaterializedArtifactsV1 (carrier appears under IO) — forbidden. -/
+def probeIRToIOMaterializedArtifacts
+    (_ir : ProbeIR) : IO (Option MaterializedArtifactsV1) :=
   pure none
 
 /-- Capability-gated IR → Array OutputFile — allowed. -/
@@ -275,10 +276,10 @@ def probeCapIRToIOArrayFiles
     IO (Array OutputFile) :=
   pure #[]
 
-/-- Capability-gated IR → IO OutputSet — allowed. -/
-def probeCapIRToIOOutputSet
+/-- Capability-gated IR → IO MaterializedArtifactsV1 — allowed. -/
+def probeCapIRToIOMaterializedArtifacts
     (_c : Targets.ResolvedEngineeringBuildV1) (_ir : ProbeIR) :
-    IO (Option OutputSet) :=
+    IO (Option MaterializedArtifactsV1) :=
   pure none
 
 /-- Capability-gated pure Plan→IR — allowed. -/
@@ -638,11 +639,13 @@ private unsafe def testProductFourTargets : IO Unit := do
     expect (accepted.items.map (·.id) == s2CatalogIdsWireOrderV1)
       s!"accepted S2 trio for {tid}"
     let output ← liftResult <| Targets.materializeResult capability
-    expect (!output.files.isEmpty) s!"{tid} materialize via capability"
-    expect (output.manifest.target == tid) s!"manifest target {tid}"
-    expect (output.manifest.sourceHash == residual.sourceHash)
+    expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
+      s!"{tid} materialize via capability"
+    expect (MaterializedArtifactsV1.targetIdOf output == tid)
+      s!"carrier target {tid}"
+    expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
       s!"sourceHash {tid}"
-    expect (output.manifest.semanticHash == residual.semanticHash)
+    expect (MaterializedArtifactsV1.residualSemanticHashOf output == residual.semanticHash)
       s!"semanticHash {tid}"
   -- Zero-request success is inspection-only (not a product capability override).
   let rows ← liftResult productSupportRowsV1
@@ -726,11 +729,11 @@ private unsafe def testEmptyRequirementsCapability : IO Unit := do
       s!"Echo capability must not invent requirements for {tid}"
     match Targets.materializeResult capability with
     | .ok output =>
-        expect (!output.files.isEmpty)
+        expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
           s!"{tid} empty-req materialize produces files"
-        expect (output.manifest.target == tid)
-          s!"Echo empty-req manifest target {tid}"
-        expect (output.manifest.sourceHash == residual.sourceHash)
+        expect (MaterializedArtifactsV1.targetIdOf output == tid)
+          s!"Echo empty-req carrier target {tid}"
+        expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
           s!"Echo empty-req sourceHash {tid}"
         materialized := materialized.push tid
     | .error e =>
@@ -776,7 +779,8 @@ private unsafe def testStateOnlySubsetCapability : IO Unit := do
     expect (accepted.items.map (·.id) == #["state.persistent"])
       s!"Hold capability must not expand to full S2 trio for {tid}"
     let output ← liftResult <| Targets.materializeResult capability
-    expect (!output.files.isEmpty) s!"{tid} state-only subset materialize"
+    expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
+      s!"{tid} state-only subset materialize"
 
 private unsafe def testCliEmitAndDescribe : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1483,7 +1487,7 @@ private def assertTypeScanBudgetSelfTest (env : Environment) : Except String Uni
 ## Residual emission-bypass type-chain reflection gate (S6 repair)
 
 Public `ProofForgeV2` declarations (defn / opaque / ctor) whose types form
-capability-free SemanticProgram→Plan, Plan→IR, or IR→OutputFile/OutputSet
+capability-free SemanticProgram→Plan, Plan→IR, or IR→OutputFile/MaterializedArtifactsV1
 chains are forbidden.
 
 ### Single worklist / state machine
@@ -1533,8 +1537,8 @@ private def residualSemanticProgramN : Name :=
 private def residualOutputFileN : Name :=
   ``ProofForgeV2.OutputFile
 
-private def residualOutputSetN : Name :=
-  ``ProofForgeV2.OutputSet
+private def residualMaterializedArtifactsN : Name :=
+  ``ProofForgeV2.MaterializedArtifactsV1
 
 private def residualProbePlanN : Name :=
   ``Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlan
@@ -1667,7 +1671,7 @@ private def peelBinderRootForCapability (env : Environment)
     `(isForbiddenEmission, worklistStats)`.
 
     Chain detection is **wrapper-independent**: Semantic→Plan, Plan→IR, and
-    IR→OutputFile/OutputSet depend only on `inputNames`/`resultNames` carrier
+    IR→OutputFile/MaterializedArtifactsV1 depend only on `inputNames`/`resultNames` carrier
     presence (IO/Array/CompileResult/Except wrappers are traversed so carriers
     inside them still count; wrappers themselves are not required). -/
 private def classifyResidualTypeWithStats (env : Environment) (budget : Nat)
@@ -1804,7 +1808,7 @@ private def classifyResidualTypeWithStats (env : Environment) (budget : Nat)
     let hasIROut := nameSetHasAny st.resultNames residualIRNames
     let hasOutOut :=
       st.resultNames.contains residualOutputFileN
-        || st.resultNames.contains residualOutputSetN
+        || st.resultNames.contains residualMaterializedArtifactsN
     let semToPlan := hasSemIn && hasPlanOut
     let planToIR := hasPlanIn && hasIROut
     let irToFiles := hasIRIn && hasOutOut
@@ -1880,7 +1884,7 @@ private def residualExpectedProbes : Array Name :=
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probePurePlanToIR,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToArrayFiles,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToIOArrayFiles,
-    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToIOOutputSet,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeIRToIOMaterializedArtifacts,
     -- Ctor with function-valued forbidden field (full type scan, no packaging skip).
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlanCarrier.mk,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.ProbePlanCarrier.lowerPlan
@@ -1896,7 +1900,7 @@ private def residualAllowedControls : Array Name :=
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.CapabilityCtorControl.mk,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToArrayFiles,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToIOArrayFiles,
-    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToIOOutputSet,
+    `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapIRToIOMaterializedArtifacts,
     `Tests.Materialization.RequirementResolverV1.ResidualBypassProbe.probeCapPurePlanToIR
   ]
 

@@ -97,6 +97,12 @@ validatePlan/validateIR inspection）；Registry 直接 capability dispatch；pu
 `namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
 Semantic→Plan→IR→files bypass 已删除；dead public `ResolvedProgram` 已删除；
 private target lower 仅 capability 内部；`s6-plan-cutover-deletion-gate` + Lean
-residual type-chain reflection（defn/opaque/ctor）已接入 dev/ci。仍**不是** SupportClaim/formal resolver/
+residual type-chain reflection（defn/opaque/ctor）已接入 dev/ci。**D3/S7a 工程**：
+aggregate `materializeResult` 返回 private-ctor `MaterializedArtifactsV1`（sole mint
+`mintMaterializedArtifactsV1`；exact target/profile/kind + transitional residual-alpha
+identity/hashes + retained `semanticHashV1` Digest + ordered files）；已删 public
+`OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`；CLI private legacy-engineering
+v2alpha1 renderer 保持 on-disk manifest/evidence 字节兼容；
+`s7-output-envelope-deletion-gate` 已接入 dev/ci。仍**不是** SupportClaim/formal resolver/
 BuildIdentity/`OutputSetV1`/SemanticProgramV1 直连 Plan 完成态。formal task状态与
 release qualification仍按各自真实条件变化，不由本恢复文档代签。
