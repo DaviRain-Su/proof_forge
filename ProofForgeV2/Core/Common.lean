@@ -494,17 +494,27 @@ def renderProjectRelativePath (path : ProjectRelativePath) : Except String Strin
   validateProjectRelativePath path
   pure path.value
 
-private def validateQualifiedNameComponent (component : String) : Except String Unit := do
+/-- SPEC-COMMON-001 exact identifier component rule (Unicode 17 NFC, UTF-8
+    length 1..240, not exact `_`, Lean.isIdFirst + Lean.isIdRest). Shared truth
+    for QualifiedName components and SemanticProgramV1 declaration / field /
+    parameter / invariant names (SPEC-SEM-WIRE-001 §6). Keyword reservation is
+    owned by the producing syntax surface; this validator does not copy ambient
+    parser keywords. -/
+def validateIdentifierComponent (component : String) : Except String Unit := do
   unless 1 ≤ component.utf8ByteSize && component.utf8ByteSize ≤ 240 do
-    throw "qualified-name component must contain 1..240 UTF-8 bytes"
+    throw "identifier component must contain 1..240 UTF-8 bytes"
   ProofForgeV2.Core.Unicode.requireNfc component
   if component == "_" then
-    throw "qualified-name component must not be anonymous"
+    throw "identifier component must not be anonymous"
   match component.toList with
-  | [] => throw "qualified-name component must not be empty"
+  | [] => throw "identifier component must not be empty"
   | first :: rest =>
     unless Lean.isIdFirst first && rest.all Lean.isIdRest do
-      throw "qualified-name component must use Lean identifier characters"
+      throw "identifier component must use Lean identifier characters"
+
+/-- QualifiedName components use the exact shared identifier component rule. -/
+private def validateQualifiedNameComponent (component : String) : Except String Unit :=
+  validateIdentifierComponent component
 
 def validateQualifiedName (name : QualifiedName) : Except String Unit := do
   let components := name.components.toArray

@@ -31,6 +31,15 @@ normative: false
 - Verification：重建并执行 fast/full aggregate 均通过；full suite 实际覆盖 16 MiB 边界。`just dev-check`、`just sbom`、`git diff --check` 与普通 `just ci` 均通过；唯一 warning 仍是既有 `AstSpineDecodeV1.lean` unused `termination_by`。独立集成审查发现的 permission 行为缺口与固定 Xcode 路径已修复；最终窄 C/FFI 审查 P0/P1=0，确认 ABI、所有权、fd/malloc cleanup、bounds、stat join 与 closed fault；其余 stronger filesystem sealing/read-race harness 不在本切片合同内。
 - Boundary：该 API 尚未由 CLI、worker 或 supervisor 调用；filesystem read 仍可能在 parent 中阻塞，不能声称 `darwin-development-observed` supervisor、Linux `contained`、formal `TST-RESOURCE-001` 或 TASK-D1-08 完成。下一 bounded slices 为 B11a2 receipt pure model、B11b Darwin development-observed supervisor，再由 B12 原子 CLI cutover。
 
+## 2026-07-29 — M1.1a engineering: Semantic name NFC/common identifier structure gate
+
+- Context/State：baseline `548f4de25449c10bcd8fc4cb7a3438366a4f54f5`；formal D1–D4 仍 0/27 done（D2 7/7 pending）；本切片只闭合 Semantic declaration/field/parameter/invariant name 的 shared grammar，**不是** formal TASK-D2-06/TST-SEM-001、TypeKey rank/usage closure、Normalize surface 扩张、SupportClaim 或 release qualification。
+- RED/Changed（tests first）：`Tests/Core/CommonRemaining.lean` 固定 ASCII/underscore-prefix/NFC non-ASCII/240-byte 正向与 empty/exact `_`/digit-first/punctuation/NFD/241-byte 负向；`Tests/Semantic/WireV1.lean` 表驱动覆盖 named Struct/Enum、field/variant、constant/state/event/error及 interface field、named callable/parameter、InvariantDecl，保留 initializer `name=none`，并固定 uniqueness/join→name→CFG/requirements mixed-invalid 相位、transport-only accept 与 structure/encode/carrier 三路拒绝，避免只测 `encodeString`。
+- Production：`Core.Common.validateIdentifierComponent` 成为 QualifiedName 与 Semantic name 的 sole shared rule（Unicode 17 `requireNfc`、UTF-8 1..240、非 exact `_`、`Lean.isIdFirst`/`Lean.isIdRest`）；`WireV1.validateDeclarationIdentifierNamesV1` 在 structure step 4.4 以 `.badScalar` 消费该 rule，transport decoder 仍只承担 bare-string NFC。
+- Integration：隔离 worktree patch 仅机械应用 Common/Wire/两项 tests。创建 worktree 时遗留的 `AGENTS.md`/`MIGRATION_MATRIX.md` stash conflict 已由主集成 owner 对照 HEAD 选择 newer upstream 内容、重放本切片事实并以 exact `git add -- AGENTS.md MIGRATION_MATRIX.md` 标记解决；未删除或改写任何 stash。发现 Lake trace 仍指向旧测试对象后，以 `lake -H build` 强制 source rehash，证明旧 binary 的假绿不再被接受。
+- Verification（已执行，仍未提交）：isolated worker 聚焦 build/run 通过；主工作区先以 `lake -H build` 覆盖 Common/Wire、M0 Normalize/Provenance 产品 suites 与 `proof_forge_next_tests`（466 jobs），完整 binary 输出 `proof-forge-next-tests: ok`；随后 `just sbom-package-files-refresh`（107-file set，仅 Common/Normalize/Provenance/Wire 内容 pin 变化）、`just docs-check`、`git diff --check`、`just dev-check` 与普通 `just ci` 均通过；既有 warning/info 不变，不构成 formal evidence。
+- Boundary：RequirementId/predicate grammar、完整 anonymous TypeKey ranking/reachability、provenance inventory/formal product materialization 仍 pending；无第二 decoder/name grammar、无 target/CLI/registry 行为变更。
+
 ## 2026-07-29 — B10 standalone one-request frontend worker
 
 - Context/State：B9/B9R 已冻结 one-frame protocol 与 allocation bounds；本切片 engineering-only 落地非产品 standalone worker。**不**做 safe-open、supervisor、timeout/OOM/process containment、resource receipt、CLI product cutover、target/profile 输入或 formal TASK/TST/EV。

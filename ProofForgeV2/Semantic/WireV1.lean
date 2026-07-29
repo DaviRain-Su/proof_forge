@@ -96,6 +96,17 @@ import Std.Data.HashMap
       when no invariant root exists, `invariantSteps=some` presence for every
       invariant root, plus exact source-order InvariantDecl callableId/kind/name
       join (`.badCfg`)
+    - SPEC §6 declaration/field/parameter/invariant name grammar after
+      uniqueness + InvariantDecl join and before CFG: every present name is
+      validated by the shared SPEC-COMMON identifier component rule
+      (`validateIdentifierComponent`: Unicode 17 NFC, UTF-8 1..240, not exact
+      `_`, `Lean.isIdFirst`/`Lean.isIdRest`) via structure authority
+      (`.badScalar`). Covers named Struct/Enum TypeDecl names, struct fields,
+      enum variants, constants, logicalState, event/error declarations and
+      their interface fields, named callables (`some` only; initializer
+      `none` is not rejected), callable parameters, and InvariantDecl names.
+      Transport `decodeString` remains NFC-only on bare strings; full
+      identifier grammar is not applied at transport decode for those fields.
     - post-CFG transitive `Op.PureCall` reachability requires
       `invariantSteps=some` exactly for pureFns in an invariant closure and
       `none` for every other pureFn; the reachable closure call graph must be a
@@ -1772,7 +1783,8 @@ private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
     callable uniqueness → per-callable parameter-name uniqueness →
     initializer cardinality → initializer Unit/public result → invariant
     Bool/public result → invariant zero parameters → invariant empty loopBounds
-    → InvariantDecl exact join → CFG → requirements.
+    → InvariantDecl exact join → declaration/field/parameter/invariant name
+    NFC + common identifier grammar (`.badScalar`) → CFG → requirements.
 -/
 
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
@@ -3986,9 +3998,9 @@ private def checkUniqueDeclarationNamesV1 (names : Array String) :
 /-- Named Struct/Enum TypeDecl names are exact-string unique (SPEC §5/§6).
     Named contiguous-prefix rank and the named-body `Option`-cycle condition
     are enforced by earlier `namedPrefix` and `namedBodyCycle` subphases.
-    Anonymous canonical
-    rank/order, usage closure, the
-    remaining full TypeKey closure, and identifier grammar/NFC stay separate. -/
+    Anonymous canonical rank/order, usage closure, and the remaining full
+    TypeKey closure stay separate. Identifier grammar/NFC is enforced by the
+    later declaration-name structure gate. -/
 private def validateNamedTypeNameUniquenessV1 (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut names : Array String := #[]
@@ -3999,32 +4011,37 @@ private def validateNamedTypeNameUniquenessV1 (types : Array TypeDeclV1) :
   checkUniqueDeclarationNamesV1 names
 
 /-- Constant names are exact-string unique within the constants table (SPEC
-    §6). Identifier grammar/NFC remains a separate gate. -/
+    §6). Identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. -/
 private def validateConstantNameUniquenessV1 (constants : Array ConstantV1) :
     Except SemanticWireErrorV1 Unit :=
   checkUniqueDeclarationNamesV1 (constants.map (·.name))
 
 /-- StateDecl names are exact-string unique within logicalState (SPEC §6).
-    Identifier grammar/NFC remains a separate gate. -/
+    Identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. -/
 private def validateLogicalStateNameUniquenessV1
     (logicalState : Array StateDeclV1) : Except SemanticWireErrorV1 Unit :=
   checkUniqueDeclarationNamesV1 (logicalState.map (·.name))
 
 /-- EventDecl names are exact-string unique within events (SPEC §6).
-    Identifier grammar/NFC remains a separate gate. -/
+    Identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. -/
 private def validateEventNameUniquenessV1 (events : Array EventDeclV1) :
     Except SemanticWireErrorV1 Unit :=
   checkUniqueDeclarationNamesV1 (events.map (·.name))
 
 /-- ErrorDecl names are exact-string unique within errors (SPEC §6).
-    Identifier grammar/NFC remains a separate gate. -/
+    Identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. -/
 private def validateErrorNameUniquenessV1 (errors : Array ErrorDeclV1) :
     Except SemanticWireErrorV1 Unit :=
   checkUniqueDeclarationNamesV1 (errors.map (·.name))
 
 /-- Event/error interface-field names are exact-string unique within each
     declaration (SPEC §6). Each declaration gets an independent namespace;
-    identifier grammar/NFC remains a separate gate. -/
+    identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. -/
 private def validateInterfaceFieldNameUniquenessV1
     (events : Array EventDeclV1) (errors : Array ErrorDeclV1) :
     Except SemanticWireErrorV1 Unit := do
@@ -4036,8 +4053,9 @@ private def validateInterfaceFieldNameUniquenessV1
 
 /-- Callable signature name presence (SPEC §6): initializer is the only
     anonymous callable kind; entry/view/pureFn/invariant must carry `some`
-    name. String grammar/NFC remains a separate gate. Runs after canonical
-    values and before uniqueness/special signatures/CFG. -/
+    name. Identifier grammar/NFC is enforced by the later declaration-name
+    structure gate. Runs after canonical values and before
+    uniqueness/special signatures/CFG. -/
 private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   for callable in callables do
@@ -4049,8 +4067,9 @@ private def validateCallableKindNamePresenceV1 (callables : Array CallableV1) :
   pure ()
 
 /-- Named callables are unique within the unified callable table (SPEC §6).
-    Compare exact UTF-8 strings; grammar/NFC is a separate gate. Sorting a
-    private name array preserves public callable source order. -/
+    Compare exact UTF-8 strings; identifier grammar/NFC is the later
+    declaration-name structure gate. Sorting a private name array preserves
+    public callable source order. -/
 private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut names : Array String := #[]
@@ -4068,7 +4087,8 @@ private def validateCallableNameUniquenessV1 (callables : Array CallableV1) :
   pure ()
 
 /-- Parameter names are exact-string unique within each callable (SPEC §6).
-    Each callable gets a fresh private sort; grammar/NFC remains separate. -/
+    Each callable gets a fresh private sort; identifier grammar/NFC is the
+    later declaration-name structure gate. -/
 private def validateCallableParameterNameUniquenessV1
     (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
   for callable in callables do
@@ -4080,6 +4100,63 @@ private def validateCallableParameterNameUniquenessV1
       if sorted[index - 1]! == sorted[index]! then
         return ← err .badCfg
       index := index + 1
+  pure ()
+
+/-- SPEC §6 declaration/field/parameter/invariant names must satisfy the shared
+    SPEC-COMMON identifier component rule (NFC, 1..240 UTF-8, not `_`,
+    `Lean.isIdFirst`/`Lean.isIdRest`). Structure authority maps Common
+    failures to `.badScalar`. Walks tables in source order; initializer
+    `name=none` is skipped (not rejected). Does not reorder tables or change
+    exact uniqueness. Transport decode of bare `String` fields remains
+    NFC-only; this gate is the sole full identifier authority for structure
+    validate / structure-gated encode / carrier re-encode. -/
+private def validateIdentifierNameV1 (name : String) :
+    Except SemanticWireErrorV1 Unit :=
+  mapCommon (validateIdentifierComponent name)
+
+private def validateTypeShapeIdentifierNamesV1 (shape : TypeShapeV1) :
+    Except SemanticWireErrorV1 Unit := do
+  match shape with
+  | .struct fields =>
+      for field in fields do
+        validateIdentifierNameV1 field.name
+  | .enum variants =>
+      for variant in variants do
+        validateIdentifierNameV1 variant.name
+  | _ => pure ()
+
+private def validateDeclarationIdentifierNamesV1
+    (data : SemanticProgramDataV1) : Except SemanticWireErrorV1 Unit := do
+  -- Table walk order is declaration-table source order (types through
+  -- invariants) then callables last. Invariants precede callables so an
+  -- exact join pair that shares one illegal name fails on the InvariantDecl
+  -- site first; named-callable/parameter grammar is still exercised on
+  -- programs without invariants. Initializer `name=none` is skipped.
+  for decl in data.types do
+    match decl.name with
+    | some name => validateIdentifierNameV1 name
+    | none => pure ()
+    validateTypeShapeIdentifierNamesV1 decl.shape
+  for constant in data.constants do
+    validateIdentifierNameV1 constant.name
+  for state in data.logicalState do
+    validateIdentifierNameV1 state.name
+  for eventDecl in data.events do
+    validateIdentifierNameV1 eventDecl.name
+    for field in eventDecl.fields do
+      validateIdentifierNameV1 field.name
+  for errorDecl in data.errors do
+    validateIdentifierNameV1 errorDecl.name
+    for field in errorDecl.fields do
+      validateIdentifierNameV1 field.name
+  for inv in data.invariants do
+    validateIdentifierNameV1 inv.name
+  for callable in data.callables do
+    match callable.name with
+    | some name => validateIdentifierNameV1 name
+    | none => pure ()
+    for param in callable.params do
+      validateIdentifierNameV1 param.name
   pure ()
 
 /-- SPEC §6 aggregate callable requirement: `callables` must contain at least
@@ -4914,6 +4991,12 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   | .ok () => pure ()
   | .error failure => throw failure.error
   validateInvariantDeclarationJoinV1 data.callables data.invariants
+  -- 4.4) SPEC §6 declaration/field/parameter/invariant name NFC + common
+  --   identifier grammar (shared `validateIdentifierComponent`). After
+  --   uniqueness and InvariantDecl join so those phases retain priority when
+  --   both fail; before CFG so bad names fail closed without CFG work.
+  --   Transport decoder stays NFC-only on bare strings.
+  validateDeclarationIdentifierNamesV1 data
   -- 4.5–4.75) Generic CFG/op typing → global ContextRead same-key result-
   --   TypeId consistency (§5.1, `.cfg`) → direct root restrictions + exact
   --   transitive pureFn closure membership + reachable call-graph/CFG

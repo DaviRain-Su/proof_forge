@@ -9525,6 +9525,247 @@ private def testCfgEffectIdOrder : IO Unit := do
           (.return_ none)] 2]
   expectCfgErr "N4 effectId block order" n4
 
+/-- SPEC-SEM-WIRE-001 §6 declaration/field/parameter/invariant name grammar:
+    structure authority applies the shared SPEC-COMMON identifier component
+    rule (`validateIdentifierComponent`) to every present name site. This is
+    not just `encodeString` NFC: digit-first/punctuation/empty/`_`/over-240
+    fail closed on structure validate and structure-gated encode/carrier even
+    when NFC UTF-8 transport would accept the bare string. Initializer
+    `name=none` is not rejected. Exact uniqueness phases remain earlier and
+    retain priority on mixed-invalid fixtures. -/
+private def ofScalars (codePoints : List Nat) : String :=
+  codePoints.foldl (fun acc cp => acc.push (Char.ofNat cp)) ""
+
+private def repeatedChars (count : Nat) (value : Char) : String :=
+  String.ofList (List.replicate count value)
+
+private def nfcAcute : String := ofScalars [0x00E9]
+private def nfdAcute : String := ofScalars [0x0065, 0x0301]
+private def nameOver240 : String := repeatedChars 241 'a'
+private def nameMax240 : String := repeatedChars 240 'a'
+
+private def expectIdentOk (label : String) (data : SemanticProgramDataV1) :
+    IO Unit := do
+  expectCfgOk label data
+
+private def expectIdentBad (label : String) (data : SemanticProgramDataV1) :
+    IO Unit := do
+  expectCfgErrCode label .badScalar data
+
+/-- Build a transport envelope without the structure-gated program encoder so
+    NFC-valid but identifier-illegal names can still be decoded as raw data. -/
+private def transportEnvelope (data : SemanticProgramDataV1) : IO ByteArray := do
+  let qnB ← expectOk "transport qn" (encodeQualifiedName data.qualifiedName)
+  let typesB ← expectOk "transport types" (encodeArray encodeTypeDeclV1 data.types)
+  let constsB ← expectOk "transport constants"
+    (encodeArray encodeConstantV1 data.constants)
+  let stateB ← expectOk "transport state"
+    (encodeArray encodeStateDeclV1 data.logicalState)
+  let eventsB ← expectOk "transport events"
+    (encodeArray encodeEventDeclV1 data.events)
+  let errorsB ← expectOk "transport errors"
+    (encodeArray encodeErrorDeclV1 data.errors)
+  let callablesB ← expectOk "transport callables"
+    (encodeArray encodeCallableV1 data.callables)
+  let invsB ← expectOk "transport invariants"
+    (encodeArray encodeInvariantDeclV1 data.invariants)
+  let reqsB ← expectOk "transport requirements"
+    (encodeProgramRequirementsV1 data.requirements)
+  let body ← expectOk "transport body" (encodeTagged "SemanticProgram.Data" #[
+    qnB, typesB, constsB, stateB, eventsB, errorsB, callablesB, invsB, reqsB])
+  pure ((semanticProgramMagicV1.toUTF8.push 0).append body)
+
+private def testDeclarationIdentifierNames : IO Unit := do
+  -- Positives: ASCII, underscore-prefixed, NFC non-ASCII, max-240, initializer
+  -- none coexists with legal named callables/params.
+  let pAscii ← programWithTypes "IdentP0Ascii" cfgBoolTypes
+    #[constOf 0 "counter" 0 (ByteArray.mk #[0])]
+  expectIdentOk "P0 ASCII constant name" pAscii
+  let pUnder ← programWithTypes "IdentP1Under" cfgBoolTypes
+    #[constOf 0 "_value" 0 (ByteArray.mk #[0])]
+  expectIdentOk "P1 underscore-prefixed constant" pUnder
+  let pNfc ← programWithTypes "IdentP2Nfc" cfgBoolTypes
+    #[constOf 0 nfcAcute 0 (ByteArray.mk #[0])]
+  expectIdentOk "P2 NFC non-ASCII constant" pNfc
+  let pMax ← programWithTypes "IdentP3Max240" cfgBoolTypes
+    #[constOf 0 nameMax240 0 (ByteArray.mk #[0])]
+  expectIdentOk "P3 constant name max 240 UTF-8 bytes" pMax
+  let unitType : TypeDeclV1 := { id := 0, name := none, shape := .unit }
+  let initCallable : CallableV1 := {
+    id := 0
+    kind := .initializer
+    name := none
+    params := #[{ valueId := 0, name := "seed", typeId := 0,
+                  visibility := .public_ }]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{ id := 0, params := #[], instructions := #[],
+                  terminator := .return_ none }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  let pInit ← programWithTypes "IdentP4InitNone" #[unitType] #[] #[initCallable]
+  expectIdentOk "P4 initializer name=none not rejected" pInit
+
+  -- Negatives shared across illegal spellings (structure + encode dual path).
+  let badVectors : Array (String × String) := #[
+    ("empty", ""),
+    ("anonymous", "_"),
+    ("digitFirst", "1abc"),
+    ("punctuation", "a-b"),
+    ("nonNfc", nfdAcute),
+    ("over240", nameOver240)
+  ]
+  for pair in badVectors do
+    let (tag, bad) := pair
+    -- Constant name category.
+    let c ← programWithTypes s!"IdentNConst{tag}" cfgBoolTypes
+      #[constOf 0 bad 0 (ByteArray.mk #[0])]
+    expectIdentBad s!"constant name {tag}" c
+    -- State name category.
+    let sBase ← programWithTypes s!"IdentNState{tag}" cfgBoolTypes
+    let s := { sBase with logicalState :=
+      #[{ id := 0, name := bad, typeId := 0, visibility := .public_ }] }
+    expectIdentBad s!"state name {tag}" s
+    -- Event declaration name category.
+    let eBase ← programWithTypes s!"IdentNEvent{tag}" cfgBoolTypes
+    let e := { eBase with events :=
+      #[{ id := 0, name := bad, fields := #[] }] }
+    expectIdentBad s!"event name {tag}" e
+    -- Error declaration name category.
+    let rBase ← programWithTypes s!"IdentNError{tag}" cfgBoolTypes
+    let r := { rBase with errors :=
+      #[{ id := 0, name := bad, fields := #[] }] }
+    expectIdentBad s!"error name {tag}" r
+
+  -- One representative illegal spelling per remaining name category (digit-first).
+  let bad := "1bad"
+  -- Named Struct TypeDecl name.
+  let namedStructTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some bad,
+      shape := .struct #[{ name := "f", typeId := 1 }] },
+    { id := 1, name := none, shape := .bool }
+  ]
+  let nNamed ← programWithTypes "IdentNNamedType" namedStructTypes
+  expectIdentBad "named TypeDecl name digit-first" nNamed
+  -- Struct field name.
+  let structFieldTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "S",
+      shape := .struct #[{ name := bad, typeId := 1 }] },
+    { id := 1, name := none, shape := .bool }
+  ]
+  let nField ← programWithTypes "IdentNStructField" structFieldTypes
+  expectIdentBad "struct field name digit-first" nField
+  -- Enum variant name.
+  let enumVariantTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "E",
+      shape := .enum #[{ name := bad, payloadTypes := #[] }] },
+    { id := 1, name := none, shape := .bool }
+  ]
+  let nVar ← programWithTypes "IdentNEnumVariant" enumVariantTypes
+  expectIdentBad "enum variant name digit-first" nVar
+  -- Event interface field.
+  let nEvFieldBase ← programWithTypes "IdentNEventField" cfgBoolTypes
+  let nEvField := { nEvFieldBase with events :=
+    #[{ id := 0, name := "Ev", fields :=
+        #[{ name := bad, typeId := 0, visibility := .public_ }] }] }
+  expectIdentBad "event field name digit-first" nEvField
+  -- Error interface field.
+  let nErFieldBase ← programWithTypes "IdentNErrorField" cfgBoolTypes
+  let nErField := { nErFieldBase with errors :=
+    #[{ id := 0, name := "Er", fields :=
+        #[{ name := bad, typeId := 0, visibility := .public_ }] }] }
+  expectIdentBad "error field name digit-first" nErField
+  -- Named callable (entry_gate stays legal; extra pureFn carries illegal name).
+  let nCall ← programWithTypes "IdentNCallable" cfgBoolTypes #[]
+    #[{ (cfgCallableKindName .pureFn (some bad)) with id := 0 }]
+  expectIdentBad "named callable digit-first" nCall
+  -- Callable parameter name (callable name legal).
+  let nParam ← programWithTypes "IdentNParam" cfgBoolTypes #[]
+    #[cfgCallableWithParams
+        #[{ valueId := 0, name := bad, typeId := 0, visibility := .public_ }]
+        #[cfgBlock 0 (.return_ none)]]
+  expectIdentBad "callable parameter digit-first" nParam
+  -- InvariantDecl name: join requires exact match with invariant callable name,
+  -- so both carry the illegal spelling; walk checks invariants before callables.
+  let invBad : CallableV1 :=
+    { (cfgCallableKindName .invariant (some bad)) with id := 0 }
+  let nInvBase ← programWithTypes "IdentNInvariant" cfgBoolTypes #[] #[invBad]
+  let nInv : SemanticProgramDataV1 := {
+    nInvBase with invariants := #[{ id := 0, name := bad, callableId := 0 }]
+  }
+  expectIdentBad "InvariantDecl name digit-first" nInv
+
+  -- Mixed-invalid phase pins: earlier uniqueness/shape/join keep priority;
+  -- grammar is not merely encodeString NFC (structure path rejects first).
+  let dupConstants : Array ConstantV1 :=
+    #[constOf 0 bad 0 (ByteArray.mk #[0]),
+      constOf 1 bad 0 (ByteArray.mk #[1])]
+  let nDup ← programWithTypes "IdentPhaseDupBeforeGrammar" cfgBoolTypes
+    dupConstants
+  expectCfgErrCode "duplicate constant names before identifier grammar"
+    .duplicate nDup
+  let nShape ← programWithTypes "IdentPhaseShapeBeforeGrammar"
+    #[{ id := 0, name := some bad, shape := .struct #[] },
+      { id := 1, name := none, shape := .bool }]
+  expectCfgErrCode "empty struct shape before identifier grammar" .badType nShape
+  let joinCallable : CallableV1 :=
+    { (cfgCallableKindName .invariant (some "GoodInv")) with id := 0 }
+  let nJoinBase ← programWithTypes "IdentPhaseJoinBeforeGrammar" cfgBoolTypes #[]
+    #[joinCallable]
+  let nJoin : SemanticProgramDataV1 := {
+    nJoinBase with invariants := #[{ id := 0, name := bad, callableId := 0 }]
+  }
+  expectCfgErrCode "InvariantDecl join before identifier grammar" .badCfg nJoin
+  let nRef ← programWithTypes "IdentPhaseRefBeforeGrammar" cfgBoolTypes
+    #[constOf 0 bad 99 (ByteArray.mk #[0])]
+  expectCfgErrCode "shallow TypeId before identifier grammar" .badReference nRef
+  -- Grammar precedes CFG: illegal name + later CFG defect → .badScalar.
+  let badCfgCallable : CallableV1 := {
+    cfgCallable #[cfgBlockInstrs 0
+      #[cfgInstr (some { valueId := 0, typeId := 99 }) (cfgBoolLit 0)]
+      (.return_ none)] with
+      id := 0
+      name := some bad
+  }
+  let nCfg ← programWithTypes "IdentPhaseGrammarBeforeCfg" cfgBoolTypes #[]
+    #[badCfgCallable]
+  expectCfgErrCode "identifier grammar before CFG" .badScalar nCfg
+  -- Grammar precedes requirements.
+  let nReqBase ← programWithTypes "IdentPhaseGrammarBeforeReq" cfgBoolTypes
+    #[constOf 0 bad 0 (ByteArray.mk #[0])]
+  let nReq : SemanticProgramDataV1 := {
+    nReqBase with requirements := { items := #[req "notadomain.foo"] }
+  }
+  expectCfgErrCode "identifier grammar before requirements" .badScalar nReq
+
+  -- Transport accepts digit-first constant (NFC UTF-8 scalar only); structure
+  -- authority, structure-gated encode, and carrier re-encode reject .badScalar.
+  -- Proves the gate is not "only encodeString on the program encoder path".
+  let raw ← transportEnvelope
+    (← programWithTypes "IdentTransportDigitFirst" cfgBoolTypes
+      #[constOf 0 bad 0 (ByteArray.mk #[0])])
+  let decoded ← expectOk "transport accepts digit-first constant name"
+    (decodeSemanticProgramDataV1 raw)
+  expectIdentBad "structure rejects transport digit-first constant" decoded
+  expectErr "carrier rejects digit-first constant name" .badScalar
+    (decodeSemanticProgramV1 raw)
+  -- Non-NFC bare strings are rejected even by transport decodeString; structure
+  -- still independently rejects hand-built non-NFC via the shared Common rule.
+  let handNfc : SemanticProgramDataV1 :=
+    ← programWithTypes "IdentHandNonNfc" cfgBoolTypes
+      #[constOf 0 nfdAcute 0 (ByteArray.mk #[0])]
+  expectIdentBad "hand-built non-NFC constant structure" handNfc
+  -- encodeString alone would reject non-NFC, but structure validate fails
+  -- without needing the program encoder body emission path.
+  match validateSemanticProgramStructureV1 handNfc with
+  | .error .badScalar => pure ()
+  | .error e =>
+      throw <| IO.userError
+        s!"hand non-NFC structure: expected badScalar, got {repr e}"
+  | .ok () =>
+      throw <| IO.userError "hand non-NFC structure: expected rejection"
+
 def run : IO Unit := do
   testSchemaMagicConstants
   testEmptyProgramRoundtrip
@@ -9561,6 +9802,7 @@ def run : IO Unit := do
   testEventNameUniqueness
   testErrorNameUniqueness
   testInterfaceFieldNameUniqueness
+  testDeclarationIdentifierNames
   testInitializerCardinality
   testInitializerResultShape
   testInvariantResultShape

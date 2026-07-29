@@ -287,6 +287,43 @@ private def testQualifiedName : IO Unit := do
     (parseQualifiedNameJcs "[\"Foo\", \"Bar\"]")
 
 -- ---------------------------------------------------------------------------
+-- validateIdentifierComponent (shared SPEC-COMMON component rule)
+-- ---------------------------------------------------------------------------
+
+/-- Shared identifier component rule is the exact truth for QualifiedName
+    components and SemanticProgramV1 declaration names. Pins NFC, length,
+    anonymous `_`, and Lean.isIdFirst/isIdRest without inventing a second
+    grammar. -/
+private def testIdentifierComponent : IO Unit := do
+  expectOk "ident ASCII" (validateIdentifierComponent "Counter") ()
+  expectOk "ident underscore-prefixed" (validateIdentifierComponent "_value") ()
+  expectOk "ident max 240 ASCII"
+    (validateIdentifierComponent (repeated 240 'a')) ()
+  expectOk "ident composed e-acute NFC"
+    (validateIdentifierComponent (ofScalars [0x00E9])) ()
+  expectErr "ident empty" (validateIdentifierComponent "")
+  expectErr "ident anonymous underscore" (validateIdentifierComponent "_")
+  expectErr "ident digit-first" (validateIdentifierComponent "1abc")
+  expectErr "ident numeral" (validateIdentifierComponent "123")
+  expectErr "ident space" (validateIdentifierComponent "a b")
+  expectErr "ident punctuation hyphen" (validateIdentifierComponent "a-b")
+  expectErr "ident punctuation slash" (validateIdentifierComponent "a/b")
+  expectErr "ident decomposed e-acute non-NFC"
+    (validateIdentifierComponent (ofScalars [0x0065, 0x0301]))
+  expectErr "ident 241 ASCII"
+    (validateIdentifierComponent (repeated 241 'a'))
+  expectErr "ident multibyte over 240"
+    (validateIdentifierComponent (repeated 121 (Char.ofNat 0x00E9)))
+  -- Shared with QualifiedName: the same validator rejects the same vectors.
+  expectErr "ident shared with qname numeral"
+    (validateQualifiedName { components := { head := "9", tail := #[] } })
+  expectErr "ident shared with qname anonymous"
+    (parseQualifiedName #["_"])
+  expectOk "ident shared with qname NFC component"
+    (parseQualifiedName #[ofScalars [0x00E9]])
+    { components := { head := ofScalars [0x00E9], tail := #[] } }
+
+-- ---------------------------------------------------------------------------
 -- ContentRef
 -- ---------------------------------------------------------------------------
 
@@ -856,6 +893,7 @@ private def testResourceJcsAndDigest : IO Unit := do
 def run : IO Unit := do
   testProjectRelativePath
   testQualifiedName
+  testIdentifierComponent
   testContentRef
   testSourceOrigin
   testPfJcs
