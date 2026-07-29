@@ -1,22 +1,26 @@
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.TypedV1
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Compiler
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
 /-- Compatibility compiler entry for hand-built alpha fixtures. Product source
-loading uses `compileValidatedSourceV1`; this function does not participate in
+loading uses `compileProgramProductV1`; this function does not participate in
 the ProgramV1 frontend path. -/
 def compile (source : Source.Program) : CompileResult Semantic.Program := do
   let typed ← Typed.check source
@@ -52,9 +56,7 @@ private def compileErrorFromDiagnosticV1 (diag : DiagnosticV1) : CompileError :=
   | .resourceBound => .resourceBound diag.message
   | .effectDisallowed => .effectDisallowed diag.message
   | .visibilityViolation => .visibilityViolation diag.message
-  | .sourceInvalid | .internal | .toolchainMissing | .toolchainMismatch
-  | .targetNotImplemented | .outputAtomicity =>
-      .invalidProgram diag.message
+  | _ => .invalidProgram diag.message
 
 /-- Closed, hand-written summary for structure-gate wire failures.
     Stable product text — never Lean `repr` (not a contract). -/
@@ -93,9 +95,26 @@ private def compileErrorFromNormalizeV1 (err : NormalizeErrorV1) : CompileError 
   | .identity detail => .invalidProgram detail
   | .wire e => .invalidProgram (productMessageFromWireErrorV1 e)
 
+/-- Map post-Normalize engineering failures into a public-safe product bundle.
+    Residual alpha and dual-carrier failures never leak legacy `PF-SEM-*` codes. -/
+private def postNormalizeFailureBundleV1 (err : CompileError) : DiagnosticBundleV1 :=
+  match err with
+  | .effectDisallowed msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .effectDisallowed msg]
+  | .visibilityViolation msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .visibilityViolation msg]
+  | .resourceBound msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .resourceBound msg]
+  | .invalidProgram msg =>
+      mkFailureBundleV1 #[DiagnosticV1.make .sourceInvalid msg]
+  | _ =>
+      mkFailureBundleV1 #[
+        DiagnosticV1.make .internal "residual materialization failed"
+          (actual := some (PfJson.string "residualAlpha"))]
+
 /-- Product dual-carrier: structure-valid SemanticProgramV1 retained from
     NormalizeV1 plus residual alpha Semantic.Program for target Plan/IR.
-    Private constructor — sole mint site is `compileValidatedSourceV1`. -/
+    Private constructor — sole mint site is `finishCompiledProgramV1`. -/
 structure CompiledProgramV1 where
   private mk ::
   semanticV1 : SemanticProgramV1
@@ -201,28 +220,47 @@ def validateDualCarrierConsistencyV1
               s!"dual-carrier: missing V1 requirement for alpha '{alphaReq}'"
   pure ()
 
-/-- Production target-neutral compiler boundary for ProgramV1.
+/-- Shared post-Normalize success path and sole `CompiledProgramV1` mint site.
+    Both product-located and non-product compatibility entries must pass the
+    same residual alpha lowering and dual-carrier consistency gate. -/
+private def finishCompiledProgramV1
+    (source : ValidatedSourceV1) (carrier : SemanticProgramV1) :
+    CompileResult CompiledProgramV1 := do
+  let typed ← Typed.checkV1 source
+  let sourceHash ← semanticSourceHash source
+  let alpha := Semantic.fromTyped sourceHash typed
+  validateDualCarrierConsistencyV1 carrier alpha
+  pure (CompiledProgramV1.mk carrier alpha)
 
-    Gate order (D3/S5 dual-carrier):
-    1. `NormalizeV1.normalizeProgramV1` — CheckV1 (ok ∧ analysisComplete) then
-       S1 lowering into structure-gated `SemanticProgramV1` (retained carrier).
-    2. Residual alpha `Typed.checkV1` + `Semantic.fromTyped` for target Plan/IR.
-    3. Engineering dual-carrier consistency gate (S2 catalog ↔ mapped alpha).
-    4. Sole private mint of `CompiledProgramV1`.
+/-- Sole product compiler entry.
 
-    Fail closed: Normalize rejection never falls back to alpha-only compile.
-    No flag, dual source reader, alpha→SemanticProgramV1 adapter, SupportClaim,
-    or target-specific semantic branch. Materializers consume residual alpha
-    through `CompiledProgramV1` accessors only. -/
+    Gate order:
+    1. `normalizeProgramLocatedV1` preserves the complete located diagnostic
+       bundle and returns the retained structure-valid `SemanticProgramV1`.
+    2. `finishCompiledProgramV1` performs residual alpha lowering, exact
+       dual-carrier consistency, and the sole private carrier mint.
+
+    Normalize failure is returned byte-for-byte as one `DiagnosticBundleV1`;
+    post-Normalize engineering failures are mapped to public-safe diagnostics.
+    There is no unlocated fallback or target-specific semantic branch. -/
+def compileProgramProductV1
+    (source : ValidatedSourceV1) (inv : OriginInventoryV1) :
+    DiagnosticResultV1 CompiledProgramV1 :=
+  match normalizeProgramLocatedV1 source inv with
+  | .error bundle => .error bundle
+  | .ok carrier =>
+      match finishCompiledProgramV1 source carrier with
+      | .ok compiled => .ok compiled
+      | .error err => .error (postNormalizeFailureBundleV1 err)
+
+/-- Non-product compatibility compiler for hand-built `ValidatedSourceV1`
+    fixtures. Product Loader/CLI must use `compileProgramProductV1` so located
+    multi-error bundles are never truncated. The successful dual-carrier path
+    is identical to the product path. -/
 def compileValidatedSourceV1 (source : ValidatedSourceV1) :
     CompileResult CompiledProgramV1 := do
   match normalizeProgramV1 source with
   | .error err => .error (compileErrorFromNormalizeV1 err)
-  | .ok carrier =>
-      let typed ← Typed.checkV1 source
-      let sourceHash ← semanticSourceHash source
-      let alpha := Semantic.fromTyped sourceHash typed
-      validateDualCarrierConsistencyV1 carrier alpha
-      pure (CompiledProgramV1.mk carrier alpha)
+  | .ok carrier => finishCompiledProgramV1 source carrier
 
 end ProofForgeV2.Compiler

@@ -4,11 +4,16 @@ import Tests.Core.CommonScalars
 import Tests.Core.Unicode
 import Tests.Core.Semantics
 import Tests.Core.DiagnosticV1
+import Tests.Core.DiagnosticBundleV1
+import Tests.Frontend.ProtocolV1
+import Tests.Frontend.WorkerV1
 import Tests.Compiler.Pipeline
 import Tests.Compiler.TypedNameIndex
 import Tests.Compiler.ValidatedSourceV1Pipeline
 import Tests.Compiler.CheckV1ProductGate
+import Tests.Compiler.DiagnosticPipelineV1
 import Tests.Typed.NameResolutionV1
+import Tests.Typed.DiagnosticLocationsV1
 import Tests.Typed.TypeCheckExpressionsV1
 import Tests.Typed.TypeCheckCallsV1
 import Tests.Typed.TypeCheckStatementsV1
@@ -50,7 +55,11 @@ import Tests.Language.ProgramV1RevertEmitStatements
 import Tests.Language.ProgramV1StringLiterals
 import Tests.Language.ProgramV1TypeSurface
 import Tests.Language.ProgramV1SpanJoin
+import Tests.Language.ProgramV1OriginJoin
+import Tests.Language.ProgramV1DiagnosticLocate
 import Tests.Language.ProgramV1Diagnostics
+import Tests.Language.ProgramV1Bounds
+import Tests.Language.ProgramV1SourceFullTagGolden
 import Tests.Language.AggregateDeclarations
 import Tests.Language.StateVisibility
 import Tests.Language.SourceIdentity
@@ -105,6 +114,7 @@ import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
+import Tests.CLI.DiagnosticsV1
 
 
 unsafe def main : IO Unit := do
@@ -114,11 +124,16 @@ unsafe def main : IO Unit := do
   Tests.Core.Unicode.run
   Tests.Core.run
   Tests.Core.DiagnosticV1.run
+  Tests.Core.DiagnosticBundleV1.run
+  Tests.Frontend.ProtocolV1.run
+  Tests.Frontend.WorkerV1.run
   Tests.Compiler.run
   Tests.Compiler.TypedNameIndex.run
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
+  Tests.Compiler.DiagnosticPipelineV1.run
   Tests.Typed.NameResolutionV1.run
+  Tests.Typed.DiagnosticLocationsV1.run
   Tests.Typed.TypeCheckExpressionsV1.run
   Tests.Typed.TypeCheckCallsV1.run
   Tests.Typed.TypeCheckStatementsV1.run
@@ -160,7 +175,11 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1StringLiterals.run
   Tests.Language.ProgramV1TypeSurface.run
   Tests.Language.ProgramV1SpanJoin.run
+  Tests.Language.ProgramV1OriginJoin.run
+  Tests.Language.ProgramV1DiagnosticLocate.run
   Tests.Language.ProgramV1Diagnostics.run
+  Tests.Language.ProgramV1Bounds.run
+  Tests.Language.ProgramV1SourceFullTagGolden.run
   Tests.Language.AggregateDeclarations.run
   Tests.Language.StateVisibility.run
   Tests.Language.FrontendParity.run
@@ -214,4 +233,5 @@ unsafe def main : IO Unit := do
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
+  Tests.CLI.DiagnosticsV1.run
   IO.println "proof-forge-next-tests: ok"

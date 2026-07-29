@@ -318,9 +318,7 @@ private def compileErrorFromDiagnosticV1 (diag : DiagnosticV1) : CompileError :=
   | .resourceBound => .resourceBound diag.message
   | .effectDisallowed => .effectDisallowed diag.message
   | .visibilityViolation => .visibilityViolation diag.message
-  | .sourceInvalid | .internal | .toolchainMissing | .toolchainMismatch
-  | .targetNotImplemented | .outputAtomicity =>
-      .invalidProgram diag.message
+  | _ => .invalidProgram diag.message
 
 /-- Fail closed on the first phase-ordered multi-pass diagnostic, or on incomplete
     analysis with no diagnostics (defensive). -/

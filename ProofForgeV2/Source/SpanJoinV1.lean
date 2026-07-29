@@ -64,151 +64,33 @@ private structure SpanVisitV1 where
   span : SourceByteSpanV1
   deriving BEq
 
-private def tagOfType (type_ : TypeV1) : String :=
-  match type_ with
-  | .bool => "Type.Bool"
-  | .uint _ => "Type.UInt"
-  | .int _ => "Type.Int"
-  | .principal => "Type.Principal"
-  | .unit => "Type.Unit"
-  | .named _ => "Type.Named"
-  | .array .. => "Type.Array"
-  | .map .. => "Type.Map"
-  | .option _ => "Type.Option"
-  | .bytes _ => "Type.Bytes"
-  | .field _ => "Type.Field"
-
-private def typeConstructorAtomTextV1? (stx : Syntax) : Option String :=
-  match stx with
-  | .atom _ value =>
-      if #["Option", "Array", "Map", "Bytes", "Field"].contains value then
-        some value
-      else
-        none
-  | _ => none
-
-private def typeTokenTextV1? (stx : Syntax) : Option String :=
-  match stx with
-  | .ident _ rawValue _ _ => some rawValue.toString
-  | _ => typeConstructorAtomTextV1? stx
-
-/-- Collect the atom sequence of a `pfType`, mirroring
-`Syntax.collectTypeAtomSyntaxV1`. -/
-private partial def collectTypeAtomSyntaxV1 (stx : Syntax) : Array Syntax :=
-  if stx.isIdent || stx.isOfKind numLitKind || (typeConstructorAtomTextV1? stx).isSome then
-    #[stx]
-  else
-    stx.getArgs.flatMap collectTypeAtomSyntaxV1
-
-private def primitiveTypeV1 (raw : String) : Option TypeV1 :=
-  match raw with
-  | "Bool" => some .bool
-  | "UInt8" => some (.uint 8)
-  | "UInt16" => some (.uint 16)
-  | "UInt32" => some (.uint 32)
-  | "UInt64" => some (.uint 64)
-  | "UInt128" => some (.uint 128)
-  | "UInt256" => some (.uint 256)
-  | "Int8" => some (.int 8)
-  | "Int16" => some (.int 16)
-  | "Int32" => some (.int 32)
-  | "Int64" => some (.int 64)
-  | "Int128" => some (.int 128)
-  | "Int256" => some (.int 256)
-  | "Unit" => some .unit
-  | "Principal" => some .principal
-  | _ => none
-
-private def isTypeConstructorNameV1 (raw : String) : Bool :=
-  (primitiveTypeV1 raw).isSome ||
-    #["Option", "Array", "Map", "Bytes", "Field"].contains raw
-
-/-- Emit one span per TypeV1 node from the atom sequence, mirroring
-`Syntax.decodeTypeV1At`. Returns the next atom index. -/
-private partial def typeSpanWalkV1
-    (source : String) (atoms : Array Syntax) (index : Nat)
-    (type_ : TypeV1) (path : NormalizedSyntacticPathV1) :
-    Except String (Array SpanVisitV1 × Nat) := do
-  if index >= atoms.size then
-    return ← fail "type span walk ran past atom sequence"
-  let atom := atoms[index]!
-  let raw ← match typeTokenTextV1? atom with
-    | some raw => pure raw
-    | none => fail "type span walk encountered a non-atom"
-  let tag := tagOfType type_
-  let span ← spanOfSyntax source atom
-  let visit := { path, tag, span : SpanVisitV1 }
-  match type_ with
-  | .bool =>
-      unless raw == "Bool" do fail "type span walk expected Bool"
-      pure (#[visit], index + 1)
-  | .uint _ =>
-      unless primitiveTypeV1 raw == some type_ do
-        fail "type span walk expected UInt"
-      pure (#[visit], index + 1)
-  | .int _ =>
-      unless primitiveTypeV1 raw == some type_ do
-        fail "type span walk expected Int"
-      pure (#[visit], index + 1)
-  | .principal =>
-      unless raw == "Principal" do fail "type span walk expected Principal"
-      pure (#[visit], index + 1)
-  | .unit =>
-      unless raw == "Unit" do fail "type span walk expected Unit"
-      pure (#[visit], index + 1)
-  | .named _ =>
-      unless primitiveTypeV1 raw == none && !isTypeConstructorNameV1 raw do
-        fail "type span walk expected named type"
-      pure (#[visit], index + 1)
-  | .array element _ => do
-      unless raw == "Array" do fail "type span walk expected Array"
-      let elementPath := path.push {
-        parentTag := "Type.Array", fieldTag := "element", index := 0
-      }
-      let (elementVisits, afterElement) ←
-        typeSpanWalkV1 source atoms (index + 1) element elementPath
-      let lengthAtom := atoms[afterElement]!
-      let _ ← spanOfSyntax source lengthAtom
-      pure (#[visit] ++ elementVisits, afterElement + 1)
-  | .map key value => do
-      unless raw == "Map" do fail "type span walk expected Map"
-      let keyPath := path.push {
-        parentTag := "Type.Map", fieldTag := "key", index := 0
-      }
-      let (keyVisits, afterKey) ← typeSpanWalkV1 source atoms (index + 1) key keyPath
-      let valuePath := path.push {
-        parentTag := "Type.Map", fieldTag := "value", index := 0
-      }
-      let (valueVisits, afterValue) ←
-        typeSpanWalkV1 source atoms afterKey value valuePath
-      pure (#[visit] ++ keyVisits ++ valueVisits, afterValue)
-  | .option element => do
-      unless raw == "Option" do fail "type span walk expected Option"
-      let elementPath := path.push {
-        parentTag := "Type.Option", fieldTag := "element", index := 0
-      }
-      let (elementVisits, next) ←
-        typeSpanWalkV1 source atoms (index + 1) element elementPath
-      pure (#[visit] ++ elementVisits, next)
-  | .bytes _ => do
-      unless raw == "Bytes" do fail "type span walk expected Bytes"
-      let lengthAtom := atoms[index + 1]!
-      let _ ← spanOfSyntax source lengthAtom
-      pure (#[visit], index + 2)
-  | .field _ => do
-      unless raw == "Field" do fail "type span walk expected Field"
-      let idAtom := atoms[index + 1]!
-      let _ ← spanOfSyntax source idAtom
-      pure (#[visit], index + 2)
-
+/-- Join one TypeV1 subtree by zipping sole-decoder syntax anchors with
+canonical TypeV1 visits. SpanJoin does not classify type tokens, walk type
+syntax, or re-interpret type structure: the decoder produces anchors and
+`canonicalTypeVisitsV1` produces tags/paths; count/tag/path and decoded-type
+identity are validated here. -/
 private def walkTypeV1
     (source : String) (path : NormalizedSyntacticPathV1)
     (type_ : TypeV1) (stx : Syntax) :
     Except String (Array SpanVisitV1) := do
-  let atoms := collectTypeAtomSyntaxV1 stx
-  let (visits, next) ← typeSpanWalkV1 source atoms 0 type_ path
-  unless next == atoms.size do
-    fail "type span walk did not consume all atoms"
+  let (decoded, anchors) ← match decodeTypeV1WithAnchors stx with
+    | .ok value => pure value
+    | .error detail => fail detail
+  unless decoded == type_ do
+    fail "type span join type identity mismatch"
+  let typeVisits ← match canonicalTypeVisitsV1 type_ path with
+    | .ok visits => pure visits
+    | .error detail => fail detail
+  unless anchors.size == typeVisits.size do
+    fail s!"type span join count mismatch: {anchors.size} anchors vs {typeVisits.size} type visits"
+  let mut visits : Array SpanVisitV1 := #[]
+  for (anchor, typeVisit) in anchors.zip typeVisits do
+    let span ← spanOfSyntax source anchor
+    visits := visits.push {
+      path := typeVisit.path
+      tag := typeVisit.constructorTag
+      span
+    }
   pure visits
 
 private def tagOfItem (item : ProgramItemV1) : String :=

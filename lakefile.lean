@@ -20,7 +20,9 @@ lean_lib ProofForgeV2Tests where
     `Tests.Compiler.TypedNameIndex,
     `Tests.Compiler.ValidatedSourceV1Pipeline,
     `Tests.Compiler.CheckV1ProductGate,
+    `Tests.Compiler.DiagnosticPipelineV1,
     `Tests.Typed.NameResolutionV1,
+    `Tests.Typed.DiagnosticLocationsV1,
     `Tests.Typed.TypeCheckExpressionsV1,
     `Tests.Typed.TypeCheckCallsV1,
     `Tests.Typed.TypeCheckStatementsV1,
@@ -69,7 +71,12 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.ProgramV1StringLiterals,
     `Tests.Language.ProgramV1TypeSurface,
     `Tests.Language.ProgramV1SpanJoin,
+    `Tests.Language.ProgramV1OriginJoin,
+    `Tests.Language.ProgramV1DiagnosticLocate,
     `Tests.Language.ProgramV1Diagnostics,
+    `Tests.Language.ProgramV1Bounds,
+    `Tests.Language.ProgramV1SourceFullTagGolden.Source,
+    `Tests.Language.ProgramV1SourceFullTagGolden,
     `Tests.Language.AggregateDeclarations,
     `Tests.Language.StateVisibility,
     `Tests.Language.SourceIdentity,
@@ -124,7 +131,11 @@ lean_lib ProofForgeV2Tests where
     `Tests.Product.CounterV1Evm,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,
-    `Tests.Core.DiagnosticV1
+    `Tests.CLI.DiagnosticsV1,
+    `Tests.Core.DiagnosticV1,
+    `Tests.Core.DiagnosticBundleV1,
+    `Tests.Frontend.ProtocolV1,
+    `Tests.Frontend.WorkerV1
   ]
 
 lean_exe proof_forge_next where
@@ -133,6 +144,11 @@ lean_exe proof_forge_next where
   -- in `ProofForgeV2.CLI.Main` (importable by tests without main collision).
   root := `ProofForgeV2.CLI.Exe
   -- Parser / module loading pulls Init interpreter symbols (e.g. IO.getRandomBytes).
+  supportInterpreter := true
+
+lean_exe proof_forge_frontend_worker_v1 where
+  exeName := "proof-forge-frontend-worker-v1"
+  root := `ProofForgeV2.Frontend.WorkerMainV1
   supportInterpreter := true
 
 lean_exe proof_forge_next_tests where

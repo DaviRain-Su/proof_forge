@@ -161,6 +161,6 @@ unsafe def run : IO Unit := do
   expectReject session "schedule-malformed-missing-parens" "    schedule External.MissingParens\n"
     "failed to parse file"
   expectReject session "legacy-call-string" "    call \"legacy.effect\"\n"
-    "portable ProgramV1 calls require a qualified source identity"
+    "failed to parse file"
 
 end Tests.Language.ProgramV1ExternalStatements

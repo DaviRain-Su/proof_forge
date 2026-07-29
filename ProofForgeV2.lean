@@ -3,6 +3,7 @@ import ProofForgeV2.Core.Unicode
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.DiagnosticV1
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.Source
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
@@ -45,6 +46,11 @@ import ProofForgeV2.Source.AstCanonicalRootDecodeV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.SpanJoinV1
 import ProofForgeV2.Source.NodeAssignmentV1
+import ProofForgeV2.Source.OriginJoinV1
+import ProofForgeV2.Source.DiagnosticLocateV1
+import ProofForgeV2.Frontend.ProtocolV1
+import ProofForgeV2.Frontend.WorkerV1
+import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Typed.TypeCheckV1

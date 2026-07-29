@@ -51,20 +51,47 @@ private def depthError : Except String α :=
 private def nodeError : Except String α :=
   fail "source node traversal exceeds the node limit"
 
+/-- Sole bounded canonical child-path encoder for ProgramV1 node paths.
+
+    Preserves the same nesting (`path.size ≥ 255`) and index (`≥ UInt32.size`)
+    bounds as the preorder traversal. Typed producers (B7b) must consume this
+    helper (or the direct/index wrappers) and must not invent a second path
+    encoder. -/
+def childPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Except String NormalizedSyntacticPathV1 := do
+  if path.size >= maxPathEdgesV1 then
+    return ← depthError
+  if index >= UInt32.size then
+    return ← nodeError
+  pure (path.push {
+    parentTag
+    fieldTag
+    index := UInt32.ofNat index
+  })
+
+/-- Direct (index-0) child path — sole wrapper over `childPathV1`. -/
+def directChildPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) :
+    Except String NormalizedSyntacticPathV1 :=
+  childPathV1 path parentTag fieldTag 0
+
+/-- Indexed child path — sole wrapper over `childPathV1` (same body; named for
+    call-site clarity at array fields). -/
+def indexChildPathV1
+    (path : NormalizedSyntacticPathV1)
+    (parentTag fieldTag : String) (index : Nat) :
+    Except String NormalizedSyntacticPathV1 :=
+  childPathV1 path parentTag fieldTag index
+
 private def pushNodeV1
     (pending : Array WorkItemV1)
     (path : NormalizedSyntacticPathV1)
     (parentTag fieldTag : String) (index : Nat)
     (node : NodeValueV1) : Except String (Array WorkItemV1) := do
-  if path.size >= maxPathEdgesV1 then
-    return ← depthError
-  if index >= UInt32.size then
-    return ← nodeError
-  let childPath := path.push {
-    parentTag
-    fieldTag
-    index := UInt32.ofNat index
-  }
+  let childPath ← childPathV1 path parentTag fieldTag index
   pure (pending.push { node, path := childPath })
 
 private def pushDirectV1
@@ -100,6 +127,58 @@ private def visit (tag : String) (item : WorkItemV1) : NodeVisitV1 := {
   constructorTag := tag
   path := item.path
 }
+
+/-- Constructor tag for one TypeV1 node, matching program preorder inventory. -/
+def typeConstructorTagV1 : TypeV1 → String
+  | .bool => "Type.Bool"
+  | .uint _ => "Type.UInt"
+  | .int _ => "Type.Int"
+  | .principal => "Type.Principal"
+  | .unit => "Type.Unit"
+  | .named _ => "Type.Named"
+  | .array .. => "Type.Array"
+  | .map .. => "Type.Map"
+  | .option _ => "Type.Option"
+  | .bytes _ => "Type.Bytes"
+  | .field _ => "Type.Field"
+
+/-- Enumerate TypeV1 nodes rooted at `path` in canonical preorder. Map always
+visits key before value (wire-field preorder). Consistent with the Type cases of
+`canonicalNodeVisitsV1`. -/
+def canonicalTypeVisitsV1
+    (type_ : TypeV1) (path : NormalizedSyntacticPathV1) :
+    Except String (Array NodeVisitV1) := do
+  let mut pending : Array WorkItemV1 := #[{ node := .type type_, path }]
+  let mut visits : Array NodeVisitV1 := #[]
+  while let some current := pending.back? do
+    pending := pending.pop
+    if visits.size >= maxNodeVisitsV1 then
+      return ← nodeError
+    match current.node with
+    | .type value =>
+      match value with
+      | .bool => visits := visits.push (visit "Type.Bool" current)
+      | .uint _ => visits := visits.push (visit "Type.UInt" current)
+      | .int _ => visits := visits.push (visit "Type.Int" current)
+      | .principal => visits := visits.push (visit "Type.Principal" current)
+      | .unit => visits := visits.push (visit "Type.Unit" current)
+      | .named _ => visits := visits.push (visit "Type.Named" current)
+      | .array element _ =>
+          visits := visits.push (visit "Type.Array" current)
+          pending ← pushDirectV1 pending current.path "Type.Array" "element" (.type element)
+      | .map key value =>
+          visits := visits.push (visit "Type.Map" current)
+          -- Stack: push value then key so key is visited first (Map key before value).
+          pending ← pushDirectV1 pending current.path "Type.Map" "value" (.type value)
+          pending ← pushDirectV1 pending current.path "Type.Map" "key" (.type key)
+      | .option element =>
+          visits := visits.push (visit "Type.Option" current)
+          pending ← pushDirectV1 pending current.path "Type.Option" "element" (.type element)
+      | .bytes _ => visits := visits.push (visit "Type.Bytes" current)
+      | .field _ => visits := visits.push (visit "Type.Field" current)
+    | _ =>
+        return ← fail "canonicalTypeVisitsV1 encountered a non-type node"
+  pure visits
 
 /-- Enumerate all node-bearing ProgramV1 values by canonical ordered-field preorder. -/
 def canonicalNodeVisitsV1

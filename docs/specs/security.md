@@ -168,6 +168,11 @@ process/protocol-output 超限分别为 `PF-RESOURCE-TIME`、`PF-RESOURCE-MEMORY
 工具 `PF-TOOL-UNTRUSTED`，路径 `PF-OUTPUT-PATH`，披露 `PF-VIS-001`。`--force` 只允许
 替换输出目录，不绕过任何安全/语义/版本检查。
 
+B10 standalone frontend worker 只定义 abnormal process 的稳定本地 stderr token 与退出值：
+argv misuse=`64`、malformed protocol=`65`、internal fault=`70`；有效 request 的 source/parser
+失败必须返回 `Frontend.Err.v1` 且退出 `0`。这些值不是产品诊断分类，也不证明 time/memory/
+process containment；未来 supervisor 才负责把 controller/protocol 事件映射到上述 `PF-*` 码。
+
 ## Attack Matrix 与验收
 
 必须测试 path traversal/symlink/TOCTOU、argument injection、恶意 executable shadowing、

@@ -19,138 +19,24 @@ namespace ProofForgeV2.Language
 
 declare_syntax_cat pfType
 /-- Parse a leading identifier plus an optional same-line second atom that is
-either an identifier (Field/Option) or a numeral (Bytes length). Line equality
-prevents the following program item from becoming part of the type. -/
+either an identifier (Field payload / named second atom) or a numeral (Bytes
+length). Line equality prevents the following program item from becoming part
+of the type. Sole non-constructor `pfType` alternative after B1R fixed-depth
+deletion. -/
 @[pfType_parser] def portableType := leading_parser
   withPosition (ident >> optional (checkLineEq >> (ident <|> numLit)))
-@[pfType_parser default+2] def arrayFieldType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayBytesType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayOptionOptionFieldType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayOptionOptionBytesType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayOptionOptionType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayOptionBytesType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayOptionType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayArrayFieldType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit >> checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayArrayType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit)
-@[pfType_parser default+2] def arrayType := leading_parser
-  withPosition (nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit)
-@[pfType_parser default+2] def optionFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
-@[pfType_parser default+2] def optionOptionFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
-@[pfType_parser default+2] def optionOptionBytesType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit)
-@[pfType_parser default+2] def optionOptionArrayFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionOptionArrayBytesType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionOptionArrayType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionOptionOptionFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident)
-@[pfType_parser default+2] def optionOptionOptionBytesType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit)
-@[pfType_parser default+2] def optionOptionOptionType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident)
-@[pfType_parser default+2] def optionOptionType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident)
-@[pfType_parser default+2] def optionBytesType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayOptionType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayBytesType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Bytes " (includeIdent := true) >> checkLineEq >> numLit >>
-    checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayArrayFieldType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Field " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit >> checkLineEq >> numLit)
-@[pfType_parser default+2] def optionArrayArrayType := leading_parser
-  withPosition (nonReservedSymbol "Option " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >>
-    nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> ident >>
-    checkLineEq >> numLit >> checkLineEq >> numLit)
-/-- Same-line prefix-atom form for `Map K V`, where `K` and `V` are arbitrary
-nested prefix types. This gives the ProgramV1 surface the full recursive EBNF
-`Map` grammar while leaving the legacy decoder free to reject it. -/
+/-- Same-line prefix-atom form for recursive `Option` / `Array` / `Map`
+constructors. Payloads may nest arbitrary portable or prefix types (including
+`Array Map`, `Option Map`, shallow Array/Option/Field/Bytes, and deeper
+Option/Array chains). Sole constructor `pfType` alternative; all fixed-depth
+combo parsers have been deleted. The sole decoder path is
+`collectTypeAtomSyntaxV1` → `decodeTypeV1At` (with canonical-preorder syntax
+anchors). -/
 @[pfType_parser default+1] def prefixType := leading_parser
-  withPosition (nonReservedSymbol "Map " (includeIdent := true) >>
+  withPosition (
+    (nonReservedSymbol "Option " (includeIdent := true) <|>
+      nonReservedSymbol "Array " (includeIdent := true) <|>
+      nonReservedSymbol "Map " (includeIdent := true)) >>
     many (checkLineEq >> (ident <|> numLit)))
 
 declare_syntax_cat pfParam
@@ -249,7 +135,6 @@ syntax pfPlace " := " pfExpr : pfStmt
 syntax "return" : pfStmt
 syntax "call " ident "(" pfExpr,* ")" : pfStmt
 syntax "schedule " ident "(" pfExpr,* ")" : pfStmt
-syntax "call " str : pfStmt
 syntax "assert " pfExpr " else " ident : pfStmt
 syntax "assert " pfExpr : pfStmt
 syntax "revert " ident "(" pfExpr,* ")" : pfStmt
@@ -283,146 +168,13 @@ syntax "emit " ident "(" pfExpr,* ")" : pfStmt
     checkLineEq >> " := " >> checkLineEq >> categoryParser `pfExpr 0)
 
 declare_syntax_cat pfAggregateMember
-/-- Field name, type introducer, optional same-line second type atom (ident or
-numeral). Both arms keep checkLinebreakBefore so the next field starts cleanly. -/
+/-- Struct field: name, colon, then the sole `pfType` surface (`portableType` +
+`prefixType`). Terminated by linebreak so the next field starts cleanly. Field
+decode remains `collectTypeAtomSyntaxV1` → `decodeTypeV1At` with the field name
+as the first flattened atom — no second type decoder. All specialized
+fixed-depth aggregate-field alternatives have been deleted. -/
 @[pfAggregateMember_parser] def aggregateField := leading_parser
-  withPosition (ident >> " : " >> ident >>
-    (checkLinebreakBefore <|> checkLineEq >> (ident <|> numLit) >> checkLinebreakBefore))
-@[pfAggregateMember_parser default+1] def arrayFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayOptionOptionFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayOptionOptionBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayOptionOptionAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayOptionBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayOptionAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayArrayFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
-    checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayArrayAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >> checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
-    checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def arrayAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionArrayFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionArrayBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionArrayAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionOptionFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionOptionBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionOptionAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionOptionAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayOptionAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayBytesAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Bytes " (includeIdent := true) >>
-    checkLineEq >> numLit >> checkLineEq >> numLit >> checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayArrayFieldAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Field " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
-    checkLinebreakBefore)
-@[pfAggregateMember_parser default+1] def optionArrayArrayAggregateField := leading_parser
-  withPosition (ident >> " : " >> nonReservedSymbol "Option " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> nonReservedSymbol "Array " (includeIdent := true) >>
-    checkLineEq >> ident >> checkLineEq >> numLit >> checkLineEq >> numLit >>
-    checkLinebreakBefore)
+  withPosition (ident >> " : " >> categoryParser `pfType 0 >> checkLinebreakBefore)
 syntax "| " ident linebreak : pfAggregateMember
 syntax "| " ident "(" sepBy(pfType, ", ") ")" linebreak : pfAggregateMember
 
@@ -642,12 +394,15 @@ private partial def collectTypeAtomSyntaxV1 (stx : Syntax) : Array Syntax :=
   else
     stx.getArgs.flatMap collectTypeAtomSyntaxV1
 
-/-- Decode the prefix atom form of the recursive ProgramV1 type grammar. The
-syntax parser has already bounded the tree; `fuel` additionally guarantees that
-malformed constructor prefixes cannot recurse without consuming an atom. -/
+/-- Decode the prefix atom form of the recursive ProgramV1 type grammar and emit
+one original Syntax anchor per TypeV1 node in canonical preorder (Map key before
+value). Array/Bytes length atoms and the Field id atom are consumed as non-node
+tokens and do not produce anchors. The syntax parser has already bounded the
+tree; `fuel` additionally guarantees that malformed constructor prefixes cannot
+recurse without consuming an atom. -/
 private def decodeTypeV1At :
     (fuel : Nat) → (atoms : Array Syntax) → (index : Nat) →
-      Except String (TypeV1 × Nat)
+      Except String (TypeV1 × Array Syntax × Nat)
   | 0, _, _ => .error "unsupported portable type"
   | fuel + 1, atoms, index => do
       let atom ← match atoms[index]? with
@@ -657,27 +412,28 @@ private def decodeTypeV1At :
         | some raw => pure raw
         | none => throw "unsupported portable type"
       match primitiveTypeV1 raw with
-      | some type => pure (type, index + 1)
+      | some type => pure (type, #[atom], index + 1)
       | none =>
           match raw with
           | "Option" => do
-              let (element, next) ← decodeTypeV1At fuel atoms (index + 1)
-              pure (.option element, next)
+              let (element, elementAnchors, next) ← decodeTypeV1At fuel atoms (index + 1)
+              pure (.option element, #[atom] ++ elementAnchors, next)
           | "Array" => do
-              let (element, next) ← decodeTypeV1At fuel atoms (index + 1)
+              let (element, elementAnchors, next) ← decodeTypeV1At fuel atoms (index + 1)
               let lengthSyntax ← match atoms[next]? with
                 | some length => pure length
                 | none => throw "unsupported portable type"
-              pure (.array element (← decodeBytesLengthAtom lengthSyntax), next + 1)
+              pure (.array element (← decodeBytesLengthAtom lengthSyntax),
+                #[atom] ++ elementAnchors, next + 1)
           | "Map" => do
-              let (key, next) ← decodeTypeV1At fuel atoms (index + 1)
-              let (value, finish) ← decodeTypeV1At fuel atoms next
-              pure (.map key value, finish)
+              let (key, keyAnchors, next) ← decodeTypeV1At fuel atoms (index + 1)
+              let (value, valueAnchors, finish) ← decodeTypeV1At fuel atoms next
+              pure (.map key value, #[atom] ++ keyAnchors ++ valueAnchors, finish)
           | "Bytes" => do
               let lengthSyntax ← match atoms[index + 1]? with
                 | some length => pure length
                 | none => throw "unsupported portable type"
-              pure (.bytes (← decodeBytesLengthAtom lengthSyntax), index + 2)
+              pure (.bytes (← decodeBytesLengthAtom lengthSyntax), #[atom], index + 2)
           | "Field" => do
               let fieldSyntax ← match atoms[index + 1]? with
                 | some field => pure field
@@ -685,7 +441,7 @@ private def decodeTypeV1At :
               unless rawIdentifierText? fieldSyntax == some "bn254_fr" do
                 throw "unsupported portable type"
               let name ← ProofForgeV2.Source.NameComponentV1.sourceNameComponentV1FromLeanName fieldSyntax.getId
-              pure (.field name, index + 2)
+              pure (.field name, #[atom], index + 2)
           | _ => do
               unless atom.getId.components.length == 1 do
                 throw "unsupported portable type"
@@ -694,13 +450,23 @@ private def decodeTypeV1At :
                 throw s!"reserved portable identifier '{name.raw}'"
               if isTypeConstructorNameV1 name.raw then
                 throw "unsupported portable type"
-              pure (.named name, index + 1)
+              pure (.named name, #[atom], index + 1)
 
 private def decodeTypeV1FromAtoms (atoms : Array Syntax) : Except String TypeV1 := do
-  let (type, next) ← decodeTypeV1At (atoms.size + 1) atoms 0
+  let (type, _anchors, next) ← decodeTypeV1At (atoms.size + 1) atoms 0
   unless next == atoms.size do
     throw "unsupported portable type"
   pure type
+
+/-- Sole ProgramV1 type decoder surface for span join: decode `pfType` syntax and
+emit one original Syntax anchor per TypeV1 node in canonical preorder. Does not
+interpret type structure independently of this decoder. -/
+def decodeTypeV1WithAnchors (stx : Syntax) : Except String (TypeV1 × Array Syntax) := do
+  let atoms := collectTypeAtomSyntaxV1 stx
+  let (type, anchors, next) ← decodeTypeV1At (atoms.size + 1) atoms 0
+  unless next == atoms.size do
+    throw "unsupported portable type"
+  pure (type, anchors)
 
 inductive ProgramNamespace where
   | bounded (name : Name)
@@ -960,8 +726,6 @@ private partial def decodeStatementV1Unchecked : Syntax → Except String StmtV1
       pure (.call (← decodeExternalCallV1Unchecked callee args))
   | `(pfStmt| schedule $callee:ident ($args:pfExpr,*)) => do
       pure (.schedule (← decodeExternalCallV1Unchecked callee args))
-  | `(pfStmt| call $_callee:str) =>
-      throw "portable ProgramV1 calls require a qualified source identity"
   | stx => do
       match stx.getKind, stx.getArgs with
       | `ProofForgeV2.Language.ifStmt, #[.atom _ "if", condition, .atom _ "then",
@@ -1202,23 +966,46 @@ private def leanNameComponentsV1 (name : Name) : Except String (Array SourceName
   else
     pure (NonEmptyArray.toArray (← sourceQualifiedNameV1FromLeanName name).components)
 
+/-- Total module+namespace+declaration identity overflow message (PF-BOUND-001). -/
+private def identityNestingLimitMessage : String :=
+  s!"portable program identity exceeds nesting limit {maxSyntaxNesting}"
+
+private def invalidProgramString (message : String) : CompileError :=
+  .invalidProgram message
+
 private def decodeProgramV1Unchecked
     (moduleName : SourceQualifiedNameV1) (currentNamespace : Name) : Syntax →
-    Except String ValidatedSourceV1
+    CompileResult ValidatedSourceV1
   | `(program $name:ident where $items:pfItem*) => do
       unless boundedNamePartCount 2 name.getId == some 1 do
-        throw "program name must be unqualified"
-      let shortName ← decodeNameV1 name
-      let namespaceComponents ← leanNameComponentsV1 currentNamespace
+        throw <| invalidProgramString "program name must be unqualified"
+      let shortName ← match decodeNameV1 name with
+        | .ok n => pure n
+        | .error message => throw <| invalidProgramString message
+      let namespaceComponents ← match leanNameComponentsV1 currentNamespace with
+        | .ok cs => pure cs
+        | .error message => throw <| invalidProgramString message
       let moduleComponents := NonEmptyArray.toArray moduleName.components
-      let identity ← sourceQualifiedNameV1OfComponents
-        ((moduleComponents ++ namespaceComponents).push shortName)
+      -- Structured identity-size resourceBound at the assembly site, before the
+      -- shared QualifiedName grammar constructor (qnCountError remains invalidProgram
+      -- for place/ident component helpers elsewhere).
+      let identityComponents := (moduleComponents ++ namespaceComponents).push shortName
+      if identityComponents.size < 1 || identityComponents.size > maxSyntaxNesting then
+        throw <| .resourceBound identityNestingLimitMessage
+      let identity ← match sourceQualifiedNameV1OfComponents identityComponents with
+        | .ok id => pure id
+        | .error message => throw <| invalidProgramString message
+      let decodedItems ← match items.mapM decodeItemV1Unchecked with
+        | .ok decoded => pure decoded
+        | .error message => throw <| invalidProgramString message
       let sourceProgram : ProgramV1 := {
         name := shortName
-        items := ← items.mapM decodeItemV1Unchecked
+        items := decodedItems
       }
-      validateSourceV1 moduleName identity sourceProgram
-  | _ => throw "expected a program declaration"
+      match validateSourceV1 moduleName identity sourceProgram with
+      | .ok source => pure source
+      | .error message => throw <| invalidProgramString message
+  | _ => throw <| invalidProgramString "expected a program declaration"
 
 /-- Direct recovery frontend for the supported ProgramV1 product slice. It
 constructs and validates ProgramV1 from Syntax without creating legacy source. -/
@@ -1228,11 +1015,8 @@ def decodeProgramCommandV1Checked
   preflightSyntax stx
   let namespaceName ← match currentNamespace with
     | .bounded name => pure name
-    | .overLimit => .error (.resourceBound
-        s!"portable program identity exceeds nesting limit {maxSyntaxNesting}")
-  match decodeProgramV1Unchecked moduleName namespaceName stx with
-  | .ok source => pure source
-  | .error message => .error (.invalidProgram message)
+    | .overLimit => .error (.resourceBound identityNestingLimitMessage)
+  decodeProgramV1Unchecked moduleName namespaceName stx
 
 end ProgramV1Decoder
 

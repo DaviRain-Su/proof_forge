@@ -365,6 +365,88 @@ def run : IO Unit := do
     "Expr.Binary", "Expr.Literal", "Expr.Literal"
   ]) "mixed direct fields must use wire-field preorder"
 
+  -- Public canonical TypeV1 visits: Map key before value, including nested Map.
+  -- Align with simpleOrderProgram's ConstDecl type: Map Bool UInt8.
+  let mapType := TypeV1.map .bool (.uint 8)
+  let mapRootPath : NormalizedSyntacticPathV1 := #[{
+    parentTag := "ConstDecl", fieldTag := "type", index := 0
+  }]
+  let mapVisits ← liftResult "canonical type visits Map"
+    (canonicalTypeVisitsV1 mapType mapRootPath)
+  expect (mapVisits.map (·.constructorTag) == #["Type.Map", "Type.Bool", "Type.UInt"])
+    "Map type visits must be tag preorder Map then key then value"
+  expect (mapVisits.size == 3) "Map type visit count"
+  match mapVisits[0]?, mapVisits[1]?, mapVisits[2]? with
+  | some mapVisit, some keyVisit, some valueVisit =>
+      expect (mapVisit.path == mapRootPath) "Map root path identity"
+      expect (keyVisit.path == mapRootPath.push {
+        parentTag := "Type.Map", fieldTag := "key", index := 0
+      }) "Map key path must precede value and use fieldTag key"
+      expect (valueVisit.path == mapRootPath.push {
+        parentTag := "Type.Map", fieldTag := "value", index := 0
+      }) "Map value path must follow key with fieldTag value"
+  | _, _, _ => throw <| IO.userError "Map type visits incomplete"
+
+  let nestedMapType :=
+    TypeV1.map (.map .bool (.uint 8)) (.option (.map (.int 8) .principal))
+  let nestedMapVisits ← liftResult "canonical type visits nested Map"
+    (canonicalTypeVisitsV1 nestedMapType mapRootPath)
+  expect (nestedMapVisits.map (·.constructorTag) == #[
+    "Type.Map",
+    "Type.Map", "Type.Bool", "Type.UInt",
+    "Type.Option", "Type.Map", "Type.Int", "Type.Principal"
+  ]) "nested Map key-before-value preorder must recurse"
+  -- Key subtree must appear before value subtree: first Type.Map child is key.
+  let nestedKeyPath := mapRootPath.push {
+    parentTag := "Type.Map", fieldTag := "key", index := 0
+  }
+  let nestedValuePath := mapRootPath.push {
+    parentTag := "Type.Map", fieldTag := "value", index := 0
+  }
+  expect (nestedMapVisits.any fun v =>
+      v.constructorTag == "Type.Map" && v.path == nestedKeyPath)
+    "nested Map key child path"
+  expect (nestedMapVisits.any fun v =>
+      v.constructorTag == "Type.Option" && v.path == nestedValuePath)
+    "nested Map value child path"
+  let keyIdx ← match nestedMapVisits.findIdx? fun v => v.path == nestedKeyPath with
+    | some i => pure i
+    | none => throw <| IO.userError "nested Map key index missing"
+  let valueIdx ← match nestedMapVisits.findIdx? fun v => v.path == nestedValuePath with
+    | some i => pure i
+    | none => throw <| IO.userError "nested Map value index missing"
+  expect (keyIdx < valueIdx) "Map key visit must precede value visit"
+
+  -- Leaf/container tag helper must match program preorder tags.
+  expect (typeConstructorTagV1 .bool == "Type.Bool") "tag Bool"
+  expect (typeConstructorTagV1 (.uint 8) == "Type.UInt") "tag UInt"
+  expect (typeConstructorTagV1 (.array .bool 1) == "Type.Array") "tag Array"
+  expect (typeConstructorTagV1 (.option .bool) == "Type.Option") "tag Option"
+  expect (typeConstructorTagV1 mapType == "Type.Map") "tag Map"
+  expect (typeConstructorTagV1 (.bytes 1) == "Type.Bytes") "tag Bytes"
+  expect (typeConstructorTagV1 (.field names.name) == "Type.Field") "tag Field"
+
+  -- Public Type visits must agree with full program preorder on the Map subtree
+  -- tags/relative edges (full program paths include Program/items prefix).
+  let simpleMapRootPath ← match simple.findSome? fun visit =>
+      if visit.constructorTag == "Type.Map" then some visit.path else none with
+    | some path => pure path
+    | none => throw <| IO.userError "simple program missing Type.Map visit"
+  let mapSubtreeFromProgram := simple.filter fun visit =>
+    visit.path.size ≥ simpleMapRootPath.size &&
+      (visit.path.extract 0 simpleMapRootPath.size) == simpleMapRootPath
+  expect (mapSubtreeFromProgram.map (·.constructorTag) ==
+      mapVisits.map (·.constructorTag))
+    "public Type visits must match program preorder Map subtree tags"
+  expect (mapSubtreeFromProgram.size == mapVisits.size)
+    "public Type visits must match program preorder Map subtree count"
+  -- Relative edges under the Map root must match (ignore absolute path prefix).
+  for (progVisit, typeVisit) in mapSubtreeFromProgram.zip mapVisits do
+    let progRel := progVisit.path.extract simpleMapRootPath.size progVisit.path.size
+    let typeRel := typeVisit.path.extract mapRootPath.size typeVisit.path.size
+    expect (progRel == typeRel)
+      s!"Map subtree relative path mismatch at {progVisit.constructorTag}"
+
   let absent ← liftResult "absent children" (canonicalNodeVisitsV1 (absenceProgram names))
   expect (inventorySha256 absent ==
       "5fcb4463c92481e6514a8600721fc53d6b119e4eae95dbdd4c4a8130750fbcd2")

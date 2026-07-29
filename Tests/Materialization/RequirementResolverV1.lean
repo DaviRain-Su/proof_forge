@@ -1010,7 +1010,7 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
     #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint capability constructor"
-  -- CompiledProgramV1.mk sole mint in Compiler/Pipeline.lean (compileValidatedSourceV1).
+  -- CompiledProgramV1.mk sole mint in Compiler/Pipeline.lean (finishCompiledProgramV1).
   rgExpectOneContaining ("CompiledProgramV1" ++ "\\.mk")
     #["ProofForgeV2"] "Pipeline.lean"
     "sole mint carrier constructor"

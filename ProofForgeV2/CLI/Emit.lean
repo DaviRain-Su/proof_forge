@@ -264,12 +264,12 @@ inductive CliCommandV1 where
 private def parseTargetExcept (value : String) : Except String TargetId :=
   match TargetId.parse? value with
   | some target => .ok target
-  | none => .error (CompileError.unknownTarget value).render
+  | none => .error s!"unknown target '{value}'"
 
 private def parseProfileExcept (value : String) : Except String CodegenProfileId :=
   match CodegenProfileId.parse? value with
   | some profile => .ok profile
-  | none => .error (CompileError.unknownProfile value).render
+  | none => .error s!"unknown profile '{value}'"
 
 /-- Shared build/build-counter argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
@@ -315,8 +315,10 @@ def parseBuildSelectionCliFlags (args : List String) : IO BuildSelectionCliFlags
   let options ← parseBuildArgs args
   pure { target := options.target, profile := options.profile }
 
-/-- Resolve a build selection from CLI selection flags (same path as `build` /
-`build-counter` after arg parse). Missing `--target` is a usage error. -/
+/-- Test-facing typed selection resolver after argv parsing. It preserves
+`CompileError.render` for all registry failures; product `CLI.run` additionally
+classifies an unregistered argv target as plain usage via
+`resolveBuildSelectionForCli`. -/
 def resolveSelectionFromFlags (flags : BuildSelectionCliFlags) :
     IO ResolvedBuildSelectionV1 := do
   let target ← match flags.target with

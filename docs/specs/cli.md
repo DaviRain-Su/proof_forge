@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-07-25
+updated: 2026-07-29
 normative: true
 ---
 
@@ -47,8 +47,13 @@ parser 与 raw-array equality；文件路径和 rendered dotted string 不参与
 一个候选自动选择；零候选 `PF-EXPORT-003`；多个候选必须 exact `--program`，否则
 `PF-EXPORT-002`。target/profile exact lookup；省略 profile 使用 registry 唯一 default。
 build 禁止 `--network`；deploy 不接受 source/target/profile，而是信任并重验 OutputSet。
-`--language-version` 只接受当前 compiler 内已登记 parser 的 exact SemVer；省略时使用
-当前 DSL major 的唯一 default。`--minimum-evidence` 只接受
+`--language-version` 只接受当前 compiler 内已登记 parser 的 **exact SemVer**（ADR-0022 D1 /
+`SPEC-VER-001`）。当前 DSL major 为 **`1`**，其 sole enabled default 为 **`1.0.0`**：省略
+`--language-version` 与显式 `1.0.0` **解析为同一** parser descriptor。拒绝 ranges、`latest`、
+negotiation、unknown exact、disabled/revoked 与 non-unique current-major default（稳定码
+`PF-LANGUAGE-VERSION-UNKNOWN` / `PF-LANGUAGE-VERSION-DISABLED` / `PF-LANGUAGE-DEFAULT`）。
+**`languageVersion` 永不进入** ProgramV1 `programIdentity` / `sourceHashV1` / `NodeId` preimage。
+`--minimum-evidence` 只接受
 `specified | artifact_validated | local_runtime | network_or_proof_validated`；有效值是
 `max(profile.minimumEvidence, cliRequested)`，CLI 不得降低 profile 下限。
 
@@ -112,9 +117,34 @@ sourceHash/semanticHash/semanticProvenanceDigest。
 
 ## JSON Results
 
-成功 object：`schema`, `command`, `status:"ok"`, `result`。失败 object：同 schema、
-`status:"error"`, `diagnostics:[...]`；不混入日志。输入/输出皆 UTF-8，JSON duplicate key
+成功 object：`schema`, `command`, `status:"ok"`, `result`；在 **supervised** `check`/`build`
+上另含顶层 **`receipts`**（ADR-0022 D3）。失败 object：同 schema、`status:"error"`、
+`diagnostics:[...]`；supervised `check`/`build` 失败同样 **始终** 含顶层 **`receipts`**
+（与 `diagnostics` 并列，不是其成员）。不混入日志。输入/输出皆 UTF-8，JSON duplicate key
 拒绝。human output 不作为稳定 API。
+
+未 supervised 的 development in-process 路径 **不得** 伪造 `contained` 级 receipt 语义，也
+不得在字段清单上假装已有 controller-backed containment；若仍发出 development observation
+投影，assurance class 必须可区分且不得 silent 升格。
+
+### Supervised public `receipts`（ADR-0022 D3）
+
+在 **supervised** `check`/`build` 路径上，JSON stdout object 在 **success 与 failure** 均携带
+顶层 **`receipts`** 字段（见上字段清单）。`receipts` 是 supervisor/controller 结果的
+**bounded public-safe projection 与 digest**（hard/effective profile id/digest、observed
+peak/elapsed 的可公开摘要、controller event class、cleanup result 等），**不是**：
+
+- raw 或 full internal receipt bytes；
+- stream tails、host absolute paths、secrets 或 unredacted stderr；
+- `diagnostics[]` 的成员或替代物；
+- OutputSet artifact 或 artifact path。
+
+完整 public receipt projection 的字段 schema 仍可由后续实现切片钉死；本规格只冻结 **顶层
+字段存在性、success/failure 必现、public-safe / 非 diagnostic / 非 artifact** 边界。
+未 supervised 路径若发出 observation 投影，assurance class 必须可区分
+（`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
+controller-bound + controller-event attribution 下成立，禁止 silent fallback；ADR-0022 D2）。
+human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 ## Exit Codes
 
@@ -130,6 +160,18 @@ sourceHash/semanticHash/semanticProvenanceDigest。
 | 70 | internal compiler error |
 
 多个 diagnostics 取最高优先级：70 > 7 > 6 > 5 > 4 > 3 > 2。
+
+### B8b product diagnostic exit（engineering）
+
+`build` / `build-counter` 产品路径经 Loader product → located Normalize → product Compiler，
+失败时 stderr 一次打印全部 `DiagnosticBundleV1.renderHuman` 行，exit 为
+`DiagnosticBundleV1.selectExitCode`：仅 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note
+中立；`PF-INTERNAL` → 70；phase deploy/verify → 7；emit/tool → 6；plan/lower → 5；
+resolve → 4；source/type/effect/semantic → 3。CLI usage/config（缺 `--module`/未知选项/
+未知 `--target`/非法 argv）**exit 2**（`failUsage` plain message），**不是** diagnostic，
+且不发明 `PF-CLI-USAGE`、不 throw `CompileError.render` / uncaught-exception exit 1。
+Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。Full JSON
+result envelope/receipts 与 formal `TASK-D1-07` 仍 pending。
 
 ## Secret、Inputs 与副作用
 

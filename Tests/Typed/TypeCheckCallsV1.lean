@@ -198,8 +198,10 @@ private unsafe def testStructWrongCount
   let pairType : TypeV1 := .named (← mkName "Pair")
   let expr := ExprV1.constructor (← mkQn #["Pair"]) #[u 1]
   let res := typeCheckExpr emptyScope resolved.tables (some pairType) expr
-  expectExprDiag "struct-wrong-count" res "2"
-  expectExprDiag "struct-wrong-count" res "1"
+  -- Arity mismatch only: no trailing integer-literal diagnostics for present args.
+  let msgs := messages res
+  unless msgs == #["type mismatch: expected 2 constructor arguments, got 1 constructor arguments"] do
+    throw <| IO.userError s!"struct-wrong-count: exact messages mismatch, got {msgs}"
 
 private unsafe def testStructWrongType
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -258,8 +260,10 @@ private unsafe def testLocalCallWrongCount
     "    return 0\n" ++
     "  const target : UInt64 := add(1)\n"
   let res ← typeCheckConst session "local-call-wrong-count" body "target"
-  expectExprDiag "local-call-wrong-count" res "2"
-  expectExprDiag "local-call-wrong-count" res "1"
+  -- Arity mismatch only: no trailing integer-literal diagnostics for present args.
+  let msgs := messages res
+  unless msgs == #["type mismatch: expected 2 arguments, got 1 arguments"] do
+    throw <| IO.userError s!"local-call-wrong-count: exact messages mismatch, got {msgs}"
 
 private unsafe def testLocalCallWrongType
     (session : Language.Loader.ParserSession) : IO Unit := do

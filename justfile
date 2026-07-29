@@ -8,13 +8,13 @@ locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Develope
 default: dev-check
 
 build:
-    lake build ProofForgeV2 proof_forge_next
+    lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1
 
-test:
+test: build
     lake build proof_forge_next_tests
     lake env .lake/build/bin/proof-forge-next-tests
 
-test-fast:
+test-fast: build
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 
@@ -22,7 +22,7 @@ test-fast:
 # - no checkSupport def/call
 # - no selection+compiled materialize/emit product signatures
 # - sole ResolvedEngineeringBuildV1.mk in EngineeringBuildV1.lean
-# - sole CompiledProgramV1.mk in Compiler/Pipeline.lean (compileValidatedSourceV1)
+# - sole CompiledProgramV1.mk in Compiler/Pipeline.lean (finishCompiledProgramV1)
 # Dual-arg sole public API authority is Lean Environment reflection in
 # Tests/Materialization/RequirementResolverV1.lean (run_cmd product gate +
 # synthetic probe self-test). This recipe builds that module so reflection
@@ -88,13 +88,13 @@ requirement-resolver-deletion-gate:
       'ResolvedEngineeringBuildV1.mk'
     expect_one_match 'CompiledProgramV1\.mk' 'Pipeline.lean' \
       'CompiledProgramV1.mk'
-    # CompiledProgramV1.mk must sit near compileValidatedSourceV1 (sole mint site).
+    # CompiledProgramV1.mk must sit in the shared product/non-product finish gate.
     set +e
     mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 12 'CompiledProgramV1\.mk' ProofForgeV2/Compiler 2>&1)"
     mk_ec=$?
     set -e
-    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'compileValidatedSourceV1'; then
-      echo "requirement-resolver-deletion-gate: CompiledProgramV1.mk must be near compileValidatedSourceV1 in Compiler/Pipeline.lean" >&2
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'finishCompiledProgramV1'; then
+      echo "requirement-resolver-deletion-gate: CompiledProgramV1.mk must be inside finishCompiledProgramV1 in Compiler/Pipeline.lean" >&2
       printf '%s\n' "$mk_ctx" >&2
       exit 1
     fi
@@ -1078,13 +1078,12 @@ dsl-negative: build
 
 product-negative: build
     rm -rf build/v2/module-required-negative build/v2/module-parse-negative
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi; if [ "$ec" -ne 2 ]; then echo "missing --module must exit 2, got $ec" >&2; cat build/module-required-negative.log >&2; exit 1; fi
     rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
     test ! -e build/v2/module-required-negative
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
     rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
-
 
 # Exact positive CLI stdout anchors for list/describe (selection surface; no build outputs).
 target-cli-positive: build
@@ -1102,6 +1101,10 @@ target-cli-positive: build
 	printf '%b' 'target=aleo\nstatus=research-only\n' > build/describe-aleo.expected
 	cmp -s build/describe-aleo.expected build/describe-aleo.stdout
 
+# Dedicated ProgramV1 source-bound gate (B2). Independent of quarantined dsl-negative.
+# Real proof-forge-next CLI with explicit --module Root; heavy fixtures under build/.
+source-bounds: build
+    bash scripts/program_v1_source_bounds
 
 target-negative: build
     rm -rf build/v2/openvm-negative build/v2/network-negative build/v2/cross-profile-negative \
@@ -1116,7 +1119,7 @@ target-negative: build
     test ! -e build/v2/openvm-negative
     # --network usage error — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target evm --network local -o build/v2/network-negative > build/network-negative.log 2>&1; then echo "--network unexpectedly accepted" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: unknown option '--network'" > build/network-negative.expected
+    printf '%s\n' "unknown option '--network'" > build/network-negative.expected
     cmp -s build/network-negative.expected build/network-negative.log
     test ! -e build/v2/network-negative
     # cross-target profile — exact log
@@ -1126,22 +1129,22 @@ target-negative: build
     test ! -e build/v2/cross-profile-negative
     # uppercase target — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target EVM -o build/v2/uppercase-target-negative > build/uppercase-target-negative.log 2>&1; then echo "uppercase target unexpectedly accepted" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: PF-TARGET-UNKNOWN: unknown target 'EVM'" > build/uppercase-target-negative.expected
+    printf '%s\n' "unknown target 'EVM'" > build/uppercase-target-negative.expected
     cmp -s build/uppercase-target-negative.expected build/uppercase-target-negative.log
     test ! -e build/v2/uppercase-target-negative
     # malformed target — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target "1evm" -o build/v2/malformed-target-negative > build/malformed-target-negative.log 2>&1; then echo "malformed target unexpectedly accepted" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: PF-TARGET-UNKNOWN: unknown target '1evm'" > build/malformed-target-negative.expected
+    printf '%s\n' "unknown target '1evm'" > build/malformed-target-negative.expected
     cmp -s build/malformed-target-negative.expected build/malformed-target-negative.log
     test ! -e build/v2/malformed-target-negative
     # duplicate --target — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target evm --target near -o build/v2/dup-target-negative > build/dup-target-negative.log 2>&1; then echo "duplicate --target unexpectedly accepted" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: duplicate --target" > build/dup-target-negative.expected
+    printf '%s\n' "duplicate --target" > build/dup-target-negative.expected
     cmp -s build/dup-target-negative.expected build/dup-target-negative.log
     test ! -e build/v2/dup-target-negative
     # duplicate --profile — exact log
     if lake env .lake/build/bin/proof-forge-next build-counter --target evm --profile evm-yul-solc-0.8.34-v1 --profile near-wasm-raw-u64-v1 -o build/v2/dup-profile-negative > build/dup-profile-negative.log 2>&1; then echo "duplicate --profile unexpectedly accepted" >&2; exit 1; fi
-    printf '%s\n' "uncaught exception: duplicate --profile" > build/dup-profile-negative.expected
+    printf '%s\n' "duplicate --profile" > build/dup-profile-negative.expected
     cmp -s build/dup-profile-negative.expected build/dup-profile-negative.log
     test ! -e build/v2/dup-profile-negative
     # toolchain negatives (require selection success first; substring rg OK)
@@ -1198,7 +1201,9 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+# `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
+# selection and S5–S7c deletion gates retain the engineering output closure.
+ci: docs-check build test product-negative source-bounds target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

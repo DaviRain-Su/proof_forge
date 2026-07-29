@@ -1,16 +1,20 @@
 import Lean.Parser.Module
 import Lean.Util.Path
 import Std.Data.HashSet
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanJoinV1
 
 namespace ProofForgeV2.Language.Loader
 
 open Lean Parser ProofForgeV2
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.SpanJoinV1
 open ProofForgeV2.Source.SpanV1
@@ -72,42 +76,48 @@ private def commandSpan? (source : String) (stx : Syntax) : Option SourceByteSpa
   | .ok span => some span
   | .error _ => none
 
-private def originsFromSpan? (fileName : String) (span? : Option SourceByteSpanV1) :
-    Array SourceOrigin :=
+/-- Build a diagnostic primary origin from a trustworthy source span.
+    Pre-node parser/duplicate locations use explicit `nodeId = none` (B7a;
+    zero-sentinel retired). Decoder-internal/no-span remains primary `none`. -/
+private def primaryFromSpan? (fileName : String) (span? : Option SourceByteSpanV1) :
+    Option DiagnosticOriginV1 :=
   match span? with
-  | none => #[]
+  | none => none
   | some span =>
     match parseProjectRelativePath fileName with
-    | .error _ => #[]
-    | .ok sourcePath => #[{
+    | .error _ => none
+    | .ok sourcePath => some {
         sourcePath := sourcePath,
         startByte := span.startByte,
         endByte := span.endByte,
-        nodeId := errorSentinelNodeId
-      }]
+        nodeId := none
+      }
 
 private def toDiagnosticV1 (fileName : String) (err : LoaderError) : DiagnosticV1 :=
   match err with
-  | .parserBoundary message span? => {
-      code := .sourceInvalid,
-      message := s!"Lean parser rejected source: {message}",
-      origins := originsFromSpan? fileName span?
-    }
-  | .invalidProgram message => {
-      code := .sourceInvalid,
-      message := message,
-      origins := #[]
-    }
-  | .resourceBound message => {
-      code := .resourceBound,
-      message := message,
-      origins := #[]
-    }
-  | .duplicateProgram name span? => {
-      code := .sourceInvalid,
-      message := s!"duplicate program '{renderSourceQualified name}'",
-      origins := originsFromSpan? fileName span?
-    }
+  | .parserBoundary message span? =>
+      DiagnosticV1.make .sourceInvalid
+        s!"Lean parser rejected source: {message}"
+        (primary := primaryFromSpan? fileName span?)
+  | .invalidProgram message =>
+      DiagnosticV1.make .sourceInvalid message
+  | .resourceBound message =>
+      DiagnosticV1.make .resourceBound message
+  | .duplicateProgram name span? =>
+      DiagnosticV1.make .sourceInvalid
+        s!"duplicate program '{renderSourceQualified name}'"
+        (primary := primaryFromSpan? fileName span?)
+
+/-- Public-safe PF-INTERNAL bundle for SpanJoin/OriginJoin impossibilities.
+    Stable token only — no `repr`, hashes, absolute paths, or source text. -/
+private def internalJoinBundle (stable : String) : DiagnosticBundleV1 :=
+  mkFailureBundleV1 #[
+    DiagnosticV1.make .internal "source origin materialization failed"
+      (actual := some (PfJson.string stable))]
+
+private def loaderErrorBundle (logicalSourcePath : String) (err : LoaderError) :
+    DiagnosticBundleV1 :=
+  mkFailureBundleV1 #[toDiagnosticV1 logicalSourcePath err]
 
 /-- Decoder errors from `Language.decodeProgramCommandV1Checked` are only
 `invalidProgram` or `resourceBound` in the ProgramV1 product slice.  All other
@@ -424,18 +434,88 @@ unsafe def selectProgramV1WithSpans (session : ParserSession)
           | .ok spans => return .ok (src, spans)
           | .error message => return .error <| .invalidProgram message
 
-unsafe def parseProgramsV1WithDiagnostics (session : ParserSession)
-    (source fileName moduleName : String) :
-    IO (Except (Array DiagnosticV1) (Array ValidatedSourceV1)) := do
-  let result ← parseProgramsV1WithEnvironment' session.environment source fileName moduleName
-  pure (result.mapError fun err => #[toDiagnosticV1 fileName err])
+/-- Additive Source origin inventory: single decoder → SpanJoin → OriginJoin.
+    Invalid caller project-relative path → `invalidProgram` / PF-SRC-INVALID.
+    Same-snapshot join/inventory failure (impossible for a successful WithSpans
+    pair) → `invalidProgram` with an internal fail-closed message (CompileError
+    has no dedicated internal variant; code stays PF-SRC-INVALID wire via
+    invalidProgram, message classifies the fault). No parser/decoder
+    duplication, fallback, caller-supplied spans, or trusted inventory.
 
-unsafe def selectProgramV1WithDiagnostics (session : ParserSession)
+    Non-product library surface. Product paths must use `selectProgramV1Product`. -/
+unsafe def selectProgramV1WithOrigins (session : ParserSession)
     (source fileName moduleName : String) (requested : Option String) :
-    IO (Except (Array DiagnosticV1) ValidatedSourceV1) := do
-  let parsed ← parseProgramsV1WithEnvironment' session.environment source fileName moduleName
-  pure ((selectParsedProgramV1 session.environment parsed requested).mapError
-    fun err => #[toDiagnosticV1 fileName err])
+    IO (Except CompileError (ValidatedSourceV1 × OriginInventoryV1)) := do
+  match ← session.selectProgramV1WithSpans source fileName moduleName requested with
+  | .error error => return .error error
+  | .ok (src, spans) =>
+      match parseProjectRelativePath fileName with
+      | .error detail =>
+          return .error <| .invalidProgram detail
+      | .ok sourcePath =>
+          match joinOriginsV1 src sourcePath spans with
+          | .ok inv => return .ok (src, inv)
+          | .error e =>
+              return .error <| .invalidProgram
+                s!"internal origin inventory join failed: {repr e}"
+
+/-- Single syntax-preserving parse/select/SpanJoin snapshot shared by the
+    B8b product Loader and the B10 standalone frontend worker. This helper is
+    the only structured-bundle path to `(ValidatedSourceV1 × path/span table)`;
+    callers may join origins or transport preorder spans, but never reparse. -/
+private unsafe def selectProgramV1ProductSnapshot
+    (session : ParserSession)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1
+      (ValidatedSourceV1 × Array (NormalizedSyntacticPathV1 × SourceByteSpanV1))) := do
+  let parsed ←
+    parseProgramsV1WithEnvironmentWithSyntax' session.environment
+      source logicalSourcePath moduleName
+  match parsed with
+  | .error err =>
+      pure (.error (loaderErrorBundle logicalSourcePath err))
+  | .ok programs =>
+      match selectParsedProgramV1WithSyntax session.environment (.ok programs) requested with
+      | .error err =>
+          pure (.error (loaderErrorBundle logicalSourcePath err))
+      | .ok (src, commandStx) =>
+          match spanJoinV1 source commandStx src.program with
+          | .error _ => pure (.error (internalJoinBundle "spanJoin"))
+          | .ok spans => pure (.ok (src, spans))
+
+/-- Additive B10 worker payload entry.
+
+    Returns complete Loader diagnostics or canonical-preorder spans from the
+    same immutable parser snapshot. Paths are intentionally stripped only after
+    SpanJoin; the worker protocol reconstructs them from NodeAssignmentV1. This
+    API performs no file I/O, worker orchestration, or OriginInventory join. -/
+unsafe def selectProgramV1FrontendPayload (session : ParserSession)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1 (ValidatedSourceV1 × Array SourceByteSpanV1)) := do
+  match ← selectProgramV1ProductSnapshot session source logicalSourcePath moduleName requested with
+  | .error bundle => pure (.error bundle)
+  | .ok (src, pathSpans) => pure (.ok (src, pathSpans.map (·.2)))
+
+/-- Sole product Loader entry (B8b), sharing the B10 snapshot helper.
+
+    Parses source **exactly once**, selects from the same parser snapshot, then
+    runs SpanJoin and OriginJoin. `logicalSourcePath` is project-relative.
+    SpanJoin/OriginJoin impossibilities fail closed as public-safe PF-INTERNAL.
+    No raw diagnostic-array carrier, fallback, or reparse. -/
+unsafe def selectProgramV1Product (session : ParserSession)
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)) := do
+  match ← selectProgramV1ProductSnapshot session source logicalSourcePath moduleName requested with
+  | .error bundle => pure (.error bundle)
+  | .ok (src, spans) =>
+      match parseProjectRelativePath logicalSourcePath with
+      | .error detail =>
+          pure (.error (mkFailureBundleV1 #[
+            DiagnosticV1.make .sourceInvalid detail]))
+      | .ok sourcePath =>
+          match joinOriginsV1 src sourcePath spans with
+          | .ok inv => pure (.ok (src, inv))
+          | .error _ => pure (.error (internalJoinBundle "originJoin"))
 
 end ParserSession
 
@@ -457,17 +537,24 @@ unsafe def selectProgramV1WithSpans (source fileName moduleName : String)
   let session ← ParserSession.create
   session.selectProgramV1WithSpans source fileName moduleName requested
 
-unsafe def parseProgramsV1WithDiagnostics (source fileName moduleName : String) :
-    IO (Except (Array DiagnosticV1) (Array ValidatedSourceV1)) := do
-  if let .error error := checkSourceSize source then
-    return .error <| #[toDiagnosticV1 fileName error]
-  let session ← ParserSession.create
-  session.parseProgramsV1WithDiagnostics source fileName moduleName
-
-unsafe def selectProgramV1WithDiagnostics (source fileName moduleName : String)
+unsafe def selectProgramV1WithOrigins (source fileName moduleName : String)
     (requested : Option String) :
-    IO (Except (Array DiagnosticV1) ValidatedSourceV1) := do
+    IO (Except CompileError (ValidatedSourceV1 × OriginInventoryV1)) := do
   let session ← ParserSession.create
-  session.selectProgramV1WithDiagnostics source fileName moduleName requested
+  session.selectProgramV1WithOrigins source fileName moduleName requested
+
+/-- Top-level B10 worker payload entry; see the ParserSession method. -/
+unsafe def selectProgramV1FrontendPayload
+    (source logicalSourcePath moduleName : String) (requested : Option String) :
+    IO (DiagnosticResultV1 (ValidatedSourceV1 × Array SourceByteSpanV1)) := do
+  let session ← ParserSession.create
+  session.selectProgramV1FrontendPayload source logicalSourcePath moduleName requested
+
+/-- Top-level product Loader entry; see `ParserSession.selectProgramV1Product`. -/
+unsafe def selectProgramV1Product (source logicalSourcePath moduleName : String)
+    (requested : Option String) :
+    IO (DiagnosticResultV1 (ValidatedSourceV1 × OriginInventoryV1)) := do
+  let session ← ParserSession.create
+  session.selectProgramV1Product source logicalSourcePath moduleName requested
 
 end ProofForgeV2.Language.Loader

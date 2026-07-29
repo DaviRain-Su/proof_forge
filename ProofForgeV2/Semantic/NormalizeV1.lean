@@ -3,8 +3,10 @@
 
   Owns the first ProgramV1 → SemanticProgramV1 lowering seam:
     * consumes ValidatedSourceV1
-    * requires Typed.CheckV1.checkProgramTypedResultV1 with ok=true and
-      analysisComplete=true (fail closed otherwise; no carrier on typed failure)
+    * product entry requires `checkProgramTypedLocatedResultV1`; non-product
+      fixture/provenance entry retains the exact unlocated erase projection
+    * requires ok=true and analysisComplete=true (fail closed otherwise; no
+      Semantic carrier on typed failure)
     * lowers the shipped Counter-like ProgramV1 subset into SemanticProgramDataV1
     * returns SemanticProgramV1 only via WireV1 structure-gated
       encodeSemanticProgramDataV1 (authoritative path; no alpha Semantic.Program
@@ -23,9 +25,15 @@
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
       public authority validate/digest never accept caller inventory)
 
-  Product ownership (S3):
-    * `Compiler.compileValidatedSourceV1` gates every product success through
-      `normalizeProgramV1` before residual alpha Typed/Semantic materialization.
+  Product ownership (S3 + B8b):
+    * Product path: `normalizeProgramLocatedV1` consumes
+      `(ValidatedSourceV1 × OriginInventoryV1)` from the sole product Loader,
+      calls `checkProgramTypedLocatedResultV1` exactly once, materializes the
+      full located diagnostic array all-or-nothing, and returns
+      `DiagnosticResultV1 SemanticProgramV1` via `mkFailureBundleV1` (sole
+      sort/dedupe/cap). Does **not** re-run unlocated CheckV1.
+    * Non-product library: `normalizeProgramV1` remains for hand-built fixtures
+      and provenance helpers; product Compiler/CLI must not call it.
     * This module owns the target-neutral structure gate only; it does not own
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
@@ -36,6 +44,7 @@
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
 -/
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Semantic.ProvenanceV1
 import ProofForgeV2.Semantic.RequirementsV1
@@ -48,6 +57,7 @@ import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -57,6 +67,7 @@ import ProofForgeV2.Typed.CheckV1
 namespace ProofForgeV2.Semantic.NormalizeV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Semantic.ProvenanceV1
 open ProofForgeV2.Semantic.RequirementsV1
@@ -66,6 +77,7 @@ open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -481,12 +493,10 @@ def encodeCarrierV1 (data : SemanticProgramDataV1) :
   | .ok bytes => pure ⟨bytes⟩
   | .error e => .error (.wire e)
 
-/-- Public S1/S2 normalizer entry: CheckV1 gate → direct ProgramV1 lower →
-    S2 requirements freeze → Wire encode.
+/-- Non-product S1/S2 normalizer entry: unlocated CheckV1 gate → lower → encode.
 
-  S1 lowering walks `source.program.items` directly after the CheckV1 gate
-  (no separate NameResolution re-walk; CheckV1 already resolved). Requirements
-  are frozen into SemanticProgramDataV1 before the sole structure-gated encode.
+  Hand-built fixtures and provenance helpers only. Product Compiler/CLI must use
+  `normalizeProgramLocatedV1` (located CheckV1 + DiagnosticResultV1).
 -/
 def normalizeProgramV1 (source : ValidatedSourceV1) :
     Except NormalizeErrorV1 SemanticProgramV1 := do
@@ -495,6 +505,68 @@ def normalizeProgramV1 (source : ValidatedSourceV1) :
     return ← .error (.typedNotOk typed.diagnostics)
   let data ← lowerProgramDataV1 source
   encodeCarrierV1 data
+
+/-- Closed wire-error summary for product diagnostics (no Lean `repr`). -/
+private def renderSemanticWireErrorSummaryV1 : SemanticWireErrorV1 → String
+  | .truncated => "truncated"
+  | .limitExceeded => "limitExceeded"
+  | .badMagic => "badMagic"
+  | .badTag => "badTag"
+  | .badFieldCount => "badFieldCount"
+  | .badScalar => "badScalar"
+  | .nonCanonical => "nonCanonical"
+  | .duplicate => "duplicate"
+  | .badReference => "badReference"
+  | .badType => "badType"
+  | .badCfg => "badCfg"
+  | .badRequirement => "badRequirement"
+  | .badProvenance => "badProvenance"
+  | .trailingBytes => "trailingBytes"
+
+/-- Map post-CheckV1 Normalize failures into a failure bundle. -/
+private def normalizeFailureBundle (err : NormalizeErrorV1) : DiagnosticBundleV1 :=
+  match err with
+  | .typedNotOk diags => mkFailureBundleV1 diags
+  | .unsupported detail =>
+      mkFailureBundleV1 #[DiagnosticV1.make .sourceInvalid detail]
+  | .identity detail =>
+      mkFailureBundleV1 #[DiagnosticV1.make .sourceInvalid detail]
+  | .wire e =>
+      mkFailureBundleV1 #[
+        DiagnosticV1.make .sourceInvalid
+          s!"semantic structure gate: {renderSemanticWireErrorSummaryV1 e}"]
+
+/-- Public-safe PF-INTERNAL when located materialization is impossible
+    (foreign inventory / hash mismatch / path locate failure). No input leak. -/
+private def locateInternalBundle : DiagnosticBundleV1 :=
+  mkFailureBundleV1 #[
+    DiagnosticV1.make .internal "located typed analysis failed"
+      (actual := some (PfJson.string "typedLocate"))]
+
+/-- Sole product Normalize entry (B8b).
+
+    Consumes the exact product Loader pair. Calls
+    `checkProgramTypedLocatedResultV1` **exactly once** (all-or-nothing locate;
+    no unlocated CheckV1 re-run). On typed failure, preserves the complete
+    located diagnostic set and lets `mkFailureBundleV1` perform the sole
+    normative sort/dedupe/cap. On located success, lowers S1 and structure-gated encodes.
+    Locate/hash impossibilities → PF-INTERNAL. Does not call `normalizeProgramV1`.
+-/
+def normalizeProgramLocatedV1
+    (source : ValidatedSourceV1) (inv : OriginInventoryV1) :
+    DiagnosticResultV1 SemanticProgramV1 :=
+  match checkProgramTypedLocatedResultV1 source inv with
+  | .error _ => .error locateInternalBundle
+  | .ok located =>
+      if !(located.ok && located.analysisComplete) then
+        .error (mkFailureBundleV1 located.diagnostics)
+      else
+        match lowerProgramDataV1 source with
+        | .error e => .error (normalizeFailureBundle e)
+        | .ok data =>
+            match encodeCarrierV1 data with
+            | .ok carrier => .ok carrier
+            | .error e => .error (normalizeFailureBundle e)
 
 private def mapProvenanceError (e : ProvenanceBuildErrorV1) :
     NormalizeErrorV1 :=

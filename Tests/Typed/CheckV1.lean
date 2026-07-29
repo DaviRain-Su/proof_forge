@@ -4,17 +4,26 @@
   Pins phase order (structure → type → effect → bound → disclosure), single
   resolution pass (no duplicated resolution messages), analysisComplete/ok under
   duplicate fn keys, and independent coverage of type / effect / bound /
-  disclosure errors.  Does not assert product CLI or alpha Typed.checkV1 wiring.
+  disclosure errors.
+
+  B7b3d: draft-bearing sole authority (`TypedCheckDraftResultV1` /
+  `checkProgramTypedDraftResultV1`), exact erase parity vs legacy unlocated
+  APIs, and additive located CheckV1 hash-gate + all-or-nothing locateArray
+  materialization.  Does not assert product CLI multi-error bundle (B8) or
+  alpha Typed.checkV1 wiring beyond existing product-gate suites.
 -/
 import Tests.Language.ParserSession
+import ProofForgeV2.Core.Common
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.DiagnosticLocateV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Typed.CheckV1
+import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1
 import ProofForgeV2.Semantic.NormalizeV1
@@ -23,21 +32,27 @@ import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.NodeAssignmentV1
 import ProofForgeV2.Source.NodeTraversalV1
+import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
 
 namespace Tests.Typed.CheckV1
 
 open ProofForgeV2
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.DiagnosticLocateV1
 open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Source.WireV1
 open ProofForgeV2.Typed.CheckV1
+open ProofForgeV2.Typed.DiagnosticDraftV1
 open ProofForgeV2.Typed.ModelV1
 open ProofForgeV2.Typed.NameResolutionV1
 
@@ -46,19 +61,59 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 
 private def moduleName : String := "Tests.CheckV1"
 
+private unsafe def loadValidated
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO ValidatedSourceV1 := do
+  match ← session.selectProgramV1 source ("<typed-check-" ++ label ++ ">") moduleName none with
+  | .ok validated => pure validated
+  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
+private unsafe def loadWithOrigins
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × OriginInventoryV1) := do
+  match ← session.selectProgramV1WithOrigins
+      source ("tests/typed-check-" ++ label ++ ".pf") moduleName none with
+  | .ok pair => pure pair
+  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
 private unsafe def checkResult
     (session : Language.Loader.ParserSession) (label source : String) :
     IO TypedCheckResultV1 := do
-  match ← session.selectProgramV1 source ("<typed-check-" ++ label ++ ">") moduleName none with
-  | .ok validated => pure (checkProgramTypedResultV1 validated)
-  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+  let validated ← loadValidated session label source
+  pure (checkProgramTypedResultV1 validated)
 
 private unsafe def checkDiags
     (session : Language.Loader.ParserSession) (label source : String) :
     IO (Array DiagnosticV1) := do
-  match ← session.selectProgramV1 source ("<typed-check-" ++ label ++ ">") moduleName none with
-  | .ok validated => pure (checkProgramTypedV1 validated)
-  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+  let validated ← loadValidated session label source
+  pure (checkProgramTypedV1 validated)
+
+private unsafe def checkDraftResult
+    (session : Language.Loader.ParserSession) (label source : String) :
+    IO (ValidatedSourceV1 × TypedCheckDraftResultV1) := do
+  let validated ← loadValidated session label source
+  pure (validated, checkProgramTypedDraftResultV1 validated)
+
+/-- Exact erase parity: draft authority vs legacy unlocated result. -/
+private def expectEraseParity
+    (label : String) (draft : TypedCheckDraftResultV1) (legacy : TypedCheckResultV1) :
+    IO Unit := do
+  expect (draft.ok == legacy.ok) s!"{label}: ok parity"
+  expect (draft.analysisComplete == legacy.analysisComplete)
+    s!"{label}: analysisComplete parity"
+  let erased := eraseArray draft.drafts
+  expect (erased.size == legacy.diagnostics.size)
+    s!"{label}: size parity draft={erased.size} legacy={legacy.diagnostics.size}"
+  for i in [0:erased.size] do
+    let d := erased[i]!
+    let e := legacy.diagnostics[i]!
+    expect (d.code == e.code) s!"{label}[{i}]: code parity"
+    expect (d.message == e.message) s!"{label}[{i}]: message parity"
+    expect (d.phase == e.phase) s!"{label}[{i}]: phase parity"
+    expect (d.primary == none) s!"{label}[{i}]: erased primary empty"
+    expect (d.related.isEmpty) s!"{label}[{i}]: erased related empty"
+    expect (e.primary == none) s!"{label}[{i}]: legacy primary empty"
+    expect (e.related.isEmpty) s!"{label}[{i}]: legacy related empty"
 
 private def messages (diags : Array DiagnosticV1) : Array String :=
   diags.map (·.message)
@@ -420,6 +475,424 @@ private unsafe def testPhaseOrderBoundThenDisclosure
       throw <| IO.userError s!"bound-vis: missing bound/disclosure wires, got {w}"
 
 /-!
+  B7b3d — draft sole authority, erase parity, located hash-gate + NodeId materialization.
+-/
+
+/-- No-diagnostic success: draft/legacy ok parity; empty located diagnostics. -/
+private unsafe def testDraftSuccessParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftOk where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (validated, draft) ← checkDraftResult session "draft-ok" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-ok" draft legacy
+  expectOk legacy "draft-ok-legacy"
+  expect (draft.drafts.isEmpty) "draft-ok: empty drafts"
+  let (v2, inv) ← loadWithOrigins session "draft-ok-loc" source
+  match checkProgramTypedLocatedResultV1 v2 inv with
+  | .error e => throw <| IO.userError s!"draft-ok-loc: unexpected {repr e}"
+  | .ok located => do
+      expect (located.ok && located.analysisComplete) "draft-ok-loc: ok+complete"
+      expect located.diagnostics.isEmpty "draft-ok-loc: empty diagnostics"
+  -- Deterministic rerun of draft composition.
+  let draft2 := checkProgramTypedDraftResultV1 validated
+  expectEraseParity "draft-ok-rerun" draft2 legacy
+
+/-- Type-only phase: draft erase parity + located primary NodeId. -/
+private unsafe def testDraftTypeOnlyParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftType where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return true\n"
+  let (validated, draft) ← checkDraftResult session "draft-type" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-type" draft legacy
+  expect (!draft.ok && draft.analysisComplete) "draft-type: not ok complete"
+  expect (contains (wires legacy.diagnostics) "PF-SRC-INVALID" ||
+      contains (messages legacy.diagnostics) "type mismatch")
+    "draft-type: type diagnostic present"
+  expect (!contains (wires legacy.diagnostics) "PF-EFFECT-001")
+    "draft-type: no effect"
+  expect (!contains (wires legacy.diagnostics) "PF-BOUND-001")
+    "draft-type: no bound"
+  expect (!contains (wires legacy.diagnostics) "PF-VIS-001")
+    "draft-type: no disclosure"
+  let (v2, inv) ← loadWithOrigins session "draft-type-loc" source
+  let located ← match checkProgramTypedLocatedResultV1 v2 inv with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"draft-type-loc: {repr e}"
+  expect (located.diagnostics.size == draft.drafts.size)
+    "draft-type-loc: size"
+  for i in [0:draft.drafts.size] do
+    let d := draft.drafts[i]!
+    let locd := located.diagnostics[i]!
+    expect (d.diagnostic.code == locd.code) s!"draft-type-loc[{i}]: code"
+    expect (d.diagnostic.message == locd.message) s!"draft-type-loc[{i}]: message"
+    match d.location with
+    | none =>
+        expect (locd.primary == none) s!"draft-type-loc[{i}]: primary none"
+    | some loc =>
+        match originInventoryLookupPathV1 inv loc.primaryPath with
+        | none => throw <| IO.userError s!"draft-type-loc[{i}]: primary path missing"
+        | some origin =>
+            match locd.primary with
+            | none => throw <| IO.userError s!"draft-type-loc[{i}]: expected primary"
+            | some o =>
+                expect (o.nodeId == some origin.nodeId)
+                  s!"draft-type-loc[{i}]: primary NodeId"
+
+/-- Effect-only phase erase + located. -/
+private unsafe def testDraftEffectOnlyParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftEffect where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return total\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return peek()\n"
+  let (validated, draft) ← checkDraftResult session "draft-effect" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-effect" draft legacy
+  expect (contains (wires legacy.diagnostics) "PF-EFFECT-001")
+    "draft-effect: PF-EFFECT-001"
+  expect (!contains (wires legacy.diagnostics) "PF-VIS-001")
+    "draft-effect: no VIS"
+  let (v2, inv) ← loadWithOrigins session "draft-effect-loc" source
+  let located ← match checkProgramTypedLocatedResultV1 v2 inv with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"draft-effect-loc: {repr e}"
+  expect (located.diagnostics.size ≥ 1) "draft-effect-loc: ≥1"
+  expect (located.diagnostics.any fun d => d.code.wire == "PF-EFFECT-001")
+    "draft-effect-loc: wire"
+  -- At least one located diagnostic has a real primary NodeId.
+  expect (located.diagnostics.any fun d =>
+      match d.primary with | some o => o.nodeId.isSome | none => false)
+    "draft-effect-loc: some primary NodeId"
+
+/-- Bound-only (loop product) erase parity. -/
+private unsafe def testDraftBoundOnlyParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftBound where\n" ++
+    "  state total : UInt64\n" ++
+    "  state start : UInt64\n" ++
+    "  state stop : UInt64\n" ++
+    "  entry run() do\n" ++
+    "    for i in start ..< stop bounded 4096 do\n" ++
+    "      for j in start ..< stop bounded 4096 do\n" ++
+    "        for k in start ..< stop bounded 4096 do\n" ++
+    "          total := i\n"
+  let (validated, draft) ← checkDraftResult session "draft-bound" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-bound" draft legacy
+  expect (contains (wires legacy.diagnostics) "PF-BOUND-001")
+    "draft-bound: PF-BOUND-001"
+
+/-- Disclosure-only erase parity. -/
+private unsafe def testDraftDisclosureOnlyParity
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftDisc where\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  let (validated, draft) ← checkDraftResult session "draft-disc" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-disc" draft legacy
+  expect (contains (wires legacy.diagnostics) "PF-VIS-001")
+    "draft-disc: PF-VIS-001"
+
+/-- Mixed resolution-ok type + effect + bound + disclosure in phase order. -/
+private unsafe def testDraftMixedPhases
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftMixed where\n" ++
+    "  state total : UInt64\n" ++
+    "  state start : UInt64\n" ++
+    "  state stop : UInt64\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return total\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return f()\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    for i in start ..< stop bounded 4096 do\n" ++
+    "      for j in start ..< stop bounded 4096 do\n" ++
+    "        for k in start ..< stop bounded 4096 do\n" ++
+    "          total := i\n" ++
+    "    total := x\n" ++
+    "    return true\n"
+  let (validated, draft) ← checkDraftResult session "draft-mixed" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-mixed" draft legacy
+  let w := wires legacy.diagnostics
+  let msgs := messages legacy.diagnostics
+  -- structure cycle before type before effect before bound before disclosure
+  expect (contains msgs "recursive call cycle") "draft-mixed: structure cycle"
+  expect (contains msgs "type mismatch") "draft-mixed: type"
+  expect (contains w "PF-EFFECT-001") "draft-mixed: effect"
+  expect (contains w "PF-BOUND-001") "draft-mixed: bound"
+  expect (contains w "PF-VIS-001") "draft-mixed: disclosure"
+  let si := msgs.findIdx? (·.contains "recursive call cycle")
+  let ti := msgs.findIdx? (·.contains "type mismatch")
+  let ei := w.findIdx? (· == "PF-EFFECT-001")
+  let bi := w.findIdx? (· == "PF-BOUND-001")
+  let vi := w.findIdx? (· == "PF-VIS-001")
+  match si, ti, ei, bi, vi with
+  | some s, some t, some e, some b, some v =>
+      unless s < t && t < e && e < b && b < v do
+        throw <| IO.userError
+          s!"draft-mixed: phase order failed s={s} t={t} e={e} b={b} v={v} wires={w} msgs={msgs}"
+  | _, _, _, _, _ =>
+      throw <| IO.userError s!"draft-mixed: missing phase indices wires={w} msgs={msgs}"
+  let (v2, inv) ← loadWithOrigins session "draft-mixed-loc" source
+  let located ← match checkProgramTypedLocatedResultV1 v2 inv with
+    | .ok r => pure r
+    | .error err => throw <| IO.userError s!"draft-mixed-loc: {repr err}"
+  expect (located.diagnostics.size == draft.drafts.size)
+    "draft-mixed-loc: size"
+  expect (located.diagnostics.map (·.code.wire) ==
+      legacy.diagnostics.map (·.code.wire))
+    "draft-mixed-loc: wire order"
+  -- Every draft with a location must materialize a primary NodeId.
+  for i in [0:draft.drafts.size] do
+    let d := draft.drafts[i]!
+    let locd := located.diagnostics[i]!
+    match d.location with
+    | none => pure ()
+    | some _ =>
+        match locd.primary with
+        | none => throw <| IO.userError s!"draft-mixed-loc[{i}]: missing primary"
+        | some o =>
+            expect o.nodeId.isSome s!"draft-mixed-loc[{i}]: nodeId some"
+
+/-- Resolution short-circuit: structure only; later phases skipped. -/
+private unsafe def testDraftResolutionShortCircuit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftResShort where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return missing + true\n"
+  let (validated, draft) ← checkDraftResult session "draft-res" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-res" draft legacy
+  expect (!draft.ok) "draft-res: not ok"
+  expect draft.analysisComplete "draft-res: complete (no dup-fn)"
+  let msgs := messages legacy.diagnostics
+  expect (contains msgs "missing" || contains msgs "unknown")
+    "draft-res: resolution"
+  expect (countNeedle msgs "missing" == 1)
+    s!"draft-res: single missing, got {countNeedle msgs "missing"}"
+  expect (!contains (wires legacy.diagnostics) "PF-EFFECT-001")
+    "draft-res: no effect after short-circuit"
+  expect (!contains (wires legacy.diagnostics) "PF-BOUND-001")
+    "draft-res: no bound after short-circuit"
+  expect (!contains (wires legacy.diagnostics) "PF-VIS-001")
+    "draft-res: no disclosure after short-circuit"
+  -- Drafts are path-bearing for the resolution diagnostic.
+  expect (draft.drafts.any fun d => d.location.isSome)
+    "draft-res: resolution draft has location"
+
+/-- Cycle structure ordering: resolution (empty) then callGraph before later phases. -/
+private unsafe def testDraftCycleStructureOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftCycle where\n" ++
+    "  fn f() : UInt64 do\n" ++
+    "    return f()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return true\n"
+  let (validated, draft) ← checkDraftResult session "draft-cycle" source
+  let legacy := checkProgramTypedResultV1 validated
+  expectEraseParity "draft-cycle" draft legacy
+  let msgs := messages legacy.diagnostics
+  let si := msgs.findIdx? (·.contains "recursive call cycle")
+  let ti := msgs.findIdx? (·.contains "type mismatch")
+  let bi := msgs.findIdx? (·.contains "unbounded recursion (call cycle)")
+  match si, ti, bi with
+  | some s, some t, some b =>
+      unless s < t && t < b do
+        throw <| IO.userError s!"draft-cycle: order s={s} t={t} b={b} msgs={msgs}"
+  | _, _, _ =>
+      throw <| IO.userError s!"draft-cycle: missing indices msgs={msgs}"
+
+/-- Duplicate-fn incomplete via draft adapter over unlocated resolution. -/
+private unsafe def testDraftDuplicateFnIncomplete
+    (_session : Language.Loader.ParserSession) : IO Unit := do
+  let progName ← mkName "DupFnDraft"
+  let helper ← mkName "helper"
+  let runName ← mkName "run"
+  let ret0 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 0)))] }
+  let ret1 : BlockV1 := { statements := #[.return_ (some (.literal (.integer 1)))] }
+  let u64 : TypeV1 := .uint 64
+  let fnA : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret0 }
+  let fnB : FnDeclV1 := { name := helper, params := #[], result := u64, body := ret1 }
+  let entryDecl : EntryDeclV1 := { name := runName, params := #[], result := u64, body := ret0 }
+  let progAst : ProgramV1 :=
+    { name := progName, items := #[.fn fnA, .fn fnB, .entry entryDecl] }
+  let (tables, st) := (buildTables progAst).run { diagnostics := #[] }
+  unless tables.fn.hasDuplicateKey do
+    throw <| IO.userError "dup-fn-draft: expected hasDuplicateKey"
+  let resolution : NameResolutionResultV1 :=
+    { tables := tables
+      diagnostics := st.diagnostics
+      ok := false }
+  let legacy := checkProgramTypedWithResolutionV1 progAst resolution
+  -- Draft path via unlocated conversion is what the adapter uses.
+  let draftRes : NameResolutionDraftResultV1 :=
+    { tables := tables
+      drafts := st.diagnostics.map fun d => { diagnostic := d, location := none }
+      ok := false }
+  let draft := checkProgramTypedDraftWithResolutionV1 progAst draftRes
+  expectEraseParity "dup-fn-draft" draft legacy
+  expect (!draft.analysisComplete) "dup-fn-draft: incomplete"
+  expect (!draft.ok) "dup-fn-draft: not ok"
+  expect (!contains (wires legacy.diagnostics) "PF-EFFECT-001")
+    "dup-fn-draft: no effect"
+  expect (!contains (wires legacy.diagnostics) "PF-BOUND-001")
+    "dup-fn-draft: no bound"
+  expect (!contains (wires legacy.diagnostics) "PF-VIS-001")
+    "dup-fn-draft: no vis"
+
+/-- Foreign inventory sourceHash mismatch fails before path lookup. -/
+private unsafe def testLocatedForeignInventory
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceA :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LocForeignA where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return true\n"
+  let sourceB :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LocForeignB where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return false\n"
+  let (va, _inva) ← loadWithOrigins session "loc-foreign-a" sourceA
+  let (_vb, invb) ← loadWithOrigins session "loc-foreign-b" sourceB
+  -- Ensure hashes actually differ.
+  let ha ← match sourceHashV1 va with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"loc-foreign: hash A: {e}"
+  expect (ha != originInventorySourceHashV1 invb)
+    "loc-foreign: inventories must differ"
+  match checkProgramTypedLocatedResultV1 va invb with
+  | .ok _ =>
+      throw <| IO.userError "loc-foreign: expected sourceHash error, got ok"
+  | .error (.sourceHash detail) =>
+      expect (detail == "sourceHashV1 does not match originInventorySourceHashV1")
+        s!"loc-foreign: detail {detail}"
+  | .error (.locate _) =>
+      throw <| IO.userError
+        "loc-foreign: must fail at sourceHash before locate (got locate)"
+
+/-- Synthetic missing path: all-or-nothing locateArray failure (no partial). -/
+private unsafe def testLocatedMissingPathAllOrNothing
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LocMissingPath where\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return true\n"
+  let (validated, inv) ← loadWithOrigins session "loc-missing" source
+  let draft := checkProgramTypedDraftResultV1 validated
+  expect (draft.drafts.size ≥ 1) "loc-missing: need ≥1 draft"
+  -- Tamper first located draft primary path to a synthetic foreign path.
+  let mut tampered : Array TypedDiagnosticDraftV1 := #[]
+  let mut didTamper := false
+  for d in draft.drafts do
+    match d.location, didTamper with
+    | some loc, false =>
+        let badPath := loc.primaryPath.push {
+          parentTag := "Foreign"
+          fieldTag := "missing"
+          index := UInt32.ofNat 0
+        }
+        tampered := tampered.push
+          { d with location := some { loc with primaryPath := badPath } }
+        didTamper := true
+    | _, _ =>
+        tampered := tampered.push d
+  expect didTamper "loc-missing: tampered at least one path"
+  -- Direct sole materializer: all-or-nothing fail (matches located API path).
+  match locateArray inv tampered with
+  | .ok diags =>
+      throw <| IO.userError
+        s!"loc-missing: expected locateArray error, got {diags.size} diags"
+  | .error _ => pure ()
+  -- Located public API with matching inventory still succeeds (untampered).
+  match checkProgramTypedLocatedResultV1 validated inv with
+  | .ok r =>
+      expect (r.diagnostics.size == draft.drafts.size) "loc-missing: public size"
+  | .error e =>
+      throw <| IO.userError s!"loc-missing: public locate should succeed: {repr e}"
+
+/-- Deterministic repeated draft + located outputs. -/
+private unsafe def testDraftLocatedDeterminism
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program DraftDet where\n" ++
+    "  state total : UInt64\n" ++
+    "  fn peek() : UInt64 do\n" ++
+    "    return total\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  let (validated, inv) ← loadWithOrigins session "draft-det" source
+  let d1 := checkProgramTypedDraftResultV1 validated
+  let d2 := checkProgramTypedDraftResultV1 validated
+  expect (d1.ok == d2.ok && d1.analysisComplete == d2.analysisComplete)
+    "draft-det: flags"
+  expect (d1.drafts.size == d2.drafts.size) "draft-det: size"
+  for i in [0:d1.drafts.size] do
+    expect (d1.drafts[i]!.diagnostic.message == d2.drafts[i]!.diagnostic.message)
+      s!"draft-det[{i}]: message"
+    expect (d1.drafts[i]!.diagnostic.code == d2.drafts[i]!.diagnostic.code)
+      s!"draft-det[{i}]: code"
+  let l1 ← match checkProgramTypedLocatedResultV1 validated inv with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"draft-det l1: {repr e}"
+  let l2 ← match checkProgramTypedLocatedResultV1 validated inv with
+    | .ok r => pure r
+    | .error e => throw <| IO.userError s!"draft-det l2: {repr e}"
+  expect (l1.diagnostics.map (·.message) == l2.diagnostics.map (·.message))
+    "draft-det: located messages"
+  expect (l1.diagnostics.map (·.code.wire) == l2.diagnostics.map (·.code.wire))
+    "draft-det: located wires"
+  for i in [0:l1.diagnostics.size] do
+    expect (l1.diagnostics[i]!.primary == l2.diagnostics[i]!.primary)
+      s!"draft-det[{i}]: primary"
+    expect (l1.diagnostics[i]!.related == l2.diagnostics[i]!.related)
+      s!"draft-det[{i}]: related"
+
+/-!
   Tests.Semantic.NormalizeV1 — S1 Semantic normalizer vertical contract suite.
 
   Hosted in this module file (Tests.Typed.CheckV1 is a CI-registered root that
@@ -439,6 +912,7 @@ open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.NodeTraversalV1
+open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
@@ -936,6 +1410,10 @@ private unsafe def testCounterRequirementsAndProvenance
   expect typed.ok "prov: CheckV1.ok"
   expect typed.analysisComplete "prov: CheckV1.analysisComplete"
   let path ← parseTestPath "prov"
+  -- Source OriginJoin is sole exact join; Semantic inventory is a thin projection.
+  let sourceInv ← match joinOriginsV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"prov: source origin join: {repr e}"
   let inventory ← match buildSourceNodeInventoryV1 validated path spans with
     | .ok inv => pure inv
     | .error e => throw <| IO.userError s!"prov: inventory: {repr e}"
@@ -943,6 +1421,12 @@ private unsafe def testCounterRequirementsAndProvenance
   let srcHash ← match sourceHashV1 validated with
     | .ok h => pure h
     | .error e => throw <| IO.userError s!"prov: sourceHash: {e}"
+  expect (originInventorySourceHashV1 sourceInv == srcHash)
+    "prov: Source inventory sourceHash == sourceHashV1"
+  expect (inventory.sourceHash == originInventorySourceHashV1 sourceInv)
+    "prov: Semantic projection sourceHash == Source inventory"
+  expect (inventory.nodes == originInventoryOriginsV1 sourceInv)
+    "prov: Semantic projection nodes == Source NodeId-ordered origins"
   expect (inventory.sourceHash == srcHash) "prov: inventory.sourceHash == sourceHashV1"
   match validateSourceNodeInventoryExactV1 validated inventory with
   | .ok () => pure ()
@@ -1113,14 +1597,18 @@ private unsafe def testCounterRequirementsAndProvenance
     | .ok h => pure h
     | .error e => throw <| IO.userError s!"prov: semR: {repr e}"
   expect (semR == semHash) "prov: re-normalize stable semanticHash"
-  -- Inventory negatives: duplicate span path
+  -- Inventory negatives: Source OriginJoin + Semantic thin projection parity.
   let some (p0, sp0) := spans[0]? |
     throw <| IO.userError "prov: spans empty"
   let dupSpans := spans.push (p0, sp0)
+  expect (match joinOriginsV1 validated path dupSpans with
+    | .error (.inventory detail) => detail.startsWith "duplicate span path"
+    | _ => false)
+    "prov: Source duplicate span path rejected"
   expect (match buildSourceNodeInventoryV1 validated path dupSpans with
     | .error (.inventory detail) => detail.startsWith "duplicate span path"
     | _ => false)
-    "prov: duplicate span path rejected"
+    "prov: Semantic projection duplicate span path rejected"
   -- Extra distinct span path absent from the production assignment table.
   let extraPath := p0.push {
     parentTag := "Foreign"
@@ -1128,12 +1616,16 @@ private unsafe def testCounterRequirementsAndProvenance
     index := UInt32.ofNat 0
   }
   let extraSpans := spans.push (extraPath, sp0)
+  expect (match joinOriginsV1 validated path extraSpans with
+    | .error (.inventory detail) => detail.startsWith "extra span path"
+    | _ => false)
+    "prov: Source extra span path rejected"
   expect (match buildSourceNodeInventoryV1 validated path extraSpans with
     | .error (.inventory detail) => detail.startsWith "extra span path"
     | _ => false)
-    "prov: extra span path rejected"
+    "prov: Semantic projection extra span path rejected"
   -- Delimiter-bearing alias: would collide under legacy \x1f/\x1e key encoding
-  -- but is a distinct structural path under length-framed pathLookupKeyV1.
+  -- but is a distinct structural path under Source length-framed pathLookupKeyV1.
   -- [{X, Y\x1fZ, 0}] vs [{X\x1fY, Z, 0}] share one legacy key.
   let aliasA : NormalizedSyntacticPathV1 := #[{
     parentTag := "X", fieldTag := "Y\x1fZ", index := 0 }]
@@ -1143,7 +1635,7 @@ private unsafe def testCounterRequirementsAndProvenance
       legacyDelimiterPathKey aliasB)
     "prov: legacy delimiter keys collide for alias pair"
   expect (pathLookupKeyV1 aliasA != pathLookupKeyV1 aliasB)
-    "prov: length-framed keys distinguish delimiter alias pair"
+    "prov: Source length-framed keys distinguish delimiter alias pair"
   -- Replacing a real span path with aliasA → missing real path detection.
   let mut replacedSpans : Array (NormalizedSyntacticPathV1 × SourceByteSpanV1) := #[]
   let mut replaced := false
@@ -1154,11 +1646,16 @@ private unsafe def testCounterRequirementsAndProvenance
     else
       replacedSpans := replacedSpans.push (p, sp)
   expect replaced "prov: replaced first span path with delimiter alias"
+  expect (match joinOriginsV1 validated path replacedSpans with
+    | .error (.inventory detail) =>
+        detail.startsWith "missing span" || detail.startsWith "extra span path"
+    | _ => false)
+    "prov: Source delimiter-alias path swap → missing/extra detection"
   expect (match buildSourceNodeInventoryV1 validated path replacedSpans with
     | .error (.inventory detail) =>
         detail.startsWith "missing span" || detail.startsWith "extra span path"
     | _ => false)
-    "prov: delimiter-alias path swap → missing/extra detection"
+    "prov: Semantic delimiter-alias path swap → missing/extra detection"
   -- Extra alias path (both real and alias present) → extra span rejection.
   let aliasExtraSpans := spans.push (aliasA, sp0)
   expect (match buildSourceNodeInventoryV1 validated path aliasExtraSpans with
@@ -1174,9 +1671,12 @@ private unsafe def testCounterRequirementsAndProvenance
   -- Missing span: drop last span entry
   if spans.size > 0 then
     let missingSpans := spans.pop
+    expect (match joinOriginsV1 validated path missingSpans with
+      | .error (.inventory _) => true | _ => false)
+      "prov: Source missing span path rejected"
     expect (match buildSourceNodeInventoryV1 validated path missingSpans with
       | .error (.inventory _) => true | _ => false)
-      "prov: missing span path rejected"
+      "prov: Semantic projection missing span path rejected"
   -- Structure-valid same-qualifiedName carrier substitution fails authority.
   let altText := wrap "CounterProv" <|
     "  state count : UInt64\n" ++
@@ -1772,6 +2272,19 @@ unsafe def run : IO Unit := do
   testDisclosureErrorOnly session
   testPhaseOrderEffectThenDisclosure session
   testPhaseOrderBoundThenDisclosure session
+  -- B7b3d draft authority / erase / located
+  testDraftSuccessParity session
+  testDraftTypeOnlyParity session
+  testDraftEffectOnlyParity session
+  testDraftBoundOnlyParity session
+  testDraftDisclosureOnlyParity session
+  testDraftMixedPhases session
+  testDraftResolutionShortCircuit session
+  testDraftCycleStructureOrder session
+  testDraftDuplicateFnIncomplete session
+  testLocatedForeignInventory session
+  testLocatedMissingPathAllOrNothing session
+  testDraftLocatedDeterminism session
   IO.println "Tests.Typed.CheckV1: ok"
   -- S1 normalizer vertical contract (Loader→CheckV1→Normalize→Wire); CI pin.
   Tests.Semantic.NormalizeV1.run
