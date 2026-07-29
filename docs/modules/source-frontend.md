@@ -76,6 +76,40 @@ comment 与 allocation history 不参与 identity/hash。
 当前 in-process CLI loader 尚未实现规范 contained frontend worker，因此输出仍是 development
 级；这不妨碍普通产品测试，但不能声称 formal/hermetic evidence。
 
+## FrontendProtocolV1（B9 inert foundation）
+
+**B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
+request/response 地基，供未来 contained frontend worker 使用。**本切片 inert**：无 worker
+可执行体、process spawn、safe-open、supervisor/receipt、CLI/Loader/Compiler 产品切换或
+target 变更。
+
+| 帧 | Tag | 载荷 |
+|---|---|---|
+| Request | `Frontend.Req.v1` | exact SemVer `languageVersion`；validated `ProjectRelativePath`；raw UTF-8 `moduleSelector` / optional `programSelector`（无 NFC gate）；raw `sourceBytes`（协议层不校验 UTF-8） |
+| Success | `Frontend.Ok.v1` | `requestDigest` + canonical `ValidatedSourceV1` root bytes + `SourceByteSpanV1` 仅在 `NodeAssignmentV1` preorder（**不**传 path） |
+| Failure | `Frontend.Err.v1` | `requestDigest` + canonical PF-JCS `DiagnosticBundleV1` 数组文本 |
+
+硬上限：`maxProtocolBytes=64 MiB`、`maxSourceBytes=16 MiB`、`maxNodeSpanCount=100000`、
+selector ≤4096。
+
+**Pure frame decoders**（`decodeFrontendRequestV1` / `decodeFrontendSuccessV1` /
+`decodeFrontendFailureV1` / `decodeFrontendResponseV1`）：precheck 协议体积 → full-consume →
+structure validate → re-encode 精确 byte identity。拒绝 truncation、wrong tag/field count、
+oversize/count bomb、trailing/noncanonical frame 与 malformed 诊断包；success 另要求 carried
+`ValidatedSourceV1` root bytes 等于 `canonicalValidatedSourceAstBytesV1` 的 sole 再编码（与
+failure 的 PF-JCS/`mkFailureBundleV1` identity 对称）。pure decoder **不**绑定 request 上下文。
+
+**Request-bound APIs**（`mkFrontendSuccessV1` / `mkFrontendFailureV1` / `bindFrontendSuccessV1` /
+`bindFrontendFailureV1` / `reconstructFrontendSuccessV1`）：在 pure decode 之上强制
+`requestDigest` 匹配（拒绝 cross-request digest replay）、failure 的 diagnostic
+`sourcePath` 必须等于 request path（foreign path fail closed）、以及 span `endByte` 相对
+request `sourceBytes` 的 range/count 门禁。`reconstructFrontendSuccessV1` 仅经
+`decodeCanonicalSourceAstBytesV1` → `assignNodeIdsV1` zip spans → `joinOriginsV1`（无第二套
+ProgramV1 decoder、无 caller-trusted OriginInventory 构造）。
+
+`requestDigest` = `domainSeparatedSha256("proof-forge.frontend-request.v1", exact request bytes)`。
+聚焦套件：`Tests/Frontend/ProtocolV1.lean`。B10 worker 实现与 formal TASK-D1-08 仍 pending。
+
 ## Parser version 与 identity 边界（ADR-0022 D1）
 
 Static parser registry 当前 major 为 **`1`**，sole enabled default exact version 为 **`1.0.0`**

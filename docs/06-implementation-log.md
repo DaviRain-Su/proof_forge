@@ -14,6 +14,14 @@ normative: false
 
 
 
+## 2026-07-29 — B9 FrontendProtocolV1 inert request/response foundation
+
+- Context/State：B8b 已完成 product multi-error `DiagnosticBundleV1` cutover；contained frontend worker（TASK-D1-08）仍缺 process/safe-open/supervisor。本切片 engineering-only 落地 **inert** 版本化 binary request/response 协议地基，**不**实现 worker、不改 CLI/Loader/Compiler 产品行为、不做 formal TASK/TST/EV 或 release。
+- RED/Changed（tests first）：新增 `Tests/Frontend/ProtocolV1.lean`（request/success/failure round-trip、fixed full-frame request golden hex、hard-maxima constants + 16MiB source length-bomb + span-count bomb、tag/field/trailing/truncation mutations、success AST root re-encode identity mutation、request-digest cross-request replay（bind/reconstruct）、span count/range tamper（mk/bind）、noncanonical diagnostic + foreign path（mk 与 decode+bind）、reconstruct→sourceHash/OriginJoin、raw non-NFC selector 与 invalid UTF-8 sourceBytes 保留）；注册 `Tests.lean` / `Tests/Fast.lean` / `lakefile.lean`。实现前模块路径 `ProofForgeV2/Frontend/ProtocolV1.lean` 不存在（`bad import` RED）。
+- Production：新增 `ProofForgeV2/Frontend/ProtocolV1.lean`——closed one-frame tags `Frontend.Req.v1` / `Frontend.Ok.v1` / `Frontend.Err.v1`；opaque `FrontendRequestV1` / `FrontendSuccessV1` / `FrontendFailureV1` + smart constructors；`maxProtocolBytes=64MiB`、`maxSourceBytes=16MiB`、`maxNodeSpanCount=100000`、`maxSelectorBytes=4096`；pure decode precheck + full-consume + re-encode identity；success 另强制 `canonicalValidatedSourceAstBytesV1` 与 carried root 字节 identity；`requestDigest` = `domainSeparatedSha256("proof-forge.frontend-request.v1", exact request bytes)`；success spans-only（NodeAssignment preorder）；failure via PF-JCS + `mkFailureBundleV1` exact re-encode；bind/mk 承担 digest replay、foreign diagnostic path、span range；`reconstructFrontendSuccessV1` 仅 `decodeCanonicalSourceAstBytesV1` + `assignNodeIdsV1` zip + `joinOriginsV1`。`ProofForgeV2.lean` 仅 import；零 CLI/Loader/Compiler/target 编辑。
+- Docs：`docs/modules/source-frontend.md`（pure decoder vs request-bound API 合同拆分）、`docs/specs/common-types.md`（ResourceProfile 四行表连续 + 表后 B9 64MiB/16MiB 说明）、`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` D1-08（protocol foundation；worker 仍 missing）、本日志。
+- Boundary：无 worker executable / IO.Process / safe-open / supervisor / receipts；无第二套 ProgramV1 decoder；无 TargetId 依赖；formal TASK-D1-08 与 contained assurance 仍 pending。
+
 ## 2026-07-29 — B8b product diagnostic bundle cutover
 
 - Context/State：B8a 已提供 inert `DiagnosticBundleV1`/`DiagnosticResultV1`/`mkFailureBundleV1`/`selectExitCode`；产品仍经 `selectProgramV1` + `compileValidatedSourceV1` 单错误 `CompileError`（含 Pipeline `diags[0]?`）。本切片 engineering-only 做 sole atomic B8b product cutover；**不**做 formal TASK/TST/EV、JSON envelope/receipts、Emit/Toolchain bundle、OutputSet 或 target maturity。

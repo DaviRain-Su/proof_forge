@@ -175,6 +175,13 @@ hard maximum 为 `0` 时 effective 值必须仍为 `0`，表示该 stage 禁止�
 | `proof-forge.resource.tool.v1` | externalTool | 600,000 ms | 4 GiB | 8 | 64 MiB | 64 KiB | 0 |
 | `proof-forge.resource.output.v1` | artifactOutput | 60,000 ms | 2 GiB | 1 | 1 MiB | 64 KiB | 256 MiB |
 
+Frontend stage 的 protocol/stdout 硬上限 **64 MiB**（`maxProtocolBytes`）与 source open 的
+**16 MiB** source-byte 上限是 B9 `FrontendProtocolV1`（`ProofForgeV2/Frontend/ProtocolV1.lean`）
+解码器 precheck 的权威数字：一帧 request 或 response 超过 64 MiB、source/canonical bytes 超过
+16 MiB、或 span/node 计数超过 100000 时 fail closed。该协议地基 **inert**（无 worker/supervisor
+接线）；contained worker 与 formal TASK-D1-08 仍 pending。详见
+[`source-frontend.md`](../modules/source-frontend.md)。
+
 Darwin v1 的 `memoryMetric` 为 containment 内全部 live process `phys_footprint` 之和；其他 host
 必须登记等价的 kernel/job-controller metric，不能把单 leader RSS 冒充 aggregate。wall clock 从
 source open/worker spawn 之前的 supervisor arm 开始，使用 monotonic clock。进程数含 worker；

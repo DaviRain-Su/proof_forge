@@ -127,7 +127,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.CLI.ToolchainPolicy,
     `Tests.CLI.DiagnosticsV1,
     `Tests.Core.DiagnosticV1,
-    `Tests.Core.DiagnosticBundleV1
+    `Tests.Core.DiagnosticBundleV1,
+    `Tests.Frontend.ProtocolV1
   ]
 
 lean_exe proof_forge_next where

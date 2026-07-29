@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 3053,
+      "bytes": 3093,
       "path": "ProofForgeV2.lean",
-      "sha256": "d3b9af8091743094f61f43e15e9c29f40f1056b8709773c41991cd9c5833facc"
+      "sha256": "8897c333f3e440b5823b513bb0e96d48f169b9a7b080cbd78193fbef740e643b"
     },
     {
       "bytes": 8869,
@@ -104,6 +104,11 @@
       "bytes": 280,
       "path": "ProofForgeV2/Examples/PrivateSum4.lean",
       "sha256": "f9bc683db6d6709d4572a5aa1d70faa5e7147906dc91304fccb51e8e5d97cd2a"
+    },
+    {
+      "bytes": 25948,
+      "path": "ProofForgeV2/Frontend/ProtocolV1.lean",
+      "sha256": "9439e834e5a31f9d33ef5c224493bf4f3d16f81369bceff28356050518d255d6"
     },
     {
       "bytes": 24685,
