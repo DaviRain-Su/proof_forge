@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
@@ -11,6 +12,7 @@ namespace ProofForgeV2.CLI
 open ProofForgeV2 Targets System
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
 
 private def writeFileCreatingParent (path : FilePath) (contents : String) : IO Unit := do
@@ -329,29 +331,29 @@ def resolveSelectionFromFlags (flags : BuildSelectionCliFlags) :
   | .error error => throw <| IO.userError error.render
 
 /-- One `list-targets` line: `id\tmaturityLabel`. -/
-def renderListTargetLine (reg : StaticBuildRegistrationV1) : String :=
+def renderListTargetLine (reg : TargetRegistrationDataV1) : String :=
   s!"{reg.targetId}\t{reg.maturityLabel}"
 
-/-- Pure list body against a supplied validated index (rows only). -/
-def listTargetLinesInIndex (includeDesignOnly : Bool) (index : StaticBuildSelectionIndexV1) :
+/-- Pure list body against a supplied validated registry (rows only). -/
+def listTargetLinesInRegistry (includeDesignOnly : Bool) (registry : TargetRegistryV1) :
     Array String :=
   if includeDesignOnly then
-    index.toArray.map renderListTargetLine
+    (TargetRegistryV1.registrationsOf registry).map renderListTargetLine
   else
-    (implementedRegistrationsInIndex index).map renderListTargetLine
+    (implementedRegistrationsInRegistry registry).map renderListTargetLine
 
-/-- DI list body over a seed Result (propagates seed errors; no capability). -/
+/-- DI list body over a registry seed Result (propagates seed errors; no capability). -/
 def listTargetLinesWithSeedV1
-    (seed : CompileResult StaticBuildSelectionIndexV1) (includeDesignOnly : Bool) :
+    (seed : CompileResult TargetRegistryV1) (includeDesignOnly : Bool) :
     CompileResult (Array String) := do
-  let index ← seed
-  return listTargetLinesInIndex includeDesignOnly index
+  let registry ← seed
+  return listTargetLinesInRegistry includeDesignOnly registry
 
-/-- Product `list-targets` body — binds frozen seed Result.
+/-- Product `list-targets` body — binds frozen TargetRegistryV1 seed.
 - Default: implemented-only, filter preserving canonical TargetId order.
-- `--all`: full index map in canonical TargetId order (not implemented-first). -/
+- `--all`: full registry map in canonical TargetId order (not implemented-first). -/
 def listTargetLines (includeDesignOnly : Bool) : CompileResult (Array String) :=
-  listTargetLinesWithSeedV1 initialStaticBuildSelectionIndexV1Result includeDesignOnly
+  listTargetLinesWithSeedV1 initialTargetRegistryV1Result includeDesignOnly
 
 /-- Parse `list-targets` trailing args (pure). -/
 def parseListTargetsArgsExcept (args : List String) : Except String Bool :=
@@ -377,7 +379,7 @@ registration row, then derives exact supported S2 request identities from the
 frozen engineering support index (not residual alpha
 `descriptor.supportedRequirements`). Design-only must not call this. -/
 def describeImplementedJoin
-    (reg : StaticBuildRegistrationV1) (descriptor : TargetDescriptor) :
+    (reg : TargetRegistrationDataV1) (descriptor : TargetDescriptor) :
     CompileResult String := do
   unless reg.implemented do
     throw <| .registryInvalid
@@ -397,7 +399,7 @@ def describeImplementedJoin
   pure s!"target={reg.targetId}\nprofile={profile}\nrequirements={formatS2RequirementIds s2Ids}"
 
 /-- Describe a registration row (product join path for residual descriptors). -/
-def describeRegistrationText (reg : StaticBuildRegistrationV1) : CompileResult String := do
+def describeRegistrationText (reg : TargetRegistrationDataV1) : CompileResult String := do
   if reg.implemented then
     match Targets.descriptorForKind? reg.kind with
     | none =>
@@ -407,25 +409,25 @@ def describeRegistrationText (reg : StaticBuildRegistrationV1) : CompileResult S
   else
     pure s!"target={reg.targetId}\nstatus=research-only"
 
-/-- DI describe body over a seed Result (propagates seed errors; no capability).
+/-- DI describe body over a registry seed Result (propagates seed errors; no capability).
 **Seed is bound first** so a failed catalog always surfaces as the seed's
 `PF-REGISTRY-INVALID` even when `value` is malformed/case-invalid. Product
 success-seed path still maps unknown/malformed targets to `PF-TARGET-UNKNOWN`. -/
 def describeTargetWithSeedV1
-    (seed : CompileResult StaticBuildSelectionIndexV1) (value : String) :
+    (seed : CompileResult TargetRegistryV1) (value : String) :
     CompileResult String := do
-  let index ← seed
+  let registry ← seed
   let target ← match TargetId.parse? value with
     | some target => pure target
     | none => throw <| .unknownTarget value
-  -- Single lookup on the bound index (no second seed bind / no double lookup).
-  match registrationInIndex? index target with
+  -- Single lookup on the bound registry (no second seed bind / no double lookup).
+  match registrationInRegistry? registry target with
   | none => throw <| .unknownTarget value
   | some reg => describeRegistrationText reg
 
-/-- Product `describe-target` body — binds frozen seed Result. -/
+/-- Product `describe-target` body — binds frozen TargetRegistryV1 seed. -/
 def describeTargetText (value : String) : CompileResult String :=
-  describeTargetWithSeedV1 initialStaticBuildSelectionIndexV1Result value
+  describeTargetWithSeedV1 initialTargetRegistryV1Result value
 
 /-- Argument parser only (no seed bind). Used after seed preflight succeeds. -/
 def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
@@ -449,14 +451,14 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
 Returns `CliCommandV1` only — never mints `ResolvedBuildSelectionV1`.
 `CLI.run` is the sole product consumer of this helper. -/
 def parseCliCommandWithSeedV1
-    (seed : CompileResult StaticBuildSelectionIndexV1)
+    (seed : CompileResult TargetRegistryV1)
     (args : List String) : Except String CliCommandV1 := do
   match seed with
   | .error err => throw err.render
-  | .ok _index => parseCliCommandV1 args
+  | .ok _registry => parseCliCommandV1 args
 
-/-- Product preflight: frozen seed Result + args. -/
+/-- Product preflight: frozen TargetRegistryV1 seed Result + args. -/
 def parseProductCliCommandV1 (args : List String) : Except String CliCommandV1 :=
-  parseCliCommandWithSeedV1 initialStaticBuildSelectionIndexV1Result args
+  parseCliCommandWithSeedV1 initialTargetRegistryV1Result args
 
 end ProofForgeV2.CLI

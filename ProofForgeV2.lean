@@ -81,6 +81,8 @@ import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.TargetRegistryV1
+import ProofForgeV2.Targets.BuildIdentityV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1

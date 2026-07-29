@@ -6,6 +6,7 @@ import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
+import ProofForgeV2.Targets.TargetRegistryV1
 import Tests.Language.ParserSession
 
 namespace Tests.Materialization.BuildSelectionV1
@@ -13,6 +14,7 @@ namespace Tests.Materialization.BuildSelectionV1
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.TargetRegistryV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -65,6 +67,97 @@ private def materializeSelected (target : TargetId) (compiled : CompiledProgramV
 private def hasSubstr (haystack needle : String) : Bool :=
   (haystack.splitOn needle).length > 1
 
+/-- Closed-policy EVM registration fixture (exact kind policy fields). -/
+private def evmAxes : TargetSemanticsAxesV1 := {
+  targetId := TargetId.evm
+  executionHost := .evm
+  commitModel := .transactionAtomic
+  stateBinding := .contractStorage
+  callModel := .synchronousMessage
+  proofModel := .noProof
+  settlementModel := .evmChain
+}
+
+private def mkEvmReg
+    (profiles : Array CodegenProfileId) (defaultProfile : Option CodegenProfileId) :
+    TargetRegistrationDataV1 := {
+  targetId := TargetId.evm
+  kind := .evm
+  implemented := true
+  displayName := "EVM"
+  acceptanceProfileId := "phase1.evm-u64.v1"
+  maturityLabel := "runtime-validated-alpha"
+  semantics := evmAxes
+  profiles
+  defaultProfile
+}
+
+private def mkNearReg
+    (profiles : Array CodegenProfileId) (defaultProfile : Option CodegenProfileId) :
+    TargetRegistrationDataV1 := {
+  targetId := TargetId.near
+  kind := .near
+  implemented := true
+  displayName := "NEAR"
+  acceptanceProfileId := "phase1.near-u64.v1"
+  maturityLabel := "wasm-validated-alpha"
+  semantics := {
+    targetId := TargetId.near
+    executionHost := .nearWasm
+    commitModel := .receiptLocal
+    stateBinding := .contractKeyValue
+    callModel := .promiseDag
+    proofModel := .noProof
+    settlementModel := .nearChain
+  }
+  profiles
+  defaultProfile
+}
+
+private def mkAleoReg
+    (profiles : Array CodegenProfileId) (defaultProfile : Option CodegenProfileId) :
+    TargetRegistrationDataV1 := {
+  targetId := TargetId.aleo
+  kind := .aleo
+  implemented := false
+  displayName := "Aleo"
+  acceptanceProfileId := "research.aleo.v1"
+  maturityLabel := "research-only"
+  semantics := {
+    targetId := TargetId.aleo
+    executionHost := .aleoVm
+    commitModel := .proofFinalDual
+    stateBinding := .recordsMappings
+    callModel := .programProofFinal
+    proofModel := .applicationChainProof
+    settlementModel := .aleoChain
+  }
+  profiles
+  defaultProfile
+}
+
+private def mkSolanaReg
+    (profiles : Array CodegenProfileId) (defaultProfile : Option CodegenProfileId) :
+    TargetRegistrationDataV1 := {
+  targetId := TargetId.solana
+  kind := .solana
+  implemented := true
+  displayName := "Solana"
+  acceptanceProfileId := "phase1.solana-u64.v1"
+  maturityLabel := "plan-only"
+  semantics := {
+    targetId := TargetId.solana
+    executionHost := .svm
+    commitModel := .instructionAtomic
+    stateBinding := .explicitAccounts
+    callModel := .synchronousCpi
+    proofModel := .noProof
+    settlementModel := .solanaChain
+  }
+  profiles
+  defaultProfile
+}
+
 private def testGrammar : IO Unit := do
   expectParseTarget "e" true
   expectParseTarget "evm" true
@@ -97,7 +190,6 @@ private def testGrammar : IO Unit := do
   expectParseNetwork "mainnet" true
   expectParseNetwork "a--" false
   expectParseNetwork "Main" false
-  -- Well-known constants equal parse? of the same wire; invalid parse is none.
   expect (CodegenProfileId.evmYulSolc0834V1 == (← parseProfile "evm-yul-solc-0.8.34-v1"))
     "well-known evm profile constant"
   expect (CodegenProfileId.solanaSbpfPlanV1 == (← parseProfile "solana-sbpf-plan-v1"))
@@ -113,14 +205,14 @@ private def testGrammar : IO Unit := do
   expect (TargetId.ofKind .evm == TargetId.evm) "ofKind closed map"
   expect (TargetId.ofKind .noir == TargetId.noir) "ofKind noir"
 
-private def testIndexValidation : IO Unit := do
-  let index ← liftResult initialStaticBuildSelectionIndexV1Result
-  let regs := index.toArray
-  expect (regs.size == 10) "initial index must contain 4 implemented + 6 design-only"
-  match createStaticBuildSelectionIndexV1 initialRegistrations with
+private def testRegistrySeedMembership : IO Unit := do
+  let registry ← liftResult initialTargetRegistryV1Result
+  let regs := TargetRegistryV1.registrationsOf registry
+  expect (regs.size == 10) "initial registry must contain 4 implemented + 6 design-only"
+  match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
-      expect (rebuilt.toArray.size == 10) "rebuilt seed index size"
-  | .error e => throw <| IO.userError s!"initialRegistrations must validate: {e.render}"
+      expect (rebuilt.toArray.size == 10) "rebuilt seed registry size"
+  | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
   expect (impl.size == 4) "exactly four implemented targets"
@@ -156,10 +248,10 @@ private def testIndexValidation : IO Unit := do
   expect (ids.toList.eraseDups.length == ids.size) "target IDs must be unique"
   for reg in regs do
     for p in reg.profiles do
-      expect (!reservedFutureProfiles.contains p.toString)
+      expect (!(ProofForgeV2.Targets.BuildSelectionV1.reservedFutureProfiles.contains p.toString))
         s!"reserved profile {p} must not be registered"
   let sorted := ids.toList.mergeSort (· ≤ ·)
-  expect (ids.toList == sorted) "index storage must be sorted by target id"
+  expect (ids.toList == sorted) "registry storage must be sorted by target id"
   let expectDefault (tid : TargetId) (profile : String) : IO Unit := do
     match ← liftResult (registration? tid) with
     | some reg =>
@@ -171,11 +263,9 @@ private def testIndexValidation : IO Unit := do
   expectDefault TargetId.solana "solana-sbpf-plan-v1"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
-  -- Seed Result is .ok for shipped initial; empty seed cannot succeed.
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[])
+  expectErrorCode (createTargetRegistryV1 #[])
     "PF-REGISTRY-INVALID" "empty seed never succeeds"
-  -- Sentinel seed: every DI body propagates PF-REGISTRY-INVALID; none mint capability.
-  let sentinel : CompileResult StaticBuildSelectionIndexV1 :=
+  let sentinel : CompileResult TargetRegistryV1 :=
     .error (.registryInvalid "sentinel")
   expectErrorCode
     (inspectBuildSelectionWithSeedV1 sentinel TargetId.evm none)
@@ -198,7 +288,6 @@ private def testIndexValidation : IO Unit := do
   expectErrorCode
     (ProofForgeV2.CLI.describeTargetWithSeedV1 sentinel "evm")
     "PF-REGISTRY-INVALID" "describe DI propagates sentinel seed"
-  -- Seed-first: failed seed wins over malformed/case-invalid target strings.
   expectErrorCode
     (ProofForgeV2.CLI.describeTargetWithSeedV1 sentinel "EVM")
     "PF-REGISTRY-INVALID" "describe seed-first: case-invalid + failed seed"
@@ -208,60 +297,42 @@ private def testIndexValidation : IO Unit := do
   expectErrorCode
     (ProofForgeV2.CLI.describeTargetWithSeedV1 sentinel "not a target!!!")
     "PF-REGISTRY-INVALID" "describe seed-first: garbage + failed seed"
-  -- Product success seed still maps malformed/case-invalid → PF-TARGET-UNKNOWN.
   expectErrorCode (ProofForgeV2.CLI.describeTargetText "EVM")
     "PF-TARGET-UNKNOWN" "product seed: case-invalid target"
   expectErrorCode (ProofForgeV2.CLI.describeTargetText "1evm")
     "PF-TARGET-UNKNOWN" "product seed: malformed target"
-  -- Product wrappers on frozen seed still succeed.
-  match initialStaticBuildSelectionIndexV1Result with
+  match initialTargetRegistryV1Result with
   | .ok _ => pure ()
   | .error e => throw <| IO.userError s!"shipped seed must be ok: {e.render}"
   let _ ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let _ ← liftResult <| registration? TargetId.evm
   let _ ← liftResult <| ProofForgeV2.CLI.listTargetLines false
   let _ ← liftResult <| ProofForgeV2.CLI.describeTargetText "evm"
-  -- Forged catalog may inspect rows only — no public mint of ResolvedBuildSelectionV1
-  -- from arbitrary index (resolveBuildSelectionInIndexV1 removed).
 
-private def testIndexNegatives : IO Unit := do
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[])
-    "PF-REGISTRY-INVALID" "empty index"
+private def testRegistryNegatives : IO Unit := do
+  expectErrorCode (createTargetRegistryV1 #[])
+    "PF-REGISTRY-INVALID" "empty registry"
+  let rows := initialRegistrationRowsV1
   let dupTarget :=
-    match initialRegistrations[0]? with
-    | some first => createStaticBuildSelectionIndexV1 (initialRegistrations.push first)
-    | none => .error (.registryInvalid "empty initialRegistrations")
+    match rows[0]? with
+    | some first => createTargetRegistryV1 (rows.push first)
+    | none => .error (.registryInvalid "empty initialRegistrationRowsV1")
   expectErrorCode dupTarget "PF-REGISTRY-DUPLICATE" "duplicate target id"
-  let dupWithin : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1, CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[dupWithin])
+  let dupWithin := mkEvmReg
+    #[CodegenProfileId.evmYulSolc0834V1, CodegenProfileId.evmYulSolc0834V1]
+    (some CodegenProfileId.evmYulSolc0834V1)
+  expectErrorCode (createTargetRegistryV1 #[dupWithin])
     "PF-REGISTRY-DUPLICATE" "duplicate profile within target"
   let evmV2 ← parseProfile "evm-yul-solc-0.8.34-v2"
-  let reversedProfiles : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[evmV2, CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[reversedProfiles])
+  let reversedProfiles := mkEvmReg
+    #[evmV2, CodegenProfileId.evmYulSolc0834V1]
+    (some CodegenProfileId.evmYulSolc0834V1)
+  expectErrorCode (createTargetRegistryV1 #[reversedProfiles])
     "PF-REGISTRY-INVALID" "reversed multi-profile must fail closed"
-  let ascendingProfiles : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1, evmV2]
-    defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "ok"
-  }
-  match createStaticBuildSelectionIndexV1 #[ascendingProfiles] with
+  let ascendingProfiles := mkEvmReg
+    #[CodegenProfileId.evmYulSolc0834V1, evmV2]
+    (some CodegenProfileId.evmYulSolc0834V1)
+  match createTargetRegistryV1 #[ascendingProfiles] with
   | .ok multi =>
       let rows := multi.toArray
       expect (rows.size == 1) "multi-profile carrier size"
@@ -287,88 +358,53 @@ private def testIndexNegatives : IO Unit := do
       | none => throw <| IO.userError "multi-profile empty rows"
   | .error e => throw <| IO.userError s!"ascending multi-profile must validate: {e.render}"
   let sharedP ← parseProfile "shared-profile-v1"
-  let sharedProfileAcross : Array StaticBuildRegistrationV1 := #[
-    {
-      targetId := TargetId.evm
-      kind := .evm
-      implemented := true
-      profiles := #[sharedP]
-      defaultProfile := some sharedP
-      maturityLabel := "bad"
-    },
-    {
-      targetId := TargetId.near
-      kind := .near
-      implemented := true
-      profiles := #[sharedP]
-      defaultProfile := some sharedP
-      maturityLabel := "bad"
-    }
+  let sharedProfileAcross : Array TargetRegistrationDataV1 := #[
+    mkEvmReg #[sharedP] (some sharedP),
+    mkNearReg #[sharedP] (some sharedP)
   ]
-  expectErrorCode (createStaticBuildSelectionIndexV1 sharedProfileAcross)
+  expectErrorCode (createTargetRegistryV1 sharedProfileAcross)
     "PF-REGISTRY-DUPLICATE" "duplicate profile across targets"
-  let foreignDefault : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := some CodegenProfileId.nearWasmRawU64V1
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[foreignDefault])
+  let foreignDefault := mkEvmReg
+    #[CodegenProfileId.evmYulSolc0834V1]
+    (some CodegenProfileId.nearWasmRawU64V1)
+  expectErrorCode (createTargetRegistryV1 #[foreignDefault])
     "PF-REGISTRY-INVALID" "foreign default profile"
-  let implNoDefault : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := none
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[implNoDefault])
+  let implNoDefault := mkEvmReg
+    #[CodegenProfileId.evmYulSolc0834V1] none
+  expectErrorCode (createTargetRegistryV1 #[implNoDefault])
     "PF-REGISTRY-INVALID" "implemented missing default"
   let aleoFake ← parseProfile "aleo-fake-v1"
-  let designWithProfile : StaticBuildRegistrationV1 := {
-    targetId := TargetId.aleo
-    kind := .aleo
-    implemented := false
-    profiles := #[aleoFake]
-    defaultProfile := none
-    maturityLabel := "research-only"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[designWithProfile])
+  let designWithProfile := mkAleoReg #[aleoFake] none
+  expectErrorCode (createTargetRegistryV1 #[designWithProfile])
     "PF-REGISTRY-INVALID" "design-only with profiles"
-  let designWithDefault : StaticBuildRegistrationV1 := {
-    targetId := TargetId.aleo
-    kind := .aleo
-    implemented := false
-    profiles := #[]
-    defaultProfile := some aleoFake
-    maturityLabel := "research-only"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[designWithDefault])
+  let designWithDefault := mkAleoReg #[] (some aleoFake)
+  expectErrorCode (createTargetRegistryV1 #[designWithDefault])
     "PF-REGISTRY-INVALID" "design-only with default"
-  let kindMismatch : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .near
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[kindMismatch])
+  let kindMismatch := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
+      (some CodegenProfileId.evmYulSolc0834V1) with kind := .near }
+  expectErrorCode (createTargetRegistryV1 #[kindMismatch])
     "PF-REGISTRY-INVALID" "targetId/kind mismatch"
   let reservedElf ← parseProfile "solana-sbpf-elf-v1"
-  let reserved : StaticBuildRegistrationV1 := {
-    targetId := TargetId.solana
-    kind := .solana
-    implemented := true
-    profiles := #[reservedElf]
-    defaultProfile := some reservedElf
-    maturityLabel := "bad"
-  }
-  expectErrorCode (createStaticBuildSelectionIndexV1 #[reserved])
+  let reserved := mkSolanaReg #[reservedElf] (some reservedElf)
+  expectErrorCode (createTargetRegistryV1 #[reserved])
     "PF-REGISTRY-INVALID" "reserved future profile"
+  -- Closed registration policy: no product-facing field can drift from kind.
+  let badImplemented := { mkEvmReg #[] none with implemented := false }
+  expectErrorCode (createTargetRegistryV1 #[badImplemented])
+    "PF-REGISTRY-INVALID" "implemented closed policy"
+  let badMaturity := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
+      (some CodegenProfileId.evmYulSolc0834V1) with maturityLabel := "forged" }
+  expectErrorCode (createTargetRegistryV1 #[badMaturity])
+    "PF-REGISTRY-INVALID" "maturityLabel closed policy"
+  let badDisplayName := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
+      (some CodegenProfileId.evmYulSolc0834V1) with displayName := "Forged" }
+  expectErrorCode (createTargetRegistryV1 #[badDisplayName])
+    "PF-REGISTRY-INVALID" "displayName closed policy"
+  let badAcceptance := { mkEvmReg #[CodegenProfileId.evmYulSolc0834V1]
+      (some CodegenProfileId.evmYulSolc0834V1) with
+        acceptanceProfileId := "forged.evm.v1" }
+  expectErrorCode (createTargetRegistryV1 #[badAcceptance])
+    "PF-REGISTRY-INVALID" "acceptanceProfileId closed policy"
 
 private def testResolve : IO ResolvedBuildSelectionV1 := do
   let evmDefault ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
@@ -397,9 +433,8 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
 
 /-- Seed-first product dispatcher (`parseCliCommandWithSeedV1` / `parseProductCliCommandV1`). -/
 private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit := do
-  let sentinel : CompileResult StaticBuildSelectionIndexV1 :=
+  let sentinel : CompileResult TargetRegistryV1 :=
     .error (.registryInvalid "sentinel")
-  -- Failed seed wins over any usage/target/profile parse.
   let expectSeedFirst (label : String) (args : List String) : IO Unit := do
     match ProofForgeV2.CLI.parseCliCommandWithSeedV1 sentinel args with
     | Except.error msg =>
@@ -413,7 +448,6 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
     ["build-counter", "--target", "evm", "--target", "near"]
   expectSeedFirst "list-targets" ["list-targets"]
   expectSeedFirst "describe 1evm" ["describe-target", "1evm"]
-  -- Success seed keeps original usage/parse diagnostics.
   match ProofForgeV2.CLI.parseProductCliCommandV1
       ["build-counter", "--target", "evm", "--network", "local"] with
   | Except.error msg =>
@@ -425,7 +459,6 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | Except.error msg =>
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
-  -- list-targets default / --all via product listTargetLines (seed Result)
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
   expect (defaultList.size == 4) "default list-targets is implemented-only"
   expect (defaultList == #["evm\truntime-validated-alpha", "near\twasm-validated-alpha",
@@ -508,41 +541,32 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   match ProofForgeV2.CLI.parseCliCommandV1 [] with
   | .ok .usage => pure ()
   | other => throw <| IO.userError s!"empty args → usage: {repr other}"
-  -- Inspection vs capability: forged catalog validates as rows; product resolve
-  -- still frozen. BuildSelectionInspectionV1 cannot feed materialize (type distinct).
   let insp ← liftResult <|
-    inspectBuildSelectionWithSeedV1 initialStaticBuildSelectionIndexV1Result
+    inspectBuildSelectionWithSeedV1 initialTargetRegistryV1Result
       TargetId.evm none
   expect (insp.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "inspection of frozen seed"
   expect (insp.targetId == TargetId.evm) "inspection target"
-  -- Product resolve still ignores forged catalogs.
+  -- Forged catalog with closed policy labels but alternate profile cannot
+  -- influence product frozen resolver.
   let ghostP ← parseProfile "ghost-evm-profile-v1"
-  let ghostCatalog : Array StaticBuildRegistrationV1 := #[
-    {
-      targetId := TargetId.evm
-      kind := .evm
-      implemented := true
-      profiles := #[ghostP]
-      defaultProfile := some ghostP
-      maturityLabel := "forged"
-    }
+  let ghostCatalog : Array TargetRegistrationDataV1 := #[
+    mkEvmReg #[ghostP] (some ghostP)
   ]
-  match createStaticBuildSelectionIndexV1 ghostCatalog with
+  match createTargetRegistryV1 ghostCatalog with
   | .ok forged =>
-      match forged.toArray[0]?, forged.toArray[0]? with
-      | some row, _ =>
+      match forged.toArray[0]? with
+      | some row =>
           match row.profiles[0]? with
           | some p0 =>
               expect (p0.toString == "ghost-evm-profile-v1")
                 "forged catalog validates as carrier"
           | none => throw <| IO.userError "forged catalog missing profile"
-      | none, _ => throw <| IO.userError "forged catalog empty"
+      | none => throw <| IO.userError "forged catalog empty"
       let product ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
       expect (product.codegenProfile == evmDefault.codegenProfile)
         "forged catalog cannot influence product frozen resolver"
   | .error e => throw <| IO.userError s!"forged catalog should validate: {e.render}"
-  -- describe join positives/negatives
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
       expect (text.startsWith "target=evm\nprofile=evm-yul-solc-0.8.34-v1\n")
@@ -567,15 +591,9 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
     "PF-TARGET-UNKNOWN" "describe unknown grammar-valid target"
   expectErrorCode (ProofForgeV2.CLI.describeTargetText "EVM")
     "PF-TARGET-UNKNOWN" "describe rejects case-mismatched target"
-  -- Synthetic describeImplementedJoin mismatches
-  let implReg : StaticBuildRegistrationV1 := {
-    targetId := TargetId.evm
-    kind := .evm
-    implemented := true
-    profiles := #[CodegenProfileId.evmYulSolc0834V1]
-    defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "ok"
-  }
+  let implReg := mkEvmReg
+    #[CodegenProfileId.evmYulSolc0834V1]
+    (some CodegenProfileId.evmYulSolc0834V1)
   let wrongTargetDesc := { Targets.Evm.descriptor with targetId := TargetId.near }
   expectErrorCode
     (ProofForgeV2.CLI.describeImplementedJoin implReg wrongTargetDesc)
@@ -585,7 +603,6 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   expectErrorCode
     (ProofForgeV2.CLI.describeImplementedJoin implReg wrongProfileDesc)
     "PF-REGISTRY-INVALID" "describe join profile mismatch"
-  -- Positive join on real descriptor
   match ProofForgeV2.CLI.describeImplementedJoin implReg Targets.Evm.descriptor with
   | .ok text =>
       expect (hasSubstr text "target=evm") "describe join positive"
@@ -643,7 +660,6 @@ private unsafe def testMaterializeIdentity : IO Unit := do
   expect (MaterializedArtifactsV1.codegenProfileIdOf evmOut ==
       CodegenProfileId.evmYulSolc0834V1)
     "EVM carrier profile wire"
-  -- On-disk v2alpha1 (private CLI renderer) after real emit for EVM wire bytes.
   let evmDir := System.FilePath.mk "build/v2/build-selection-emit-evm"
   if ← evmDir.pathExists then IO.FS.removeDirAll evmDir
   let _ ← ProofForgeV2.CLI.emitProgram evmCap evmDir
@@ -657,20 +673,15 @@ private unsafe def testMaterializeIdentity : IO Unit := do
 
 unsafe def run : IO Unit := do
   testGrammar
-  testIndexValidation
-  testIndexNegatives
+  testRegistrySeedMembership
+  testRegistryNegatives
   let evmDefault ← testResolve
   testCliDispatcher evmDefault
   testMaterializeIdentity
 
 end Tests.Materialization.BuildSelectionV1
 
-/-! ## Compile-time proof: identity types have no `Inhabited`
-
-These `#guard_msgs` blocks are evaluated when the suite file is typechecked
-(`lake env lean` / ordinary CI). They fail closed if an `Inhabited` instance is
-reintroduced for opaque TargetId / CodegenProfileId / NetworkProfileId.
--/
+/-! ## Compile-time proof: identity types have no `Inhabited` -/
 
 open ProofForgeV2
 

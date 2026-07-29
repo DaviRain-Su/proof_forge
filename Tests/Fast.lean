@@ -51,6 +51,7 @@ import Tests.Frontend.WorkerV1
 import Tests.Frontend.SafeOpenV1
 import Tests.Frontend.DarwinSupervisorReceiptV1
 import Tests.Product.CounterV1Evm
+import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
@@ -116,6 +117,7 @@ unsafe def main : IO Unit := do
   Tests.Frontend.SafeOpenV1.runFast
   Tests.Frontend.DarwinSupervisorReceiptV1.run
   Tests.Product.CounterV1Evm.run
+  Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.OutputEnvelopeV1.run
   Tests.Materialization.EngineeringFinalizationV1.run

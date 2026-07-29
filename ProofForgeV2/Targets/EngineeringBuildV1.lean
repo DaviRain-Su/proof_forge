@@ -9,8 +9,8 @@
   Exact retained SemanticProgramV1 `data.requirements` authority; dual-carrier
   mapped-S2 parity; no caller request override.
 
-  **Not** SupportClaim / TargetRegistryV1 / formal resolver / BuildIdentity /
-  OutputSetV1 / SemanticProgramV1 native Plan lowering.
+  **Not** SupportClaim / formal registry root or digest / formal resolver /
+  BuildIdentity / OutputSetV1 / SemanticProgramV1 native Plan lowering.
 -/
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1

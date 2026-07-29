@@ -26,6 +26,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
 open Lean
 open Lean.Elab.Command
@@ -820,13 +821,24 @@ private def testDescriptorParityNegatives : IO Unit := do
   -- descriptorForKind? for implemented kinds, so describe-join is the DI-
   -- visible path for those PF-REGISTRY-INVALID messages without a second
   -- product mint/factory seam.
-  let implReg : StaticBuildRegistrationV1 := {
+  let implReg : ProofForgeV2.Targets.TargetRegistryV1.TargetRegistrationDataV1 := {
     targetId := TargetId.evm
     kind := .evm
     implemented := true
+    displayName := "EVM"
+    acceptanceProfileId := "phase1.evm-u64.v1"
+    maturityLabel := "runtime-validated-alpha"
+    semantics := {
+      targetId := TargetId.evm
+      executionHost := .evm
+      commitModel := .transactionAtomic
+      stateBinding := .contractStorage
+      callModel := .synchronousMessage
+      proofModel := .noProof
+      settlementModel := .evmChain
+    }
     profiles := #[CodegenProfileId.evmYulSolc0834V1]
     defaultProfile := some CodegenProfileId.evmYulSolc0834V1
-    maturityLabel := "ok"
   }
   let wrongTargetDesc := { Targets.Evm.descriptor with targetId := TargetId.near }
   expectErrorCode

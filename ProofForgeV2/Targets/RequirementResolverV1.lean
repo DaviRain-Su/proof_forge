@@ -2,13 +2,14 @@
   Engineering-only exact static requirement support index / inspection
   (D3/S5 vertical).
 
-  **Not** SupportClaim, TargetRegistryV1, formal resolver, ResolvedSupportDecision,
-  BuildIdentity, registryDigest, claimDigest, predicate implication, or OutputSetV1.
+  **Not** SupportClaim, formal resolver, ResolvedSupportDecision,
+  BuildIdentity, formal registry root digest, claimDigest, predicate implication,
+  or OutputSetV1.
 
   Static rows are exactly the four currently implemented (targetId, codegenProfile)
-  pairs from the frozen BuildSelectionV1 index, in canonical (targetId, profile)
-  ASCII order. Each row supports exactly the current S2 three RequirementRequestV1
-  keys in wire order:
+  pairs from the frozen TargetRegistry membership table, in canonical
+  (targetId, profile) ASCII order. Each row supports exactly the current S2 three
+  RequirementRequestV1 keys in wire order:
     failure.atomic-rollback, state.persistent, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
 
@@ -21,6 +22,7 @@ import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.TargetRegistryV1
 
 namespace ProofForgeV2.Targets.RequirementResolverV1
 
@@ -28,6 +30,7 @@ open ProofForgeV2
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.TargetRegistryV1
 
 /-- One static support row: implemented (target, profile) + exact S2 requests. -/
 structure StaticRequirementSupportRowV1 where
@@ -140,10 +143,10 @@ private structure ImplementedPairV1 where
   codegenProfile : CodegenProfileId
   kind : TargetKind
 
-/-- Exact implemented (target,profile) pairs from frozen BuildSelectionV1, in
+/-- Exact implemented (target,profile) pairs from frozen TargetRegistryV1, in
     canonical (targetId, codegenProfile) ASCII order. -/
 private def expectedImplementedPairs
-    (regs : Array StaticBuildRegistrationV1) :
+    (regs : Array TargetRegistrationDataV1) :
     CompileResult (Array ImplementedPairV1) := do
   let mut pairs : Array ImplementedPairV1 := #[]
   for reg in regs do
@@ -173,7 +176,7 @@ def createStaticRequirementSupportIndexV1
   unless isStrictlyAscendingAscii keys do
     throw <| .registryInvalid
       "support rows must be strictly ascending by (targetId, codegenProfile)"
-  -- Exact coverage of implemented BuildSelection pairs (no design-only / extra /
+  -- Exact coverage of implemented TargetRegistry pairs (no design-only / extra /
   -- missing / cross-profile / wrong-kind).
   let regs ← productRegistrations
   let expected ← expectedImplementedPairs regs
@@ -278,7 +281,7 @@ def supportedS2RequestIdsForSelectionV1 (selection : ResolvedBuildSelectionV1) :
   pure (insp.supported.map (·.id))
 
 /-- Supported S2 ids for an implemented registration default profile (describe). -/
-def supportedS2RequestIdsForRegistrationV1 (reg : StaticBuildRegistrationV1) :
+def supportedS2RequestIdsForRegistrationV1 (reg : TargetRegistrationDataV1) :
     CompileResult (Array String) := do
   unless reg.implemented do
     throw <| .registryInvalid

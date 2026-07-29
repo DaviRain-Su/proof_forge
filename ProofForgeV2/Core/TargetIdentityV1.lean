@@ -8,9 +8,9 @@ grammars, plus an internal `TargetKind` witness for residual alpha dispatch.
 
 **External string → identity authority is only** `TargetId.parse?` /
 `CodegenProfileId.parse?` / `NetworkProfileId.parse?`. Product selection binds
-`TargetKind` solely via the validated static build-selection index
-(`ResolvedBuildSelectionV1.kind`); there is no public string→`TargetKind` parser
-and no `TargetId → TargetKind` conversion surface.
+`TargetKind` solely via the frozen `TargetRegistryV1` membership/default/profile
+seed (`ResolvedBuildSelectionV1.kind`); there is no public string→`TargetKind`
+parser and no `TargetId → TargetKind` conversion surface.
 
 `TargetKind` remains a public Lean type because residual alpha
 `Materializer`/`CompileError` still index by kind. That is an
@@ -20,7 +20,8 @@ There is **no** public `CodegenProfileId.ofString!` bang constructor. Shipped
 profiles are fixed well-known constants; arbitrary grammar-valid profiles are
 built only via `parse?` (CLI/tests).
 
-This is **not** formal `TargetRegistryV1` / SupportClaim / BuildIdentity work.
+The engineering `TargetRegistryV1` kernel owns product membership, but its formal
+root codec/digest, SupportClaim, and reachable BuildIdentity mint remain pending.
 `NetworkProfileId` is typed for completeness but must not participate in build
 selection.
 -/

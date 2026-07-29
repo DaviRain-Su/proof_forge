@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
 import ProofForgeV2.Targets.Noir.FinalizeV1
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
@@ -20,12 +21,13 @@ namespace ProofForgeV2.Targets
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open System
 
 /-- All static registrations in canonical TargetId storage order (product seed). -/
-def allRegistrations : CompileResult (Array StaticBuildRegistrationV1) :=
+def allRegistrations : CompileResult (Array TargetRegistrationDataV1) :=
   productRegistrations
 
 def maturityLabel (target : TargetId) : CompileResult (Option String) := do
