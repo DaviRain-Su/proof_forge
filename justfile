@@ -376,7 +376,107 @@ s7b-finalize-authority-deletion-gate:
     lake build Tests.Materialization.EngineeringFinalizationV1
     echo "s7b-finalize-authority-deletion-gate: ok"
 
-dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate
+# D3/S7c engineering exact disk-closure + manifest-last authority gate.
+# Fast path: Python no-tool self-test of shared exact_physical_closure.
+# Product path: Solana + Noir Counter publish + unified validate_artifacts
+# membership (no EVM solc required for this gate).
+# Retains S5–S7b gates; not formal OutputSetV1 / hermetic publisher.
+s7c-disk-closure-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "s7c-disk-closure-gate: forbidden pattern still present: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "s7c-disk-closure-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local must_path="$2"
+      local label="$3"
+      local hits ec count
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -ne 0 ]]; then
+        echo "s7c-disk-closure-gate: $label expected one match (rg exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
+        echo "s7c-disk-closure-gate: $label expected sole match in $must_path" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    # Sole production validator; no parallel expected-list caller API.
+    expect_one_match '^\s*def validateEngineeringDiskClosureV1\b' \
+      'EngineeringDiskClosureV1.lean' 'validateEngineeringDiskClosureV1'
+    fail_if_match 'validateEngineeringDiskClosureV1\s*\([^)]*expected' ProofForgeV2
+    # CLI Toolchain must remain deleted (S7b pin retained).
+    if [[ -e ProofForgeV2/CLI/Toolchain.lean ]]; then
+      echo "s7c-disk-closure-gate: ProofForgeV2/CLI/Toolchain.lean must stay deleted" >&2
+      exit 1
+    fi
+    fail_if_match 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
+    # Manifest-last: evidence write before manifest write in Emit publisher.
+    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "evidence\.json"\)' \
+        ProofForgeV2/CLI/Emit.lean >/dev/null; then
+      echo "s7c-disk-closure-gate: Emit must write evidence.json" >&2
+      exit 1
+    fi
+    if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "manifest\.json"\)' \
+        ProofForgeV2/CLI/Emit.lean >/dev/null; then
+      echo "s7c-disk-closure-gate: Emit must write manifest.json" >&2
+      exit 1
+    fi
+    # Evidence write line number must be less than manifest write line number.
+    ev_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "evidence\.json"\)' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    mf_line="$(rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "manifest\.json"\)' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    if [[ -z "$ev_line" || -z "$mf_line" || ! "$ev_line" -lt "$mf_line" ]]; then
+      echo "s7c-disk-closure-gate: evidence.json must be written before manifest.json" >&2
+      echo "  evidence line=$ev_line manifest line=$mf_line" >&2
+      exit 1
+    fi
+    # Closure call after manifest write in Emit.
+    cl_line="$(rg -n --no-heading 'validateEngineeringDiskClosureV1' \
+      ProofForgeV2/CLI/Emit.lean | head -1 | cut -d: -f1)"
+    if [[ -z "$cl_line" || ! "$mf_line" -lt "$cl_line" ]]; then
+      echo "s7c-disk-closure-gate: validateEngineeringDiskClosureV1 must follow manifest write" >&2
+      echo "  manifest line=$mf_line closure line=$cl_line" >&2
+      exit 1
+    fi
+    # Fast no-tool self-test of shared Python exact_physical_closure.
+    /usr/bin/python3 -I -S scripts/validate_artifacts_self_test.py
+    # Lean suite + product Solana/Noir closure without requiring solc for the gate.
+    lake build Tests.Materialization.EngineeringDiskClosureV1
+    lake build proof_forge_next
+    rm -rf build/v2/s7c-gate-solana build/v2/s7c-gate-noir
+    lake env .lake/build/bin/proof-forge-next build-counter --target solana \
+      -o build/v2/s7c-gate-solana
+    lake env .lake/build/bin/proof-forge-next build-counter --target noir \
+      -o build/v2/s7c-gate-noir
+    /usr/bin/python3 -I -S scripts/s7c_product_closure_check.py
+    echo "s7c-disk-closure-gate: ok"
+
+dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -1098,7 +1198,7 @@ v2-isolation:
     bash scripts/test_v2_isolation.sh
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
-ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate
+ci: docs-check build test product-negative target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

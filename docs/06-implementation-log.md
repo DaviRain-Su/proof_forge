@@ -13,6 +13,28 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-07-29 — D3/S7c engineering exact disk closure + manifest-last cutover
+
+- Context/State：baseline `87290cd7a2cec9ad155bf29bac06fa25be5cb6c8`；formal D1–D4 仍 0/27 done；
+  **不是** formal OutputSetV1 / proof-forge.output.v1 / BuildIdentity / SupportClaim /
+  ToolchainIdentity / formal exact closure / hermetic publisher / crash durability；
+  on-disk schema 仍 `proof-forge-output/v2alpha1`；manifest/evidence 字段与 artifact
+  字节保持；仅物理写序改为 evidence→manifest-last。
+- RED/Changed（tests first）：新增 `Tests/Materialization/EngineeringDiskClosureV1.lean`
+  （flat Solana/nested Noir 正向、published closure、dest symlink/no-clobber/tool-fail
+  cleanup、production validator 负例、sole-validator pins）。生产：
+  - `ProofForgeV2/Materialization/EngineeringDiskClosureV1.lean`：sole
+    `validateEngineeringDiskClosureV1`（private `FinalizedArtifactsV1` + staging；
+    expected leaves = ordered base + extras + `evidence.json`/`manifest.json`；
+    `safeRelativeArtifactPathV1`/uniqueness/sidecar collision/prefix conflict；
+    limits 1024 files / 64 MiB each / 256 MiB total；no-follow bounded worklist walk）。
+  - `CLI/Emit.lean`：evidence.json 先写、manifest.json 最后写文件、closure 在 rename 前。
+  - `scripts/validate_artifacts.py`：共享 `exact_physical_closure` 统一四 target +
+    Accumulator 树；`scripts/validate_artifacts_self_test.py` 独立覆盖。
+- Durable gate：`just s7c-disk-closure-gate` 接入 `dev-check`/`ci`（与 s5–s7b 并列）。
+- Boundary：formal TASK-D3-05 / OutputSetV1 仍 pending；不声称 formal evidence /
+  release qualification；casefold/hardlink/fsync 仍 nonclaim。
+
 ## 2026-07-29 — D3/S7b capability-bound engineering finalization authority cutover
 
 - Context/State：baseline `fccf2128aac0ffd2b97a3ca229b90af2e5789451`；formal D1–D4 仍 0/27 done；

@@ -109,6 +109,11 @@ private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
 `finalizeMaterializedArtifactsV1` → Evm/Near/Solana/Noir FinalizeV1 adapters；
 CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
 exact on-disk v2alpha1/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
-dev/ci。仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
-ToolchainIdentity/SemanticProgramV1 直连 Plan 完成态。formal task状态与
-release qualification仍按各自真实条件变化，不由本恢复文档代签。
+dev/ci。**D3/S7c 工程**：sole `validateEngineeringDiskClosureV1`（private
+`FinalizedArtifactsV1` + staging；derived base+extras+`evidence.json`/`manifest.json`；
+no-follow bounded walk；limits 1024/64MiB/256MiB）；CLI publisher evidence→manifest-last
+后 exact closure、destination race recheck/rename 前；`validate_artifacts.py`
+统一 no-follow exact closure + self-test；`s7c-disk-closure-gate` 已接入 dev/ci。
+仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
+ToolchainIdentity/formal exact closure/hermetic publisher/SemanticProgramV1 直连 Plan
+完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。

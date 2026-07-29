@@ -5,28 +5,190 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
 import sys
 from pathlib import Path
+
+# Engineering S7c bounds (metadata only; mirror Lean EngineeringDiskClosureV1).
+MAX_CLOSURE_FILES = 1024
+MAX_CLOSURE_FILE_BYTES = 64 * 1024 * 1024
+MAX_CLOSURE_TOTAL_BYTES = 256 * 1024 * 1024
+# Slack beyond exact expected direct children before fail-closed (mirror Lean).
+MAX_DIR_ENTRY_SLACK = 8
+
+
+def parent_dir_prefixes(relative: str) -> list[str]:
+    parts = [p for p in relative.split("/") if p]
+    out: list[str] = []
+    acc: list[str] = []
+    for part in parts[:-1]:
+        acc.append(part)
+        out.append("/".join(acc))
+    return out
+
+
+def expected_dirs_from_files(files: set[str]) -> set[str]:
+    dirs: set[str] = set()
+    for path in files:
+        dirs.update(parent_dir_prefixes(path))
+    return dirs
+
+
+def _is_direct_child_of(parent: str, path: str) -> bool:
+    if parent == "":
+        return "/" not in path
+    prefix = parent + "/"
+    return path.startswith(prefix) and "/" not in path[len(prefix) :]
+
+
+def expected_direct_child_count(
+    rel: str, expected_files: set[str], expected_dirs: set[str]
+) -> int:
+    n = 0
+    for path in expected_files:
+        if _is_direct_child_of(rel, path):
+            n += 1
+    for path in expected_dirs:
+        if _is_direct_child_of(rel, path):
+            n += 1
+    return n
+
+
+def exact_physical_closure(
+    root: Path,
+    expected_files: set[str],
+    expected_dirs: set[str] | None = None,
+    *,
+    label: str | None = None,
+) -> None:
+    """No-follow exact physical closure of regular files + intermediate dirs.
+
+    Shared helper for every Counter/Accumulator target tree. Rejects symlinks,
+    FIFO/socket/device/other nonregular entries, missing/extra files or dirs, and
+    type mismatches. Does not inspect file contents. Deterministic scandir order.
+    """
+    tag = label or root.name
+    if expected_dirs is None:
+        expected_dirs = expected_dirs_from_files(expected_files)
+    else:
+        expected_dirs = set(expected_dirs)
+    expected_files = set(expected_files)
+
+    if len(expected_files) > MAX_CLOSURE_FILES:
+        raise SystemExit(
+            f"{tag}: too many closure files ({len(expected_files)} > {MAX_CLOSURE_FILES})"
+        )
+
+    try:
+        root_st = os.lstat(root)
+    except FileNotFoundError as exc:
+        raise SystemExit(f"{tag}: missing staging root") from exc
+    if stat.S_ISLNK(root_st.st_mode) or not stat.S_ISDIR(root_st.st_mode):
+        raise SystemExit(f"{tag}: staging root is not a real directory")
+
+    observed_files: set[str] = set()
+    observed_dirs: set[str] = set()
+    total_bytes = 0
+    worklist: list[str] = [""]
+    head = 0
+    max_visits = len(expected_dirs) + len(expected_files) + 8
+    visits = 0
+
+    while head < len(worklist):
+        visits += 1
+        if visits > max_visits:
+            raise SystemExit(f"{tag}: staging walk exceeded bounded worklist")
+        rel = worklist[head]
+        head += 1
+        dir_path = root if rel == "" else root / rel
+        try:
+            dir_st = os.lstat(dir_path)
+        except FileNotFoundError as exc:
+            msg = "staging root is missing" if rel == "" else f"missing directory '{rel}'"
+            raise SystemExit(f"{tag}: {msg}") from exc
+        if stat.S_ISLNK(dir_st.st_mode) or not stat.S_ISDIR(dir_st.st_mode):
+            msg = (
+                "staging root is not a real directory"
+                if rel == ""
+                else f"path is not a directory '{rel}'"
+            )
+            raise SystemExit(f"{tag}: {msg}")
+
+        try:
+            with os.scandir(dir_path) as it:
+                raw_entries = list(it)
+        except OSError as exc:
+            raise SystemExit(f"{tag}: cannot read directory '{rel or '.'}'") from exc
+        max_entries = (
+            expected_direct_child_count(rel, expected_files, expected_dirs)
+            + MAX_DIR_ENTRY_SLACK
+        )
+        if len(raw_entries) > max_entries:
+            dir_label = "." if rel == "" else rel
+            raise SystemExit(
+                f"{tag}: too many directory entries under '{dir_label}' "
+                f"({len(raw_entries)} > {max_entries})"
+            )
+        entries = sorted(raw_entries, key=lambda e: e.name)
+
+        for entry in entries:
+            name = entry.name
+            if name in (".", "..") or "/" in name or name == "":
+                raise SystemExit(f"{tag}: invalid directory entry name under '{rel}'")
+            child_rel = name if rel == "" else f"{rel}/{name}"
+            try:
+                child_st = entry.stat(follow_symlinks=False)
+            except OSError as exc:
+                raise SystemExit(f"{tag}: missing path '{child_rel}'") from exc
+            mode = child_st.st_mode
+            if stat.S_ISLNK(mode):
+                raise SystemExit(f"{tag}: path is a symbolic link '{child_rel}'")
+            if stat.S_ISDIR(mode):
+                if child_rel not in expected_dirs:
+                    raise SystemExit(f"{tag}: unexpected directory '{child_rel}'")
+                observed_dirs.add(child_rel)
+                worklist.append(child_rel)
+            elif stat.S_ISREG(mode):
+                if child_rel not in expected_files:
+                    raise SystemExit(f"{tag}: unexpected file '{child_rel}'")
+                size = child_st.st_size
+                if size > MAX_CLOSURE_FILE_BYTES:
+                    raise SystemExit(f"{tag}: file exceeds size limit '{child_rel}'")
+                total_bytes += size
+                if total_bytes > MAX_CLOSURE_TOTAL_BYTES:
+                    raise SystemExit(
+                        f"{tag}: total closure size exceeds limit at '{child_rel}'"
+                    )
+                observed_files.add(child_rel)
+            else:
+                raise SystemExit(f"{tag}: non-regular filesystem entry '{child_rel}'")
+
+    missing_files = sorted(expected_files - observed_files)
+    if missing_files:
+        raise SystemExit(f"{tag}: missing regular file '{missing_files[0]}'")
+    missing_dirs = sorted(expected_dirs - observed_dirs)
+    if missing_dirs:
+        raise SystemExit(f"{tag}: missing directory '{missing_dirs[0]}'")
 
 
 def load_manifest(root: Path, target: str) -> dict:
     path = root / target / "manifest.json"
-    if not path.is_file():
+    if not path.is_file() or path.is_symlink():
         raise SystemExit(f"missing {path}")
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest["target"] != target:
         raise SystemExit(f"target mismatch in {path}")
-    for relative in manifest["files"]:
-        if not (root / target / relative).is_file():
-            raise SystemExit(f"manifest references missing file: {target}/{relative}")
+    expected_files = set(manifest["files"]) | {"manifest.json", "evidence.json"}
+    exact_physical_closure(root / target, expected_files, label=target)
     return manifest
 
 
 def validate_evm_accumulator(root: Path) -> dict:
     output = root / "evm-accumulator"
     manifest_path = output / "manifest.json"
-    if not manifest_path.is_file():
+    if not manifest_path.is_file() or manifest_path.is_symlink():
         raise SystemExit(f"missing {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     expected_files = {
@@ -41,9 +203,11 @@ def validate_evm_accumulator(root: Path) -> dict:
     for digest_name in ("sourceHash", "semanticHash"):
         if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
             raise SystemExit(f"Accumulator manifest has invalid {digest_name}")
-    for relative in expected_files:
-        if not (output / relative).is_file():
-            raise SystemExit(f"Accumulator manifest references missing file: {relative}")
+    exact_physical_closure(
+        output,
+        expected_files | {"manifest.json", "evidence.json"},
+        label="evm-accumulator",
+    )
     binary = (output / "Accumulator.bin").read_text(encoding="ascii").strip()
     if len(binary) % 2 != 0 or not re.fullmatch(r"[0-9a-fA-F]+", binary):
         raise SystemExit("Accumulator bytecode is not non-empty, even-length hexadecimal")
@@ -89,20 +253,12 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
         "Accumulator.sbpf-plan",
         "Accumulator.idl.json",
     }
-    if not output.is_dir():
-        raise SystemExit(f"missing {output}")
-    actual_names = {
-        str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()
-    }
-    if actual_names != expected_names:
-        raise SystemExit(
-            f"Solana Accumulator output file set is invalid: {sorted(actual_names)}"
-        )
+    exact_physical_closure(output, expected_names, label="solana-accumulator")
     forbidden_suffixes = {".s", ".elf", ".so", ".o", ".bin"}
     forbidden = sorted(
-        path.name
-        for path in output.rglob("*")
-        if path.is_file() and path.suffix.lower() in forbidden_suffixes
+        name
+        for name in expected_names
+        if Path(name).suffix.lower() in forbidden_suffixes
     )
     if forbidden:
         raise SystemExit(
@@ -303,15 +459,7 @@ def validate_near_accumulator(
         "Accumulator.near-abi.json",
         "Accumulator.wasm",
     }
-    if not output.is_dir():
-        raise SystemExit(f"missing {output}")
-    actual_names = {
-        str(path.relative_to(output)) for path in output.rglob("*") if path.is_file()
-    }
-    if actual_names != expected_names:
-        raise SystemExit(
-            f"NEAR Accumulator output file set is invalid: {sorted(actual_names)}"
-        )
+    exact_physical_closure(output, expected_names, label="near-accumulator")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     for digest_name in ("sourceHash", "semanticHash"):
@@ -518,32 +666,19 @@ def validate_noir_bundle(
             [f"relations/{stem}/src/main.nr", f"relations/{stem}/Nargo.toml"]
         )
     expected_files = {"manifest.json", "evidence.json", *logical_files}
-    expected_dirs = {"relations"}
+    expected_dirs = expected_dirs_from_files(expected_files)
+    # Explicit intermediate package dirs (relations/, relations/<stem>/, src/).
+    expected_dirs.update({"relations"})
     for stem in relation_stems:
         expected_dirs.update({f"relations/{stem}", f"relations/{stem}/src"})
-
-    if not output.is_dir() or output.is_symlink():
-        raise SystemExit(f"missing or non-regular Noir bundle directory: {output}")
-    actual_files: set[str] = set()
-    actual_dirs: set[str] = set()
-    for path in output.rglob("*"):
-        relative = str(path.relative_to(output))
-        if path.is_symlink():
-            raise SystemExit(f"Noir bundle contains a symlink: {directory}/{relative}")
-        if path.is_dir():
-            actual_dirs.add(relative)
-        elif path.is_file():
-            actual_files.add(relative)
-        else:
-            raise SystemExit(f"Noir bundle contains a non-regular entry: {directory}/{relative}")
-    if actual_files != expected_files or actual_dirs != expected_dirs:
-        raise SystemExit(
-            f"Noir {program} physical tree is invalid: "
-            f"files={sorted(actual_files)} dirs={sorted(actual_dirs)}"
-        )
+    exact_physical_closure(
+        output, expected_files, expected_dirs, label=f"noir-{program}"
+    )
     forbidden_suffixes = {".acir", ".proof", ".vk", ".witness"}
     forbidden = sorted(
-        relative for relative in actual_files if Path(relative).suffix.lower() in forbidden_suffixes
+        relative
+        for relative in expected_files
+        if Path(relative).suffix.lower() in forbidden_suffixes
     )
     if forbidden:
         raise SystemExit(f"Noir source-only bundle contains proof-stage artifacts: {forbidden}")

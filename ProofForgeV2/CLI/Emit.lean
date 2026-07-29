@@ -3,6 +3,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
+import ProofForgeV2.Materialization.EngineeringDiskClosureV1
 import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.CLI
@@ -110,28 +111,38 @@ structure EmitReceiptV1 where
   deployable : Bool
   deriving BEq, Repr
 
-/-- Publisher dual-defense for finalized extra paths (D3/S7b).
+/-- Publisher dual-defense for finalized extra paths (D3/S7b + S7c).
 
     Mirrors `validateMaterializedCarrier` path ownership: safety, uniqueness vs
-    base files, and uniqueness among extras. Mint already gates these; this is
-    defense-in-depth with historical PF-OUTPUT-PATH wires so a mint regression
-    cannot publish colliding/dup files lists. Package-visible for focused tests. -/
+    base files, uniqueness among extras, and rejection of transitional sidecar
+    names (`evidence.json` / `manifest.json`) before any sidecar write. Mint and
+    disk-closure also gate collisions; this is defense-in-depth with historical
+    PF-OUTPUT-PATH wires so a mint regression cannot publish colliding/dup
+    lists or overwrite tool extras that reuse sidecar names. Package-visible
+    for focused tests. -/
 def validateFinalizedExtraPathsForPublishV1
     (basePaths : Array String) (extraFiles : Array String) : IO Unit := do
   let mut paths : Array String := basePaths
   for file in extraFiles do
     unless safeRelativePath file do
       throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe finalized artifact path '{file}'"
+    -- Dual-defense: reject transitional sidecar names before any sidecar write so a
+    -- tool extra named evidence.json/manifest.json cannot be overwritten later.
+    if file == evidenceSidecarNameV1 || file == manifestSidecarNameV1 then
+      throw <| IO.userError
+        s!"PF-OUTPUT-PATH: finalized extra path collides with sidecar '{file}'"
     if paths.contains file then
       throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate finalized artifact path '{file}'"
     paths := paths.push file
 
-/-- Publisher-only staging render (D3/S7b).
+/-- Publisher-only staging render (D3/S7b + S7c).
 
     Owns base-file writes, dual-defense extra-path checks, private v2alpha1
     manifest/evidence rendering from finalized-carrier fields only. Finalization
     authority (tools, deployability, notes) is sole Registry
-    `finalizeMaterializedArtifactsV1` → target adapters → `FinalizedArtifactsV1`. -/
+    `finalizeMaterializedArtifactsV1` → target adapters → `FinalizedArtifactsV1`.
+    Write order: base → finalize extras → evidence.json → manifest.json (last) →
+    exact disk-closure validation before destination race recheck/rename. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (program : SemanticProgram) (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EmitReceiptV1 := do
@@ -152,7 +163,6 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     deployable := FinalizedArtifactsV1.deployableOf finalized
     files := basePaths ++ FinalizedArtifactsV1.extraFilesOf finalized
   }
-  IO.FS.writeFile (stagingDir / "manifest.json") (renderLegacyManifestJsonV2Alpha1 manifest)
   let deployable := if manifest.deployable then "true" else "false"
   let evidence := "{\n" ++
     s!"  \"target\": \"{selection.targetId}\",\n" ++
@@ -161,7 +171,11 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     s!"  \"deployable\": {deployable},\n" ++
     s!"  \"note\": \"{Targets.escapeJson (FinalizedArtifactsV1.evidenceNoteOf finalized)}\"\n" ++
     "}\n"
+  -- S7c: evidence before manifest; manifest is the last file write.
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
+  IO.FS.writeFile (stagingDir / "manifest.json") (renderLegacyManifestJsonV2Alpha1 manifest)
+  -- Exact disk closure after manifest and before destination race recheck/rename.
+  validateEngineeringDiskClosureV1 finalized stagingDir
   return {
     target := manifest.target
     codegenProfile := manifest.codegenProfile
