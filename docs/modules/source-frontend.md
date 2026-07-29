@@ -73,21 +73,24 @@ ProgramV1 的产品诊断 Typed 边界是 `normalizeProgramLocatedV1` 对
 `assignNodeIdsV1(moduleName, programIdentity, program)` 从 validated source 派生；文件路径、span、
 comment 与 allocation history 不参与 identity/hash。
 
-当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 尚未接入产品。
-B11a 已新增独立 native safe-open foundation，B11a2 已新增纯
-`darwin-development-observed` public-safe receipt model；二者均尚未由 CLI 或实际 supervisor
-调用，也没有 read deadline、process/memory enforcement 或 containment。因此输出仍是
-development 级；这不妨碍普通产品测试，但不能声称 formal/hermetic evidence。
+当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 与 B11b1 supervisor
+尚未接入产品。B11a 已新增独立 native safe-open foundation，B11a2 已新增纯
+`darwin-development-observed` public-safe receipt model；B11b1 现已监督**已编码 canonical request**，
+在 Darwin 上实际执行 worker、观测 process/memory/output/deadline、bounded group cleanup 并产生
+B11a2 receipt。B11b1 的 wall budget 从 native allocation/pipe/spawn 前开始，但不包含 source open；
+B11a 也尚未与它共享 read deadline。该路径仍是 development observation，不是
+controller-backed containment 或 formal/hermetic evidence。
 
-## FrontendProtocolV1、worker、safe-open 与 receipt foundations（B9/B9R/B10/B11a/B11a2）
+## FrontendProtocolV1、worker、safe-open 与 Darwin supervisor（B9/B9R/B10/B11a/B11a2/B11b1）
 
 **B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
 request/response 地基；该历史切片当时 inert。**B9R** 修复两处边界：去掉任意 4096-byte
 selector 语义上限；在 `parsePfJcs` 分配诊断数组前做 top-level PF-JCS 条目预扫描。
 **B10** 在不改变 wire 的前提下新增非产品 standalone worker。**B11a** 新增同样尚未接入
 产品的 package-owned native safe-open foundation。**B11a2** 新增只建模 canonical
-public-safe Darwin development observation 的纯 receipt carrier/codec；仍无 supervisor execution、
-CLI/Loader/Compiler 产品切换、read deadline、contained assurance 或 target 变更。
+public-safe Darwin development observation 的纯 receipt carrier/codec。**B11b1** 现以 package-owned
+Darwin primitive 监督已编码 request 并实际产生该 receipt；仍无 safe-open shared deadline、
+CLI/Loader/Compiler 产品切换、controller-backed contained assurance 或 target 变更。
 
 | 帧 | Tag | 载荷 |
 |---|---|---|
@@ -139,9 +142,10 @@ parse/select/SpanJoin snapshot；worker 只在 SpanJoin 后移除 path 并传 ca
 byte determinism、malformed/truncated/declared-oversize/argv 的 zero-stdout + exact exit/token。
 `just build`、`test` 与 `test-fast` 会先构建该 worker，避免 clean invocation 依赖陈旧二进制。
 
-B10 **不**读取路径、不 spawn 子进程、不接受 target/profile、不写 cache/artifact；但它也**不**
-提供 safe-open、timeout/OOM/process containment、supervisor/receipt 或 CLI product cutover。
-这些属于 B11/B12；formal TASK-D1-08 仍 pending。
+B10 **不**读取路径、不 spawn 子进程、不接受 target/profile、不写 cache/artifact；该 worker 模块
+本身也不提供 safe-open、supervisor/receipt 或 CLI product cutover。B11a/B11a2/B11b1 已分别交付
+safe-open foundation、pure receipt 与 Darwin development-only worker supervision；B11b2/B12 仍负责
+shared source-open deadline 与产品原子切换。formal TASK-D1-08 仍 pending。
 
 ### B11a native safe-open foundation
 
@@ -160,11 +164,11 @@ full suite 执行真实大小边界，fast suite省略两个大文件。package 
 `proof-forge.lean-package-files.v1`，但枚举已扩为 `ProofForgeV2/**` 下 `.lean/.c/.h`，因此 native C
 与 Lean wrapper 同属已钉住的 package source closure。
 
-本切片没有把可能阻塞的 filesystem 操作放进 killable execution unit，也没有共享 monotonic
-wall deadline、process/memory enforcement、supervisor-produced receipt、CLI cutover 或
-controller-backed containment；并发 truncate/grow/rebind 与 device/socket 的 host-isolated
-resource matrix留给 B11b。它是可复用 safe-open primitive，**不是**完整 D1-08 frontend 或
-formal `TST-RESOURCE-001` 完成。
+B11a 本身没有把可能阻塞的 filesystem 操作放进 killable execution unit，也没有与 B11b1
+共享 monotonic wall/read deadline；B11b1 的 worker observation 与 receipt 不覆盖 source open。
+并发 truncate/grow/rebind 与 device/socket 的 host-isolated resource matrix留给 B11b2。B11a 仍只是
+可复用 safe-open primitive，**不是**完整 D1-08 frontend，也不代表 CLI cutover、controller-backed
+containment 或 formal `TST-RESOURCE-001` 完成。
 
 ### B11a2 pure Darwin development-observation receipt model
 
@@ -180,9 +184,43 @@ signal、exit code、stderr/tail/secret/detail）无 carrier 并在 decoder 边�
 `Tests/Frontend/DarwinSupervisorReceiptV1.lean` 固定 exact 929-byte golden、receipt digest KAT、
 request replay rejection、lower-only effective profile、event/result/request cross-field invariants、
 equal/first-over resource projection、closed enum/field/canonical failures和 privacy key rejection。
-本模块是 future supervisor 的纯模型：**不** open/spawn/measure/kill/reap，不输出 CLI JSON，不代表
-Linux `contained`，也不关闭 read deadline、process/memory enforcement、cleanup execution、
-formal `TST-RESOURCE-001` 或 TASK-D1-08。下一切片 B11b 才实现 Darwin supervisor execution。
+本模块自身仍是纯模型：**不** open/spawn/measure/kill/reap，不输出 CLI JSON，也不代表 Linux
+`contained`。B11b1 的 composer 现消费其唯一 smart constructor 并实际产生 receipt，但这不关闭
+safe-open/read deadline、controller-backed containment、formal `TST-RESOURCE-001` 或 TASK-D1-08。
+
+### B11b1 Darwin development-only worker supervisor
+
+`ProofForgeV2.Frontend.DarwinWorkerSupervisorV1.superviseDarwinWorkerFrameV1` 接受 absolute worker
+path、完整 canonical request frame 与 lower-only frontend `ResourceProfileV1`。package-owned Darwin C
+primitive 在首个 native allocation、pipe 与 `posix_spawn` 前启动 `CLOCK_MONOTONIC` budget；worker
+使用独立 process group、CLOEXEC/nonblocking pipes，环境固定为 `HOME=/var/empty`、
+`PATH=/usr/bin:/bin`、`LC_ALL=C`、`TZ=UTC`，只选择性传递 Lake worker 所需的 `LEAN_SYSROOT` /
+`LEAN_PATH`。stdin/stdout/stderr 均受 cap；`proc_listpids(PROC_PGRP_ONLY)` 与
+`proc_pid_rusage(...).ri_phys_footprint` 提供 development-only aggregate process/memory observation。
+事件优先级为 process → memory → output → deadline；等于 cap 接受，首次超过映射为 exact
+`limit+1` public observation。
+
+leader 通过 `waitid(..., WNOWAIT)` 保留 PID/PGID identity 到 group cleanup；终止路径执行 bounded
+process-group kill、pipe close 与 cleanup observation。无法在 bounded cleanup 内确认完成时返回
+`incomplete`，detached reaper 只等待固定 child PID，不再按裸 PGID kill。native 仅返回 closed
+`PFSUPV1\0` frame；Lean decoder强制 magic/reserved bytes/event/payload/full-consume、effective-profile
+observation 和 response-only payload invariant，不保留 stderr、path、PID、signal 或 exit code。
+
+`ProofForgeV2.Frontend.DarwinSupervisorV1.superviseFrontendRequestV1` 是 request/receipt composer：
+canonical encode request 后调用 primitive；response candidate 只有在 cleanup=`observedComplete`、
+`decodeFrontendResponseV1` 成功、request digest/path/span binding 成功时才成为
+`responseAccepted`，success 还必须通过 `reconstructFrontendSuccessV1`。malformed、cross-request 或
+request-inconsistent response fail closed 为 no-response；incomplete cleanup 永不接受 response。
+unsupported platform 显式返回 error；其他 native closed fault 只产生零 observation、
+`supervisorFault`/`noResponse`/`incomplete` receipt。
+
+`Tests/Frontend/DarwinWorkerSupervisorV1.lean` 在 Darwin 以真实 worker/子进程覆盖 Ok/Err、deadline、
+process/memory、stdout/stderr cap 与 exact-cap acceptance、nonzero exit/signal、malformed/cross-request、
+missing worker、lower-only profile和 cleanup/result join；非 Darwin 仅 compile 并 skip。
+
+B11b1 **不** import `SafeOpenV1`、不读取 source path、不接 CLI，也无法阻止 descendant `setsid()`
+逃离 process group；它只支持 `darwin-development-observed`。B11b2 才把 B11a safe-open/source read
+放入同一 killable monotonic deadline并闭合 `sourceOpenFailed`/filesystem race matrix；B12 才原子切 CLI。
 
 ## Parser version 与 identity 边界（ADR-0022 D1）
 

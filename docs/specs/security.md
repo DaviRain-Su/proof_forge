@@ -174,11 +174,15 @@ argv misuse=`64`、malformed protocol=`65`、internal fault=`70`；有效 reques
 absolute root 下 component-by-component no-follow，leaf regular/single-link，16 MiB pre-read gate，
 initial-size read + one-byte probe 与 fd/path metadata recheck；fault 为 closed redacted class。
 
-B11a 尚未把 filesystem 操作放进 killable unit，也没有 monotonic read deadline、CLI cutover
-或 controller-backed containment。B11a2 只有 canonical/public-safe Darwin receipt pure model，
-不执行 measurement/kill/reap，也不产生 supervisor observation。B10 的退出值、B11a 的 fault
-labels 与 B11a2 的 development receipt 都不是产品 resource 诊断分类，也不证明 time/memory/process
-containment；未来 supervisor 才负责把 controller/protocol 事件映射到上述 `PF-*` 码。
+B11a 尚未把 filesystem 操作放进 killable unit，也没有与 worker 共享 monotonic read deadline。
+B11a2 是 canonical/public-safe Darwin receipt pure model；B11b1 现以独立 process group 监督已编码
+request，从 native allocation/pipe/spawn 前启动 monotonic budget，轮询 aggregate process/
+`phys_footprint` 与 output/deadline caps，bounded kill/cleanup 后实际产生该 receipt。malformed、
+cross-request 与 incomplete-cleanup response 均 fail closed，stderr/path/PID/signal/exit detail 不进入
+carrier。但 process-group polling 无法阻止 `setsid()` escape，也不是 controller-backed containment；
+source open、CLI cutover 和产品 `PF-*` diagnostic 映射仍未接线。B10 的退出值、B11a fault labels、
+B11b1 native event 与 B11a2 receipt 都不证明 time/memory/process containment；B12 产品 composer
+只能在 B11b2 shared source-open deadline 完成后映射上述 `PF-*` 码。
 
 ## Attack Matrix 与验收
 

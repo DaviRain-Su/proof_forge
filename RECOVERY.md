@@ -52,9 +52,12 @@ ValidatedSourceV1
   deterministic bytes 与 64/65/70 abnormal exits。B11a 已新增 package-owned native safe-open
   foundation（component no-follow、regular/single-link、16 MiB pre-read gate、read probe、fd/path
   metadata recheck 与 closed redacted faults）；B11a2 已新增 pure canonical/public-safe Darwin
-  development-observation receipt model（非 supervisor 运行结果）。这些 foundation 尚未由 CLI/
-  supervisor 串联；read deadline、实际 process/memory enforcement、cleanup execution 与
-  contained assurance 仍缺失。
+  development-observation receipt model。B11b1 已以 `posix_spawn`/独立 process group 监督**已编码**
+  canonical request：monotonic budget 从 native allocation/pipe/spawn 前开始，使用 selective
+  `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，轮询 aggregate process/memory、stdout/stderr 与 deadline，
+  bounded kill/cleanup 后实际 mint B11a2 receipt；malformed/cross-request/incomplete-cleanup response
+  fail closed。CLI 尚未调用该 supervisor；safe-open/source read 尚未进入同一 deadline，
+  `sourceOpenFailed`、controller-backed containment 与 formal TASK-D1-08 仍缺失。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成

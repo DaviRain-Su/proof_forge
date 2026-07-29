@@ -284,13 +284,16 @@ private def validateProcessLimitObservation
 private def validateEventAndResult
     (requestDigest : Option Digest)
     (event : DarwinFrontendSupervisorEventV1)
-    (result : DarwinFrontendSupervisorResultV1) : Except String Unit := do
+    (result : DarwinFrontendSupervisorResultV1)
+    (cleanup : DarwinFrontendCleanupResultV1) : Except String Unit := do
   match event with
   | .responseAccepted =>
       unless requestDigest.isSome do
         throw "response-accepted requires a request digest"
       if result == .noResponse then
         throw "response-accepted requires response-ok or response-error"
+      unless cleanup == .observedComplete do
+        throw "response-accepted requires observed-complete cleanup"
   | .sourceOpenFailed =>
       unless requestDigest.isNone do
         throw "source-open-failed must precede request construction"
@@ -305,7 +308,8 @@ private def validateReceiptData
     (requestDigest : Option Digest)
     (observations : DarwinFrontendPublicObservationsV1)
     (event : DarwinFrontendSupervisorEventV1)
-    (result : DarwinFrontendSupervisorResultV1) : Except String Unit := do
+    (result : DarwinFrontendSupervisorResultV1)
+    (cleanup : DarwinFrontendCleanupResultV1) : Except String Unit := do
   validateLowerOnlyResourceProfile hardFrontendProfile effectiveProfile
   -- Force the public observations through the same bounded PF-JCS integer
   -- domain used by rendering, even when no render follows this helper.
@@ -313,7 +317,7 @@ private def validateReceiptData
   match requestDigest with
   | some digest => validateDigest digest
   | none => pure ()
-  validateEventAndResult requestDigest event result
+  validateEventAndResult requestDigest event result cleanup
   match event with
   | .deadlineObserved => validateDeadlineObservation observations effectiveProfile
   | .memoryLimitObserved =>
@@ -335,7 +339,7 @@ private def makeReceiptFromDigest
     (result : DarwinFrontendSupervisorResultV1)
     (cleanup : DarwinFrontendCleanupResultV1) :
     Except String DarwinFrontendSupervisorReceiptV1 := do
-  validateReceiptData effectiveProfile requestDigest observations event result
+  validateReceiptData effectiveProfile requestDigest observations event result cleanup
   let hardProfileDigest ← resourceProfileDigest hardFrontendProfile
   let effectiveProfileDigest ← resourceProfileDigest effectiveProfile
   pure {
@@ -372,7 +376,7 @@ def renderDarwinFrontendSupervisorReceiptJcsV1
   -- Revalidate direct internal values before rendering; the private constructor
   -- prevents external fabrication, but this keeps the encoder's authority local.
   validateReceiptData receipt.effectiveProfile_ receipt.requestDigest_
-    receipt.observations_ receipt.event_ receipt.result_
+    receipt.observations_ receipt.event_ receipt.result_ receipt.cleanup_
   let hardProfileDigest ← resourceProfileDigest hardFrontendProfile
   let effectiveProfileDigest ← resourceProfileDigest receipt.effectiveProfile_
   unless receipt.assurance_ == .developmentObserved do

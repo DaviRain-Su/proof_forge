@@ -202,6 +202,9 @@ private def testCrossFieldInvariants : IO Unit := do
   expectErr "accepted event requires response result"
     (mkDarwinFrontendSupervisorReceiptV1 hardFrontendProfile request successObservations
       .responseAccepted .noResponse .observedComplete)
+  expectErr "accepted response requires complete cleanup"
+    (mkDarwinFrontendSupervisorReceiptV1 hardFrontendProfile request successObservations
+      .responseAccepted .responseOk .incomplete)
   expectErr "non-response event rejects response result"
     (mkDarwinFrontendSupervisorReceiptV1 hardFrontendProfile request zeroObservations
       .workerExitObserved .responseOk .observedComplete)

@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 3781,
+      "bytes": 3883,
       "path": "ProofForgeV2.lean",
-      "sha256": "fae3d6af2457823630b529cc321eb4da8ac3707c266182f3176c3dffc37bad89"
+      "sha256": "31062b78a428e277ae47db6ed5ba9b796602988c4260e8dd5a49338683ccc3eb"
     },
     {
       "bytes": 22120,
@@ -111,14 +111,24 @@
       "sha256": "f9bc683db6d6709d4572a5aa1d70faa5e7147906dc91304fccb51e8e5d97cd2a"
     },
     {
-      "bytes": 22255,
+      "bytes": 22494,
       "path": "ProofForgeV2/Frontend/DarwinSupervisorReceiptV1.lean",
-      "sha256": "f35efcf4cbecd904343f886ede1aa09e6f2f5de557dacf2a1187e3e9db8fba61"
+      "sha256": "86f59cdf5fbd221672901dac50c971f7bae19ebf14738da2e54a9b36aac968ca"
     },
     {
-      "bytes": 8510,
+      "bytes": 7391,
+      "path": "ProofForgeV2/Frontend/DarwinSupervisorV1.lean",
+      "sha256": "7abe0053972335460399f7e8381addfed3faf5b7bc21209dab6d2512b049de31"
+    },
+    {
+      "bytes": 12187,
+      "path": "ProofForgeV2/Frontend/DarwinWorkerSupervisorV1.lean",
+      "sha256": "dac436b7e16fefb5207a7da49c59c27ca1b0e772209702bf4341bee9f486085f"
+    },
+    {
+      "bytes": 41718,
       "path": "ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c",
-      "sha256": "bf1e8e84c524748554db019394e7379e3ff702e0e1da1f6f5eba66f5758c330e"
+      "sha256": "6b764595a85da327ef87c625b6a98e64f60add5dfbdff8597d1c274cb9d7f52e"
     },
     {
       "bytes": 30124,

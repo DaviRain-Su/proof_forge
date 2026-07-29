@@ -174,7 +174,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Frontend.ProtocolV1,
     `Tests.Frontend.WorkerV1,
     `Tests.Frontend.SafeOpenV1,
-    `Tests.Frontend.DarwinSupervisorReceiptV1
+    `Tests.Frontend.DarwinSupervisorReceiptV1,
+    `Tests.Frontend.DarwinWorkerSupervisorV1
   ]
 
 lean_exe proof_forge_next where
