@@ -184,9 +184,11 @@ Frontend stage 的 protocol/stdout 硬上限 **64 MiB**（`maxProtocolBytes`）�
 Failure 帧在 `parsePfJcs` 前对 PF-JCS 诊断数组做 top-level 条目预扫描（0 或 >101 拒绝；嵌套/
 字符串逗号不计），canonical 权威仍为 `mkFailureBundleV1` re-encode identity。**B10** standalone
 worker 的 stdin reader 以 64 KiB chunks 累积，最多探测到 `maxProtocolBytes+1` 后 fail closed；
-它不执行 safe-open，也不强制 wall/memory/process limits。supervisor、receipt、product CLI cutover、
-contained assurance 与 formal TASK-D1-08 仍 pending。详见
-[`source-frontend.md`](../modules/source-frontend.md)。
+worker 自身不打开路径。**B11a** package-owned native safe-open foundation 复用 `maxSourceBytes`，在
+读取前按 initial `fstat` 拒绝 `>16 MiB`，并执行 component no-follow、regular/single-link、exact-size
+read + one-byte probe 和 fd/path metadata recheck。它尚未进入 killable supervisor 或产品 CLI；
+read deadline、wall/memory/process enforcement、receipt、contained assurance 与 formal TASK-D1-08
+仍 pending。详见 [`source-frontend.md`](../modules/source-frontend.md)。
 
 Darwin v1 的 `memoryMetric` 为 containment 内全部 live process `phys_footprint` 之和；其他 host
 必须登记等价的 kernel/job-controller metric，不能把单 leader RSS 冒充 aggregate。wall clock 从
@@ -207,6 +209,10 @@ source open 属于 frontend wall budget：supervisor 使用 dirfd-relative、no-
 close-on-exec open，`fstat` 后只接受 regular single-link file；size 大于 16 MiB 在读取前拒绝，
 随后 bounded read 到 EOF 并额外探测 1 byte。FIFO/device/socket/symlink、read deadline、truncate/
 grow race 和 short read 都稳定失败；攻击者不能在 worker budget 生效前阻塞 parent。
+
+工程状态：B11a 已实现上述 no-follow/regular/single-link/size/read-probe/metadata-recheck primitive，
+但尚无 killable unit 或 monotonic read deadline；因此当前实现**不能**声称已满足上一段的 parent
+non-blocking、resource attribution 或 containment 结论。B11b supervisor 才拥有这些剩余合同。
 
 超限归因优先级固定为 controller event：process denial → memory controller event → protocol/output
 cap → monotonic deadline；无对应 controller event 的 signal、malformed/truncated response 或 worker

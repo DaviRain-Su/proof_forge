@@ -1,8 +1,44 @@
 import Lake
 open Lake DSL
 
+private def xcrunValue (args : Array String) : IO String := do
+  let output ← IO.Process.output {
+    cmd := "/usr/bin/xcrun"
+    args
+    stdin := .null
+    stdout := .piped
+    stderr := .piped
+    inheritEnv := true
+  }
+  unless output.exitCode == 0 do
+    throw <| IO.userError "xcrun failed while resolving the macOS native toolchain"
+  let value := output.stdout.trimAscii.copy
+  if value.isEmpty then
+    throw <| IO.userError "xcrun returned an empty macOS native toolchain path"
+  pure value
+
 package «proof-forge-next» where
   version := v!"0.1.0"
+
+extern_lib proof_forge_frontend_native_v1 pkg := do
+  let source ← inputFile
+    (pkg.dir / "ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c") false
+  let leanInclude ← getLeanIncludeDir
+  let (cc, platformArgs) ←
+    if System.Platform.isOSX then do
+      let cc := System.FilePath.mk (← liftM <| xcrunValue #["--find", "clang"])
+      let sdk ← liftM <| xcrunValue #["--sdk", "macosx", "--show-sdk-path"]
+      pure (cc, #["-isysroot", sdk])
+    else do
+      let cc ← getLeanCc
+      pure (cc, #[])
+  let object ← buildO
+    (pkg.buildDir / "native/frontend/proof_forge_frontend_native_v1.o") source #[]
+    (#["-std=c11", "-fPIC", "-Wall", "-Wextra", "-Werror", "-I",
+        leanInclude.toString] ++ platformArgs)
+    cc
+  buildStaticLib
+    (pkg.buildDir / "lib" / nameToStaticLib "proof_forge_frontend_native_v1") #[object]
 
 @[default_target]
 lean_lib ProofForgeV2 where
@@ -135,7 +171,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1,
     `Tests.Frontend.ProtocolV1,
-    `Tests.Frontend.WorkerV1
+    `Tests.Frontend.WorkerV1,
+    `Tests.Frontend.SafeOpenV1
   ]
 
 lean_exe proof_forge_next where

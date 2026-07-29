@@ -149,7 +149,14 @@ def oracle_standards_digests() -> dict[str, tuple[int, str]]:
 
 def oracle_package_file_set() -> list[str]:
     files = [REPO_ROOT / "ProofForgeV2.lean"]
-    files.extend(sorted((REPO_ROOT / "ProofForgeV2").rglob("*.lean")))
+    package_source_suffixes = {".lean", ".c", ".h"}
+    files.extend(
+        sorted(
+            path
+            for path in (REPO_ROOT / "ProofForgeV2").rglob("*")
+            if path.suffix in package_source_suffixes
+        )
+    )
     return [str(path.relative_to(REPO_ROOT)) for path in files]
 
 

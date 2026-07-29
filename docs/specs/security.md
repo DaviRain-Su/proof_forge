@@ -170,8 +170,14 @@ process/protocol-output 超限分别为 `PF-RESOURCE-TIME`、`PF-RESOURCE-MEMORY
 
 B10 standalone frontend worker 只定义 abnormal process 的稳定本地 stderr token 与退出值：
 argv misuse=`64`、malformed protocol=`65`、internal fault=`70`；有效 request 的 source/parser
-失败必须返回 `Frontend.Err.v1` 且退出 `0`。这些值不是产品诊断分类，也不证明 time/memory/
-process containment；未来 supervisor 才负责把 controller/protocol 事件映射到上述 `PF-*` 码。
+失败必须返回 `Frontend.Err.v1` 且退出 `0`。B11a 新增独立 native safe-open primitive：trusted
+absolute root 下 component-by-component no-follow，leaf regular/single-link，16 MiB pre-read gate，
+initial-size read + one-byte probe 与 fd/path metadata recheck；fault 为 closed redacted class。
+
+B11a 尚未把 filesystem 操作放进 killable unit，也没有 monotonic read deadline、resource receipt、
+CLI cutover 或 controller-backed containment。B10 的退出值和 B11a 的 fault labels 都不是产品
+resource 诊断分类，也不证明 time/memory/process containment；未来 supervisor 才负责把
+controller/protocol 事件映射到上述 `PF-*` 码。
 
 ## Attack Matrix 与验收
 

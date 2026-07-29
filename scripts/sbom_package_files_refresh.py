@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Regenerate supply-chain/lean-package-files.v1.json from the working tree.
 
-The manifest is a committed pin consumed by TST-SBOM-002 (TASK-D0-08): any
-ProofForgeV2 source add/remove/rename/content change must be followed by a
+The historical schema name is retained, but the package file set includes Lean
+and package-owned native C/header sources. The committed pin is consumed by
+TST-SBOM-002 (TASK-D0-08): any ProofForgeV2 source add/remove/rename/content
+change must be followed by a
 deliberate refresh committed alongside the source change, exactly like the
 canonical golden re-pins.  Run with:
 
@@ -20,9 +22,18 @@ MANIFEST_PATH = REPO_ROOT / "supply-chain" / "lean-package-files.v1.json"
 SCHEMA = "proof-forge.lean-package-files.v1"
 
 
+PACKAGE_SOURCE_SUFFIXES = {".lean", ".c", ".h"}
+
+
 def main() -> int:
     paths = [REPO_ROOT / "ProofForgeV2.lean"]
-    paths.extend(sorted((REPO_ROOT / "ProofForgeV2").rglob("*.lean")))
+    paths.extend(
+        sorted(
+            path
+            for path in (REPO_ROOT / "ProofForgeV2").rglob("*")
+            if path.suffix in PACKAGE_SOURCE_SUFFIXES
+        )
+    )
     records = []
     for path in paths:
         data = path.read_bytes()

@@ -48,6 +48,7 @@ import Tests.Core.DiagnosticV1
 import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
 import Tests.Frontend.WorkerV1
+import Tests.Frontend.SafeOpenV1
 import Tests.Product.CounterV1Evm
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.OutputEnvelopeV1
@@ -111,6 +112,7 @@ unsafe def main : IO Unit := do
   Tests.Core.DiagnosticBundleV1.run
   Tests.Frontend.ProtocolV1.run
   Tests.Frontend.WorkerV1.run
+  Tests.Frontend.SafeOpenV1.runFast
   Tests.Product.CounterV1Evm.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.OutputEnvelopeV1.run

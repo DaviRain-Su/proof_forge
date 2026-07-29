@@ -73,17 +73,19 @@ ProgramV1 的产品诊断 Typed 边界是 `normalizeProgramLocatedV1` 对
 `assignNodeIdsV1(moduleName, programIdentity, program)` 从 validated source 派生；文件路径、span、
 comment 与 allocation history 不参与 identity/hash。
 
-当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 尚未接入产品，也没有
-safe-open、supervisor 或 containment。因此输出仍是 development 级；这不妨碍普通产品测试，
-但不能声称 formal/hermetic evidence。
+当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 尚未接入产品。
+B11a 已新增独立 native safe-open foundation，但尚未由 CLI 或 supervisor 调用，也没有 read
+期限、receipt 或 containment。因此输出仍是 development 级；这不妨碍普通产品测试，但不能
+声称 formal/hermetic evidence。
 
-## FrontendProtocolV1 与 standalone worker（B9/B9R/B10）
+## FrontendProtocolV1、worker 与 safe-open foundation（B9/B9R/B10/B11a）
 
 **B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
 request/response 地基；该历史切片当时 inert。**B9R** 修复两处边界：去掉任意 4096-byte
 selector 语义上限；在 `parsePfJcs` 分配诊断数组前做 top-level PF-JCS 条目预扫描。
-**B10** 在不改变 wire 的前提下新增非产品 standalone worker；仍无 safe-open、supervisor/receipt、
-CLI/Loader/Compiler 产品切换或 target 变更。
+**B10** 在不改变 wire 的前提下新增非产品 standalone worker。**B11a** 新增同样尚未接入
+产品的 package-owned native safe-open foundation；仍无 supervisor/receipt、CLI/Loader/Compiler
+产品切换、read deadline、contained assurance 或 target 变更。
 
 | 帧 | Tag | 载荷 |
 |---|---|---|
@@ -138,6 +140,28 @@ byte determinism、malformed/truncated/declared-oversize/argv 的 zero-stdout + 
 B10 **不**读取路径、不 spawn 子进程、不接受 target/profile、不写 cache/artifact；但它也**不**
 提供 safe-open、timeout/OOM/process containment、supervisor/receipt 或 CLI product cutover。
 这些属于 B11/B12；formal TASK-D1-08 仍 pending。
+
+### B11a native safe-open foundation
+
+`ProofForgeV2.Frontend.SafeOpenV1.safeOpenSourceV1` 接受 trusted absolute root 与已验证的
+`ProjectRelativePath`，经 package-owned C FFI 从 `/` 开始逐 component `openat`。root 中间组件
+与 relative parent 均要求 directory，并使用 `O_NOFOLLOW|O_NONBLOCK|O_CLOEXEC`；leaf 使用
+同样的 no-follow/nonblocking/close-on-exec flags，随后只接受 regular、`st_nlink == 1` 文件。
+文件在读取前以 initial `fstat` 执行 `<=16 MiB` 门禁；读取 initial size 后额外探测一个 byte，
+再比较 fd 与 parent-relative pathname 的 device/inode/mode/link-count/size/mtime/ctime。返回值为
+opaque `SafeSourceSnapshotV1`；native fault 只使用 closed redacted wire labels，不返回 errno prose
+或 host path，未知 label 在 Lean 边界 fail closed 为 `native-protocol`。
+
+`Tests/Frontend/SafeOpenV1.lean` 固定 regular/empty/determinism、relative root、root/leaf/intermediate
+symlink、hardlink、permission denied、directory/FIFO、missing 与 exact 16 MiB / 16 MiB+1；普通
+full suite 执行真实大小边界，fast suite省略两个大文件。package source pin 的历史 schema 名保持
+`proof-forge.lean-package-files.v1`，但枚举已扩为 `ProofForgeV2/**` 下 `.lean/.c/.h`，因此 native C
+与 Lean wrapper 同属已钉住的 package source closure。
+
+本切片没有把可能阻塞的 filesystem 操作放进 killable execution unit，也没有共享 monotonic
+wall deadline、process/memory enforcement、receipt、CLI cutover 或 controller-backed containment；
+并发 truncate/grow/rebind 与 device/socket 的 host-isolated resource matrix留给 B11b。它是可复用
+safe-open primitive，**不是**完整 D1-08 frontend 或 formal `TST-RESOURCE-001` 完成。
 
 ## Parser version 与 identity 边界（ADR-0022 D1）
 
