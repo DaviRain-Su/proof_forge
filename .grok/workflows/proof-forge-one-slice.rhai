@@ -35,27 +35,27 @@ if task_prompt == () || task_prompt == "" { pause("verification", "Goal must pas
 if changed_files == () || changed_files.len() == 0 { pause("verification", "Goal must pass every dirty path in args.changed_files."); }
 
 let files_json = json_encode(changed_files);
-let common = "Read-only review only. Never edit, write, execute shell commands, stage, commit, reset, push, or create planning files. Read AGENTS.md, the directly relevant accepted specification, and every explicit changed path: " + files_json + ". Baseline before Goal implementation was " + base_commit + ". Slice: " + slice + ". Contract: " + task_prompt + ". Report only concrete evidence-backed findings; an empty list is valid after reading the shipped code and tests.";
+let common = "Read-only review only. Never edit, write, execute shell commands, stage, commit, reset, push, or create planning files. Use targeted grep/read_file on only the relevant AGENTS/MIGRATION sections, directly relevant specification spans, and every explicit changed path: " + files_json + ". Do not read whole oversized status lines or unrelated specifications. Baseline before Goal implementation was " + base_commit + ". Slice: " + slice + ". Contract: " + task_prompt + ". Report only concrete evidence-backed findings; an empty list is valid after reading the shipped code and tests.";
 
 phase("Review");
 let jobs = [
     #{
         label: "semantic-review",
-        agent_type: "oracle",
+        agent_type: "general-purpose",
         capability_mode: "read-only",
         output_schema: findings_schema,
         prompt: common + " Focus on semantic correctness, totality, fail-closed behavior, error precedence, canonical ordering, and exact accepted-spec conformance."
     },
     #{
         label: "test-review",
-        agent_type: "oracle",
+        agent_type: "general-purpose",
         capability_mode: "read-only",
         output_schema: findings_schema,
         prompt: common + " Focus on whether tests drive the real shipped functions, isolate positive/negative/ordering cases, avoid test theater, and would fail if the implementation regressed."
     },
     #{
         label: "boundary-review",
-        agent_type: "oracle",
+        agent_type: "general-purpose",
         capability_mode: "read-only",
         output_schema: findings_schema,
         prompt: common + " Focus on bounded-slice scope, D1→D2→D3→D4 ordering, target-neutrality, no fallback or formal overclaim, accurate AGENTS/MIGRATION_MATRIX/implementation-log facts, and required SBOM pin coverage."
