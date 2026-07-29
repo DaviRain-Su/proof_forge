@@ -44,6 +44,7 @@ import Tests.Language.ProgramV1Diagnostics
 import Tests.Language.ProgramV1Bounds
 import Tests.Language.ProgramV1SourceFullTagGolden
 import Tests.Core.DiagnosticV1
+import Tests.Core.DiagnosticBundleV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
@@ -98,6 +99,7 @@ unsafe def main : IO Unit := do
   Tests.Language.ProgramV1Bounds.run
   Tests.Language.ProgramV1SourceFullTagGolden.run
   Tests.Core.DiagnosticV1.run
+  Tests.Core.DiagnosticBundleV1.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run

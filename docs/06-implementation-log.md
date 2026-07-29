@@ -14,6 +14,15 @@ normative: false
 
 
 
+## 2026-07-29 — B8a DiagnosticBundleV1 / DiagnosticResultV1 foundation
+
+- Context/State：B6–B7b 已交付结构化 `DiagnosticV1`、path locate 与 CheckV1 draft composition；`normalizeDiagnosticBundleV1` 仍无 public failure-bundle 载体。本切片工程-only 引入 inert `DiagnosticBundleV1`/`DiagnosticResultV1` 地基，**不**接线 Loader/Normalize/Compiler/CLI 产品路径，**不**改 alpha `CompileResult`/`CompileError`，不做 B8b product cutover 或 formal TASK/TST/EV。
+- RED/Changed（tests first）：新增 `Tests/Core/DiagnosticBundleV1.lean`（valid multi-error normalize/sort/dedupe/100-cap、nonempty+≥1 real error≠PF-DIAG-LIMIT、≤1 final PF-DIAG-LIMIT、per-diag canonical encode、idempotent constructor、fail-closed fixed PF-INTERNAL for empty/limit-only/warning-note-only/struct-invalid/non-encodable with no input leak、read-only diagnostics、deterministic human+PF-JCS array render、exit priority 70>7>6>5>4>3 with diagLimit/non-error neutral、`DiagnosticResultV1` ok/error）。实现前真实 RED：`no such file … DiagnosticBundleV1.lean` / `bad import 'ProofForgeV2.Core.DiagnosticBundleV1'`。
+- Production：新增 `ProofForgeV2/Core/DiagnosticBundleV1.lean`（private-constructor opaque `DiagnosticBundleV1`；sole total `mkFailureBundleV1` 复用 `DiagnosticV1.normalizeDiagnosticBundleV1` + validate/`toCanonicalJson`/`make`/`toPfJson`；固定 public-safe `PF-INTERNAL` fallback；`diagnostics`/`renderHuman`/`renderCanonicalJsonArray`/`selectExitCode`（empty/neutral priority fold default 70 fail-closed，非 success 0）；`DiagnosticResultV1`）。注册 `ProofForgeV2.lean`、`Tests.lean`、`Tests/Fast.lean`、`lakefile.lean`。无第二 codec/normalize；无 DiagnosticV1/Loader/Normalize/Compiler/CLI 编辑。
+- Repair（P2）：dedupe representative 测试钉死 total-order min message `first-a`；mixed valid+invalid/non-encodable fail-closed 到 size-1 PF-INTERNAL（无 input leak、exit 70）；`selectExitCode` fold 默认 70。
+- Docs：`docs/specs/diagnostics.md` / `docs/specs/cli.md` / `AGENTS.md` / `MIGRATION_MATRIX.md` 写明 **B8a engineering complete** 且 **B8b**/formal `TASK-D1-07` pending；本日志。
+- Boundary：无 B8b product cutover、无 formal/release 路径；alpha CompileError/CompileResult 与单错误 CLI 行为不变。
+
 ## 2026-07-29 — B7b3d CheckV1 draft composition + located API
 
 - Context/State：B7b1–B7b3cR 已为 NameResolution/CallGraph/TypeCheck/EffectCheck/BoundCheck/DisclosureCheck 接线 `DiagnosticDraftV1` path drafts；CheckV1 仍为 unlocated 多遍 erase 拼接，无 draft sole authority、无 OriginInventory 绑定的 located 入口。本切片工程-only 闭合 **B7b**：单 draft composition + additive located API；**不**接线 B8 public DiagnosticBundle/CLI multi-error、不碰 formal TASK/TST/EV 或 target maturity。

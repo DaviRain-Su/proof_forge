@@ -161,6 +161,14 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 多个 diagnostics 取最高优先级：70 > 7 > 6 > 5 > 4 > 3 > 2。
 
+### B8a engineering note（非 product cutover）
+
+`ProofForgeV2/Core/DiagnosticBundleV1.lean` 提供 inert `DiagnosticBundleV1.selectExitCode`：
+仅考虑 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note 中立；`PF-INTERNAL` → 70；phase
+deploy/verify → 7；emit/tool → 6；plan/lower → 5；resolve → 4；source/type/effect/semantic → 3。
+**B8a 未接线** CLI/compiler 产品路径；alpha 单错误 `CompileError` exit 行为不变。**B8b** 才做
+sole atomic product cutover；formal `TASK-D1-07` 仍 pending。
+
 ## Secret、Inputs 与副作用
 
 private witness 文件必须 mode 0600、regular file、非 symlink；prove 不复制到 bundle。
