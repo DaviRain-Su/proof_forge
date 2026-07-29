@@ -63,7 +63,7 @@ Wave 1  D1 supervised frontend + CLI cutover
   → Wave 5  D8 aggregate/security/repro/clean-room/review
 ```
 
-当前 wave 是 **Wave 1**：B11b2 把 B11a safe-open/source read 纳入 shared killable monotonic budget并产生 live `sourceOpenFailed`；随后 B12 原子切 CLI，删除进程内 source open。与 B11b2 文件不重叠的 D1-03/04 residual 只先做精确盘点，再选择单个 bounded slice。
+当前 wave 是 **Wave 1 / B12**：B11b2 已把 pinned B11a safe-open helper 与 B10 frontend worker 纳入同一 overall monotonic wall，逐阶段复用 hardened `posix_spawn` supervisor、合并 aggregate peaks并产生 live `sourceOpenFailed`；B12 现须原子切 CLI，删除产品进程内 source open/Loader 与 fallback。D1-03/04 residual audit 已确认 frontend 表面无需重做 parser，且不存在可与 B12 并行、又能推进迁移完成的安全 deletion slice；alpha residual 留到 Wave 2。
 
 并发规则：`main` 是唯一集成权威。允许从 exact clean `main` 创建临时隔离 worktree 推进接口已冻结、文件 allowlist 完全不重叠的 leaf lanes；worker 不编辑 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、实现日志、umbrella、suite注册、`lakefile.lean`、justfile或SBOM pin。主代理只读审查并串行集成，聚合门禁通过后立即删除临时 worktree/branch。shared-core cutover、文档、package pin与提交始终串行。
 
@@ -86,8 +86,11 @@ Wave 1  D1 supervised frontend + CLI cutover
   canonical request：monotonic budget 从 native allocation/pipe/spawn 前开始，使用 selective
   `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，轮询 aggregate process/memory、stdout/stderr 与 deadline，
   bounded kill/cleanup 后实际 mint B11a2 receipt；malformed/cross-request/incomplete-cleanup response
-  fail closed。CLI 尚未调用该 supervisor；safe-open/source read 尚未进入同一 deadline，
-  `sourceOpenFailed`、controller-backed containment 与 formal TASK-D1-08 仍缺失。
+  fail closed。B11b2 另以 closed `SafeOpen.Req/Ok/Err.v1` one-request helper（不 import Loader）把
+  `safeOpenSourceV1` 放入同一 hardened `posix_spawn` 监督面；overall monotonic wall 覆盖 open、parent
+  request construction 与 B10 worker，prior 已耗尽时 spawn 前 fail closed，最终 observations 合并两阶段
+  peak，canonical SafeOpen fault + complete cleanup 才 mint `sourceOpenFailed`。CLI 尚未调用该完整
+  supervisor；B12 cutover、controller-backed containment 与 formal TASK-D1-08 仍缺失。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成

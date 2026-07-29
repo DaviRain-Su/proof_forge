@@ -174,8 +174,10 @@ lean_lib ProofForgeV2Tests where
     `Tests.Frontend.ProtocolV1,
     `Tests.Frontend.WorkerV1,
     `Tests.Frontend.SafeOpenV1,
+    `Tests.Frontend.SafeOpenWorkerV1,
     `Tests.Frontend.DarwinSupervisorReceiptV1,
-    `Tests.Frontend.DarwinWorkerSupervisorV1
+    `Tests.Frontend.DarwinWorkerSupervisorV1,
+    `Tests.Frontend.DarwinSourceSupervisorV1
   ]
 
 lean_exe proof_forge_next where
@@ -189,6 +191,19 @@ lean_exe proof_forge_next where
 lean_exe proof_forge_frontend_worker_v1 where
   exeName := "proof-forge-frontend-worker-v1"
   root := `ProofForgeV2.Frontend.WorkerMainV1
+  supportInterpreter := true
+
+lean_exe proof_forge_frontend_safe_open_worker_v1 where
+  exeName := "proof-forge-frontend-safe-open-worker-v1"
+  root := `ProofForgeV2.Frontend.SafeOpenWorkerMainV1
+
+/-- Focused standalone safe-open protocol/process suite. -/
+lean_exe b11b2_safe_open_worker where
+  root := `Tests.Frontend.SafeOpenWorkerMainV1
+
+/-- Focused B11b2 source-supervisor suite (development matrix). -/
+lean_exe b11b2_source_supervisor where
+  root := `Tests.Frontend.DarwinSourceSupervisorMainV1
   supportInterpreter := true
 
 lean_exe proof_forge_next_tests where

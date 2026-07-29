@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-29 — B11b2 shared safe-open/frontend wall composition
+
+- Context/State：B11a safe-open、B11a2 receipt 与 B11b1 已编码-frame supervisor 已存在；本切片只冻结 B12 前的 Darwin engineering seam。**不**切 CLI、不声称 Linux `contained`、formal/hermetic evidence、`TST-RESOURCE-001` 或 TASK-D1-08 完成。
+- RED/Changed（tests first）：先新增 `DarwinSourceSupervisorV1` 聚焦矩阵并以缺失 `superviseFrontendSourceV1` 真实 RED。初版 native `fork` open unit/特殊 hang 文件名经独立复审判定不可合入；最终删除该实现，改为 standalone helper。新增 `SafeOpenWorkerV1` 独立 protocol/process suite 与 full/Fast/focused registrations。
+- Production：新增 closed `SafeOpen.Req/Ok/Err.v1` protocol（bounded/full-consume/exact re-encode；unknown fault拒绝）、不 import Loader 的 one-request `proof-forge-frontend-safe-open-worker-v1`，以及双 pinned executable 的 `superviseFrontendSourceV1`。Safe-open 与 B10 worker逐阶段复用 B11b1 hardened `posix_spawn` process-group primitive；overall `IO.monoMsNow` start覆盖 open request、open helper、parent frontend request construction与 frontend worker，native elapsed=`prior+local`，`prior ≥ wall` 在 spawn前拒绝。
+- Receipt/Tests：complete canonical SafeOpen fault才 mint `sourceOpenFailed`（request digest null）；open process/memory/output/deadline/exit/signal保留 closed attribution，malformed/unknown/incomplete fail closed。最终 elapsed覆盖总 wall，memory/process peak取两阶段最大值。测试固定 regular Ok/parser Err、open fault无 frontend spawn、FIFO/socket/symlink/hardlink、16MiB±1、test-only opener deadline、两段各低于wall但总和超限且 digest+marker证明 frontend phase 的 non-rearm、two-phase peak join与 open transport events；B11b1全矩阵回归继续通过。
+- Repair/Review：两轮复审关闭 production test hook、multi-threaded `fork` async-safety、open cleanup/frame-cap/deadline race、prior已耗尽仍spawn、shared-budget假阳性、opener→Loader耦合、协议/进程测试与两阶段peak丢失。最终只读复审 runtime P0/P1=0；主线已将 package-file pin 刷新为 117-file set。
+- Verification（ordinary engineering，非 formal evidence）：独立 safe-open worker suite、B11b2 focused+B11b1 regression、Fast aggregate、Apple clang `-Wall -Wextra -Werror`/static analyzer、`just docs-check`、`just dev-check`、普通 `just ci` 与 `git diff --check` 全部通过；唯一 warning仍是既有 `AstSpineDecodeV1.lean` unused `termination_by`。
+- Boundary：CLI 仍走进程内 `IO.FS.readFile`/Loader；B12 才原子切 sole product frontend authority。process-group polling不能阻止 `setsid()` escape；concurrent filesystem race的完整 host/formal matrix与 controller-backed containment仍 pending。
+
 ## 2026-07-29 — B11b1 Darwin development-observed worker supervisor
 
 - Context/State：B11a safe-open foundation 与 B11a2 pure receipt 已存在；本切片 engineering-only 监督**已编码 canonical request**并实际 mint B11a2 receipt。**不** import SafeOpen、不接 CLI/Loader/Compiler、不表示 Linux `contained`、formal/hermetic evidence、`TST-RESOURCE-001` 或 TASK-D1-08 完成。

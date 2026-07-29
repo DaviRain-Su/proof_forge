@@ -49,8 +49,10 @@ import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
 import Tests.Frontend.WorkerV1
 import Tests.Frontend.SafeOpenV1
+import Tests.Frontend.SafeOpenWorkerV1
 import Tests.Frontend.DarwinSupervisorReceiptV1
 import Tests.Frontend.DarwinWorkerSupervisorV1
+import Tests.Frontend.DarwinSourceSupervisorV1
 import Tests.Product.CounterV1Evm
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
@@ -116,8 +118,10 @@ unsafe def main : IO Unit := do
   Tests.Frontend.ProtocolV1.run
   Tests.Frontend.WorkerV1.run
   Tests.Frontend.SafeOpenV1.runFast
+  Tests.Frontend.SafeOpenWorkerV1.runFast
   Tests.Frontend.DarwinSupervisorReceiptV1.run
   Tests.Frontend.DarwinWorkerSupervisorV1.run
+  Tests.Frontend.DarwinSourceSupervisorV1.runFast
   Tests.Product.CounterV1Evm.run
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run

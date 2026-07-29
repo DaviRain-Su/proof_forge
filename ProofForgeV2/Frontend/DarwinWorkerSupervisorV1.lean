@@ -12,7 +12,10 @@
   * `darwin-development-observed` only — not process/session containment
   * not formal TST-RESOURCE-001 / TASK-D1-08 completion
   * not Linux `contained` assurance
-  * not safe-open, CLI product cutover, or stderr/path/PID retention
+  * not CLI product cutover, or stderr/path/PID retention
+  * B11b2 composes safe-open under a shared wall budget via
+    `superviseFrontendSourceV1`; this primitive remains transport-only
+    for already-encoded request frames (optional priorElapsedMillis).
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
@@ -90,7 +93,8 @@ def responseBytes (o : DarwinWorkerSupervisorOutcomeV1) : ByteArray :=
 
 end DarwinWorkerSupervisorOutcomeV1
 
-/-- Native Darwin supervisor: worker path, full stdin frame, five effective caps.
+/-- Native Darwin supervisor: worker path, full stdin frame, five effective caps,
+    plus prior wall consumption from a shared open-phase budget (0 = fresh arm).
     Returns either a closed wire fault label or a `PFSUPV1\0` observation frame. -/
 @[extern "proof_forge_supervise_worker_v1"]
 private opaque nativeSuperviseWorkerV1
@@ -98,7 +102,7 @@ private opaque nativeSuperviseWorkerV1
     (input : @& ByteArray)
     (maxWallMillis maxAggregateMemoryBytes : UInt64)
     (maxProcesses : UInt32)
-    (maxProtocolBytes maxStderrBytes : UInt64) :
+    (maxProtocolBytes maxStderrBytes priorElapsedMillis : UInt64) :
     IO (Except String ByteArray)
 
 private def containsNul (value : String) : Bool :=
@@ -295,11 +299,16 @@ private def faultFromNativeLabel (label : String) : DarwinWorkerSupervisorFaultV
     Validates lower-only effective profile, rejects empty/NUL worker paths and
     oversize stdin against `effective.maxProtocolBytes`, invokes the native
     supervisor, and mints a private-ctor outcome only after exact frame decode
-    and observation revalidation. Not containment; not formal evidence. -/
+    and observation revalidation. Not containment; not formal evidence.
+
+    `priorElapsedMillis` carries open-phase wall consumption for B11b2 shared
+    budgets (pass 0 for a fresh worker-only arm). Reported elapsed includes prior;
+    deadline still saturates at `effective.maxWallMillis + 1` (no re-arm). -/
 def superviseDarwinWorkerFrameV1
     (workerPath : FilePath)
     (input : ByteArray)
-    (effective : ResourceProfileV1) :
+    (effective : ResourceProfileV1)
+    (priorElapsedMillis : UInt64 := 0) :
     IO (Except DarwinWorkerSupervisorFaultV1 DarwinWorkerSupervisorOutcomeV1) := do
   match validateLowerOnlyResourceProfile hardFrontendProfile effective with
   | .error _ => return .error .invalidArgument
@@ -309,6 +318,10 @@ def superviseDarwinWorkerFrameV1
     return .error .invalidArgument
   if input.size > effective.maxProtocolBytes.toNat then
     return .error .invalidArgument
+  -- Defensive: prior ≥ wall or UINT64_MAX must never spawn (no budget re-arm).
+  if priorElapsedMillis == UInt64.ofNat (UInt64.size - 1) ||
+      priorElapsedMillis ≥ effective.maxWallMillis then
+    return .error .invalidArgument
   match ← nativeSuperviseWorkerV1
       pathString
       input
@@ -316,7 +329,8 @@ def superviseDarwinWorkerFrameV1
       effective.maxAggregateMemoryBytes
       effective.maxProcesses
       effective.maxProtocolBytes
-      effective.maxStderrBytes with
+      effective.maxStderrBytes
+      priorElapsedMillis with
   | .error label =>
       pure (.error (faultFromNativeLabel label))
   | .ok frame =>

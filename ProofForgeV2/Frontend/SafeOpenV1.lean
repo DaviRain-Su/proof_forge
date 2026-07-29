@@ -7,9 +7,11 @@
   single-link file. The native read uses the initial fstat size, probes one byte
   past EOF, and rechecks fd + pathname metadata before returning at most 16 MiB.
 
-  This module intentionally does not claim a read deadline, process/session
-  containment, a supervisor receipt, or CLI product cutover. B11b owns the
-  killable execution unit and shared monotonic deadline needed for those claims.
+  This module is the reusable B11a primitive (direct open in the caller process).
+  B11b2 places the same open path inside a killable native unit under a shared
+  monotonic wall budget via `DarwinSupervisorV1.superviseFrontendSourceV1`.
+  This module still does not claim process/session containment, CLI cutover,
+  or formal TST-RESOURCE-001 / TASK-D1-08 completion.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Frontend.ProtocolV1

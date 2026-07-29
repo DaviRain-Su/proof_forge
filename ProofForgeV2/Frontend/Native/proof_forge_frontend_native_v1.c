@@ -899,7 +899,8 @@ static int pf_controller_event(uint32_t peak_processes, uint32_t max_processes,
 static lean_object *pf_supervise_worker_darwin(
     const char *worker_path, const uint8_t *input_data, size_t input_size,
     uint64_t max_wall_ms, uint64_t max_memory_bytes, uint32_t max_processes,
-    uint64_t max_protocol_bytes, uint64_t max_stderr_bytes) {
+    uint64_t max_protocol_bytes, uint64_t max_stderr_bytes,
+    uint64_t prior_elapsed_ms) {
   size_t protocol_cap_sz = 0;
   size_t stderr_cap_sz = 0;
   if (!pf_u64_to_size(max_protocol_bytes, &protocol_cap_sz) ||
@@ -911,7 +912,9 @@ static lean_object *pf_supervise_worker_darwin(
   size_t stdout_store_cap = protocol_cap_sz + 1;
   size_t stderr_store_cap = stderr_cap_sz + 1;
 
-  /* The monotonic budget starts before allocation, pipe setup, and spawn. */
+  /* Shared monotonic budget: prior_elapsed_ms carries open-phase consumption
+     so the worker cannot re-arm a fresh wall. Local start is still taken before
+     allocation/pipe/spawn for the residual phase. */
   uint64_t start_ms = 0;
   if (pf_clock_ms(&start_ms) != 0) {
     return pf_io_error("io");
@@ -1049,7 +1052,7 @@ static lean_object *pf_supervise_worker_darwin(
 
   uint64_t peak_memory = 0;
   uint32_t peak_processes = 0;
-  uint64_t elapsed_ms = 0;
+  uint64_t elapsed_ms = prior_elapsed_ms;
   uint64_t now_ms = start_ms;
 
   if (stdin_done) {
@@ -1065,7 +1068,12 @@ static lean_object *pf_supervise_worker_darwin(
         cleanup_start_ms = start_ms;
       }
     } else {
-      elapsed_ms = pf_elapsed_ms(start_ms, now_ms);
+      uint64_t local = pf_elapsed_ms(start_ms, now_ms);
+      if (prior_elapsed_ms > UINT64_MAX - local) {
+        elapsed_ms = UINT64_MAX;
+      } else {
+        elapsed_ms = prior_elapsed_ms + local;
+      }
     }
 
     if (pf_sample_group(pgid, &peak_processes, &peak_memory) != 0) {
@@ -1234,7 +1242,12 @@ static lean_object *pf_supervise_worker_darwin(
       }
     }
     if (pf_clock_ms(&now_ms) == 0) {
-      elapsed_ms = pf_elapsed_ms(start_ms, now_ms);
+      uint64_t local = pf_elapsed_ms(start_ms, now_ms);
+      if (prior_elapsed_ms > UINT64_MAX - local) {
+        elapsed_ms = UINT64_MAX;
+      } else {
+        elapsed_ms = prior_elapsed_ms + local;
+      }
     }
 
     if (!decided) {
@@ -1371,7 +1384,12 @@ static lean_object *pf_supervise_worker_darwin(
   }
 
   if (pf_clock_ms(&now_ms) == 0) {
-    elapsed_ms = pf_elapsed_ms(start_ms, now_ms);
+    uint64_t local = pf_elapsed_ms(start_ms, now_ms);
+    if (prior_elapsed_ms > UINT64_MAX - local) {
+      elapsed_ms = UINT64_MAX;
+    } else {
+      elapsed_ms = prior_elapsed_ms + local;
+    }
   }
 
   pf_close_fd(&in_pipe[1]);
@@ -1429,7 +1447,8 @@ spawn_fail:
 LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
     b_lean_obj_arg worker_object, b_lean_obj_arg input_object,
     uint64_t max_wall_millis, uint64_t max_memory_bytes, uint32_t max_processes,
-    uint64_t max_protocol_bytes, uint64_t max_stderr_bytes, lean_obj_arg world) {
+    uint64_t max_protocol_bytes, uint64_t max_stderr_bytes,
+    uint64_t prior_elapsed_ms, lean_obj_arg world) {
   (void)world;
   const char *worker_path = lean_string_cstr(worker_object);
   size_t input_size = lean_sarray_size(input_object);
@@ -1440,7 +1459,10 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
       max_wall_millis == 0 || max_wall_millis == UINT64_MAX ||
       max_memory_bytes == 0 || max_memory_bytes == UINT64_MAX ||
       max_processes == 0 || max_processes == UINT32_MAX ||
-      max_protocol_bytes == 0 || max_stderr_bytes == 0) {
+      max_protocol_bytes == 0 || max_stderr_bytes == 0 ||
+      prior_elapsed_ms == UINT64_MAX ||
+      prior_elapsed_ms >= max_wall_millis) {
+    /* prior >= wall: caller must mint deadline without spawn (no re-arm). */
     return pf_io_error("invalid-argument");
   }
   if ((uint64_t)input_size > max_protocol_bytes) {
@@ -1455,9 +1477,10 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
   return pf_supervise_worker_darwin(worker_path, input_data, input_size,
                                     max_wall_millis, max_memory_bytes,
                                     max_processes, max_protocol_bytes,
-                                    max_stderr_bytes);
+                                    max_stderr_bytes, prior_elapsed_ms);
 #else
   (void)input_data;
+  (void)prior_elapsed_ms;
   return pf_io_error("unsupported-platform");
 #endif
 }

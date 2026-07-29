@@ -188,10 +188,12 @@ worker 自身不打开路径。**B11a** package-owned native safe-open foundatio
 读取前按 initial `fstat` 拒绝 `>16 MiB`，并执行 component no-follow、regular/single-link、exact-size
 read + one-byte probe 和 fd/path metadata recheck。**B11a2** 另提供 canonical、bounded、
 public-safe 的 pure Darwin development-observation receipt model。**B11b1** 已监督完整 canonical
-request frame：从 native allocation/pipe/spawn 前启动 monotonic budget，观测 aggregate process/
+frame：从 native allocation/pipe/spawn 前启动 monotonic budget，观测 aggregate process/
 `phys_footprint`、protocol/stderr caps 与 deadline，bounded group cleanup 后实际产生 B11a2 receipt。
-它尚未接入 safe-open 或产品 CLI；source-open/read deadline、`sourceOpenFailed`、controller-backed
-contained assurance 与 formal TASK-D1-08 仍 pending。详见
+**B11b2** 以不依赖 Loader 的 closed safe-open helper逐阶段复用该 primitive，overall wall覆盖
+open→request construction→frontend worker，合并两阶段 peak并产生 live `sourceOpenFailed`。
+它尚未接入产品 CLI；controller-backed contained assurance、完整 formal host/race matrix与
+TASK-D1-08 仍 pending。详见
 [`source-frontend.md`](../modules/source-frontend.md)。
 
 Darwin v1 的 `memoryMetric` 为 containment 内全部 live process `phys_footprint` 之和；其他 host
@@ -220,9 +222,11 @@ closed event/result/cleanup 的 pure receipt carrier/codec。B11b1 已为**已�
 Darwin worker unit 与真实 observation producer：selective `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，
 process-group/PID identity、aggregate process/memory polling、stdout/stderr/deadline cap、bounded cleanup
 与 actual receipt composition；malformed/cross-request/incomplete-cleanup response fail closed。
-B11b1 的 development polling 不是 controller event，safe-open/source read 也尚未进入同一 deadline，
-因此仍**不能**声称 parent source-open nonblocking、controller-backed attribution 或 containment。
-B11b2 才拥有 shared source-open/read deadline 与 `sourceOpenFailed`/filesystem race 合同。
+B11b2 已以 pinned one-request safe-open helper + B10 worker建立 shared source-open/read wall：parent不执行
+同步 filesystem open，prior在每次 spawn前重算，canonical fault + complete cleanup才产生
+`sourceOpenFailed`，最终 observation保留两阶段最大 peak。该 development polling仍不是 controller event，
+也未完成 CLI authority cutover或完整 filesystem race/host matrix，因此不能声称 controller-backed
+attribution、containment、formal `TST-RESOURCE-001` 或 TASK-D1-08 完成。
 
 超限归因优先级固定为 controller event：process denial → memory controller event → protocol/output
 cap → monotonic deadline；无对应 controller event 的 signal、malformed/truncated response 或 worker
