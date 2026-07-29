@@ -12,16 +12,21 @@
     Frontend.Err.v1  — failure response bound to request digest
 
   Hard bounds (frontend ResourceProfile hard maxima / source limits):
-    maxProtocolBytes      = 64 MiB
+    maxProtocolBytes      = 64 MiB  (also the sole selector allocation/frame guard)
     maxSourceBytes        = 16 MiB  (sourceBytes and canonical root bytes)
     maxNodeSpanCount      = 100000
-    maxSelectorBytes      = 4096
-    diagnostic bundle cap = DiagnosticBundleV1 / normalize (100 + optional limit)
+    maxSelectorBytes      = maxProtocolBytes  (compat alias; NOT a semantic QN limit)
+    diagnostic array cap  = maxDiagnosticsV1 + 1 (=101) top-level PF-JCS entries
+                            via O(n)/O(1) pre-scan before parsePfJcs allocation;
+                            semantic/canonical authority remains parsePfJcs +
+                            DiagnosticV1.fromPfJson + mkFailureBundleV1 re-encode
 
   Request carries:
     * exact SemVer languageVersion (NFC string wire via renderSemVer)
     * validated ProjectRelativePath logical source identity
-    * raw UTF-8 moduleSelector / optional programSelector (UTF-8 ok; no NFC gate)
+    * raw UTF-8 moduleSelector / optional programSelector (UTF-8 ok; no NFC gate;
+      no arbitrary 4096 semantic cap — exact Lean 1..256 × 1..240 component surface
+      and source-diagnostic classification are deferred to Loader)
     * raw sourceBytes (no UTF-8 validation at the protocol layer)
 
   Success carries:
@@ -45,7 +50,7 @@
     decodeCanonicalSourceAstBytesV1 → assignNodeIdsV1 zip spans → joinOriginsV1
   There is no second ProgramV1 decoder and no caller-trusted OriginInventory constructor.
 
-  Formal TASK-D1-08 / contained assurance remain pending; B9 does not claim them.
+  Formal TASK-D1-08 / contained assurance remain pending; B9/B9R does not claim them.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.DiagnosticV1
@@ -82,11 +87,19 @@ def maxSourceBytes : Nat := 16 * 1024 * 1024
 /-- NodeId assignment / span table hard maximum (shared with ProgramV1 node bound). -/
 def maxNodeSpanCount : Nat := 100000
 
-/-- Module / program selector UTF-8 hard maximum (protocol bomb guard). -/
-def maxSelectorBytes : Nat := 4096
+/-- Compatibility allocation/frame guard for module/program selector UTF-8 payloads.
+    Equal to `maxProtocolBytes`. This is **not** a semantic qualified-name limit:
+    every selector frame that fits the protocol byte budget is accepted here;
+    exact Lean component legality (1..256 components × 1..240 raw UTF-8 bytes) and
+    source-diagnostic classification are deferred to Loader. -/
+def maxSelectorBytes : Nat := maxProtocolBytes
 
 /-- Domain tag for request-digest separation (profile-id grammar). -/
 def requestDigestDomainV1 : String := "proof-forge.frontend-request.v1"
+
+/-- Top-level PF-JCS diagnostic array entry hard maximum before parsePfJcs:
+    `DiagnosticV1.maxDiagnosticsV1` retained errors + one optional `PF-DIAG-LIMIT` (101). -/
+private def maxDiagnosticArrayEntriesV1 : Nat := DiagnosticV1.maxDiagnosticsV1 + 1
 
 private def tagRequestV1 : String := "Frontend.Req.v1"
 private def tagSuccessV1 : String := "Frontend.Ok.v1"
@@ -451,6 +464,78 @@ def decodeFrontendSuccessV1 (input : ByteArray) : Except String FrontendSuccessV
   requireReencode "Frontend.Ok.v1" input reencoded
   pure ok
 
+/-- Non-recursive O(n)/O(1) UTF-8-byte pre-scan of a canonical PF-JCS array text.
+
+    Counts only top-level array entries: commas at root array depth, ignoring
+    commas inside strings (with escape handling) and nested arrays/objects.
+    Rejects zero or more than `maxDiagnosticArrayEntriesV1` (101) entries before
+    `parsePfJcs` allocates a diagnostic array. This is a count/resource preflight
+    only — `parsePfJcs` + `DiagnosticV1.fromPfJson` + `mkFailureBundleV1` + exact
+    canonical re-encode remain the semantic/canonical authority. -/
+private def precheckDiagnosticArrayEntryCountV1 (json : String) : Except String Unit := do
+  let bytes := json.toUTF8
+  if bytes.size == 0 then
+    return ← fail "diagnostic bundle wire must be a JSON array"
+  -- '[' = 0x5B
+  unless bytes.get! 0 == 0x5B do
+    return ← fail "diagnostic bundle wire must be a JSON array"
+  -- Empty array "[]" → 0 entries.
+  if bytes.size ≥ 2 && bytes.get! 1 == 0x5D then
+    return ← fail "diagnostic array entry count is zero"
+  -- Nonempty array: start at 1 entry, scan from after '['.
+  let mut i : Nat := 1
+  let mut depth : Nat := 1
+  let mut inString : Bool := false
+  let mut escape : Bool := false
+  let mut entries : Nat := 1
+  let mut closed : Bool := false
+  while i < bytes.size do
+    let b := bytes.get! i
+    i := i + 1
+    if inString then
+      if escape then
+        escape := false
+      else if b == 0x5C then
+        -- backslash starts a one-byte escape sequence (\" \\ \/ \b \f \n \r \t \uXXXX).
+        -- Pre-scan only needs to skip the next structural byte; \u is not expanded.
+        escape := true
+      else if b == 0x22 then
+        inString := false
+    else if b == 0x22 then
+      inString := true
+    else if b == 0x5B || b == 0x7B then
+      -- '[' or '{'
+      depth := depth + 1
+    else if b == 0x5D || b == 0x7D then
+      -- ']' or '}'
+      if depth == 0 then
+        return ← fail "diagnostic array structure underflow"
+      if depth == 1 then
+        unless b == 0x5D do
+          return ← fail "diagnostic array root must close with ']'"
+        closed := true
+        depth := 0
+        -- Stop counting; any trailing bytes are owned by parsePfJcs / re-encode.
+        break
+      else
+        depth := depth - 1
+    else if b == 0x2C && depth == 1 then
+      -- top-level comma
+      entries := entries + 1
+      if entries > maxDiagnosticArrayEntriesV1 then
+        return ← fail
+          s!"diagnostic array entry count exceeds {maxDiagnosticArrayEntriesV1}"
+  if !closed then
+    return ← fail "diagnostic array is unclosed"
+  if inString || escape then
+    return ← fail "diagnostic array has unclosed string"
+  if entries == 0 then
+    return ← fail "diagnostic array entry count is zero"
+  if entries > maxDiagnosticArrayEntriesV1 then
+    return ← fail
+      s!"diagnostic array entry count exceeds {maxDiagnosticArrayEntriesV1}"
+  pure ()
+
 private def encodeFailureFields (r : FrontendFailureV1) :
     Except String (Array ByteArray) := do
   let digB ← encodeDigest32 r.requestDigest_
@@ -468,6 +553,8 @@ def encodeFrontendFailureV1 (r : FrontendFailureV1) : Except String ByteArray :=
 private def decodeFailureBody : DecoderV1 FrontendFailureV1 := fun c => do
   let (requestDigest, c) ← decodeDigest32 c
   let (json, c) ← decodeRawUtf8 maxProtocolBytes c
+  -- Count/resource preflight before parsePfJcs allocates the array.
+  precheckDiagnosticArrayEntryCountV1 json
   let value ← parsePfJcs json
   let diags ←
     match value with

@@ -1,5 +1,5 @@
 /-
-  Tests.Frontend.ProtocolV1 — B9 inert FrontendProtocolV1 wire foundation.
+  Tests.Frontend.ProtocolV1 — B9/B9R inert FrontendProtocolV1 wire foundation.
 
   Covers:
     - request / success / failure round-trips
@@ -8,6 +8,12 @@
       16 MiB source length-bomb and span-count bomb (no multi-MiB payload alloc);
       protocol maxProtocolBytes precheck is size-gated on every decoder entry
       (constant-locked; 64 MiB+1 vector not allocated in unit tests)
+    - B9R: legal plain qualified selector >4096 (18×240 components) round-trip;
+      selector declared-length maxProtocolBytes+1 bomb rejects before copy;
+      no residual 4096 semantic selector protocol bound
+    - B9R: PF-JCS diagnostic array top-level entry pre-scan (102-entry tiny bomb;
+      nested/string commas not miscounted; normalized 100+PF-DIAG-LIMIT=101
+      round-trip; 101 non-limit raw rejected by canonical re-encode identity)
     - tag / field-count / trailing / truncation mutations
     - success ValidatedSourceV1 root re-encode identity (noncanonical AST mutation)
     - request-digest cross-request replay rejection (bind*/reconstruct)
@@ -314,12 +320,164 @@ private def testSpanCountBomb : IO Unit := do
   let frame ← lift "frame" (encodeTagged "Frontend.Ok.v1" fields)
   expectErrContains "span-bomb" "span count exceeds" (decodeFrontendSuccessV1 frame)
 
-private def testSelectorBound : IO Unit := do
+/-- Legal plain qualified selector >4096 UTF-8 bytes: 18×240-byte components joined by
+    dots. Protocol must accept (maxProtocolBytes allocation guard only); exact Lean
+    qualified-name legality is deferred to Loader / parseSourceQualifiedNameV1. -/
+private def testLargeLegalSelectorRoundTrip : IO Unit := do
+  let component := String.ofList (List.replicate 240 'a')
+  expect (component.toUTF8.size == 240) "component is 240 UTF-8 bytes"
+  let parts : Array String := (List.range 18).toArray.map fun _ => component
+  expect (parts.size == 18) "18 components"
+  -- Independently prove source qualified-name surface accepts these components.
+  let _qn ← lift "parse-qn" (parseSourceQualifiedNameV1 parts)
+  let selector := String.intercalate "." parts.toList
+  expect (selector.toUTF8.size > 4096)
+    s!"selector UTF-8 size {selector.toUTF8.size} must exceed obsolete 4096 cap"
+  expect (selector.toUTF8.size == 18 * 240 + 17)
+    "selector size = 18*240 + 17 dots"
+  expect (selector.toUTF8.size ≤ maxProtocolBytes)
+    "selector fits maxProtocolBytes allocation guard"
+  -- Compatibility accessor (if retained) is only an allocation alias, never 4096.
+  expect (maxSelectorBytes == maxProtocolBytes)
+    "maxSelectorBytes equals maxProtocolBytes (allocation guard, not semantic QN limit)"
+  expect (maxSelectorBytes != 4096 || maxProtocolBytes == 4096)
+    "no residual 4096 semantic selector protocol bound"
   let path ← testPath
-  let big := String.ofList (List.replicate (maxSelectorBytes + 1) 'a')
-  expectErrContains "mod-selector"
-    "moduleSelector exceeds" (mkFrontendRequestV1 languageVersion100 path big none
-      (ByteArray.mk #[0]))
+  let req ← lift "mk-large-selector"
+    (mkFrontendRequestV1 languageVersion100 path selector none (ByteArray.mk #[0x00]))
+  expect (FrontendRequestV1.moduleSelector req == selector)
+    "large moduleSelector retained by mk"
+  let enc ← lift "enc-large" (encodeFrontendRequestV1 req)
+  let dec ← lift "dec-large" (decodeFrontendRequestV1 enc)
+  expect (FrontendRequestV1.moduleSelector dec == selector)
+    "large moduleSelector round-trip"
+
+/-- Declared moduleSelector u32 length = maxProtocolBytes+1 on a tiny frame must
+    reject before payload copy (allocation/frame guard). -/
+private def testSelectorLengthBomb : IO Unit := do
+  let verB ← lift "ver" (encodeString "1.0.0")
+  let pathB ← lift "pathB" (encodeString "tests/a.pf")
+  let overLen := maxProtocolBytes + 1
+  let modHeader := encodeU32le (UInt32.ofNat overLen)
+  let progB := encodeU8 0  -- none
+  let srcHeader := encodeU32le (UInt32.ofNat 0)
+  let fields := #[verB, pathB, modHeader, progB, srcHeader]
+  let frame ← lift "frame" (encodeTagged "Frontend.Req.v1" fields)
+  expect (frame.size ≤ maxProtocolBytes) "selector length-bomb frame stays under protocol max"
+  expectErrContains "selector-len-bomb" "exceeds limit" (decodeFrontendRequestV1 frame)
+
+/-! ### Diagnostic array entry pre-scan (Frontend.Err.v1) -/
+
+/-- 102-entry tiny PF-JCS array must be rejected by the top-level entry pre-scan
+    before parsePfJcs allocates a diagnostic array. -/
+private def testDiagnosticArrayCountBomb102 : IO Unit := do
+  let req ← mkSampleRequest
+  let digest ← lift "digest" (requestDigestOfV1 req)
+  let digB := digest.bytes
+  -- Tiny 102-entry array of zeros: 1 entry would be accepted structure-wise by a
+  -- count scan; 102 must fail the ≤101 precheck.
+  let body := String.intercalate "," (List.replicate 102 "0")
+  let json := s!"[{body}]"
+  expect (json.toUTF8.size < 1024) "102-entry bomb stays tiny"
+  let jsonB := (encodeU32le (UInt32.ofNat json.toUTF8.size)).append json.toUTF8
+  let frame ← lift "frame" (encodeTagged "Frontend.Err.v1" #[digB, jsonB])
+  expectErrContains "102-entry-bomb" "entry count"
+    (decodeFrontendFailureV1 frame)
+
+/-- Count Char occurrences (portable; no dependency on List.count / String.data). -/
+private def countChar (s : String) (c : Char) : Nat :=
+  s.foldl (fun acc ch => if ch == c then acc + 1 else acc) 0
+
+/-- Nested arrays/objects and commas inside strings must not inflate the top-level
+    entry count (pre-scan structural only).
+
+    Critical: true top-level entries ≤101, but total commas across nested arrays,
+    nested objects, and strings must exceed 101. A broken scanner that counts every
+    comma as top-level would then report "entry count exceeds" and fail this test.
+    The current wire is intentionally non-diagnostic so decode must still fail —
+    but never for an entry-count reason. -/
+private def testDiagnosticArrayNestedCommasNotMiscounted : IO Unit := do
+  let req ← mkSampleRequest
+  let digest ← lift "digest" (requestDigestOfV1 req)
+  let digB := digest.bytes
+  -- Nested array of 200 zeros → 199 commas that must NOT count as top-level.
+  let nestedZeros := String.intercalate "," (List.replicate 200 "0")
+  -- String containing 200 commas → also must not inflate the top-level count.
+  let commaString := String.intercalate "," (List.replicate 201 "x")
+  expect (countChar commaString ',' == 200) "string holds exactly 200 commas"
+  -- Nested object with many key/value commas (50 pairs → many nested commas).
+  let nestedObjPairs :=
+    String.intercalate ","
+      ((List.range 50).map fun i => s!"\"k{i}\":{i}")
+  -- Two top-level values only (true count = 2 ≤ 101). Total commas ≫ 101 if
+  -- nested/string commas were miscounted as top-level.
+  -- Build without fragile brace-escaping inside a single s!" … " fragment.
+  let top1 := "[" ++ nestedZeros ++ "]"
+  let top2 :=
+    "{\"nest\":{" ++ nestedObjPairs ++ "},\"s\":\"" ++ commaString ++ "\"}"
+  let json := "[" ++ top1 ++ "," ++ top2 ++ "]"
+  let totalCommas := countChar json ','
+  expect (totalCommas > 101)
+    s!"fixture total commas {totalCommas} must exceed 101 so naive comma-count fails"
+  expect (json.toUTF8.size < 8192) "nested-commas fixture stays small"
+  let jsonB := (encodeU32le (UInt32.ofNat json.toUTF8.size)).append json.toUTF8
+  let frame ← lift "frame" (encodeTagged "Frontend.Err.v1" #[digB, jsonB])
+  match decodeFrontendFailureV1 frame with
+  | .ok _ =>
+      throw <| IO.userError
+        "nested-commas: expected semantic rejection of non-diagnostic values"
+  | .error e =>
+      if e.contains "entry count" then
+        throw <| IO.userError
+          s!"nested-commas: pre-scan miscounted nested/string commas as top-level: {e}"
+      -- Any non-entry-count failure is acceptable (parse/fromPfJson/noncanonical).
+      pure ()
+
+/-- mkFailureBundleV1 of 101 non-limit diagnostics yields 100 + PF-DIAG-LIMIT and
+    must round-trip as Frontend.Err.v1 with exact re-encode identity. -/
+private def testNormalized101LimitRoundTrip : IO Unit := do
+  let req ← mkSampleRequest
+  let raw : Array DiagnosticV1 :=
+    (List.range 101).toArray.map fun i =>
+      DiagnosticV1.make .sourceInvalid s!"norm-msg-{i}"
+        (stableContext := some s!"norm-k-{i}")
+  let err ← lift "mk-101" (mkFrontendFailureV1 req raw)
+  let diags := FrontendFailureV1.diagnostics err
+  expect (diags.size == 101) "normalized 101 size"
+  expect (diags[100]!.code == .diagLimit) "last is PF-DIAG-LIMIT"
+  expect ((diags.extract 0 100).all (fun d => d.code != .diagLimit))
+    "first 100 are non-limit"
+  let enc ← lift "enc-101" (encodeFrontendFailureV1 err)
+  let dec ← lift "dec-101" (decodeFrontendFailureV1 enc)
+  expect (FrontendFailureV1.requestDigest dec == FrontendFailureV1.requestDigest err)
+    "101-limit digest"
+  expect ((FrontendFailureV1.diagnostics dec).size == 101) "101-limit decode size"
+  expect ((FrontendFailureV1.diagnostics dec)[100]!.code == .diagLimit)
+    "101-limit last code"
+  let enc2 ← lift "enc-101-2" (encodeFrontendFailureV1 dec)
+  expect (enc == enc2) "101-limit re-encode identity"
+
+/-- 101 non-limit raw diagnostics in a PF-JCS array are rejected by canonical
+    bundle identity (mkFailureBundleV1 would emit 100+PF-DIAG-LIMIT). -/
+private def testRaw101NonLimitRejectedByCanonicalIdentity : IO Unit := do
+  let req ← mkSampleRequest
+  let digest ← lift "digest" (requestDigestOfV1 req)
+  let digB := digest.bytes
+  let raw : Array DiagnosticV1 :=
+    (List.range 101).toArray.map fun i =>
+      DiagnosticV1.make .sourceInvalid s!"raw-msg-{i}"
+        (stableContext := some s!"raw-k-{i}")
+  let jsonParts ← raw.mapM fun d =>
+    lift "j" (DiagnosticV1.toCanonicalJson d)
+  let json := "[" ++ String.intercalate "," jsonParts.toList ++ "]"
+  -- Sanity: normalize path is 100+limit, so raw wire differs.
+  let normalized := mkFailureBundleV1 raw
+  let sorted ← lift "sorted" (DiagnosticBundleV1.renderCanonicalJsonArray normalized)
+  expect (json != sorted) "raw 101 non-limit differs from normalized 100+limit"
+  let jsonB := (encodeU32le (UInt32.ofNat json.toUTF8.size)).append json.toUTF8
+  let frame ← lift "frame" (encodeTagged "Frontend.Err.v1" #[digB, jsonB])
+  expectErrContains "raw-101-noncanonical" "noncanonical"
+    (decodeFrontendFailureV1 frame)
 
 /-! ### Mutations -/
 
@@ -546,7 +704,12 @@ def run : IO Unit := do
   testRequestGolden
   testProtocolSizePrecheck
   testSpanCountBomb
-  testSelectorBound
+  testLargeLegalSelectorRoundTrip
+  testSelectorLengthBomb
+  testDiagnosticArrayCountBomb102
+  testDiagnosticArrayNestedCommasNotMiscounted
+  testNormalized101LimitRoundTrip
+  testRaw101NonLimitRejectedByCanonicalIdentity
   testTagMutation
   testFieldCountMutation
   testTrailingAndTruncation

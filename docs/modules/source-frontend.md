@@ -76,21 +76,27 @@ comment 与 allocation history 不参与 identity/hash。
 当前 in-process CLI loader 尚未实现规范 contained frontend worker，因此输出仍是 development
 级；这不妨碍普通产品测试，但不能声称 formal/hermetic evidence。
 
-## FrontendProtocolV1（B9 inert foundation）
+## FrontendProtocolV1（B9 inert foundation + B9R bounds repair）
 
 **B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
 request/response 地基，供未来 contained frontend worker 使用。**本切片 inert**：无 worker
 可执行体、process spawn、safe-open、supervisor/receipt、CLI/Loader/Compiler 产品切换或
-target 变更。
+target 变更。**B9R** 修复两处边界：去掉任意 4096-byte selector 语义上限；在 `parsePfJcs`
+分配诊断数组前做 top-level PF-JCS 条目预扫描。
 
 | 帧 | Tag | 载荷 |
 |---|---|---|
-| Request | `Frontend.Req.v1` | exact SemVer `languageVersion`；validated `ProjectRelativePath`；raw UTF-8 `moduleSelector` / optional `programSelector`（无 NFC gate）；raw `sourceBytes`（协议层不校验 UTF-8） |
+| Request | `Frontend.Req.v1` | exact SemVer `languageVersion`；validated `ProjectRelativePath`；raw UTF-8 `moduleSelector` / optional `programSelector`（无 NFC gate；**无** 4096 语义上限）；raw `sourceBytes`（协议层不校验 UTF-8） |
 | Success | `Frontend.Ok.v1` | `requestDigest` + canonical `ValidatedSourceV1` root bytes + `SourceByteSpanV1` 仅在 `NodeAssignmentV1` preorder（**不**传 path） |
 | Failure | `Frontend.Err.v1` | `requestDigest` + canonical PF-JCS `DiagnosticBundleV1` 数组文本 |
 
-硬上限：`maxProtocolBytes=64 MiB`、`maxSourceBytes=16 MiB`、`maxNodeSpanCount=100000`、
-selector ≤4096。
+硬上限：`maxProtocolBytes=64 MiB`（亦为 selector 的 sole 分配/帧 guard；`maxSelectorBytes`
+仅兼容别名且等于该值，**不是** qualified-name 语义限）、`maxSourceBytes=16 MiB`、
+`maxNodeSpanCount=100000`。精确 Lean 组件面 `1..256 × 1..240` UTF-8 与源诊断分类仍由
+Loader / `parseSourceQualifiedNameV1` 负责。Failure 在 `parsePfJcs` 前对 PF-JCS 数组文本做
+非递归 O(n)/O(1) top-level 条目预扫描：拒绝 0 或 `> maxDiagnosticsV1+1`（101）条；嵌套
+数组/对象与字符串内逗号不计入；语义/canonical 权威仍为 `parsePfJcs` +
+`DiagnosticV1.fromPfJson` + `mkFailureBundleV1` 精确 re-encode identity（无静默 normalize）。
 
 **Pure frame decoders**（`decodeFrontendRequestV1` / `decodeFrontendSuccessV1` /
 `decodeFrontendFailureV1` / `decodeFrontendResponseV1`）：precheck 协议体积 → full-consume →
@@ -108,7 +114,9 @@ request `sourceBytes` 的 range/count 门禁。`reconstructFrontendSuccessV1` �
 ProgramV1 decoder、无 caller-trusted OriginInventory 构造）。
 
 `requestDigest` = `domainSeparatedSha256("proof-forge.frontend-request.v1", exact request bytes)`。
-聚焦套件：`Tests/Frontend/ProtocolV1.lean`。B10 worker 实现与 formal TASK-D1-08 仍 pending。
+聚焦套件：`Tests/Frontend/ProtocolV1.lean`（含 B9R：>4096 legal plain QN selector round-trip、
+selector 声明长度 bomb、102-entry tiny PF-JCS bomb、嵌套逗号不误计、100+PF-DIAG-LIMIT=101
+round-trip、101 non-limit raw noncanonical）。B10 worker 实现与 formal TASK-D1-08 仍 pending。
 
 ## Parser version 与 identity 边界（ADR-0022 D1）
 

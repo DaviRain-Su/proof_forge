@@ -106,9 +106,9 @@
       "sha256": "f9bc683db6d6709d4572a5aa1d70faa5e7147906dc91304fccb51e8e5d97cd2a"
     },
     {
-      "bytes": 25948,
+      "bytes": 30050,
       "path": "ProofForgeV2/Frontend/ProtocolV1.lean",
-      "sha256": "9439e834e5a31f9d33ef5c224493bf4f3d16f81369bceff28356050518d255d6"
+      "sha256": "99cf55c9702fc24a99bb25dd18cdbfe7c1bf203e7a8c6f29068a6f49d97c6f4d"
     },
     {
       "bytes": 24685,

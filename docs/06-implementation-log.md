@@ -14,6 +14,15 @@ normative: false
 
 
 
+## 2026-07-29 — B9R FrontendProtocolV1 selector + diagnostic array bounds repair
+
+- Context/State：B9 inert `FrontendProtocolV1` 已落地；独立复核发现两处边界缺陷——任意 4096-byte selector 语义上限与 failure 路径在 `parsePfJcs` 前缺少 top-level 诊断数组条目预扫描。本切片 engineering-only 修复；**不**改 request/response tags/field counts/`requestGoldenHexV1`、**不**做 worker/product cutover/wire version bump/formal TASK/TST/EV。
+- RED/Changed（tests first）：`Tests/Frontend/ProtocolV1.lean` 替换 4096 reject；新增 18×240 plain 组件 legal selector >4096（先证 `parseSourceQualifiedNameV1`）mk/encode/decode round-trip、selector 声明 u32 长度=`maxProtocolBytes+1` tiny-frame bomb、102-entry tiny PF-JCS pre-scan bomb、嵌套/字符串逗号不误计（fixture 真 top-level≤101 且总逗号>101，naive 全逗号计数必炸；P2 强化）、`mkFailureBundleV1(101)`→100+PF-DIAG-LIMIT round-trip identity、101 non-limit raw canonical re-encode 拒绝。实现前真实 RED：`maxSelectorBytes equals maxProtocolBytes` 断言失败（`maxSelectorBytes` 仍为 4096）。
+- Production：`ProofForgeV2/Frontend/ProtocolV1.lean`——selector encode/decode/mk 绑定 `maxProtocolBytes`；`maxSelectorBytes` 仅兼容别名且 `== maxProtocolBytes`（allocation guard，非 QN 语义限）；`precheckDiagnosticArrayEntryCountV1` 非递归 O(n)/O(1) UTF-8 预扫描在 `parsePfJcs` 前拒绝 0 或 >101 top-level 条目；`parsePfJcs`+`fromPfJson`+`mkFailureBundleV1` 仍为 semantic/canonical 权威。
+- Docs：`docs/modules/source-frontend.md`、`docs/specs/common-types.md`、`AGENTS.md` Engineering slice、`MIGRATION_MATRIX.md` D1/D1-08、本日志；`just sbom-package-files-refresh`。
+- Zero patterns：无字面 4096 selector 协议语义 bound；无 product caller（CLI/Language/Compiler）；无 worker/safe-open/supervisor/receipt；wire tags/golden 不变。
+- Boundary：formal TASK-D1-08 与 contained assurance 仍 pending；不声称 formal/release。
+
 ## 2026-07-29 — B9 FrontendProtocolV1 inert request/response foundation
 
 - Context/State：B8b 已完成 product multi-error `DiagnosticBundleV1` cutover；contained frontend worker（TASK-D1-08）仍缺 process/safe-open/supervisor。本切片 engineering-only 落地 **inert** 版本化 binary request/response 协议地基，**不**实现 worker、不改 CLI/Loader/Compiler 产品行为、不做 formal TASK/TST/EV 或 release。
