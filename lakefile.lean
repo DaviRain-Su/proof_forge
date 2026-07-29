@@ -166,7 +166,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.DiagnosticBundleV1,
     `Tests.Frontend.ProtocolV1,
     `Tests.Frontend.WorkerV1,
-    `Tests.Frontend.SafeOpenV1
+    `Tests.Frontend.SafeOpenV1,
+    `Tests.Frontend.DarwinSupervisorReceiptV1
   ]
 
 lean_exe proof_forge_next where

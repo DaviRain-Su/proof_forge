@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-29 — B11a2 pure Darwin development-observation receipt model
+
+- Context/State：developer worktree baseline `ccdd608d2befc1f7b7dac313f885b2f379322cfd`；B11a safe-open foundation 已存在。本切片 engineering-only 冻结 future Darwin supervisor 的 pure internal receipt；**不** open/spawn/measure/kill/reap，不接 CLI/Loader/Compiler，不表示 Linux `contained`、formal/hermetic evidence、`TST-RESOURCE-001` 或 TASK-D1-08 完成。
+- RED/Changed（tests first）：恢复既有未跟踪 `Tests/Frontend/DarwinSupervisorReceiptV1.lean` 与 full/fast/lake 注册；production module 不存在时 `lake build Tests.Frontend.DarwinSupervisorReceiptV1` 以 missing `ProofForgeV2/Frontend/DarwinSupervisorReceiptV1.lean` 真实 RED。测试固定 exact 929-byte PF-JCS golden、receipt digest KAT、hard/effective profile digest、request replay/null digest round-trip、lower-only profile、closed assurance/event/result/cleanup、event×result×request join、equal/first-over/limit+2 与全部 cross-dimension over-limit、unknown/privacy fields、canonical/trailing/size-cap failures。
+- Production：新增 umbrella-imported `ProofForgeV2/Frontend/DarwinSupervisorReceiptV1.lean`：private-constructor carrier + sole smart constructor；唯一 assurance 为 `darwin-development-observed`；只保留 hard/effective frontend profile identity+digest、optional canonical request digest、bounded elapsed/aggregate-memory/process observations及 closed event/result/cleanup。11-field PF-JCS 在 parse 前以 UTF-8 byte size 限 4 KiB，严格 closed fields、digest recompute、exact re-encode；receipt digest 以 schema domain separation；无 path/PID/signal/exit-code/stderr/tail/secret/detail carrier。`outputLimitObserved` 明确只作 B11b-owned attribution class，不发明 public stream counter。
+- Repair/Review：独立 read-only review P0/P1=0；修复/闭合其低风险项：PF-JCS safe-int 委托 sole `renderPfJcs` authority、hard/effective digest tamper 分离、null request、limit+2 与跨维度超限矩阵，并明确 internal receipt ≠ 最终 CLI `receipts` envelope。复审无剩余 P0/P1/P2。
+- Docs/Closure：更新 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、source-frontend/common-types/security 事实边界；`just sbom-package-files-refresh` 将新增 Lean module 纳入 97-file package source pin。
+- Verification（ordinary engineering，非 formal evidence）：聚焦 `lake -H build Tests.Frontend.DarwinSupervisorReceiptV1`、Lake-env fast aggregate、`just docs-check`、`just dev-check`、`git diff --check` 与普通 `just ci` 全部通过；full aggregate 实际输出 `Tests.Frontend.DarwinSupervisorReceiptV1: ok` / `proof-forge-next-tests: ok`。唯一 warning 仍是既有 `AstSpineDecodeV1.lean` unused `termination_by`。HEAD 未移动，未 commit/push。
+- Boundary：B11b 仍需把 safe-open+worker 放入 killable Darwin development supervisor，提供 monotonic read/wall deadline、process/memory/output observation、kill/reap/cleanup 并实际产生本 receipt；B12 才原子切 CLI。当前不能声称 parent nonblocking、resource enforcement、contained assurance 或 formal task 完成。
+
 ## 2026-07-29 — B11a native component-by-component safe-open foundation
 
 - Context/State：B10 已有非产品 one-request worker；本切片 engineering-only 落地可独立验证的 source safe-open primitive。**不**做 read deadline、killable supervisor、memory/process enforcement、receipt、CLI product cutover、contained assurance、formal TASK/TST/EV 或 target 变更。

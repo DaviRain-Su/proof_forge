@@ -49,6 +49,7 @@ import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
 import Tests.Frontend.WorkerV1
 import Tests.Frontend.SafeOpenV1
+import Tests.Frontend.DarwinSupervisorReceiptV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
@@ -109,6 +110,7 @@ unsafe def main : IO Unit := do
   Tests.Frontend.ProtocolV1.run
   Tests.Frontend.WorkerV1.run
   Tests.Frontend.SafeOpenV1.runFast
+  Tests.Frontend.DarwinSupervisorReceiptV1.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run

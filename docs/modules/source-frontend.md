@@ -74,18 +74,20 @@ ProgramV1 的产品诊断 Typed 边界是 `normalizeProgramLocatedV1` 对
 comment 与 allocation history 不参与 identity/hash。
 
 当前产品 CLI 仍使用 in-process source open/Loader；B10 standalone worker 尚未接入产品。
-B11a 已新增独立 native safe-open foundation，但尚未由 CLI 或 supervisor 调用，也没有 read
-期限、receipt 或 containment。因此输出仍是 development 级；这不妨碍普通产品测试，但不能
-声称 formal/hermetic evidence。
+B11a 已新增独立 native safe-open foundation，B11a2 已新增纯
+`darwin-development-observed` public-safe receipt model；二者均尚未由 CLI 或实际 supervisor
+调用，也没有 read deadline、process/memory enforcement 或 containment。因此输出仍是
+development 级；这不妨碍普通产品测试，但不能声称 formal/hermetic evidence。
 
-## FrontendProtocolV1、worker 与 safe-open foundation（B9/B9R/B10/B11a）
+## FrontendProtocolV1、worker、safe-open 与 receipt foundations（B9/B9R/B10/B11a/B11a2）
 
 **B9** 新增 `ProofForgeV2/Frontend/ProtocolV1.lean`：版本化、封闭、one-frame binary
 request/response 地基；该历史切片当时 inert。**B9R** 修复两处边界：去掉任意 4096-byte
 selector 语义上限；在 `parsePfJcs` 分配诊断数组前做 top-level PF-JCS 条目预扫描。
 **B10** 在不改变 wire 的前提下新增非产品 standalone worker。**B11a** 新增同样尚未接入
-产品的 package-owned native safe-open foundation；仍无 supervisor/receipt、CLI/Loader/Compiler
-产品切换、read deadline、contained assurance 或 target 变更。
+产品的 package-owned native safe-open foundation。**B11a2** 新增只建模 canonical
+public-safe Darwin development observation 的纯 receipt carrier/codec；仍无 supervisor execution、
+CLI/Loader/Compiler 产品切换、read deadline、contained assurance 或 target 变更。
 
 | 帧 | Tag | 载荷 |
 |---|---|---|
@@ -159,9 +161,28 @@ full suite 执行真实大小边界，fast suite省略两个大文件。package 
 与 Lean wrapper 同属已钉住的 package source closure。
 
 本切片没有把可能阻塞的 filesystem 操作放进 killable execution unit，也没有共享 monotonic
-wall deadline、process/memory enforcement、receipt、CLI cutover 或 controller-backed containment；
-并发 truncate/grow/rebind 与 device/socket 的 host-isolated resource matrix留给 B11b。它是可复用
-safe-open primitive，**不是**完整 D1-08 frontend 或 formal `TST-RESOURCE-001` 完成。
+wall deadline、process/memory enforcement、supervisor-produced receipt、CLI cutover 或
+controller-backed containment；并发 truncate/grow/rebind 与 device/socket 的 host-isolated
+resource matrix留给 B11b。它是可复用 safe-open primitive，**不是**完整 D1-08 frontend 或
+formal `TST-RESOURCE-001` 完成。
+
+### B11a2 pure Darwin development-observation receipt model
+
+`ProofForgeV2.Frontend.DarwinSupervisorReceiptV1` 定义 private-constructor
+`DarwinFrontendSupervisorReceiptV1` 与唯一 smart constructor。它是 public-safe **internal** receipt，
+不是 B12 最终 CLI 顶层 `receipts` envelope。它只保留 hard/effective frontend
+`ResourceProfileV1` identity/digest、optional canonical request digest、bounded elapsed/aggregate-memory/
+process observations、closed event/result/cleanup class，并固定唯一 assurance
+`darwin-development-observed`。PF-JCS 是 11-field closed object，4 KiB pre-parse cap，profile/request/
+receipt digest 全部 domain-separated 且 parse 后 exact re-encode；unknown privacy fields（path、PID、
+signal、exit code、stderr/tail/secret/detail）无 carrier 并在 decoder 边界拒绝。
+
+`Tests/Frontend/DarwinSupervisorReceiptV1.lean` 固定 exact 929-byte golden、receipt digest KAT、
+request replay rejection、lower-only effective profile、event/result/request cross-field invariants、
+equal/first-over resource projection、closed enum/field/canonical failures和 privacy key rejection。
+本模块是 future supervisor 的纯模型：**不** open/spawn/measure/kill/reap，不输出 CLI JSON，不代表
+Linux `contained`，也不关闭 read deadline、process/memory enforcement、cleanup execution、
+formal `TST-RESOURCE-001` 或 TASK-D1-08。下一切片 B11b 才实现 Darwin supervisor execution。
 
 ## Parser version 与 identity 边界（ADR-0022 D1）
 
