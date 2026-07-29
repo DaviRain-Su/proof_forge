@@ -6,8 +6,9 @@
   SemanticProgramV1 carrier, joined to a production SourceNodeInventoryV1
   derived from assignNodeIdsV1 + SpanJoin spans + sourceHashV1.
 
-  Attribution is exact and deterministic for the shipped Counter-like subset:
-  each state/callable/block/instruction/value/terminator/type/requirement binds
+  Attribution is exact and deterministic for the shipped Counter-like subset,
+  including expected-UInt64 integer literals: each state/callable/block/
+  instruction/value/terminator/type/requirement binds
   to its declaration, expression, statement, or nearest producing source NodeId
   (reconstructed by the same AST walk NormalizeV1 uses). Multi-origin
   requirements collect every producing site and sort uniquely by SourceOrigin
@@ -454,7 +455,26 @@ private partial def attrExpr
         })
       else
         failUnsupported "S2 provenance supports only binary add"
-  | .literal _ => failUnsupported "S2 provenance does not support literals"
+  | .literal literal =>
+      match literal with
+      | .integer magnitude => do
+          unless magnitude < UInt64.size do
+            return ← failUnsupported "S2 provenance UInt64 literal out of range"
+          let vid := st.nextValueId
+          let instrEntity :=
+            SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st.nextInstr)
+          let valEntity := SemanticEntityRefV1.value callableId vid
+          -- Op.Literal and its result bind the literal expression itself.
+          let acc1 ← attrPushPath st.acc idx instrEntity exprPath
+          let acc2 ← attrPushPath acc1 idx valEntity exprPath
+          pure (vid, {
+            nextValueId := vid + 1
+            nextInstr := st.nextInstr + 1
+            env := st.env
+            acc := acc2
+          })
+      | .bool _ | .string _ =>
+          failUnsupported "S2 provenance supports only UInt64 integer literals"
   | .constructor _ _ => failUnsupported "S2 provenance does not support constructors"
   | .unary _ _ => failUnsupported "S2 provenance does not support unary"
   | .localCall _ _ => failUnsupported "S2 provenance does not support localCall"

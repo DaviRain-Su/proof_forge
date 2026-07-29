@@ -16,7 +16,8 @@
     * declarations: public primitive state (UInt64 only), init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none)
-    * expressions: bare place (param or state name) and binary add only
+    * expressions: bare place (param or state name), UInt64 integer literal,
+      and binary add; integer width is supplied by the enclosing typed context
     * types: anonymous UInt64 + Unit (init result); one TypeId per distinct shape
     * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
       invariantSteps=none; empty constants/events/errors/invariants
@@ -170,6 +171,21 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
   | .bytes _ => failUnsupported "S1 normalizer does not support Bytes"
   | .field _ => failUnsupported "S1 normalizer does not support Field"
 
+/-- Require an already-interned expected TypeId to resolve to anonymous UInt64.
+    Literal width is never inferred or defaulted inside the expression: the
+    assignment target or callable result supplies this TypeId. -/
+private def requireExpectedUInt64
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      if decl.name.isNone && (match decl.shape with | .uint 64 => true | _ => false) then
+        pure ()
+      else
+        failUnsupported s!"S1 {context} requires expected UInt64 type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
+
 /-- Param/local env: bare name → (ValueId, TypeId). -/
 structure LocalEnvV1 where
   bindings : Array (String × ValueIdV1 × TypeIdV1)
@@ -227,36 +243,66 @@ private def lowerPlace
   | .index _ _ => failUnsupported "S1 normalizer does not support index places"
 
 private partial def lowerExpr
-    (expr : SrcExpr) (st : BodyStateV1) (states : StateTableV1) :
+    (expr : SrcExpr) (expectedTid : TypeIdV1) (types : Array TypeDeclV1)
+    (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
   match expr with
-  | .place p => lowerPlace p st states
+  | .place p => do
+      let (vid, tid, st1) ← lowerPlace p st states
+      unless tid == expectedTid do
+        return ← failUnsupported "S1 place type does not match enclosing expected type"
+      pure (vid, tid, st1)
   | .binary op lhs rhs =>
       if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then do
-        let (lVid, lTid, st1) ← lowerExpr lhs st states
-        let (rVid, rTid, st2) ← lowerExpr rhs st1 states
-        unless lTid == rTid do
-          return ← failUnsupported "S1 binary add requires equal operand types"
+        requireExpectedUInt64 types expectedTid "binary add"
+        -- Preserve source evaluation / ValueId order: lhs, then rhs, then add.
+        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid types st states
+        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid types st1 states
+        unless lTid == expectedTid && rTid == expectedTid do
+          return ← failUnsupported "S1 binary add requires expected UInt64 operands"
         let vid := st2.nextValueId
         let instr : InstructionV1 := {
-          result := some { valueId := vid, typeId := lTid }
+          result := some { valueId := vid, typeId := expectedTid }
           op := .binary BinaryOpV1.add lVid rVid
         }
-        pure (vid, lTid, {
+        pure (vid, expectedTid, {
           instructions := st2.instructions.push instr
           nextValueId := vid + 1
           env := st2.env
         })
       else
         failUnsupported "S1 normalizer supports only binary add"
-  | .literal _ => failUnsupported "S1 normalizer does not support literals"
+  | .literal literal =>
+      match literal with
+      | .integer magnitude => do
+          requireExpectedUInt64 types expectedTid "integer literal"
+          -- CheckV1 owns the user-facing width diagnostic. This defensive seam
+          -- still rejects direct lowerProgramDataV1 misuse instead of allowing
+          -- UInt64.ofNat to truncate modulo 2^64.
+          unless magnitude < UInt64.size do
+            return ← failUnsupported "S1 UInt64 integer literal is out of range"
+          let vid := st.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := expectedTid }
+            op := .literal expectedTid (encodeU64le (UInt64.ofNat magnitude))
+          }
+          pure (vid, expectedTid, {
+            instructions := st.instructions.push instr
+            nextValueId := vid + 1
+            env := st.env
+          })
+      | .bool _ =>
+          failUnsupported "S1 normalizer supports only UInt64 integer literals"
+      | .string _ =>
+          failUnsupported "S1 normalizer supports only UInt64 integer literals"
   | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
   | .unary _ _ => failUnsupported "S1 normalizer does not support unary expressions"
   | .localCall _ _ => failUnsupported "S1 normalizer does not support localCall"
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
 
 private def lowerStmt
-    (stmt : SrcStmt) (st : BodyStateV1) (states : StateTableV1) :
+    (stmt : SrcStmt) (resultTid : TypeIdV1) (types : Array TypeDeclV1)
+    (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × Option (Option ValueIdV1)) :=
   match stmt with
   | .assign target value => do
@@ -275,7 +321,8 @@ private def lowerStmt
               | none =>
                   failUnsupported s!"S1 assign target '{key}' must be a state place"
               | some (sid, expectedTid) =>
-                  let (vid, tid, st1) ← lowerExpr value st states
+                  let (vid, tid, st1) ←
+                    lowerExpr value expectedTid types st states
                   unless tid == expectedTid do
                     return ← failUnsupported
                       s!"S1 assign type mismatch for state '{key}'"
@@ -297,7 +344,9 @@ private def lowerStmt
   | .return_ none =>
       failUnsupported "S1 normalizer does not support bare return"
   | .return_ (some e) => do
-      let (vid, _tid, st1) ← lowerExpr e st states
+      let (vid, tid, st1) ← lowerExpr e resultTid types st states
+      unless tid == resultTid do
+        return ← failUnsupported "S1 return expression type mismatch"
       pure (st1, some (some vid))
   | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
   | .if_ _ _ _ => failUnsupported "S1 normalizer does not support if"
@@ -310,7 +359,8 @@ private def lowerStmt
   | .schedule _ => failUnsupported "S1 normalizer does not support schedule"
 
 private def lowerBlock
-    (body : SrcBlock) (params : Array ParameterV1) (states : StateTableV1)
+    (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
+    (types : Array TypeDeclV1) (states : StateTableV1)
     (allowImplicitReturnNone : Bool) :
     Except NormalizeErrorV1 (Array InstructionV1 × TerminatorV1) := do
   let mut env := emptyEnv
@@ -328,7 +378,7 @@ private def lowerBlock
         return ← failUnsupported
           "S1 normalizer does not support statements after return"
     | none =>
-        let (st', t?) ← lowerStmt stmt st states
+        let (st', t?) ← lowerStmt stmt resultTid types st states
         st := st'
         term := t?
   match term with
@@ -426,7 +476,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (instrs, term) ← lowerBlock d.body params stateTable true
+        let (instrs, term) ←
+          lowerBlock d.body params unitTid interner.types stateTable true
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
           { typeId := unitTid, visibility := VisibilityV1.public_ } instrs term)
@@ -436,7 +487,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
-        let (instrs, term) ← lowerBlock e.body params stateTable false
+        let (instrs, term) ←
+          lowerBlock e.body params resultTid interner.types stateTable false
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
@@ -446,7 +498,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
-        let (instrs, term) ← lowerBlock v.body params stateTable false
+        let (instrs, term) ←
+          lowerBlock v.body params resultTid interner.types stateTable false
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)

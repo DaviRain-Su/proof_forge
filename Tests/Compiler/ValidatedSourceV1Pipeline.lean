@@ -256,10 +256,9 @@ def run : IO Unit := do
   let rawNames ← validated moduleName identity demo #[
     .state (state dottedState),
     .entry (entry dottedEntry (ret (var dottedParam)) #[param dottedParam])]
-  let rawSem := alphaOf (← compileOk "raw unqualified names" rawNames)
-  expect (rawSem.state[0]!.name == "state.value" &&
-      rawSem.entries[0]!.name == "run.call" && rawSem.entries[0]!.params[0]!.name == "arg.value")
-    "unqualified names must use raw components"
+  expectInvalid "raw unqualified name grammar gate"
+    "semantic structure gate: badScalar"
+    (Compiler.compileValidatedSourceV1 rawNames)
 
   -- Cross-kind reorder: S1 public state + param-echo entry/view (no literals).
   let reordered ← validated moduleName identity demo #[
@@ -428,11 +427,28 @@ def run : IO Unit := do
   expectInvalid "fn/localCall normalize gate"
     "S1 normalizer does not support fn"
     (Compiler.compileValidatedSourceV1 fnLocalClean)
+  -- UInt64 literal-only programs now pass the Normalize-first product gate and
+  -- mint a dual carrier whose retained SemanticProgramV1 has exact value bytes.
   let literalOnly ← validated moduleName identity demo #[
-    .entry (entry runN (ret (u 0)))]
-  expectInvalid "literal-only normalize gate"
-    "S1 normalizer does not support literals"
-    (Compiler.compileValidatedSourceV1 literalOnly)
+    .entry (entry runN (ret (u 72623859790382856)))]
+  let literalCompiled ← compileOk "literal-only product compile" literalOnly
+  expectNormalizeDeterministic "literal-only normalize" literalOnly
+  let literalRetained := CompiledProgramV1.semanticV1Of literalCompiled
+  let literalData ← match validateSemanticProgramV1 literalRetained with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"literal-only retained carrier: {repr e}"
+  let some literalInstr := literalData.callables[0]?.bind (·.blocks[0]?) |>.bind
+      (·.instructions[0]?) |
+    throw <| IO.userError "literal-only: missing retained instruction"
+  match literalInstr.op with
+  | .literal tid bytes =>
+      expect (tid == 0 && bytes == ByteArray.mk #[(0x08 : UInt8), 0x07, 0x06,
+          0x05, 0x04, 0x03, 0x02, 0x01])
+        "literal-only: retained Op.Literal exact little-endian bytes"
+  | _ => throw <| IO.userError "literal-only: expected retained Op.Literal"
+  match validateDualCarrierConsistencyV1 literalRetained (alphaOf literalCompiled) with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"literal-only dual-carrier gate: {e.render}"
   let callOnly ← validated moduleName identity demo #[
     .entry (entry runN (block #[
       .call { callee := peer, args := #[] },

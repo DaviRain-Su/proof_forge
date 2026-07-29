@@ -1229,14 +1229,179 @@ private unsafe def testTypedNotOk
   | .error (.typedNotOk _) => pure ()
   | .error e => throw <| IO.userError s!"typed-bad: expected typedNotOk, got {repr e}"
 
-private unsafe def testUnsupportedLiteral
+/-- UInt64 integer literals lower through the shipped semantic carrier with
+    exact little-endian bytes, expected-type threading, source-order ValueIds,
+    provenance attribution, and no literal-only requirement. -/
+private unsafe def testUInt64Literals
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "LitOnly" <|
     "  entry run() : UInt64 do\n" ++
-    "    return 0\n"
-  expectUnsupportedAfterCheckOk session "lit" source
-    (fun d => d.contains "literal" || d.contains "Literal" || d.contains "literals")
-    "literal"
+    "    return 72623859790382856\n"
+  let (validated, spans) ← loadSourceWithSpans session "lit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "lit: CheckV1.ok"
+  expect typed.analysisComplete "lit: CheckV1.analysisComplete"
+  let path ← parseTestPath "lit"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"lit: normalize+provenance: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"lit: validate carrier: {repr e}"
+  expect (data.types.size == 1) s!"lit: one UInt64 type, got {data.types.size}"
+  let some ty := data.types[0]? |
+    throw <| IO.userError "lit: missing type[0]"
+  expect (ty.id == 0 && ty.name.isNone &&
+      match ty.shape with | .uint 64 => true | _ => false)
+    "lit: type[0] is anonymous UInt64"
+  expect data.requirements.items.isEmpty
+    s!"lit: literal contributes no requirements, got {data.requirements.items.size}"
+  let some callable := data.callables[0]? |
+    throw <| IO.userError "lit: missing entry callable"
+  let some block := callable.blocks[0]? |
+    throw <| IO.userError "lit: missing entry block"
+  expect (block.instructions.size == 1)
+    s!"lit: one literal instruction, got {block.instructions.size}"
+  let some instr := block.instructions[0]? |
+    throw <| IO.userError "lit: missing literal instruction"
+  let some result := instr.result |
+    throw <| IO.userError "lit: literal instruction missing result"
+  let expectedBytes : ByteArray :=
+    ByteArray.mk #[(0x08 : UInt8), 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
+  expect (result.valueId == 0 && result.typeId == 0)
+    s!"lit: result must be ValueId/TypeId 0, got {result.valueId}/{result.typeId}"
+  match instr.op with
+  | .literal tid valueBytes =>
+      expect (tid == 0 && valueBytes == expectedBytes)
+        s!"lit: exact UInt64 little-endian bytes, got size {valueBytes.size}"
+  | _ => throw <| IO.userError "lit: expected Op.Literal"
+  match block.terminator with
+  | .return_ (some valueId) =>
+      expect (valueId == 0) s!"lit: return ValueId 0, got {valueId}"
+  | _ => throw <| IO.userError "lit: expected return some literal"
+  match ProofForgeV2.Semantic.NormalizeV1.validateSemanticProvenanceV1
+      validated path spans carrier provenance with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"lit: provenance validation: {repr e}"
+
+  -- UInt64.max is accepted and encoded as eight ff bytes; 2^64 is rejected by
+  -- CheckV1 before normalization, so the normalizer never truncates it.
+  let maxSource := wrap "LitMax" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 18446744073709551615\n"
+  let maxValidated ← loadSource session "lit-max" maxSource
+  let maxCarrier ← match normalizeProgramV1 maxValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"lit-max: normalize: {repr e}"
+  let maxData ← match validateSemanticProgramV1 maxCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"lit-max: validate: {repr e}"
+  let some maxCallable := maxData.callables[0]? |
+    throw <| IO.userError "lit-max: missing entry callable"
+  let some maxBlock := maxCallable.blocks[0]? |
+    throw <| IO.userError "lit-max: missing entry block"
+  let some maxInstr := maxBlock.instructions[0]? |
+    throw <| IO.userError "lit-max: missing literal instruction"
+  match maxInstr.op with
+  | .literal _ bytes =>
+      expect (bytes == ByteArray.mk (Array.replicate 8 (0xff : UInt8)))
+        "lit-max: expected eight ff bytes"
+  | _ => throw <| IO.userError "lit-max: expected Op.Literal"
+  let overflowSource := wrap "LitOverflow" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 18446744073709551616\n"
+  let overflowValidated ← loadSource session "lit-overflow" overflowSource
+  let overflowTyped := checkProgramTypedResultV1 overflowValidated
+  expect (!overflowTyped.ok && overflowTyped.analysisComplete)
+    "lit-overflow: CheckV1 must reject 2^64 without becoming incomplete"
+  match normalizeProgramV1 overflowValidated with
+  | .error (.typedNotOk _) => pure ()
+  | .error e => throw <| IO.userError s!"lit-overflow: expected typedNotOk, got {repr e}"
+  | .ok _ => throw <| IO.userError "lit-overflow: normalizer must not truncate 2^64"
+
+  -- The enclosing UInt64 result supplies the width for either add operand;
+  -- source order is preserved in the binary ValueId operands and semantic hash.
+  let leftSource := wrap "LitOrder" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return 1 + x\n"
+  let rightSource := wrap "LitOrder" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return x + 1\n"
+  let leftValidated ← loadSource session "lit-order-left" leftSource
+  let rightValidated ← loadSource session "lit-order-right" rightSource
+  let leftCarrier ← match normalizeProgramV1 leftValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"lit-order-left: {repr e}"
+  let rightCarrier ← match normalizeProgramV1 rightValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"lit-order-right: {repr e}"
+  let leftData ← match validateSemanticProgramV1 leftCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"lit-order-left validate: {repr e}"
+  let rightData ← match validateSemanticProgramV1 rightCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"lit-order-right validate: {repr e}"
+  let some leftCallable := leftData.callables[0]? |
+    throw <| IO.userError "lit-order-left: missing entry callable"
+  let some leftBlock := leftCallable.blocks[0]? |
+    throw <| IO.userError "lit-order-left: missing entry block"
+  let some leftBinary := leftBlock.instructions[1]? |
+    throw <| IO.userError "lit-order-left: missing binary instruction"
+  let some rightCallable := rightData.callables[0]? |
+    throw <| IO.userError "lit-order-right: missing entry callable"
+  let some rightBlock := rightCallable.blocks[0]? |
+    throw <| IO.userError "lit-order-right: missing entry block"
+  let some rightBinary := rightBlock.instructions[1]? |
+    throw <| IO.userError "lit-order-right: missing binary instruction"
+  match leftBinary.op, rightBinary.op with
+  | .binary .add leftLhs leftRhs, .binary .add rightLhs rightRhs =>
+      expect (leftLhs == 1 && leftRhs == 0 && rightLhs == 0 && rightRhs == 1)
+        s!"lit-order: expected (1,0)/(0,1), got ({leftLhs},{leftRhs})/({rightLhs},{rightRhs})"
+  | _, _ => throw <| IO.userError "lit-order: expected binary add instructions"
+  expect (leftCarrier.canonicalBytes != rightCarrier.canonicalBytes)
+    "lit-order: operand order must change semantic bytes"
+  let leftHash ← match semanticHashV1 leftCarrier with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"lit-order-left hash: {repr e}"
+  let rightHash ← match semanticHashV1 rightCarrier with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"lit-order-right hash: {repr e}"
+  expect (leftHash != rightHash) "lit-order: operand order must change semanticHash"
+
+  -- Assignment and nested return contexts both thread the same UInt64 expected
+  -- type; only the add contributes arithmetic/rollback requirements.
+  let assignSource := wrap "LitAssign" <|
+    "  state count : UInt64\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    count := 41\n" ++
+    "    return count + 1\n"
+  let assignValidated ← loadSource session "lit-assign" assignSource
+  let assignCarrier ← match normalizeProgramV1 assignValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"lit-assign: {repr e}"
+  let assignData ← match validateSemanticProgramV1 assignCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"lit-assign validate: {repr e}"
+  let some assignCallable := assignData.callables[0]? |
+    throw <| IO.userError "lit-assign: missing entry callable"
+  let some assignBlock := assignCallable.blocks[0]? |
+    throw <| IO.userError "lit-assign: missing entry block"
+  expect (assignBlock.instructions.size == 5)
+    s!"lit-assign: expected literal/store/load/literal/add, got {assignBlock.instructions.size}"
+  let some assignLiteral := assignBlock.instructions[0]? |
+    throw <| IO.userError "lit-assign: missing assignment literal"
+  let some returnLiteral := assignBlock.instructions[3]? |
+    throw <| IO.userError "lit-assign: missing return literal"
+  match assignLiteral.op, returnLiteral.op with
+  | .literal _ a, .literal _ b =>
+      expect (a == encodeU64le 41 && b == encodeU64le 1)
+        "lit-assign: exact assignment/return literal bytes"
+  | _, _ => throw <| IO.userError "lit-assign: expected literal ops"
+  let reqIds := assignData.requirements.items.map (·.id)
+  expect (reqIds == #["failure.atomic-rollback", "state.persistent",
+      "value.checked-arithmetic"])
+    s!"lit-assign: exact requirements, got {reqIds}"
 
 private unsafe def testUnsupportedIf
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1370,6 +1535,37 @@ private def originAtExplicitPath
   let some origin := origin? |
     throw <| IO.userError "NodeId not present in inventory"
   pure origin
+
+/-- Literal instruction and result value both bind the source literal expression
+    node, not the enclosing return statement or an arbitrary nearby origin. -/
+private unsafe def testUInt64LiteralProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "LitProv" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 72623859790382856\n"
+  let (validated, spans) ← loadSourceWithSpans session "lit-prov" source
+  let path ← parseTestPath "lit-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"lit-prov: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"lit-prov: normalize: {repr e}"
+  match validateSemanticProgramV1 carrier with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"lit-prov: validate: {repr e}"
+  let itemPath := childPathT #[] "Program" "items" 0
+  let bodyPath := directChildT itemPath "EntryDecl" "body"
+  let stmtPath := childPathT bodyPath "Block" "statements" 0
+  let literalPath := directChildT stmtPath "Stmt.Return" "value"
+  let literalOrigin ← originAtExplicitPath validated inventory literalPath
+  let some instrOrigin := findOrigin provenance (.instruction 0 0 0) |
+    throw <| IO.userError "lit-prov: missing instruction origin"
+  let some valueOrigin := findOrigin provenance (.value 0 0) |
+    throw <| IO.userError "lit-prov: missing value origin"
+  expect (instrOrigin == literalOrigin && valueOrigin == literalOrigin)
+    "lit-prov: instruction/value origins must equal literal expression origin"
 
 private def sortOriginsByWire
     (origins : Array SourceOrigin) : IO (Array SourceOrigin) := do
@@ -2245,7 +2441,8 @@ unsafe def run : IO Unit := do
   testStateAfterInit session
   testDeterminism session
   testTypedNotOk session
-  testUnsupportedLiteral session
+  testUInt64Literals session
+  testUInt64LiteralProvenance session
   testUnsupportedIf session
   testUnsupportedFn session
   testUnsupportedPrivateState session

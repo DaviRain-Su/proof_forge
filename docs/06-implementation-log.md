@@ -206,6 +206,36 @@ normative: false
 - Verification：聚焦 `lake build Tests.Language.ProgramV1TypeSurface Tests.Language.ProgramV1SpanJoin Tests.Language.ProgramV1Declarations` 与 focused harness 通过；随后 `proof_forge_next_fast_tests`、sbom/diff/docs/dev-check/ci 按切片门禁执行。
 - Boundary：formal TASK-D1-03 仍 pending；B1 不删除 fixed-combo parsers（B1R 完成删除）；不接线 Typed/Semantic/product maturity；无 second decoder/adapter/fallback。
 
+## 2026-07-29 — M0 engineering: S1 UInt64 integer literal Normalize/Provenance/product path
+
+- Context/State：baseline `548f4de25449c10bcd8fc4cb7a3438366a4f54f5`；formal D1–D4 仍 0/27 done
+  （D2 7/7 pending）；**不是** formal TASK-D2-06/TST-SEM-001、Bool/String/Int literal、
+  other operators/control-flow 扩张、SemanticProgramV1-native Plan、formal SupportClaim/
+  OutputSetV1 或 release qualification。
+- RED/Changed（tests first）：`Tests/Typed/CheckV1.lean`（`Tests.Semantic.NormalizeV1`）
+  固定 expected-type UInt64 literal 正向（exact LE bytes `0x0102030405060708`→
+  `08..01`、UInt64.max 八 `ff`、2^64 CheckV1 `.typedNotOk` 不 truncate）、`1+x`/`x+1`
+  source-order ValueId/semanticHash 非别名、assign+return 双 literal 上下文与 requirements
+  仅由 `+` 贡献 `failure.atomic-rollback`/`state.persistent`/`value.checked-arithmetic`、
+  literal-only empty requirements、instruction/value provenance 精确绑定 literal 表达式
+  node；`Tests/Compiler/CheckV1ProductGate.lean` 与 `ValidatedSourceV1Pipeline.lean` 将
+  原 literal Normalize 拒绝改为 dual-carrier product 成功 + retained `Op.Literal` bytes。
+- Production：
+  - `ProofForgeV2/Semantic/NormalizeV1.lean`：`lowerExpr` 线程 enclosing expected TypeId；
+    assign/return/binary-add 供给 UInt64；integer literal → `requireExpectedUInt64` +
+    `magnitude < UInt64.size` 防御缝 + exact `encodeU64le` 8-byte LE `Op.Literal`；
+    place 匹配 expected type；Bool/String literal 仍 fail closed。
+  - `ProofForgeV2/Semantic/ProvenanceV1.lean`：同 AST walk 对 `Op.Literal` instruction/
+    result ValueId 绑定 literal expression path（非 enclosing return）；range 防御与
+    Normalize 同步；requirements walk 对 literal 仍无 catalog 贡献。
+- Verification（已执行，仍未提交）：`just sbom-package-files-refresh`；聚焦 `lake build`
+  NormalizeV1/ProvenanceV1/CheckV1/两项 Compiler suite；完整 tests harness；
+  `git diff --check`、`just dev-check`、普通 `just ci` 均通过；HEAD 保持 baseline，
+  未 commit/push，且这些结果不构成 formal evidence 或 release qualification。
+- Boundary：仍限 S1 public UInt64 Counter-like surface；Bool/String/Int/other widths、
+  unary/non-add binary、control flow、fn/private/commitment 等继续 Normalize fail closed；
+  formal D2/D3 与 maturity 声明不变。
+
 ## 2026-07-29 — D3/S7c engineering exact disk closure + manifest-last cutover
 
 - Context/State：baseline `87290cd7a2cec9ad155bf29bac06fa25be5cb6c8`；formal D1–D4 仍 0/27 done；

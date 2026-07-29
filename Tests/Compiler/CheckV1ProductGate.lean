@@ -295,13 +295,30 @@ def runAst : IO Unit := do
     "PF-SRC-INVALID: S1 normalizer supports only public state, got non-public 'count'"
     (Compiler.compileValidatedSourceV1 priv)
 
-  -- Literal-only entry (CheckV1 ok) fails Normalize; no alpha-only path.
+  -- UInt64 literal-only entry succeeds through the sole Normalize-first product
+  -- path; retained SemanticProgramV1 contains the exact Op.Literal bytes.
   let litOnly ← validated moduleQ identity demo #[
-    .entry (mkEntry runN (ret (u 0)))]
+    .entry (mkEntry runN (ret (u 72623859790382856)))]
   let _ ← expectOk "literal-only-checkV1" (Typed.checkV1 litOnly)
-  expectRender "literal-only-normalize-gate"
-    "PF-SRC-INVALID: S1 normalizer does not support literals"
+  let litCompiled ← expectOk "literal-only-compile"
     (Compiler.compileValidatedSourceV1 litOnly)
+  expectNormalizeOk "literal-only-normalize" litOnly
+  let litData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledProgramV1.semanticV1Of litCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"literal-only retained carrier: {repr e}"
+  let some litCallable := litData.callables[0]? |
+    throw <| IO.userError "literal-only: missing retained callable"
+  let some litBlock := litCallable.blocks[0]? |
+    throw <| IO.userError "literal-only: missing retained block"
+  let some litInstr := litBlock.instructions[0]? |
+    throw <| IO.userError "literal-only: missing retained literal instruction"
+  match litInstr.op with
+  | ProofForgeV2.Semantic.WireV1.SemanticOpV1.literal tid bytes =>
+      expect (tid == 0 && bytes == ByteArray.mk #[(0x08 : UInt8), 0x07, 0x06,
+          0x05, 0x04, 0x03, 0x02, 0x01])
+        "literal-only: exact retained UInt64 little-endian bytes"
+  | _ => throw <| IO.userError "literal-only: expected retained Op.Literal"
 
   -- Unit bare return: multi-pass CheckV1 ok (Unit empty return); residual
   -- Typed.checkV1 still rejects Stmt.Return. S3 fails at Normalize first with
@@ -445,20 +462,21 @@ private unsafe def runSource
         (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"bound-source load: {error.render}"
 
-  -- Literal-only source: CheckV1 ok, Normalize rejects (decisive product gate).
+  -- Literal-only source succeeds through CheckV1 → Normalize → retained
+  -- SemanticProgramV1 → residual alpha dual-carrier mint.
   let literalSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n\n" ++
     "program LiteralOnlyGate where\n" ++
     "  entry run() : UInt64 do\n" ++
-    "    return 0\n"
+    "    return 18446744073709551615\n"
   match ← session.selectProgramV1 literalSource
       "<checkv1-product-literal>" moduleName none with
   | .ok source =>
       let _ ← expectOk "literal-source-checkV1" (Typed.checkV1 source)
-      expectRender "literal-source-normalize-gate"
-        "PF-SRC-INVALID: S1 normalizer does not support literals"
+      let _ ← expectOk "literal-source-compile"
         (Compiler.compileValidatedSourceV1 source)
+      expectNormalizeOk "literal-source-normalize" source
   | .error error => throw <| IO.userError s!"literal-source load: {error.render}"
 
 unsafe def run : IO Unit := do
