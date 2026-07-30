@@ -464,6 +464,72 @@ private unsafe def testIfMatchReferenceSlice
     { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
   expectReturned "match-ref-default" caseD fiveStateM (some (refU64 u64Tid 5)) #[]
 
+private unsafe def testEmitRevertReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Declared events/errors: emit commits ordered effects on returned;
+  -- revert discards them and reports the declared error with args.
+  let source := wrap "EventRef" <|
+    "  state count : UInt64\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "event-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"event-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"event-ref: validate failed: {repr e}"
+  let admitted ← admitOk "event-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let bumpId : CallableIdV1 := 1
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"event-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 5]) emptyResponses
+  let fiveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  expectReturned "event-ref-init" initPost fiveState none #[]
+  -- count=5 > delta=3 → revert Cap(3): the Moved(5,3) effect is discarded and
+  -- the pre-state is preserved.
+  let reverting :=
+    stepReferenceSliceV1 admitted fiveState (inv bumpId #[refU64 u64Tid 3]) emptyResponses
+  match reverting with
+  | .reverted (.declared eid args) st =>
+      expect (eid == 0) s!"event-ref-revert: declared error id, got {eid}"
+      expect (args == #[refU64 u64Tid 3])
+        "event-ref-revert: declared args must carry delta"
+      expect (logicalStateEq st fiveState)
+        "event-ref-revert: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"event-ref-revert: expected declared revert, got {repr other}"
+  -- count=5 < delta=7 → else: emit Moved(5,7) commits; count := 12; return 12.
+  let emitted :=
+    stepReferenceSliceV1 admitted fiveState (inv bumpId #[refU64 u64Tid 7]) emptyResponses
+  let twelveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 12) }
+  let movedEffect : OrderedEffectV1 := {
+    occurrence := { effectId := 0, occurrence := 0 }
+    payload := .event 0 #[refU64 u64Tid 5, refU64 u64Tid 7]
+  }
+  expectReturned "event-ref-emit" emitted twelveState (some (refU64 u64Tid 12)) #[movedEffect]
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1387,6 +1453,7 @@ unsafe def run : IO Unit := do
   testGuardedCounterReferenceSlice session
   testBoolResultReferenceSlice session
   testIfMatchReferenceSlice session
+  testEmitRevertReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

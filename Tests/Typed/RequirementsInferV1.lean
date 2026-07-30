@@ -108,10 +108,6 @@ private unsafe def testForeignContributions
       "  entry run(commitment secret : UInt64) : UInt64 do\n    return 0\n",
       #["disclosure.commitment"],
       "disclosure.commitment"),
-    ("emit",
-      "  event Ev()\n  entry run() : UInt64 do\n    emit Ev()\n    return 0\n",
-      #["effect.event"],
-      "effect.event"),
     ("call",
       "  entry run() : UInt64 do\n    call External.Use()\n    return 0\n",
       #["effect.synchronous-call", "failure.atomic-rollback"],
@@ -154,6 +150,17 @@ private unsafe def testCatalogAndDedup
   expect (boolIds == #["value.bool"])
     s!"bool carrier contribution ids: {boolIds}"
   expectFreezeIds "bool" boolValidated #["value.bool"]
+
+  -- Emit statements contribute catalog effect.event and now freeze.
+  let emitSource := wrap "ReqEmit" <|
+    "  event Ev()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    emit Ev()\n" ++
+    "    return 0\n"
+  let (emitValidated, emitIds) ← inferSource session "emit" emitSource
+  expect (emitIds == #["effect.event"])
+    s!"emit contribution ids: {emitIds}"
+  expectFreezeIds "emit" emitValidated #["effect.event"]
 
   let rollbackSource := wrap "ReqRollback" <|
     "  error Boom()\n" ++

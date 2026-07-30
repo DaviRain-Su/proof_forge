@@ -492,9 +492,9 @@ def run : IO Unit := do
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got string literal"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 normalizer does not support event"),
+      "S1 normalizer does not support Map"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 normalizer does not support error"),
+      "S1 normalizer does not support Map"),
     ("FnDecl",
       #[ProgramItemV1.fn {
           name := x

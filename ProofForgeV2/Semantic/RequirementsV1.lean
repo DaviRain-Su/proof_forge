@@ -10,20 +10,22 @@
   `ProgramRequirementsV1` construction.
 
   S2 closed catalog:
+    * effect.event
     * state.persistent
     * value.checked-arithmetic
     * value.bool
     * failure.atomic-rollback
-  Predicates: empty for all four.
+  Predicates: empty for all five.
   Version: SemVer core 1.0.0 (engineering; formal CAP registry pending).
   Digest: domainSeparatedSha256("pf.requirement-key.engineering.v1", UTF-8(id)).
 
   Wire order is SPEC key order (id UTF-8 ascending, then SemVer, then digest),
   not contribution first-seen order:
-    1. failure.atomic-rollback
-    2. state.persistent
-    3. value.bool
-    4. value.checked-arithmetic
+    1. effect.event
+    2. failure.atomic-rollback
+    3. state.persistent
+    4. value.bool
+    5. value.checked-arithmetic
 
   A non-catalog contribution fails closed; no partial table is returned. Formal
   TASK-D2-05 / RequirementRef / predicate merge / contribution origins remain
@@ -53,7 +55,7 @@ def s2RequirementVersionV1 : SemVer :=
 
 /-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending). -/
 def s2CatalogIdsWireOrderV1 : Array String :=
-  #["failure.atomic-rollback", "state.persistent", "value.bool",
+  #["effect.event", "failure.atomic-rollback", "state.persistent", "value.bool",
     "value.checked-arithmetic"]
 
 def isS2CatalogIdV1 (id : String) : Bool :=

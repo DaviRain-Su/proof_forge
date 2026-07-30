@@ -397,6 +397,7 @@ private structure BodyAttrV1 where
   nextInstr : Nat
   blockId : Nat
   nextBlockId : Nat
+  nextEffectId : UInt32
   env : AttrEnvV1
   acc : AttrAccumV1
 
@@ -728,8 +729,40 @@ private partial def attrStmt
             acc := accJoin }, .open_)
   | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
   | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
-  | .revert _ _ => failUnsupported "S2 provenance does not support revert"
-  | .emit _ _ => failUnsupported "S2 provenance does not support emit"
+  | .revert _ args => do
+      -- Args attribute in declaration order; the revert terminator binds the
+      -- statement node and closes the path (mirroring the normalizer).
+      let mut st' := st
+      let mut i := 0
+      for arg in args do
+        let argPath := childPath stmtPath "Stmt.Revert" "args" i
+        let (_vid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let termEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat st'.blockId)
+      let acc1 ← attrPushPath st'.acc idx termEntity stmtPath
+      pure ({ st' with acc := acc1 }, .closed)
+  | .emit _ args => do
+      -- Args attribute in declaration order; the void Op.Emit instruction and
+      -- its EffectId both bind the emit statement node.
+      let mut st' := st
+      let mut i := 0
+      for arg in args do
+        let argPath := childPath stmtPath "Stmt.Emit" "args" i
+        let (_vid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let instrEntity := SemanticEntityRefV1.instruction callableId
+        (UInt32.ofNat st'.blockId) (UInt32.ofNat st'.nextInstr)
+      let acc1 ← attrPushPath st'.acc idx instrEntity stmtPath
+      let effectEntity := SemanticEntityRefV1.effect callableId st'.nextEffectId
+      let acc2 ← attrPushPath acc1 idx effectEntity stmtPath
+      pure ({ st' with
+        nextInstr := st'.nextInstr + 1
+        nextEffectId := st'.nextEffectId + 1
+        acc := acc2
+      }, .open_)
   | .call _ => failUnsupported "S2 provenance does not support call"
   | .schedule _ => failUnsupported "S2 provenance does not support schedule"
 
@@ -753,6 +786,7 @@ private def attrBlock
     nextInstr := 0
     blockId := 0
     nextBlockId := 1
+    nextEffectId := 0
     env := env
     acc := accB
   }
@@ -896,7 +930,7 @@ mutual
           pure r
     | .emit _ args =>
         Id.run do
-          let mut r := rs
+          let mut r := reqPush rs "effect.event" stmtPath
           let mut i := 0
           for a in args do
             r := reqExprSites a (childPath stmtPath "Stmt.Emit" "args" i) r
@@ -962,18 +996,30 @@ private def attributeCounterEntitiesV1
   let mut acc := emptyAttr
   let mut stateNames : Array String := #[]
   let mut stateItemIdxs : Array Nat := #[]
+  let mut eventItemIdxs : Array Nat := #[]
+  let mut errorItemIdxs : Array Nat := #[]
   let mut itemIdx : Nat := 0
   for item in program.items do
     match item with
     | .state s =>
         stateNames := stateNames.push (raw s.name)
         stateItemIdxs := stateItemIdxs.push itemIdx
+    | .event _ =>
+        eventItemIdxs := eventItemIdxs.push itemIdx
+    | .error _ =>
+        errorItemIdxs := errorItemIdxs.push itemIdx
     | _ => pure ()
     itemIdx := itemIdx + 1
   let states : StateNamesV1 := ⟨stateNames⟩
   unless stateItemIdxs.size == data.logicalState.size do
     return ← failUnsupported
       "S2 provenance: state count mismatch vs semantic logicalState"
+  unless eventItemIdxs.size == data.events.size do
+    return ← failUnsupported
+      "S2 provenance: event count mismatch vs semantic events"
+  unless errorItemIdxs.size == data.errors.size do
+    return ← failUnsupported
+      "S2 provenance: error count mismatch vs semantic errors"
 
   -- Types: first-seen UInt64 from first public state type node; Unit from first
   -- init decl (nearest producing; no source Type.Unit on S1 init result).
@@ -997,6 +1043,54 @@ private def attributeCounterEntitiesV1
         | _ => pure ()
     | _ => pure ()
     si := si + 1
+
+  -- Events + errors: declaration entities and first-seen field type nodes.
+  let mut ei : Nat := 0
+  for itemI in eventItemIdxs do
+    let itemPath := childPath #[] "Program" "items" itemI
+    let some eventRow := data.events[ei]? |
+      return ← failUnsupported "S2 provenance: missing event row"
+    acc ← attrPushPath acc idx (.event eventRow.id) itemPath
+    match program.items[itemI]? with
+    | some (.event d) =>
+        let mut fi : Nat := 0
+        for f in d.params do
+          let some sf := eventRow.fields[fi]? |
+            return ← failUnsupported "S2 provenance: event field count mismatch"
+          let fieldPath := directChild
+            (childPath itemPath "EventDecl" "params" fi) "Param" "type"
+          match f.type_ with
+          | .uint 64 =>
+              let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
+              acc := accF
+              typeBound := tbF
+          | _ => pure ()
+          fi := fi + 1
+    | _ => pure ()
+    ei := ei + 1
+  let mut zi : Nat := 0
+  for itemI in errorItemIdxs do
+    let itemPath := childPath #[] "Program" "items" itemI
+    let some errorRow := data.errors[zi]? |
+      return ← failUnsupported "S2 provenance: missing error row"
+    acc ← attrPushPath acc idx (.errorRef errorRow.id) itemPath
+    match program.items[itemI]? with
+    | some (.error d) =>
+        let mut fi : Nat := 0
+        for f in d.params do
+          let some sf := errorRow.fields[fi]? |
+            return ← failUnsupported "S2 provenance: error field count mismatch"
+          let fieldPath := directChild
+            (childPath itemPath "ErrorDecl" "params" fi) "Param" "type"
+          match f.type_ with
+          | .uint 64 =>
+              let (accF, tbF) ← tryBindType acc idx typeBound sf.typeId fieldPath
+              acc := accF
+              typeBound := tbF
+          | _ => pure ()
+          fi := fi + 1
+    | _ => pure ()
+    zi := zi + 1
 
   -- Callables in source order among init/entry/view
   let mut callableId : Nat := 0
@@ -1086,10 +1180,11 @@ private def attributeCounterEntitiesV1
         let bodyPath := directChild itemPath "ViewDecl" "body"
         acc ← attrBlock cid v.body bodyPath params states idx acc false
         callableId := callableId + 1
-    | .struct _ | .enum _ | .const _ | .event _ | .error _ | .fn _
+    | .event _ | .error _ => pure ()
+    | .struct _ | .enum _ | .const _ | .fn _
     | .invariant _ | .extensionReq _ | .proof _ =>
         return ← failUnsupported
-          "S2 provenance attribution only supports state/init/entry/view"
+          "S2 provenance attribution only supports state/event/error/init/entry/view"
     itemIdx := itemIdx + 1
   unless callableId == data.callables.size do
     return ← failUnsupported "S2 provenance: callable count mismatch"

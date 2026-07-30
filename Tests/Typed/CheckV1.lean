@@ -2159,6 +2159,153 @@ private unsafe def testUnsupportedMatchConstructorPattern
     (fun d => d.contains "enum")
     "enum"
 
+/-- Event/error declaration tables plus emit/revert lowering: exact table
+    shapes, canonical EffectId order, revert terminator closing the path. -/
+private unsafe def testEmitRevertMultiBlock
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EventFlow" <|
+    "  state count : UInt64\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "event-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "event-flow: CheckV1.ok"
+  expect typed.analysisComplete "event-flow: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"event-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"event-flow: validate: {repr e}"
+  -- Declaration tables: source order, UInt64 public fields.
+  let some eventDecl := data.events[0]? |
+    throw <| IO.userError "event-flow: missing event declaration"
+  expect (data.events.size == 1 && eventDecl.name == "Moved" &&
+      eventDecl.fields.map (·.name) == #["src", "dst"] &&
+      eventDecl.fields.all (·.visibility == .public_))
+    "event-flow: event table must preserve declaration order and public fields"
+  let some errorDecl := data.errors[0]? |
+    throw <| IO.userError "event-flow: missing error declaration"
+  expect (data.errors.size == 1 && errorDecl.name == "Cap" &&
+      errorDecl.fields.map (·.name) == #["limit"])
+    "event-flow: error table must preserve declaration order"
+  let some entryC := data.callables[1]? |
+    throw <| IO.userError "event-flow: missing bump callable"
+  -- block0: emit(effectId 0, event 0, [load count, param delta]) then branch.
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "event-flow: missing block0"
+  let emitOps := blk0.instructions.filter fun instr =>
+    match instr.op with | .emit .. => true | _ => false
+  expect (emitOps.size == 1)
+    s!"event-flow: block0 must contain exactly one emit, got {emitOps.size}"
+  let some emitInstr := emitOps[0]? |
+    throw <| IO.userError "event-flow: missing emit instruction"
+  match emitInstr with
+  | { result, op := .emit effectId eventId args } =>
+      expect (result.isNone && effectId == 0 && eventId == 0 && args.size == 2)
+        "event-flow: emit must be void with effectId 0, event 0, two args"
+  | _ => throw <| IO.userError "event-flow: emit op shape mismatch"
+  -- then-block: revert(error 0, [param delta]) terminator closes the path.
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "event-flow: missing then block"
+  match blk1.terminator with
+  | .revert errorId args =>
+      expect (errorId == 0 && args.size == 1)
+        "event-flow: revert must bind error 0 with one arg"
+  | _ => throw <| IO.userError "event-flow: then block must terminate in revert"
+  -- else path flows to the join, which returns (four blocks total).
+  expect (entryC.blocks.size == 4)
+    s!"event-flow: expected cond/then-revert/else/join blocks, got {entryC.blocks.size}"
+  let some blk3 := entryC.blocks[3]? |
+    throw <| IO.userError "event-flow: missing join block"
+  match blk3.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "event-flow: join block must return"
+
+/-- Requirements wire order: `effect.event` is first among contributed keys;
+    programs without events keep the existing four-key shape. -/
+private unsafe def testEmitRequirementsWireOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EventFlow" <|
+    "  state count : UInt64\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "event-req" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"event-req: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"event-req: validate: {repr e}"
+  expect (data.requirements.items.map (·.id) == #[
+      "effect.event", "failure.atomic-rollback", "state.persistent",
+      "value.checked-arithmetic"])
+    s!"event-req: wire order must put effect.event first, got {data.requirements.items.map (·.id)}"
+
+/-- Emit in a view is an effect violation: CheckV1 rejects before Normalize. -/
+private unsafe def testEmitInViewTypedNotOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ViewEmit" <|
+    "  state count : UInt64\n" ++
+    "  event Seen(spot : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    emit Seen(count)\n" ++
+    "    return count\n"
+  let validated ← loadSource session "view-emit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "view-emit: CheckV1 must reject emit in a view"
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "view-emit: normalize must not accept typed-not-ok"
+  | .error (.typedNotOk _) => pure ()
+  | .error e =>
+      throw <| IO.userError s!"view-emit: expected .typedNotOk, got {repr e}"
+
+/-- Bool event fields pass CheckV1 but fail closed at the normalizer. -/
+private unsafe def testUnsupportedEventBoolField
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolEvent" <|
+    "  event Toggled(on : Bool)\n" ++
+    "  entry ping(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  expectUnsupportedAfterCheckOk session "event-bool-field" source
+    (fun d => d.contains "UInt64" || d.contains "field")
+    "UInt64 event field"
+
+/-- Non-public event fields pass CheckV1 but fail closed at the normalizer. -/
+private unsafe def testUnsupportedEventPrivateField
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "PrivEvent" <|
+    "  event Hidden(private spot : UInt64)\n" ++
+    "  entry ping(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  expectUnsupportedAfterCheckOk session "event-private-field" source
+    (fun d => d.contains "public")
+    "public event field"
+
 private unsafe def testUnsupportedBoolState
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "BoolState" <|
@@ -2324,6 +2471,70 @@ private def originAtExplicitPath
   let some origin := origin? |
     throw <| IO.userError "NodeId not present in inventory"
   pure origin
+
+/-- Provenance for emit/revert: declaration entities, instruction/effect
+    entities on the emit statement, and the revert terminator entity. -/
+private unsafe def testEmitRevertProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EventFlow" <|
+    "  state count : UInt64\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (validated, spans) ← loadSourceWithSpans session "event-prov" source
+  let path ← parseTestPath "event-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"event-prov: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"event-prov: normalize: {repr e}"
+  match validateSemanticProgramV1 carrier with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"event-prov: validate: {repr e}"
+  -- Declaration entities bind their item nodes.
+  let eventItemPath := childPathT #[] "Program" "items" 1
+  let errorItemPath := childPathT #[] "Program" "items" 2
+  let eventItemOrigin ← originAtExplicitPath validated inventory eventItemPath
+  let errorItemOrigin ← originAtExplicitPath validated inventory errorItemPath
+  let some eventOrigin := findOrigin provenance (.event 0) |
+    throw <| IO.userError "event-prov: missing event decl origin"
+  let some errorOrigin := findOrigin provenance (.errorRef 0) |
+    throw <| IO.userError "event-prov: missing error decl origin"
+  expect (eventOrigin == eventItemOrigin && errorOrigin == errorItemOrigin)
+    "event-prov: declaration entities must bind their item nodes"
+  -- The emit statement binds both its instruction and effect entities.
+  let entryItemPath := childPathT #[] "Program" "items" 4
+  let bodyPath := directChildT entryItemPath "EntryDecl" "body"
+  let emitStmtPath := childPathT bodyPath "Block" "statements" 0
+  let ifStmtPath := childPathT bodyPath "Block" "statements" 1
+  let thenPath := directChildT ifStmtPath "Stmt.If" "thenBlock"
+  let revertStmtPath := childPathT thenPath "Block" "statements" 0
+  let emitStmtOrigin ← originAtExplicitPath validated inventory emitStmtPath
+  let revertStmtOrigin ← originAtExplicitPath validated inventory revertStmtPath
+  -- block0: stateLoad(instr0) → emit(instr1) → stateLoad(instr2) → gt(instr3).
+  let some instrOrigin := findOrigin provenance (.instruction 1 0 1) |
+    throw <| IO.userError "event-prov: missing emit instruction origin"
+  let some effectOrigin := findOrigin provenance (.effect 1 0) |
+    throw <| IO.userError "event-prov: missing effect origin"
+  expect (instrOrigin == emitStmtOrigin && effectOrigin == emitStmtOrigin)
+    "event-prov: emit instruction/effect entities must bind the emit statement"
+  -- The revert terminator binds the revert statement inside the then block.
+  let some termOrigin := findOrigin provenance (.terminator 1 1) |
+    throw <| IO.userError "event-prov: missing revert terminator origin"
+  expect (termOrigin == revertStmtOrigin)
+    "event-prov: revert terminator must bind the revert statement"
 
 /-- Literal instruction and result value both bind the source literal expression
     node, not the enclosing return statement or an arbitrary nearby origin. -/
@@ -3230,7 +3441,7 @@ private unsafe def testFreezeRejectsForeignKeys
         s!"freeze-bool: expected catalog value.bool freeze, got {frozen.items.map (·.id)}"
   | .error detail =>
       throw <| IO.userError s!"freeze-bool: expected catalog freeze, got {detail}"
-  -- emit contributes effect.event
+  -- emit contributes catalog effect.event and now freezes.
   let emitSrc := wrap "FreezeEmit" <|
     "  event Tick()\n" ++
     "  entry run() : Unit do\n" ++
@@ -3238,12 +3449,11 @@ private unsafe def testFreezeRejectsForeignKeys
     "    return\n"
   let emitProg ← loadSource session "freeze-emit" emitSrc
   match freezeProgramRequirementsV1 emitProg.program with
-  | .ok _ =>
-      throw <| IO.userError "freeze-emit: expected non-catalog rejection"
+  | .ok frozen =>
+      expect (frozen.items.map (·.id) == #["effect.event"])
+        s!"freeze-emit: expected catalog effect.event freeze, got {frozen.items.map (·.id)}"
   | .error detail =>
-      expect (detail ==
-          "S2 semantic requirements freeze rejects non-catalog key 'effect.event'")
-        s!"freeze-emit detail: {detail}"
+      throw <| IO.userError s!"freeze-emit: expected catalog freeze, got {detail}"
   -- End-to-end: CheckV1-ok Counter-like with unused private param hits freeze via normalize
   let e2eSrc := wrap "FreezeE2EPrivParam" <|
     "  state count : UInt64\n" ++
@@ -3291,6 +3501,12 @@ unsafe def run : IO Unit := do
   testUnsupportedStatementAfterTerminalIf session
   testUnsupportedMatchDuplicateLiteral session
   testUnsupportedMatchConstructorPattern session
+  testEmitRevertMultiBlock session
+  testEmitRequirementsWireOrder session
+  testEmitInViewTypedNotOk session
+  testUnsupportedEventBoolField session
+  testUnsupportedEventPrivateField session
+  testEmitRevertProvenance session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testUnsupportedFn session

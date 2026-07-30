@@ -259,14 +259,35 @@ private def stateLookup (table : StateTableV1) (name : String) :
   table.rows.findSome? fun (n, sid, tid) =>
     if n == name then some (sid, tid) else none
 
+/-- Event name → (EventId, field TypeIds in declaration order). -/
+structure EventTableV1 where
+  rows : Array (String × EventIdV1 × Array TypeIdV1)
+
+private def eventLookup (table : EventTableV1) (name : String) :
+    Option (EventIdV1 × Array TypeIdV1) :=
+  table.rows.findSome? fun (n, eid, tids) =>
+    if n == name then some (eid, tids) else none
+
+/-- Error name → (ErrorId, field TypeIds in declaration order). -/
+structure ErrorTableV1 where
+  rows : Array (String × ErrorIdV1 × Array TypeIdV1)
+
+private def errorLookup (table : ErrorTableV1) (name : String) :
+    Option (ErrorIdV1 × Array TypeIdV1) :=
+  table.rows.findSome? fun (n, eid, tids) =>
+    if n == name then some (eid, tids) else none
+
 /-- Multi-block lowering accumulator for one callable body. The interner is
 live: comparison/Bool-literal lowering interns shapes on first actual use so
 existing programs keep byte-identical type tables. `blocks` holds completed
-blocks in id order; `instructions` accumulates the current open block. -/
+blocks in id order; `instructions` accumulates the current open block.
+`nextEffectId` counts emitted effect instructions (emit) in
+BlockId/instruction order, which is exactly the canonical EffectId order. -/
 structure BodyStateV1 where
   blocks : Array BlockV1
   instructions : Array InstructionV1
   nextValueId : ValueIdV1
+  nextEffectId : UInt32
   env : LocalEnvV1
   interner : TypeInternerV1
 
@@ -458,12 +479,13 @@ mutual
 
 private partial def lowerStmts
     (stmts : Array SrcStmt) (resultTid : TypeIdV1)
-    (st : BodyStateV1) (states : StateTableV1) :
+    (st : BodyStateV1) (states : StateTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   let mut st := st
   let mut i : Nat := 0
   for stmt in stmts do
-    let (st', status) ← lowerStmt stmt resultTid st states
+    let (st', status) ← lowerStmt stmt resultTid st states events errors
     st := st'
     if status == .closed then
       if i + 1 < stmts.size then
@@ -478,7 +500,8 @@ private partial def lowerStmts
 control-flow. Returns the builder and whether this path is closed. -/
 private partial def lowerStmt
     (stmt : SrcStmt) (resultTid : TypeIdV1)
-    (st : BodyStateV1) (states : StateTableV1) :
+    (st : BodyStateV1) (states : StateTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   match stmt with
   | .assign target value => do
@@ -552,7 +575,7 @@ private partial def lowerStmt
       let thenId := UInt32.ofNat (condIdx + 1)
       let st2 := sealCurrentBlock st1 (.branch condVid
         { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
-      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states
+      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states events errors
       let (stT, thenJump?) := match thenStatus with
         | .closed => (stT, none)
         | .open_ =>
@@ -563,7 +586,7 @@ private partial def lowerStmt
       let elseId := UInt32.ofNat stT.blocks.size
       let (stE, elseJump?, elseClosed) ← match elseBlock? with
         | some elseBlock => do
-            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states
+            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states events errors
             match status with
             | .closed => pure (stE0, none, true)
             | .open_ =>
@@ -654,7 +677,7 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => st1
           | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
-        lowerStmts defaultBody.statements resultTid stD states
+        lowerStmts defaultBody.statements resultTid stD states events errors
       else
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
@@ -666,7 +689,7 @@ private partial def lowerStmt
         let mut closedCount : Nat := 0
         for (_, _, body) in caseArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let (stB, status) ← lowerStmts body.statements resultTid stA states
+          let (stB, status) ← lowerStmts body.statements resultTid stA states events errors
           stA := stB
           match status with
           | .closed => closedCount := closedCount + 1
@@ -678,7 +701,7 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => stA
           | some name => { stA with env := envInsert stA.env (raw name) scrutVid scrutTid }
-        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states
+        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states events errors
         stA := stD
         match dStatus with
         | .closed => closedCount := closedCount + 1
@@ -707,8 +730,49 @@ private partial def lowerStmt
           pure (stP, .open_)
   | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
   | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
-  | .revert _ _ => failUnsupported "S1 normalizer does not support revert"
-  | .emit _ _ => failUnsupported "S1 normalizer does not support emit"
+  | .revert errorName args => do
+      let key := raw errorName
+      match errorLookup errors key with
+      | none =>
+          failUnsupported s!"S1 revert error '{key}' is not declared"
+      | some (errorId, fieldTids) => do
+          unless args.size == fieldTids.size do
+            return ← failUnsupported
+              s!"S1 revert '{key}' expects {fieldTids.size} arguments, got {args.size}"
+          let mut st' := st
+          let mut argIds : Array ValueIdV1 := #[]
+          for (arg, fieldTid) in args.zip fieldTids do
+            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states
+            unless argTid == fieldTid do
+              return ← failUnsupported s!"S1 revert '{key}' argument type mismatch"
+            argIds := argIds.push vid
+            st' := st1
+          pure (sealCurrentBlock st' (TerminatorV1.revert errorId argIds), .closed)
+  | .emit eventName args => do
+      let key := raw eventName
+      match eventLookup events key with
+      | none =>
+          failUnsupported s!"S1 emit event '{key}' is not declared"
+      | some (eventId, fieldTids) => do
+          unless args.size == fieldTids.size do
+            return ← failUnsupported
+              s!"S1 emit '{key}' expects {fieldTids.size} arguments, got {args.size}"
+          let mut st' := st
+          let mut argIds : Array ValueIdV1 := #[]
+          for (arg, fieldTid) in args.zip fieldTids do
+            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states
+            unless argTid == fieldTid do
+              return ← failUnsupported s!"S1 emit '{key}' argument type mismatch"
+            argIds := argIds.push vid
+            st' := st1
+          let instr : InstructionV1 := {
+            result := none
+            op := .emit st'.nextEffectId eventId argIds
+          }
+          pure ({ st' with
+            instructions := st'.instructions.push instr
+            nextEffectId := st'.nextEffectId + 1
+          }, .open_)
   | .call _ => failUnsupported "S1 normalizer does not support call"
   | .schedule _ => failUnsupported "S1 normalizer does not support schedule"
 
@@ -717,6 +781,7 @@ end
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
     (interner : TypeInternerV1) (states : StateTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1)
     (allowImplicitReturnNone : Bool) :
     Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
   let mut env := emptyEnv
@@ -726,10 +791,11 @@ private def lowerBlock
     blocks := #[]
     instructions := #[]
     nextValueId := UInt32.ofNat params.size
+    nextEffectId := 0
     env := env
     interner := interner
   }
-  let (st', status) ← lowerStmts body.statements resultTid st states
+  let (st', status) ← lowerStmts body.statements resultTid st states events errors
   match status with
   | .closed =>
       -- Body ended in return on every path; the trailing open block (if any
@@ -792,8 +858,13 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut interner := emptyInterner
   let mut stateRows : Array StateDeclV1 := #[]
   let mut stateTable : StateTableV1 := ⟨#[]⟩
+  let mut eventRows : Array EventDeclV1 := #[]
+  let mut eventTable : EventTableV1 := ⟨#[]⟩
+  let mut errorRows : Array ErrorDeclV1 := #[]
+  let mut errorTable : ErrorTableV1 := ⟨#[]⟩
 
-  -- Pass 1: complete state table (source order among state items only).
+  -- Pass 1: complete state/event/error tables (source order among those
+  -- items only). Event/error fields stay public UInt64 in this envelope.
   for item in program.items do
     match item with
     | .state s =>
@@ -813,6 +884,46 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         stateTable := {
           rows := stateTable.rows.push (raw s.name, sid, tid)
         }
+    | .event d =>
+        let mut fieldTids : Array TypeIdV1 := #[]
+        let mut fields : Array InterfaceFieldV1 := #[]
+        for f in d.params do
+          unless f.visibility == ProofForgeV2.Source.AstV1.VisibilityV1.public_ do
+            return ← failUnsupported
+              s!"S1 event '{raw d.name}' field '{raw f.name}' must be public"
+          let (interner', tid) ← internSourceType interner f.type_
+          interner := interner'
+          requireUInt64TypeId interner.types tid
+            s!"event '{raw d.name}' field '{raw f.name}'"
+          fieldTids := fieldTids.push tid
+          fields := fields.push {
+            name := raw f.name
+            typeId := tid
+            visibility := VisibilityV1.public_
+          }
+        let eid := UInt32.ofNat eventRows.size
+        eventRows := eventRows.push { id := eid, name := raw d.name, fields }
+        eventTable := { rows := eventTable.rows.push (raw d.name, eid, fieldTids) }
+    | .error d =>
+        let mut fieldTids : Array TypeIdV1 := #[]
+        let mut fields : Array InterfaceFieldV1 := #[]
+        for f in d.params do
+          unless f.visibility == ProofForgeV2.Source.AstV1.VisibilityV1.public_ do
+            return ← failUnsupported
+              s!"S1 error '{raw d.name}' field '{raw f.name}' must be public"
+          let (interner', tid) ← internSourceType interner f.type_
+          interner := interner'
+          requireUInt64TypeId interner.types tid
+            s!"error '{raw d.name}' field '{raw f.name}'"
+          fieldTids := fieldTids.push tid
+          fields := fields.push {
+            name := raw f.name
+            typeId := tid
+            visibility := VisibilityV1.public_
+          }
+        let eid := UInt32.ofNat errorRows.size
+        errorRows := errorRows.push { id := eid, name := raw d.name, fields }
+        errorTable := { rows := errorTable.rows.push (raw d.name, eid, fieldTids) }
     | _ => pure ()
 
   -- Pass 2: lower supported callables; reject unsupported item kinds.
@@ -827,7 +938,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
         let (blocks, interner''') ←
-          lowerBlock d.body params unitTid interner stateTable true
+          lowerBlock d.body params unitTid interner stateTable eventTable errorTable true
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
@@ -840,7 +951,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
         let (blocks, interner''') ←
-          lowerBlock e.body params resultTid interner stateTable false
+          lowerBlock e.body params resultTid interner stateTable eventTable errorTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
@@ -853,7 +964,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
         let (blocks, interner''') ←
-          lowerBlock v.body params resultTid interner stateTable false
+          lowerBlock v.body params resultTid interner stateTable eventTable errorTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
@@ -865,10 +976,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         return ← failUnsupported "S1 normalizer does not support enum"
     | .const _ =>
         return ← failUnsupported "S1 normalizer does not support const"
-    | .event _ =>
-        return ← failUnsupported "S1 normalizer does not support event"
-    | .error _ =>
-        return ← failUnsupported "S1 normalizer does not support error"
+    | .event _ => pure ()
+    | .error _ => pure ()
     | .fn _ =>
         return ← failUnsupported "S1 normalizer does not support fn"
     | .invariant _ =>
@@ -887,8 +996,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     types := interner.types
     constants := #[]
     logicalState := stateRows
-    events := #[]
-    errors := #[]
+    events := eventRows
+    errors := errorRows
     callables := callables
     invariants := #[]
     requirements
