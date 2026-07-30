@@ -120,6 +120,13 @@ private def step (machine : Machine) :
         modelError "native checked UInt64 addition overflow"
       else
         writeTemp machine destination (UInt64.ofNat sum)
+  | .checkedSub destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if left < right then
+        modelError "native checked UInt64 subtraction underflow"
+      else
+        writeTemp machine destination (left - right)
   | .assertEqual lhs rhs => do
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -174,6 +181,26 @@ private def expectReject (label : String)
   match execute relation inputs with
   | .error _ => pure ()
   | .ok () => throw <| IO.userError s!"{label} unexpectedly satisfied the relation"
+
+private def testCheckedSubModel : IO Unit := do
+  let machine : Machine := {
+    inputs := #[]
+    temps := #[some 7, some 5, none]
+  }
+  let success ← match step machine (.checkedSub 2 (.temp 0) (.temp 1)) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"checked-sub model: {reason}"
+  expect (success.temps[2]? == some (some 2))
+    "checked-sub relation model must write the exact UInt64 difference"
+  match step machine (.checkedSub 2 (.temp 1) (.temp 0)) with
+  | .error reason =>
+      expect (reason.contains "underflow")
+        s!"checked-sub relation model must classify underflow, got {reason}"
+  | .ok _ => throw <| IO.userError "checked-sub relation model accepted 5 - 7"
+
+def runCheckedSubFast : IO Unit := do
+  testCheckedSubModel
+  IO.println "Tests.Materialization.NoirRelationModel.checkedSub: ok"
 
 private unsafe def compileIrFromProgramV1 (sourceText moduleName path : String) :
     IO Targets.Noir.IR := do
@@ -295,8 +322,8 @@ private unsafe def checkStatefulLifecycle (test : StatefulCase) : IO Unit := do
   expectReject s!"{test.label} view with wrong result" viewRelation viewWrongResult
 
 /-- Isolated residual-only PrivateSum4 host accept/reject via test-local
-    RelationIR fixture. S1 dual-carrier cannot express privateWitness; this is
-    **not** product IR/emission evidence (product path is
+    RelationIR fixture. The retained-semantic product envelope rejects
+    privateWitness; this is **not** product IR/emission evidence (product path is
     `checkPrivateSum4ProductClosed`). -/
 private def checkPrivateSum4ResidualRelationModel : IO Unit := do
   let relation := Tests.Materialization.TargetIrFixtures.privateSum4RelationIR
@@ -352,6 +379,7 @@ private unsafe def checkPrivateSum4ProductClosed : IO Unit := do
                 "PrivateSum4 must not mint engineering capability (privateWitness outside S2)"
 
 unsafe def run : IO Unit := do
+  runCheckedSubFast
   checkStatefulLifecycle {
     label := "Counter"
     sourceText := counterSourceText

@@ -46,7 +46,7 @@ def finalize
     (_capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
-  let programName := MaterializedArtifactsV1.residualProgramNameOf artifacts
+  let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
   let source := s!"{programName}.wat"
   let target := s!"{programName}.wasm"
   let wat2wasm ← resolve "wat2wasm"

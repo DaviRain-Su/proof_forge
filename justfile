@@ -18,19 +18,119 @@ test-fast: build
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
 
+# Wave 2 single-semantic-carrier cutover gate.
+# Product compilation, resolver, materialization, finalization, CLI, and target
+# Plan paths must not retain the dual alpha carrier or residual identity fields.
+w2-single-semantic-carrier-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    fail_if_match() {
+      local pat="$1"
+      shift
+      local hits ec
+      set +e
+      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "w2-single-semantic-carrier-deletion-gate: forbidden pattern: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "w2-single-semantic-carrier-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    product_paths=(
+      ProofForgeV2/Compiler/Pipeline.lean
+      ProofForgeV2/Targets/EngineeringBuildV1.lean
+      ProofForgeV2/Materialization/MaterializedArtifactsV1.lean
+      ProofForgeV2/Materialization/EngineeringFinalizationV1.lean
+      ProofForgeV2/CLI/Emit.lean
+      ProofForgeV2/Targets/Evm.lean
+      ProofForgeV2/Targets/Solana.lean
+      ProofForgeV2/Targets/Near.lean
+      ProofForgeV2/Targets/Noir.lean
+    )
+    for pat in '\bCompiledProgramV1\b' '\balphaResidualOf\b' \
+      '\bvalidateDualCarrierConsistencyV1\b' '\bmappedAlphaOfV1Id\?' \
+      '\bv1IdOfMappedAlpha\?' '\bresidualProgramName\b' \
+      '\bresidualSourceHash\b' '\bresidualSemanticHash\b'; do
+      fail_if_match "$pat" ProofForgeV2
+    done
+    fail_if_match 'Semantic\.fromTyped|Typed\.checkV1' ProofForgeV2/Compiler/Pipeline.lean
+    # Compatibility may define its own namespace, but no other ProofForgeV2
+    # module (including the umbrella) may import or mention it.
+    set +e
+    compat_hits="$(rg --glob '*.lean' \
+      --glob '!ProofForgeV2/Compiler/AlphaCompatibility.lean' \
+      -n --no-heading 'Compiler\.AlphaCompatibility' ProofForgeV2 2>&1)"
+    compat_ec=$?
+    set -e
+    if [[ $compat_ec -eq 0 ]]; then
+      echo "w2-single-semantic-carrier-deletion-gate: AlphaCompatibility leaked into product tree" >&2
+      printf '%s\n' "$compat_hits" >&2
+      exit 1
+    fi
+    if [[ $compat_ec -ne 1 ]]; then
+      echo "w2-single-semantic-carrier-deletion-gate: AlphaCompatibility scan failed (exit $compat_ec)" >&2
+      printf '%s\n' "$compat_hits" >&2
+      exit 1
+    fi
+    /usr/bin/python3 -I -S scripts/check_lean_import_closure.py \
+      --root ProofForgeV2 \
+      --root ProofForgeV2.Compiler.Pipeline \
+      --root ProofForgeV2.Targets.Registry \
+      --root ProofForgeV2.Materialization.MaterializedArtifactsV1 \
+      --root ProofForgeV2.Materialization.EngineeringFinalizationV1 \
+      --root ProofForgeV2.Materialization.EngineeringDiskClosureV1 \
+      --root ProofForgeV2.CLI.Emit \
+      --root ProofForgeV2.CLI.Main \
+      --root ProofForgeV2.CLI.Exe \
+      --root ProofForgeV2.Frontend.WorkerMainV1 \
+      --root ProofForgeV2.Frontend.SafeOpenWorkerMainV1 \
+      --forbid ProofForgeV2.Core.Source \
+      --forbid ProofForgeV2.Core.Typed \
+      --forbid ProofForgeV2.Core.TypedV1 \
+      --forbid ProofForgeV2.Core.SemanticIR \
+      --forbid ProofForgeV2.Core.Semantics \
+      --forbid ProofForgeV2.Compiler.AlphaCompatibility
+    fail_if_match 'ProgramRequirement\.|Semantic\.deriveRequirements|Core\.SemanticIR' \
+      ProofForgeV2/Typed/RequirementsInferV1.lean
+    fail_if_match '\bProgramRequirement\b|^\s*\|\s*unsupportedRequirement\b' \
+      ProofForgeV2/Core/Diagnostic.lean
+    for pat in 'private .*typeKeys' 'private .*exprKeys' 'private .*stmtKeys' \
+      'private .*itemKeys' 'inferContributionKeysV1'; do
+      fail_if_match "$pat" ProofForgeV2/Semantic/RequirementsV1.lean
+    done
+    rg -q 'structure CompiledSemanticV1 where' ProofForgeV2/Compiler/Pipeline.lean
+    rg -q 'private mk ::' ProofForgeV2/Compiler/Pipeline.lean
+    rg -q '^namespace ProofForgeV2.Compiler.AlphaCompatibility$' ProofForgeV2/Compiler/AlphaCompatibility.lean
+    rg -q 'structure RequirementContributionV1 where' ProofForgeV2/Typed/RequirementsInferV1.lean
+    rg -q 'inferRequirementContributionsV1' ProofForgeV2/Semantic/RequirementsV1.lean
+    lake build ProofForgeV2.Compiler.Pipeline ProofForgeV2.Targets.EngineeringBuildV1 \
+      ProofForgeV2.Materialization.MaterializedArtifactsV1 \
+      ProofForgeV2.Materialization.EngineeringFinalizationV1 ProofForgeV2.CLI.Emit \
+      Tests.Compiler.ValidatedSourceV1Pipeline Tests.Materialization.RequirementResolverV1 \
+      Tests.Materialization.OutputEnvelopeV1 Tests.Materialization.EngineeringFinalizationV1
+    echo "w2-single-semantic-carrier-deletion-gate: ok"
+
 # D3/S5 engineering deletion + sole-mint gate (durable just/ci pin).
 # - no checkSupport def/call
 # - no selection+compiled materialize/emit product signatures
 # - sole ResolvedEngineeringBuildV1.mk in EngineeringBuildV1.lean
-# - sole CompiledProgramV1.mk in Compiler/Pipeline.lean (finishCompiledProgramV1)
+# - sole CompiledSemanticV1.mk in Compiler/Pipeline.lean (finishCompiledSemanticV1)
 # Dual-arg sole public API authority is Lean Environment reflection in
 # Tests/Materialization/RequirementResolverV1.lean (run_cmd product gate +
 # synthetic probe self-test). This recipe builds that module so reflection
 # runs even without full Fast/tests; suite runtime does not re-invoke this
 # recipe (one-way: no just↔suite cycle).
-# S6 closed public residual resolve/makePlan/emit product seams. Alpha residual
-# is only private post-capability Plan-body data (no public Residual namespace;
-# see s6-plan-cutover-deletion-gate).
+# S6 closed public residual resolve/makePlan/emit product seams. All four Plan
+# bodies consume retained SemanticProgramV1, and the Wave 2 single-carrier gate
+# removes residual alpha from compiler/resolver/output identity (no public
+# Residual namespace; see s6-plan-cutover-deletion-gate).
 requirement-resolver-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -86,15 +186,15 @@ requirement-resolver-deletion-gate:
     # Sole mints (exact count + path whitelist).
     expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
-    expect_one_match 'CompiledProgramV1\.mk' 'Pipeline.lean' \
-      'CompiledProgramV1.mk'
-    # CompiledProgramV1.mk must sit in the shared product/non-product finish gate.
+    expect_one_match 'CompiledSemanticV1\.mk' 'Pipeline.lean' \
+      'CompiledSemanticV1.mk'
+    # CompiledSemanticV1.mk must sit in the shared product/non-product finish gate.
     set +e
-    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 12 'CompiledProgramV1\.mk' ProofForgeV2/Compiler 2>&1)"
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 12 'CompiledSemanticV1\.mk' ProofForgeV2/Compiler 2>&1)"
     mk_ec=$?
     set -e
-    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'finishCompiledProgramV1'; then
-      echo "requirement-resolver-deletion-gate: CompiledProgramV1.mk must be inside finishCompiledProgramV1 in Compiler/Pipeline.lean" >&2
+    if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'finishCompiledSemanticV1'; then
+      echo "requirement-resolver-deletion-gate: CompiledSemanticV1.mk must be inside finishCompiledSemanticV1 in Compiler/Pipeline.lean" >&2
       printf '%s\n' "$mk_ctx" >&2
       exit 1
     fi
@@ -103,7 +203,7 @@ requirement-resolver-deletion-gate:
     echo "requirement-resolver-deletion-gate: ok"
 
 # S6: public residual alpha Plan authority closed (resolve/validateResolved/makePlan/
-# supportedRequirements.contains as acceptance). Capability-gated target entries
+# TargetDescriptor.supportedRequirements removed). Capability-gated target entries
 # are the sole product Plan/materialize path.
 s6-plan-cutover-deletion-gate:
     #!/usr/bin/env bash
@@ -157,8 +257,8 @@ s6-plan-cutover-deletion-gate:
     # resolveEngineeringRequirementsV1). Doc comments must not use this form.
     fail_if_match 'Targets\.resolve\s' ProofForgeV2
     fail_if_match 'Common\.resolve\s' ProofForgeV2
-    # supportedRequirements.contains is not product acceptance authority.
-    fail_if_match 'supportedRequirements\.contains' ProofForgeV2
+    # TargetDescriptor carries no residual requirement list; resolver is sole authority.
+    fail_if_match '\bsupportedRequirements\b' ProofForgeV2
     # No public emit / lower / residual plan-alpha / Residual emission bypass under Targets.
     fail_if_match '^\s*def emit\b' ProofForgeV2/Targets
     fail_if_match '^\s*def lower\b' ProofForgeV2/Targets
@@ -378,8 +478,9 @@ s7b-finalize-authority-deletion-gate:
 
 # D3/S7c engineering exact disk-closure + manifest-last authority gate.
 # Fast path: Python no-tool self-test of shared exact_physical_closure.
-# Product path: Solana + Noir Counter publish + unified validate_artifacts
-# membership (no EVM solc required for this gate).
+# Darwin product path: Solana + Noir Counter publish + unified validate_artifacts
+# membership (no EVM solc required). Linux retains static/Lean/Python closure
+# checks while the B12 product supervisor intentionally fails closed there.
 # Retains S5–S7b gates; not formal OutputSetV1 / hermetic publisher.
 s7c-disk-closure-gate:
     #!/usr/bin/env bash
@@ -469,14 +570,172 @@ s7c-disk-closure-gate:
     lake build Tests.Materialization.EngineeringDiskClosureV1
     lake build proof_forge_next
     rm -rf build/v2/s7c-gate-solana build/v2/s7c-gate-noir
-    lake env .lake/build/bin/proof-forge-next build-counter --target solana \
-      -o build/v2/s7c-gate-solana
-    lake env .lake/build/bin/proof-forge-next build-counter --target noir \
-      -o build/v2/s7c-gate-noir
-    /usr/bin/python3 -I -S scripts/s7c_product_closure_check.py
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      lake env .lake/build/bin/proof-forge-next build-counter --target solana \
+        -o build/v2/s7c-gate-solana
+      lake env .lake/build/bin/proof-forge-next build-counter --target noir \
+        -o build/v2/s7c-gate-noir
+      /usr/bin/python3 -I -S scripts/s7c_product_closure_check.py
+    else
+      echo "s7c product CLI closure positive: skipped (Darwin-only supervisor)"
+    fi
     echo "s7c-disk-closure-gate: ok"
 
-dev-check: docs-check build test-fast requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+# B12: CLI source authority is the supervised safe-open → frontend worker chain.
+# No in-process open/Loader/reconstruct fallback may reappear in Main.lean.
+b12-cli-source-authority-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    main="ProofForgeV2/CLI/Main.lean"
+    supervisor="ProofForgeV2/Frontend/DarwinSupervisorV1.lean"
+    native="ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c"
+    fail_if_match() {
+      local pat="$1"
+      local file="${2:-$main}"
+      local hits ec
+      set +e
+      hits="$(rg -n --no-heading "$pat" "$file" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "b12-cli-source-authority-deletion-gate: forbidden pattern in $file: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "b12-cli-source-authority-deletion-gate: rg failed for $pat in $file (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    expect_one_match() {
+      local pat="$1"
+      local label="$2"
+      local hits count
+      hits="$(rg -n --no-heading "$pat" "$main")"
+      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
+      if [[ "$count" != "1" ]]; then
+        echo "b12-cli-source-authority-deletion-gate: $label expected one match" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    fail_if_match 'import ProofForgeV2\.Language\.Loader'
+    fail_if_match 'IO\.FS\.realPath'
+    fail_if_match 'IO\.FS\.readFile'
+    fail_if_match 'selectProgramV1Product'
+    fail_if_match 'ensureContainedSource'
+    fail_if_match 'reconstructFrontendSuccessV1'
+    fail_if_match 'counterSourceText'
+    expect_one_match 'superviseFrontendSourceV1' 'sole supervised source call'
+    expect_one_match 'SupervisedFrontendV1\.productInput' 'sole product-input consumption'
+    rg -q 'SupervisedFrontendV1\.sourceOpenFault' "$main"
+    rg -F -q 'source exceeds the 16 MiB limit' "$main"
+    rg -q 'sourceOpenFault_ : Option SafeOpenFaultV1' "$supervisor"
+    rg -q 'SafeOpenWorkerFailureV1\.fault failure' "$supervisor"
+    rg -F -q '"proof-forge-frontend-safe-open-worker-v1"' "$main"
+    rg -F -q '"proof-forge-frontend-worker-v1"' "$main"
+    rg -q 'checkedCompilerBinDir' "$main"
+    rg -q 'builtInSourceRoot' "$main"
+    fail_if_match 'resolveProjectRoot "\."'
+    rg -q 'compileProgramProductV1' "$main"
+    fail_if_match 'posix_spawn\(&child, worker_path' "$native"
+    rg -q 'PF_SUP_MAX_WORKER_BYTES' "$native"
+    rg -q 'pf_prepare_worker_snapshot' "$native"
+    rg -q 'F_GETPATH' "$native"
+    fail_if_match '/private/tmp' "$native"
+    fail_if_match 'fclonefileat' "$native"
+    rg -q 'pf_clear_and_verify_extended_acl' "$native"
+    rg -q 'O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_CLOEXEC' "$native"
+    rg -q 'POSIX_SPAWN_START_SUSPENDED' "$native"
+    rg -q 'EVFILT_VNODE' "$native"
+    rg -q 'posix_spawn\(&child, worker_snapshot\.worker_path' "$native"
+    rg -q 'pf_cleanup_worker_snapshot' "$native"
+    lake build ProofForgeV2.CLI.Main Tests.Frontend.DarwinSourceSupervisorV1 Tests.CLI.DiagnosticsV1
+    echo "b12-cli-source-authority-deletion-gate: ok"
+
+# Wave 2 EVM pilot: target Plan body consumes retained SemanticProgramV1 only;
+# the frozen public-UInt64 envelope retains exact checked add/sub semantics.
+s1-evm-semantic-plan-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source="ProofForgeV2/Targets/Evm.lean"
+    fail_if_match() {
+      local pat="$1"
+      local hits ec
+      set +e
+      hits="$(rg -n --no-heading "$pat" "$source" 2>&1)"
+      ec=$?
+      set -e
+      if [[ $ec -eq 0 ]]; then
+        echo "s1-evm-semantic-plan-deletion-gate: forbidden EVM residual pattern: $pat" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+      if [[ $ec -ne 1 ]]; then
+        echo "s1-evm-semantic-plan-deletion-gate: rg failed for $pat (exit $ec)" >&2
+        printf '%s\n' "$hits" >&2
+        exit 1
+      fi
+    }
+    fail_if_match 'alphaResidualOf'
+    fail_if_match 'makePlanFromAlpha'
+    fail_if_match 'validateRequirementEnvelope'
+    fail_if_match 'Semantic\.deriveRequirements'
+    rg -q 'private def makePlanFromSemanticV1' "$source"
+    rg -q 'validateSemanticProgramV1' "$source"
+    rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1 source' "$source"
+    rg -q 'expandedNodes' "$source"
+    rg -q 'consumeCurrentSegmentV1' "$source"
+    rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+    rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
+    rg -Uq '(?s)\.checkedSub lhs rhs =>.*?if lt\(\{lhs\.value\}, \{rhs\.value\}\).*?let \{name\} := sub\(' "$source"
+    rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
+    lake build ProofForgeV2.Targets.Evm Tests.Materialization.EvmSmoke Tests.Product.CounterV1Evm
+    echo "s1-evm-semantic-plan-deletion-gate: ok"
+
+# Wave 2 target leaves: Solana/NEAR/Noir Plan bodies consume retained V1 only.
+s1-target-semantic-plan-deletion-gate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for target in Solana Near Noir; do
+      source="ProofForgeV2/Targets/${target}.lean"
+      for pat in alphaResidualOf makePlanFromAlpha validateRequirementEnvelope 'Semantic\.deriveRequirements'; do
+        set +e
+        hits="$(rg -n --no-heading "$pat" "$source" 2>&1)"
+        ec=$?
+        set -e
+        if [[ $ec -eq 0 ]]; then
+          echo "s1-target-semantic-plan-deletion-gate: forbidden ${target} residual pattern: $pat" >&2
+          printf '%s\n' "$hits" >&2
+          exit 1
+        fi
+        if [[ $ec -ne 1 ]]; then
+          echo "s1-target-semantic-plan-deletion-gate: rg failed for ${target}/$pat (exit $ec)" >&2
+          printf '%s\n' "$hits" >&2
+          exit 1
+        fi
+      done
+      rg -q 'private def makePlanFromSemanticV1' "$source"
+      rg -q 'validateSemanticProgramV1' "$source"
+      rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1' "$source"
+      rg -q 'expandedNodes' "$source"
+      rg -q 'consumeCurrentSegmentV1' "$source"
+      rg -Uq '(?s)private def makeCheckedAddValueV1.*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
+      rg -Uq '(?s)private def makeCheckedSubValueV1.*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
+      rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+      rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
+      rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
+      case "$target" in
+        Solana) rg -q 'checked_sub_u64' "$source" ;;
+        Near) rg -q 'i64\.sub' "$source" ;;
+        Noir) rg -Uq '(?s)\.checkedSub destination lhs rhs =>.*?assert\(\{renderValue relation lhs\} >= \{renderValue relation rhs\}\).*? - ' "$source" ;;
+      esac
+    done
+    lake build ProofForgeV2.Targets.Solana ProofForgeV2.Targets.Near ProofForgeV2.Targets.Noir Tests.Materialization.Targets Tests.Materialization.NearHostModel Tests.Materialization.NoirRelationModel
+    echo "s1-target-semantic-plan-deletion-gate: ok"
+
+dev-check: docs-check build test-fast b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -1082,7 +1341,7 @@ product-negative: build
     rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
     test ! -e build/v2/module-required-negative
     ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
-    rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
+    if [ "$(uname -s)" = Darwin ]; then rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log; else rg -q -- '^PF-FRONTEND-PROTOCOL: frontend supervisor unavailable$' build/module-parse-negative.log; fi
     test ! -e build/v2/module-parse-negative
 
 # Exact positive CLI stdout anchors for list/describe (selection surface; no build outputs).
@@ -1147,14 +1406,14 @@ target-negative: build
     printf '%s\n' "duplicate --profile" > build/dup-profile-negative.expected
     cmp -s build/dup-profile-negative.expected build/dup-profile-negative.log
     test ! -e build/v2/dup-profile-negative
-    # toolchain negatives (require selection success first; substring rg OK)
-    if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-negative > build/tool-negative.log 2>&1; then echo "missing solc unexpectedly accepted" >&2; exit 1; fi
-    rg -q "PF-TOOLCHAIN-MISSING" build/tool-negative.log
+    # Toolchain negatives require a successful source frontend and therefore run
+    # only on the current Darwin development product path. Linux CI separately
+    # asserts the closed unsupported-platform diagnostic with zero publication.
+    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-negative > build/tool-negative.log 2>&1; then echo "missing solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISSING" build/tool-negative.log; fi
     rm -rf build/tool-mismatch-root
     mkdir -p build/tool-mismatch-root
     ln -s /usr/bin/false build/tool-mismatch-root/solc
-    if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi
-    rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log
+    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log; fi
 
 target-smoke: build
     rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
@@ -1203,7 +1462,7 @@ v2-isolation:
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
-ci: docs-check build test product-negative source-bounds target-cli-positive target-negative requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+ci: docs-check build test product-negative source-bounds target-cli-positive target-negative b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.

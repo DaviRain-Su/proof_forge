@@ -1,4 +1,4 @@
-import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Compiler.AlphaCompatibility
 import Tests.Fixtures.SourcePrograms
 
 namespace Tests.Compiler
@@ -31,7 +31,7 @@ private def mkEntry (name : String) (params : Array Source.Param)
 }
 
 def run : IO Unit := do
-  let counter ← match Compiler.compile counterQualified with
+  let counter ← match Compiler.AlphaCompatibility.compile counterQualified with
     | .ok counter => pure counter
     | .error error => throw <| IO.userError s!"Counter compile failed: {error.render}"
   expect (counter.qualifiedName == "ProofForgeV2.Examples.Counter")
@@ -66,7 +66,7 @@ def run : IO Unit := do
   expect (counter.sourceHash == counterQualified.sourceHash)
     "semantic provenance must retain the decoded Source AST hash"
 
-  let counterAgain ← match Compiler.compile counterQualified with
+  let counterAgain ← match Compiler.AlphaCompatibility.compile counterQualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (counter.semanticHash == counterAgain.semanticHash && counter.semanticHash.length == 64)
@@ -75,56 +75,56 @@ def run : IO Unit := do
       "c3b58be1a12e9d4f87a7e4730746b1b4f538d6a9e971a637f92cd508349ebcf8")
     "Counter semantic serialization must match its canonical SHA-256 golden"
   let renamed := { counterQualified with qualifiedName := "Other.Counter" }
-  let renamed ← match Compiler.compile renamed with
+  let renamed ← match Compiler.AlphaCompatibility.compile renamed with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (counter.semanticHash != renamed.semanticHash)
     "qualified identity must participate in semantic hashing"
 
-  let synchronous ← match Compiler.compile counterWithSynchronousCall with
+  let synchronous ← match Compiler.AlphaCompatibility.compile counterWithSynchronousCall with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (synchronous.requirements.contains .synchronousCall &&
       synchronous.requirements.contains .transactionalRollback)
     "synchronous calls must explicitly require call support and rollback"
 
-  let privateSum ← match Compiler.compile privateSum4Qualified with
+  let privateSum ← match Compiler.AlphaCompatibility.compile privateSum4Qualified with
     | .ok value => pure value
     | .error error => throw <| IO.userError error.render
   expect (privateSum.requirements.contains .privateWitness)
     "private parameter visibility must derive the private-witness requirement"
 
   let unknown := mkProgram "Unknown" #[] #[mkEntry "run" #[] #[.returnValue (.variable "missing")]]
-  expectInvalid (Compiler.compile unknown) "unknown values must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile unknown) "unknown values must be rejected"
 
   let duplicateState := mkProgram "DuplicateState"
     #[{ name := "value", type := .u64 }, { name := "value", type := .u64 }]
     #[mkEntry "run" #[] #[.returnValue (.literal 0)]]
-  expectInvalid (Compiler.compile duplicateState) "duplicate state declarations must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile duplicateState) "duplicate state declarations must be rejected"
 
   let duplicateEntry := mkProgram "DuplicateEntry" #[] #[
     mkEntry "run" #[] #[.returnValue (.literal 0)],
     mkEntry "run" #[] #[.returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile duplicateEntry) "duplicate entries must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile duplicateEntry) "duplicate entries must be rejected"
 
   let duplicateParam := mkProgram "DuplicateParam" #[] #[mkEntry "run"
     #[{ name := "x", type := .u64 }, { name := "x", type := .u64 }]
     #[.returnValue (.variable "x")]]
-  expectInvalid (Compiler.compile duplicateParam) "duplicate parameters must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile duplicateParam) "duplicate parameters must be rejected"
 
   let viewWrite := mkProgram "ViewWrite" #[{ name := "value", type := .u64 }] #[
     mkEntry "get" #[] #[.assign "value" (.literal 1), .returnValue (.variable "value")] .view]
-  expectInvalid (Compiler.compile viewWrite) "view state writes must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile viewWrite) "view state writes must be rejected"
 
   let missingReturn := mkProgram "MissingReturn" #[] #[mkEntry "run" #[] #[.synchronousCall "peer"]]
-  expectInvalid (Compiler.compile missingReturn) "entries without return must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile missingReturn) "entries without return must be rejected"
 
   let illegalAssignment := mkProgram "IllegalAssignment" #[] #[mkEntry "run" #[]
     #[.assign "missing" (.literal 1), .returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile illegalAssignment) "assignment to undeclared state must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile illegalAssignment) "assignment to undeclared state must be rejected"
 
   let typeMismatch := mkProgram "TypeMismatch" #[{ name := "flag", type := .bool }] #[
     mkEntry "run" #[] #[.assign "flag" (.literal 1), .returnValue (.literal 1)]]
-  expectInvalid (Compiler.compile typeMismatch) "assignment type mismatches must be rejected"
+  expectInvalid (Compiler.AlphaCompatibility.compile typeMismatch) "assignment type mismatches must be rejected"
 
 end Tests.Compiler

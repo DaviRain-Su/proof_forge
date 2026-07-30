@@ -1,6 +1,49 @@
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.Crypto
 
+namespace ProofForgeV2
+
+/-- Legacy alpha requirement enum. Product ProgramV1 requirements use only
+    `Semantic.WireV1.ProgramRequirementsV1`; product import roots forbid this
+    `Core.Source` compatibility module. -/
+inductive ProgramRequirement where
+  | persistentState
+  | checkedArithmetic
+  | transactionalRollback
+  | synchronousCall
+  | asynchronousWorkflow
+  | privateWitness
+  | eventEmission
+  | callerContext
+  | boolValues
+  | commitmentDisclosure
+  | fieldBn254
+  | privateState
+  | commitmentState
+  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
+
+namespace ProgramRequirement
+
+def id : ProgramRequirement → String
+  | .persistentState => "state.persistent"
+  | .checkedArithmetic => "value.checked-arithmetic"
+  | .transactionalRollback => "failure.atomic-rollback"
+  | .synchronousCall => "effect.synchronous-call"
+  | .asynchronousWorkflow => "effect.asynchronous-workflow"
+  | .privateWitness => "disclosure.private-witness"
+  | .eventEmission => "effect.event"
+  | .callerContext => "context.caller"
+  | .boolValues => "value.bool"
+  | .commitmentDisclosure => "disclosure.commitment"
+  | .fieldBn254 => "value.field.bn254-fr"
+  | .privateState => "disclosure.private-state"
+  | .commitmentState => "disclosure.commitment-state"
+
+instance : ToString ProgramRequirement := ⟨id⟩
+
+end ProgramRequirement
+end ProofForgeV2
+
 namespace ProofForgeV2.Source
 
 abbrev ArrayLength := Fin 4097

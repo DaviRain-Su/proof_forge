@@ -33,8 +33,9 @@
   earliest member ordinal), then loop-product diagnostics (program item /
   statement source order).
 
-  Product consumption: composed into `CheckV1` and fail-closed gated from
-  `Typed.checkV1`.  Out of scope here: deleting CallGraph cycle codes,
+  Product consumption: composed into `CheckV1`, whose located result is the
+  Normalize product gate. The legacy alpha compatibility checker also consumes
+  the unlocated projection. Out of scope here: deleting CallGraph cycle codes,
   effect-occurrence Semantic IR, ResourceProfile limits, disclosure/authority,
   context.read, extension effects, Disclosure/CheckV1 locate wiring.
 -/

@@ -3,7 +3,7 @@ id: SPEC-DIAG-001
 title: 稳定诊断规格
 status: proposed
 owner: frontend
-updated: 2026-07-29
+updated: 2026-07-30
 normative: true
 ---
 
@@ -64,14 +64,7 @@ major version 内稳定。
   `DiagnosticBundleV1` / `DiagnosticResultV1` 工程地基（private constructor、sole total
   `mkFailureBundleV1` 复用 `normalizeDiagnosticBundleV1` + validate/encode、fail-closed 固定
   `PF-INTERNAL`、read-only diagnostics、deterministic human/PF-JCS array render、exit priority
-  selection）。**B8b** 已完成 sole atomic product multi-error cutover：Loader
-  `selectProgramV1Product`（单次 parse→SpanJoin→OriginJoin）→ Normalize
-  `normalizeProgramLocatedV1`（`checkProgramTypedLocatedResultV1` 一次、全量 located
-  诊断经 `mkFailureBundleV1`）→ Compiler `compileProgramProductV1`（保留完整 bundle，
-  residual alpha 失败 fail-closed 为安全结构化诊断）→ CLI `build`/`build-counter`
-  全量 `renderHuman` + `selectExitCode`；usage/config 仍 exit 2（无 `PF-CLI-USAGE`）。
-  非产品兼容面保留 unlocated `normalizeProgramV1`/`compileValidatedSourceV1`/
-  `selectProgramV1*`；**无**产品路径把 bundle 擦回单 `CompileError`。Full JSON
+  selection）。**B8b** 已完成 located multi-error compiler cutover；**B12** 进一步把 CLI source authority 原子切为 pinned safe-open helper → B10 worker → request-bound success-only product carrier → Normalize `normalizeProgramLocatedV1` → Compiler `compileProgramProductV1`。Frontend.Err 与后续 compiler failures保留完整 bundle；source-open映射 `PF-SRC-INVALID`，resource events映射 `PF-RESOURCE-*`，abnormal protocol/supervisor映射 `PF-FRONTEND-PROTOCOL`，统一 full `renderHuman` + `selectExitCode`；usage/config仍 exit 2（无 `PF-CLI-USAGE`）。非产品兼容面保留 unlocated `normalizeProgramV1`/`compileValidatedSourceV1`/`selectProgramV1*`；**无**产品路径把 bundle 擦回单 `CompileError`，也无 CLI reopen/reparse/fallback。Full JSON
   envelope/receipts、Emit/Toolchain bundle、OutputSet 与 formal `TASK-D1-07` 仍 pending。
   不得把已删除的 zero-sentinel 写入 golden，也不得把 B8b 工程 cutover 写成 formal 完成。
 
@@ -208,14 +201,15 @@ parser/selection producers 与 Typed producers 经 `DiagnosticV1.make` 发出结
 产品入口再以 `mkFailureBundleV1` 封装（真实节点归因见 B7）。**B7a** 已提供 Source path locate +
 pre-node `nodeId=null`，**B7b**
 工程已完成（含 B7b3d CheckV1 located composition）；**B8a** inert `DiagnosticBundleV1` 地基与
-**B8b** product Loader/Normalize/Compiler/CLI multi-error cutover 已落地
-（`DiagnosticBundleV1` + `selectProgramV1Product` + `normalizeProgramLocatedV1` +
-`compileProgramProductV1` + CLI full-bundle render/exit；`Tests/CLI/DiagnosticsV1`、
+**B8b/B12** supervised frontend/Normalize/Compiler/CLI multi-error cutover 已落地
+（`DiagnosticBundleV1` + pinned workers + `SupervisedFrontendV1.productInput` + `normalizeProgramLocatedV1` + `compileProgramProductV1` + CLI full-bundle render/exit；`Tests/CLI/DiagnosticsV1`、
 `Tests/Compiler/DiagnosticPipelineV1`）；formal 仍 pending。Syntax preflight 的产品路径以
 `DiagnosticCodeV1.resourceBound` 保留 `PF-BOUND-001`，非产品兼容面仍投影为
 `CompileError.resourceBound`；human message 只说明超出的 node/nesting/identity limit。CLI 的
-16 MiB parser 前文件上限在产品 bundle 中为 `DiagnosticCodeV1.sourceInvalid` /
-`PF-SRC-INVALID`，非产品兼容面仍为 `CompileError.invalidProgram`；这两个边界不得在证据中混写。
+16 MiB parser 前文件上限由 request-bound canonical SafeOpen Err 的 closed `.tooLarge` fault（private
+supervised carrier，不进入 receipt/JSON）精确恢复，在产品 bundle 中为
+`DiagnosticCodeV1.sourceInvalid` / `PF-SRC-INVALID: source exceeds the 16 MiB limit`；CLI 不得
+reopen/stat source以重分类。非产品兼容面仍为 `CompileError.invalidProgram`；这两个边界不得在证据中混写。
 
 ## 隐私与安全
 

@@ -70,15 +70,21 @@ private def testProtocolRoundTrips : IO Unit := do
       "nested/source.lean")
     "request relative path round-trip"
 
+  let foreignRequest ← requestFor root "nested/foreign.lean"
   let payload := "safe-open-worker-payload\n".toUTF8
-  let success ← lift "success" (mkSafeOpenWorkerSuccessV1 payload)
+  let success ← lift "success" (mkSafeOpenWorkerSuccessV1 request payload)
   let successBytes ← lift "encode success" (encodeSafeOpenWorkerSuccessV1 success)
-  match ← lift "decode success response"
-      (decodeSafeOpenWorkerResponseV1 successBytes) with
+  let successResponse ← lift "decode success response"
+    (decodeSafeOpenWorkerResponseV1 successBytes)
+  match successResponse with
   | .failure _ => throw <| IO.userError "success decoded as failure"
   | .success decoded =>
       expect (SafeOpenWorkerSuccessV1.bytes decoded == payload)
         "success payload identity"
+  let _ ← lift "bind success to request"
+    (bindSafeOpenWorkerResponseV1 request successResponse)
+  expect (exceptIsError (bindSafeOpenWorkerResponseV1 foreignRequest successResponse))
+    "canonical success replay across safe-open requests must be rejected"
 
   let faults : Array SafeOpenFaultV1 := #[
     .invalidRoot, .notFound, .permissionDenied, .unsafePath, .nonRegular,
@@ -86,19 +92,26 @@ private def testProtocolRoundTrips : IO Unit := do
     .changedDuringRead, .io, .nativeProtocol
   ]
   for fault in faults do
-    let failure ← lift "failure" (mkSafeOpenWorkerFailureV1 fault)
+    let failure ← lift "failure" (mkSafeOpenWorkerFailureV1 request fault)
     let bytes ← lift "encode failure" (encodeSafeOpenWorkerFailureV1 failure)
-    match ← lift "decode failure response" (decodeSafeOpenWorkerResponseV1 bytes) with
+    let failureResponse ← lift "decode failure response"
+      (decodeSafeOpenWorkerResponseV1 bytes)
+    match failureResponse with
     | .success _ => throw <| IO.userError s!"{fault.wire}: decoded as success"
     | .failure decoded =>
         expect (SafeOpenWorkerFailureV1.fault decoded == fault)
           s!"{fault.wire}: fault identity"
+    let _ ← lift "bind failure to request"
+      (bindSafeOpenWorkerResponseV1 request failureResponse)
+    expect (exceptIsError (bindSafeOpenWorkerResponseV1 foreignRequest failureResponse))
+      s!"{fault.wire}: canonical failure replay must be rejected"
 
   match mkSafeOpenWorkerRequestV1 (FilePath.mk "relative-root")
       (SafeOpenWorkerRequestV1.path request) with
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "relative root must be rejected"
-  match mkSafeOpenWorkerSuccessV1 (repeatedByte (maxSourceBytes + 1) 0x61) with
+  match mkSafeOpenWorkerSuccessV1 request
+      (repeatedByte (maxSourceBytes + 1) 0x61) with
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "oversize success must be rejected"
 
@@ -108,8 +121,10 @@ private def testProtocolRoundTrips : IO Unit := do
   expect (exceptIsError (decodeSafeOpenWorkerRequestV1 (requestBytes.push 0)))
     "trailing request byte rejected"
   let unknownWire ← lift "unknown wire" (encodeString "undefined")
+  let requestDigest ← lift "unknown wire request digest"
+    (safeOpenWorkerRequestDigestOfV1 request)
   let unknownFrame ← lift "unknown failure frame"
-    (encodeTagged "SafeOpen.Err.v1" #[unknownWire])
+    (encodeTagged "SafeOpen.Err.v1" #[requestDigest.bytes, unknownWire])
   expect (exceptIsError (decodeSafeOpenWorkerResponseV1 unknownFrame))
     "unknown SafeOpenFault wire rejected"
   let rootBomb := encodeU32le (UInt32.ofNat (maxSafeOpenProtocolBytesV1 + 1))

@@ -2,47 +2,9 @@ import ProofForgeV2.Core.TargetIdentityV1
 
 namespace ProofForgeV2
 
-inductive ProgramRequirement where
-  | persistentState
-  | checkedArithmetic
-  | transactionalRollback
-  | synchronousCall
-  | asynchronousWorkflow
-  | privateWitness
-  | eventEmission
-  | callerContext
-  | boolValues
-  | commitmentDisclosure
-  | fieldBn254
-  | privateState
-  | commitmentState
-  deriving BEq, DecidableEq, Hashable, Inhabited, Repr
-
-namespace ProgramRequirement
-
-def id : ProgramRequirement → String
-  | .persistentState => "state.persistent"
-  | .checkedArithmetic => "value.checked-arithmetic"
-  | .transactionalRollback => "failure.atomic-rollback"
-  | .synchronousCall => "effect.synchronous-call"
-  | .asynchronousWorkflow => "effect.asynchronous-workflow"
-  | .privateWitness => "disclosure.private-witness"
-  | .eventEmission => "effect.event"
-  | .callerContext => "context.caller"
-  | .boolValues => "value.bool"
-  | .commitmentDisclosure => "disclosure.commitment"
-  | .fieldBn254 => "value.field.bn254-fr"
-  | .privateState => "disclosure.private-state"
-  | .commitmentState => "disclosure.commitment-state"
-
-instance : ToString ProgramRequirement := ⟨id⟩
-
-end ProgramRequirement
-
 inductive CompileError where
   | unknownTarget (input : String)
   | targetNotImplemented (target : TargetKind)
-  | unsupportedRequirement (requirement : ProgramRequirement) (target : TargetKind)
   /-- V1 request unknown / wrong version / wrong digest / no exact support.
       Wire code `PF-REQ-UNSUPPORTED` (engineering resolver path; not SupportClaim). -/
   | unsupportedRequirementV1 (message : String)
@@ -71,7 +33,6 @@ namespace CompileError
 def code : CompileError → String
   | .unknownTarget .. => "PF-TARGET-UNKNOWN"
   | .targetNotImplemented .. => "PF-TARGET-NOT-IMPLEMENTED"
-  | .unsupportedRequirement .. => "PF-REQ-UNSUPPORTED"
   | .unsupportedRequirementV1 .. => "PF-REQ-UNSUPPORTED"
   | .requirementPrecondition .. => "PF-REQ-PRECONDITION"
   | .invalidProgram .. => "PF-SRC-INVALID"
@@ -93,8 +54,6 @@ def code : CompileError → String
 def message : CompileError → String
   | .unknownTarget input => s!"unknown target '{input}'"
   | .targetNotImplemented target => s!"target '{target}' has research metadata but no compiler implementation"
-  | .unsupportedRequirement requirement target =>
-    s!"target '{target}' cannot preserve requirement '{requirement}'"
   | .unsupportedRequirementV1 detail => detail
   | .requirementPrecondition detail => detail
   | .invalidProgram detail => detail

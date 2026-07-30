@@ -7,15 +7,17 @@
   B11b2: `superviseFrontendSourceV1` first supervises a pinned safe-open helper
   executable (SafeOpen.Req/Ok/Err.v1) via the same hardened Darwin process-group
   primitive, then (on Ok) constructs Frontend.Req.v1 and supervises the frontend
-  worker. A single overall monotonic wall start covers open → parent decode /
-  request construction → frontend worker. Prior elapsed is recomputed from that
-  start before each supervise call; prior ≥ wall mints deadlineObserved without
-  spawn. No parent-side fork of safe-open; no product test hooks.
+  worker. A private capability minted from native CLOCK_MONOTONIC carries one
+  absolute wall origin across open → parent decode/request construction → worker;
+  native checks expiry before each stage allocation/pipe/spawn. SafeOpen Ok/Err
+  responses are request-digest bound. B12 routes CLI source authority through the
+  success-only product carrier and runs both workers from fd-derived private
+  snapshots. No parent-side fork or product test hooks.
 
   Explicit non-claims:
   * assurance remains `darwin-development-observed`
   * not process/session containment, not formal TST-RESOURCE-001 / TASK-D1-08
-  * not CLI product cutover; not Linux `contained`
+  * not Linux `contained`, formal executable identity, or locked import closure
 -/
 import ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 import ProofForgeV2.Frontend.ProtocolV1
@@ -27,14 +29,22 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
 open ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 open ProofForgeV2.Frontend.ProtocolV1
+open ProofForgeV2.Frontend.SafeOpenV1
 open ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1
+open ProofForgeV2.Source.OriginJoinV1
+open ProofForgeV2.Source.ValidatedSourceV1
 open System
 
-/-- Private-ctor supervised frontend result: receipt + optional decoded response. -/
+/-- Private-ctor supervised frontend result. A successful response retains the
+    sole reconstructed product input. A canonical pre-request SafeOpen.Err.v1
+    retains only its closed fault class so the CLI can preserve source-limit
+    diagnostics without reopening or restating filesystem authority. -/
 structure SupervisedFrontendV1 where
   private mk ::
   private receipt_ : DarwinFrontendSupervisorReceiptV1
   private response_ : Option FrontendResponseV1
+  private productInput_ : Option (ValidatedSourceV1 × OriginInventoryV1)
+  private sourceOpenFault_ : Option SafeOpenFaultV1
 
 namespace SupervisedFrontendV1
 
@@ -43,6 +53,17 @@ def receipt (s : SupervisedFrontendV1) : DarwinFrontendSupervisorReceiptV1 :=
 
 def response (s : SupervisedFrontendV1) : Option FrontendResponseV1 :=
   s.response_
+
+/-- Product compiler input reconstructed exactly once inside the request-bound
+    supervisor success path. Callers must not reopen or reparse source. -/
+def productInput (s : SupervisedFrontendV1) :
+    Option (ValidatedSourceV1 × OriginInventoryV1) :=
+  s.productInput_
+
+/-- Closed source-open fault retained only for a request-bound canonical
+    SafeOpen.Err.v1 with complete cleanup. No path or native prose is retained. -/
+def sourceOpenFault (s : SupervisedFrontendV1) : Option SafeOpenFaultV1 :=
+  s.sourceOpenFault_
 
 end SupervisedFrontendV1
 
@@ -62,14 +83,6 @@ private def maxPhaseObservations
       frontendPhase.peakAggregateMemoryBytes
     peakProcesses := max openPhase.peakProcesses frontendPhase.peakProcesses }
 
-private def deadlineObservations
-    (effective : ResourceProfileV1)
-    (prior : DarwinFrontendPublicObservationsV1) :
-    DarwinFrontendPublicObservationsV1 :=
-  { elapsedMillis := effective.maxWallMillis + 1
-    peakAggregateMemoryBytes := prior.peakAggregateMemoryBytes
-    peakProcesses := prior.peakProcesses }
-
 private def mintNativeFaultSupervised
     (effective : ResourceProfileV1)
     (request : FrontendRequestV1)
@@ -78,7 +91,7 @@ private def mintNativeFaultSupervised
   let receipt ← mkDarwinFrontendSupervisorReceiptV1
     effective (some request) prior
     .supervisorFault .noResponse .incomplete
-  pure ⟨receipt, none⟩
+  pure ⟨receipt, none, none, none⟩
 
 private def mintReceipt
     (effective : ResourceProfileV1)
@@ -87,22 +100,35 @@ private def mintReceipt
     (event : DarwinFrontendSupervisorEventV1)
     (result : DarwinFrontendSupervisorResultV1)
     (cleanup : DarwinFrontendCleanupResultV1)
-    (response : Option FrontendResponseV1) :
+    (response : Option FrontendResponseV1)
+    (productInput : Option (ValidatedSourceV1 × OriginInventoryV1) := none)
+    (sourceOpenFault : Option SafeOpenFaultV1 := none) :
     Except String SupervisedFrontendV1 := do
+  match event, result, response, productInput, sourceOpenFault with
+  | .sourceOpenFailed, .noResponse, none, none, some _ => pure ()
+  | .sourceOpenFailed, _, _, _, _ =>
+      throw "source-open failure/fault join is inconsistent"
+  | _, .responseOk, some (.success _), some _, none => pure ()
+  | _, .responseError, some (.failure _), none, none => pure ()
+  | _, .noResponse, none, none, none => pure ()
+  | _, _, _, _, _ =>
+      throw "supervised frontend response/product/fault join is inconsistent"
   let receipt ← mkDarwinFrontendSupervisorReceiptV1
     effective request observations event result cleanup
-  pure ⟨receipt, response⟩
+  pure ⟨receipt, response, productInput, sourceOpenFault⟩
 
 private def bindResponseToRequest
     (request : FrontendRequestV1)
-    (response : FrontendResponseV1) : Except String FrontendResponseV1 := do
+    (response : FrontendResponseV1) :
+    Except String (FrontendResponseV1 ×
+      Option (ValidatedSourceV1 × OriginInventoryV1)) := do
   match response with
   | .success success =>
       let bound ← bindFrontendSuccessV1 request success
-      let _ ← reconstructFrontendSuccessV1 request bound
-      pure (.success bound)
+      let productInput ← reconstructFrontendSuccessV1 request bound
+      pure (.success bound, some productInput)
   | .failure failure =>
-      pure (.failure (← bindFrontendFailureV1 request failure))
+      pure (.failure (← bindFrontendFailureV1 request failure), none)
 
 private def mintFromOutcome
     (effective : ResourceProfileV1)
@@ -124,13 +150,13 @@ private def mintFromOutcome
             (DarwinWorkerSupervisorOutcomeV1.responseBytes outcome)
           bindResponseToRequest request response
         match decoded with
-        | .ok response =>
+        | .ok (response, productInput) =>
             let result :=
               match response with
               | .success _ => DarwinFrontendSupervisorResultV1.responseOk
               | .failure _ => DarwinFrontendSupervisorResultV1.responseError
             mintReceipt effective (some request) observations .responseAccepted
-              result cleanup (some response)
+              result cleanup (some response) productInput
         | .error _ =>
             mintReceipt effective (some request) observations
               .workerExitObserved .noResponse cleanup none
@@ -189,45 +215,23 @@ private def mintOpenTransportEvent
       mintReceipt effective none observations .supervisorFault .noResponse
         cleanup none
 
-/-- Overall monotonic elapsed since `startMs` (Nat millis from IO.monoMsNow). -/
-private def elapsedSince (startMs : Nat) : IO UInt64 := do
-  let now ← IO.monoMsNow
-  let delta := if now ≥ startMs then now - startMs else 0
-  if delta ≥ UInt64.size then
-    pure (UInt64.ofNat (UInt64.size - 1))
-  else
-    pure (UInt64.ofNat delta)
-
-/-- Mint deadline without spawning when overall prior already meets the wall. -/
-private def mintDeadlineAtWall
-    (effective : ResourceProfileV1)
-    (request : Option FrontendRequestV1)
-    (prior : DarwinFrontendPublicObservationsV1) :
-    Except String SupervisedFrontendV1 :=
-  mintReceipt effective request (deadlineObservations effective prior)
-    .deadlineObserved .noResponse .observedComplete none
-
-private def superviseFrontendRequestWithPriorV1
+private def superviseFrontendRequestWithBudgetV1
     (workerPath : FilePath)
     (request : FrontendRequestV1)
     (effective : ResourceProfileV1)
-    (priorElapsedMillis : UInt64)
+    (budget : DarwinFrontendBudgetV1)
     (priorObservations : DarwinFrontendPublicObservationsV1) :
     IO (Except String SupervisedFrontendV1) := do
   match validateLowerOnlyResourceProfile hardFrontendProfile effective with
   | .error detail => return .error detail
   | .ok () => pure ()
-  if priorElapsedMillis == UInt64.ofNat (UInt64.size - 1) ||
-      priorElapsedMillis ≥ effective.maxWallMillis then
-    return .error "prior elapsed meets or exceeds effective wall budget"
   let input ←
     match encodeFrontendRequestV1 request with
     | .error detail => return .error detail
     | .ok bytes => pure bytes
   if input.size > effective.maxProtocolBytes.toNat then
     return .error "frontend request exceeds effective maxProtocolBytes"
-  match ← superviseDarwinWorkerFrameV1 workerPath input effective
-      priorElapsedMillis with
+  match ← superviseDarwinWorkerFrameWithBudgetV1 workerPath input effective budget with
   | .error .unsupportedPlatform =>
       return .error DarwinWorkerSupervisorFaultV1.unsupportedPlatform.wire
   | .error _ =>
@@ -235,20 +239,20 @@ private def superviseFrontendRequestWithPriorV1
   | .ok outcome =>
       pure (mintFromOutcome effective request priorObservations outcome)
 
-/-- Supervise one already-built frontend request (B11b1).
-
-    Optional `priorElapsedMillis` is wall already consumed under a shared
-    overall budget. Callers that observe prior ≥ wall must mint deadline
-    themselves; this entry also rejects prior ≥ wall / UINT64_MAX. -/
+/-- Supervise one already-built frontend request (B11b1) under a freshly minted
+    native monotonic budget that starts before canonical request encoding. -/
 def superviseFrontendRequestV1
     (workerPath : FilePath)
     (request : FrontendRequestV1)
-    (effective : ResourceProfileV1)
-    (priorElapsedMillis : UInt64 := 0) :
-    IO (Except String SupervisedFrontendV1) :=
-  superviseFrontendRequestWithPriorV1 workerPath request effective
-    priorElapsedMillis
-    { zeroObservations with elapsedMillis := priorElapsedMillis }
+    (effective : ResourceProfileV1) :
+    IO (Except String SupervisedFrontendV1) := do
+  match ← startDarwinFrontendBudgetV1 with
+  | .error .unsupportedPlatform =>
+      return .error DarwinWorkerSupervisorFaultV1.unsupportedPlatform.wire
+  | .error _ => pure (mintNativeFaultSupervised effective request zeroObservations)
+  | .ok budget =>
+      superviseFrontendRequestWithBudgetV1 workerPath request effective budget
+        zeroObservations
 
 /-- B11b2: supervised safe-open helper then frontend worker under one wall.
 
@@ -268,15 +272,22 @@ def superviseFrontendSourceV1
   | .error detail => return .error detail
   | .ok () => pure ()
 
-  -- Overall monotonic budget starts before open request construction.
-  let startMs ← IO.monoMsNow
+  -- One private CLOCK_MONOTONIC origin covers request construction, both child
+  -- stages, and the Lean/FFI seams between them.
+  let budget ← match ← startDarwinFrontendBudgetV1 with
+    | .error .unsupportedPlatform =>
+        return .error DarwinWorkerSupervisorFaultV1.unsupportedPlatform.wire
+    | .error _ =>
+        return (mintReceipt effective none zeroObservations .supervisorFault
+          .noResponse .incomplete none)
+    | .ok budget => pure budget
 
-  -- Invalid root/path: deterministic sourceOpenFailed without spawn.
+  -- Invalid trusted-root metadata is a caller argument fault, not an observed
+  -- source-open failure. In particular, it must not mint sourceOpenFailed
+  -- without a canonical SafeOpen.Err.v1 produced by the supervised child.
   let openReq ←
     match mkSafeOpenWorkerRequestV1 projectRoot sourcePath with
-    | .error _ =>
-        return (mintReceipt effective none zeroObservations .sourceOpenFailed
-          .noResponse .observedComplete none)
+    | .error detail => return .error detail
     | .ok req => pure req
   let openInput ←
     match encodeSafeOpenWorkerRequestV1 openReq with
@@ -287,14 +298,9 @@ def superviseFrontendSourceV1
   if openInput.size > effective.maxProtocolBytes.toNat then
     return .error "safe-open request exceeds effective maxProtocolBytes"
 
-  -- Prior for open phase (usually ~0; includes any pre-spawn parent work).
-  let priorOpen ← elapsedSince startMs
-  if priorOpen ≥ effective.maxWallMillis then
-    return (mintDeadlineAtWall effective none zeroObservations)
-
   let openOutcome ←
-    match ← superviseDarwinWorkerFrameV1 safeOpenWorkerPath openInput effective
-        priorOpen with
+    match ← superviseDarwinWorkerFrameWithBudgetV1 safeOpenWorkerPath openInput
+        effective budget with
     | .error .unsupportedPlatform =>
         return .error DarwinWorkerSupervisorFaultV1.unsupportedPlatform.wire
     | .error _ =>
@@ -325,14 +331,27 @@ def superviseFrontendSourceV1
           .supervisorFault .noResponse
           (DarwinWorkerSupervisorOutcomeV1.cleanup openOutcome) none)
     | .ok r => pure r
+  let openResponse ←
+    match bindSafeOpenWorkerResponseV1 openReq openResponse with
+    | .error _ =>
+        -- A canonical response for another SafeOpen.Req.v1 is still a replay,
+        -- never sourceOpenFailed and never a source snapshot authority.
+        return (mintReceipt effective none
+          (DarwinWorkerSupervisorOutcomeV1.observations openOutcome)
+          .supervisorFault .noResponse
+          (DarwinWorkerSupervisorOutcomeV1.cleanup openOutcome) none)
+    | .ok r => pure r
 
   match openResponse with
-  | .failure _failure =>
+  | .failure failure =>
       -- Canonical closed SafeOpenFault + complete cleanup → sourceOpenFailed.
+      -- Retain the closed class (never a path/errno string) so the product CLI
+      -- can preserve the specified 16 MiB diagnostic without reopening source.
       pure (mintReceipt effective none
         (DarwinWorkerSupervisorOutcomeV1.observations openOutcome)
         .sourceOpenFailed .noResponse
-        (DarwinWorkerSupervisorOutcomeV1.cleanup openOutcome) none)
+        (DarwinWorkerSupervisorOutcomeV1.cleanup openOutcome) none
+        (sourceOpenFault := some (SafeOpenWorkerFailureV1.fault failure)))
   | .success success =>
       -- Build Frontend.Req.v1 from snapshot (parent CPU; counts against wall).
       let request ←
@@ -344,16 +363,10 @@ def superviseFrontendSourceV1
               .supervisorFault .noResponse .observedComplete none)
         | .ok req => pure req
 
-      -- Recompute total prior from overall start (open + gap + construct).
-      let priorWorker ← elapsedSince startMs
-      let priorObservations :=
-        { openObservations with elapsedMillis := priorWorker }
-      if priorWorker ≥ effective.maxWallMillis then
-        -- Request exists → digest some; retain open peaks and never spawn worker.
-        return (mintDeadlineAtWall effective (some request) priorObservations)
-
-      match ← superviseFrontendRequestWithPriorV1 frontendWorkerPath request
-          effective priorWorker priorObservations with
+      -- The same private absolute budget reaches native after request encoding;
+      -- an exhausted budget yields deadline before worker allocation/spawn.
+      match ← superviseFrontendRequestWithBudgetV1 frontendWorkerPath request
+          effective budget openObservations with
       | .error e => return .error e
       | .ok supervised => pure (.ok supervised)
 

@@ -1,22 +1,14 @@
 /-
-  Tests.Typed.RequirementsInferV1 — D2-05 requirements inference engineering
-  subset suite.
+  Tests.Typed.RequirementsInferV1 — sole target-neutral requirement contribution
+  analysis + Semantic.RequirementsV1 freeze integration.
 
-  Covers Counter-like public state + arithmetic, private/commitment state
-  disclosure, private entry param (privateWitness), AST-direct emit/call/
-  schedule, Bool type carrier, idempotent id list, optional parity vs
-  Semantic.deriveRequirements on compileValidatedSourceV1-accepted programs,
-  and exact ProgramRequirement.id human wire strings.
-  Independent of CheckV1 / Typed.checkV1 product path.
+  The contribution engine preserves source-order first-seen identities. The
+  Semantic layer is its sole product consumer and owns closed-catalog rejection,
+  request metadata, and canonical wire sorting. No alpha ProgramRequirement or
+  Semantic.deriveRequirements parity path exists.
 -/
-import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Core.Diagnostic
-import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Source.AstProgramItemV1
-import ProofForgeV2.Source.AstProgramV1
-import ProofForgeV2.Source.AstV1
-import ProofForgeV2.Source.NameComponentV1
+import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Typed.RequirementsInferV1
 import Tests.Language.ParserSession
@@ -24,11 +16,7 @@ import Tests.Language.ParserSession
 namespace Tests.Typed.RequirementsInferV1
 
 open ProofForgeV2
-open ProofForgeV2.Core
-open ProofForgeV2.Source.AstProgramItemV1
-open ProofForgeV2.Source.AstProgramV1
-open ProofForgeV2.Source.AstV1
-open ProofForgeV2.Source.NameComponentV1
+open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Typed.RequirementsInferV1
 
@@ -37,11 +25,9 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
 
 private def moduleName : String := "Tests.RequirementsInferV1"
 
-private def reqIds (reqs : Array ProgramRequirement) : Array String :=
-  reqs.map ProgramRequirement.id
-
-private def containsReq (reqs : Array ProgramRequirement) (r : ProgramRequirement) : Bool :=
-  reqs.contains r
+private def contributionIds
+    (contributions : Array RequirementContributionV1) : Array String :=
+  contributions.map RequirementContributionV1.idOf
 
 private unsafe def loadSource
     (session : Language.Loader.ParserSession) (label source : String) :
@@ -52,16 +38,39 @@ private unsafe def loadSource
 
 private unsafe def inferSource
     (session : Language.Loader.ParserSession) (label source : String) :
-    IO RequirementsInferResultV1 := do
+    IO (ValidatedSourceV1 × Array String) := do
   let validated ← loadSource session label source
-  pure (inferRequirementsV1 validated)
+  pure (validated, contributionIds (inferRequirementContributionsFromSourceV1 validated))
 
 private def wrap (name body : String) : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n\n" ++
   "program " ++ name ++ " where\n" ++ body
 
-/-- 1. Counter-like public state + init + increment/get. -/
+private def fixtureProgramName (label : String) : String :=
+  "Req_" ++ String.ofList (label.toList.map fun c => if c == '-' then '_' else c)
+
+private def expectFreezeIds
+    (label : String) (source : ValidatedSourceV1) (expected : Array String) : IO Unit := do
+  match freezeProgramRequirementsFromSourceV1 source with
+  | .error error => throw <| IO.userError s!"{label}: freeze failed: {error}"
+  | .ok requirements =>
+      expect (requirements.items.map (·.id) == expected)
+        s!"{label}: frozen ids {requirements.items.map (·.id)}"
+      for item in requirements.items do
+        expect (item.version == s2RequirementVersionV1 && item.predicates.isEmpty)
+          s!"{label}: version/predicate metadata for {item.id}"
+        let digest ← match engineeringRequirementDigestV1 item.id with
+          | .ok value => pure value
+          | .error error => throw <| IO.userError s!"{label}: digest {error}"
+        expect (item.digest == digest) s!"{label}: digest metadata for {item.id}"
+
+private def expectFreezeReject
+    (label expected : String) (source : ValidatedSourceV1) : IO Unit :=
+  match freezeProgramRequirementsFromSourceV1 source with
+  | .error error => expect (error == expected) s!"{label}: got {error}"
+  | .ok _ => throw <| IO.userError s!"{label}: foreign contribution unexpectedly froze"
+
 private unsafe def testCounterLike
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ReqCounter" <|
@@ -73,286 +82,113 @@ private unsafe def testCounterLike
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let result ← inferSource session "counter" source
-  expect result.ok "counter: ok"
-  expect result.analysisComplete "counter: complete"
-  let reqs := result.requirements
-  expect (containsReq reqs .persistentState) "counter: persistentState"
-  expect (containsReq reqs .checkedArithmetic) "counter: checkedArithmetic"
-  expect (containsReq reqs .transactionalRollback) "counter: transactionalRollback"
-  expect (!containsReq reqs .privateState) "counter: no privateState"
-  expect (!containsReq reqs .privateWitness) "counter: no privateWitness"
-  expect (!containsReq reqs .callerContext) "counter: no callerContext"
-  -- First-seen order: persistent then arithmetic then rollback (from +)
-  expect (reqs == #[.persistentState, .checkedArithmetic, .transactionalRollback])
-    s!"counter: exact order, got {reqIds reqs}"
+  let (validated, ids) ← inferSource session "counter" source
+  expect (ids == #["state.persistent", "value.checked-arithmetic",
+      "failure.atomic-rollback"])
+    s!"counter contribution order: {ids}"
+  expectFreezeIds "counter" validated s2CatalogIdsWireOrderV1
 
-/-- 2. private state only. -/
-private unsafe def testPrivateState
+private unsafe def testForeignContributions
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqPrivateState" <|
-    "  state private value : UInt64\n" ++
-    "  entry ping() : UInt64 do\n" ++
-    "    return 0\n"
-  let result ← inferSource session "private-state" source
-  expect (result.requirements == #[.persistentState, .privateState])
-    s!"private-state: expected [persistent, privateState], got {reqIds result.requirements}"
+  let cases : Array (String × String × Array String × String) := #[
+    ("private-state",
+      "  state private value : UInt64\n  entry ping() : UInt64 do\n    return 0\n",
+      #["state.persistent", "disclosure.private-state"],
+      "disclosure.private-state"),
+    ("commitment-state",
+      "  state commitment value : UInt64\n  entry ping() : UInt64 do\n    return 0\n",
+      #["state.persistent", "disclosure.commitment-state"],
+      "disclosure.commitment-state"),
+    ("private-param",
+      "  entry run(private secret : UInt64) : UInt64 do\n    return 0\n",
+      #["disclosure.private-witness"],
+      "disclosure.private-witness"),
+    ("commitment-param",
+      "  entry run(commitment secret : UInt64) : UInt64 do\n    return 0\n",
+      #["disclosure.commitment"],
+      "disclosure.commitment"),
+    ("emit",
+      "  event Ev()\n  entry run() : UInt64 do\n    emit Ev()\n    return 0\n",
+      #["effect.event"],
+      "effect.event"),
+    ("call",
+      "  entry run() : UInt64 do\n    call External.Use()\n    return 0\n",
+      #["effect.synchronous-call", "failure.atomic-rollback"],
+      "effect.synchronous-call"),
+    ("schedule",
+      "  entry run() : UInt64 do\n    schedule External.Later()\n    return 0\n",
+      #["effect.asynchronous-workflow"],
+      "effect.asynchronous-workflow"),
+    ("bool",
+      "  entry run(flag : Bool) : Bool do\n    return flag\n",
+      #["value.bool"],
+      "value.bool"),
+    ("field",
+      "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n",
+      #["value.field.bn254-fr"],
+      "value.field.bn254-fr")]
+  for testCase in cases do
+    let label := testCase.1
+    let body := testCase.2.1
+    let expectedIds := testCase.2.2.1
+    let firstForeign := testCase.2.2.2
+    let (validated, ids) ← inferSource session label (wrap (fixtureProgramName label) body)
+    expect (ids == expectedIds) s!"{label}: contribution ids {ids}"
+    expectFreezeReject label
+      s!"S2 semantic requirements freeze rejects non-catalog key '{firstForeign}'"
+      validated
 
-/-- 3. commitment state. -/
-private unsafe def testCommitmentState
+private unsafe def testCatalogAndDedup
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqCommitmentState" <|
-    "  state commitment value : UInt64\n" ++
-    "  entry ping() : UInt64 do\n" ++
-    "    return 0\n"
-  let result ← inferSource session "commitment-state" source
-  expect (result.requirements == #[.persistentState, .commitmentState])
-    s!"commitment-state: expected [persistent, commitmentState], got {reqIds result.requirements}"
+  let publicSource := wrap "ReqPublic" <|
+    "  state value : UInt64\n" ++
+    "  entry ping(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  let (publicValidated, publicIds) ← inferSource session "public" publicSource
+  expect (publicIds == #["state.persistent"])
+    s!"public state contribution ids: {publicIds}"
+  expectFreezeIds "public" publicValidated #["state.persistent"]
 
-/-- 4. private entry param ⇒ privateWitness; public param no disclosure. -/
-private unsafe def testPrivateParam
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let privateSrc := wrap "ReqPrivateParam" <|
-    "  entry run(private secret : UInt64) : UInt64 do\n" ++
+  let rollbackSource := wrap "ReqRollback" <|
+    "  error Boom()\n" ++
+    "  entry run(x : Bool) : UInt64 do\n" ++
+    "    assert x\n" ++
+    "    revert Boom()\n" ++
     "    return 0\n"
-  let publicSrc := wrap "ReqPublicParam" <|
-    "  entry run(public x : UInt64) : UInt64 do\n" ++
-    "    return 0\n"
-  let priv ← inferSource session "private-param" privateSrc
-  let pub ← inferSource session "public-param" publicSrc
-  expect (containsReq priv.requirements .privateWitness)
-    "private-param: privateWitness"
-  expect (!containsReq priv.requirements .privateState)
-    "private-param: not privateState"
-  expect (!containsReq pub.requirements .privateWitness)
-    "public-param: no privateWitness"
-  expect (!containsReq pub.requirements .commitmentDisclosure)
-    "public-param: no commitmentDisclosure"
-  expect (priv.requirements == #[.privateWitness])
-    s!"private-param exact: {reqIds priv.requirements}"
-  expect (pub.requirements == #[])
-    s!"public-param exact empty: {reqIds pub.requirements}"
+  let (_, rollbackIds) ← inferSource session "rollback" rollbackSource
+  expect (rollbackIds == #["value.bool", "failure.atomic-rollback"])
+    s!"duplicate rollback contribution must be first-seen unique: {rollbackIds}"
 
-/-- 5. AST-direct emit ⇒ eventEmission. -/
-private unsafe def testEmit
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqEmit" <|
-    "  event Ev()\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    emit Ev()\n" ++
-    "    return 0\n"
-  let result ← inferSource session "emit" source
-  expect (containsReq result.requirements .eventEmission) "emit: eventEmission"
-  expect (result.requirements == #[.eventEmission])
-    s!"emit exact: {reqIds result.requirements}"
-
-/-- 6. AST-direct external call ⇒ synchronousCall + transactionalRollback. -/
-private unsafe def testExternalCall
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqCall" <|
-    "  entry run() : UInt64 do\n" ++
-    "    call External.Use()\n" ++
-    "    return 0\n"
-  let result ← inferSource session "call" source
-  expect (containsReq result.requirements .synchronousCall) "call: synchronousCall"
-  expect (containsReq result.requirements .transactionalRollback)
-    "call: transactionalRollback"
-  expect (result.requirements == #[.synchronousCall, .transactionalRollback])
-    s!"call exact: {reqIds result.requirements}"
-
-/-- 7. AST-direct schedule ⇒ asynchronousWorkflow only. -/
-private unsafe def testSchedule
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqSchedule" <|
-    "  entry run() : UInt64 do\n" ++
-    "    schedule External.Later()\n" ++
-    "    return 0\n"
-  let result ← inferSource session "schedule" source
-  expect (containsReq result.requirements .asynchronousWorkflow)
-    "schedule: asynchronousWorkflow"
-  expect (!containsReq result.requirements .transactionalRollback)
-    "schedule: no invented transactionalRollback"
-  expect (result.requirements == #[.asynchronousWorkflow])
-    s!"schedule exact: {reqIds result.requirements}"
-
-/-- 8. Bool result/param ⇒ boolValues. -/
-private unsafe def testBoolValues
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqBool" <|
-    "  entry run(flag : Bool) : Bool do\n" ++
-    "    return flag\n"
-  let result ← inferSource session "bool" source
-  expect (containsReq result.requirements .boolValues) "bool: boolValues"
-  -- param Bool then result Bool; stableUnique keeps one
-  expect (result.requirements == #[.boolValues])
-    s!"bool exact: {reqIds result.requirements}"
-
-/-- 9. Idempotent: twice same AST ⇒ byte-identical requirement id list. -/
 private unsafe def testIdempotent
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqIdem" <|
+  let source := wrap "ReqIdempotent" <|
     "  state count : UInt64\n" ++
     "  entry increment(delta : UInt64) : UInt64 do\n" ++
     "    count := count + delta\n" ++
     "    return count\n"
-  let a ← inferSource session "idem-a" source
-  let b ← inferSource session "idem-b" source
-  expect (reqIds a.requirements == reqIds b.requirements)
-    s!"idempotent ids: {reqIds a.requirements} vs {reqIds b.requirements}"
-  expect (a.requirements == b.requirements) "idempotent arrays"
+  let (_, first) ← inferSource session "idem-a" source
+  let (_, second) ← inferSource session "idem-b" source
+  expect (first == second) s!"idempotent contribution ids: {first} vs {second}"
 
-/-- 10. Parity with Semantic.deriveRequirements on S1 Counter; direct inference
-    for out-of-S1 private/commitment/call (full compile no longer required). -/
-private unsafe def testParity
+private unsafe def testCounterAuthority
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Counter product source text (S1 — compile + deriveRequirements parity)
-  let counterSrc := Examples.counterSourceText
-  match ← session.selectProgramV1 counterSrc "<req-infer-parity-counter>"
-      Examples.counterModuleNameV1 none with
-  | .error e => throw <| IO.userError s!"parity-counter load: {e.render}"
-  | .ok validated =>
-      let inferred := inferRequirementsV1 validated
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error e => throw <| IO.userError s!"parity-counter compile: {e.render}"
-      | .ok compiled =>
-          let semantic := Compiler.CompiledProgramV1.alphaResidualOf compiled
-          expect (inferred.requirements == semantic.requirements)
-            s!"parity-counter: infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
-          expect (inferred.requirements == Semantic.deriveRequirements semantic)
-            "parity-counter: match deriveRequirements"
-
-  -- Public S1-compatible state (bare place return) — compile parity.
-  let publicSrc :=
-    "import ProofForgeV2\n\n" ++
-    "open ProofForgeV2.Language\n\n" ++
-    "namespace Tests.RequirementsInferParity\n\n" ++
-    "program ParityPublic where\n" ++
-    "  state public value : UInt64\n\n" ++
-    "  entry ping() : UInt64 do\n" ++
-    "    return value\n\n" ++
-    "end Tests.RequirementsInferParity\n"
-  match ← session.selectProgramV1 publicSrc "<ParityPublic>"
-      "Tests.RequirementsInferParity" none with
-  | .error e => throw <| IO.userError s!"ParityPublic load: {e.render}"
-  | .ok validated =>
-      let inferred := inferRequirementsV1 validated
-      expect (inferred.requirements == #[.persistentState])
-        s!"ParityPublic: infer got {reqIds inferred.requirements}"
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error e => throw <| IO.userError s!"ParityPublic compile: {e.render}"
-      | .ok compiled =>
-          let semantic := Compiler.CompiledProgramV1.alphaResidualOf compiled
-          expect (inferred.requirements == semantic.requirements)
-            s!"ParityPublic: parity infer {reqIds inferred.requirements} != semantic {reqIds semantic.requirements}"
-
-  -- Private / commitment / call: direct inference only (out of S1 Normalize surface).
-  let nonS1 : Array (String × String × Array ProgramRequirement) := #[
-    ("ParityPrivate",
-      "  state private value : UInt64\n" ++
-      "  entry ping() : UInt64 do\n" ++
-      "    return value\n",
-      #[.persistentState, .privateState]),
-    ("ParityCommitment",
-      "  state commitment value : UInt64\n" ++
-      "  entry ping() : UInt64 do\n" ++
-      "    return value\n",
-      #[.persistentState, .commitmentState]),
-    ("ParityCall",
-      "  entry run() : UInt64 do\n" ++
-      "    call External.Use()\n" ++
-      "    return 0\n",
-      #[.synchronousCall, .transactionalRollback])]
-  for c in nonS1 do
-    let progName := c.1
-    let body := c.2.1
-    let expected := c.2.2
-    let source := wrap progName body
-    match ← session.selectProgramV1 source ("<" ++ progName ++ ">")
-        moduleName none with
-    | .error e => throw <| IO.userError s!"{progName} load: {e.render}"
-    | .ok validated =>
-        let inferred := inferRequirementsV1 validated
-        expect (inferred.requirements == expected)
-          s!"{progName}: infer got {reqIds inferred.requirements}"
-
-/-- 11. Human wire ids exact. -/
-private def testWireIds : IO Unit := do
-  expect (ProgramRequirement.id .persistentState == "state.persistent")
-    "wire persistent"
-  expect (ProgramRequirement.id .checkedArithmetic == "value.checked-arithmetic")
-    "wire checked-arithmetic"
-  expect (ProgramRequirement.id .transactionalRollback == "failure.atomic-rollback")
-    "wire atomic-rollback"
-  expect (ProgramRequirement.id .synchronousCall == "effect.synchronous-call")
-    "wire synchronous-call"
-  expect (ProgramRequirement.id .asynchronousWorkflow == "effect.asynchronous-workflow")
-    "wire asynchronous-workflow"
-  expect (ProgramRequirement.id .privateWitness == "disclosure.private-witness")
-    "wire private-witness"
-  expect (ProgramRequirement.id .eventEmission == "effect.event")
-    "wire event"
-  expect (ProgramRequirement.id .callerContext == "context.caller")
-    "wire caller"
-  expect (ProgramRequirement.id .boolValues == "value.bool")
-    "wire bool"
-  expect (ProgramRequirement.id .commitmentDisclosure == "disclosure.commitment")
-    "wire commitment disclosure"
-  expect (ProgramRequirement.id .fieldBn254 == "value.field.bn254-fr")
-    "wire field"
-  expect (ProgramRequirement.id .privateState == "disclosure.private-state")
-    "wire private-state"
-  expect (ProgramRequirement.id .commitmentState == "disclosure.commitment-state")
-    "wire commitment-state"
-
-/-- Extra: Field bn254_fr type carrier; assert/revert transactionalRollback. -/
-private unsafe def testFieldAndFailure
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let fieldSrc := wrap "ReqField" <|
-    "  entry run(x : Field bn254_fr) : Field bn254_fr do\n" ++
-    "    return x\n"
-  let field ← inferSource session "field" fieldSrc
-  expect (field.requirements == #[.fieldBn254])
-    s!"field: {reqIds field.requirements}"
-
-  let assertSrc := wrap "ReqAssert" <|
-    "  entry run(x : Bool) : UInt64 do\n" ++
-    "    assert x\n" ++
-    "    return 0\n"
-  let asrt ← inferSource session "assert" assertSrc
-  expect (containsReq asrt.requirements .boolValues) "assert: bool from param"
-  expect (containsReq asrt.requirements .transactionalRollback)
-    "assert: transactionalRollback"
-
-  let revertSrc := wrap "ReqRevert" <|
-    "  error Boom()\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    revert Boom()\n" ++
-    "    return 0\n"
-  let rev ← inferSource session "revert" revertSrc
-  expect (rev.requirements == #[.transactionalRollback])
-    s!"revert: {reqIds rev.requirements}"
-
-  let commitmentParam := wrap "ReqCommitParam" <|
-    "  entry run(commitment c : UInt64) : UInt64 do\n" ++
-    "    return 0\n"
-  let cp ← inferSource session "commit-param" commitmentParam
-  expect (cp.requirements == #[.commitmentDisclosure])
-    s!"commit-param: {reqIds cp.requirements}"
+  match ← session.selectProgramV1 Examples.counterSourceText
+      "<req-infer-counter-authority>" Examples.counterModuleNameV1 none with
+  | .error error => throw <| IO.userError error.render
+  | .ok source =>
+      let ids := contributionIds (inferRequirementContributionsFromSourceV1 source)
+      expect (ids == #["state.persistent", "value.checked-arithmetic",
+          "failure.atomic-rollback"])
+        s!"Counter contribution authority: {ids}"
+      expectFreezeIds "Counter authority" source s2CatalogIdsWireOrderV1
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterLike session
-  testPrivateState session
-  testCommitmentState session
-  testPrivateParam session
-  testEmit session
-  testExternalCall session
-  testSchedule session
-  testBoolValues session
+  testForeignContributions session
+  testCatalogAndDedup session
   testIdempotent session
-  testParity session
-  testWireIds
-  testFieldAndFailure session
+  testCounterAuthority session
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1

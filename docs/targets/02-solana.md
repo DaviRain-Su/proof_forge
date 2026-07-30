@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-30
 normative: true
 ---
 
@@ -12,6 +12,19 @@ normative: true
 状态：`proposed`
 Target ID：`solana`
 Phase 1：实现
+
+## 当前工程迁移状态（非 formal 完成）
+
+`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
+Solana module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
+lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
+single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
+expanded-tree cost及 store/return effect segment均 fail closed。checked-sub 在 typed audit IR 中保留同一
+arithmetic error code并发射为 `checked_sub_u64`；产物仍是不可执行 plan text。
+
+这只完成 shared migration leaf：现有产物仍是 `.sbpf-plan`+IDL 的不可执行审计制品，没有
+sBPF assembly/ELF、validator runtime或 formal Solana milestone证据；产品 compiler/resolver/artifact identity
+已切到 `CompiledSemanticV1` + canonical Digests，但 transitional v2alpha1 output contract尚未删除。
 
 ## 1. 身份与来源
 

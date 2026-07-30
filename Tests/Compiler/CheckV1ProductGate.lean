@@ -1,10 +1,10 @@
 /-
   Tests.Compiler.CheckV1ProductGate — product-path fail-closed gate for
-  independent multi-pass CheckV1 inside NormalizeV1 / Typed.checkV1 /
-  compileValidatedSourceV1.
+  independent multi-pass CheckV1 inside NormalizeV1, plus exact-erasure parity
+  on the isolated legacy checker and non-product compileValidatedSourceV1 seam.
 
-  Pins Counter happy path (Normalize structure gate + residual alpha),
-  type / effect / bound / disclosure product wires, Normalize-gate residual
+  Pins Counter happy path (Normalize structure gate + single semantic carrier),
+  type / effect / bound / disclosure product wires, Normalize-gate unsupported
   control-flow (missing/after-return) and private unused state fail closed at
   S1 Normalize (no alpha-only compile path). Bound-only coverage is a
   well-typed triple-nested `for bounded 4096` (UInt32 product overflow).
@@ -160,14 +160,14 @@ private unsafe def accumulatorSource : String :=
   "  view current() : UInt64 do\n" ++
   "    return total\n"
 
-/-- Direct AST / compileValidatedSourceV1 coverage of the product Typed + Normalize gate. -/
+/-- Direct AST coverage of Normalize plus the shared non-product compile carrier seam. -/
 def runAst : IO Unit := do
   let demo ← n "Demo"; let count ← n "count"; let delta ← n "delta"
   let seed ← n "seed"; let inc ← n "increment"; let getN ← n "get"
   let runN ← n "run"; let x ← n "x"; let peer ← q #["Peer", "go"]
   let moduleQ ← q #["Tests", "Gate"]; let identity ← q #["Tests", "Gate", "Demo"]
 
-  -- Counter-shaped ValidatedSourceV1 succeeds through product compile + Normalize.
+  -- Counter-shaped ValidatedSourceV1 succeeds through Normalize and the shared compiler mint.
   let counter ← validated moduleQ identity demo #[
     .state (mkState count),
     .init { params := #[param seed], body := block #[.assign (.name count) (var seed)] },
@@ -179,7 +179,7 @@ def runAst : IO Unit := do
   let _ ← expectOk "counter-checkV1" (Typed.checkV1 counter)
   expectNormalizeOk "counter-ast-normalize" counter
 
-  -- Accumulator-shaped S1 AST succeeds through product compile + Normalize.
+  -- Accumulator-shaped S1 AST succeeds through Normalize and the shared compiler mint.
   let total ← n "total"; let amount ← n "amount"; let addN ← n "add"; let cur ← n "current"
   let acc ← validated moduleQ (← q #["Tests", "Gate", "Accumulator"]) (← n "Accumulator") #[
     .state (mkState total),
@@ -267,7 +267,7 @@ def runAst : IO Unit := do
     "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
     (Typed.checkV1 boundOnly)
 
-  -- Residual control-flow now fails at Normalize S1 (gate before alpha residual).
+  -- Unsupported control-flow fails at Normalize S1; no product alpha stage follows it.
   -- Nonempty block without return (unit entry + state assign); empty blocks are
   -- rejected by ValidatedSourceV1 before the compiler.
   let missing ← validated moduleQ identity demo #[
@@ -304,7 +304,7 @@ def runAst : IO Unit := do
     (Compiler.compileValidatedSourceV1 litOnly)
   expectNormalizeOk "literal-only-normalize" litOnly
   let litData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
-      (Compiler.CompiledProgramV1.semanticV1Of litCompiled) with
+      (Compiler.CompiledSemanticV1.semanticV1Of litCompiled) with
     | .ok d => pure d
     | .error e => throw <| IO.userError s!"literal-only retained carrier: {repr e}"
   let some litCallable := litData.callables[0]? |
@@ -320,9 +320,8 @@ def runAst : IO Unit := do
         "literal-only: exact retained UInt64 little-endian bytes"
   | _ => throw <| IO.userError "literal-only: expected retained Op.Literal"
 
-  -- Unit bare return: multi-pass CheckV1 ok (Unit empty return); residual
-  -- Typed.checkV1 still rejects Stmt.Return. S3 fails at Normalize first with
-  -- a stable S1 message so product never surfaces residual-only Stmt.Return.
+  -- Unit bare return: multi-pass CheckV1 accepts Unit empty return, while the
+  -- sole S1 Normalize producer fails with its stable unsupported-shape message.
   let bareRet ← validated moduleQ identity demo #[
     .entry (mkEntry runN (block #[.return_ none]) #[] .unit)]
   let bareMp := checkProgramTypedResultV1 bareRet
@@ -332,8 +331,8 @@ def runAst : IO Unit := do
     "PF-SRC-INVALID: S1 normalizer does not support bare return"
     (Compiler.compileValidatedSourceV1 bareRet)
 
-  -- schedule-only: multipass CheckV1 ok; residual alpha rejects Stmt.Schedule.
-  -- Product compile fails at Normalize S1 (sibling of call gate).
+  -- schedule-only: multipass CheckV1 succeeds, then the sole S1 Normalize
+  -- producer rejects the unsupported statement (sibling of call gate).
   let sched ← validated moduleQ identity demo #[
     .entry (mkEntry runN (block #[
       .schedule { callee := peer, args := #[] },
@@ -462,8 +461,8 @@ private unsafe def runSource
         (Typed.checkV1 source)
   | .error error => throw <| IO.userError s!"bound-source load: {error.render}"
 
-  -- Literal-only source succeeds through CheckV1 → Normalize → retained
-  -- SemanticProgramV1 → residual alpha dual-carrier mint.
+  -- Literal-only source succeeds through CheckV1 → Normalize → the retained
+  -- single-semantic compiled carrier.
   let literalSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n\n" ++

@@ -11,7 +11,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 
-/-- ProgramV1 Accumulator source (S1 dual-carrier compatible). -/
+/-- ProgramV1 Accumulator source for the retained-semantic public UInt64 envelope. -/
 private def accumulatorSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -175,6 +175,13 @@ private def step (input : ByteArray) (deposit : Deposit)
         modelError "UInt64 addition overflow"
       else
         writeTemp machine destination (UInt64.ofNat sum)
+  | .checkedSub destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if left < right then
+        modelError "UInt64 subtraction underflow"
+      else
+        writeTemp machine destination (left - right)
   | .storeState field source => do
       let previous ← requireStorage machine field
       unless previous.size == 8 do
@@ -232,7 +239,29 @@ private def findMethod (ir : Targets.Near.IR) (name : String) : IO Targets.Near.
 private def storedUInt64? (storage : HostStorage) (key : String) : Option U64 :=
   storageLookup? storage key >>= decodeUInt64LE
 
+private def testCheckedSubModel : IO Unit := do
+  let deposit : Deposit := { lowWord := 0, highWord := 0 }
+  let machine : Machine := {
+    storage := #[]
+    temps := #[some 7, some 5, none]
+  }
+  let success ← match step ByteArray.empty deposit machine (.checkedSub 2 0 1) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"checked-sub model: {reason}"
+  expect (success.temps[2]? == some (some 2))
+    "checked-sub model must write the exact UInt64 difference"
+  match step ByteArray.empty deposit machine (.checkedSub 2 1 0) with
+  | .error reason =>
+      expect (reason.contains "underflow")
+        s!"checked-sub model must classify underflow, got {reason}"
+  | .ok _ => throw <| IO.userError "checked-sub model accepted 5 - 7"
+
+def runCheckedSubFast : IO Unit := do
+  testCheckedSubModel
+  IO.println "Tests.Materialization.NearHostModel.checkedSub: ok"
+
 unsafe def run : IO Unit := do
+  runCheckedSubFast
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"

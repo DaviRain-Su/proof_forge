@@ -7,8 +7,8 @@
   Scope boundary (explicit non-claims):
   * not process/session containment
   * not formal TST-RESOURCE-001 / TASK-D1-08 completion
-  * not CLI product cutover
-  * not safe-open integration
+  * not proof of CLI containment or formal executable/import identity
+  * not safe-open integration (B11b2/B12 composition is tested separately)
   * not Linux `contained` assurance
 -/
 import ProofForgeV2.Examples.Counter
@@ -287,6 +287,155 @@ private unsafe def testPrimitiveDeadline : IO Unit := do
   expectComposedNoResponse "deadline composer" script request profile
     .deadlineObserved
 
+private unsafe def testAbsoluteBudgetExpiresBeforeSpawn : IO Unit := do
+  let marker := fixtureRoot / "expired-budget-spawned.flag"
+  try IO.FS.removeFile marker catch _ => pure ()
+  let script ← writeExecutable "expired-budget-worker.sh" <|
+    "#!/bin/sh\n" ++
+    s!"/usr/bin/touch '{marker}'\n" ++
+    "exit 0\n"
+  let profile := lowerFrontendProfile (wall := some 100)
+  let budget ← match ← startDarwinFrontendBudgetV1 with
+    | .error fault =>
+        throw <| IO.userError s!"absolute budget mint failed: {repr fault}"
+    | .ok budget => pure budget
+  IO.sleep 150
+  let outcome ← expectOutcomeOk "expired absolute budget"
+    (← superviseDarwinWorkerFrameWithBudgetV1 script ByteArray.empty profile budget)
+  expectEvent "expired absolute budget" .deadline outcome
+  expectNoPartial "expired absolute budget" outcome
+  expectCleanupComplete "expired absolute budget" outcome
+  expect (!(← marker.pathExists))
+    "expired absolute budget must be rejected before worker spawn"
+  let observations := DarwinWorkerSupervisorOutcomeV1.observations outcome
+  expect (observations.elapsedMillis.toNat == profile.maxWallMillis.toNat + 1)
+    "expired absolute budget must saturate the original wall limit"
+
+private unsafe def testWorkerExecutesPrivateSnapshot : IO Unit := do
+  let observedPath := fixtureRoot / "snapshot-observed-path.txt"
+  try IO.FS.removeFile observedPath catch _ => pure ()
+  let script ← writeExecutable "snapshot-origin.sh" <|
+    "#!/bin/sh\n" ++
+    s!"printf '%s' \"$0\" > '{observedPath}'\n" ++
+    "exit 7\n"
+  let outcome ← expectOutcomeOk "private worker snapshot"
+    (← superviseFrame script ByteArray.empty hardFrontendProfile)
+  expectEvent "private worker snapshot" .workerExit outcome
+  expectCleanupComplete "private worker snapshot" outcome
+  let executedPath ← IO.FS.readFile observedPath
+  expect ((executedPath.splitOn "/.proof-forge-worker-").length == 2)
+    s!"worker must execute an adjacent fd-derived private snapshot, got {executedPath}"
+  expect (executedPath.endsWith "/worker")
+    s!"worker snapshot leaf must be fixed, got {executedPath}"
+  expect (executedPath != script.toString)
+    "supervisor must never execute the caller pathname directly"
+  expect (!(← (FilePath.mk executedPath).pathExists))
+    "private worker snapshot must be removed after process cleanup"
+
+private unsafe def testSnapshotMutationFailsClosed : IO Unit := do
+  let observedPath := fixtureRoot / "mutation-observed-path.txt"
+  try IO.FS.removeFile observedPath catch _ => pure ()
+  let observedPathS := observedPath.toString
+  -- Single-process fixture: the snapshot copy is mode 0500, so the mutation
+  -- needs an in-process chmod; zsh + zmodload zsh/files provides builtin
+  -- chmod/print (no child under maxProcesses=1), and `exec /bin/sleep`
+  -- reuses the leader image. A `#!/usr/bin/python3` shebang empirically
+  -- trips processLimit on Darwin/Xcode-CLT before its mutation is observed.
+  let script ← writeExecutable "snapshot-self-mutate.zsh" <|
+    "#!/bin/zsh\n" ++
+    "zmodload zsh/files || exit 43\n" ++
+    s!"print -n \"$0\" > '{observedPathS}' || exit 44\n" ++
+    "chmod 0700 \"$0\" || exit 45\n" ++
+    "print '\\n# changed after suspended-spawn verification\\n' >> \"$0\" || exit 46\n" ++
+    "exec /bin/sleep 5\n"
+  let originalBytes ← IO.FS.readBinFile script
+  let outcome ← expectOutcomeOk "snapshot mutation"
+    (← superviseFrame script ByteArray.empty hardFrontendProfile)
+  expectEvent "snapshot mutation" .supervisorFault outcome
+  expectNoPartial "snapshot mutation" outcome
+  expectCleanupComplete "snapshot mutation" outcome
+  expect ((← IO.FS.readBinFile script) == originalBytes)
+    "snapshot mutation must not modify the caller worker inode"
+  let executedPath ← IO.FS.readFile observedPath
+  expect (!(← (FilePath.mk executedPath).pathExists))
+    "mutated worker snapshot must still be removed"
+
+private unsafe def testWorkerSymlinkRejectedBeforeSpawn : IO Unit := do
+  let marker := fixtureRoot / "symlink-worker-ran.flag"
+  try IO.FS.removeFile marker catch _ => pure ()
+  let target ← writeExecutable "symlink-target.sh" <|
+    "#!/bin/sh\n" ++ s!": > '{marker}'\n" ++ "exit 0\n"
+  let link := fixtureRoot / "symlink-worker.sh"
+  runTool "/bin/ln" #["-s", target.fileName.getD "symlink-target.sh", link.toString]
+  match ← superviseFrame link ByteArray.empty hardFrontendProfile with
+  | .error .spawnFailed => pure ()
+  | .error fault =>
+      throw <| IO.userError s!"worker symlink: expected spawnFailed, got {repr fault}"
+  | .ok outcome =>
+      throw <| IO.userError s!"worker symlink unexpectedly spawned: {
+        repr (DarwinWorkerSupervisorOutcomeV1.event outcome)}"
+  expect (!(← marker.pathExists))
+    "worker symlink must be rejected before any worker code runs"
+
+private unsafe def testInvalidWorkerMetadataRejected : IO Unit := do
+  let marker := fixtureRoot / "invalid-worker-ran.flag"
+  try IO.FS.removeFile marker catch _ => pure ()
+
+  let nonExecutable := fixtureRoot / "non-executable-worker.sh"
+  IO.FS.writeFile nonExecutable <|
+    "#!/bin/sh\n" ++ s!": > '{marker}'\n" ++ "exit 0\n"
+  runTool "/bin/chmod" #["600", nonExecutable.toString]
+  match ← superviseFrame nonExecutable ByteArray.empty hardFrontendProfile with
+  | .error .spawnFailed => pure ()
+  | .error fault =>
+      throw <| IO.userError s!"non-executable worker: expected spawnFailed, got {repr fault}"
+  | .ok _ => throw <| IO.userError "non-executable worker unexpectedly spawned"
+
+  let hardlinkSource ← writeExecutable "hardlink-source.sh" <|
+    "#!/bin/sh\n" ++ s!": > '{marker}'\n" ++ "exit 0\n"
+  let hardlinkWorker := fixtureRoot / "hardlink-worker.sh"
+  runTool "/bin/ln" #[hardlinkSource.toString, hardlinkWorker.toString]
+  match ← superviseFrame hardlinkWorker ByteArray.empty hardFrontendProfile with
+  | .error .spawnFailed => pure ()
+  | .error fault =>
+      throw <| IO.userError s!"hardlink worker: expected spawnFailed, got {repr fault}"
+  | .ok _ => throw <| IO.userError "hardlink worker unexpectedly spawned"
+
+  let oversizeWorker := fixtureRoot / "oversize-worker"
+  runTool "/usr/bin/truncate" #["-s", "536870913", oversizeWorker.toString]
+  runTool "/bin/chmod" #["700", oversizeWorker.toString]
+  match ← superviseFrame oversizeWorker ByteArray.empty hardFrontendProfile with
+  | .error .spawnFailed => pure ()
+  | .error fault =>
+      throw <| IO.userError s!"oversize worker: expected spawnFailed, got {repr fault}"
+  | .ok _ => throw <| IO.userError "oversize worker unexpectedly spawned"
+
+  expect (!(← marker.pathExists))
+    "invalid worker metadata must be rejected before any worker code runs"
+
+private unsafe def testSnapshotClearsInheritedAcl : IO Unit := do
+  let aclParent := fixtureRoot / "acl-parent"
+  IO.FS.createDirAll aclParent
+  runTool "/bin/chmod" #["+a",
+    "everyone allow read,write,execute,file_inherit,directory_inherit",
+    aclParent.toString]
+  let observed := fixtureRoot / "snapshot-acl-observed.txt"
+  let source := aclParent / "acl-source.sh"
+  IO.FS.writeFile source <|
+    "#!/bin/sh\n" ++
+    "if [ -w \"$0\" ]; then file=writable; else file=sealed; fi\n" ++
+    "dir=${0%/*}\n" ++
+    "if [ -w \"$dir\" ]; then dir_state=writable; else dir_state=sealed; fi\n" ++
+    s!"printf 'file=%s dir=%s' \"$file\" \"$dir_state\" > '{observed}'\n" ++
+    "exit 7\n"
+  runTool "/bin/chmod" #["755", source.toString]
+  let outcome ← expectOutcomeOk "snapshot inherited ACL"
+    (← superviseFrame source ByteArray.empty hardFrontendProfile)
+  expectEvent "snapshot inherited ACL" .workerExit outcome
+  expectCleanupComplete "snapshot inherited ACL" outcome
+  expect ((← IO.FS.readFile observed) == "file=sealed dir=sealed")
+    "snapshot file and directory must clear inherited extended ACL write access"
+
 private unsafe def testPrimitiveProcessLimit : IO Unit := do
   -- Distinct fixture: background child under maxProcesses=1 → peak = max+1.
   let script ← writeExecutable "process-bg-child.sh" <|
@@ -311,10 +460,14 @@ private unsafe def testPrimitiveProcessLimit : IO Unit := do
     .processLimitObserved
 
 private unsafe def testPrimitiveMemoryLimit : IO Unit := do
-  -- Distinct fixture: single-process python allocation (no extra children).
-  let script ← writeExecutable "memory-alloc.py.sh" <|
-    "#!/bin/sh\n" ++
-    "exec /usr/bin/python3 -c \"import time; b = bytearray(48 * 1024 * 1024); time.sleep(30)\"\n"
+  -- Distinct fixture: single-process in-process allocation (no children).
+  -- zsh parameter expansion holds ~48MiB without any external helper;
+  -- `/usr/bin/python3` empirically peaks at 2 pgroup members under the
+  -- supervisor on Darwin/Xcode-CLT and would trip processLimit first.
+  let script ← writeExecutable "memory-alloc.zsh" <|
+    "#!/bin/zsh\n" ++
+    "big=${(l[50331648][x])}\n" ++
+    "while true; do :; done\n"
   let profile := lowerFrontendProfile
     (memory := some (8 * 1024 * 1024)) (wall := some 10000) (processes := some 1)
   let outcome ← expectOutcomeOk "memory limit"
@@ -337,9 +490,9 @@ private unsafe def testPrimitiveMemoryLimit : IO Unit := do
 private unsafe def testPrimitiveStdoutCap : IO Unit := do
   -- Distinct fixture: stdout size = protocol cap + 1.
   let cap : Nat := 64
-  let script ← writeExecutable "stdout-over-cap.sh" <|
-    "#!/bin/sh\n" ++
-    s!"exec /usr/bin/python3 -c \"import sys; sys.stdout.buffer.write(b'X'*{cap + 1})\"\n"
+  let script ← writeExecutable "stdout-over-cap.zsh" <|
+    "#!/bin/zsh\n" ++
+    "print -n -r -- ${(l[" ++ toString (cap + 1) ++ "][X])}\n"
   let profile := lowerFrontendProfile
     (protocol := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "stdout cap"
@@ -358,9 +511,9 @@ private unsafe def testPrimitiveStdoutCap : IO Unit := do
 private unsafe def testPrimitiveStderrCap : IO Unit := do
   -- Distinct fixture: stderr size = stderr cap + 1 (stdout empty).
   let cap : Nat := 32
-  let script ← writeExecutable "stderr-over-cap.sh" <|
-    "#!/bin/sh\n" ++
-    s!"exec /usr/bin/python3 -c \"import sys; sys.stderr.buffer.write(b'Y'*{cap + 1})\"\n"
+  let script ← writeExecutable "stderr-over-cap.zsh" <|
+    "#!/bin/zsh\n" ++
+    "print -n -r -- ${(l[" ++ toString (cap + 1) ++ "][Y])} >&2\n"
   let profile := lowerFrontendProfile
     (stderr := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "stderr cap"
@@ -381,9 +534,9 @@ private unsafe def testPrimitiveStderrCap : IO Unit := do
 
 private unsafe def testPrimitiveExactStderrCapRemainsCandidate : IO Unit := do
   let cap : Nat := 32
-  let script ← writeExecutable "stderr-exact-cap.sh" <|
-    "#!/bin/sh\n" ++
-    s!"exec /usr/bin/python3 -c \"import sys; sys.stderr.buffer.write(b'Y'*{cap})\"\n"
+  let script ← writeExecutable "stderr-exact-cap.zsh" <|
+    "#!/bin/zsh\n" ++
+    "print -n -r -- ${(l[" ++ toString cap ++ "][Y])} >&2\n"
   let profile := lowerFrontendProfile
     (stderr := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "exact stderr cap"
@@ -396,9 +549,9 @@ private unsafe def testPrimitiveExactStderrCapRemainsCandidate : IO Unit := do
 private unsafe def testPrimitiveExactStdoutCapRemainsCandidate : IO Unit := do
   -- Equal-limit acceptance: exact stdout size == maxProtocolBytes is still a candidate.
   let cap : Nat := 48
-  let script ← writeExecutable "stdout-exact-cap.sh" <|
-    "#!/bin/sh\n" ++
-    s!"exec /usr/bin/python3 -c \"import sys; sys.stdout.buffer.write(b'Z'*{cap})\"\n"
+  let script ← writeExecutable "stdout-exact-cap.zsh" <|
+    "#!/bin/zsh\n" ++
+    "print -n -r -- ${(l[" ++ toString cap ++ "][Z])}\n"
   let profile := lowerFrontendProfile
     (protocol := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "exact stdout cap"
@@ -598,6 +751,12 @@ private unsafe def runDarwinMatrix : IO Unit := do
     testRealWorkerCounterSuccess
     testRealWorkerParserError
     testPrimitiveDeadline
+    testAbsoluteBudgetExpiresBeforeSpawn
+    testWorkerExecutesPrivateSnapshot
+    testSnapshotMutationFailsClosed
+    testWorkerSymlinkRejectedBeforeSpawn
+    testInvalidWorkerMetadataRejected
+    testSnapshotClearsInheritedAcl
     testPrimitiveProcessLimit
     testPrimitiveMemoryLimit
     testPrimitiveStdoutCap

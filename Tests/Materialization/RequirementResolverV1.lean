@@ -14,6 +14,7 @@
 -/
 import ProofForgeV2
 import ProofForgeV2.CLI.Main
+import ProofForgeV2.Core.SemanticIR
 import Tests.Language.ParserSession
 import Lean
 import Lean.Elab.Command
@@ -37,27 +38,27 @@ open Lean.Elab.Command
 namespace DualArgProbe
 
 def probeSimple
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 def «probeEscaped»
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 noncomputable def probeNoncomputable
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 protected def probeProtected
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 mutual
   def probeMutualA
-      (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Nat :=
+      (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Nat :=
     0
   def probeMutualB
-      (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Nat :=
+      (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Nat :=
     0
 end
 
@@ -65,12 +66,12 @@ end
 def probeOnlySelection (_s : ResolvedBuildSelectionV1) : Unit := ()
 
 /-- Single-carrier control: must **not** appear in dual-arg hits. -/
-def probeOnlyCompiled (_c : CompiledProgramV1) : Unit := ()
+def probeOnlyCompiled (_c : CompiledSemanticV1) : Unit := ()
 
 /-- Public structure whose constructor type carries both carriers. -/
 structure DualCtorProbe where
   selection : ResolvedBuildSelectionV1
-  compiled : CompiledProgramV1
+  compiled : CompiledSemanticV1
 
 /-- Public structure constructor control: selection only. -/
 structure SingleSelCtorProbe where
@@ -78,7 +79,7 @@ structure SingleSelCtorProbe where
 
 /-- Carrier aliases (`abbrev` → ReducibilityHints.abbrev). -/
 abbrev SelectionAlias := ResolvedBuildSelectionV1
-abbrev CompiledAlias := CompiledProgramV1
+abbrev CompiledAlias := CompiledSemanticV1
 
 /-- Alias chain (two abbrev hops). -/
 abbrev SelectionAliasChain := SelectionAlias
@@ -94,7 +95,7 @@ def probeOnlySelectionAlias (_s : SelectionAlias) : Unit := ()
 
 /-- Optional reducible-def alias (attribute reducible, not opaque/regular-only). -/
 @[reducible] def SelectionReducible := ResolvedBuildSelectionV1
-@[reducible] def CompiledReducible := CompiledProgramV1
+@[reducible] def CompiledReducible := CompiledSemanticV1
 
 def probeViaReducible
     (_s : SelectionReducible) (_c : CompiledReducible) : Unit :=
@@ -102,12 +103,12 @@ def probeViaReducible
 
 /-- Dual API whose **name** ends with `_spec` (must not be filtered by spelling). -/
 def probe_spec
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 /-- Dual API whose **name** starts with `sizeOf` (must not be filtered by spelling). -/
 def sizeOfProbe
-    (_s : ResolvedBuildSelectionV1) (_c : CompiledProgramV1) : Unit :=
+    (_s : ResolvedBuildSelectionV1) (_c : CompiledSemanticV1) : Unit :=
   ()
 
 /-- Single-carrier control with `_spec` suffix name. -/
@@ -601,12 +602,12 @@ private def testRequestInspectionErrors : IO Unit := do
     An extra caller `ProgramRequirementsV1` / `requested?` parameter must fail
     to typecheck (regression guard for the deleted override surface). -/
 private def resolveEngineeringRequirementsV1TypeAscription :
-    ResolvedBuildSelectionV1 → CompiledProgramV1 →
+    ResolvedBuildSelectionV1 → CompiledSemanticV1 →
       CompileResult Targets.ResolvedEngineeringBuildV1 :=
   Targets.resolveEngineeringRequirementsV1
 
 #check (Targets.resolveEngineeringRequirementsV1 :
-  ResolvedBuildSelectionV1 → CompiledProgramV1 →
+  ResolvedBuildSelectionV1 → CompiledSemanticV1 →
     CompileResult Targets.ResolvedEngineeringBuildV1)
 
 private unsafe def testProductFourTargets : IO Unit := do
@@ -615,9 +616,10 @@ private unsafe def testProductFourTargets : IO Unit := do
     Examples.counterSourceText "<req-resolver-counter>"
     Examples.counterModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  let residual := CompiledProgramV1.alphaResidualOf compiled
-  -- Retained frozen requirements from dual-carrier SemanticProgramV1.
-  let semanticV1 := CompiledProgramV1.semanticV1Of compiled
+  let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
+  let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
+  -- Frozen requirements come from the sole retained SemanticProgramV1.
+  let semanticV1 := CompiledSemanticV1.semanticV1Of compiled
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
     | .error e => throw <| IO.userError s!"Counter SemanticProgramV1 invalid: {repr e}"
@@ -644,10 +646,10 @@ private unsafe def testProductFourTargets : IO Unit := do
       s!"{tid} materialize via capability"
     expect (MaterializedArtifactsV1.targetIdOf output == tid)
       s!"carrier target {tid}"
-    expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
-      s!"sourceHash {tid}"
-    expect (MaterializedArtifactsV1.residualSemanticHashOf output == residual.semanticHash)
-      s!"semanticHash {tid}"
+    expect (MaterializedArtifactsV1.sourceDigestOf output == sourceDigest)
+      s!"source digest {tid}"
+    expect (MaterializedArtifactsV1.semanticDigestOf output == semanticDigest)
+      s!"semantic digest {tid}"
   -- Zero-request success is inspection-only (not a product capability override).
   let rows ← liftResult productSupportRowsV1
   let supported ← match rows[0]? with
@@ -669,7 +671,7 @@ private unsafe def testProductFourTargets : IO Unit := do
     resolveEngineeringRequirementsV1 → capability.requirements empty → materialize.
     Catches a resolver that hardcodes the S2 trio instead of reading retained freeze.
     Wrong version/digest/predicate remain inspection-only (private compiler cannot
-    mint those CompiledProgramV1 shapes). -/
+    mint those CompiledSemanticV1 shapes). -/
 private def identityEchoSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -703,19 +705,17 @@ private unsafe def testEmptyRequirementsCapability : IO Unit := do
     identityEchoSourceText "<req-resolver-echo>"
     identityEchoModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  let semanticV1 := CompiledProgramV1.semanticV1Of compiled
+  let semanticV1 := CompiledSemanticV1.semanticV1Of compiled
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
     | .error e => throw <| IO.userError s!"Echo SemanticProgramV1 invalid: {repr e}"
   expect frozen.items.isEmpty
     "Echo retained SemanticProgramV1 requirements must be empty (anti-hardcode S2 trio)"
-  let residual := CompiledProgramV1.alphaResidualOf compiled
-  expect residual.requirements.isEmpty
-    "Echo residual alpha requirements must be empty"
+  let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   -- Capability success on all four implemented targets (sole mint / anti-hardcode).
-  -- Residual backends for empty-state fragments (documented, not resolver bugs):
-  --   * Solana: state-account plan requires initializer
-  --   * Near: profile requires non-empty state (+ initializer)
+  -- Target-native profiles may reject this empty-state fragment after capability mint:
+  --   * Solana: the explicit state-account profile requires non-empty state
+  --   * Near: the host key-value profile requires non-empty state (+ initializer)
   -- EVM/Noir must still produce real materialize output for empty-req capability.
   let mut materialized : Array TargetId := #[]
   let mut backendLimited : Array String := #[]
@@ -734,13 +734,14 @@ private unsafe def testEmptyRequirementsCapability : IO Unit := do
           s!"{tid} empty-req materialize produces files"
         expect (MaterializedArtifactsV1.targetIdOf output == tid)
           s!"Echo empty-req carrier target {tid}"
-        expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
-          s!"Echo empty-req sourceHash {tid}"
+        expect (MaterializedArtifactsV1.sourceDigestOf output == sourceDigest)
+          s!"Echo empty-req source digest {tid}"
         materialized := materialized.push tid
     | .error e =>
         let msg := e.render
         let solanaLimited :=
-          tid == TargetId.solana && hasSubstr msg "initializer"
+          tid == TargetId.solana &&
+            (hasSubstr msg "state count" || hasSubstr msg "initializer")
         let nearLimited :=
           tid == TargetId.near &&
             (hasSubstr msg "state count" || hasSubstr msg "initializer")
@@ -754,9 +755,9 @@ private unsafe def testEmptyRequirementsCapability : IO Unit := do
   expect (materialized.any (· == TargetId.noir))
     "Echo empty-req capability must materialize on Noir"
   expect (backendLimited.any (fun s => hasSubstr s "solana"))
-    "Echo empty-req documents Solana residual initializer requirement"
+    "Echo empty-req documents Solana target-native non-empty-state requirement"
   expect (backendLimited.any (fun s => hasSubstr s "near"))
-    "Echo empty-req documents Near residual non-empty-state requirement"
+    "Echo empty-req documents Near target-native non-empty-state requirement"
 
 private unsafe def testStateOnlySubsetCapability : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -764,7 +765,7 @@ private unsafe def testStateOnlySubsetCapability : IO Unit := do
     stateOnlyHoldSourceText "<req-resolver-hold>"
     stateOnlyHoldModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  let semanticV1 := CompiledProgramV1.semanticV1Of compiled
+  let semanticV1 := CompiledSemanticV1.semanticV1Of compiled
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
     | .error e => throw <| IO.userError s!"Hold SemanticProgramV1 invalid: {repr e}"
@@ -905,8 +906,8 @@ private def testRequestResolveNegativesOnInspection : IO Unit := do
 
 /-- S6: product support authority rejects unsupported request matrices on the
     inspection seam; public residual Common.resolve is gone (deletion contract).
-    Dual-carrier Counter still mints capability only for exact retained freeze. -/
-private unsafe def testBackendAlphaDefense : IO Unit := do
+    The single-semantic Counter carrier mints capability only for the exact retained freeze. -/
+private unsafe def testBackendSupportDefense : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     Examples.counterSourceText "<req-resolver-backend-def>"
@@ -988,9 +989,9 @@ private def testDeletionContract : IO Unit := do
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
     #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint ResolvedEngineeringBuild capability"
-  rgExpectOneContaining ("CompiledProgramV1" ++ "\\.mk")
+  rgExpectOneContaining ("CompiledSemanticV1" ++ "\\.mk")
     #["ProofForgeV2"] "Pipeline.lean"
-    "sole mint CompiledProgram carrier"
+    "sole mint CompiledSemantic carrier"
   -- S6: public residual resolve / validateResolved / makePlan closed.
   rgExpectEmpty ("^\\s*def " ++ "resolve\\b") #["ProofForgeV2/Targets/Common.lean"]
     "deletion: no public Common.resolve"
@@ -1014,16 +1015,16 @@ private def testDeletionContract : IO Unit := do
     "deletion: no Residual characterization emission namespace"
   rgExpectEmpty ("^\\s*structure " ++ "ResolvedProgram\\b") #["ProofForgeV2"]
     "deletion: no public ResolvedProgram residual carrier"
-  rgExpectEmpty ("supportedRequirements" ++ "\\.contains") #["ProofForgeV2"]
-    "deletion: no supportedRequirements.contains acceptance"
+  rgExpectEmpty ("supported" ++ "Requirements\\b") #["ProofForgeV2"]
+    "deletion: TargetDescriptor has no residual supportedRequirements field"
 
 private unsafe def testCapabilityMintUniqueness : IO Unit := do
   -- Private-ctor sole mint: only resolveEngineeringRequirementsV1 may call .mk.
   rgExpectOneContaining ("ResolvedEngineeringBuildV1" ++ "\\.mk")
     #["ProofForgeV2"] "EngineeringBuildV1.lean"
     "sole mint capability constructor"
-  -- CompiledProgramV1.mk sole mint in Compiler/Pipeline.lean (finishCompiledProgramV1).
-  rgExpectOneContaining ("CompiledProgramV1" ++ "\\.mk")
+  -- CompiledSemanticV1.mk sole mint in Compiler/Pipeline.lean (finishCompiledSemanticV1).
+  rgExpectOneContaining ("CompiledSemanticV1" ++ "\\.mk")
     #["ProofForgeV2"] "Pipeline.lean"
     "sole mint carrier constructor"
   -- Positive product path still mints via the sole API (not a second factory).
@@ -1038,7 +1039,7 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   expect (Targets.ResolvedEngineeringBuildV1.targetIdOf capability == TargetId.evm)
     "sole-mint product capability"
   -- Capability requirements accessor binds retained freeze (not a caller subset).
-  let semanticV1 := CompiledProgramV1.semanticV1Of compiled
+  let semanticV1 := CompiledSemanticV1.semanticV1Of compiled
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
     | .error e => throw <| IO.userError s!"mint retained invalid: {repr e}"
@@ -1056,7 +1057,7 @@ unsafe def run : IO Unit := do
   testCliEmitAndDescribe
   testDescriptorParityNegatives
   testRequestResolveNegativesOnInspection
-  testBackendAlphaDefense
+  testBackendSupportDefense
   testDeletionContract
   testCapabilityMintUniqueness
   IO.println "Tests.Materialization.RequirementResolverV1: ok"
@@ -1082,9 +1083,9 @@ may only be `ProofForgeV2.Targets.resolveEngineeringRequirementsV1`.
 private def dualArgSelectionCarrierN : Name :=
   ``ProofForgeV2.Targets.BuildSelectionV1.ResolvedBuildSelectionV1
 
-/-- Full constant name of the compiled dual-carrier (must match Environment). -/
+/-- Full constant name of the compiled semantic carrier (must match Environment). -/
 private def dualArgCompiledCarrierN : Name :=
-  ``ProofForgeV2.Compiler.CompiledProgramV1
+  ``ProofForgeV2.Compiler.CompiledSemanticV1
 
 /-- Sole allowed product dual-arg public API (verified FQName). -/
 private def dualArgProductAllowedN : Name :=
@@ -1107,13 +1108,13 @@ private def dualArgMaxEnvConstants : Nat := 2_000_000
 private def dualArgMaxPrefixDecls : Nat := 100_000
 private def dualArgMaxTypeExprNodes : Nat := 100_000
 
-/-- Result of a shared-budget dual-carrier type scan. -/
-private inductive DualCarrierTypeScan where
+/-- Result of a shared-budget dual-argument carrier type scan. -/
+private inductive DualArgTypeScan where
   | mentionsBoth
   | doesNotMentionBoth
   | budgetExhausted
 
-private def DualCarrierTypeScan.toReport : DualCarrierTypeScan → String
+private def DualArgTypeScan.toReport : DualArgTypeScan → String
   | .mentionsBoth => "mentionsBoth"
   | .doesNotMentionBoth => "doesNotMentionBoth"
   | .budgetExhausted => "budgetExhausted"
@@ -1149,7 +1150,7 @@ private def tryUnfoldCarrierAlias (env : Environment) (n : Name) : Option Expr :
     - `expanded` NameSet prevents re-expand cycles (deterministic)
     - Early `mentionsBoth` when both bare carrier FQNames are observed -/
 private def typeMentionsBothCarriers
-    (env : Environment) (budget : Nat) (root : Expr) : DualCarrierTypeScan :=
+    (env : Environment) (budget : Nat) (root : Expr) : DualArgTypeScan :=
   Id.run do
     let mut queue : Array Expr := #[root]
     let mut qi : Nat := 0
@@ -1159,9 +1160,9 @@ private def typeMentionsBothCarriers
     let mut expanded : NameSet := {}
     while qi < queue.size do
       if hasSel && hasComp then
-        return DualCarrierTypeScan.mentionsBoth
+        return DualArgTypeScan.mentionsBoth
       if remaining == 0 then
-        return DualCarrierTypeScan.budgetExhausted
+        return DualArgTypeScan.budgetExhausted
       let e := queue[qi]!
       qi := qi + 1
       remaining := remaining - 1
@@ -1172,7 +1173,7 @@ private def typeMentionsBothCarriers
           if n == dualArgCompiledCarrierN then
             hasComp := true
           if hasSel && hasComp then
-            return DualCarrierTypeScan.mentionsBoth
+            return DualArgTypeScan.mentionsBoth
           -- Alias expand only when not already a bare carrier and not yet expanded.
           if n != dualArgSelectionCarrierN && n != dualArgCompiledCarrierN
               && !expanded.contains n then
@@ -1180,16 +1181,16 @@ private def typeMentionsBothCarriers
             | none => pure ()
             | some value =>
                 if remaining == 0 then
-                  return DualCarrierTypeScan.budgetExhausted
+                  return DualArgTypeScan.budgetExhausted
                 remaining := remaining - 1
                 expanded := expanded.insert n
                 queue := queue.push value
       | _ =>
           queue := enqueueExprChildren queue e
     if hasSel && hasComp then
-      DualCarrierTypeScan.mentionsBoth
+      DualArgTypeScan.mentionsBoth
     else
-      DualCarrierTypeScan.doesNotMentionBoth
+      DualArgTypeScan.doesNotMentionBoth
 
 /-- Metadata-backed generated eliminators (authoritative Lean flags + narrow
     enumeration of Lean-generated constructor children only).
@@ -1227,7 +1228,7 @@ private structure DualArgFoldState where
   prefixDecls : Nat := 0
   envConstants : Nat := 0
 
-/-- Collect public dual-carrier type hits under `namePrefix`, sorted. -/
+/-- Collect public dual-argument carrier type hits under `namePrefix`, sorted. -/
 private def collectDualArgSurface
     (env : Environment) (namePrefix : Name) : Except String (Array Name) :=
   let acc : Except String DualArgFoldState :=
@@ -1302,7 +1303,7 @@ private def assertPrivateCapabilityCtorFiltered
             acc)
         #[]
     if privateDualCtors.isEmpty then
-      .error "private-ctor filter: expected at least one private dual-carrier ctor (ResolvedEngineeringBuildV1.mk)"
+      .error "private-ctor filter: expected at least one private dual-argument ctor (ResolvedEngineeringBuildV1.mk)"
     else if privateDualCtors.any fun n => productHits.any (· == n) then
       .error s!"private-ctor filter: private dual ctor leaked into public hits: {formatNameList privateDualCtors}"
     else
@@ -1419,7 +1420,7 @@ private def natAppSpineNodeCount (leafCount : Nat) : Nat :=
   | 0 => 1
   | n + 1 => 2 * (n + 1) - 1
 
-/-- Synthetic dual-carrier type: `ResolvedBuildSelectionV1 → CompiledProgramV1 → Unit`. -/
+/-- Synthetic dual-argument carrier type: `ResolvedBuildSelectionV1 → CompiledSemanticV1 → Unit`. -/
 private def mkSyntheticDualCarrierType : Expr :=
   Expr.forallE `selection
     (Expr.const dualArgSelectionCarrierN [])

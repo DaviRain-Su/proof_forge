@@ -89,18 +89,24 @@ unsafe def run : IO Unit := do
 
   let compiled ← liftCompile "compile ProgramV1" <|
     Compiler.compileValidatedSourceV1 source
-  let retained := CompiledProgramV1.semanticV1Of compiled
+  let retained := CompiledSemanticV1.semanticV1Of compiled
   expect (retained.canonicalBytes == carrier1.canonicalBytes)
     "product compile must retain NormalizeV1 SemanticProgramV1 bytes"
-  let semantic := CompiledProgramV1.alphaResidualOf compiled
-  expect (semantic.qualifiedName ==
-      "Examples.Counter.ProofForgeV2.Examples.Counter")
-    "Typed/Semantic identity must come from ProgramV1 raw components"
-  expect (renderedDigest == "sha256:" ++ semantic.sourceHash)
-    "Semantic provenance must use sourceHashV1 exactly"
-  expect (semantic.state.map (·.name) == #["count"] &&
-      semantic.entries.map (·.name) == #["increment", "get"])
-    "ProgramV1 typing must preserve Counter state and callables"
+  expect (CompiledSemanticV1.artifactProgramNameOf compiled == "Counter")
+    "artifact identity must come from the semantic qualified-name suffix"
+  expect (CompiledSemanticV1.sourceDigestOf compiled == digest &&
+      CompiledSemanticV1.semanticDigestOf compiled == h1)
+    "compiled carrier must bind canonical source and semantic digests"
+  let compiledSourceWire ← liftSource "render compiled source digest" <|
+    renderDigest (CompiledSemanticV1.sourceDigestOf compiled)
+  expect (compiledSourceWire == renderedDigest)
+    "compiled source identity must use sourceHashV1 exactly"
+  let semanticData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 retained with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"compiled semantic invalid: {repr error}"
+  expect (semanticData.logicalState.map (·.name) == #["count"] &&
+      semanticData.callables.filterMap (·.name) == #["increment", "get"])
+    "ProgramV1 normalization must preserve Counter state and callables"
 
   let plan ← liftCompile "plan EVM" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
@@ -132,9 +138,9 @@ unsafe def run : IO Unit := do
     | none => throw <| IO.userError "missing Counter.yul"
   expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
     "EVM Yul must contain canonical Counter selectors"
-  expect (MaterializedArtifactsV1.residualSourceHashOf first == semantic.sourceHash &&
-      MaterializedArtifactsV1.residualSemanticHashOf first == semantic.semanticHash)
-    "EVM carrier must bind ProgramV1 residual source and semantic hashes"
+  expect (MaterializedArtifactsV1.sourceDigestOf first == digest &&
+      MaterializedArtifactsV1.semanticDigestOf first == h1)
+    "EVM carrier must bind canonical ProgramV1 source and semantic digests"
   let _ := plan
 
 end Tests.Product.CounterV1Evm

@@ -41,7 +41,7 @@ private def materializeOk (label : String) (capability : Targets.ResolvedEnginee
     IO MaterializedArtifactsV1 :=
   liftResult label (Targets.materializeResult capability)
 
-private unsafe def compileCounter : IO CompiledProgramV1 := do
+private unsafe def compileCounter : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<output-envelope-counter>"
@@ -69,18 +69,18 @@ private def expectedCounterPaths (tid : TargetId) : Array String :=
   else
     #[]
 
-/-- Four targets: exact capability binding, retained digests, residual bridge,
+/-- Four targets: exact capability binding, canonical compiled identity,
     exact ordered artifact path names, deterministic bytes, no partial carrier. -/
 private unsafe def testFourTargetCarrierBinding : IO Unit := do
   let compiled ← compileCounter
-  let residual := CompiledProgramV1.alphaResidualOf compiled
-  let semanticV1 := CompiledProgramV1.semanticV1Of compiled
-  let retainedSemantic ← match semanticHashV1 semanticV1 with
-    | .ok d => pure d
-    | .error e => throw <| IO.userError s!"semanticHashV1 failed: {repr e}"
-  let retainedSource ← match parseDigest ("sha256:" ++ residual.sourceHash) with
-    | .ok d => pure d
-    | .error e => throw <| IO.userError s!"residual source digest parse: {e}"
+  let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
+  let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
+  let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
+  let recomputedSemantic ← match semanticHashV1 (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok digest => pure digest
+    | .error error => throw <| IO.userError s!"semanticHashV1 failed: {repr error}"
+  expect (recomputedSemantic == semanticDigest)
+    "compiled semantic digest must be the retained SemanticProgramV1 hash"
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult s!"select {tid}" (resolveBuildSelectionV1 tid none)
     let capability ← liftResult s!"resolve {tid}"
@@ -102,22 +102,17 @@ private unsafe def testFourTargetCarrierBinding : IO Unit := do
       s!"{tid} carrier profile"
     expect (MaterializedArtifactsV1.kindOf a == selection.kind)
       s!"{tid} carrier kind"
-    expect (MaterializedArtifactsV1.residualProgramNameOf a == residual.name)
-      s!"{tid} residual program name"
-    expect (MaterializedArtifactsV1.residualSourceHashOf a == residual.sourceHash)
-      s!"{tid} residual sourceHash"
-    expect (MaterializedArtifactsV1.residualSemanticHashOf a == residual.semanticHash)
-      s!"{tid} residual semanticHash"
-    expect (MaterializedArtifactsV1.retainedSemanticDigestOf a == retainedSemantic)
-      s!"{tid} retained SemanticProgramV1 digest exact"
-    expect (MaterializedArtifactsV1.retainedSourceDigestOf a == retainedSource)
-      s!"{tid} retained source Digest exact"
-    -- Dual-carrier relation: retained source Digest re-renders to residual hex.
-    match renderDigest (MaterializedArtifactsV1.retainedSourceDigestOf a) with
+    expect (MaterializedArtifactsV1.artifactProgramNameOf a == artifactName)
+      s!"{tid} semantic-derived artifact program name"
+    expect (MaterializedArtifactsV1.sourceDigestOf a == sourceDigest)
+      s!"{tid} canonical ProgramV1 source digest"
+    expect (MaterializedArtifactsV1.semanticDigestOf a == semanticDigest)
+      s!"{tid} retained SemanticProgramV1 digest"
+    match renderDigest (MaterializedArtifactsV1.sourceDigestOf a) with
     | .ok wire =>
-        expect (wire == "sha256:" ++ residual.sourceHash)
-          s!"{tid} retained source Digest ↔ residual hex"
-    | .error e => throw <| IO.userError s!"{tid} renderDigest: {e}"
+        expect (wire.startsWith "sha256:")
+          s!"{tid} source digest wire"
+    | .error error => throw <| IO.userError s!"{tid} renderDigest: {error}"
     let files := MaterializedArtifactsV1.filesOf a
     expect (!files.isEmpty) s!"{tid} must emit ≥1 artifact"
     let expected := expectedCounterPaths tid
@@ -140,7 +135,10 @@ private unsafe def testFourTargetCarrierBinding : IO Unit := do
 /-- Emit path: capability-only, receipt fields, exact on-disk v2alpha1 + evidence. -/
 private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   let compiled ← compileCounter
-  let residual := CompiledProgramV1.alphaResidualOf compiled
+  let sourceHash ← liftResult "derive source hash"
+    (CompiledSemanticV1.artifactSourceHashHexOf compiled)
+  let semanticHash ← liftResult "derive semantic hash"
+    (CompiledSemanticV1.artifactSemanticHashHexOf compiled)
   let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult "resolve solana"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -163,8 +161,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     "  \"schemaVersion\": \"proof-forge-output/v2alpha1\",\n" ++
     "  \"target\": \"solana\",\n" ++
     "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
-    s!"  \"sourceHash\": \"{residual.sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{residual.semanticHash}\",\n" ++
+    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
+    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
     "  \"deployable\": false,\n" ++
     s!"  \"files\": [{filesJson}]\n" ++
     "}\n"
@@ -181,8 +179,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   let expectedEvidence :=
     "{\n" ++
     "  \"target\": \"solana\",\n" ++
-    s!"  \"sourceHash\": \"{residual.sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{residual.semanticHash}\",\n" ++
+    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
+    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
     "  \"deployable\": false,\n" ++
     "  \"note\": \"no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable\"\n" ++
     "}\n"

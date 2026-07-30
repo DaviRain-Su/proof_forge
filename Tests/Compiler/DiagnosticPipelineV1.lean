@@ -182,14 +182,17 @@ private unsafe def testSuccessParity
           match Compiler.compileValidatedSourceV1 source with
           | .error e => throw <| IO.userError s!"counter non-product compile: {e.render}"
           | .ok compiled2 =>
-              let semantic := Compiler.CompiledProgramV1.alphaResidualOf compiled
-              let semantic2 := Compiler.CompiledProgramV1.alphaResidualOf compiled2
-              expect (semantic.qualifiedName == semantic2.qualifiedName)
-                "product/non-product residual semantic identity parity"
-              expect (semantic.sourceHash == semantic2.sourceHash)
-                "product/non-product residual sourceHash parity"
-              let carrier := Compiler.CompiledProgramV1.semanticV1Of compiled
-              let carrier2 := Compiler.CompiledProgramV1.semanticV1Of compiled2
+              expect (Compiler.CompiledSemanticV1.artifactProgramNameOf compiled ==
+                  Compiler.CompiledSemanticV1.artifactProgramNameOf compiled2)
+                "product/non-product artifact program identity parity"
+              expect (Compiler.CompiledSemanticV1.sourceDigestOf compiled ==
+                  Compiler.CompiledSemanticV1.sourceDigestOf compiled2)
+                "product/non-product source digest parity"
+              expect (Compiler.CompiledSemanticV1.semanticDigestOf compiled ==
+                  Compiler.CompiledSemanticV1.semanticDigestOf compiled2)
+                "product/non-product semantic digest parity"
+              let carrier := Compiler.CompiledSemanticV1.semanticV1Of compiled
+              let carrier2 := Compiler.CompiledSemanticV1.semanticV1Of compiled2
               expect (carrier.canonicalBytes == carrier2.canonicalBytes)
                 "product/non-product retained SemanticProgramV1 parity"
 

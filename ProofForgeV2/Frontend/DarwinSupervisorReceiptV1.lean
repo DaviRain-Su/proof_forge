@@ -299,6 +299,8 @@ private def validateEventAndResult
         throw "source-open-failed must precede request construction"
       unless result == .noResponse do
         throw "source-open-failed cannot carry a response result"
+      unless cleanup == .observedComplete do
+        throw "source-open-failed requires observed-complete cleanup"
   | _ =>
       unless result == .noResponse do
         throw "non-response supervisor event cannot carry a response result"

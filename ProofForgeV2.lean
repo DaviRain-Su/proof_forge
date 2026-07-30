@@ -4,7 +4,6 @@ import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Core.DiagnosticBundleV1
-import ProofForgeV2.Core.Source
 import ProofForgeV2.Source.SpanV1
 import ProofForgeV2.Source.WireV1
 import ProofForgeV2.Source.NameComponentV1
@@ -66,10 +65,6 @@ import ProofForgeV2.Typed.BoundCheckV1
 import ProofForgeV2.Typed.DisclosureCheckV1
 import ProofForgeV2.Typed.RequirementsInferV1
 import ProofForgeV2.Typed.CheckV1
-import ProofForgeV2.Core.Typed
-import ProofForgeV2.Core.TypedV1
-import ProofForgeV2.Core.SemanticIR
-import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.ReferenceV1

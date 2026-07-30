@@ -45,12 +45,12 @@ def processRequestV1
       (SafeOpenWorkerRequestV1.root request)
       (SafeOpenWorkerRequestV1.path request) with
   | .error fault =>
-      match mkSafeOpenWorkerFailureV1 fault with
+      match mkSafeOpenWorkerFailureV1 request fault with
       | .error _ => pure (.error .internal)
       | .ok failure =>
           pure (internalResult (encodeSafeOpenWorkerFailureV1 failure))
   | .ok snapshot =>
-      match mkSafeOpenWorkerSuccessV1 (SafeSourceSnapshotV1.bytes snapshot) with
+      match mkSafeOpenWorkerSuccessV1 request (SafeSourceSnapshotV1.bytes snapshot) with
       | .error _ => pure (.error .internal)
       | .ok success =>
           pure (internalResult (encodeSafeOpenWorkerSuccessV1 success))

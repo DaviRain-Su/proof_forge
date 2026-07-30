@@ -5,9 +5,10 @@
   Cycle-free from Darwin supervisor / frontend parser worker:
 
     SafeOpen.Req.v1  — trusted absolute root + ProjectRelativePath + maxSourceBytes
-    SafeOpen.Ok.v1   — exact source snapshot bytes (≤ maxSourceBytes)
-    SafeOpen.Err.v1  — closed SafeOpenFault wire label only
+    SafeOpen.Ok.v1   — requestDigest + exact source snapshot bytes (≤ maxSourceBytes)
+    SafeOpen.Err.v1  — requestDigest + closed SafeOpenFault wire label
 
+  Every response is bound to the exact canonical request to reject cross-request replay.
   Full-consume + exact re-encode identity. No ProgramV1 decoder, no receipt
   fields, no path retention beyond the request root/relative needed to open.
 -/
@@ -32,6 +33,10 @@ private def tagFailureV1 : String := "SafeOpen.Err.v1"
 
 /-- Protocol frame hard maximum (reuse frontend protocol cap). -/
 def maxSafeOpenProtocolBytesV1 : Nat := maxProtocolBytes
+
+/-- Domain for binding every SafeOpen.Ok/Err.v1 to its exact canonical request. -/
+def safeOpenWorkerRequestDigestDomainV1 : String :=
+  "proof-forge.frontend-safe-open-request.v1"
 
 private def fail (detail : String) : Except String α :=
   .error detail
@@ -84,6 +89,23 @@ private def decodeBoundedBytes (maxLen : Nat) : DecoderV1 ByteArray := fun c => 
     c := c'
   pure (acc, c)
 
+private def encodeDigest32 (digest : Digest) : Except String ByteArray := do
+  validateDigest digest
+  pure digest.bytes
+
+private def decodeDigest32 : DecoderV1 Digest := fun c => do
+  unless remaining c ≥ 32 do
+    return ← fail "truncated"
+  let mut bytes := ByteArray.emptyWithCapacity 32
+  let mut c := c
+  for _ in [:32] do
+    let (byte, c') ← decodeU8 c
+    bytes := bytes.push byte
+    c := c'
+  let digest : Digest := { algorithm := .sha256, bytes }
+  validateDigest digest
+  pure (digest, c)
+
 private def precheck (input : ByteArray) : Except String Unit := do
   if input.size > maxSafeOpenProtocolBytesV1 then
     return ← fail s!"safe-open protocol frame exceeds {maxSafeOpenProtocolBytesV1} bytes"
@@ -110,24 +132,28 @@ def maxSourceBytes (r : SafeOpenWorkerRequestV1) : Nat := r.maxSourceBytes_
 
 end SafeOpenWorkerRequestV1
 
-/-- Success payload: exact snapshot bytes. -/
+/-- Success payload: request binding plus exact snapshot bytes. -/
 structure SafeOpenWorkerSuccessV1 where
   private mk ::
+  private requestDigest_ : Digest
   private bytes_ : ByteArray
 
 namespace SafeOpenWorkerSuccessV1
 
+def requestDigest (s : SafeOpenWorkerSuccessV1) : Digest := s.requestDigest_
 def bytes (s : SafeOpenWorkerSuccessV1) : ByteArray := s.bytes_
 
 end SafeOpenWorkerSuccessV1
 
-/-- Failure payload: closed SafeOpenFault only (no prose / path). -/
+/-- Failure payload: request binding plus closed SafeOpenFault (no prose/path). -/
 structure SafeOpenWorkerFailureV1 where
   private mk ::
+  private requestDigest_ : Digest
   private fault_ : SafeOpenFaultV1
 
 namespace SafeOpenWorkerFailureV1
 
+def requestDigest (f : SafeOpenWorkerFailureV1) : Digest := f.requestDigest_
 def fault (f : SafeOpenWorkerFailureV1) : SafeOpenFaultV1 := f.fault_
 
 end SafeOpenWorkerFailureV1
@@ -165,6 +191,12 @@ def encodeSafeOpenWorkerRequestV1
     return ← fail s!"safe-open protocol frame exceeds {maxSafeOpenProtocolBytesV1} bytes"
   pure frame
 
+/-- Digest of the exact canonical SafeOpen.Req.v1 frame. -/
+def safeOpenWorkerRequestDigestOfV1
+    (request : SafeOpenWorkerRequestV1) : Except String Digest := do
+  domainSeparatedSha256 safeOpenWorkerRequestDigestDomainV1
+    (← encodeSafeOpenWorkerRequestV1 request)
+
 def decodeSafeOpenWorkerRequestV1
     (input : ByteArray) : Except String SafeOpenWorkerRequestV1 := do
   precheck input
@@ -190,16 +222,25 @@ def decodeSafeOpenWorkerRequestV1
   requireReencode tagRequestV1 input reencoded
   pure req
 
-def mkSafeOpenWorkerSuccessV1 (bytes : ByteArray) :
+private def makeSafeOpenWorkerSuccessFromDigestV1
+    (requestDigest : Digest) (bytes : ByteArray) :
     Except String SafeOpenWorkerSuccessV1 := do
+  validateDigest requestDigest
   unless bytes.size ≤ maxSourceBytes do
     return ← fail "safe-open success exceeds maxSourceBytes"
-  pure ⟨bytes⟩
+  pure ⟨requestDigest, bytes⟩
+
+def mkSafeOpenWorkerSuccessV1
+    (request : SafeOpenWorkerRequestV1) (bytes : ByteArray) :
+    Except String SafeOpenWorkerSuccessV1 := do
+  makeSafeOpenWorkerSuccessFromDigestV1
+    (← safeOpenWorkerRequestDigestOfV1 request) bytes
 
 def encodeSafeOpenWorkerSuccessV1
     (s : SafeOpenWorkerSuccessV1) : Except String ByteArray := do
+  let digestB ← encodeDigest32 s.requestDigest_
   let srcB ← encodeBoundedBytes maxSourceBytes s.bytes_
-  let frame ← encodeTagged tagSuccessV1 #[srcB]
+  let frame ← encodeTagged tagSuccessV1 #[digestB, srcB]
   if frame.size > maxSafeOpenProtocolBytesV1 then
     return ← fail s!"safe-open protocol frame exceeds {maxSafeOpenProtocolBytesV1} bytes"
   pure frame
@@ -211,22 +252,32 @@ def decodeSafeOpenWorkerSuccessV1
   let (tag, c) ← decodeTagV1 c
   unless tag == tagSuccessV1 do
     return ← fail s!"expected tag '{tagSuccessV1}'"
-  let ((), c) ← decodeFieldCountV1 tagSuccessV1 1 c
+  let ((), c) ← decodeFieldCountV1 tagSuccessV1 2 c
+  let (requestDigest, c) ← decodeDigest32 c
   let (bytes, c) ← decodeBoundedBytes maxSourceBytes c
   finish c
-  let success ← mkSafeOpenWorkerSuccessV1 bytes
+  let success ← makeSafeOpenWorkerSuccessFromDigestV1 requestDigest bytes
   let reencoded ← encodeSafeOpenWorkerSuccessV1 success
   requireReencode tagSuccessV1 input reencoded
   pure success
 
-def mkSafeOpenWorkerFailureV1 (fault : SafeOpenFaultV1) :
-    Except String SafeOpenWorkerFailureV1 :=
-  pure ⟨fault⟩
+private def makeSafeOpenWorkerFailureFromDigestV1
+    (requestDigest : Digest) (fault : SafeOpenFaultV1) :
+    Except String SafeOpenWorkerFailureV1 := do
+  validateDigest requestDigest
+  pure ⟨requestDigest, fault⟩
+
+def mkSafeOpenWorkerFailureV1
+    (request : SafeOpenWorkerRequestV1) (fault : SafeOpenFaultV1) :
+    Except String SafeOpenWorkerFailureV1 := do
+  makeSafeOpenWorkerFailureFromDigestV1
+    (← safeOpenWorkerRequestDigestOfV1 request) fault
 
 def encodeSafeOpenWorkerFailureV1
     (f : SafeOpenWorkerFailureV1) : Except String ByteArray := do
+  let digestB ← encodeDigest32 f.requestDigest_
   let wireB ← encodeRawUtf8 64 f.fault_.wire
-  let frame ← encodeTagged tagFailureV1 #[wireB]
+  let frame ← encodeTagged tagFailureV1 #[digestB, wireB]
   if frame.size > maxSafeOpenProtocolBytesV1 then
     return ← fail s!"safe-open protocol frame exceeds {maxSafeOpenProtocolBytesV1} bytes"
   pure frame
@@ -238,7 +289,8 @@ def decodeSafeOpenWorkerFailureV1
   let (tag, c) ← decodeTagV1 c
   unless tag == tagFailureV1 do
     return ← fail s!"expected tag '{tagFailureV1}'"
-  let ((), c) ← decodeFieldCountV1 tagFailureV1 1 c
+  let ((), c) ← decodeFieldCountV1 tagFailureV1 2 c
+  let (requestDigest, c) ← decodeDigest32 c
   let (wire, c) ← decodeRawUtf8 64 c
   finish c
   -- Unknown fault wire is a decoder error — never silently canonicalize.
@@ -246,7 +298,7 @@ def decodeSafeOpenWorkerFailureV1
     match SafeOpenFaultV1.ofWire? wire with
     | some f => pure f
     | none => fail s!"unknown safe-open fault wire '{wire}'"
-  let failure ← mkSafeOpenWorkerFailureV1 fault
+  let failure ← makeSafeOpenWorkerFailureFromDigestV1 requestDigest fault
   let reencoded ← encodeSafeOpenWorkerFailureV1 failure
   requireReencode tagFailureV1 input reencoded
   pure failure
@@ -268,5 +320,18 @@ def decodeSafeOpenWorkerResponseV1
     pure (.failure (← decodeSafeOpenWorkerFailureV1 input))
   else
     fail s!"expected SafeOpen.Ok.v1 or SafeOpen.Err.v1, got '{tag}'"
+
+/-- Bind a canonical response to the exact SafeOpen.Req.v1 that produced it. -/
+def bindSafeOpenWorkerResponseV1
+    (request : SafeOpenWorkerRequestV1)
+    (response : SafeOpenWorkerResponseV1) :
+    Except String SafeOpenWorkerResponseV1 := do
+  let expected ← safeOpenWorkerRequestDigestOfV1 request
+  let actual := match response with
+    | .success success => SafeOpenWorkerSuccessV1.requestDigest success
+    | .failure failure => SafeOpenWorkerFailureV1.requestDigest failure
+  unless actual == expected do
+    throw "safe-open response requestDigest mismatch (cross-request replay)"
+  pure response
 
 end ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1

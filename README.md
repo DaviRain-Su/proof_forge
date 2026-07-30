@@ -214,7 +214,7 @@ just release-check      # 发布预检；需要 eligible host 与锁定工具链
 
 | 表面 | 命令 / 配置 | 宣称 |
 |---|---|---|
-| Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable 产品检查：docs + build/test + 负例 |
+| Hosted CI | `.github/workflows/ci.yml`、`.woodpecker.yml` → `just ci` | Linux portable core/build/test/selection 检查，并断言 Darwin-only product frontend 在 Linux fail closed；不声称 Linux 产品 build 成功 |
 | Linux tool-root CI | `.github/workflows/ci.yml` 的 `linux-tool-root` lane | linux 资产 provision/materialize/verify 与 host profile 观察；development 级 |
 | 密钥扫描 | `secret-scan` workflow | only-verified TruffleHog |
 | 历史治理审计 | `just governance-check` | task/freeze/evidence 数据自洽；不证明 release |
@@ -228,8 +228,11 @@ ADR-0016 后工具链与 host 观察按平台拆分，两台机器都可以直�
   `toolchains-linux-x86_64.lock.json`（linux）；`justfile` 按 `uname` 选择
   tool root、锁定 git/python 与 Stage-0 分支，consumer 对跨平台文件互相拒绝。
 - `just dev-check` 与 `just ci` 在两个平台都应可运行，且不会进入 Stage-0、custody 或
-  formal qualification。显式 EVM/NEAR build 可使用锁定的 per-tool development closure；
-  完整 tool-root exact-set、clean-room 与 host qualification 仍只属于 `release-check`。
+  formal qualification。当前 B12 产品 source supervisor 仅在 Darwin 提供 development-observed
+  build 路径；Linux lane 运行 portable core/unit/selection 门禁，并明确断言 `build`/`build-counter`
+  以 `PF-FRONTEND-PROTOCOL`、零制品 fail closed，不把它写成 Linux 产品 build 成功。Darwin 上
+  显式 EVM/NEAR build 可使用锁定的 per-tool development closure；完整 tool-root exact-set、
+  clean-room 与 host qualification 仍只属于 `release-check`。
 - 多台开发机协作时先 `git fetch && git status --short`；不要覆盖他人的未提交文件，
   也不要为维护历史 evidence 哈希而阻塞普通产品迭代。
 - SBOM package-file pin 与供应链闭包归入 `release-check`。本次 ProgramV1 迁移会核对一次
@@ -248,16 +251,21 @@ just toolchains-provision-external
 
 ## 当前状态（product recovery）
 
-CLI 的 `build` 与 `build-counter` 已直接使用
-`Syntax → ValidatedSourceV1 → Typed.checkV1 → alpha Semantic → alpha target Plan/IR`；Counter 的
-EVM Yul/ABI materialization 由快速产品测试固定，真实 Counter/Accumulator source 也已通过锁定
-`solc` 生成 EVM bytecode。产品只要求所选工具的 exact closure；无关 `jv` 不再阻塞 EVM。
-这是恢复纵切面，不表示正式 `SemanticProgramV1`、D3 resolver/`OutputSetV1` 或 D1–D4 task 已完成。
-迁移顺序、27项要求/代码完成度和旧代码删除门槛见
-[`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)；执行边界见 [`RECOVERY.md`](RECOVERY.md)。
+Darwin 上 CLI 的 `build` 与 `build-counter` 已使用 pinned safe-open helper → frontend worker →
+`SupervisedFrontendV1.productInput` 的 sole source authority；Main 不再 reopen/reparse source，也没有
+embedded Counter fallback。成功后进入 located `NormalizeV1` structure gate（当前仍是 public UInt64/Unit、
+single-block init/entry/view、literal/load/checked add-sub/store/return 工程子集），再经 private-ctor
+`CompiledSemanticV1` 单 carrier、engineering requirement capability 与 target-owned
+Plan/IR/materialization；compiler/resolver/artifact identity均不再持有 alpha residual。Counter 的 EVM Yul/ABI materialization 由产品测试固定，真实
+Counter/Accumulator source 也已通过锁定 `solc` 生成 EVM bytecode。Linux 产品 CLI 当前按设计
+fail closed；portable CI 不把该行为写成 Linux materialization 成功。这是恢复纵切面，不表示正式
+完整 `SemanticProgramV1`、D3 SupportClaim/`OutputSetV1` 或 D1–D4 task 已完成。迁移顺序、27项要求/
+代码完成度和旧代码删除门槛见 [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)；执行边界见
+[`RECOVERY.md`](RECOVERY.md)。
 
-- Lean command quote、`proof-forge.program-export.v1` 与旧 Loader API 仍作为历史
-  `Source.Program` characterization 保留，不在 CLI 产品路径中；它们是下一轮隔离/删除对象。
+- Lean command/export 已切到 `proof-forge.program-export.v2` + canonical ProgramV1；legacy
+  `Source.Program` decoder、v1 payload 与旧 Loader source-reading API 已删除。库内仍保留
+  `parseProgramsV1`/`selectProgramV1` 非产品测试面，产品 CLI 只能消费 supervised carrier。
 - TaskQualification/custody/formal-evidence 扩张已暂停，不再作为开发完成条件。
 - Clean-room 与 eligible-host 只属于显式 release qualification。
 - 写 maturity 时以真实代码、制品与对应产品测试为准，不能用治理对象数量代替产品进度。

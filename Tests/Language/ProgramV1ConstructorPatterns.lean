@@ -136,6 +136,77 @@ private unsafe def onlyArmPattern
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
 
+  let decimalIntegerPatternBody :=
+    "    match flag with\n" ++
+    "    | 42 => do\n" ++
+    "      return 0\n"
+  let hexadecimalIntegerPatternBody :=
+    "    match flag with\n" ++
+    "    | 0x2a => do\n" ++
+    "      return 0\n"
+  let uppercaseDigitIntegerPatternBody :=
+    "    match flag with\n" ++
+    "    | 0x2A => do\n" ++
+    "      return 0\n"
+  checkPattern (← onlyArmPattern session "integer-decimal-pattern" decimalIntegerPatternBody)
+    (.intLiteral 42) "decimal integer pattern"
+  checkPattern (← onlyArmPattern session "integer-hex-pattern" hexadecimalIntegerPatternBody)
+    (.intLiteral 42) "hexadecimal integer pattern"
+  checkPattern
+    (← onlyArmPattern session "integer-upper-digit-pattern" uppercaseDigitIntegerPatternBody)
+    (.intLiteral 42) "uppercase hexadecimal digit pattern"
+  expectSameProgramBytesAndHash
+    (← decodeSource session "integer-decimal-pattern-canonical" decimalIntegerPatternBody)
+    (← decodeSource session "integer-hex-pattern-canonical" hexadecimalIntegerPatternBody)
+    "decimal and hexadecimal integer patterns must canonicalize equally"
+  expectSameProgramBytesAndHash
+    (← decodeSource session "integer-lower-digit-pattern-canonical"
+      hexadecimalIntegerPatternBody)
+    (← decodeSource session "integer-upper-digit-pattern-canonical"
+      uppercaseDigitIntegerPatternBody)
+    "hex digit case must not change pattern canonical identity"
+
+  let uint256MaxDecimal :=
+    "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+  let uint256MaxHex :=
+    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let uint256OverflowDecimal :=
+    "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+  let uint256OverflowHex :=
+    "0x10000000000000000000000000000000000000000000000000000000000000000"
+  let maxPatternBody (spelling : String) :=
+    "    match flag with\n" ++
+    "    | " ++ spelling ++ " => do\n" ++
+    "      return 0\n"
+  checkPattern (← onlyArmPattern session "integer-max-decimal-pattern"
+      (maxPatternBody uint256MaxDecimal))
+    (.intLiteral (2 ^ 256 - 1)) "UInt256 maximum decimal pattern"
+  checkPattern (← onlyArmPattern session "integer-max-hex-pattern"
+      (maxPatternBody uint256MaxHex))
+    (.intLiteral (2 ^ 256 - 1)) "UInt256 maximum hexadecimal pattern"
+  expectSameProgramBytesAndHash
+    (← decodeSource session "integer-max-decimal-pattern-canonical"
+      (maxPatternBody uint256MaxDecimal))
+    (← decodeSource session "integer-max-hex-pattern-canonical"
+      (maxPatternBody uint256MaxHex))
+    "UInt256 maximum pattern spellings must canonicalize equally"
+
+  for (label, spelling) in [
+      ("integer-pattern-uppercase-prefix", "0X2a"),
+      ("integer-pattern-binary-prefix", "0b101010"),
+      ("integer-pattern-octal-prefix", "0o52"),
+      ("integer-pattern-decimal-underscore", "4_2"),
+      ("integer-pattern-hex-underscore", "0x_2a")
+    ] do
+    expectReject session label (maxPatternBody spelling)
+      "integer literal must use unsigned decimal or lowercase 0x hexadecimal spelling"
+  for (label, spelling) in [
+      ("integer-pattern-u256-overflow-decimal", uint256OverflowDecimal),
+      ("integer-pattern-u256-overflow-hex", uint256OverflowHex)
+    ] do
+    expectReject session label (maxPatternBody spelling)
+      "integer literal exceeds UInt256"
+
   -- Empty constructor argument list decodes to #[]
   let emptyCtor ← onlyArmPattern session "empty-ctor"
     ("    match flag with\n" ++

@@ -7,6 +7,7 @@ namespace ProofForgeV2.Targets.Noir
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 
 def codegenProfileString : String := "noir-source-u64-relations-v1"
@@ -90,6 +91,7 @@ inductive Expr where
   | param (inputIndex : Nat)
   | stateLoad (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
+  | checkedSub (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -145,6 +147,7 @@ inductive ValueRef where
 
 inductive Operation where
   | checkedAdd (destination : Nat) (lhs rhs : ValueRef)
+  | checkedSub (destination : Nat) (lhs rhs : ValueRef)
   | assertEqual (lhs rhs : ValueRef)
   | assertBool (inputIndex : Nat) (expected : Bool)
   deriving BEq, Inhabited, Repr
@@ -216,37 +219,17 @@ private def validDigest (value : String) : Bool :=
   value.length == 64 && value.toList.all (fun character =>
     "0123456789abcdef".contains character)
 
-/-- Pre-D3 (`481f3398`) `reprStr TargetDescriptor` preimage for Noir planHash.
-D3 made `TargetId`/`CodegenProfileId` opaque structures whose Lean `Repr` is
-`{ value := "…" }`, which would silently change `canonicalPlanHash` bytes.
-This encoder freezes the historical shape:
-- `targetId` as enum wire `ProofForgeV2.TargetId.<name>`
-- `codegenProfile` as Lean `String` Repr (`"…"`)
-- other axes still via their stable enum `reprStr`
-- `supportedRequirements` array Format matching nested structure Repr
-  (first element on the `#[` line; continuations indented to column 29).
-Contract: this must remain byte-identical to the pre-D3 `481f3398`
-`reprStr TargetDescriptor`; the independent golden lives in the materialization
-test suite rather than this production module. -/
-def targetDescriptorLegacyRepr (d : TargetDescriptor) : String :=
-  let legacyTargetIdWire (id : TargetId) : String :=
+/-- Transitional deterministic descriptor preimage for the engineering Noir
+plan hash. It serializes only target/profile/axis identity and deliberately
+excludes requirement support; the exact resolver index is the sole current
+support authority. This is not the formal D3 TargetSemantics/Profile digest. -/
+def targetDescriptorEngineeringReprV1 (d : TargetDescriptor) : String :=
+  let targetIdWire (id : TargetId) : String :=
     s!"ProofForgeV2.TargetId.{id.toString}"
-  let legacyCodegenProfileWire (profile : CodegenProfileId) : String :=
-    -- Lean `String` Repr surrounds with quotes; profile grammar forbids escapes.
+  let codegenProfileWire (profile : CodegenProfileId) : String :=
+    -- Profile grammar forbids escapes, so quoted UTF-8 is unambiguous here.
     s!"\"{profile.toString}\""
-  let legacyRequirementArrayRepr (reqs : Array ProgramRequirement) : String :=
-    if reqs.isEmpty then
-      "#[]"
-    else
-      -- Nested under `  supportedRequirements := #[` (prefix length 29).
-      let indent := String.ofList (List.replicate 29 ' ')
-      let items := reqs.toList.map (fun r => reprStr r)
-      match items with
-      | [] => "#[]"
-      | first :: rest =>
-          let cont := rest.map (fun item => s!",\n{indent}{item}") |> String.join
-          s!"#[{first}{cont}]"
-  "{ targetId := " ++ legacyTargetIdWire d.targetId ++ ",\n" ++
+  "{ targetId := " ++ targetIdWire d.targetId ++ ",\n" ++
   "  artifactEncoding := " ++ reprStr d.artifactEncoding ++ ",\n" ++
   "  executionHost := " ++ reprStr d.executionHost ++ ",\n" ++
   "  commitModel := " ++ reprStr d.commitModel ++ ",\n" ++
@@ -254,13 +237,11 @@ def targetDescriptorLegacyRepr (d : TargetDescriptor) : String :=
   "  callModel := " ++ reprStr d.callModel ++ ",\n" ++
   "  proofModel := " ++ reprStr d.proofModel ++ ",\n" ++
   "  settlementModel := " ++ reprStr d.settlementModel ++ ",\n" ++
-  "  codegenProfile := " ++ legacyCodegenProfileWire d.codegenProfile ++ ",\n" ++
-  "  supportedRequirements := " ++ legacyRequirementArrayRepr d.supportedRequirements ++
-  " }"
+  "  codegenProfile := " ++ codegenProfileWire d.codegenProfile ++ " }"
 
 private def canonicalPlanHash (plan : Plan) : String :=
   Crypto.sha256Hex <| ("pf.noir.plan.v1\u0000" ++
-    targetDescriptorLegacyRepr plan.targetDescriptor ++ "\u0000" ++
+    targetDescriptorEngineeringReprV1 plan.targetDescriptor ++ "\u0000" ++
     reprStr plan.semanticSchemaVersion ++ "\u0000" ++
     reprStr plan.codegenProfile ++ "\u0000" ++
     reprStr plan.sourceDialect ++ "\u0000" ++
@@ -278,52 +259,100 @@ private def artifactStem (index : Nat) (mode : RelationMode) (name : String) : S
   let suffix := if mode == .initialize then "init" else name
   s!"r{index}-{suffix}"
 
-private def inputVisibility : Semantic.Visibility → CompileResult InputVisibility
-  | .verifierVisible => .ok .verifier
-  | .proverWitness => .ok .witness
-  | .commitmentOnly => planError "commitment-only inputs need an explicit commitment extension"
+/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
-private def makeStates (states : Array Semantic.StateDecl) : CompileResult (Array StateField) := do
+private structure NoirTypeClosureV1 where
+  uint64TypeId : TypeIdV1
+  unitTypeId : Option TypeIdV1
+
+private def validateNoirTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 := do
+  let mut uint64TypeId : Option TypeIdV1 := none
+  let mut unitTypeId : Option TypeIdV1 := none
+  for decl in types do
+    unless decl.name.isNone do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: named types are outside the current UInt64 pilot"
+    match decl.shape with
+    | .uint width =>
+        unless width.toNat == 64 && uint64TypeId.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: expected one anonymous UInt64 type"
+        uint64TypeId := some decl.id
+    | .unit =>
+        unless unitTypeId.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: duplicate Unit type"
+        unitTypeId := some decl.id
+    | _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: only UInt64 and Unit are supported"
+  let resolvedUInt64TypeId ← match uint64TypeId with
+    | some value => pure value
+    | none => throw (.planInvariant .noir
+        "unsupported Noir semantic shape: UInt64 type is missing")
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
+
+private def makeStatesV1
+    (uint64TypeId : TypeIdV1)
+    (states : Array StateDeclV1) : CompileResult (Array StateField) := do
   if states.size > maxStateFields then
     throw <| .planInvariant .noir s!"state count exceeds profile limit {maxStateFields}"
   let mut planned : Array StateField := #[]
   for state in states do
-    unless state.type == .u64 do
-      throw <| .planInvariant .noir s!"state '{state.name}' is not UInt64"
+    unless state.id.toNat == planned.size do
+      throw <| .planInvariant .noir "semantic state ids must match declaration order"
+    unless state.typeId == uint64TypeId && state.visibility == .public_ do
+      throw <| .planInvariant .noir s!"state '{state.name}' is not public UInt64"
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
-    unless state.id.value == planned.size do
-      throw <| .planInvariant .noir "semantic state ids must match declaration order"
-    planned := planned.push { sourceId := state.id.value, name := state.name }
+    planned := planned.push { sourceId := state.id.toNat, name := state.name }
   if hasDuplicates (planned.map (·.name)) then
     throw <| .planInvariant .noir "state names must be unique"
-  return planned
+  pure planned
 
-private def makeParams (owner : String) (inputOffset : Nat)
-    (params : Array Semantic.Param) : CompileResult (Array Param) := do
+private structure LoweredValueV1 where
+  expr : Expr
+  depth : Nat
+  expandedNodes : Nat
+  dependencies : Array ValueIdV1
+  deriving Inhabited
+
+private def makeParamsV1 (owner : String) (inputOffset : Nat)
+    (uint64TypeId : TypeIdV1) (params : Array ParameterV1) :
+    CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
     throw <| .planInvariant .noir s!"parameter count in {owner} exceeds profile limit {maxParams}"
   let mut planned : Array Param := #[]
+  let mut values : Array LoweredValueV1 := #[]
   for param in params do
-    unless param.type == .u64 do
-      throw <| .planInvariant .noir s!"parameter '{param.name}' in {owner} is not UInt64"
+    unless param.valueId.toNat == planned.size do
+      throw <| .planInvariant .noir
+        s!"semantic parameter ValueIds in {owner} must match declaration order"
+    unless param.typeId == uint64TypeId && param.visibility == .public_ do
+      throw <| .planInvariant .noir
+        s!"parameter '{param.name}' in {owner} is not public UInt64"
     unless isIdentifier param.name do
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    unless param.id.value == planned.size do
-      throw <| .planInvariant .noir
-        s!"semantic parameter ids in {owner} must match declaration order"
-    planned := planned.push {
-      sourceId := param.id.value
+    let binding : Param := {
+      sourceId := param.valueId.toNat
       name := param.name
       inputIndex := inputOffset + planned.size
-      visibility := ← inputVisibility param.visibility
+      visibility := .verifier
+    }
+    planned := planned.push binding
+    values := values.push {
+      expr := .param binding.inputIndex
+      depth := 1
+      expandedNodes := 1
+      dependencies := #[]
     }
   if hasDuplicates (planned.map (·.name)) then
     throw <| .planInvariant .noir s!"parameter names in {owner} must be unique"
-  return planned
+  pure (planned, values)
 
-private def makeInputs (states : Array StateField) (mode : RelationMode)
+private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
     (params : Array Param) : Array InputBinding := Id.run do
   let mut inputs : Array InputBinding := #[]
   if !states.isEmpty then
@@ -375,125 +404,271 @@ private def makeInputs (states : Array StateField) (mode : RelationMode)
       visibility := .verifier
       role := .result
     }
-  return inputs
+  pure inputs
 
-private def findState (states : Array StateField)
-    (id : Semantic.StateId) : CompileResult StateField :=
-  match states.find? (·.sourceId == id.value) with
-  | some field => .ok field
-  | none => planError s!"semantic expression references unknown state id {id.value}"
+private def findStateV1 (states : Array StateField)
+    (id : StateIdV1) : CompileResult StateField :=
+  match states[id.toNat]? with
+  | some field =>
+      if field.sourceId == id.toNat then .ok field
+      else planError s!"semantic expression references noncanonical state id {id.toNat}"
+  | none => planError s!"semantic expression references unknown state id {id.toNat}"
 
-private def findParam (params : Array Param)
-    (id : Semantic.ParamId) : CompileResult Param :=
-  match params.find? (·.sourceId == id.value) with
-  | some param => .ok param
-  | none => planError s!"semantic expression references unknown parameter id {id.value}"
+private def findValueV1 (values : Array LoweredValueV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 :=
+  match values[id.toNat]? with
+  | some value => .ok value
+  | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private partial def semanticExprNodes? (depthLeft nodeBudget : Nat)
-    (expr : Semantic.Expr) : Option Nat :=
-  if depthLeft == 0 || nodeBudget == 0 then
-    none
-  else
-    match expr with
-    | .literal .. | .param .. | .state .. => some 1
-    | .checkedAdd lhs rhs =>
-        let available := nodeBudget - 1
-        match semanticExprNodes? (depthLeft - 1) available lhs with
-        | none => none
-        | some lhsNodes =>
-            match semanticExprNodes? (depthLeft - 1) (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 8 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: UInt64 literal must contain exactly 8 bytes"
+  match decodeU64le (start bytes) with
+  | .error _ =>
+      throw <| .planInvariant .noir "unsupported Noir semantic shape: invalid UInt64 literal"
+  | .ok (value, cursor) =>
+      match finish cursor with
+      | .ok () => pure value
+      | .error _ =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: trailing UInt64 literal bytes"
 
-private def addSemanticExprNodes (total : Nat)
-    (expr : Semantic.Expr) : CompileResult Nat :=
-  match semanticExprNodes? maxExprDepth (maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"semantic expression exceeds depth {maxExprDepth} or aggregate node limit {maxPlanNodes}"
+private def currentValueV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart then
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
 
-private def validateSemanticBudget (program : Semantic.Program) : CompileResult Unit := do
-  if program.state.size > maxStateFields || program.entries.isEmpty ||
-      program.entries.size + (if program.initializer.isSome then 1 else 0) > maxRelations then
-    throw <| .planInvariant .noir "semantic relation/state count is outside profile limits"
-  let initializerNodes := program.initializer.map (fun initializer =>
-    1 + initializer.params.size + initializer.body.size) |>.getD 0
-  let entryNodes := program.entries.foldl (fun total entry =>
-    total + 1 + entry.params.size + entry.body.size) 0
-  let mut total := program.state.size + initializerNodes + entryNodes
-  if total > maxPlanNodes then
-    throw <| .planInvariant .noir s!"semantic program exceeds aggregate node limit {maxPlanNodes}"
-  if let some initializer := program.initializer then
-    if initializer.params.size > maxParams || initializer.body.size > maxBodyStatements then
-      throw <| .planInvariant .noir "initializer exceeds profile resource limits"
-    for statement in initializer.body do
-      match statement with
-      | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-      | .synchronousCall .. => pure ()
-  for entry in program.entries do
-    if entry.params.size > maxParams || entry.body.size > maxBodyStatements then
-      throw <| .planInvariant .noir s!"entry '{entry.name}' exceeds profile resource limits"
-    for statement in entry.body do
-      match statement with
-      | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-      | .synchronousCall .. => pure ()
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedAdd lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
 
-private partial def makeExprUnchecked (states : Array StateField) (params : Array Param) :
-    Semantic.Expr → CompileResult Expr
-  | .literal value => .ok <| .literal value
-  | .param id => return .param (← findParam params id).inputIndex
-  | .state id => return .stateLoad (← findState states id).sourceId
-  | .checkedAdd lhs rhs => do
-      let lhs ← makeExprUnchecked states params lhs
-      let rhs ← makeExprUnchecked states params rhs
-      return .checkedAdd lhs rhs
+private def makeCheckedSubValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedSub lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
 
-private def makeExpr (states : Array StateField) (params : Array Param)
-    (expr : Semantic.Expr) : CompileResult Expr := do
-  let _ ← addSemanticExprNodes 0 expr
-  makeExprUnchecked states params expr
+private def consumeCurrentSegmentV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: dead or reordered value instructions"
+  pure rootValue.expr
 
-private def makeBody (states : Array StateField) (params : Array Param)
-    (owner : String) (mode : RelationMode)
-    (body : Array Semantic.Statement) : CompileResult (Array Statement) := do
-  let mut planned : Array Statement := #[]
-  for statement in body do
-    match statement with
-    | .store state value =>
-        if mode == .view then
-          throw <| .planInvariant .noir s!"view relation '{owner}' writes state"
-        let field ← findState states state
-        planned := planned.push <| .store {
-          fieldIndex := field.sourceId
-          value := ← makeExpr states params value
+private def appendResultValueV1
+    (uint64TypeId : TypeIdV1)
+    (values : Array LoweredValueV1)
+    (result : ValueDefV1)
+    (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
+  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: result ValueId/type is not canonical UInt64"
+  if values.size >= maxPlanNodes then
+    throw <| .planInvariant .noir s!"Noir value table exceeds node limit {maxPlanNodes}"
+  pure (values.push value)
+
+private inductive SemanticCallableModeV1 where
+  | initialize
+  | mutate
+  | view
+  deriving BEq
+
+private structure LoweredCallableV1 where
+  params : Array Param
+  body : Array Statement
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (inputOffset : Nat)
+    (uint64TypeId : TypeIdV1)
+    (states : Array StateField)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
+      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: callable must be one acyclic entry block"
+  let block ← match callable.blocks[0]? with
+    | some value => pure value
+    | none => throw (.planInvariant .noir
+        "unsupported Noir semantic shape: callable entry block is missing")
+  unless block.id.toNat == 0 && block.params.isEmpty do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: block parameters are not supported"
+  if block.instructions.size > maxBodyStatements then
+    throw <| .planInvariant .noir
+      s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
+  let (params, initialValues) ← makeParamsV1 owner inputOffset uint64TypeId callable.params
+  let paramCount := params.size
+  let mut values := initialValues
+  let mut segmentStart := values.size
+  let mut body : Array Statement := #[]
+  for instruction in block.instructions do
+    match instruction.op, instruction.result with
+    | .literal typeId bytes, some result =>
+        unless typeId == uint64TypeId do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: literal is not UInt64"
+        let value ← decodeUInt64LiteralV1 bytes
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .literal value
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
         }
-    | .returnValue value =>
-        if mode == .initialize then
-          throw <| .planInvariant .noir "initializer relation cannot return a value"
-        planned := planned.push <| .returnValue (← makeExpr states params value)
-    | .synchronousCall callee =>
+    | .stateLoad stateId, some result =>
+        let field ← findStateV1 states stateId
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .stateLoad field.sourceId
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .binary op lhsId rhsId, some result =>
+        let lhs ← currentValueV1 values paramCount segmentStart lhsId
+        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        let value ←
+          if op == .add then
+            makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          else if op == .sub then
+            makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          else
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: only checked UInt64 add/sub are supported"
+        values := ← appendResultValueV1 uint64TypeId values result value
+    | .stateStore stateId valueId, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable writes state"
+        let field ← findStateV1 states stateId
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        body := body.push (.store { fieldIndex := field.sourceId, value })
+        segmentStart := values.size
+    | _, _ =>
         throw <| .planInvariant .noir
-          s!"call '{callee}' in {owner} cannot be represented by a circuit relation"
-  return planned
+          "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
+  match mode, block.terminator with
+  | .initialize, .return_ none =>
+      unless segmentStart == values.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: initializer has unconsumed values"
+  | .mutate, .return_ (some valueId)
+  | .view, .return_ (some valueId) =>
+      let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+      body := body.push (.returnValue value)
+      segmentStart := values.size
+  | .initialize, .return_ (some _) =>
+      throw <| .planInvariant .noir "initializer relation cannot return a value"
+  | _, _ =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: callable terminator is outside the current UInt64 pilot"
+  unless segmentStart == values.size do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: callable has unconsumed values"
+  if body.size > maxBodyStatements then
+    throw <| .planInvariant .noir s!"{owner} body exceeds profile limit {maxBodyStatements}"
+  pure { params, body }
 
-private def makeRelation (index : Nat) (states : Array StateField)
-    (name : String) (mode : RelationMode) (semanticParams : Array Semantic.Param)
-    (semanticBody : Array Semantic.Statement) : CompileResult Relation := do
+private def makeRelationV1
+    (index : Nat)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (name : String)
+    (mode : RelationMode)
+    (callable : CallableV1) : CompileResult Relation := do
   unless isIdentifier name do
     throw <| .planInvariant .noir s!"relation name '{name}' is not a safe identifier"
+  if mode == .initialize then
+    unless callable.name.isNone && callable.result.visibility == .public_ do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: initializer signature is invalid"
+    let unitTypeId ← match types.unitTypeId with
+      | some value => pure value
+      | none => throw (.planInvariant .noir
+          "unsupported Noir semantic shape: initializer Unit type is missing")
+    unless callable.result.typeId == unitTypeId do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: initializer result is not Unit"
+  else
+    unless callable.result.typeId == types.uint64TypeId &&
+        callable.result.visibility == .public_ do
+      throw <| .planInvariant .noir s!"entry '{name}' does not return public UInt64"
   let inputOffset := if states.isEmpty then 0 else
     1 + (if mode == .initialize then 0 else states.size)
-  let params ← makeParams s!"relation '{name}'" inputOffset semanticParams
-  let relation : Relation := {
+  let semanticMode : SemanticCallableModeV1 := match mode with
+    | .initialize => .initialize
+    | .mutate => .mutate
+    | .view => .view
+  let lowered ← lowerCallableV1 s!"relation '{name}'" semanticMode inputOffset
+    types.uint64TypeId states callable
+  pure {
     index
     name
     artifactStem := artifactStem index mode name
     mode
-    params
-    inputs := makeInputs states mode params
-    body := ← makeBody states params name mode semanticBody
+    params := lowered.params
+    inputs := makeInputsV1 states mode lowered.params
+    body := lowered.body
   }
-  return relation
 
 private partial def planExprNodes? (states : Array StateField) (inputs : Array InputBinding)
     (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
@@ -515,13 +690,25 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
             match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedSub lhs rhs =>
+        let available := nodeBudget - 1
+        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (plan : Plan) (relation : Relation)
-    (total : Nat) (expr : Expr) : CompileResult Nat :=
+    (total : Nat) (expr : Expr) : CompileResult Nat := do
+  if total >= plan.resourceLimits.maxPlanNodes then
+    throw <| .planInvariant .noir "Noir Plan exceeds aggregate node limit"
   match planExprNodes? plan.states relation.inputs plan.resourceLimits.maxExprDepth
       (plan.resourceLimits.maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError "relation expression has a dangling reference or exceeds resource limits"
+  | some nodes => pure (total + nodes)
+  | none =>
+      throw <| .planInvariant .noir
+        "relation expression has a dangling reference or exceeds resource limits"
 
 private def expectedParams (states : Array StateField)
     (relation : Relation) : Array Param :=
@@ -551,7 +738,7 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
       !hasDuplicates (relation.params.map (·.name)) do
     throw <| .planInvariant .noir "relation parameter names are not canonical"
   unless relation.params == expectedParams plan.states relation &&
-      relation.inputs == makeInputs plan.states relation.mode relation.params do
+      relation.inputs == makeInputsV1 plan.states relation.mode relation.params do
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
   let mut total := baseNodes
   let mut returned := false
@@ -580,7 +767,7 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
 /-- Validate the complete target-owned relation catalog before typed lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.targetDescriptor == descriptor &&
-      plan.semanticSchemaVersion == Semantic.schemaVersion &&
+      plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == codegenProfileString && plan.sourceDialect == sourceDialect &&
       plan.failurePolicy == .unsatisfied && plan.proofStatus == .notProduced &&
       plan.resourceLimits == canonicalLimits do
@@ -624,59 +811,100 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.planHash == canonicalPlanHash plan do
     throw <| .planInvariant .noir "complete Plan hash is not canonical"
 
-/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
-private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
-  validateRequirementEnvelope source
-  unless source.schemaVersion == Semantic.schemaVersion do
+/-- Noir-private retained SemanticProgramV1 data → target-owned Plan pilot.
+    Name/source/semantic identity comes from the same non-alpha compiled carrier;
+    hash strings are derived from sourceHashV1/semanticHashV1 digests. -/
+private def makePlanFromSemanticDataV1
+    (artifactProgramName sourceHash semanticHash : String)
+    (source : SemanticProgramDataV1) : CompileResult Plan := do
+  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
+      !source.invariants.isEmpty then
     throw <| .planInvariant .noir
-      s!"semantic schema version {source.schemaVersion} is not supported"
-  unless source.requirements == Semantic.deriveRequirements source do
-    throw <| .planInvariant .noir "semantic requirements are not canonical for the program body"
-  validateSemanticBudget source
-  let states ← makeStates source.state
-  if states.isEmpty && source.initializer.isSome then
+      "unsupported Noir semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+  if source.callables.size > maxRelations then
+    throw <| .planInvariant .noir s!"callable count exceeds Noir profile limit {maxRelations}"
+  if source.requirements.items.size > Targets.maxRequirementKinds then
+    throw <| .planInvariant .noir
+      s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
+  let types ← validateNoirTypeClosureV1 source.types
+  let states ← makeStatesV1 types.uint64TypeId source.logicalState
+  let components := source.qualifiedName.components.toArray
+  let programName := components.back!
+  unless programName == artifactProgramName do
+    throw <| .planInvariant .noir
+      "retained SemanticProgramV1 name diverges from compiled artifact identity"
+  let mut initializer : Option CallableV1 := none
+  let mut entries : Array CallableV1 := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .initializer =>
+        if initializer.isSome then
+          throw <| .planInvariant .noir "semantic program has multiple initializers"
+        initializer := some callable
+    | .entry | .view => entries := entries.push callable
+    | .pureFn | .invariant =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+  if states.isEmpty && initializer.isSome then
     throw <| .planInvariant .noir "stateless circuit programs cannot declare an initializer"
-  if !states.isEmpty && source.initializer.isNone then
+  if !states.isEmpty && initializer.isNone then
     throw <| .planInvariant .noir "stateful circuit programs require an initializer relation"
   let mut relations : Array Relation := #[]
-  if let some initializer := source.initializer then
-    relations := relations.push <| ← makeRelation 0 states "init" .initialize
-      initializer.params initializer.body
-  for entry in source.entries do
-    unless entry.result == .u64 do
-      throw <| .planInvariant .noir s!"entry '{entry.name}' does not return UInt64"
-    let mode := match entry.mode with
-      | .mutate => RelationMode.mutate
-      | .view => RelationMode.view
-    relations := relations.push <| ← makeRelation relations.size states entry.name mode
-      entry.params entry.body
+  if let some initCallable := initializer then
+    relations := relations.push (← makeRelationV1 0 types states "init" .initialize initCallable)
+  for callable in entries do
+    let name ← match callable.name with
+      | some value => pure value
+      | none => throw (.planInvariant .noir
+          "unsupported Noir semantic shape: named entry is missing its name")
+    let mode : RelationMode := match callable.kind with
+      | .entry => .mutate
+      | .view => .view
+      | _ => .mutate
+    relations := relations.push (← makeRelationV1 relations.size types states name mode callable)
   let unsignedPlan : Plan := {
     targetDescriptor := descriptor
-    semanticSchemaVersion := Semantic.schemaVersion
+    semanticSchemaVersion := semanticProgramSchemaVersionV1
     codegenProfile := codegenProfileString
     sourceDialect
     continuity := if states.isEmpty then .none else .externalPublicPrePost
     failurePolicy := .unsatisfied
     proofStatus := .notProduced
     resourceLimits := canonicalLimits
-    programName := source.name
-    sourceHash := source.sourceHash
-    semanticHash := source.semanticHash
+    programName
+    sourceHash
+    semanticHash
     planHash := String.ofList (List.replicate 64 '0')
     states
     relations
   }
   let plan := { unsignedPlan with planHash := canonicalPlanHash unsignedPlan }
   validatePlan plan
-  return plan
+  pure plan
 
-/-- Capability-gated public plan entry (S6). -/
+private def makePlanFromSemanticV1
+    (artifactProgramName sourceHash semanticHash : String)
+    (source : SemanticProgramV1) : CompileResult Plan := do
+  let data ← match validateSemanticProgramV1 source with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| .invalidProgram "Noir received an invalid SemanticProgramV1 carrier"
+  makePlanFromSemanticDataV1 artifactProgramName sourceHash semanticHash data
+
+/-- Capability-gated public plan entry. Plan semantics and identity are both
+    derived from the single retained-semantic compiled carrier. -/
 def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .noir do
     throw <| .planInvariant .noir "engineering capability kind is not Noir"
-  let source := CompiledProgramV1.alphaResidualOf
-    (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromAlpha source
+  let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+  let source := CompiledSemanticV1.semanticV1Of compiled
+  let sourceHash ← CompiledSemanticV1.artifactSourceHashHexOf compiled
+  let semanticHash ← CompiledSemanticV1.artifactSemanticHashHexOf compiled
+  makePlanFromSemanticV1
+    (CompiledSemanticV1.artifactProgramNameOf compiled)
+    sourceHash
+    semanticHash
+    source
 
 private structure LoweredExpr where
   operations : Array Operation
@@ -694,6 +922,15 @@ private partial def lowerExpr (stateValues : Array ValueRef) (next : Nat) : Expr
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedSub lhs rhs =>
+      let lhs := lowerExpr stateValues next lhs
+      let rhs := lowerExpr stateValues lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSub rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
       }
@@ -748,10 +985,10 @@ private def addLiveTemp (live : Array Nat) : ValueRef → Array Nat
   | .input .. | .literal .. => live
 
 /-- Noir may eliminate an unused checked integer expression, including its
-overflow failure. Until the source profile emits a dedicated non-elidable
-overflow constraint, reject every checked addition that is not transitively
+failure constraint. Reject every checked add/sub result that is not transitively
 consumed by a final equality assertion. -/
-private def validateCheckedAddLiveness (relation : RelationIR) : CompileResult Unit := do
+private def validateCheckedArithmeticLiveness
+    (relation : RelationIR) : CompileResult Unit := do
   let mut live : Array Nat := #[]
   for offset in [0:relation.operations.size] do
     let operation := relation.operations[relation.operations.size - 1 - offset]!
@@ -759,10 +996,11 @@ private def validateCheckedAddLiveness (relation : RelationIR) : CompileResult U
     | .assertEqual lhs rhs =>
         live := addLiveTemp (addLiveTemp live lhs) rhs
     | .assertBool .. => pure ()
-    | .checkedAdd destination lhs rhs =>
+    | .checkedAdd destination lhs rhs
+    | .checkedSub destination lhs rhs =>
         unless live.contains destination do
           throw <| .planInvariant .noir
-            s!"relation '{relation.sourceRelation.name}' contains dead checked arithmetic whose overflow would not be constrained"
+            s!"relation '{relation.sourceRelation.name}' contains dead checked arithmetic whose failure would not be constrained"
         live := addLiveTemp (addLiveTemp live lhs) rhs
 
 def validateIR (ir : IR) : CompileResult Unit := do
@@ -779,7 +1017,7 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if relation.operations.size > limit - operationCount then
       throw <| .planInvariant .noir "typed Noir IR exceeds operation limit"
     operationCount := operationCount + relation.operations.size
-    validateCheckedAddLiveness relation
+    validateCheckedArithmeticLiveness relation
   unless ir.relations == expectedRelations ir.sourcePlan do
     throw <| .planInvariant .noir
       "typed Noir IR operations are not the exact lowering of their source Plan"
@@ -802,6 +1040,9 @@ private def renderValue (relation : Relation) : ValueRef → String
 private def renderOperation (relation : Relation) : Operation → String
   | .checkedAdd destination lhs rhs =>
       s!"    let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n"
+  | .checkedSub destination lhs rhs =>
+      s!"    assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
+        s!"    let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
   | .assertEqual lhs rhs =>
       s!"    assert({renderValue relation lhs} == {renderValue relation rhs});\n"
   | .assertBool inputIndex expected =>

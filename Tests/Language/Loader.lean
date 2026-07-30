@@ -1,5 +1,6 @@
 import Tests.Language.ParserSession
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Language.Loader
 
@@ -194,11 +195,15 @@ unsafe def run : IO Unit := do
       s!"combined namespace/Syntax overflow returned the wrong error: {error.render}"
   | .ok _ => throw <| IO.userError "combined namespace/Syntax overflow unexpectedly passed"
 
-  let semanticCounter ← match Compiler.compileValidatedSourceV1 counter with
-    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
+  let compiledCounter ← match Compiler.compileValidatedSourceV1 counter with
+    | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  expect (semanticCounter.state.map (·.name) == #["count"] &&
-      semanticCounter.entries.map (·.name) == #["increment", "get"])
-    "ProgramV1 typing must preserve Counter state and callables"
+  let semanticCounter ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiledCounter) with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"Counter semantic: {repr error}"
+  expect (semanticCounter.logicalState.map (·.name) == #["count"] &&
+      semanticCounter.callables.filterMap (·.name) == #["increment", "get"])
+    "ProgramV1 Normalize must preserve Counter state and callables"
 
 end Tests.Language.Loader

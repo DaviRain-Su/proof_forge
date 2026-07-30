@@ -33,12 +33,13 @@
   `checkProgramTypedLocatedResultV1` exactly once on the sourceHash-bound
   `OriginInventoryV1`; this located result is the product diagnostic authority
   and reaches CLI through `DiagnosticBundleV1` without first-error erasure.
-  `Typed.checkV1` remains a residual alpha supported-shape / Typed-IR lowering
-  path after located Normalize success; its unlocated `CompileError` projection
-  is not the product diagnostic authority.
+  Product compilation now retains only the resulting `SemanticProgramV1`; it
+  does not invoke the legacy alpha Typed/IR lowering after Normalize. The
+  unlocated legacy checker remains isolated for compatibility fixtures and is
+  not a product diagnostic or compiler authority.
 
   Deliberately outside this composition module:
-    * replacing residual alpha Typed/Semantic IR lowering
+    * deleting the isolated legacy alpha compatibility implementation
     * authority / custody analysis and disclosure.commit operator
     * formal full-coverage TST-VIS-002 / TASK-D2-04 (engineering subset only)
     * SemanticProgramV1 / provenance / exact resolver / OutputSetV1

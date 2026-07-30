@@ -54,6 +54,10 @@ import Tests.Frontend.DarwinSupervisorReceiptV1
 import Tests.Frontend.DarwinWorkerSupervisorV1
 import Tests.Frontend.DarwinSourceSupervisorV1
 import Tests.Product.CounterV1Evm
+import Tests.Materialization.EvmSmoke
+import Tests.Materialization.Targets
+import Tests.Materialization.NearHostModel
+import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.OutputEnvelopeV1
@@ -123,6 +127,7 @@ unsafe def main : IO Unit := do
   Tests.Frontend.DarwinWorkerSupervisorV1.run
   Tests.Frontend.DarwinSourceSupervisorV1.runFast
   Tests.Product.CounterV1Evm.run
+  Tests.Materialization.EvmSmoke.run
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run
   Tests.Materialization.OutputEnvelopeV1.run
@@ -131,4 +136,11 @@ unsafe def main : IO Unit := do
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
+  -- Keep target-leaf regressions after child-process wall-budget suites so
+  -- their retained Plan fixtures cannot perturb host scheduling. The two
+  -- lightweight model entries prove checked-sub success/underflow execution;
+  -- full lifecycle models remain in the ordinary aggregate.
+  Tests.Materialization.runSemanticPlanLeafFast
+  Tests.Materialization.NearHostModel.runCheckedSubFast
+  Tests.Materialization.NoirRelationModel.runCheckedSubFast
   IO.println "proof-forge-next-fast-tests: ok"

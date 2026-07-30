@@ -204,6 +204,8 @@ open ProofForgeV2.Core.Unicode
 
 /-- Schema / domain constants (SPEC-SEM-WIRE-001 §1). -/
 def semanticProgramSchemaIdV1 : String := "proof-forge.semantic-program.v1"
+/-- Numeric projection used only by transitional target Plan carriers. -/
+def semanticProgramSchemaVersionV1 : Nat := 1
 def semanticProgramMagicV1 : String := "pf.semantic.v1"
 def semanticProvenanceSchemaIdV1 : String := "proof-forge.semantic-provenance.v1"
 def semanticProvenanceMagicV1 : String := "pf.semantic-provenance.v1"

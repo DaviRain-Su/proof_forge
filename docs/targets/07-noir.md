@@ -3,7 +3,7 @@ id: TARGET-NOIR
 title: Noir target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-16
+updated: 2026-07-30
 normative: true
 ---
 
@@ -12,6 +12,22 @@ normative: true
 状态：`proposed`
 Target ID：`noir`
 Phase 1：实现
+
+## 当前工程迁移状态（非 formal 完成）
+
+`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
+Noir module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
+lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
+single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
+expanded-tree cost及 store/return effect segment均 fail closed，并继续支持 stateless relation。checked-sub
+source先约束 `lhs >= rhs`，再执行 `u64` subtraction；仍无 ACIR/runtime proof evidence。
+
+`NoirPlan.sourceHash/semanticHash` 由 `CompiledSemanticV1` 的 canonical source/semantic Digest在
+Plan边界派生；carrier不存第二份 hash字符串，也不依赖 alpha residual。`TargetDescriptor` 已删除
+residual requirement list，Noir engineering plan-hash descriptor preimage只编码 target/profile/axis identity。
+这些仍是 engineering Plan identity，
+不是 formal BuildIdentity/Plan digest。现有 maturity仍是 relation IR与source package：无 ACIR/witness/proof/VK/verify，不关闭 formal Noir
+milestone。
 
 ## 1. 身份与来源
 
@@ -38,7 +54,7 @@ compile/execute/prove/verify workflow，证明后端另行选择。Noir 的 publ
 目标 portable fragment 包含有限域/固定宽度整数、Bool、固定数组/struct、有界控制流、
 纯函数、assert、public/private/commitment disclosure 与确定性 state transition relation。
 当前已实现的 alpha slice 仅为 `UInt64`、Bool lifecycle、literal/parameter/state load、
-checked add、store、return；不能把目标范围误写成当前覆盖范围。
+checked add/sub、store、return；不能把目标范围误写成当前覆盖范围。
 
 Phase 1 禁止 unconstrained functions、oracle、foreign calls、无界循环和动态分配。当前
 `commitmentOnly` 输入也 fail closed；后续只能通过带 soundness obligation 的版本化
@@ -77,7 +93,7 @@ span/origin 尚未进入 `SemanticProgram`，所以正式 `TST-NOIR-001` 仍未�
 当前路径是：
 
 ```text
-SemanticProgram
+SemanticProgramV1
   → NoirPlan
   → typed RelationIR { ValueRef, checkedAdd, assertEqual, assertBool }
   → one Noir package per relation

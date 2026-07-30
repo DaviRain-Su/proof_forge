@@ -34,11 +34,11 @@ def maturityLabel (target : TargetId) : CompileResult (Option String) := do
   let reg? ← registration? target
   return reg?.map (·.maturityLabel)
 
-/-- Residual descriptor for an implemented kind (shared DescriptorDataV1). -/
+/-- Engineering descriptor for an implemented kind (shared DescriptorDataV1). -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor :=
   DescriptorDataV1.descriptorForKind?
 
-/-- Residual alpha descriptor join via product registration seed. -/
+/-- Engineering descriptor join via the product registration seed. -/
 def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) := do
   let reg? ← registration? target
   match reg? with
@@ -50,16 +50,16 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
         return none
 
 /-- Aggregate materialization consumes only the private engineering capability.
-    Residual alpha is extracted **after** capability solely as temporary
-    Plan-body data for existing target-owned Plan/IR algorithms
-    (`CompiledProgramV1.alphaResidualOf`) — never as support authority.
-    Support was decided at `resolveEngineeringRequirementsV1`.
-    Target Plan/IR/emit algorithms and artifact bytes are unchanged; the
-    aggregate product carrier is private-ctor `MaterializedArtifactsV1`
-    (sole mint via `mintMaterializedArtifactsV1` after capability-gated emit).
-    No residual Common resolve, no public makePlan, no public OutputSet/
-    makeOutput product surface. Formal SupportClaim / OutputSetV1 still
-    pending; not SemanticProgramV1 native Plan lowering. -/
+    Support was decided at `resolveEngineeringRequirementsV1`. All four target
+    Plan bodies construct their S1 plans from retained `SemanticProgramV1`;
+    compiler, resolver, and artifact identity consume the same non-alpha
+    `CompiledSemanticV1` source/semantic digests and program name.
+    Target-owned Plan/IR/emit algorithms remain capability-gated; the aggregate
+    product carrier is private-ctor `MaterializedArtifactsV1` (sole mint via
+    `mintMaterializedArtifactsV1` after emit). No residual Common resolve, no
+    public makePlan, no public OutputSet/makeOutput product surface. Formal
+    SupportClaim / OutputSetV1 and complete SemanticProgramV1-native lowering
+    remain pending. -/
 def materializeResult (capability : ResolvedEngineeringBuildV1) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
@@ -99,7 +99,7 @@ def finalizeMaterializedArtifactsV1
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO FinalizedArtifactsV1 := do
-  -- Pre-IO identity bind: share exact mint gates (target/profile/kind/residual)
+  -- Pre-IO identity bind: share exact target/profile/kind/program/digest gates
   -- with empty extras so tool side-effects never run on mismatched pairs.
   let precheckDraft : EngineeringFinalizationDraftV1 := {
     deployable := false

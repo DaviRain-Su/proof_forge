@@ -8,14 +8,18 @@
   fixed binary observation frame; this module is the sole Lean decoder and
   private-ctor mint for that frame.
 
+  B12 hardens each spawn with an fd-derived, bounded private worker snapshot:
+  source and snapshot metadata are rechecked, Darwin starts the image suspended,
+  vnode mutations fail closed, and only the verified snapshot is resumed.
+
   Explicit non-claims:
   * `darwin-development-observed` only — not process/session containment
   * not formal TST-RESOURCE-001 / TASK-D1-08 completion
-  * not Linux `contained` assurance
-  * not CLI product cutover, or stderr/path/PID retention
-  * B11b2 composes safe-open under a shared wall budget via
-    `superviseFrontendSourceV1`; this primitive remains transport-only
-    for already-encoded request frames (optional priorElapsedMillis).
+  * not Linux `contained` assurance or formal executable identity
+  * no stderr/path/PID retention; ambient Lean import closure remains engineering
+  * B11b2 composes safe-open under one private native monotonic budget
+    capability via `superviseFrontendSourceV1`; B12 consumes that composition,
+    while this primitive remains transport-only for already-encoded frames.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
@@ -93,16 +97,27 @@ def responseBytes (o : DarwinWorkerSupervisorOutcomeV1) : ByteArray :=
 
 end DarwinWorkerSupervisorOutcomeV1
 
+/-- Private capability minted from the native CLOCK_MONOTONIC domain. Reusing
+    one value across stages gives them an exact absolute wall origin. -/
+structure DarwinFrontendBudgetV1 where
+  private mk ::
+  private startedAtMillis_ : UInt64
+
+@[extern "proof_forge_start_frontend_budget_v1"]
+private opaque nativeStartFrontendBudgetV1 : IO (Except String ByteArray)
+
 /-- Native Darwin supervisor: worker path, full stdin frame, five effective caps,
-    plus prior wall consumption from a shared open-phase budget (0 = fresh arm).
-    Returns either a closed wire fault label or a `PFSUPV1\0` observation frame. -/
+    plus the absolute native monotonic start carried by a private capability.
+    Native open is the sole worker-byte snapshot authority; the caller pathname
+    is never passed directly to `posix_spawn`. Returns either a closed wire fault
+    label or a `PFSUPV1\0` observation frame. -/
 @[extern "proof_forge_supervise_worker_v1"]
 private opaque nativeSuperviseWorkerV1
     (workerPath : @& String)
     (input : @& ByteArray)
     (maxWallMillis maxAggregateMemoryBytes : UInt64)
     (maxProcesses : UInt32)
-    (maxProtocolBytes maxStderrBytes priorElapsedMillis : UInt64) :
+    (maxProtocolBytes maxStderrBytes budgetStartMillis : UInt64) :
     IO (Except String ByteArray)
 
 private def containsNul (value : String) : Bool :=
@@ -294,21 +309,32 @@ private def faultFromNativeLabel (label : String) : DarwinWorkerSupervisorFaultV
   | some fault => fault
   | none => .nativeProtocol
 
-/-- Public Darwin development-observed worker supervision primitive.
+/-- Mint one private Darwin native monotonic wall origin. -/
+def startDarwinFrontendBudgetV1 :
+    IO (Except DarwinWorkerSupervisorFaultV1 DarwinFrontendBudgetV1) := do
+  match ← nativeStartFrontendBudgetV1 with
+  | .error label => pure (.error (faultFromNativeLabel label))
+  | .ok frame =>
+      if frame.size != 8 then
+        pure (.error .nativeProtocol)
+      else
+        match readU64le frame 0 with
+        | .error fault => pure (.error fault)
+        | .ok startedAtMillis =>
+            if startedAtMillis == UInt64.ofNat (UInt64.size - 1) then
+              pure (.error .nativeProtocol)
+            else
+              pure (.ok ⟨startedAtMillis⟩)
 
-    Validates lower-only effective profile, rejects empty/NUL worker paths and
-    oversize stdin against `effective.maxProtocolBytes`, invokes the native
-    supervisor, and mints a private-ctor outcome only after exact frame decode
-    and observation revalidation. Not containment; not formal evidence.
-
-    `priorElapsedMillis` carries open-phase wall consumption for B11b2 shared
-    budgets (pass 0 for a fresh worker-only arm). Reported elapsed includes prior;
-    deadline still saturates at `effective.maxWallMillis + 1` (no re-arm). -/
-def superviseDarwinWorkerFrameV1
+/-- Supervise one encoded frame against an existing native monotonic budget.
+    The private capability prevents callers from substituting a smaller elapsed
+    value; native checks the absolute start across fd-bound worker snapshot,
+    allocation, pipe, suspended spawn, execution, and cleanup. -/
+def superviseDarwinWorkerFrameWithBudgetV1
     (workerPath : FilePath)
     (input : ByteArray)
     (effective : ResourceProfileV1)
-    (priorElapsedMillis : UInt64 := 0) :
+    (budget : DarwinFrontendBudgetV1) :
     IO (Except DarwinWorkerSupervisorFaultV1 DarwinWorkerSupervisorOutcomeV1) := do
   match validateLowerOnlyResourceProfile hardFrontendProfile effective with
   | .error _ => return .error .invalidArgument
@@ -318,10 +344,6 @@ def superviseDarwinWorkerFrameV1
     return .error .invalidArgument
   if input.size > effective.maxProtocolBytes.toNat then
     return .error .invalidArgument
-  -- Defensive: prior ≥ wall or UINT64_MAX must never spawn (no budget re-arm).
-  if priorElapsedMillis == UInt64.ofNat (UInt64.size - 1) ||
-      priorElapsedMillis ≥ effective.maxWallMillis then
-    return .error .invalidArgument
   match ← nativeSuperviseWorkerV1
       pathString
       input
@@ -330,10 +352,21 @@ def superviseDarwinWorkerFrameV1
       effective.maxProcesses
       effective.maxProtocolBytes
       effective.maxStderrBytes
-      priorElapsedMillis with
+      budget.startedAtMillis_ with
   | .error label =>
       pure (.error (faultFromNativeLabel label))
   | .ok frame =>
       pure (decodeSupervisorFrameV1 frame effective)
+
+/-- Public fresh-budget Darwin development-observed supervision primitive. -/
+def superviseDarwinWorkerFrameV1
+    (workerPath : FilePath)
+    (input : ByteArray)
+    (effective : ResourceProfileV1) :
+    IO (Except DarwinWorkerSupervisorFaultV1 DarwinWorkerSupervisorOutcomeV1) := do
+  match ← startDarwinFrontendBudgetV1 with
+  | .error fault => pure (.error fault)
+  | .ok budget =>
+      superviseDarwinWorkerFrameWithBudgetV1 workerPath input effective budget
 
 end ProofForgeV2.Frontend.DarwinWorkerSupervisorV1

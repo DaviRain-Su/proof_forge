@@ -1,4 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Compiler.AlphaCompatibility
 import ProofForgeV2.Core.Crypto
 import ProofForgeV2.Core.Semantics
 import ProofForgeV2.Examples.Counter
@@ -8,6 +9,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
+import Tests.Fixtures.SourcePrograms
 import Tests.Language.ParserSession
 
 namespace Tests.Materialization
@@ -37,50 +39,50 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .error error => throw <| IO.userError error.render
 
 /-- Product aggregate path: selection → resolveEngineeringRequirementsV1 → capability. -/
-private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
+private def materializeSelected (target : TargetId) (compiled : CompiledSemanticV1)
     (profile? : Option CodegenProfileId := none) : CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 target profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
 
-/-- Capability-gated plan for a dual-carrier compiled program. -/
-private def planEvm (compiled : CompiledProgramV1) : CompileResult Targets.Evm.Plan := do
+/-- Capability-gated plan for the single retained-semantic compiled carrier. -/
+private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.evm none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.planFromCapability capability
 
-private def planSolana (compiled : CompiledProgramV1) : CompileResult Targets.Solana.Plan := do
+private def planSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Solana.planFromCapability capability
 
-private def planNear (compiled : CompiledProgramV1) : CompileResult Targets.Near.Plan := do
+private def planNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Near.planFromCapability capability
 
-private def planNoir (compiled : CompiledProgramV1) : CompileResult Targets.Noir.Plan := do
+private def planNoir (compiled : CompiledSemanticV1) : CompileResult Targets.Noir.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.noir none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Noir.planFromCapability capability
 
 /-- Capability-gated production IR inspection (S6 repair; not TargetIrFixtures). -/
-private def irEvm (compiled : CompiledProgramV1) : CompileResult Targets.Evm.IR := do
+private def irEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.evm none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Evm.irFromCapability capability
 
-private def irSolana (compiled : CompiledProgramV1) : CompileResult Targets.Solana.IR := do
+private def irSolana (compiled : CompiledSemanticV1) : CompileResult Targets.Solana.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Solana.irFromCapability capability
 
-private def irNear (compiled : CompiledProgramV1) : CompileResult Targets.Near.IR := do
+private def irNear (compiled : CompiledSemanticV1) : CompileResult Targets.Near.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.near none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Near.irFromCapability capability
 
-private def irNoir (compiled : CompiledProgramV1) : CompileResult Targets.Noir.IR := do
+private def irNoir (compiled : CompiledSemanticV1) : CompileResult Targets.Noir.IR := do
   let selection ← resolveBuildSelectionV1 TargetId.noir none
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.Noir.irFromCapability capability
@@ -103,7 +105,7 @@ private def accumulatorNoirAddExactSource : String :=
   "    assert(result == t0);\n" ++
   "}\n"
 
-/-- Dual-carrier ProgramV1 Accumulator source text for capability materialize goldens. -/
+/-- ProgramV1 Accumulator source text for capability materialize goldens. -/
 private def accumulatorSourceTextV1 : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -120,6 +122,198 @@ private def accumulatorSourceTextV1 : String :=
   "end ProofForgeV2.Examples\n"
 
 private def accumulatorModuleNameV1 : String := "Examples.Accumulator"
+
+private def richUInt64SourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program Ledger where\n" ++
+  "  state left : UInt64\n" ++
+  "  state right : UInt64\n" ++
+  "  init(a : UInt64, b : UInt64) do\n" ++
+  "    left := a\n" ++
+  "    right := b\n" ++
+  "  entry mix(x : UInt64, y : UInt64) : UInt64 do\n" ++
+  "    left := left + x - y\n" ++
+  "    right := right - x\n" ++
+  "    return left\n" ++
+  "  view getRight() : UInt64 do\n" ++
+  "    return right\n"
+
+private def testSemanticPlanSourceAuthority : IO Unit := do
+  for target in #["Evm", "Solana", "Near", "Noir"] do
+    let path := s!"ProofForgeV2/Targets/{target}.lean"
+    let forbidden ← IO.Process.output {
+      cmd := "rg"
+      args := #["-n", "alphaResidualOf|makePlanFromAlpha|validateRequirementEnvelope|Semantic\\.deriveRequirements", path]
+    }
+    expect (forbidden.exitCode == 1)
+      s!"{target} Plan body must not retain a residual-alpha route:\n{forbidden.stdout}"
+    let required ← IO.Process.output {
+      cmd := "rg"
+      args := #["-n", "semanticV1Of|validateSemanticProgramV1|makePlanFromSemanticV1", path]
+    }
+    expect (required.exitCode == 0 &&
+        required.stdout.contains "semanticV1Of" &&
+        required.stdout.contains "validateSemanticProgramV1" &&
+        required.stdout.contains "makePlanFromSemanticV1")
+      s!"{target} Plan body must visibly consume retained SemanticProgramV1:\n{required.stdout}"
+
+private unsafe def testRichUInt64SemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    richUInt64SourceTextV1 "<targets-rich-uint64>" "Tests.Targets.Ledger" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.storageLayout.size == 2 &&
+      evm.entries.map (·.name) == #["mix", "getRight"])
+    "EVM retained V1 rich S1 layout/callable order"
+
+  expect (solana.stateAccount.fields == #[
+      { sourceId := 0, name := "left", accountIndex := 0, byteOffset := 8,
+        byteWidth := 8, endianness := .little },
+      { sourceId := 1, name := "right", accountIndex := 0, byteOffset := 16,
+        byteWidth := 8, endianness := .little }])
+    "Solana retained V1 state ids must map to canonical account offsets"
+  expect (solana.initializer.params == #[
+      { sourceId := 0, name := "a", dataOffset := 8, byteWidth := 8,
+        endianness := .little },
+      { sourceId := 1, name := "b", dataOffset := 16, byteWidth := 8,
+        endianness := .little }] &&
+      solana.initializer.body == #[
+        .store { accountIndex := 0, byteOffset := 8, value := .param 8 },
+        .store { accountIndex := 0, byteOffset := 16, value := .param 16 }])
+    "Solana initializer must preserve parameter and store order"
+  expect (solana.entries.map (·.name) == #["mix", "getRight"] &&
+      solana.entries[0]!.params == #[
+        { sourceId := 0, name := "x", dataOffset := 8, byteWidth := 8,
+          endianness := .little },
+        { sourceId := 1, name := "y", dataOffset := 16, byteWidth := 8,
+          endianness := .little }] &&
+      solana.entries[0]!.body == #[
+        .store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedSub (.checkedAdd (.stateLoad 0 8) (.param 8)) (.param 16)
+        },
+        .store {
+          accountIndex := 0
+          byteOffset := 16
+          value := .checkedSub (.stateLoad 0 16) (.param 8)
+        },
+        .returnValue (.stateLoad 0 8)] &&
+      solana.entries[1]!.body == #[.returnValue (.stateLoad 0 16)])
+    "Solana SSA lowering must preserve nested add/sub, store order, and post-store reads"
+
+  expect (near.storage.fields.map (fun field =>
+      (field.sourceId, field.name)) == #[(0, "left"), (1, "right")])
+    "NEAR retained V1 state ids must preserve declaration order"
+  expect (near.initializer.params == #[
+      { sourceId := 0, name := "a", inputOffset := 0, byteWidth := 8,
+        endianness := .little },
+      { sourceId := 1, name := "b", inputOffset := 8, byteWidth := 8,
+        endianness := .little }] &&
+      near.initializer.body == #[
+        .store { fieldIndex := 0, value := .param 0 },
+        .store { fieldIndex := 1, value := .param 8 }])
+    "NEAR initializer must preserve parameter and store order"
+  expect (near.entries.map (·.name) == #["mix", "getRight"] &&
+      near.entries[0]!.params == #[
+        { sourceId := 0, name := "x", inputOffset := 0, byteWidth := 8,
+          endianness := .little },
+        { sourceId := 1, name := "y", inputOffset := 8, byteWidth := 8,
+          endianness := .little }] &&
+      near.entries[0]!.body == #[
+        .store {
+          fieldIndex := 0
+          value := .checkedSub (.checkedAdd (.stateLoad 0) (.param 0)) (.param 8)
+        },
+        .store {
+          fieldIndex := 1
+          value := .checkedSub (.stateLoad 1) (.param 0)
+        },
+        .returnValue (.stateLoad 0)] &&
+      near.entries[1]!.body == #[.returnValue (.stateLoad 1)])
+    "NEAR SSA lowering must preserve nested add/sub, store order, and post-store reads"
+
+  expect (noir.states == #[
+      { sourceId := 0, name := "left" },
+      { sourceId := 1, name := "right" }] &&
+      noir.relations.map (·.name) == #["init", "mix", "getRight"])
+    "Noir retained V1 states and relations must preserve source order"
+  expect (noir.relations[0]!.params == #[
+      { sourceId := 0, name := "a", inputIndex := 1, visibility := .verifier },
+      { sourceId := 1, name := "b", inputIndex := 2, visibility := .verifier }] &&
+      noir.relations[0]!.body == #[
+        .store { fieldIndex := 0, value := .param 1 },
+        .store { fieldIndex := 1, value := .param 2 }])
+    "Noir initializer relation must preserve parameter and store order"
+  expect (noir.relations[1]!.params == #[
+      { sourceId := 0, name := "x", inputIndex := 3, visibility := .verifier },
+      { sourceId := 1, name := "y", inputIndex := 4, visibility := .verifier }] &&
+      noir.relations[1]!.body == #[
+        .store {
+          fieldIndex := 0
+          value := .checkedSub (.checkedAdd (.stateLoad 0) (.param 3)) (.param 4)
+        },
+        .store {
+          fieldIndex := 1
+          value := .checkedSub (.stateLoad 1) (.param 3)
+        },
+        .returnValue (.stateLoad 0)] &&
+      noir.relations[2]!.body == #[.returnValue (.stateLoad 1)])
+    "Noir SSA lowering must preserve nested add/sub, store order, and post-store reads"
+
+  -- The private target Plan→IR→emitter chains must retain subtraction and each
+  -- target's own underflow failure model; Plan-only assertions are insufficient.
+  let solanaIR ← liftResult <| irSolana compiled
+  let nearIR ← liftResult <| irNear compiled
+  let noirIR ← liftResult <| irNoir compiled
+  expect (solanaIR.handlers[1]!.operations.contains
+      (.checkedSub 4 2 3 solana.arithmeticOverflowError) &&
+      solanaIR.handlers[1]!.operations.contains
+        (.checkedSub 7 5 6 solana.arithmeticOverflowError))
+    "Solana IR must preserve both checked substitutions and shared error code"
+  expect (nearIR.methods[1]!.operations.contains (.checkedSub 4 2 3) &&
+      nearIR.methods[1]!.operations.contains (.checkedSub 7 5 6))
+    "NEAR recipe IR must preserve both checked substitutions"
+  expect (noirIR.relations[1]!.operations.contains
+      (.checkedSub 1 (.temp 0) (.input 4)) &&
+      noirIR.relations[1]!.operations.contains
+        (.checkedSub 2 (.input 2) (.input 3)))
+    "Noir relation IR must preserve both checked substitutions"
+
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some solanaPlanText := solanaOutput.files.find?
+      (·.path == "Ledger.sbpf-plan") |
+    throw <| IO.userError "rich add/sub: missing Ledger.sbpf-plan"
+  expect (solanaPlanText.contents.contains
+      "%4 = checked_sub_u64 %2, %3 else program_error")
+    "Solana emitter must retain checked-sub failure routing"
+  let some nearWat := nearOutput.files.find? (·.path == "Ledger.wat") |
+    throw <| IO.userError "rich add/sub: missing Ledger.wat"
+  expect (nearWat.contents.contains
+      "(if (i64.lt_u (local.get $t2) (local.get $t3)) (then unreachable))" &&
+      nearWat.contents.contains
+        "(local.set $t4 (i64.sub (local.get $t2) (local.get $t3)))")
+    "NEAR WAT must trap on unsigned underflow before subtraction"
+  let some noirSource := noirOutput.files.find?
+      (·.path == "relations/r1-mix/src/main.nr") |
+    throw <| IO.userError "rich add/sub: missing Noir mix relation"
+  expect (noirSource.contents.contains "assert(t0 >= arg_p1);" &&
+      noirSource.contents.contains "let t1: u64 = t0 - arg_p1;")
+    "Noir source must constrain underflow before subtraction"
+
+-- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
+set_option maxRecDepth 10000 in
+unsafe def runSemanticPlanLeafFast : IO Unit := do
+  testSemanticPlanSourceAuthority
+  testRichUInt64SemanticPlans
 
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
@@ -158,9 +352,9 @@ private partial def nestedNoirPlanExpr : Nat → Targets.Noir.Expr
   | 0 => .literal 0
   | level + 1 => .checkedAdd (nestedNoirPlanExpr level) (.literal 0)
 
-/-- Independent pre-D3 (`481f3398`) Noir descriptor hash preimage golden.
+/-- Independent engineering Noir descriptor hash preimage golden.
 Kept test-local so production serialization and its oracle cannot drift together. -/
-private def noirDescriptorLegacyReprBaseline : String :=
+private def noirDescriptorEngineeringReprBaseline : String :=
   "{ targetId := ProofForgeV2.TargetId.noir,\n" ++
   "  artifactEncoding := ProofForgeV2.ArtifactEncoding.noirSource,\n" ++
   "  executionHost := ProofForgeV2.ExecutionHost.circuit,\n" ++
@@ -169,30 +363,27 @@ private def noirDescriptorLegacyReprBaseline : String :=
   "  callModel := ProofForgeV2.CallModel.none,\n" ++
   "  proofModel := ProofForgeV2.ProofModel.circuitProof,\n" ++
   "  settlementModel := ProofForgeV2.SettlementModel.externalVerifier,\n" ++
-  "  codegenProfile := \"noir-source-u64-relations-v1\",\n" ++
-  "  supportedRequirements := #[ProofForgeV2.ProgramRequirement.persistentState,\n" ++
-  "                             ProofForgeV2.ProgramRequirement.checkedArithmetic,\n" ++
-  "                             ProofForgeV2.ProgramRequirement.transactionalRollback,\n" ++
-  "                             ProofForgeV2.ProgramRequirement.privateWitness] }"
+  "  codegenProfile := \"noir-source-u64-relations-v1\" }"
 
-/-- Independent pre-D3 Accumulator Noir planHash golden. -/
+/-- Independent single-semantic-carrier Accumulator Noir planHash golden. -/
 private def accumulatorPlanHashBaseline : String :=
-  "c3e82cb15aa30228d72fb176bebf452e328d7d605367f7aabfabe9bdd85bfe3f"
+  "1bd35ab0daa2cacb39e7a3aea9ae7d3be4d06c3a186a351ddf655ec19a886143"
 
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do
-  -- Product dual-carrier path: real ValidatedSourceV1 Counter through aggregate.
-  -- S6: public Residual.planFromAlpha/lowerPlan/filesFromIR deleted; residual-only
-  -- alpha Semantic fixtures (privateWitness/multi-field/literal-return/dead-arith)
-  -- no longer plan/lower via shipped product surface. Host-model PrivateSum4 lives
-  -- in NoirRelationModel via test-local fixture; multi-field/different-logic
-  -- emission goldens replaced by capability Accumulator exact materialize.
+  runSemanticPlanLeafFast
+  -- Product path: real ValidatedSourceV1 Counter through the capability aggregate.
+  -- All four target Plan bodies consume retained SemanticProgramV1 S1; residual-only
+  -- alpha fixtures (privateWitness/out-of-S1) cannot enter the shipped Plan surface.
+  -- Host-model PrivateSum4 remains isolated test-local characterization, while
+  -- capability Accumulator and rich Ledger cover production target consumers.
   let session ← Tests.Language.ParserSession.shared
   let counterV1 ← liftResult (← session.selectProgramV1
     Examples.counterSourceText "<targets-product-counter>"
     Examples.counterModuleNameV1 none)
   let counterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 counterV1
-  let counterResidual := CompiledProgramV1.alphaResidualOf counterCompiled
+  let counterSourceDigest := CompiledSemanticV1.sourceDigestOf counterCompiled
+  let counterSemanticDigest := CompiledSemanticV1.semanticDigestOf counterCompiled
   expect (Targets.Evm.Keccak.keccak256Hex ByteArray.empty ==
       "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
     "EVM selector hashing must use Ethereum Keccak-256, not SHA3-256"
@@ -217,16 +408,16 @@ unsafe def run : IO Unit := do
       "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"
       #["uint64"] == "7e355592")
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
-  -- Product aggregate: CompiledProgramV1 only (no bare-alpha materializeResult).
+  -- Product aggregate: CompiledSemanticV1 only (no bare-alpha materializeResult).
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let output ← liftResult <| materializeSelected target counterCompiled
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
       s!"{target} must emit at least one artifact"
-    expect (MaterializedArtifactsV1.residualSourceHashOf output == counterResidual.sourceHash)
-      "product carrier must bind ValidatedSourceV1 residual sourceHash"
-    expect (MaterializedArtifactsV1.residualSemanticHashOf output == counterResidual.semanticHash)
-      "product carrier must bind residual alpha semanticHash"
-  -- S6: residual alpha-direct materialize closed; product capability path above covers Counter.
+    expect (MaterializedArtifactsV1.sourceDigestOf output == counterSourceDigest)
+      "product carrier must bind the canonical ValidatedSourceV1 digest"
+    expect (MaterializedArtifactsV1.semanticDigestOf output == counterSemanticDigest)
+      "product carrier must bind the retained SemanticProgramV1 digest"
+  -- S6: alpha-direct materialize remains closed; product capability path covers Counter.
   -- Synchronous-call / privateWitness: product support inspection (not residual planFromAlpha).
   -- PrivateSum4 host accept/reject: Tests.Materialization.NoirRelationModel fixture.
   let privateWitnessReq : RequirementRequestV1 := {
@@ -257,13 +448,15 @@ unsafe def run : IO Unit := do
         s!"EVM product support must reject synchronous-call, got {e.render}"
   | .ok _ =>
       throw <| IO.userError "EVM must reject synchronous-call on product support inspection"
-  -- Dual-carrier capability files + capability-gated plan for Accumulator.
+  -- Single-semantic capability files + capability-gated plan for Accumulator.
   let accSession ← Tests.Language.ParserSession.shared
   let accSource ← liftResult (← accSession.selectProgramV1
     accumulatorSourceTextV1 "<targets-accumulator>" accumulatorModuleNameV1 none)
   let accCompiled ← liftResult <| Compiler.compileValidatedSourceV1 accSource
   let accumulatorOutput ← liftResult <| materializeSelected TargetId.evm accCompiled
   let accumulatorPlan ← liftResult <| planEvm accCompiled
+
+
   -- Cross-kind capability → planFromCapability negatives (kind gate).
   let evmCap ← liftResult <| (do
     let sel ← resolveBuildSelectionV1 TargetId.evm none
@@ -362,10 +555,9 @@ unsafe def run : IO Unit := do
   match Targets.Evm.validatePlan { accumulatorPlan with objectName := tooLongArtifactStem } with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "EvmPlan must reserve suffix bytes within the 240-byte output path limit"
-  -- S6: residual Semantic→Plan shape negatives (schema/requirements/noncanonical/
-  -- deep/missing-init) closed with public planFromAlpha. Product path gates earlier
-  -- via Normalize/CheckV1/dual-carrier; capability planFromCapability only sees
-  -- validated residual alpha from CompiledProgramV1.
+  -- Wave 2 EVM pilot: Plan construction now consumes retained SemanticProgramV1
+  -- only. Public Plan mutation negatives below continue to pin target-owned depth,
+  -- identity, and resource invariants; no alpha Semantic→Plan test seam remains.
   let accumulatorYul ← match accumulatorOutput.files.find? (·.path == "Accumulator.yul") with
     | some file => pure file.contents
     | none => throw <| IO.userError "EVM Accumulator must emit Yul"
@@ -381,7 +573,7 @@ unsafe def run : IO Unit := do
   expect (!accumulatorAbi.contains "increment")
     "EVM ABI must not retain the Counter template"
 
-  -- Capability-gated Solana plan for dual-carrier Accumulator.
+  -- Capability-gated Solana plan for single-semantic carrier Accumulator.
   let solanaPlan ← liftResult <| planSolana accCompiled
   -- Forged/unknown profile is not product-selectable (selection authority).
   let forgedSolanaProfile ← parseProfileFixture "forged-profile"
@@ -508,8 +700,8 @@ unsafe def run : IO Unit := do
     } with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "SolanaPlan must reject forged parameter origins"
-  -- S6: residual Semantic→Plan shape negatives closed with public planFromAlpha.
-  -- Capability Solana IR via production irFromCapability.
+  -- Solana capability Plan body is retained-SemanticProgramV1-native; typed IR
+  -- remains inspected only through production irFromCapability.
   let solanaIR ← liftResult <| irSolana accCompiled
   expect (solanaIR.handlers[0]!.operations[0]? ==
       some (Targets.Solana.Operation.zeroState 0 8))
@@ -532,19 +724,21 @@ unsafe def run : IO Unit := do
         (solanaIR.handlers.set! 2 forgedCurrentHandler)) with
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "Solana typed IR must remain exactly bound to its source Plan"
-  -- S6 limitation: multi-field partial-init / read-other residual-only fixtures
-  -- required planFromAlpha; S1 dual-carrier is single-state Counter-like only.
-  -- Reference Semantics zero-init still covered for multi-field alpha fixtures.
+  -- S1 still excludes multi-field partial-init/read-other shapes. Keep this
+  -- legacy Core.Semantics characterization explicit and isolated from the
+  -- ProgramV1 compiled carrier.
+  let legacyAccumulator ← liftResult <|
+    Compiler.AlphaCompatibility.compile Tests.Fixtures.SourcePrograms.accumulatorQualified
   let untouchedState : Semantic.StateDecl := {
     id := ⟨1⟩
     name := "untouched"
     type := .u64
   }
   let partialInitProgram : Semantic.Program := {
-    CompiledProgramV1.alphaResidualOf accCompiled with
+    legacyAccumulator with
     qualifiedName := "Tests.PartialInit"
     name := "PartialInit"
-    «state» := (CompiledProgramV1.alphaResidualOf accCompiled).state.push untouchedState
+    «state» := legacyAccumulator.state.push untouchedState
   }
   let partialReference ← liftResult <| Semantics.initializeProgram partialInitProgram #[7]
   expect (partialReference.storage == #[7, 0])
@@ -699,7 +893,8 @@ unsafe def run : IO Unit := do
   match Targets.Near.validatePlan { nearPlan with entries := nearTooManyLocals } with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NearPlan must reject methods above NEAR's 50000-local limit"
-  -- S6: residual Semantic→Plan shape negatives closed with public planFromAlpha.
+  -- S6 removed public residual Plan routes; the NEAR capability Plan body now
+  -- consumes retained SemanticProgramV1 through the target-private S1 lowering.
   -- Capability NEAR IR via production irFromCapability.
   let nearIR ← liftResult <| irNear accCompiled
   let nearMarker := nearIR.keys[0]!
@@ -746,11 +941,11 @@ unsafe def run : IO Unit := do
       (Targets.Near.withMethods nearIR (nearIR.methods.set! 2 forgedNearMethod)) with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
-  -- S6 limitation: multi-field residual NEAR plan/IR/WAT emission required
-  -- planFromAlpha/filesFromIR. Product exact WAT golden is capability Accumulator
-  -- materializeResult below (complete bytes, not residual multi-field substring).
+  -- The fast S1 seam pins multi-field retained-V1 Plan ordering. The exact WAT
+  -- golden below remains the capability Accumulator materialization (complete
+  -- bytes rather than a multi-field substring oracle).
 
-  -- Capability-gated dual-carrier Noir plan (sole product Plan authority).
+  -- Capability-gated single-semantic Noir plan (sole product Plan authority).
   let noirPlan ← liftResult <| planNoir accCompiled
   let noirCapPlan := noirPlan
   expect (noirCapPlan.states == #[{ sourceId := 0, name := "total" }] &&
@@ -760,24 +955,21 @@ unsafe def run : IO Unit := do
   let forgedNoirDescriptor := {
     Targets.Noir.descriptor with codegenProfile := forgedNoirProfile
   }
-  -- D3 legacy byte-compat: descriptor planHash preimage must match pre-D3
-  -- `481f3398` enum/String Repr (not current opaque `{ value := … }` Repr).
-  expect (Targets.Noir.targetDescriptorLegacyRepr Targets.Noir.descriptor ==
-      noirDescriptorLegacyReprBaseline)
-    "Noir descriptor legacy wire must equal independent 481f3398 baseline preimage"
+  -- Transitional descriptor preimage must be explicit and independent of opaque
+  -- structure Repr; requirement support is not part of this identity.
+  expect (Targets.Noir.targetDescriptorEngineeringReprV1 Targets.Noir.descriptor ==
+      noirDescriptorEngineeringReprBaseline)
+    "Noir descriptor engineering wire must equal its independent baseline"
   let opaqueRepr := reprStr Targets.Noir.descriptor
   expect ((opaqueRepr.splitOn "value :=").length > 1)
-    "current opaque TargetId Repr still differs from legacy wire (encoder required)"
-  -- Dual-carrier residual alpha source/semantic hashes feed planHash; capability
-  -- plan must bind them and match the pre-D3 Accumulator planHash baseline when
-  -- residual alpha identity matches the legacy fixture Accumulator semantic.
-  let accResidual := CompiledProgramV1.alphaResidualOf accCompiled
-  expect (noirPlan.planHash == accumulatorPlanHashBaseline ||
-      (noirPlan.sourceHash == accResidual.sourceHash &&
-        noirPlan.semanticHash == accResidual.semanticHash))
-    "capability Noir plan must bind dual-carrier residual hashes (planHash baseline when identity matches)"
-  expect (noirPlan.sourceHash == accResidual.sourceHash &&
-      noirPlan.semanticHash == accResidual.semanticHash &&
+    "opaque TargetId Repr must not become the engineering descriptor wire"
+  -- Canonical compiled source/semantic digests feed the complete planHash.
+  let accSourceHash ← liftResult <| CompiledSemanticV1.artifactSourceHashHexOf accCompiled
+  let accSemanticHash ← liftResult <| CompiledSemanticV1.artifactSemanticHashHexOf accCompiled
+  expect (noirPlan.planHash == accumulatorPlanHashBaseline)
+    s!"capability Noir planHash must match the single-semantic baseline, got {noirPlan.planHash}"
+  expect (noirPlan.sourceHash == accSourceHash &&
+      noirPlan.semanticHash == accSemanticHash &&
       noirPlan.states == #[{ sourceId := 0, name := "total" }] &&
       noirPlan.continuity == .externalPublicPrePost &&
       noirPlan.proofStatus == .notProduced &&
@@ -864,10 +1056,10 @@ unsafe def run : IO Unit := do
     } with
   | .error (.planInvariant .noir _) => pure ()
   | _ => throw <| IO.userError "NoirPlan must reject deep expressions before hashing the Plan"
-  -- S6: residual Semantic→Plan / dead-arith lower / different-logic residual emit
-  -- closed with public Residual APIs. Capability Accumulator IR + exact materialize
-  -- goldens cover product surface; S1 cannot express literal-return different-logic
-  -- or privateWitness dead-arith residual fixtures.
+  -- S6 removed public residual Plan/IR/files routes. The Noir capability Plan
+  -- body now consumes retained SemanticProgramV1; capability Accumulator IR +
+  -- exact materialize goldens cover the downstream product surface.
+  -- S1 cannot express literal-return different-logic or privateWitness dead-arith fixtures.
 
   let noirIR ← liftResult <| irNoir accCompiled
   expect (noirIR.relations[0]!.operations == #[

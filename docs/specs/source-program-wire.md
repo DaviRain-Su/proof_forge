@@ -3,7 +3,7 @@ id: SPEC-SOURCE-WIRE-001
 title: Source.ProgramV1 Canonical AST 与 Wire 规格
 status: proposed
 owner: frontend
-updated: 2026-07-24
+updated: 2026-07-30
 normative: true
 ---
 
@@ -113,8 +113,8 @@ unbounded recursion 读取攻击输入。
 `ProofDecl.theorem`、constructor/pattern callee paths 与 `ExternalCallExpr.callee` 在 source wire 上
 使用 source `QualifiedId`（≥2 raw components）；root `programIdentity` 使用上节 join。
 String escape spelling 不进入 AST，decoded Unicode scalar
-sequence 才编码。Integer literal 的 decimal/hex spelling 不进入 AST；magnitude 必须在
-`0..2^256-1`，编码为固定 `u256le`。源码负号是 `Expr.Unary(UnaryOp.Neg, ...)`，不是 signed literal。
+sequence 才编码。Integer literal 的 source spelling 只允许 ASCII unsigned decimal `[0-9]+` 或 lowercase-prefix `0x[0-9a-fA-F]+`；expression/pattern 共享 sole decoder，并拒绝 `0X`、binary/octal prefix、underscore、内嵌 sign 与越界值。decimal/hex spelling 与 hex digit case 不进入 AST；magnitude 必须在
+`0..2^256-1`，编码为固定 `u256le`，因此等值 spelling 的 canonical bytes/sourceHash 相同。源码负号是 `Expr.Unary(UnaryOp.Neg, ...)`，不是 signed literal。
 
 每个 tagged constructor 使用：
 

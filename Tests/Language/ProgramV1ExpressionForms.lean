@@ -44,6 +44,40 @@ private unsafe def decodeReturnExpr
       | other => throw <| IO.userError s!"'{label}' did not decode an entry: {repr other}"
   | .error error => throw <| IO.userError error.render
 
+private unsafe def decodeValidatedSource
+    (session : ProofForgeV2.Language.Loader.ParserSession) (label expr : String) :
+    IO ProofForgeV2.Source.ValidatedSourceV1.ValidatedSourceV1 := do
+  match ← session.selectProgramV1 (source expr)
+      ("<program-v1-expression-forms-" ++ label ++ ">")
+      "Tests.ProgramV1ExpressionForms" none with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+
+private def canonicalBytes
+    (source : ProofForgeV2.Source.ValidatedSourceV1.ValidatedSourceV1)
+    (label : String) : IO ByteArray :=
+  match ProofForgeV2.Source.ValidatedSourceV1.canonicalValidatedSourceAstBytesV1 source with
+  | .ok bytes => pure bytes
+  | .error error => throw <| IO.userError s!"{label}: canonical bytes failed: {error}"
+
+private def sourceDigest
+    (source : ProofForgeV2.Source.ValidatedSourceV1.ValidatedSourceV1)
+    (label : String) : IO ProofForgeV2.Core.Common.Digest :=
+  match ProofForgeV2.Source.ValidatedSourceV1.sourceHashV1 source with
+  | .ok digest => pure digest
+  | .error error => throw <| IO.userError s!"{label}: sourceHashV1 failed: {error}"
+
+private def expectSameProgramBytesAndHash
+    (left right : ProofForgeV2.Source.ValidatedSourceV1.ValidatedSourceV1)
+    (label : String) : IO Unit := do
+  expect (left.program == right.program) s!"{label}: ProgramV1 AST changed"
+  expect ((← canonicalBytes left (label ++ " left")) ==
+    (← canonicalBytes right (label ++ " right")))
+    s!"{label}: canonical bytes changed"
+  expect ((← sourceDigest left (label ++ " left")) ==
+    (← sourceDigest right (label ++ " right")))
+    s!"{label}: sourceHashV1 changed"
+
 private unsafe def expectReject
     (session : ProofForgeV2.Language.Loader.ParserSession)
     (label expr expected : String) : IO Unit := do
@@ -93,6 +127,68 @@ private def expectConstructor (expr : ExprV1) (expectedPath : Array String) (exp
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
+
+  for (label, spelling, expected) in [
+      ("integer-decimal-sixteen", "16", 16),
+      ("integer-hex-sixteen", "0x10", 16),
+      ("integer-decimal-255", "255", 255),
+      ("integer-hex-255", "0xff", 255),
+      ("integer-hex-uppercase-digits-255", "0xFF", 255),
+      ("integer-decimal-zero", "0", 0),
+      ("integer-hex-zero", "0x0", 0)
+    ] do
+    expectLiteral (← decodeReturnExpr session label spelling) expected
+      s!"{label}: integer magnitude changed"
+
+  expectSameProgramBytesAndHash
+    (← decodeValidatedSource session "integer-equivalent-sixteen-decimal" "16")
+    (← decodeValidatedSource session "integer-equivalent-sixteen-hex" "0x10")
+    "decimal 16 and hexadecimal 0x10 must canonicalize equally"
+  expectSameProgramBytesAndHash
+    (← decodeValidatedSource session "integer-equivalent-255-decimal" "255")
+    (← decodeValidatedSource session "integer-equivalent-255-hex" "0xff")
+    "decimal 255 and hexadecimal 0xff must canonicalize equally"
+  expectSameProgramBytesAndHash
+    (← decodeValidatedSource session "integer-equivalent-255-lower-hex" "0xff")
+    (← decodeValidatedSource session "integer-equivalent-255-upper-digits" "0xFF")
+    "hex digit case must not change canonical identity"
+  expectSameProgramBytesAndHash
+    (← decodeValidatedSource session "integer-equivalent-zero-decimal" "0")
+    (← decodeValidatedSource session "integer-equivalent-zero-hex" "0x0")
+    "decimal 0 and hexadecimal 0x0 must canonicalize equally"
+
+  let uint256MaxDecimal :=
+    "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+  let uint256MaxHex :=
+    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  let uint256OverflowDecimal :=
+    "115792089237316195423570985008687907853269984665640564039457584007913129639936"
+  let uint256OverflowHex :=
+    "0x10000000000000000000000000000000000000000000000000000000000000000"
+  expectSameProgramBytesAndHash
+    (← decodeValidatedSource session "integer-u256-max-decimal" uint256MaxDecimal)
+    (← decodeValidatedSource session "integer-u256-max-hex" uint256MaxHex)
+    "UInt256 maximum decimal and hexadecimal spelling must canonicalize equally"
+
+  -- These are legal Lean numeral tokens but forbidden ProgramV1 spellings, so
+  -- they must reach the shared expression/pattern integer decoder rather than
+  -- being mislabeled as parser-boundary failures.
+  for (label, spelling) in [
+      ("integer-uppercase-prefix", "0X10"),
+      ("integer-binary-prefix", "0b10"),
+      ("integer-octal-prefix", "0o10"),
+      ("integer-decimal-underscore", "1_0"),
+      ("integer-hex-underscore", "0x_10")
+    ] do
+    expectReject session label spelling
+      "integer literal must use unsigned decimal or lowercase 0x hexadecimal spelling"
+  for (label, spelling) in [
+      ("integer-u256-overflow-decimal", uint256OverflowDecimal),
+      ("integer-u256-overflow-hex", uint256OverflowHex)
+    ] do
+    expectReject session label spelling "integer literal exceeds UInt256"
+  expectReject session "integer-overflow-before-invalid-rhs"
+    (uint256OverflowHex ++ " + «if»") "integer literal exceeds UInt256"
 
   discard <| expectLocalCall (← decodeReturnExpr session "local-zero" "f()") "f" 0
     "local zero args"

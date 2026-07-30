@@ -63,14 +63,14 @@ private def accumulatorSourceTextV1 : String :=
 
 private def accumulatorModuleNameV1 : String := "Examples.Accumulator"
 
-private unsafe def compileCounter : IO CompiledProgramV1 := do
+private unsafe def compileCounter : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<finalization-counter>"
     Examples.counterModuleNameV1 none)
   liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
 
-private unsafe def compileAccumulator : IO CompiledProgramV1 := do
+private unsafe def compileAccumulator : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Accumulator" (← session.selectProgramV1
     accumulatorSourceTextV1 "<finalization-accumulator>"
@@ -96,7 +96,9 @@ private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO U
 /-- Sole mint + capability/artifact binding positives/negatives. -/
 private unsafe def testSoleMintBinding : IO Unit := do
   let compiled ← compileCounter
-  let residual := CompiledProgramV1.alphaResidualOf compiled
+  let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
+  let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
+  let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult "resolve solana"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -157,30 +159,31 @@ private unsafe def testSoleMintBinding : IO Unit := do
   | .error e =>
       expect (e.code == "PF-REGISTRY-INVALID") "target drift → registryInvalid"
   | .ok _ => throw <| IO.userError "capability/artifact target drift must not mint"
-  -- Residual name pin still holds for solana path.
-  expect (MaterializedArtifactsV1.residualProgramNameOf artifacts == residual.name)
-    "residual name for mint fixtures"
-  -- Same-target residual identity gates: Counter artifacts + Accumulator capability.
+  expect (MaterializedArtifactsV1.artifactProgramNameOf artifacts == artifactName &&
+      MaterializedArtifactsV1.sourceDigestOf artifacts == sourceDigest &&
+      MaterializedArtifactsV1.semanticDigestOf artifacts == semanticDigest)
+    "materialized carrier must preserve compiled semantic identity"
+  -- Same-target identity gates: Counter artifacts + Accumulator capability.
   let accCompiled ← compileAccumulator
-  let accResidual := CompiledProgramV1.alphaResidualOf accCompiled
-  expect (accResidual.name != residual.name) "Accumulator name diverges from Counter"
-  expect (accResidual.sourceHash != residual.sourceHash)
-    "Accumulator sourceHash diverges from Counter"
-  expect (accResidual.semanticHash != residual.semanticHash)
-    "Accumulator semanticHash diverges from Counter"
+  expect (CompiledSemanticV1.artifactProgramNameOf accCompiled != artifactName)
+    "Accumulator name diverges from Counter"
+  expect (CompiledSemanticV1.sourceDigestOf accCompiled != sourceDigest)
+    "Accumulator source digest diverges from Counter"
+  expect (CompiledSemanticV1.semanticDigestOf accCompiled != semanticDigest)
+    "Accumulator semantic digest diverges from Counter"
   let accSel ← liftResult "select solana acc" (resolveBuildSelectionV1 TargetId.solana none)
   let accCap ← liftResult "resolve solana acc"
     (Targets.resolveEngineeringRequirementsV1 accSel accCompiled)
-  -- Same targetId; residual name/hash must still fail closed.
+  -- Same targetId; artifact name/digests must still fail closed.
   match mintFinalizedArtifactsV1 accCap artifacts draft with
   | .error e =>
-      expect (e.code == "PF-SRC-INVALID") "residual program drift → invalidProgram"
-      expect (((e.render.splitOn "residual program name").length > 1) ||
-          ((e.render.splitOn "residual sourceHash").length > 1) ||
-          ((e.render.splitOn "residual semanticHash").length > 1))
-        s!"residual drift message expected name/hash, got:\n{e.render}"
+      expect (e.code == "PF-SRC-INVALID") "compiled identity drift → invalidProgram"
+      expect (((e.render.splitOn "artifact program name").length > 1) ||
+          ((e.render.splitOn "source digest").length > 1) ||
+          ((e.render.splitOn "semantic digest").length > 1))
+        s!"identity drift message expected name/digest, got:\n{e.render}"
   | .ok _ =>
-      throw <| IO.userError "same-target different-program residual drift must not mint"
+      throw <| IO.userError "same-target different-program identity drift must not mint"
   -- Publisher dual-defense extras (would catch mint skip of path uniqueness).
   let basePaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   expectIoErrorContains "publisher collide base" "PF-OUTPUT-PATH" do
@@ -204,7 +207,7 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
   let accSel ← liftResult "select evm acc" (resolveBuildSelectionV1 TargetId.evm none)
   let accCap ← liftResult "resolve evm acc"
     (Targets.resolveEngineeringRequirementsV1 accSel accumulator)
-  -- Pre-IO residual bind must fail with residual/src invalid without writing extras.
+  -- Pre-IO compiled identity bind must fail before writing extras.
   -- (If tools ran first with valid Counter.yul, solc would write Counter.bin.)
   let staging := FilePath.mk "build/v2/finalization-preio-bind"
   if ← staging.pathExists then IO.FS.removeDirAll staging
@@ -224,7 +227,7 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
     expect ((msg.splitOn "PF-TOOLCHAIN-MISMATCH").length == 1)
       s!"pre-IO bind must not invoke tools (TOOLCHAIN-MISMATCH):\n{msg}"
     expect ((msg.splitOn "PF-SRC-INVALID").length > 1)
-      s!"pre-IO bind must surface residual identity failure:\n{msg}"
+      s!"pre-IO bind must surface compiled identity failure:\n{msg}"
     expect (!(← (staging / "Counter.bin").pathExists))
       "pre-IO bind failure must not write .bin extra"
 
@@ -261,7 +264,8 @@ private unsafe def testNonDeployablePhases : IO Unit := do
 /-- Four-target exact finalization paths/deployable/note via product path. -/
 private unsafe def testFourTargetFinalization : IO Unit := do
   let compiled ← compileCounter
-  let residual := CompiledProgramV1.alphaResidualOf compiled
+  let sourceHash ← liftResult "derive Counter source hash"
+    (CompiledSemanticV1.artifactSourceHashHexOf compiled)
   -- Solana: zero-tool product emit.
   do
     let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
@@ -331,7 +335,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": true").length > 1) "evm manifest deployable"
     expect ((manifest.splitOn "Counter.bin").length > 1) "evm manifest includes .bin"
-    expect ((manifest.splitOn residual.sourceHash).length > 1) "evm manifest sourceHash"
+    expect ((manifest.splitOn sourceHash).length > 1) "evm manifest sourceHash"
   -- NEAR: real wat2wasm .wasm + base wat preservation.
   do
     let selection ← liftResult "select near" (resolveBuildSelectionV1 TargetId.near none)

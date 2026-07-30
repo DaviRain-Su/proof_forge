@@ -1,5 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.TypedV1
+import ProofForgeV2.Semantic.RequirementsV1
+import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Typed.RequirementsInferV1
 import Tests.Language.ParserSession
 
@@ -90,21 +92,30 @@ unsafe def run : IO Unit := do
       privVis.program != commVis.program)
     "distinct visibility declarations must produce distinct ProgramV1 ASTs"
 
-  -- Public / default remain S1-compileable (Normalize gate + residual alpha).
-  let semanticDefault ← match Compiler.compileValidatedSourceV1 defaultVis with
-    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
+  -- Public / default remain S1-compileable through the single semantic carrier.
+  let compiledDefault ← match Compiler.compileValidatedSourceV1 defaultVis with
+    | .ok value => pure value
     | .error error => throw <| IO.userError error.render
-  let semanticPublic ← match Compiler.compileValidatedSourceV1 pubVis with
-    | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
+  let compiledPublic ← match Compiler.compileValidatedSourceV1 pubVis with
+    | .ok value => pure value
     | .error error => throw <| IO.userError error.render
+  let semanticDefault ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiledDefault) with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"default semantic: {repr error}"
+  let semanticPublic ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiledPublic) with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"public semantic: {repr error}"
 
-  expect (semanticDefault.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible] &&
-      semanticPublic.state.map (·.visibility) == #[Semantic.Visibility.verifierVisible])
-    "public Semantic state declarations must retain verifierVisible"
-  expect (semanticPublic.requirements == #[.persistentState])
-    "public state must require persistence without a private disclosure claim"
-  expect (semanticDefault.requirements == #[.persistentState])
-    "default-public state must require persistence only"
+  expect (semanticDefault.logicalState.map (·.visibility) ==
+        #[ProofForgeV2.Semantic.WireV1.VisibilityV1.public_] &&
+      semanticPublic.logicalState.map (·.visibility) ==
+        #[ProofForgeV2.Semantic.WireV1.VisibilityV1.public_])
+    "public Semantic state declarations must retain public visibility"
+  expect (semanticPublic.requirements.items.map (·.id) == #["state.persistent"] &&
+      semanticDefault.requirements.items.map (·.id) == #["state.persistent"])
+    "public/default state must freeze only state.persistent"
 
   -- Private / commitment: AST + CheckV1 + RequirementsInfer retained; full
   -- product compile fails closed at Normalize S1 (no alpha-only path).
@@ -115,12 +126,14 @@ unsafe def run : IO Unit := do
   | .ok _ => pure ()
   | .error e => throw <| IO.userError s!"commitment CheckV1: {e.render}"
 
-  let privInfer := inferRequirementsV1 privVis
-  let commInfer := inferRequirementsV1 commVis
-  expect (privInfer.requirements == #[.persistentState, .privateState])
-    "private state must have a state-specific disclosure requirement (infer)"
-  expect (commInfer.requirements == #[.persistentState, .commitmentState])
-    "commitment state must have a state-specific disclosure requirement (infer)"
+  let privIds := (inferRequirementContributionsFromSourceV1 privVis).map
+    RequirementContributionV1.idOf
+  let commIds := (inferRequirementContributionsFromSourceV1 commVis).map
+    RequirementContributionV1.idOf
+  expect (privIds == #["state.persistent", "disclosure.private-state"])
+    "private state must contribute state-specific disclosure"
+  expect (commIds == #["state.persistent", "disclosure.commitment-state"])
+    "commitment state must contribute state-specific disclosure"
 
   match Compiler.compileValidatedSourceV1 privVis with
   | .error (.invalidProgram msg) =>

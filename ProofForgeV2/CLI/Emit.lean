@@ -10,6 +10,7 @@ import ProofForgeV2.Compiler.Pipeline
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 Targets System
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.TargetRegistryV1
@@ -59,17 +60,35 @@ private partial def createSiblingStaging (parent : FilePath) (name : String)
   catch _ =>
     createSiblingStaging parent name pid (attempt + 1)
 
-/-- CLI re-check of capability-bound materialize carrier vs residual alpha.
-    Preserves historical PF-OUTPUT-MANIFEST / PF-OUTPUT-PATH error ordering for
-    the emit path (mint already validates; this is dual defense + stable wires). -/
+private def digestHexForOutputV1 (label : String) (digest : Digest) : IO String := do
+  let rendered ← match renderDigest digest with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"PF-OUTPUT-MANIFEST: {label} digest render failed: {error}"
+  unless rendered.startsWith "sha256:" do
+    throw <| IO.userError s!"PF-OUTPUT-MANIFEST: {label} digest is not sha256"
+  let suffix := (rendered.drop 7).toString
+  unless suffix.length == 64 do
+    throw <| IO.userError s!"PF-OUTPUT-MANIFEST: {label} digest has invalid length"
+  pure suffix
+
+/-- CLI dual-defense for the capability-bound non-alpha identity and paths.
+    The materialized mint already validates these joins; this preserves stable
+    PF-OUTPUT-MANIFEST / PF-OUTPUT-PATH ordering at the publish boundary. -/
 private def validateMaterializedCarrier
-    (program : SemanticProgram) (artifacts : MaterializedArtifactsV1) : IO Unit := do
-  unless MaterializedArtifactsV1.residualSourceHashOf artifacts == program.sourceHash &&
-      MaterializedArtifactsV1.residualSemanticHashOf artifacts == program.semanticHash do
+    (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1) : IO Unit := do
+  unless MaterializedArtifactsV1.sourceDigestOf artifacts ==
+        CompiledSemanticV1.sourceDigestOf compiled &&
+      MaterializedArtifactsV1.semanticDigestOf artifacts ==
+        CompiledSemanticV1.semanticDigestOf compiled do
     throw <| IO.userError
       "PF-OUTPUT-MANIFEST: materializer manifest does not bind the compiled program"
-  unless validArtifactName program.name do
-    throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
+  let programName := CompiledSemanticV1.artifactProgramNameOf compiled
+  unless MaterializedArtifactsV1.artifactProgramNameOf artifacts == programName do
+    throw <| IO.userError
+      "PF-OUTPUT-MANIFEST: materializer program name does not bind the compiled program"
+  unless validArtifactName programName do
+    throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{programName}'"
   let mut paths : Array String := #[]
   for file in MaterializedArtifactsV1.filesOf artifacts do
     unless safeRelativePath file.path do
@@ -146,9 +165,11 @@ def validateFinalizedExtraPathsForPublishV1
     Write order: base → finalize extras → evidence.json → manifest.json (last) →
     exact disk-closure validation before destination race recheck/rename. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
-    (program : SemanticProgram) (artifacts : MaterializedArtifactsV1)
+    (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EmitReceiptV1 := do
   let selection := Targets.ResolvedEngineeringBuildV1.selectionOf capability
+  let sourceHash ← digestHexForOutputV1 "source" (CompiledSemanticV1.sourceDigestOf compiled)
+  let semanticHash ← digestHexForOutputV1 "semantic" (CompiledSemanticV1.semanticDigestOf compiled)
   for file in MaterializedArtifactsV1.filesOf artifacts do
     writeFileCreatingParent (stagingDir / file.path) file.contents
   let finalized ← Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
@@ -160,16 +181,16 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
   let manifest : LegacyOutputManifestV2Alpha1 := {
     target := MaterializedArtifactsV1.targetIdOf artifacts
     codegenProfile := MaterializedArtifactsV1.codegenProfileIdOf artifacts
-    sourceHash := MaterializedArtifactsV1.residualSourceHashOf artifacts
-    semanticHash := MaterializedArtifactsV1.residualSemanticHashOf artifacts
+    sourceHash
+    semanticHash
     deployable := FinalizedArtifactsV1.deployableOf finalized
     files := basePaths ++ FinalizedArtifactsV1.extraFilesOf finalized
   }
   let deployable := if manifest.deployable then "true" else "false"
   let evidence := "{\n" ++
     s!"  \"target\": \"{selection.targetId}\",\n" ++
-    s!"  \"sourceHash\": \"{program.sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{program.semanticHash}\",\n" ++
+    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
+    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
     s!"  \"deployable\": {deployable},\n" ++
     s!"  \"note\": \"{Targets.escapeJson (FinalizedArtifactsV1.evidenceNoteOf finalized)}\"\n" ++
     "}\n"
@@ -185,23 +206,22 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
   }
 
 /-- Product emit path: private engineering capability only.
-    Residual alpha fields (name/sourceHash/semanticHash) keep artifact bytes and
-    v2alpha1 on-disk manifests stable via private legacy-engineering renderer.
-    No public `(selection, compiled)` overload. Returns `EmitReceiptV1` (not
-    public OutputManifest). Formal OutputSetV1 still pending. -/
+    Source/semantic hash fields are derived from the single non-alpha compiled
+    carrier for the private v2alpha1 renderer. No public `(selection, compiled)`
+    overload. Formal OutputSetV1 remains pending. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath) : IO EmitReceiptV1 := do
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability
-  let program := CompiledProgramV1.alphaResidualOf compiled
+  let programName := CompiledSemanticV1.artifactProgramNameOf compiled
   -- Reject unsafe artifact identity before entering a target materializer. A
   -- backend may impose stricter ABI identifier rules, but path safety is a CLI
-  -- boundary and must retain its stable diagnostic independently of target.
-  unless validArtifactName program.name do
-    throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{program.name}'"
+  -- boundary and retains its stable diagnostic independently of target.
+  unless validArtifactName programName do
+    throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{programName}'"
   let artifacts ← match Targets.materializeResult capability with
     | .ok output => pure output
     | .error error => throw <| IO.userError error.render
-  validateMaterializedCarrier program artifacts
+  validateMaterializedCarrier compiled artifacts
   let name ← match outputDir.fileName with
     | some name => pure name
     | none => throw <| IO.userError "PF-OUTPUT-PATH: output directory must have a final component"
@@ -221,7 +241,7 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   let pid ← IO.Process.getPID
   let staging ← createSiblingStaging parent name pid.toNat 0
   try
-    let receipt ← renderIntoStaging capability program artifacts staging
+    let receipt ← renderIntoStaging capability compiled artifacts staging
     -- Recheck immediately before publish. This closes the cooperative writer
     -- race and ensures a build without an explicit future `--force` mode never
     -- replaces user data. A non-empty destination created by another process
@@ -376,8 +396,8 @@ private def formatS2RequirementIds (ids : Array String) : String :=
 /-- Implemented-registration describe join (shared by product describe + tests).
 Checks residual descriptor `targetId` and `codegenProfile` against the
 registration row, then derives exact supported S2 request identities from the
-frozen engineering support index (not residual alpha
-`descriptor.supportedRequirements`). Design-only must not call this. -/
+frozen engineering support index. `TargetDescriptor` carries no requirement
+list; design-only targets must not call this. -/
 def describeImplementedJoin
     (reg : TargetRegistrationDataV1) (descriptor : TargetDescriptor) :
     CompileResult String := do

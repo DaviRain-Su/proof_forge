@@ -1,4 +1,3 @@
-import ProofForgeV2.Core.SemanticIR
 import ProofForgeV2.Core.TargetIdentityV1
 
 namespace ProofForgeV2
@@ -78,13 +77,8 @@ structure TargetDescriptor where
   proofModel : ProofModel
   settlementModel : SettlementModel
   codegenProfile : CodegenProfileId
-  /-- Residual alpha characterization / describe-target list only.
-      Product support authority is the engineering exact requirement resolver
-      (`RequirementResolverV1` static index + `resolveEngineeringRequirementsV1`),
-      not this field. S6 closed public residual routes that treated this list as
-      acceptance authority (residual Common resolve / validateResolved /
-      supportedRequirements membership checks). Formal SupportClaim still pending. -/
-  supportedRequirements : Array ProgramRequirement
+  -- Requirement support is deliberately absent. The exact engineering resolver
+  -- index is the sole current authority; formal SupportClaim remains pending.
   -- No Inhabited: TargetId/CodegenProfileId have no default identity.
   deriving BEq, Repr
 

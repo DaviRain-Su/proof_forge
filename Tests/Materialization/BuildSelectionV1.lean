@@ -58,7 +58,7 @@ private def parseProfile (s : String) : IO CodegenProfileId :=
   | some id => pure id
   | none => throw <| IO.userError s!"test fixture profile failed grammar: '{s}'"
 
-private def materializeSelected (target : TargetId) (compiled : CompiledProgramV1)
+private def materializeSelected (target : TargetId) (compiled : CompiledSemanticV1)
     (profile? : Option CodegenProfileId := none) : CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 target profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
@@ -618,7 +618,8 @@ private unsafe def testMaterializeIdentity : IO Unit := do
     Examples.counterSourceText "<build-selection-counter>"
     Examples.counterModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-  let residual := CompiledProgramV1.alphaResidualOf compiled
+  let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
+  let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult <| resolveBuildSelectionV1 tid none
     let capability ← liftResult <|
@@ -627,10 +628,10 @@ private unsafe def testMaterializeIdentity : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty) s!"{tid} must emit artifacts"
     expect (MaterializedArtifactsV1.targetIdOf output == tid)
       s!"carrier target identity for {tid}"
-    expect (MaterializedArtifactsV1.residualSourceHashOf output == residual.sourceHash)
-      s!"carrier residual sourceHash identity for {tid}"
-    expect (MaterializedArtifactsV1.residualSemanticHashOf output == residual.semanticHash)
-      s!"carrier residual semanticHash identity for {tid}"
+    expect (MaterializedArtifactsV1.sourceDigestOf output == sourceDigest)
+      s!"carrier canonical source digest identity for {tid}"
+    expect (MaterializedArtifactsV1.semanticDigestOf output == semanticDigest)
+      s!"carrier canonical semantic digest identity for {tid}"
     match ← liftResult (registration? tid) with
     | some reg =>
         match reg.defaultProfile with

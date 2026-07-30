@@ -3,7 +3,7 @@ id: MOD-CLI-001
 title: CliOrchestrator 模块规格
 status: proposed
 owner: cli
-updated: 2026-07-29
+updated: 2026-07-30
 normative: true
 ---
 
@@ -38,12 +38,7 @@ development in-process 路径若发出 observation 投影，assurance class 必�
 （`darwin-development-observed` 永不等于 `contained` / formal evidence；Linux `contained` 仅在
 controller-bound + controller-event attribution 下成立，禁止 silent fallback）。
 
-**B8b engineering：** `build`/`build-counter` 仅走 once-parsed product chain
-（`selectProgramV1Product` → `compileProgramProductV1`）；失败 stderr 全量 human bundle +
-`selectExitCode`；usage exit 2；source/type/effect/semantic 典型 exit 3。Built-in Counter
-逻辑路径为项目相对 `Examples/Counter.lean`。B11b2 已冻结可供 B12 消费的 Darwin shared
-safe-open/worker seam，但 CLI 尚未调用；Full JSON envelope、public supervised `receipts`、B12
-product cutover与 Emit/Toolchain typed migration 仍 out of scope。
+**B8b/B12 engineering：** `build`/`build-counter` 仅走 pinned sibling safe-open helper → B10 worker → success-only `SupervisedFrontendV1.productInput` → `compileProgramProductV1`。CLI 不 import Loader、不 reopen/reparse、不调用 ambient PATH；physical compiler path逐 component拒绝 symlink，两个 sibling worker均须为 regular non-symlink，native仅从 no-follow fd-derived `≤512 MiB` private snapshot做 suspended spawn并监视 vnode mutation，不直接执行 caller pathname。built-in Counter 只从 checked `.lake/build/bin` package layout对应root下的 tracked `Examples/Counter.lean` 读取，不依赖 caller cwd，也不使用 embedded `counterSourceText`；其他安装布局 fail closed。Frontend.Err 保留 full bundle；request-bound canonical SafeOpen Err 的 closed fault 仅保留在 private carrier，`.tooLarge`→精确 `PF-SRC-INVALID: source exceeds the 16 MiB limit`，其他 source-open→稳定 `PF-SRC-INVALID`，resource events→对应 `PF-RESOURCE-*`，abnormal snapshot/protocol/supervisor→`PF-FRONTEND-PROTOCOL`，统一 `selectExitCode`；usage仍 exit 2。非 Darwin产品 build固定 protocol diagnostic/exit 3/零制品，portable CI只验证 core与该 fail-closed行为，不声称 Linux build成功。formal executable/import identity、Full JSON envelope、public supervised `receipts`、controller-backed containment与 Emit/Toolchain typed migration仍 out of scope。
 
 覆盖全部命令/flags、multi-program、unknown target/profile/network、exit priority、JSON/human、
 TTY、signals、private file/FD、build network prohibition、deploy bundle revalidation、proof

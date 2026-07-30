@@ -7,7 +7,12 @@
     * usage/config: exit 2 (missing --module, unknown command, unknown --target);
       no diagnostic code invention (no PF-CLI-USAGE / PF-TARGET-UNKNOWN as exception)
     * parser/source boundary: exit 3
+    * supervised source authority: in-root leaf symlink is rejected with exit 3
+    * build-counter package source is independent of caller cwd
+    * compiler symlink launch cannot redirect pinned sibling workers
     * Counter `build-counter` success: exit 0 + success stdout, no failure artifacts
+    * non-Darwin: both product build commands fail closed with the stable frontend
+      protocol diagnostic and zero output (no in-process Loader fallback)
 -/
 import ProofForgeV2.Core.Common
 
@@ -32,14 +37,29 @@ private def countLinesWith (s linePrefix : String) : Nat :=
 private def cliBin : FilePath :=
   FilePath.mk ".lake/build/bin/proof-forge-next"
 
-private def runCli (args : Array String) (cwd : Option FilePath := none) :
+private def runCliAt
+    (cmd : FilePath) (args : Array String) (cwd : Option FilePath := none) :
     IO (UInt32 × String × String) := do
   let out ← IO.Process.output {
-    cmd := cliBin.toString
+    cmd := cmd.toString
     args := args
     cwd := cwd
   }
   pure (out.exitCode, out.stdout, out.stderr)
+
+private def runCli (args : Array String) (cwd : Option FilePath := none) :
+    IO (UInt32 × String × String) := do
+  let absoluteCli ← IO.FS.realPath cliBin
+  runCliAt absoluteCli args cwd
+
+private def runTool (cmd : String) (args : Array String) : IO Unit := do
+  let out ← IO.Process.output { cmd, args }
+  expect (out.exitCode == 0)
+    s!"fixture tool failed: {cmd} {args}; stderr={out.stderr}"
+
+private def writeExecutable (path : FilePath) (body : String) : IO Unit := do
+  IO.FS.writeFile path body
+  runTool "/bin/chmod" #["755", path.toString]
 
 private def testMultiErrorProductCli : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-multi-v1"
@@ -141,6 +161,95 @@ private def testParserBoundaryExit3 : IO Unit := do
   expect (!(← outDir.pathExists))
     "parser failure must not create output"
 
+private def testSupervisedSourceRejectsLeafSymlink : IO Unit := do
+  let root := FilePath.mk "build/v2/cli-supervised-source"
+  if ← root.pathExists then IO.FS.removeDirAll root
+  IO.FS.createDirAll root
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  IO.FS.writeFile (root / "real.lean") source
+  let linkResult ← IO.Process.output {
+    cmd := "/bin/ln"
+    args := #["-s", "real.lean", (root / "link.lean").toString]
+  }
+  expect (linkResult.exitCode == 0)
+    s!"could not create source symlink: {linkResult.stderr}"
+  let outDir := root / "out"
+  let (ec, stdout, stderr) ← runCli #[
+    "build", "link.lean",
+    "--root", root.toString,
+    "--module", "Root",
+    "--target", "solana",
+    "-o", "out"
+  ]
+  expect (ec == 3)
+    s!"supervised leaf symlink must exit 3, got {ec}\nstderr={stderr}\nstdout={stdout}"
+  expect (containsSubstr stderr "PF-SRC-INVALID: source open failed")
+    s!"leaf symlink must map to stable source-open diagnostic, stderr={stderr}"
+  expect (!containsSubstr stdout "built target=")
+    "leaf symlink failure must not print success"
+  expect (!(← outDir.pathExists))
+    "leaf symlink failure must not create output"
+
+private def testBuildCounterUsesPackageSource : IO Unit := do
+  let foreignRoot := FilePath.mk "build/v2/cli-build-counter-foreign-cwd"
+  if ← foreignRoot.pathExists then IO.FS.removeDirAll foreignRoot
+  IO.FS.createDirAll (foreignRoot / "Examples")
+  IO.FS.writeFile (foreignRoot / "Examples" / "Counter.lean")
+    "this caller-controlled Counter source must never be read\n"
+  let foreignRoot ← IO.FS.realPath foreignRoot
+  let outDir := foreignRoot / "out"
+  let (ec, stdout, stderr) ← runCli #[
+    "build-counter", "--target", "solana", "-o", outDir.toString
+  ] (some foreignRoot)
+  expect (ec == 0)
+    s!"build-counter must use package source, got {ec}\nstderr={stderr}\nstdout={stdout}"
+  expect (containsSubstr stdout "built Counter target=solana")
+    s!"package-source build-counter stdout missing: {stdout}"
+  expect (← outDir.pathExists)
+    "package-source build-counter must create output"
+
+private def testSymlinkLaunchCannotRedirectWorkers : IO Unit := do
+  let fixture := FilePath.mk "build/v2/cli-symlink-launch"
+  if ← fixture.pathExists then IO.FS.removeDirAll fixture
+  IO.FS.createDirAll fixture
+  let fixture ← IO.FS.realPath fixture
+  let realCli ← IO.FS.realPath cliBin
+  let linkedCli := fixture / "proof-forge-next"
+  runTool "/bin/ln" #["-s", realCli.toString, linkedCli.toString]
+  let safeMarker := fixture / "forged-safe-open-ran.flag"
+  let frontendMarker := fixture / "forged-frontend-ran.flag"
+  writeExecutable (fixture / "proof-forge-frontend-safe-open-worker-v1") <|
+    "#!/bin/sh\n" ++ s!": > '{safeMarker}'\n" ++ "exit 7\n"
+  writeExecutable (fixture / "proof-forge-frontend-worker-v1") <|
+    "#!/bin/sh\n" ++ s!": > '{frontendMarker}'\n" ++ "exit 7\n"
+  let outDir := fixture / "out"
+  let (ec, stdout, stderr) ← runCliAt linkedCli #[
+    "build-counter", "--target", "solana", "-o", outDir.toString
+  ]
+  expect (!(← safeMarker.pathExists) && !(← frontendMarker.pathExists))
+    "symlink launch must never execute forged sibling workers"
+  if ec == 0 then
+    expect (containsSubstr stdout "built Counter target=solana")
+      s!"physical app-path launch lost success output: {stdout}"
+    expect (← outDir.pathExists)
+      "physical app-path launch must create output"
+  else
+    expect (ec == 2 && containsSubstr stderr "symbolic link")
+      s!"symlink launch must resolve physically or fail closed, got {ec}: {stderr}"
+    expect (!(← outDir.pathExists))
+      "rejected symlink launch must not create output"
+
 private def testBuildCounterSuccess : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-build-counter-ok"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
@@ -160,6 +269,36 @@ private def testBuildCounterSuccess : IO Unit := do
   expect (← outDir.pathExists)
     "build-counter success must create output directory"
 
+private def testUnsupportedPlatformFailsClosed : IO Unit := do
+  let sourceOut := FilePath.mk "build/v2/diagnostic-non-darwin-source"
+  let counterOut := FilePath.mk "build/v2/diagnostic-non-darwin-counter"
+  if ← sourceOut.pathExists then IO.FS.removeDirAll sourceOut
+  if ← counterOut.pathExists then IO.FS.removeDirAll counterOut
+  let (sourceEc, sourceStdout, sourceStderr) ← runCli #[
+    "build", "Examples/Counter.lean",
+    "--module", "Examples.Counter",
+    "--target", "solana",
+    "-o", sourceOut.toString
+  ]
+  expect (sourceEc == 3)
+    s!"non-Darwin build must fail closed with exit 3, got {sourceEc}: {sourceStderr}"
+  expect (containsSubstr sourceStderr
+      "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
+    s!"non-Darwin build must report the closed supervisor diagnostic: {sourceStderr}"
+  expect (sourceStdout == "" && !(← sourceOut.pathExists))
+    "non-Darwin build must not print success or publish output"
+
+  let (counterEc, counterStdout, counterStderr) ← runCli #[
+    "build-counter", "--target", "solana", "-o", counterOut.toString
+  ]
+  expect (counterEc == 3)
+    s!"non-Darwin build-counter must fail closed with exit 3, got {counterEc}: {counterStderr}"
+  expect (containsSubstr counterStderr
+      "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
+    s!"non-Darwin build-counter must report the closed supervisor diagnostic: {counterStderr}"
+  expect (counterStdout == "" && !(← counterOut.pathExists))
+    "non-Darwin build-counter must not print success or publish output"
+
 unsafe def run : IO Unit := do
   unless ← cliBin.pathExists do
     throw <| IO.userError
@@ -167,9 +306,16 @@ unsafe def run : IO Unit := do
   testUsageExit2
   testUnknownCommandExit2
   testUnknownTargetExit2
-  testMultiErrorProductCli
-  testParserBoundaryExit3
-  testBuildCounterSuccess
-  IO.println "Tests.CLI.DiagnosticsV1: ok"
+  if !System.Platform.isOSX then
+    testUnsupportedPlatformFailsClosed
+    IO.println "Tests.CLI.DiagnosticsV1: ok (unsupported host fails closed)"
+  else
+    testMultiErrorProductCli
+    testParserBoundaryExit3
+    testSupervisedSourceRejectsLeafSymlink
+    testBuildCounterUsesPackageSource
+    testSymlinkLaunchCannotRedirectWorkers
+    testBuildCounterSuccess
+    IO.println "Tests.CLI.DiagnosticsV1: ok"
 
 end Tests.CLI.DiagnosticsV1

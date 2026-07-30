@@ -13,8 +13,32 @@ FIXTURE_DIR="build/program-v1-source-bounds"
 LOG_DIR="$FIXTURE_DIR/logs"
 
 rm -rf "$FIXTURE_DIR"
-/usr/bin/python3 -I -S scripts/generate_syntax_bound_fixtures.py "$FIXTURE_DIR"
 mkdir -p "$LOG_DIR"
+
+# B12's product source authority is Darwin development-only. Portable Linux CI
+# keeps the ProgramV1 bound unit/codec suites and must explicitly prove that the
+# product CLI fails closed instead of restoring the removed in-process Loader.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+  log="$LOG_DIR/non-darwin.cli.log"
+  out="$FIXTURE_DIR/non-darwin-out"
+  ec=0
+  "${CLI[@]}" build Examples/Counter.lean --module Examples.Counter --root "$ROOT" \
+    --target solana -o "$out" >"$log" 2>&1 || ec=$?
+  if [[ "$ec" -ne 3 ]]; then
+    echo "non-Darwin source gate: expected fail-closed exit 3, got $ec" >&2
+    cat "$log" >&2
+    exit 1
+  fi
+  rg -q '^PF-FRONTEND-PROTOCOL: frontend supervisor unavailable$' "$log"
+  if [[ -e "$out" ]] || rg -q '^built target=' "$log"; then
+    echo "non-Darwin source gate: unsupported supervisor published output" >&2
+    exit 1
+  fi
+  echo "program_v1_source_bounds: ok (unsupported host fails closed)"
+  exit 0
+fi
+
+/usr/bin/python3 -I -S scripts/generate_syntax_bound_fixtures.py "$FIXTURE_DIR"
 
 run_cli() {
   local source="$1"

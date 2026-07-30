@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-16
+updated: 2026-07-30
 normative: true
 ---
 
@@ -12,6 +12,19 @@ normative: true
 状态：`proposed`
 Target ID：`near`
 Phase 1：实现
+
+## 当前工程迁移状态（非 formal 完成）
+
+`planFromCapability` 已直接读取 retained `SemanticProgramV1` 并在 target 内重新执行 structure gate；
+NEAR module 内 `alphaResidualOf`、`makePlanFromAlpha`、alpha requirement re-derive均已归零。当前只
+lower NormalizeV1 当前 public-UInt64 envelope 的 anonymous UInt64/Unit、public state/params/results、
+single-block initializer/entry/view 与 literal/stateLoad/checked add-sub/stateStore/return；dense `ValueId`、
+expanded-tree cost及 store/return effect segment均 fail closed，同时保留 KV/raw ABI/receipt-local target
+policy。checked-sub 的 recipe/WAT 在 `i64.sub` 前用 unsigned comparison trap underflow。
+
+这只完成 shared migration leaf：现有 maturity仍是 raw-u64 `wat2wasm` 静态结构验证，没有 NEAR
+sandbox receipt/runtime执行，也不关闭任何 formal milestone；产品 dual-carrier与 alpha-backed identity已删除，
+但 transitional v2alpha1 output contract尚未退役。
 
 ## 1. 身份与来源
 
@@ -47,8 +60,8 @@ NearModuleRecipe {
 }
 ```
 
-`TASK-A0-15` 的首个通用 UInt64 切片只覆盖 verifier-visible `UInt64` state/parameter、
-literal/param/state/checked-add/store/return、init、entry 和 view。`NearPlan` 必须拥有 raw ABI、
+`TASK-A0-15` 的当前通用 UInt64 切片只覆盖 verifier-visible `UInt64` state/parameter、
+literal/param/state/checked-add/sub/store/return、init、entry 和 view。`NearPlan` 必须拥有 raw ABI、
 每个 `StateId` 的 KV binding、初始化 marker、host imports、method mode/body、trap/deposit policy 和
 receipt-local commit assumption；不得保留整个 `SemanticProgram`，renderer 也不得重新推导
 业务逻辑。

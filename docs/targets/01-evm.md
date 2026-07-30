@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-07-30
 normative: true
 ---
 
@@ -12,6 +12,22 @@ normative: true
 状态：`proposed`
 Target ID：`evm`
 Phase 1：实现
+
+## 当前工程迁移状态（非 formal 完成）
+
+当前 capability-only 产品入口 `planFromCapability` 已在 S1 迁移先导中直接读取
+`CompiledSemanticV1.semanticV1Of`，重新验证 `SemanticProgramV1` carrier 后构造 target-owned
+`EvmPlan`；EVM module 内不再读取 `alphaResidualOf`，也不保留 `makePlanFromAlpha`。该事实只覆盖
+下述首个 UInt64/single-block fragment，并不关闭 `TASK-D4-02`：
+
+- 产品编译已只 mint `CompiledSemanticV1`；resolver与artifact identity绑定 canonical source/semantic Digest，不再依赖 residual alpha；
+- Solana/NEAR/Noir 已完成同类 retained-V1 consumer迁移；四 target现已共同承接 checked add/sub，但都尚未覆盖完整 SemanticProgramV1 表面；
+- EVM IR/Yul/solc与 on-disk v2alpha1 output仍是 engineering contract，尚无 formal Plan/IR identity、
+  `BuildIdentity` 或 `OutputSetV1`；
+- 历史 Anvil Counter/Accumulator smoke 尚未升级为 Reference↔Anvil formal differential。
+
+因此当前成熟度仍是“可复用、runtime-validated alpha + SemanticProgramV1-native public-UInt64 Plan pilot”，
+不得写成 D4 milestone或任一 formal task已完成。
 
 ## 1. 身份与来源
 
@@ -46,21 +62,26 @@ EvmPlan {
 
 Plan 不再读取源码符号来猜 storage slot；每个 entry 的 selector、mutability、payability、return/error ABI 在 Plan 中完整确定。
 
-Phase-1 的首个通用 lowering 切片只接收 verifier-visible `UInt64` 状态、参数与返回值，
-以及 literal、parameter/state load、checked addition、state store 和 return。Plan 必须逐项拥有：
+Phase-1 当前通用 lowering 切片只接收 verifier-visible `UInt64` 状态、参数与返回值，
+以及 literal、parameter/state load、checked addition/subtraction、state store 和 return。Plan 必须逐项拥有：
 
 - 由 `StateId` 决定且经唯一性验证的 storage slot；
 - constructor 参数与 target-owned body；
 - 每个 entry 的 Keccak-256 ABI selector、calldata 布局、mutability 与 target-owned body；
-- checked-add 的 `UInt64` overflow → revert 映射和交易回滚语义。
+- checked-add overflow 与 checked-sub underflow 的 `UInt64` → revert 映射和交易回滚语义。
 
 `makePlan` 不得调用 fixture matcher，也不得按 program/entry/state 名特判。当前 semantic fragment
-之外的类型、visibility 或 statement 必须以 `PF-PLAN-INVARIANT` fail closed。
+之外的类型、visibility 或 statement 必须以 `PF-PLAN-INVARIANT` fail closed。single-block lowering
+还把每个 `stateStore` 与最终 `return` 视为 effect segment sink：该 sink必须消费自上一 store 后产生的
+全部 value definitions，且依赖不得指向旧 segment；dead、reordered、stale 或跨 effect-boundary value
+均 fail closed。该约束是当前 public-UInt64 evaluation-order合同，不应被泛化成完整 CFG lowering语义。
 当前 `evm-yul-solc-0.8.34-v1` profile 在 selector hashing 前只接受 ASCII
 `[A-Za-z_][A-Za-z0-9_]*` identifier，byte length 限制为 240，
 program artifact stem 因 `.abi.json` 后缀限制为 231 bytes；state/entry 各 1024、每 callable
-参数 256、body statements 4096、表达式深度 256、整份 Plan nodes 100000。超限不进入
-Keccak/Yul lowering；CLI 另对所有 target 的完整 artifact relative path 强制 240-byte 上限。
+参数 256、body statements 4096、表达式深度 256、整份 Plan nodes 100000。当前 V1 lowering
+对表达式同时计算 SSA dependency depth 与**展开后的树节点数**，因此共享 ValueId 不能把实际
+重复发射成本伪装成较小 DAG；超限不进入 Keccak/Yul lowering。CLI 另对所有 target 的完整
+artifact relative path 强制 240-byte 上限。
 
 ## 5. Target IR 与制品
 

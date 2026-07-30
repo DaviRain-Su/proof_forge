@@ -3,7 +3,7 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-07-16
+updated: 2026-07-30
 normative: true
 ---
 
@@ -177,14 +177,14 @@ initial-size read + one-byte probe 与 fd/path metadata recheck；fault 为 clos
 B11a2 是 canonical/public-safe Darwin receipt pure model；B11b1 以独立 process group 监督已编码
 frame，从 native allocation/pipe/spawn 前启动 monotonic budget，轮询 aggregate process/
 `phys_footprint` 与 output/deadline caps，bounded kill/cleanup 后实际产生该 receipt。B11b2 另以 closed
-one-request safe-open helper（不 import Loader）逐阶段复用相同 `posix_spawn` primitive；overall wall
-覆盖 open→request construction→frontend worker，prior耗尽时 spawn前拒绝，最终 peak取两阶段最大值。
-仅 canonical SafeOpen fault + complete cleanup产生 `sourceOpenFailed`；malformed、cross-request 与
-incomplete-cleanup response均 fail closed，stderr/path/PID/signal/exit detail不进入 carrier。
-process-group polling仍无法阻止 `setsid()` escape，也不是 controller-backed containment；CLI cutover
-和产品 `PF-*` diagnostic映射仍未接线。B10退出值、B11a fault labels、B11b1/B11b2 native event 与
-B11a2 receipt都不证明 time/memory/process containment；B12 只能消费该已冻结 engineering seam，
-不得将它升格为 formal assurance。
+one-request safe-open helper（不 import Loader）逐阶段复用相同 `posix_spawn` primitive；private native
+`CLOCK_MONOTONIC` capability 的 absolute start 覆盖 open→request construction→frontend worker，每阶段
+allocation/pipe/spawn 前检查耗尽，最终 peak取两阶段最大值。SafeOpen Ok/Err 都携 exact canonical request
+digest；仅 request-bound canonical SafeOpen fault + complete cleanup产生 `sourceOpenFailed`；private
+supervised carrier只额外保留该 closed fault class（无 path/errno），供 CLI 将 `.tooLarge` 精确映射为
+16 MiB `PF-SRC-INVALID`，不得 reopen/stat source；malformed、cross-request 与 incomplete-cleanup
+response均 fail closed，stderr/path/PID/signal/exit detail不进入 carrier。
+process-group polling仍无法阻止 `setsid()` escape，也不是 controller-backed containment。B12 已完成 CLI cutover：physical compiler path逐 component拒绝 symlink，pinned sibling workers必须为 regular non-symlink；native以 no-follow fd作为 worker snapshot authority，拒绝非 regular/多链接/无 execute bit/`>512 MiB`，只从 source-fd physical worker同目录的 fd-derived 128-bit 随机私有 snapshot做 suspended spawn；snapshot是 fresh O_EXCL byte-only copy，不复制source xattr/ACL，目录与文件都清空并验证无 inherited extended ACL；vnode/path复核通过后才恢复，mutation或snapshot cleanup失败均 fail closed；`build-counter` source root只来自 checked package layout而非 caller cwd。source-open 映射 `PF-SRC-INVALID`，resource events 映射对应 `PF-RESOURCE-*`，abnormal protocol/supervisor 映射 `PF-FRONTEND-PROTOCOL`；receipt 不进入 diagnostics。snapshot不等于签名/digest worker identity；sole native open前已发生的同路径 replacement、selectively inherited `LEAN_SYSROOT`/`LEAN_PATH` import closure与同 UID/formal threat model仍不作保证。B10退出值、B11a fault labels、B11b1/B11b2 native event 与 B11a2 receipt都不证明 time/memory/process containment；产品消费该 engineering seam 不会将其升格为 formal assurance。当前非 Darwin 产品 build 必须以 closed protocol diagnostic/零制品拒绝；portable Linux CI 的该负向不是 Linux containment 或 materialization positive。
 
 ## Attack Matrix 与验收
 

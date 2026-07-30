@@ -21,6 +21,8 @@
 #if defined(__APPLE__)
 #include <libproc.h>
 #include <pthread.h>
+#include <sys/acl.h>
+#include <sys/event.h>
 #include <sys/resource.h>
 #endif
 
@@ -522,6 +524,376 @@ static void pf_close_fd(int *fd) {
   }
 }
 
+enum {
+  PF_SUP_MAX_WORKER_BYTES = 512 * 1024 * 1024,
+  PF_SUP_SNAPSHOT_RANDOM_BYTES = 16,
+  PF_SUP_SNAPSHOT_RANDOM_HEX = PF_SUP_SNAPSHOT_RANDOM_BYTES * 2
+};
+
+#define PF_SUP_SNAPSHOT_PREFIX ".proof-forge-worker-"
+#define PF_SUP_SNAPSHOT_NAME "worker"
+
+typedef struct {
+  int source_fd;
+  int directory_fd;
+  int worker_fd;
+  int watch_fd;
+  int directory_created;
+  int worker_created;
+  char directory_path[PATH_MAX];
+  char worker_path[PATH_MAX];
+  struct stat directory_expected;
+  struct stat worker_expected;
+} pf_worker_snapshot;
+
+static void pf_worker_snapshot_init(pf_worker_snapshot *snapshot) {
+  memset(snapshot, 0, sizeof(*snapshot));
+  snapshot->source_fd = -1;
+  snapshot->directory_fd = -1;
+  snapshot->worker_fd = -1;
+  snapshot->watch_fd = -1;
+}
+
+static int pf_same_file_identity(const struct stat *left,
+                                 const struct stat *right) {
+  return left->st_dev == right->st_dev && left->st_ino == right->st_ino;
+}
+
+/* A fresh inode may inherit an extended ACL from its parent. POSIX mode bits
+   alone therefore cannot establish a private snapshot on Darwin. Replace any
+   inherited ACL with the empty ACL and require the kernel to report no ACL. */
+static int pf_clear_and_verify_extended_acl(int fd) {
+  acl_t empty_acl = acl_init(0);
+  if (empty_acl == NULL) {
+    return -1;
+  }
+  int set_result = acl_set_fd_np(fd, empty_acl, ACL_TYPE_EXTENDED);
+  (void)acl_free(empty_acl);
+  if (set_result != 0) {
+    return -1;
+  }
+
+  errno = 0;
+  acl_t observed = acl_get_fd_np(fd, ACL_TYPE_EXTENDED);
+  if (observed == NULL) {
+    return errno == ENOENT ? 0 : -1;
+  }
+  acl_entry_t first_entry = NULL;
+  int first_result = acl_get_entry(observed, ACL_FIRST_ENTRY, &first_entry);
+  (void)acl_free(observed);
+  return first_result == 0 ? 0 : -1;
+}
+
+static int pf_create_snapshot_directory(pf_worker_snapshot *snapshot) {
+  static const char hex[] = "0123456789abcdef";
+  const size_t prefix_len = sizeof(PF_SUP_SNAPSHOT_PREFIX) - 1;
+  const size_t worker_name_len = sizeof(PF_SUP_SNAPSHOT_NAME) - 1;
+  uint8_t random_bytes[PF_SUP_SNAPSHOT_RANDOM_BYTES];
+  char source_path[PATH_MAX];
+  if (fcntl(snapshot->source_fd, F_GETPATH, source_path) != 0 ||
+      source_path[0] != '/') {
+    return -1;
+  }
+  char *last_slash = strrchr(source_path, '/');
+  if (last_slash == NULL || last_slash[1] == '\0') {
+    return -1;
+  }
+  size_t parent_len =
+      last_slash == source_path ? 1 : (size_t)(last_slash - source_path);
+  size_t separator_len = parent_len == 1 ? 0 : 1;
+  if (parent_len + separator_len + prefix_len + PF_SUP_SNAPSHOT_RANDOM_HEX + 1 >
+      sizeof(snapshot->directory_path)) {
+    return -1;
+  }
+
+  int attempt;
+  for (attempt = 0; attempt < 16; attempt++) {
+    arc4random_buf(random_bytes, sizeof(random_bytes));
+    memcpy(snapshot->directory_path, source_path, parent_len);
+    size_t cursor = parent_len;
+    if (separator_len != 0) {
+      snapshot->directory_path[cursor++] = '/';
+    }
+    memcpy(snapshot->directory_path + cursor, PF_SUP_SNAPSHOT_PREFIX,
+           prefix_len);
+    cursor += prefix_len;
+    int i;
+    for (i = 0; i < PF_SUP_SNAPSHOT_RANDOM_BYTES; i++) {
+      snapshot->directory_path[cursor + (size_t)i * 2] =
+          hex[random_bytes[i] >> 4];
+      snapshot->directory_path[cursor + (size_t)i * 2 + 1] =
+          hex[random_bytes[i] & 0x0fu];
+    }
+    snapshot->directory_path[cursor + PF_SUP_SNAPSHOT_RANDOM_HEX] = '\0';
+    if (mkdir(snapshot->directory_path, 0700) == 0) {
+      snapshot->directory_created = 1;
+      break;
+    }
+    if (errno != EEXIST) {
+      return -1;
+    }
+  }
+  if (!snapshot->directory_created) {
+    return -1;
+  }
+
+  snapshot->directory_fd =
+      open(snapshot->directory_path,
+           O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (snapshot->directory_fd < 0) {
+    return -1;
+  }
+  struct stat directory_metadata;
+  if (fstat(snapshot->directory_fd, &directory_metadata) != 0 ||
+      !S_ISDIR(directory_metadata.st_mode) ||
+      directory_metadata.st_uid != geteuid() ||
+      fchmod(snapshot->directory_fd, 0700) != 0 ||
+      pf_clear_and_verify_extended_acl(snapshot->directory_fd) != 0) {
+    return -1;
+  }
+
+  size_t directory_len = strlen(snapshot->directory_path);
+  if (directory_len + 1 + worker_name_len + 1 >
+      sizeof(snapshot->worker_path)) {
+    return -1;
+  }
+  memcpy(snapshot->worker_path, snapshot->directory_path, directory_len);
+  snapshot->worker_path[directory_len] = '/';
+  memcpy(snapshot->worker_path + directory_len + 1, PF_SUP_SNAPSHOT_NAME,
+         worker_name_len + 1);
+  return 0;
+}
+
+static int pf_budget_status(uint64_t budget_start_ms, uint64_t max_wall_ms) {
+  uint64_t now_ms = 0;
+  if (pf_clock_ms(&now_ms) != 0 || now_ms < budget_start_ms) {
+    return -1;
+  }
+  return pf_elapsed_ms(budget_start_ms, now_ms) >= max_wall_ms ? 1 : 0;
+}
+
+static int pf_copy_worker_bytes(int source_fd, int destination_fd,
+                                off_t expected_size,
+                                uint64_t budget_start_ms,
+                                uint64_t max_wall_ms) {
+  uint8_t buffer[64 * 1024];
+  off_t offset = 0;
+  while (offset < expected_size) {
+    off_t remaining = expected_size - offset;
+    size_t wanted = remaining > (off_t)sizeof(buffer)
+                        ? sizeof(buffer)
+                        : (size_t)remaining;
+    ssize_t read_count;
+    do {
+      read_count = pread(source_fd, buffer, wanted, offset);
+    } while (read_count < 0 && errno == EINTR);
+    if (read_count <= 0) {
+      return -1;
+    }
+
+    ssize_t written = 0;
+    while (written < read_count) {
+      ssize_t write_count;
+      do {
+        write_count = pwrite(destination_fd, buffer + written,
+                             (size_t)(read_count - written), offset + written);
+      } while (write_count < 0 && errno == EINTR);
+      if (write_count <= 0) {
+        return -1;
+      }
+      written += write_count;
+    }
+    offset += read_count;
+    int budget = pf_budget_status(budget_start_ms, max_wall_ms);
+    if (budget != 0) {
+      return budget;
+    }
+  }
+
+  uint8_t probe = 0;
+  ssize_t probe_count;
+  do {
+    probe_count = pread(source_fd, &probe, 1, expected_size);
+  } while (probe_count < 0 && errno == EINTR);
+  return probe_count == 0 ? 0 : -1;
+}
+
+static int pf_arm_snapshot_watch(pf_worker_snapshot *snapshot) {
+  snapshot->watch_fd = kqueue();
+  if (snapshot->watch_fd < 0 || pf_set_cloexec(snapshot->watch_fd) != 0) {
+    return -1;
+  }
+  /* Executing a vnode may emit NOTE_ATTRIB for atime bookkeeping. Attribute-
+     only churn cannot change the bound bytes; static mode/link changes are
+     still caught by the metadata comparisons, while any content/path swap
+     emits one of the byte- or directory-mutation flags below. */
+  const uint32_t watch_flags = NOTE_WRITE | NOTE_EXTEND | NOTE_LINK |
+                               NOTE_RENAME | NOTE_DELETE | NOTE_REVOKE;
+  struct kevent changes[2];
+  EV_SET(&changes[0], (uintptr_t)snapshot->directory_fd, EVFILT_VNODE,
+         EV_ADD | EV_ENABLE | EV_CLEAR, watch_flags, 0, NULL);
+  EV_SET(&changes[1], (uintptr_t)snapshot->worker_fd, EVFILT_VNODE,
+         EV_ADD | EV_ENABLE | EV_CLEAR, watch_flags, 0, NULL);
+  return kevent(snapshot->watch_fd, changes, 2, NULL, 0, NULL) == 0 ? 0 : -1;
+}
+
+static int pf_snapshot_events_pending(pf_worker_snapshot *snapshot) {
+  struct kevent events[2];
+  struct timespec timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_nsec = 0;
+  int count;
+  do {
+    count = kevent(snapshot->watch_fd, NULL, 0, events, 2, &timeout);
+  } while (count < 0 && errno == EINTR);
+  if (count < 0) {
+    return -1;
+  }
+  return count == 0 ? 0 : 1;
+}
+
+/* Check before and after metadata reads so a path swap cannot hide between the
+   vnode event probe and fstatat. A second call after suspended spawn binds the
+   executable image to the exact private snapshot before any worker code runs. */
+static int pf_worker_snapshot_changed(pf_worker_snapshot *snapshot) {
+  int events = pf_snapshot_events_pending(snapshot);
+  if (events != 0) {
+    return events;
+  }
+  struct stat directory_metadata;
+  struct stat worker_metadata;
+  struct stat worker_path_metadata;
+  if (fstat(snapshot->directory_fd, &directory_metadata) != 0 ||
+      fstat(snapshot->worker_fd, &worker_metadata) != 0 ||
+      fstatat(snapshot->directory_fd, PF_SUP_SNAPSHOT_NAME,
+              &worker_path_metadata, AT_SYMLINK_NOFOLLOW) != 0) {
+    return -1;
+  }
+  if (!pf_same_snapshot(&snapshot->directory_expected, &directory_metadata) ||
+      !pf_same_snapshot(&snapshot->worker_expected, &worker_metadata) ||
+      !pf_same_snapshot(&snapshot->worker_expected, &worker_path_metadata)) {
+    return 1;
+  }
+  events = pf_snapshot_events_pending(snapshot);
+  return events;
+}
+
+/* Return 0 on success, 1 if the absolute wall expired, and -1 on a closed
+   snapshot fault. The source fd, not its pathname, is the sole byte authority. */
+static int pf_prepare_worker_snapshot(const char *worker_path,
+                                      uint64_t budget_start_ms,
+                                      uint64_t max_wall_ms,
+                                      pf_worker_snapshot *snapshot) {
+  snapshot->source_fd =
+      open(worker_path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+  if (snapshot->source_fd < 0) {
+    return -1;
+  }
+  struct stat source_before;
+  if (fstat(snapshot->source_fd, &source_before) != 0 ||
+      !S_ISREG(source_before.st_mode) || source_before.st_nlink != 1 ||
+      source_before.st_size <= 0 ||
+      source_before.st_size > (off_t)PF_SUP_MAX_WORKER_BYTES ||
+      (source_before.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0) {
+    return -1;
+  }
+  int budget = pf_budget_status(budget_start_ms, max_wall_ms);
+  if (budget != 0) {
+    return budget;
+  }
+  if (pf_create_snapshot_directory(snapshot) != 0) {
+    return -1;
+  }
+
+  int destination_fd =
+      openat(snapshot->directory_fd, PF_SUP_SNAPSHOT_NAME,
+             O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
+  if (destination_fd < 0) {
+    return -1;
+  }
+  snapshot->worker_created = 1;
+  int copy_result = pf_clear_and_verify_extended_acl(destination_fd);
+  if (copy_result == 0) {
+    copy_result = pf_copy_worker_bytes(snapshot->source_fd, destination_fd,
+                                       source_before.st_size, budget_start_ms,
+                                       max_wall_ms);
+  }
+  if (copy_result == 0 && fsync(destination_fd) != 0) {
+    copy_result = -1;
+  }
+  close(destination_fd);
+  if (copy_result != 0) {
+    return copy_result;
+  }
+
+  snapshot->worker_fd =
+      openat(snapshot->directory_fd, PF_SUP_SNAPSHOT_NAME,
+             O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+  if (snapshot->worker_fd < 0 || fchmod(snapshot->worker_fd, 0500) != 0 ||
+      pf_clear_and_verify_extended_acl(snapshot->worker_fd) != 0 ||
+      fsync(snapshot->worker_fd) != 0) {
+    return -1;
+  }
+  struct stat source_after;
+  if (fstat(snapshot->source_fd, &source_after) != 0 ||
+      !pf_same_snapshot(&source_before, &source_after) ||
+      fstat(snapshot->worker_fd, &snapshot->worker_expected) != 0 ||
+      !S_ISREG(snapshot->worker_expected.st_mode) ||
+      snapshot->worker_expected.st_nlink != 1 ||
+      snapshot->worker_expected.st_size != source_before.st_size ||
+      (snapshot->worker_expected.st_mode & 0777) != 0500) {
+    return -1;
+  }
+  pf_close_fd(&snapshot->source_fd);
+
+  if (fchmod(snapshot->directory_fd, 0500) != 0 ||
+      pf_clear_and_verify_extended_acl(snapshot->directory_fd) != 0 ||
+      fsync(snapshot->directory_fd) != 0 ||
+      fstat(snapshot->directory_fd, &snapshot->directory_expected) != 0 ||
+      (snapshot->directory_expected.st_mode & 0777) != 0500 ||
+      pf_arm_snapshot_watch(snapshot) != 0) {
+    return -1;
+  }
+  budget = pf_budget_status(budget_start_ms, max_wall_ms);
+  if (budget != 0) {
+    return budget;
+  }
+  return pf_worker_snapshot_changed(snapshot) == 0 ? 0 : -1;
+}
+
+static int pf_cleanup_worker_snapshot(pf_worker_snapshot *snapshot) {
+  int clean = 1;
+  pf_close_fd(&snapshot->watch_fd);
+  pf_close_fd(&snapshot->source_fd);
+  pf_close_fd(&snapshot->worker_fd);
+  if (snapshot->directory_fd >= 0) {
+    if (fchmod(snapshot->directory_fd, 0700) != 0) {
+      clean = 0;
+    }
+    if (snapshot->worker_created &&
+        unlinkat(snapshot->directory_fd, PF_SUP_SNAPSHOT_NAME, 0) != 0) {
+      clean = 0;
+    }
+    struct stat held_directory;
+    struct stat path_directory;
+    int identity_ok =
+        fstat(snapshot->directory_fd, &held_directory) == 0 &&
+        lstat(snapshot->directory_path, &path_directory) == 0 &&
+        pf_same_file_identity(&held_directory, &path_directory);
+    pf_close_fd(&snapshot->directory_fd);
+    if (!identity_ok || rmdir(snapshot->directory_path) != 0) {
+      clean = 0;
+    }
+  } else if (snapshot->directory_created) {
+    if (rmdir(snapshot->directory_path) != 0) {
+      clean = 0;
+    }
+  }
+  snapshot->worker_created = 0;
+  snapshot->directory_created = 0;
+  return clean ? 0 : -1;
+}
+
 static int pf_snapshot_pgroup(pid_t pgid, pid_t **out_pids, int *out_count) {
   *out_pids = NULL;
   *out_count = 0;
@@ -900,7 +1272,7 @@ static lean_object *pf_supervise_worker_darwin(
     const char *worker_path, const uint8_t *input_data, size_t input_size,
     uint64_t max_wall_ms, uint64_t max_memory_bytes, uint32_t max_processes,
     uint64_t max_protocol_bytes, uint64_t max_stderr_bytes,
-    uint64_t prior_elapsed_ms) {
+    uint64_t budget_start_ms) {
   size_t protocol_cap_sz = 0;
   size_t stderr_cap_sz = 0;
   if (!pf_u64_to_size(max_protocol_bytes, &protocol_cap_sz) ||
@@ -909,20 +1281,50 @@ static lean_object *pf_supervise_worker_darwin(
       pf_size_add_overflows(stderr_cap_sz, 1)) {
     return pf_io_error("invalid-argument");
   }
-  size_t stdout_store_cap = protocol_cap_sz + 1;
-  size_t stderr_store_cap = stderr_cap_sz + 1;
 
-  /* Shared monotonic budget: prior_elapsed_ms carries open-phase consumption
-     so the worker cannot re-arm a fresh wall. Local start is still taken before
-     allocation/pipe/spawn for the residual phase. */
-  uint64_t start_ms = 0;
-  if (pf_clock_ms(&start_ms) != 0) {
+  /* The private capability carries one absolute CLOCK_MONOTONIC origin across
+     parent request construction and both child stages. Check it before the
+     first stage allocation/pipe/spawn; an exhausted budget never spawns. */
+  uint64_t stage_start_ms = 0;
+  if (pf_clock_ms(&stage_start_ms) != 0 || stage_start_ms < budget_start_ms) {
     return pf_io_error("io");
   }
+  uint64_t initial_elapsed = pf_elapsed_ms(budget_start_ms, stage_start_ms);
+  if (initial_elapsed >= max_wall_ms) {
+    lean_object *deadline = pf_build_supervisor_frame(
+        PF_SUP_EV_DEADLINE, PF_SUP_CLEAN_COMPLETE,
+        pf_saturate_u64_plus_one(max_wall_ms), 0, 0, NULL, 0);
+    return deadline == NULL ? pf_io_error("io") : deadline;
+  }
 
+  /* Bind execution to an exact fd-derived private snapshot before any pipe or
+     spawn. The existing absolute wall includes copy, ACL clearing, and verification. */
+  pf_worker_snapshot worker_snapshot;
+  pf_worker_snapshot_init(&worker_snapshot);
+  int snapshot_result = pf_prepare_worker_snapshot(
+      worker_path, budget_start_ms, max_wall_ms, &worker_snapshot);
+  if (snapshot_result != 0) {
+    int snapshot_cleanup = pf_cleanup_worker_snapshot(&worker_snapshot);
+    if (snapshot_cleanup != 0) {
+      return pf_io_error("io");
+    }
+    if (snapshot_result == 1) {
+      lean_object *deadline = pf_build_supervisor_frame(
+          PF_SUP_EV_DEADLINE, PF_SUP_CLEAN_COMPLETE,
+          pf_saturate_u64_plus_one(max_wall_ms), 0, 0, NULL, 0);
+      return deadline == NULL ? pf_io_error("io") : deadline;
+    }
+    return pf_io_error("spawn-failed");
+  }
+
+  size_t stdout_store_cap = protocol_cap_sz + 1;
+  size_t stderr_store_cap = stderr_cap_sz + 1;
   uint8_t *stdout_buf =
       (uint8_t *)malloc(stdout_store_cap == 0 ? 1 : stdout_store_cap);
   if (stdout_buf == NULL) {
+    if (pf_cleanup_worker_snapshot(&worker_snapshot) != 0) {
+      return pf_io_error("io");
+    }
     return pf_io_error("io");
   }
 
@@ -945,8 +1347,9 @@ static lean_object *pf_supervise_worker_darwin(
     pf_close_fd(&out_pipe[1]);
     pf_close_fd(&err_pipe[0]);
     pf_close_fd(&err_pipe[1]);
+    int snapshot_cleanup = pf_cleanup_worker_snapshot(&worker_snapshot);
     free(stdout_buf);
-    return pf_io_error("spawn-failed");
+    return pf_io_error(snapshot_cleanup == 0 ? "spawn-failed" : "io");
   }
 
   /* Darwin has no pipe2: immediately mark all six ends CLOEXEC, reject fd
@@ -987,21 +1390,22 @@ static lean_object *pf_supervise_worker_darwin(
     goto spawn_fail;
   }
 
-  short spawn_flags =
-      (short)(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT);
+  short spawn_flags = (short)(POSIX_SPAWN_SETPGROUP |
+                              POSIX_SPAWN_CLOEXEC_DEFAULT |
+                              POSIX_SPAWN_START_SUSPENDED);
   if (posix_spawnattr_setflags(&attr, spawn_flags) != 0 ||
       posix_spawnattr_setpgroup(&attr, 0) != 0) {
     goto spawn_fail;
   }
 
   char *argv[2];
-  argv[0] = (char *)(uintptr_t)worker_path;
+  argv[0] = worker_snapshot.worker_path;
   argv[1] = NULL;
 
-  /* Keep the worker environment deny-by-default, but pass the two trusted
-     Lake/Lean search values required by Loader.findSysroot/importModules.
-     Omitting them causes findSysroot to launch a helper, which would violate
-     the frontend maxProcesses=1 contract. */
+  /* Keep the worker environment deny-by-default. The two selectively inherited
+     development search values are required by Loader.findSysroot/importModules;
+     omitting them would launch a helper and violate maxProcesses=1. They are not
+     a formal locked import closure and are documented as a remaining boundary. */
   lean_sysroot_env = pf_env_assignment("LEAN_SYSROOT", getenv("LEAN_SYSROOT"));
   lean_path_env = pf_env_assignment("LEAN_PATH", getenv("LEAN_PATH"));
   if (lean_sysroot_env == NULL || lean_path_env == NULL) {
@@ -1010,8 +1414,8 @@ static lean_object *pf_supervise_worker_darwin(
   char *worker_env[] = {
       lean_sysroot_env, lean_path_env, "HOME=/var/empty", "PATH=/usr/bin:/bin",
       "LC_ALL=C", "TZ=UTC", NULL};
-  int spawn_rc =
-      posix_spawn(&child, worker_path, &actions, &attr, argv, worker_env);
+  int spawn_rc = posix_spawn(&child, worker_snapshot.worker_path, &actions,
+                             &attr, argv, worker_env);
   free(lean_sysroot_env);
   lean_sysroot_env = NULL;
   free(lean_path_env);
@@ -1020,6 +1424,24 @@ static lean_object *pf_supervise_worker_darwin(
     goto spawn_fail;
   }
   pgid = child;
+
+  /* Darwin activates the image while START_SUSPENDED prevents worker code from
+     running. Recheck the watched vnode/path and the original absolute budget,
+     then release only the verified child. */
+  int pre_run_decided = 0;
+  uint8_t pre_run_event = PF_SUP_EV_FAULT;
+  int snapshot_changed = pf_worker_snapshot_changed(&worker_snapshot);
+  int post_spawn_budget = pf_budget_status(budget_start_ms, max_wall_ms);
+  if (snapshot_changed != 0 || post_spawn_budget < 0) {
+    pre_run_decided = 1;
+    pre_run_event = PF_SUP_EV_FAULT;
+  } else if (post_spawn_budget == 1) {
+    pre_run_decided = 1;
+    pre_run_event = PF_SUP_EV_DEADLINE;
+  } else if (kill(child, SIGCONT) != 0) {
+    pre_run_decided = 1;
+    pre_run_event = PF_SUP_EV_FAULT;
+  }
 
   posix_spawn_file_actions_destroy(&actions);
   posix_spawnattr_destroy(&attr);
@@ -1044,16 +1466,16 @@ static lean_object *pf_supervise_worker_darwin(
   int leader_reap_lost = 0;
   int io_fault = 0;
 
-  int decided = 0;
-  uint8_t event = PF_SUP_EV_FAULT;
+  int decided = pre_run_decided;
+  uint8_t event = pre_run_decided ? pre_run_event : PF_SUP_EV_FAULT;
   uint8_t cleanup = PF_SUP_CLEAN_INCOMPLETE;
-  uint64_t cleanup_start_ms = 0;
+  uint64_t cleanup_start_ms = pre_run_decided ? stage_start_ms : 0;
   uint32_t cleanup_slices = 0;
 
   uint64_t peak_memory = 0;
   uint32_t peak_processes = 0;
-  uint64_t elapsed_ms = prior_elapsed_ms;
-  uint64_t now_ms = start_ms;
+  uint64_t elapsed_ms = initial_elapsed;
+  uint64_t now_ms = stage_start_ms;
 
   if (stdin_done) {
     pf_close_fd(&in_pipe[1]);
@@ -1065,15 +1487,17 @@ static lean_object *pf_supervise_worker_darwin(
       if (!decided) {
         event = PF_SUP_EV_FAULT;
         decided = 1;
-        cleanup_start_ms = start_ms;
+        cleanup_start_ms = stage_start_ms;
       }
     } else {
-      uint64_t local = pf_elapsed_ms(start_ms, now_ms);
-      if (prior_elapsed_ms > UINT64_MAX - local) {
-        elapsed_ms = UINT64_MAX;
-      } else {
-        elapsed_ms = prior_elapsed_ms + local;
-      }
+      elapsed_ms = pf_elapsed_ms(budget_start_ms, now_ms);
+    }
+
+    if (!decided && pf_worker_snapshot_changed(&worker_snapshot) != 0) {
+      io_fault = 1;
+      event = PF_SUP_EV_FAULT;
+      decided = 1;
+      cleanup_start_ms = now_ms;
     }
 
     if (pf_sample_group(pgid, &peak_processes, &peak_memory) != 0) {
@@ -1233,6 +1657,12 @@ static lean_object *pf_supervise_worker_darwin(
       }
     }
 
+    if (!decided && pf_worker_snapshot_changed(&worker_snapshot) != 0) {
+      io_fault = 1;
+      event = PF_SUP_EV_FAULT;
+      decided = 1;
+      cleanup_start_ms = now_ms;
+    }
     if (pf_sample_group(pgid, &peak_processes, &peak_memory) != 0) {
       io_fault = 1;
       if (!decided) {
@@ -1242,12 +1672,7 @@ static lean_object *pf_supervise_worker_darwin(
       }
     }
     if (pf_clock_ms(&now_ms) == 0) {
-      uint64_t local = pf_elapsed_ms(start_ms, now_ms);
-      if (prior_elapsed_ms > UINT64_MAX - local) {
-        elapsed_ms = UINT64_MAX;
-      } else {
-        elapsed_ms = prior_elapsed_ms + local;
-      }
+      elapsed_ms = pf_elapsed_ms(budget_start_ms, now_ms);
     }
 
     if (!decided) {
@@ -1384,17 +1809,18 @@ static lean_object *pf_supervise_worker_darwin(
   }
 
   if (pf_clock_ms(&now_ms) == 0) {
-    uint64_t local = pf_elapsed_ms(start_ms, now_ms);
-    if (prior_elapsed_ms > UINT64_MAX - local) {
-      elapsed_ms = UINT64_MAX;
-    } else {
-      elapsed_ms = prior_elapsed_ms + local;
-    }
+    elapsed_ms = pf_elapsed_ms(budget_start_ms, now_ms);
   }
 
   pf_close_fd(&in_pipe[1]);
   pf_close_fd(&out_pipe[0]);
   pf_close_fd(&err_pipe[0]);
+
+  if (pf_cleanup_worker_snapshot(&worker_snapshot) != 0) {
+    event = PF_SUP_EV_FAULT;
+    cleanup = PF_SUP_CLEAN_INCOMPLETE;
+    stdout_len = 0;
+  }
 
   if (event == PF_SUP_EV_RESPONSE && stdout_len > protocol_cap_sz) {
     event = PF_SUP_EV_OUTPUT;
@@ -1438,17 +1864,34 @@ spawn_fail:
   pf_close_fd(&out_pipe[1]);
   pf_close_fd(&err_pipe[0]);
   pf_close_fd(&err_pipe[1]);
+  int snapshot_cleanup = pf_cleanup_worker_snapshot(&worker_snapshot);
   free(stdout_buf);
-  return pf_io_error("spawn-failed");
+  return pf_io_error(snapshot_cleanup == 0 ? "spawn-failed" : "io");
 }
 
 #endif /* __APPLE__ */
+
+LEAN_EXPORT lean_obj_res proof_forge_start_frontend_budget_v1(
+    lean_obj_arg world) {
+  (void)world;
+#if defined(__APPLE__)
+  uint64_t started_at_ms = 0;
+  if (pf_clock_ms(&started_at_ms) != 0 || started_at_ms == UINT64_MAX) {
+    return pf_io_error("io");
+  }
+  uint8_t frame[8];
+  pf_write_u64_le(frame, started_at_ms);
+  return pf_io_success(frame, sizeof(frame));
+#else
+  return pf_io_error("unsupported-platform");
+#endif
+}
 
 LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
     b_lean_obj_arg worker_object, b_lean_obj_arg input_object,
     uint64_t max_wall_millis, uint64_t max_memory_bytes, uint32_t max_processes,
     uint64_t max_protocol_bytes, uint64_t max_stderr_bytes,
-    uint64_t prior_elapsed_ms, lean_obj_arg world) {
+    uint64_t budget_start_ms, lean_obj_arg world) {
   (void)world;
   const char *worker_path = lean_string_cstr(worker_object);
   size_t input_size = lean_sarray_size(input_object);
@@ -1460,9 +1903,7 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
       max_memory_bytes == 0 || max_memory_bytes == UINT64_MAX ||
       max_processes == 0 || max_processes == UINT32_MAX ||
       max_protocol_bytes == 0 || max_stderr_bytes == 0 ||
-      prior_elapsed_ms == UINT64_MAX ||
-      prior_elapsed_ms >= max_wall_millis) {
-    /* prior >= wall: caller must mint deadline without spawn (no re-arm). */
+      budget_start_ms == UINT64_MAX) {
     return pf_io_error("invalid-argument");
   }
   if ((uint64_t)input_size > max_protocol_bytes) {
@@ -1477,10 +1918,10 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
   return pf_supervise_worker_darwin(worker_path, input_data, input_size,
                                     max_wall_millis, max_memory_bytes,
                                     max_processes, max_protocol_bytes,
-                                    max_stderr_bytes, prior_elapsed_ms);
+                                    max_stderr_bytes, budget_start_ms);
 #else
   (void)input_data;
-  (void)prior_elapsed_ms;
+  (void)budget_start_ms;
   return pf_io_error("unsupported-platform");
 #endif
 }

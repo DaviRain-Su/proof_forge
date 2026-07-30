@@ -66,8 +66,9 @@
   ok=false, no flow diagnostics; checkProgramDisclosureV1 surfaces name-resolution
   structural diagnostics.
 
-  Product consumption: composed into `CheckV1` (final disclosure phase) and
-  fail-closed gated from `Typed.checkV1`.
+  Product consumption: composed into `CheckV1` as the final disclosure phase;
+  Normalize consumes its located result. The legacy alpha compatibility checker
+  also consumes the unlocated projection.
 
   Out of scope for this module:
     * authority.* / state-custody.* analysis

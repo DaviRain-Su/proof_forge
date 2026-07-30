@@ -9,7 +9,8 @@
   * hang/deadline via test-only hang helper path (no product filename hooks)
 
   Explicit non-claims: not containment, not formal TST-RESOURCE-001 / TASK-D1-08,
-  not CLI cutover, not Linux contained.
+  not formal executable/import identity, not Linux contained. B12 consumes this
+  seam, but this suite remains development-observed only.
 -/
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
@@ -27,6 +28,7 @@ open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
 open ProofForgeV2.Frontend.DarwinSupervisorV1
+open ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 open ProofForgeV2.Frontend.ProtocolV1
 open ProofForgeV2.Frontend.SafeOpenV1
 open ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1
@@ -121,15 +123,34 @@ private def expectReceipt
   if result == .noResponse then
     expect (SupervisedFrontendV1.response supervised).isNone
       s!"{label}: noResponse events must not retain a response"
+  if result == .responseOk then
+    expect (SupervisedFrontendV1.productInput supervised).isSome
+      s!"{label}: responseOk must retain the sole reconstructed product input"
+  else
+    expect (SupervisedFrontendV1.productInput supervised).isNone
+      s!"{label}: non-success result must not retain a product input"
+  if event == .sourceOpenFailed then
+    expect (SupervisedFrontendV1.sourceOpenFault supervised).isSome
+      s!"{label}: sourceOpenFailed must retain its closed SafeOpen fault"
+  else
+    expect (SupervisedFrontendV1.sourceOpenFault supervised).isNone
+      s!"{label}: non-source event must not retain a SafeOpen fault"
 
 private def expectSourceOpenFailed
-    (label : String) (supervised : SupervisedFrontendV1) : IO Unit := do
+    (label : String) (supervised : SupervisedFrontendV1)
+    (expectedFault : Option SafeOpenFaultV1 := none) : IO Unit := do
   expectReceipt label supervised .sourceOpenFailed .noResponse .observedComplete
   let receipt := SupervisedFrontendV1.receipt supervised
   expect (DarwinFrontendSupervisorReceiptV1.requestDigest receipt).isNone
     s!"{label}: sourceOpenFailed must carry requestDigest=none"
   expect (SupervisedFrontendV1.response supervised).isNone
     s!"{label}: sourceOpenFailed must not retain a worker response"
+  match expectedFault with
+  | some fault =>
+      expect (SupervisedFrontendV1.sourceOpenFault supervised == some fault)
+        s!"{label}: expected SafeOpen fault {fault.wire}, got {
+          repr (SupervisedFrontendV1.sourceOpenFault supervised)}"
+  | none => pure ()
 
 private def superviseSource
     (root : FilePath)
@@ -178,13 +199,16 @@ private unsafe def testRegularFileWorkerOk : IO Unit := do
   | some (.failure failure) =>
       throw <| IO.userError s!"regular Ok: unexpected diagnostic response: {
         DiagnosticBundleV1.renderHuman (FrontendFailureV1.bundle failure)}"
-  | some (.success success) =>
+  | some (.success _) =>
       let path ← liftPath "Counter.lean"
       let request ← lift "regular Ok request" <|
         mkFrontendRequestV1 languageVersion100 path Examples.counterModuleNameV1
           none Examples.counterSourceText.toUTF8
-      let _ ← lift "regular Ok reconstruct"
-        (reconstructFrontendSuccessV1 request success)
+      match SupervisedFrontendV1.productInput supervised with
+      | none => throw <| IO.userError "regular Ok: product input must be some"
+      | some (source, _origins) =>
+          expect (source.program.name.raw == "Counter")
+            "regular Ok: reconstructed ProgramV1 changed"
       let _ ← lift "regular Ok receipt bind"
         (bindDarwinFrontendSupervisorReceiptV1 request receipt)
 
@@ -267,11 +291,13 @@ private unsafe def testPracticalSafeOpenFaults : IO Unit := do
   let marker := fixtureRoot / "marker-relative.flag"
   try IO.FS.removeFile marker catch _ => pure ()
   let frontend ← markerFrontendWorker marker
-  let supervisedRel ← expectSupervisedOk "relative root"
-    (← superviseSource relRoot "good.lean" "Root" hardFrontendProfile none
-      safeOpenWorkerBin frontend)
-  expectSourceOpenFailed "relative root" supervisedRel
-  expect (!(← marker.pathExists)) "relative root: no frontend spawn"
+  match ← superviseSource relRoot "good.lean" "Root" hardFrontendProfile none
+      safeOpenWorkerBin frontend with
+  | .error _ => pure ()
+  | .ok _ =>
+      throw <| IO.userError
+        "relative root is a caller argument fault, not a live sourceOpenFailed event"
+  expect (!(← marker.pathExists)) "relative root: no helper/frontend spawn"
 
 private unsafe def testFifoDoesNotHangParent : IO Unit := do
   expect (← safeOpenWorkerBin.pathExists) s!"safe-open worker missing: {safeOpenWorkerBin}"
@@ -309,18 +335,19 @@ private unsafe def testExactAndOverSourceLimit : IO Unit := do
   let over ← expectSupervisedOk "over 16 MiB"
     (← superviseSource root "over-limit.lean" "Root" hardFrontendProfile none
       safeOpenWorkerBin frontend)
-  expectSourceOpenFailed "over 16 MiB" over
+  expectSourceOpenFailed "over 16 MiB" over (some .tooLarge)
   expect (!(← marker.pathExists)) "over 16 MiB: no frontend spawn"
 
 private unsafe def testOpenHangDeadlineViaHelper : IO Unit := do
   -- Test-only hang opener: single-process sleep past wall (no product hooks).
+  -- `/usr/bin/python3` peaks at 2 pgroup members under the supervisor on
+  -- Darwin/Xcode-CLT and would trip processLimit before the deadline.
   expect (← frontendWorkerBin.pathExists) s!"frontend worker missing: {frontendWorkerBin}"
   let root ← IO.FS.realPath fixtureRoot
   writeCounterSource (fixtureRoot / "hang-target.lean")
-  let hangOpener ← writeExecutable "hang-opener.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import time\n" ++
-    "time.sleep(5)\n"
+  let hangOpener ← writeExecutable "hang-opener.sh" <|
+    "#!/bin/sh\n" ++
+    "exec /bin/sleep 5\n"
   let profile := lowerFrontendProfile (wall := some 150)
   let start ← IO.monoMsNow
   let supervised ← expectSupervisedOk "open hang deadline"
@@ -339,32 +366,48 @@ private unsafe def testOpenHangDeadlineViaHelper : IO Unit := do
     s!"open hang deadline: parent wall {parentElapsed}ms looks unbounded"
 
 private unsafe def testSharedBudgetNoRearm : IO Unit := do
-  -- Two robust 1800ms segments: each is below the 3000ms wall, while their
-  -- 3600ms sum is above it. The marker proves the frontend phase really began;
+  -- Deterministic 2500ms/7000ms segments: each is below the 9000ms wall, while
+  -- their 9500ms sum is above it. Replay a request-bound canonical SafeOpen Ok
+  -- after the first delay so unrelated Lean worker startup cannot consume the
+  -- first-stage margin. The marker proves the frontend phase really began;
   -- requestDigest=some proves open/decode/request construction completed.
-  expect (← safeOpenWorkerBin.pathExists) s!"safe-open worker missing: {safeOpenWorkerBin}"
   let root ← IO.FS.realPath fixtureRoot
   writeCounterSource (fixtureRoot / "budget-counter.lean")
-  let wall : UInt64 := 3000
-  let phaseDelayMillis : Nat := 1800
-  expect (phaseDelayMillis < wall.toNat &&
-      phaseDelayMillis * 2 > wall.toNat)
+  let path ← liftPath "budget-counter.lean"
+  let openRequest ← lift "shared budget open request" <|
+    mkSafeOpenWorkerRequestV1 root path
+  let openSuccess ← lift "shared budget open success" <|
+    mkSafeOpenWorkerSuccessV1 openRequest Examples.counterSourceText.toUTF8
+  let openResponse ← lift "shared budget open response" <|
+    encodeSafeOpenWorkerSuccessV1 openSuccess
+  let openResponsePath := fixtureRoot / "budget-open-response.bin"
+  IO.FS.writeBinFile openResponsePath openResponse
+  let openResponsePath ← IO.FS.realPath openResponsePath
+  let wall : UInt64 := 9000
+  let openDelayMillis : Nat := 2500
+  let frontendDelayMillis : Nat := 7000
+  expect (openDelayMillis < wall.toNat &&
+      frontendDelayMillis < wall.toNat &&
+      openDelayMillis + frontendDelayMillis > wall.toNat)
     "shared budget fixture must keep each phase below wall and sum above wall"
   let profile := lowerFrontendProfile (wall := some wall)
-  let openerPath := safeOpenWorkerBin.toString
-  let slowOpener ← writeExecutable "slow-opener.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import os, time\n" ++
-    "time.sleep(1.80)\n" ++
-    s!"os.execv({repr openerPath}, [{repr openerPath}])\n"
-  let marker := fixtureRoot / "budget-marker.flag"
+  let openResponsePathS := openResponsePath.toString
+  -- Single-process slow opener: zsh EPOCHREALTIME busy-wait stays in-process
+  -- (a `/bin/sleep` child or `/usr/bin/python3` would peak at 2 pgroup members
+  -- under maxProcesses=1), then `exec /bin/cat` reuses the leader image.
+  let slowOpener ← writeExecutable "slow-opener.zsh" <|
+    "#!/bin/zsh\n" ++
+    "zmodload zsh/datetime || exit 43\n" ++
+    "t=$((EPOCHREALTIME + 2.5))\n" ++
+    "while (( EPOCHREALTIME < t )); do :; done\n" ++
+    s!"exec /bin/cat '{openResponsePathS}'\n"
+  let marker := root / "budget-marker.flag"
   try IO.FS.removeFile marker catch _ => pure ()
   let markerS := marker.toString
-  let slowFrontend ← writeExecutable "slow-frontend.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import time\n" ++
-    s!"open({repr markerS}, 'w').close()\n" ++
-    "time.sleep(1.80)\n"
+  let slowFrontend ← writeExecutable "slow-frontend.sh" <|
+    "#!/bin/sh\n" ++
+    s!": > '{markerS}'\n" ++
+    "exec /bin/sleep 7\n"
   let start ← IO.monoMsNow
   let supervised ← expectSupervisedOk "shared budget"
     (← superviseSource root "budget-counter.lean" Examples.counterModuleNameV1
@@ -374,9 +417,10 @@ private unsafe def testSharedBudgetNoRearm : IO Unit := do
   let receipt := SupervisedFrontendV1.receipt supervised
   expect (DarwinFrontendSupervisorReceiptV1.requestDigest receipt).isSome
     "shared budget: requestDigest must exist after successful open phase"
-  expect (← marker.pathExists)
-    "shared budget: frontend marker must exist before shared deadline fires"
   let obs := DarwinFrontendSupervisorReceiptV1.observations receipt
+  expect (← marker.pathExists)
+    s!"shared budget: frontend marker missing before shared deadline; elapsed={
+      obs.elapsedMillis}, parent={parentElapsed}"
   expect (obs.elapsedMillis.toNat == wall.toNat + 1)
     s!"shared budget: elapsed must saturate *original* wall+1 (no re-arm), got {
       obs.elapsedMillis}"
@@ -405,13 +449,18 @@ private unsafe def testFinalReceiptRetainsOpenPeaks : IO Unit := do
     s!"exec /bin/cat '{responsePath}'\n"
 
   let openerPath := safeOpenWorkerBin.toString
-  let peakOpener ← writeExecutable "peak-opener.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import os, time\n" ++
-    "payload = bytearray(96 * 1024 * 1024)\n" ++
-    "for i in range(0, len(payload), 4096): payload[i] = 1\n" ++
-    "time.sleep(0.25)\n" ++
-    s!"os.execv({repr openerPath}, [{repr openerPath}])\n"
+  -- Single-process peak opener: zsh holds a ~40MiB string in-process (no
+  -- python/Xcode-CLT transient second pgroup member); zsh padding retains
+  -- ~3x string size, giving ~120MiB phys_footprint — above the 64MiB
+  -- assertion and below the 256MiB profile cap. Then `exec`s the pinned
+  -- safe-open worker in the leader image.
+  let peakOpener ← writeExecutable "peak-opener.zsh" <|
+    "#!/bin/zsh\n" ++
+    "big=${(l[41943040][x])}\n" ++
+    "zmodload zsh/datetime || exit 43\n" ++
+    "t=$((EPOCHREALTIME + 0.25))\n" ++
+    "while (( EPOCHREALTIME < t )); do :; done\n" ++
+    s!"exec '{openerPath}'\n"
   let profile := lowerFrontendProfile (wall := some 5000)
     (memory := some (256 * 1024 * 1024)) (processes := some 1)
   let supervised ← expectSupervisedOk "final phase peaks"
@@ -426,6 +475,54 @@ private unsafe def testFinalReceiptRetainsOpenPeaks : IO Unit := do
     s!"final phase peaks: open peak was discarded ({obs.peakAggregateMemoryBytes})"
   expect (obs.peakProcesses == 1)
     s!"final phase peaks: process maximum expected 1, got {obs.peakProcesses}"
+
+private unsafe def testCrossRequestOpenResponsesRejected : IO Unit := do
+  let root ← IO.FS.realPath fixtureRoot
+  writeCounterSource (fixtureRoot / "replay-current.lean")
+  writeCounterSource (fixtureRoot / "replay-foreign.lean")
+  let foreignRequest ← lift "foreign safe-open request" <|
+    mkSafeOpenWorkerRequestV1 root (← liftPath "replay-foreign.lean")
+
+  let foreignSuccess ← lift "foreign safe-open success" <|
+    mkSafeOpenWorkerSuccessV1 foreignRequest Examples.counterSourceText.toUTF8
+  let successBytes ← lift "foreign success bytes"
+    (encodeSafeOpenWorkerSuccessV1 foreignSuccess)
+  let successBlob := fixtureRoot / "foreign-safe-open-success.bin"
+  IO.FS.writeBinFile successBlob successBytes
+  let successOpener ← writeExecutable "foreign-safe-open-success.sh" <|
+    "#!/bin/sh\n" ++ s!"exec /bin/cat '{successBlob}'\n"
+  let successMarker := fixtureRoot / "foreign-success-frontend.flag"
+  try IO.FS.removeFile successMarker catch _ => pure ()
+  let successFrontend ← markerFrontendWorker successMarker
+  let replayedSuccess ← expectSupervisedOk "foreign safe-open success"
+    (← superviseSource root "replay-current.lean" "Root" hardFrontendProfile
+      none successOpener successFrontend)
+  expectReceipt "foreign safe-open success" replayedSuccess
+    .supervisorFault .noResponse
+  expect (DarwinFrontendSupervisorReceiptV1.requestDigest
+      (SupervisedFrontendV1.receipt replayedSuccess)).isNone
+    "foreign safe-open success must not construct a frontend request"
+  expect (!(← successMarker.pathExists))
+    "foreign safe-open success must not spawn the frontend worker"
+
+  let foreignFailure ← lift "foreign safe-open failure" <|
+    mkSafeOpenWorkerFailureV1 foreignRequest .notFound
+  let failureBytes ← lift "foreign failure bytes"
+    (encodeSafeOpenWorkerFailureV1 foreignFailure)
+  let failureBlob := fixtureRoot / "foreign-safe-open-failure.bin"
+  IO.FS.writeBinFile failureBlob failureBytes
+  let failureOpener ← writeExecutable "foreign-safe-open-failure.sh" <|
+    "#!/bin/sh\n" ++ s!"exec /bin/cat '{failureBlob}'\n"
+  let failureMarker := fixtureRoot / "foreign-failure-frontend.flag"
+  try IO.FS.removeFile failureMarker catch _ => pure ()
+  let failureFrontend ← markerFrontendWorker failureMarker
+  let replayedFailure ← expectSupervisedOk "foreign safe-open failure"
+    (← superviseSource root "replay-current.lean" "Root" hardFrontendProfile
+      none failureOpener failureFrontend)
+  expectReceipt "foreign safe-open failure" replayedFailure
+    .supervisorFault .noResponse
+  expect (!(← failureMarker.pathExists))
+    "foreign SafeOpen.Err.v1 must not mint sourceOpenFailed or spawn frontend"
 
 private unsafe def testMalformedOpenerResponse : IO Unit := do
   expect (← frontendWorkerBin.pathExists) s!"frontend worker missing: {frontendWorkerBin}"
@@ -497,10 +594,9 @@ private unsafe def testOpenPhaseTransportEvents : IO Unit := do
     .workerSignalObserved
 
   let outputCap : UInt64 := 1024
-  let outputOpener ← writeExecutable "output-opener.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import sys\n" ++
-    s!"sys.stdout.buffer.write(b'X' * {outputCap.toNat + 1})\n"
+  let outputOpener ← writeExecutable "output-opener.zsh" <|
+    "#!/bin/zsh\n" ++
+    "print -n -r -- ${(l[" ++ toString (outputCap.toNat + 1) ++ "][X])}\n"
   expectOpenTransportEvent "opener output" outputOpener
     (lowerFrontendProfile (wall := some 5000) (protocol := some outputCap))
     .outputLimitObserved
@@ -513,11 +609,12 @@ private unsafe def testOpenPhaseTransportEvents : IO Unit := do
     (lowerFrontendProfile (wall := some 5000) (processes := some 1))
     .processLimitObserved
 
-  let memoryOpener ← writeExecutable "memory-opener.py" <|
-    "#!/usr/bin/python3\n" ++
-    "import time\n" ++
-    "payload = bytearray(48 * 1024 * 1024)\n" ++
-    "time.sleep(30)\n"
+  -- Single-process memory opener: in-process ~48MiB zsh string + busy loop;
+  -- `/usr/bin/python3` would peak at 2 pgroup members under maxProcesses=1.
+  let memoryOpener ← writeExecutable "memory-opener.zsh" <|
+    "#!/bin/zsh\n" ++
+    "big=${(l[50331648][x])}\n" ++
+    "while true; do :; done\n"
   expectOpenTransportEvent "opener memory" memoryOpener
     (lowerFrontendProfile (wall := some 10000)
       (memory := some (8 * 1024 * 1024)) (processes := some 1))
@@ -532,11 +629,12 @@ private unsafe def testUnknownFaultWireRejected : IO Unit := do
   -- fragile; instead emit a valid-looking tagged frame with bogus wire using a
   -- tiny Lean-encoded fixture written to disk by the test process.
   let forged ← do
-    -- Encode a failure with a known fault, then mutate the wire bytes in the
-    -- payload region is complex. Simpler: opener prints a complete Ok-shaped
-    -- garbage tag that fails decode (already covered). For unknown wire:
-    -- use a shell that runs a precomputed binary blob.
-    let failure ← lift "known failure" (mkSafeOpenWorkerFailureV1 .notFound)
+    -- Encode a failure with a known fault, then mutate only the same-length
+    -- fault wire while retaining the valid request binding.
+    let openRequest ← lift "unknown-fault request" <|
+      mkSafeOpenWorkerRequestV1 root (← liftPath "unknown-fault-target.lean")
+    let failure ← lift "known failure"
+      (mkSafeOpenWorkerFailureV1 openRequest .notFound)
     let bytes ← lift "failure bytes" (encodeSafeOpenWorkerFailureV1 failure)
     -- Mutate the UTF-8 payload of the fault wire to an unknown label while
     -- keeping length: "not-found" (9) → "not-foundX" won't fit. Replace with
@@ -584,6 +682,29 @@ private unsafe def testUnknownFaultWireRejected : IO Unit := do
     "unknown fault wire: no request digest"
   expect (!(← marker.pathExists)) "unknown fault wire: no frontend spawn"
 
+private unsafe def runNonDarwinMatrix : IO Unit := do
+  resetFixtureRoot
+  try
+    let root ← IO.FS.realPath fixtureRoot
+    writeCounterSource (fixtureRoot / "unsupported.lean")
+    let openerMarker := fixtureRoot / "unsupported-opener.flag"
+    let frontendMarker := fixtureRoot / "unsupported-frontend.flag"
+    let opener ← writeExecutable "unsupported-opener.sh" <|
+      "#!/bin/sh\n" ++ s!"printf started > '{openerMarker}'\n"
+    let frontend ← writeExecutable "unsupported-frontend.sh" <|
+      "#!/bin/sh\n" ++ s!"printf started > '{frontendMarker}'\n"
+    match ← superviseSource root "unsupported.lean" "Root" hardFrontendProfile
+        none opener frontend with
+    | .error error =>
+        expect (error == DarwinWorkerSupervisorFaultV1.unsupportedPlatform.wire)
+          s!"non-Darwin source supervisor expected unsupported-platform, got {error}"
+    | .ok _ =>
+        throw <| IO.userError "non-Darwin source supervisor unexpectedly succeeded"
+    expect (!(← openerMarker.pathExists) && !(← frontendMarker.pathExists))
+      "non-Darwin source supervisor must not spawn opener or frontend"
+  finally
+    cleanupFixtureRoot
+
 private unsafe def runDarwinMatrix : IO Unit := do
   resetFixtureRoot
   try
@@ -595,6 +716,7 @@ private unsafe def runDarwinMatrix : IO Unit := do
     testOpenHangDeadlineViaHelper
     testSharedBudgetNoRearm
     testFinalReceiptRetainsOpenPeaks
+    testCrossRequestOpenResponsesRejected
     testMalformedOpenerResponse
     testOpenerNonzeroExit
     testOpenPhaseTransportEvents
@@ -604,7 +726,8 @@ private unsafe def runDarwinMatrix : IO Unit := do
 
 unsafe def runFast : IO Unit := do
   if !System.Platform.isOSX then
-    IO.println "Tests.Frontend.DarwinSourceSupervisorV1 (fast): skip (non-Darwin host)"
+    runNonDarwinMatrix
+    IO.println "Tests.Frontend.DarwinSourceSupervisorV1 (fast): ok (unsupported host)"
   else
     resetFixtureRoot
     try
@@ -612,6 +735,7 @@ unsafe def runFast : IO Unit := do
       testParserSourceErr
       testPracticalSafeOpenFaults
       testFifoDoesNotHangParent
+      testCrossRequestOpenResponsesRejected
       testMalformedOpenerResponse
       testOpenerNonzeroExit
       testOpenPhaseTransportEvents
@@ -622,7 +746,8 @@ unsafe def runFast : IO Unit := do
 
 unsafe def run : IO Unit := do
   if !System.Platform.isOSX then
-    IO.println "Tests.Frontend.DarwinSourceSupervisorV1: skip (non-Darwin host)"
+    runNonDarwinMatrix
+    IO.println "Tests.Frontend.DarwinSourceSupervisorV1: ok (unsupported host)"
   else
     runDarwinMatrix
     IO.println "Tests.Frontend.DarwinSourceSupervisorV1: ok"

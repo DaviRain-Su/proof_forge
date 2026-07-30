@@ -2,18 +2,14 @@
   Engineering finalization carrier (D3/S7b).
 
   Private-constructor capability-bound product carrier returned by aggregate
-  `Targets.finalizeMaterializedArtifactsV1`. Sole mint: `mintFinalizedArtifactsV1`
-  (package-visible; called only after target-owned finalization adapters write
-  any tool-produced extras into staging).
+  `Targets.finalizeMaterializedArtifactsV1`. Sole mint:
+  `mintFinalizedArtifactsV1` after target-owned finalization adapters write any
+  tool-produced extras into staging.
 
-  Binds `ResolvedEngineeringBuildV1` + pure-base `MaterializedArtifactsV1` to
-  deployable, ordered finalized extra-file relative paths, and exact evidence
-  note. Base target-core files remain on `MaterializedArtifactsV1`.
-
-  **Not** formal OutputSetV1 / proof-forge.output.v1 / BuildIdentity /
-  SupportClaim / ToolchainIdentity / hermetic finalizer. No public constructor,
-  no caller deployability/note override of identity, no Inhabited, no partial
-  carrier on failure.
+  It binds the exact build capability and pure-base MaterializedArtifactsV1 to
+  deployability, ordered extra paths, and an evidence note. Not formal
+  OutputSetV1 / BuildIdentity / SupportClaim / ToolchainIdentity / hermetic
+  finalization.
 -/
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Targets.EngineeringBuildV1
@@ -25,23 +21,12 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
 
-/-- Intermediate finalization data produced by target-owned adapters before sole
-    `FinalizedArtifactsV1` mint. Not a product carrier; no private ctor. -/
 structure EngineeringFinalizationDraftV1 where
   deployable : Bool
   extraFiles : Array String
   evidenceNote : String
   deriving BEq, Repr
 
-/-- Engineering finalized-artifact carrier (private sole mint).
-
-    Field notes:
-    * `capability` / `artifacts` are the exact build + base-file carriers that
-      finalization was authorized against.
-    * `deployable` and `evidenceNote` are target-owned finalization authority
-      (tool success / non-deployable maturity notes) — not CLI overrides.
-    * `extraFiles` is the ordered list of finalized extra relative paths written
-      into staging by adapters (e.g. `.bin` / `.wasm`); empty when zero tools. -/
 structure FinalizedArtifactsV1 where
   private mk ::
   capability : ResolvedEngineeringBuildV1
@@ -52,21 +37,22 @@ structure FinalizedArtifactsV1 where
 
 namespace FinalizedArtifactsV1
 
-def capabilityOf (f : FinalizedArtifactsV1) : ResolvedEngineeringBuildV1 :=
-  f.capability
+def capabilityOf (finalized : FinalizedArtifactsV1) : ResolvedEngineeringBuildV1 :=
+  finalized.capability
 
-def artifactsOf (f : FinalizedArtifactsV1) : MaterializedArtifactsV1 :=
-  f.artifacts
+def artifactsOf (finalized : FinalizedArtifactsV1) : MaterializedArtifactsV1 :=
+  finalized.artifacts
 
-def deployableOf (f : FinalizedArtifactsV1) : Bool := f.deployable
+def deployableOf (finalized : FinalizedArtifactsV1) : Bool := finalized.deployable
 
-def extraFilesOf (f : FinalizedArtifactsV1) : Array String := f.extraFiles
+def extraFilesOf (finalized : FinalizedArtifactsV1) : Array String :=
+  finalized.extraFiles
 
-def evidenceNoteOf (f : FinalizedArtifactsV1) : String := f.evidenceNote
+def evidenceNoteOf (finalized : FinalizedArtifactsV1) : String :=
+  finalized.evidenceNote
 
 end FinalizedArtifactsV1
 
-/-- Validate ordered extra paths: safety + uniqueness vs each other and base. -/
 private def validateExtraFiles
     (base : Array OutputFile) (extraFiles : Array String) : CompileResult Unit := do
   let mut paths : Array String := base.map (·.path)
@@ -78,18 +64,11 @@ private def validateExtraFiles
       throw <| .invalidProgram
         s!"finalized artifacts: duplicate extra path '{path}'"
     paths := paths.push path
-  pure ()
 
 /-- Sole mint of `FinalizedArtifactsV1`.
 
-    Validates before `.mk`:
-    1. capability ↔ artifacts targetId / codegenProfileId / kind exact
-    2. residual program name + residual source/semantic hex exact bind
-    3. retained digests still present on artifacts (non-empty re-projection)
-    4. extra paths via sole `safeRelativeArtifactPathV1`, unique vs base and each other
-
-    Failure → CompileResult error only; never returns a partial carrier.
-    No public constructor / no CLI deployability-note authority. -/
+    Validates capability↔artifact target/profile/kind plus the non-alpha
+    program/source/semantic identity and extra path closure before minting. -/
 def mintFinalizedArtifactsV1
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
@@ -97,8 +76,6 @@ def mintFinalizedArtifactsV1
     CompileResult FinalizedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
-  let residual := CompiledProgramV1.alphaResidualOf compiled
-  -- capability ↔ artifacts identity
   unless MaterializedArtifactsV1.targetIdOf artifacts == selection.targetId do
     throw <| .registryInvalid
       "finalized artifacts: artifact target diverges from capability"
@@ -108,27 +85,19 @@ def mintFinalizedArtifactsV1
   unless MaterializedArtifactsV1.kindOf artifacts == selection.kind do
     throw <| .registryInvalid
       "finalized artifacts: artifact kind diverges from capability"
-  -- residual program / hash bind
-  unless MaterializedArtifactsV1.residualProgramNameOf artifacts == residual.name do
+  unless MaterializedArtifactsV1.artifactProgramNameOf artifacts ==
+      CompiledSemanticV1.artifactProgramNameOf compiled do
     throw <| .invalidProgram
-      "finalized artifacts: residual program name diverges from capability"
-  unless MaterializedArtifactsV1.residualSourceHashOf artifacts == residual.sourceHash do
+      "finalized artifacts: artifact program name diverges from capability"
+  unless MaterializedArtifactsV1.sourceDigestOf artifacts ==
+      CompiledSemanticV1.sourceDigestOf compiled do
     throw <| .invalidProgram
-      "finalized artifacts: residual sourceHash diverges from capability"
-  unless MaterializedArtifactsV1.residualSemanticHashOf artifacts == residual.semanticHash do
+      "finalized artifacts: source digest diverges from capability"
+  unless MaterializedArtifactsV1.semanticDigestOf artifacts ==
+      CompiledSemanticV1.semanticDigestOf compiled do
     throw <| .invalidProgram
-      "finalized artifacts: residual semanticHash diverges from capability"
-  -- retained digests must still project (mint already checked; re-bind defense)
-  let _ := MaterializedArtifactsV1.retainedSourceDigestOf artifacts
-  let _ := MaterializedArtifactsV1.retainedSemanticDigestOf artifacts
+      "finalized artifacts: semantic digest diverges from capability"
   validateExtraFiles (MaterializedArtifactsV1.filesOf artifacts) draft.extraFiles
-  -- Independent residual re-extract after path gates.
-  let residualAgain := CompiledProgramV1.alphaResidualOf compiled
-  unless residualAgain.name == residual.name &&
-      residualAgain.sourceHash == residual.sourceHash &&
-      residualAgain.semanticHash == residual.semanticHash do
-    throw <| .invalidProgram
-      "finalized artifacts: residual alpha identity drifted during mint"
   pure (FinalizedArtifactsV1.mk
     capability
     artifacts

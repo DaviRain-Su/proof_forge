@@ -3,7 +3,7 @@ id: SPEC-LANG-001
 title: Program DSL 语言规格
 status: proposed
 owner: frontend
-updated: 2026-07-19
+updated: 2026-07-30
 normative: true
 ---
 
@@ -40,7 +40,7 @@ program Counter where
 
 ## 词法
 
-identifier 遵循 Lean identifier；decimal/hex 整数禁止符号内嵌，负号是一元操作；
+identifier 遵循 Lean identifier；`IntegerLiteral` 只接受 ASCII unsigned decimal `[0-9]+` 或 lowercase-prefix `0x[0-9a-fA-F]+`，值域为 `0..2^256-1`；拒绝 `0X`、binary/octal prefix、underscore 与内嵌符号，负号是一元操作；
 string 使用 Lean 转义但规范值为 Unicode scalar sequence；`//` 与 `/- -/` 注释不进入
 source hash。保留词：`program where state struct enum const event error init entry view fn
 invariant requires extension version digest proof using do let if then else match with for in
@@ -2009,7 +2009,7 @@ RED 后的 canonical security probe 证明裸 `Nat` 不是合法 carrier：`appe
 上述 EBNF 使用 Lean layout/offside：`where`/`do`/`then`/`else` 后的 `Block` item 必须比引入 token
 更深缩进；回到引入列结束 block。match arm 的 `|` 必须位于同一 arm column，新的 arm 结束前一
 `StmtMatchArm` 的 `do` block。逗号只允许在上述 list production 内，不允许 trailing comma。
-`IntegerLiteral` 只允许无符号 decimal 或 `0x` lowercase-prefix hex token；`StringLiteral` 使用词法节的
+`IntegerLiteral` 只允许 ASCII unsigned decimal `[0-9]+` 或 lowercase-prefix `0x[0-9a-fA-F]+`，数值必须位于 `0..2^256-1`；expression 与 pattern 必须复用同一个 decoder。`0X`、`0b`、`0o`、underscore、内嵌 sign 或越界值 fail closed；decimal/hex 与 hex digit case 等值 spelling 只物化同一 magnitude，因而 AST、canonical source bytes 与 sourceHash 必须相同。源码负数只由 unary `-` 表示。`StringLiteral` 使用词法节的
 Lean escape 子集。parser 必须按上表 precedence 自低到高解析；除 comparison 为 non-associative 外，
 同层 binary operator 左结合，unary 右结合。`&&`/`||` 左到右 short-circuit，其他 binary operand
 均左到右求值。

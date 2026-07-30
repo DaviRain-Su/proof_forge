@@ -114,13 +114,20 @@ unsafe def run : IO Unit := do
   expect (renderedHash.startsWith "sha256:" && isSha256Hex hexPart)
     "ProgramV1 source hash must be 64-character lower-case SHA-256 hex"
 
-  let semantic ← match Compiler.compileValidatedSourceV1 counter with
-  | .ok value => pure (Compiler.CompiledProgramV1.alphaResidualOf value)
+  let compiled ← match Compiler.compileValidatedSourceV1 counter with
+  | .ok value => pure value
   | .error error => throw <| IO.userError error.render
-  expect (semantic.requirements.contains .persistentState)
-    "requirements must be inferred from semantic state"
-  expect (semantic.requirements.contains .checkedArithmetic)
-    "requirements must be inferred from checked semantic addition"
+  expect (Compiler.CompiledSemanticV1.sourceDigestOf compiled == sourceHash)
+    "compiled carrier must bind the canonical ProgramV1 source digest"
+  expect (Compiler.CompiledSemanticV1.artifactProgramNameOf compiled == "Counter")
+    "compiled artifact name must come from the semantic qualified-name suffix"
+  let semanticData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiled) with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"Counter semantic carrier invalid: {repr error}"
+  expect (semanticData.requirements.items.map (·.id) ==
+      ProofForgeV2.Semantic.RequirementsV1.s2CatalogIdsWireOrderV1)
+    "semantic requirements must be the canonical Counter S2 request set"
 
   let aCounter ← match ← Language.Loader.selectProgramV1
       aSource "<program-syntax-a>" "A" none with

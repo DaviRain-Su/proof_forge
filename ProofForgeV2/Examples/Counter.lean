@@ -17,7 +17,8 @@ program Counter where
   view get() : UInt64 do
     return count
 
-/-- Canonical source text used by the ProgramV1 CLI/product smoke path. -/
+/-- Canonical source text for non-CLI library tests. The product CLI reads the
+    tracked `Examples/Counter.lean` file only through the supervised frontend. -/
 def counterSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++

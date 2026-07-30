@@ -7,6 +7,7 @@ namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
@@ -105,6 +106,7 @@ inductive Expr where
   | param (inputOffset : Nat)
   | stateLoad (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
+  | checkedSub (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -176,6 +178,7 @@ inductive Operation where
   | loadParam (destination inputOffset : Nat)
   | loadState (destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
+  | checkedSub (destination lhs rhs : Nat)
   | storeState (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   | setReturnData (value : Nat)
@@ -192,7 +195,7 @@ structure MethodIR where
 /-- Typed NEAR host-call/Wasm recipe. Rendering WAT is deliberately later than
 the exact Plan-to-recipe binding check.
     Private `mk`: public Plan→IR construction is capability-gated only
-    (`irFromCapability`); residual packaging ctor is not a product emission API. -/
+    (`irFromCapability`); the private packaging ctor is not a product emission API. -/
 structure IR where
   private mk ::
   sourcePlan : Plan
@@ -293,73 +296,57 @@ private def firstWordBE (bytes : ByteArray) : UInt64 := Id.run do
 def layoutMarker (fields : Array StorageField) : UInt64 :=
   firstWordBE <| Crypto.sha256 (stateLayoutDomain ++ layoutSignature fields).toUTF8
 
-private partial def semanticExprNodes? (depthLeft nodeBudget : Nat)
-    (expr : Semantic.Expr) : Option Nat :=
-  if depthLeft == 0 || nodeBudget == 0 then
-    none
-  else
-    match expr with
-    | .literal .. | .param .. | .state .. => some 1
-    | .checkedAdd lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match semanticExprNodes? childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match semanticExprNodes? childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
-private def addSemanticExprNodes (total : Nat)
-    (expr : Semantic.Expr) : CompileResult Nat :=
-  match semanticExprNodes? maxExprDepth (maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"semantic expression exceeds depth {maxExprDepth} or aggregate node limit {maxPlanNodes}"
+private structure NearTypeClosureV1 where
+  uint64TypeId : TypeIdV1
+  unitTypeId : Option TypeIdV1
 
-private def validateSemanticBudget (program : Semantic.Program) : CompileResult Unit := do
-  if program.state.isEmpty || program.state.size > maxStateFields then
-    throw <| .planInvariant .near "state count is outside the profile limits"
-  if program.entries.isEmpty || program.entries.size > maxEntries then
-    throw <| .planInvariant .near "entry count is outside the profile limits"
-  let initializer ← match program.initializer with
+private def validateNearTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 := do
+  let mut uint64TypeId : Option TypeIdV1 := none
+  let mut unitTypeId : Option TypeIdV1 := none
+  for decl in types do
+    unless decl.name.isNone do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: named types are outside the current UInt64 pilot"
+    match decl.shape with
+    | .uint width =>
+        unless width.toNat == 64 && uint64TypeId.isNone do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: expected one anonymous UInt64 type"
+        uint64TypeId := some decl.id
+    | .unit =>
+        unless unitTypeId.isNone do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: duplicate Unit type"
+        unitTypeId := some decl.id
+    | _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: only UInt64 and Unit are supported"
+  let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
-    | none => throw <| .planInvariant .near "KV-state programs require an initializer"
-  if initializer.params.size > maxParams || initializer.body.size > maxBodyStatements then
-    throw <| .planInvariant .near "initializer exceeds the profile resource limits"
-  for entry in program.entries do
-    if entry.params.size > maxParams || entry.body.size > maxBodyStatements then
-      throw <| .planInvariant .near s!"entry '{entry.name}' exceeds the profile resource limits"
-  let initializerNodes := 1 + initializer.params.size + initializer.body.size
-  let entryNodes := program.entries.foldl (fun total entry =>
-    total + 1 + entry.params.size + entry.body.size) 0
-  let mut total := program.state.size + initializerNodes + entryNodes
-  if total > maxPlanNodes then
-    throw <| .planInvariant .near s!"semantic program exceeds aggregate node limit {maxPlanNodes}"
-  for statement in initializer.body do
-    match statement with
-    | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-    | .synchronousCall .. => pure ()
-  for entry in program.entries do
-    for statement in entry.body do
-      match statement with
-      | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-      | .synchronousCall .. => pure ()
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: UInt64 type is missing")
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
 
-private def makeStorageLayout
-    (states : Array Semantic.StateDecl) : CompileResult StorageLayout := do
+private def makeStorageLayoutV1
+    (uint64TypeId : TypeIdV1)
+    (states : Array StateDeclV1) : CompileResult StorageLayout := do
+  if states.isEmpty || states.size > maxStateFields then
+    throw <| .planInvariant .near "state count is outside the profile limits"
   let mut fields : Array StorageField := #[]
   for state in states do
-    unless state.type == .u64 do
-      throw <| .planInvariant .near s!"state '{state.name}' is not UInt64"
+    unless state.id.toNat == fields.size do
+      throw <| .planInvariant .near "semantic state ids must match declaration order"
+    unless state.typeId == uint64TypeId && state.visibility == .public_ do
+      throw <| .planInvariant .near s!"state '{state.name}' is not public UInt64"
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
-    unless state.id.value == fields.size do
-      throw <| .planInvariant .near "semantic state ids must match declaration order"
     fields := fields.push {
-      sourceId := state.id.value
+      sourceId := state.id.toNat
       name := state.name
-      key := stateKey state.id.value
+      key := stateKey state.id.toNat
       byteWidth := 8
       endianness := .little
     }
@@ -367,120 +354,330 @@ private def makeStorageLayout
   if marker == 0 then
     throw <| .planInvariant .near
       "state layout marker collides with the reserved uninitialized value"
-  return {
+  pure {
     markerKey := layoutMarkerKey
     markerValue := marker
     payloadInitialization := .zeroAllFields
     fields
   }
 
-private def makeParams (owner : String)
-    (params : Array Semantic.Param) : CompileResult (Array Param) := do
+private structure LoweredValueV1 where
+  expr : Expr
+  depth : Nat
+  expandedNodes : Nat
+  dependencies : Array ValueIdV1
+  deriving Inhabited
+
+private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
+    (params : Array ParameterV1) :
+    CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
     throw <| .planInvariant .near s!"parameter count in {owner} exceeds profile limit {maxParams}"
   let mut planned : Array Param := #[]
+  let mut values : Array LoweredValueV1 := #[]
   for param in params do
-    unless param.type == .u64 do
-      throw <| .planInvariant .near s!"parameter '{param.name}' in {owner} is not UInt64"
-    unless param.visibility == .verifierVisible do
+    unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .near
-        s!"parameter '{param.name}' in {owner} is not verifier-visible"
+        s!"semantic parameter ValueIds in {owner} must match declaration order"
+    unless param.typeId == uint64TypeId && param.visibility == .public_ do
+      throw <| .planInvariant .near
+        s!"parameter '{param.name}' in {owner} is not public UInt64"
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    unless param.id.value == planned.size do
-      throw <| .planInvariant .near
-        s!"semantic parameter ids in {owner} must match declaration order"
-    planned := planned.push {
-      sourceId := param.id.value
+    let binding : Param := {
+      sourceId := param.valueId.toNat
       name := param.name
       inputOffset := planned.size * 8
       byteWidth := 8
       endianness := .little
     }
-  return planned
+    planned := planned.push binding
+    values := values.push {
+      expr := .param binding.inputOffset
+      depth := 1
+      expandedNodes := 1
+      dependencies := #[]
+    }
+  pure (planned, values)
 
-private def findField (layout : StorageLayout)
-    (id : Semantic.StateId) : CompileResult StorageField :=
-  match layout.fields.find? (·.sourceId == id.value) with
-  | some field => .ok field
-  | none => planError s!"semantic expression references unknown state id {id.value}"
+private def findFieldV1 (layout : StorageLayout)
+    (id : StateIdV1) : CompileResult StorageField :=
+  match layout.fields[id.toNat]? with
+  | some field =>
+      if field.sourceId == id.toNat then .ok field
+      else planError s!"semantic expression references noncanonical state id {id.toNat}"
+  | none => planError s!"semantic expression references unknown state id {id.toNat}"
 
-private def findParam (params : Array Param)
-    (id : Semantic.ParamId) : CompileResult Param :=
-  match params.find? (·.sourceId == id.value) with
-  | some param => .ok param
-  | none => planError s!"semantic expression references unknown parameter id {id.value}"
+private def findValueV1 (values : Array LoweredValueV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 :=
+  match values[id.toNat]? with
+  | some value => .ok value
+  | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private partial def makeExprUnchecked (layout : StorageLayout) (params : Array Param) :
-    Semantic.Expr → CompileResult Expr
-  | .literal value => .ok <| .literal value
-  | .param id => return .param (← findParam params id).inputOffset
-  | .state id => return .stateLoad (← findField layout id).sourceId
-  | .checkedAdd lhs rhs => do
-      let lhs ← makeExprUnchecked layout params lhs
-      let rhs ← makeExprUnchecked layout params rhs
-      return .checkedAdd lhs rhs
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 8 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: UInt64 literal must contain exactly 8 bytes"
+  match decodeU64le (start bytes) with
+  | .error _ =>
+      throw <| .planInvariant .near "unsupported NEAR semantic shape: invalid UInt64 literal"
+  | .ok (value, cursor) =>
+      match finish cursor with
+      | .ok () => pure value
+      | .error _ =>
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: trailing UInt64 literal bytes"
 
-private def makeExpr (layout : StorageLayout) (params : Array Param)
-    (expr : Semantic.Expr) : CompileResult Expr := do
-  let _ ← addSemanticExprNodes 0 expr
-  makeExprUnchecked layout params expr
+private def currentValueV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart then
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
 
-private def makeStore (layout : StorageLayout) (params : Array Param)
-    (state : Semantic.StateId) (value : Semantic.Expr) : CompileResult Store := do
-  let field ← findField layout state
-  return {
-    fieldIndex := field.sourceId
-    value := ← makeExpr layout params value
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedAdd lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
   }
 
-private def makeBody (layout : StorageLayout) (params : Array Param)
-    (owner : String) (isInitializer : Bool)
-    (body : Array Semantic.Statement) : CompileResult (Array Statement) := do
-  let mut planned : Array Statement := #[]
-  for statement in body do
-    match statement with
-    | .store state value =>
-        planned := planned.push <| .store (← makeStore layout params state value)
-    | .returnValue value =>
-        if isInitializer then
-          throw <| .planInvariant .near "initializer cannot return a value"
-        planned := planned.push <| .returnValue (← makeExpr layout params value)
-    | .synchronousCall callee =>
-        throw <| .planInvariant .near
-          s!"call '{callee}' in {owner} is not in the Phase-1 NEAR fragment"
-  return planned
+private def makeCheckedSubValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedSub lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
 
-private def makeInitializer (layout : StorageLayout)
-    (initializer : Semantic.Initializer) : CompileResult Method := do
-  let params ← makeParams "initializer" initializer.params
-  return {
+private def consumeCurrentSegmentV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: dead or reordered value instructions"
+  pure rootValue.expr
+
+private def appendResultValueV1
+    (uint64TypeId : TypeIdV1)
+    (values : Array LoweredValueV1)
+    (result : ValueDefV1)
+    (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
+  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: result ValueId/type is not canonical UInt64"
+  if values.size >= maxPlanNodes then
+    throw <| .planInvariant .near s!"NEAR value table exceeds node limit {maxPlanNodes}"
+  pure (values.push value)
+
+private inductive SemanticCallableModeV1 where
+  | initialize
+  | mutate
+  | view
+  deriving BEq
+
+private structure LoweredCallableV1 where
+  params : Array Param
+  body : Array Statement
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (uint64TypeId : TypeIdV1)
+    (layout : StorageLayout)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
+      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: callable must be one acyclic entry block"
+  let block ← match callable.blocks[0]? with
+    | some value => pure value
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: callable entry block is missing")
+  unless block.id.toNat == 0 && block.params.isEmpty do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: block parameters are not supported"
+  if block.instructions.size > maxBodyStatements then
+    throw <| .planInvariant .near
+      s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
+  let (params, initialValues) ← makeParamsV1 owner uint64TypeId callable.params
+  let paramCount := params.size
+  let mut values := initialValues
+  let mut segmentStart := values.size
+  let mut body : Array Statement := #[]
+  for instruction in block.instructions do
+    match instruction.op, instruction.result with
+    | .literal typeId bytes, some result =>
+        unless typeId == uint64TypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: literal is not UInt64"
+        let value ← decodeUInt64LiteralV1 bytes
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .literal value
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .stateLoad stateId, some result =>
+        let field ← findFieldV1 layout stateId
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .stateLoad field.sourceId
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .binary op lhsId rhsId, some result =>
+        let lhs ← currentValueV1 values paramCount segmentStart lhsId
+        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        let value ←
+          if op == .add then
+            makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          else if op == .sub then
+            makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          else
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: only checked UInt64 add/sub are supported"
+        values := ← appendResultValueV1 uint64TypeId values result value
+    | .stateStore stateId valueId, none =>
+        if mode == .view then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: view callable writes state"
+        let field ← findFieldV1 layout stateId
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        body := body.push (.store { fieldIndex := field.sourceId, value })
+        segmentStart := values.size
+    | _, _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
+  match mode, block.terminator with
+  | .initialize, .return_ none =>
+      unless segmentStart == values.size do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: initializer has unconsumed values"
+  | .mutate, .return_ (some valueId)
+  | .view, .return_ (some valueId) =>
+      let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+      body := body.push (.returnValue value)
+      segmentStart := values.size
+  | .initialize, .return_ (some _) =>
+      throw <| .planInvariant .near "initializer cannot return a value"
+  | _, _ =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: callable terminator is outside the current UInt64 pilot"
+  unless segmentStart == values.size do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: callable has unconsumed values"
+  if body.size > maxBodyStatements then
+    throw <| .planInvariant .near s!"{owner} body exceeds profile limit {maxBodyStatements}"
+  pure { params, body }
+
+private def makeInitializerV1
+    (types : NearTypeClosureV1)
+    (layout : StorageLayout)
+    (callable : CallableV1) : CompileResult Method := do
+  unless callable.name.isNone && callable.result.visibility == .public_ do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: initializer signature is invalid"
+  let unitTypeId ← match types.unitTypeId with
+    | some value => pure value
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: initializer Unit type is missing")
+  unless callable.result.typeId == unitTypeId do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: initializer result is not Unit"
+  let lowered ← lowerCallableV1 "initializer" .initialize
+    types.uint64TypeId layout callable
+  pure {
     name := "init"
-    params
-    exactInputLen := params.size * 8
+    params := lowered.params
+    exactInputLen := lowered.params.size * 8
     mode := .initialize
     depositPolicy := .requireZero
-    body := ← makeBody layout params "initializer" true initializer.body
+    body := lowered.body
   }
 
-private def makeEntry (layout : StorageLayout)
-    (entry : Semantic.Entry) : CompileResult Method := do
-  unless isIdentifier entry.name do
-    throw <| .planInvariant .near s!"entry name '{entry.name}' is not a safe identifier"
-  unless entry.result == .u64 do
-    throw <| .planInvariant .near s!"entry '{entry.name}' does not return UInt64"
-  let params ← makeParams s!"entry '{entry.name}'" entry.params
-  let mode := match entry.mode with
-    | .mutate => MethodMode.mutate
-    | .view => MethodMode.view
-  return {
-    name := entry.name
-    params
-    exactInputLen := params.size * 8
+private def makeEntryV1
+    (types : NearTypeClosureV1)
+    (layout : StorageLayout)
+    (callable : CallableV1) : CompileResult Method := do
+  let name ← match callable.name with
+    | some value => pure value
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: named entry is missing its name")
+  unless isIdentifier name do
+    throw <| .planInvariant .near s!"entry name '{name}' is not a safe identifier"
+  unless callable.result.typeId == types.uint64TypeId &&
+      callable.result.visibility == .public_ do
+    throw <| .planInvariant .near s!"entry '{name}' does not return public UInt64"
+  let semanticMode : SemanticCallableModeV1 ← match callable.kind with
+    | .entry => pure .mutate
+    | .view => pure .view
+    | _ => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: callable is not an entry or view")
+  let mode : MethodMode := match semanticMode with
+    | .mutate => .mutate
+    | .view => .view
+    | .initialize => .initialize
+  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode
+    types.uint64TypeId layout callable
+  pure {
+    name
+    params := lowered.params
+    exactInputLen := lowered.params.size * 8
     mode
     depositPolicy := if mode == .view then .queryOnly else .requireZero
-    body := ← makeBody layout params s!"entry '{entry.name}'" false entry.body
+    body := lowered.body
   }
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
@@ -501,20 +698,37 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
             match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedSub lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? layout params childDepth available lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat :=
+    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+  if total >= limits.maxPlanNodes then
+    throw <| .planInvariant .near
+      s!"plan exceeds aggregate node limit {limits.maxPlanNodes}"
   match planExprNodes? layout params limits.maxExprDepth (limits.maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"plan expression has a dangling reference or exceeds depth {limits.maxExprDepth}/node limit {limits.maxPlanNodes}"
+  | some nodes => pure (total + nodes)
+  | none =>
+      throw <| .planInvariant .near
+        s!"plan expression has a dangling reference or exceeds depth {limits.maxExprDepth}/node limit {limits.maxPlanNodes}"
 
 private def addMethodExprTemps (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat :=
+    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+  if total >= limits.maxMethodLocals then
+    throw <| .planInvariant .near
+      s!"method expression exceeds local limit {limits.maxMethodLocals}"
   match planExprNodes? layout params limits.maxExprDepth (limits.maxMethodLocals - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"method expression has a dangling reference or exceeds depth {limits.maxExprDepth}/local limit {limits.maxMethodLocals}"
+  | some nodes => pure (total + nodes)
+  | none =>
+      throw <| .planInvariant .near
+        s!"method expression has a dangling reference or exceeds depth {limits.maxExprDepth}/local limit {limits.maxMethodLocals}"
 
 private def validateStorageLayout (limits : ResourceLimits)
     (layout : StorageLayout) : CompileResult Unit := do
@@ -599,7 +813,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
 /-- Validate the public target-owned NEAR Plan before recipe lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.targetDescriptor == descriptor &&
-      plan.semanticSchemaVersion == Semantic.schemaVersion &&
+      plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&
       plan.hostAbi == hostAbiVersion && plan.inputAbi == rawInputAbi &&
       plan.layoutDomain == stateLayoutDomain &&
@@ -632,24 +846,43 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if hasDuplicates (methods.map (·.name)) then
     throw <| .planInvariant .near "NEAR export names must be unique"
 
-/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
-private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
-  validateRequirementEnvelope source
-  unless source.schemaVersion == Semantic.schemaVersion do
+/-- NEAR-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
+private def makePlanFromSemanticDataV1
+    (source : SemanticProgramDataV1) : CompileResult Plan := do
+  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
+      !source.invariants.isEmpty then
     throw <| .planInvariant .near
-      s!"semantic schema version {source.schemaVersion} is not supported; expected {Semantic.schemaVersion}"
-  validateSemanticBudget source
-  unless source.requirements == Semantic.deriveRequirements source do
-    throw <| .planInvariant .near "semantic requirements are not canonical for the program body"
-  let initializerSource ← match source.initializer with
+      "unsupported NEAR semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+  if source.callables.size > maxEntries + 1 then
+    throw <| .planInvariant .near s!"callable count exceeds NEAR profile limit {maxEntries + 1}"
+  if source.requirements.items.size > Targets.maxRequirementKinds then
+    throw <| .planInvariant .near
+      s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
+  let types ← validateNearTypeClosureV1 source.types
+  let storage ← makeStorageLayoutV1 types.uint64TypeId source.logicalState
+  let components := source.qualifiedName.components.toArray
+  let programName := components.back!
+  let mut initializer : Option Method := none
+  let mut entries : Array Method := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .initializer =>
+        if initializer.isSome then
+          throw <| .planInvariant .near "semantic program has multiple initializers"
+        initializer := some (← makeInitializerV1 types storage callable)
+    | .entry | .view =>
+        if entries.size >= maxEntries then
+          throw <| .planInvariant .near s!"entry count exceeds profile limit {maxEntries}"
+        entries := entries.push (← makeEntryV1 types storage callable)
+    | .pureFn | .invariant =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+  let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .near "KV-state programs require an initializer"
-  let storage ← makeStorageLayout source.state
-  let initializer ← makeInitializer storage initializerSource
-  let entries ← source.entries.mapM (makeEntry storage)
   let plan : Plan := {
     targetDescriptor := descriptor
-    semanticSchemaVersion := Semantic.schemaVersion
+    semanticSchemaVersion := semanticProgramSchemaVersionV1
     codegenProfile := descriptor.codegenProfile.toString
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
@@ -658,21 +891,29 @@ private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan :=
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits
-    programName := source.name
+    programName
     storage
-    initializer
+    initializer := resolvedInitializer
     entries
   }
   validatePlan plan
-  return plan
+  pure plan
 
-/-- Capability-gated public plan entry (S6). -/
+private def makePlanFromSemanticV1
+    (source : SemanticProgramV1) : CompileResult Plan := do
+  let data ← match validateSemanticProgramV1 source with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| .invalidProgram "NEAR received an invalid SemanticProgramV1 carrier"
+  makePlanFromSemanticDataV1 data
+
+/-- Capability-gated public plan entry. Plan semantics consume retained V1 only. -/
 def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .near do
     throw <| .planInvariant .near "engineering capability kind is not NEAR"
-  let source := CompiledProgramV1.alphaResidualOf
+  let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromAlpha source
+  makePlanFromSemanticV1 source
 
 private def align8 (value : Nat) : Nat :=
   ((value + 7) / 8) * 8
@@ -732,6 +973,15 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedSub lhs rhs =>
+      let lhs := lowerExpr keys next lhs
+      let rhs := lowerExpr keys lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSub rhs.next lhs.value rhs.value]
         value := rhs.next
         next := rhs.next + 1
       }
@@ -878,6 +1128,9 @@ private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
   | .checkedAdd destination lhs rhs =>
       s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
         s!"    (if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
+  | .checkedSub destination lhs rhs =>
+      s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .storeState field value =>
       s!"    (i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"    (if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++

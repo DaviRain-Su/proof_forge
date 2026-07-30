@@ -7,6 +7,7 @@ namespace ProofForgeV2.Targets.Solana
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
@@ -84,6 +85,7 @@ inductive Expr where
   | param (dataOffset : Nat)
   | stateLoad (accountIndex byteOffset : Nat)
   | checkedAdd (lhs rhs : Expr)
+  | checkedSub (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -134,6 +136,7 @@ inductive Operation where
   | loadParam (destination dataOffset : Nat)
   | loadState (destination accountIndex byteOffset : Nat)
   | checkedAdd (destination lhs rhs errorCode : Nat)
+  | checkedSub (destination lhs rhs errorCode : Nat)
   | zeroState (accountIndex byteOffset : Nat)
   | storeState (accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
@@ -223,73 +226,67 @@ def instructionDiscriminator (name : String) (params : Array Param) : String :=
   ((Crypto.sha256Hex (discriminatorDomain ++ signature name params).toUTF8).take
     (2 * discriminatorBytes)).copy
 
-private partial def semanticExprNodes? (depthLeft nodeBudget : Nat)
-    (expr : Semantic.Expr) : Option Nat :=
-  if depthLeft == 0 || nodeBudget == 0 then
-    none
+private def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
+  accountIndex := account.index
+  ownerPolicy := account.ownerPolicy
+  exactDataLen := account.exactDataLen
+  signerRequired := mode == .initialize
+  writableRequired := mode != .view
+  initialization := if mode == .initialize then
+    .mustBeUninitialized
   else
-    match expr with
-    | .literal .. | .param .. | .state .. => some 1
-    | .checkedAdd lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match semanticExprNodes? childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match semanticExprNodes? childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    .mustBeInitialized
+}
 
-private def addSemanticExprNodes (total : Nat)
-    (expr : Semantic.Expr) : CompileResult Nat :=
-  match semanticExprNodes? maxExprDepth (maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"semantic expression exceeds depth {maxExprDepth} or aggregate node limit {maxPlanNodes}"
+/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
-private def validateSemanticBudget (program : Semantic.Program) : CompileResult Unit := do
-  if program.state.size > maxStateFields then
-    throw <| .planInvariant .solana s!"state count exceeds profile limit {maxStateFields}"
-  if program.entries.size > maxEntries then
-    throw <| .planInvariant .solana s!"entry count exceeds profile limit {maxEntries}"
-  let initializer ← match program.initializer with
+private structure SolanaTypeClosureV1 where
+  uint64TypeId : TypeIdV1
+  unitTypeId : Option TypeIdV1
+
+private def validateSolanaTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 := do
+  let mut uint64TypeId : Option TypeIdV1 := none
+  let mut unitTypeId : Option TypeIdV1 := none
+  for decl in types do
+    unless decl.name.isNone do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: named types are outside the current UInt64 pilot"
+    match decl.shape with
+    | .uint width =>
+        unless width.toNat == 64 && uint64TypeId.isNone do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: expected one anonymous UInt64 type"
+        uint64TypeId := some decl.id
+    | .unit =>
+        unless unitTypeId.isNone do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: duplicate Unit type"
+        unitTypeId := some decl.id
+    | _ =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: only UInt64 and Unit are supported"
+  let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
-    | none => throw <| .planInvariant .solana "state-account programs require an initializer"
-  if initializer.params.size > maxParams || initializer.body.size > maxBodyStatements then
-    throw <| .planInvariant .solana "initializer exceeds the profile resource limits"
-  for entry in program.entries do
-    if entry.params.size > maxParams || entry.body.size > maxBodyStatements then
-      throw <| .planInvariant .solana s!"entry '{entry.name}' exceeds the profile resource limits"
-  let initializerNodes := 1 + initializer.params.size + initializer.body.size
-  let entryNodes := program.entries.foldl (fun total entry =>
-    total + 1 + entry.params.size + entry.body.size) 0
-  let mut total := program.state.size + initializerNodes + entryNodes
-  if total > maxPlanNodes then
-    throw <| .planInvariant .solana s!"semantic program exceeds aggregate node limit {maxPlanNodes}"
-  for statement in initializer.body do
-    match statement with
-    | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-    | .synchronousCall .. => pure ()
-  for entry in program.entries do
-    for statement in entry.body do
-      match statement with
-      | .store _ value | .returnValue value => total ← addSemanticExprNodes total value
-      | .synchronousCall .. => pure ()
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: UInt64 type is missing")
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
 
-private def makeStateAccount
-    (states : Array Semantic.StateDecl) : CompileResult StateAccount := do
-  if states.isEmpty then
-    throw <| .planInvariant .solana "the current Solana profile requires persistent UInt64 state"
+private def makeStateAccountV1
+    (uint64TypeId : TypeIdV1)
+    (states : Array StateDeclV1) : CompileResult StateAccount := do
+  if states.isEmpty || states.size > maxStateFields then
+    throw <| .planInvariant .solana "state count is outside the profile limits"
   let mut fields : Array StateField := #[]
   for state in states do
-    unless state.type == .u64 do
-      throw <| .planInvariant .solana s!"state '{state.name}' is not UInt64"
+    unless state.id.toNat == fields.size do
+      throw <| .planInvariant .solana "semantic state ids must match declaration order"
+    unless state.typeId == uint64TypeId && state.visibility == .public_ do
+      throw <| .planInvariant .solana s!"state '{state.name}' is not public UInt64"
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
-    unless state.id.value == fields.size do
-      throw <| .planInvariant .solana "semantic state ids must match declaration order"
     fields := fields.push {
-      sourceId := state.id.value
+      sourceId := state.id.toNat
       name := state.name
       accountIndex := 0
       byteOffset := stateHeaderBytes + fields.size * 8
@@ -300,7 +297,7 @@ private def makeStateAccount
   if marker == 0 then
     throw <| .planInvariant .solana
       "state layout marker collides with the reserved uninitialized zero value"
-  return {
+  pure {
     index := 0
     name := "state"
     ownerPolicy := .currentProgram
@@ -312,133 +309,331 @@ private def makeStateAccount
     fields
   }
 
-private def makeParams (owner : String)
-    (params : Array Semantic.Param) : CompileResult (Array Param) := do
+private structure LoweredValueV1 where
+  expr : Expr
+  depth : Nat
+  expandedNodes : Nat
+  dependencies : Array ValueIdV1
+  deriving Inhabited
+
+private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
+    (params : Array ParameterV1) :
+    CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
     throw <| .planInvariant .solana s!"parameter count in {owner} exceeds profile limit {maxParams}"
   let mut planned : Array Param := #[]
+  let mut values : Array LoweredValueV1 := #[]
   for param in params do
-    unless param.type == .u64 do
-      throw <| .planInvariant .solana s!"parameter '{param.name}' in {owner} is not UInt64"
-    unless param.visibility == .verifierVisible do
+    unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .solana
-        s!"parameter '{param.name}' in {owner} is not verifier-visible"
+        s!"semantic parameter ValueIds in {owner} must match declaration order"
+    unless param.typeId == uint64TypeId && param.visibility == .public_ do
+      throw <| .planInvariant .solana
+        s!"parameter '{param.name}' in {owner} is not public UInt64"
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    unless param.id.value == planned.size do
-      throw <| .planInvariant .solana
-        s!"semantic parameter ids in {owner} must match declaration order"
-    planned := planned.push {
-      sourceId := param.id.value
+    let binding : Param := {
+      sourceId := param.valueId.toNat
       name := param.name
       dataOffset := discriminatorBytes + planned.size * 8
       byteWidth := 8
       endianness := .little
     }
-  return planned
+    planned := planned.push binding
+    values := values.push {
+      expr := .param binding.dataOffset
+      depth := 1
+      expandedNodes := 1
+      dependencies := #[]
+    }
+  pure (planned, values)
 
-private def findField (account : StateAccount)
-    (id : Semantic.StateId) : CompileResult StateField :=
-  match account.fields.find? (·.sourceId == id.value) with
-  | some field => .ok field
-  | none => planError s!"semantic expression references unknown state id {id.value}"
+private def findFieldV1 (account : StateAccount)
+    (id : StateIdV1) : CompileResult StateField :=
+  match account.fields[id.toNat]? with
+  | some field =>
+      if field.sourceId == id.toNat then .ok field
+      else planError s!"semantic expression references noncanonical state id {id.toNat}"
+  | none => planError s!"semantic expression references unknown state id {id.toNat}"
 
-private def findParam (params : Array Param)
-    (id : Semantic.ParamId) : CompileResult Param :=
-  match params.find? (·.sourceId == id.value) with
-  | some param => .ok param
-  | none => planError s!"semantic expression references unknown parameter id {id.value}"
+private def findValueV1 (values : Array LoweredValueV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 :=
+  match values[id.toNat]? with
+  | some value => .ok value
+  | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private partial def makeExprUnchecked (account : StateAccount) (params : Array Param) :
-    Semantic.Expr → CompileResult Expr
-  | .literal value => .ok <| .literal value
-  | .param id => return .param (← findParam params id).dataOffset
-  | .state id => do
-      let field ← findField account id
-      return .stateLoad field.accountIndex field.byteOffset
-  | .checkedAdd lhs rhs => do
-      let lhs ← makeExprUnchecked account params lhs
-      let rhs ← makeExprUnchecked account params rhs
-      return .checkedAdd lhs rhs
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 8 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: UInt64 literal must contain exactly 8 bytes"
+  match decodeU64le (start bytes) with
+  | .error _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: invalid UInt64 literal"
+  | .ok (value, cursor) =>
+      match finish cursor with
+      | .ok () => pure value
+      | .error _ =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: trailing UInt64 literal bytes"
 
-private def makeExpr (account : StateAccount) (params : Array Param)
-    (expr : Semantic.Expr) : CompileResult Expr := do
-  let _ ← addSemanticExprNodes 0 expr
-  makeExprUnchecked account params expr
+private def currentValueV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart then
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
 
-private def makeStore (account : StateAccount) (params : Array Param)
-    (state : Semantic.StateId) (value : Semantic.Expr) : CompileResult Store := do
-  let field ← findField account state
-  return {
-    accountIndex := field.accountIndex
-    byteOffset := field.byteOffset
-    value := ← makeExpr account params value
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedAdd lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
   }
 
-private def makeBody (account : StateAccount) (params : Array Param)
-    (owner : String) (isInitializer : Bool)
-    (body : Array Semantic.Statement) : CompileResult (Array Statement) := do
-  let mut planned : Array Statement := #[]
-  for statement in body do
-    match statement with
-    | .store state value =>
-        planned := planned.push <| .store (← makeStore account params state value)
-    | .returnValue value =>
-        if isInitializer then
-          throw <| .planInvariant .solana "initializer cannot return a value"
-        planned := planned.push <| .returnValue (← makeExpr account params value)
-    | .synchronousCall callee =>
+private def makeCheckedSubValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedSub lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private def consumeCurrentSegmentV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: dead or reordered value instructions"
+  pure rootValue.expr
+
+private def appendResultValueV1
+    (uint64TypeId : TypeIdV1)
+    (values : Array LoweredValueV1)
+    (result : ValueDefV1)
+    (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
+  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: result ValueId/type is not canonical UInt64"
+  if values.size >= maxPlanNodes then
+    throw <| .planInvariant .solana s!"Solana value table exceeds node limit {maxPlanNodes}"
+  pure (values.push value)
+
+private inductive SemanticCallableModeV1 where
+  | initialize
+  | mutate
+  | view
+  deriving BEq
+
+private structure LoweredCallableV1 where
+  params : Array Param
+  body : Array Statement
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (uint64TypeId : TypeIdV1)
+    (account : StateAccount)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
+      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: callable must be one acyclic entry block"
+  let block ← match callable.blocks[0]? with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: callable entry block is missing")
+  unless block.id.toNat == 0 && block.params.isEmpty do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: block parameters are not supported"
+  if block.instructions.size > maxBodyStatements then
+    throw <| .planInvariant .solana
+      s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
+  let (params, initialValues) ← makeParamsV1 owner uint64TypeId callable.params
+  let paramCount := params.size
+  let mut values := initialValues
+  let mut segmentStart := values.size
+  let mut body : Array Statement := #[]
+  for instruction in block.instructions do
+    match instruction.op, instruction.result with
+    | .literal typeId bytes, some result =>
+        unless typeId == uint64TypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: literal is not UInt64"
+        let value ← decodeUInt64LiteralV1 bytes
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .literal value
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .stateLoad stateId, some result =>
+        let field ← findFieldV1 account stateId
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .stateLoad field.accountIndex field.byteOffset
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .binary op lhsId rhsId, some result =>
+        let lhs ← currentValueV1 values paramCount segmentStart lhsId
+        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        let value ←
+          if op == .add then
+            makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          else if op == .sub then
+            makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          else
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: only checked UInt64 add/sub are supported"
+        values := ← appendResultValueV1 uint64TypeId values result value
+    | .stateStore stateId valueId, none =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable writes state"
+        let field ← findFieldV1 account stateId
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        body := body.push (.store {
+          accountIndex := field.accountIndex
+          byteOffset := field.byteOffset
+          value
+        })
+        segmentStart := values.size
+    | _, _ =>
         throw <| .planInvariant .solana
-          s!"call '{callee}' in {owner} is not in the Phase-1 Solana fragment"
-  return planned
+          "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"
+  match mode, block.terminator with
+  | .initialize, .return_ none =>
+      unless segmentStart == values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: initializer has unconsumed values"
+  | .mutate, .return_ (some valueId)
+  | .view, .return_ (some valueId) =>
+      let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+      body := body.push (.returnValue value)
+      segmentStart := values.size
+  | .initialize, .return_ (some _) =>
+      throw <| .planInvariant .solana "initializer cannot return a value"
+  | _, _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: callable terminator is outside the current UInt64 pilot"
+  unless segmentStart == values.size do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: callable has unconsumed values"
+  if body.size > maxBodyStatements then
+    throw <| .planInvariant .solana s!"{owner} body exceeds profile limit {maxBodyStatements}"
+  pure { params, body }
 
-private def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
-  accountIndex := account.index
-  ownerPolicy := .currentProgram
-  exactDataLen := account.exactDataLen
-  signerRequired := mode == .initialize
-  writableRequired := mode != .view
-  initialization := if mode == .initialize then
-    .mustBeUninitialized
-  else
-    .mustBeInitialized
-}
-
-private def makeInitializer (account : StateAccount)
-    (initializer : Semantic.Initializer) : CompileResult Handler := do
-  let params ← makeParams "initializer" initializer.params
-  let body ← makeBody account params "initializer" true initializer.body
+private def makeInitializerV1
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (callable : CallableV1) : CompileResult Handler := do
+  unless callable.name.isNone && callable.result.visibility == .public_ do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: initializer signature is invalid"
+  let unitTypeId ← match types.unitTypeId with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: initializer Unit type is missing")
+  unless callable.result.typeId == unitTypeId do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: initializer result is not Unit"
+  let lowered ← lowerCallableV1 "initializer" .initialize
+    types.uint64TypeId account callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
-    params
+    params := lowered.params
     mode := .initialize
     accountAccess := accessFor account .initialize
-    body
+    body := lowered.body
   }
-  return { handler with discriminator := instructionDiscriminator handler.name handler.params }
+  pure { handler with discriminator := instructionDiscriminator handler.name handler.params }
 
-private def makeEntry (account : StateAccount)
-    (entry : Semantic.Entry) : CompileResult Handler := do
-  unless isIdentifier entry.name do
-    throw <| .planInvariant .solana s!"entry name '{entry.name}' is not a safe identifier"
-  unless entry.result == .u64 do
-    throw <| .planInvariant .solana s!"entry '{entry.name}' does not return UInt64"
-  let params ← makeParams s!"entry '{entry.name}'" entry.params
-  let body ← makeBody account params s!"entry '{entry.name}'" false entry.body
-  let mode := match entry.mode with
-    | .mutate => HandlerMode.mutate
-    | .view => HandlerMode.view
+private def makeEntryV1
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (callable : CallableV1) : CompileResult Handler := do
+  let name ← match callable.name with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: named entry is missing its name")
+  unless isIdentifier name do
+    throw <| .planInvariant .solana s!"entry name '{name}' is not a safe identifier"
+  unless callable.result.typeId == types.uint64TypeId &&
+      callable.result.visibility == .public_ do
+    throw <| .planInvariant .solana s!"entry '{name}' does not return public UInt64"
+  let semanticMode : SemanticCallableModeV1 ← match callable.kind with
+    | .entry => pure .mutate
+    | .view => pure .view
+    | _ => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: callable is not an entry or view")
+  let mode : HandlerMode := match semanticMode with
+    | .mutate => .mutate
+    | .view => .view
+    | .initialize => .initialize
+  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode
+    types.uint64TypeId account callable
   let handler : Handler := {
-    name := entry.name
+    name
     discriminator := ""
-    params
+    params := lowered.params
     mode
     accountAccess := accessFor account mode
-    body
+    body := lowered.body
   }
-  return { handler with discriminator := instructionDiscriminator handler.name handler.params }
+  pure { handler with discriminator := instructionDiscriminator handler.name handler.params }
 
 private partial def planExprNodes? (account : StateAccount) (params : Array Param)
     (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
@@ -463,13 +658,25 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             match planExprNodes? account params childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedSub lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? account params childDepth available lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? account params childDepth (available - lhsNodes) rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
-    (total : Nat) (expr : Expr) : CompileResult Nat :=
+    (total : Nat) (expr : Expr) : CompileResult Nat := do
+  if total >= maxPlanNodes then
+    throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
   match planExprNodes? account params maxExprDepth (maxPlanNodes - total) expr with
-  | some nodes => .ok (total + nodes)
-  | none => planError
-      s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
+  | some nodes => pure (total + nodes)
+  | none =>
+      throw <| .planInvariant .solana
+        s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
 private def validateStateAccount (account : StateAccount) : CompileResult Unit := do
   unless account.index == 0 && account.name == "state" &&
@@ -590,42 +797,69 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if hasDuplicates (handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "handler discriminators collide"
 
-/-- Private residual alpha → Plan body. Support already decided by capability mint. -/
-private def makePlanFromAlpha (source : SemanticProgram) : CompileResult Plan := do
-  validateRequirementEnvelope source
-  unless source.schemaVersion == Semantic.schemaVersion do
+/-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
+private def makePlanFromSemanticDataV1
+    (source : SemanticProgramDataV1) : CompileResult Plan := do
+  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
+      !source.invariants.isEmpty then
     throw <| .planInvariant .solana
-      s!"semantic schema version {source.schemaVersion} is not supported; expected {Semantic.schemaVersion}"
-  validateSemanticBudget source
-  unless source.requirements == Semantic.deriveRequirements source do
-    throw <| .planInvariant .solana "semantic requirements are not canonical for the program body"
-  let initializerSource ← match source.initializer with
+      "unsupported Solana semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+  if source.callables.size > maxEntries + 1 then
+    throw <| .planInvariant .solana s!"callable count exceeds Solana profile limit {maxEntries + 1}"
+  if source.requirements.items.size > Targets.maxRequirementKinds then
+    throw <| .planInvariant .solana
+      s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
+  let types ← validateSolanaTypeClosureV1 source.types
+  let stateAccount ← makeStateAccountV1 types.uint64TypeId source.logicalState
+  let components := source.qualifiedName.components.toArray
+  let programName := components.back!
+  let mut initializer : Option Handler := none
+  let mut entries : Array Handler := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .initializer =>
+        if initializer.isSome then
+          throw <| .planInvariant .solana "semantic program has multiple initializers"
+        initializer := some (← makeInitializerV1 types stateAccount callable)
+    | .entry | .view =>
+        if entries.size >= maxEntries then
+          throw <| .planInvariant .solana s!"entry count exceeds profile limit {maxEntries}"
+        entries := entries.push (← makeEntryV1 types stateAccount callable)
+    | .pureFn | .invariant =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+  let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .solana "state-account programs require an initializer"
-  let stateAccount ← makeStateAccount source.state
-  let initializer ← makeInitializer stateAccount initializerSource
-  let entries ← source.entries.mapM (makeEntry stateAccount)
   let plan : Plan := {
     codegenProfile := descriptor.codegenProfile.toString
     instructionDiscriminatorDomain := discriminatorDomain
     instructionDiscriminatorBytes := discriminatorBytes
     stateLayoutDomain := layoutDomain
     arithmeticOverflowError
-    programName := source.name
+    programName
     stateAccount
-    initializer
+    initializer := resolvedInitializer
     entries
   }
   validatePlan plan
-  return plan
+  pure plan
 
-/-- Capability-gated public plan entry (S6). -/
+private def makePlanFromSemanticV1
+    (source : SemanticProgramV1) : CompileResult Plan := do
+  let data ← match validateSemanticProgramV1 source with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| .invalidProgram "Solana received an invalid SemanticProgramV1 carrier"
+  makePlanFromSemanticDataV1 data
+
+/-- Capability-gated public plan entry. Plan semantics consume retained V1 only. -/
 def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .solana do
     throw <| .planInvariant .solana "engineering capability kind is not Solana"
-  let source := CompiledProgramV1.alphaResidualOf
+  let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromAlpha source
+  makePlanFromSemanticV1 source
 
 private structure LoweredExpr where
   operations : Array Operation
@@ -646,6 +880,15 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedSub lhs rhs =>
+      let lhs := lowerExpr overflowError next lhs
+      let rhs := lowerExpr overflowError lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSub rhs.next lhs.value rhs.value overflowError]
         value := rhs.next
         next := rhs.next + 1
       }
@@ -700,7 +943,8 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
 
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
-      .loadState destination .. | .checkedAdd destination .. => some destination
+      .loadState destination .. | .checkedAdd destination .. |
+      .checkedSub destination .. => some destination
   | _ => none
 
 private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
@@ -746,6 +990,10 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
         unless lhs < next - 1 && rhs < next - 1 &&
             errorCode == plan.arithmeticOverflowError do
           throw <| .planInvariant .solana "typed Solana IR checked-add operands/error are invalid"
+    | .checkedSub _ lhs rhs errorCode =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR checked-sub operands/error are invalid"
     | .zeroState accountIndex byteOffset =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             fieldOffsets.contains byteOffset do
@@ -846,6 +1094,8 @@ private def renderOperation : Operation → String
       s!"  %{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
   | .checkedAdd destination lhs rhs errorCode =>
       s!"  %{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .checkedSub destination lhs rhs errorCode =>
+      s!"  %{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .zeroState accountIndex byteOffset =>
       s!"  zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
   | .storeState accountIndex byteOffset value =>

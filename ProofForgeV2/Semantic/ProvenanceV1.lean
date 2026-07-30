@@ -434,7 +434,8 @@ private partial def attrExpr
       let placePath := directChild exprPath "Expr.Place" "place"
       attrPlace callableId p placePath st states idx
   | .binary op lhs rhs =>
-      if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then do
+      if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
+          op == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then do
         let lhsPath := directChild exprPath "Expr.Binary" "lhs"
         let rhsPath := directChild exprPath "Expr.Binary" "rhs"
         let (lVid, st1) ← attrExpr callableId lhs lhsPath st states idx
@@ -454,7 +455,7 @@ private partial def attrExpr
           acc := acc2
         })
       else
-        failUnsupported "S2 provenance supports only binary add"
+        failUnsupported "S2 provenance supports only binary add/sub"
   | .literal literal =>
       match literal with
       | .integer magnitude => do

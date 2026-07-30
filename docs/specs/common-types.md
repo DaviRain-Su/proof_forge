@@ -3,7 +3,7 @@ id: SPEC-COMMON-001
 title: 公共类型、规范编码与资源 Profile
 status: proposed
 owner: architecture
-updated: 2026-07-29
+updated: 2026-07-30
 normative: true
 ---
 
@@ -190,10 +190,15 @@ read + one-byte probe 和 fd/path metadata recheck。**B11a2** 另提供 canonic
 public-safe 的 pure Darwin development-observation receipt model。**B11b1** 已监督完整 canonical
 frame：从 native allocation/pipe/spawn 前启动 monotonic budget，观测 aggregate process/
 `phys_footprint`、protocol/stderr caps 与 deadline，bounded group cleanup 后实际产生 B11a2 receipt。
-**B11b2** 以不依赖 Loader 的 closed safe-open helper逐阶段复用该 primitive，overall wall覆盖
-open→request construction→frontend worker，合并两阶段 peak并产生 live `sourceOpenFailed`。
-它尚未接入产品 CLI；controller-backed contained assurance、完整 formal host/race matrix与
-TASK-D1-08 仍 pending。详见
+**B11b2** 以不依赖 Loader 的 request-bound closed safe-open helper逐阶段复用该 primitive；private
+native monotonic capability 的同一 absolute start覆盖 open→request construction→frontend worker，合并
+两阶段 peak并产生 live `sourceOpenFailed`；private supervised carrier只保留 request-bound canonical
+Err 的 closed fault class，使 `.tooLarge` 在不 reopen/stat source 时仍保留精确 16 MiB诊断。**B12**
+另把 worker pathname执行改为 native no-follow fd
+authority：512 MiB executable gate、fd-derived private snapshot、Darwin suspended spawn + vnode mutation
+check、snapshot cleanup，且 fresh exact-copy/ACL清除成本继续消费同一 wall。
+B12 已把它接入产品 CLI sole source authority；formal executable/import identity、controller-backed
+contained assurance、完整 formal host/race matrix与 TASK-D1-08 仍 pending。详见
 [`source-frontend.md`](../modules/source-frontend.md)。
 
 Darwin v1 的 `memoryMetric` 为 containment 内全部 live process `phys_footprint` 之和；其他 host
@@ -219,13 +224,17 @@ grow race 和 short read 都稳定失败；攻击者不能在 worker budget 生�
 工程状态：B11a 已实现上述 no-follow/regular/single-link/size/read-probe/metadata-recheck primitive；
 B11a2 已实现只承载 `darwin-development-observed`、profile/request digest、bounded observation、
 closed event/result/cleanup 的 pure receipt carrier/codec。B11b1 已为**已编码 request**提供 killable
-Darwin worker unit 与真实 observation producer：selective `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，
+Darwin worker unit 与真实 observation producer：fd-derived bounded private worker snapshot、suspended
+spawn/vnode verification、selectively inherited development `LEAN_SYSROOT`/`LEAN_PATH` + fixed env、
 process-group/PID identity、aggregate process/memory polling、stdout/stderr/deadline cap、bounded cleanup
-与 actual receipt composition；malformed/cross-request/incomplete-cleanup response fail closed。
+与 actual receipt composition；malformed/cross-request/incomplete-cleanup response fail closed。selective
+Lean search values尚非 digest-locked import closure。
 B11b2 已以 pinned one-request safe-open helper + B10 worker建立 shared source-open/read wall：parent不执行
-同步 filesystem open，prior在每次 spawn前重算，canonical fault + complete cleanup才产生
-`sourceOpenFailed`，最终 observation保留两阶段最大 peak。该 development polling仍不是 controller event，
-也未完成 CLI authority cutover或完整 filesystem race/host matrix，因此不能声称 controller-backed
+同步 filesystem open，两个阶段消费 private native monotonic capability 的同一 absolute start，SafeOpen
+response 以 canonical request digest绑定，只有 bound fault + complete cleanup才产生 `sourceOpenFailed`，
+且 exact closed fault只保留在 private supervised carrier；最终 observation保留两阶段最大 peak。该
+development polling仍不是 controller event，
+B12 已完成 CLI authority cutover，但仍未完成 filesystem race/host matrix，因此不能声称 controller-backed
 attribution、containment、formal `TST-RESOURCE-001` 或 TASK-D1-08 完成。
 
 超限归因优先级固定为 controller event：process denial → memory controller event → protocol/output

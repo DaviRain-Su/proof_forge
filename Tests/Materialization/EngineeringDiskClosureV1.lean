@@ -43,7 +43,7 @@ private def materializeOk (label : String) (capability : Targets.ResolvedEnginee
     IO MaterializedArtifactsV1 :=
   liftResult label (Targets.materializeResult capability)
 
-private unsafe def compileCounter : IO CompiledProgramV1 := do
+private unsafe def compileCounter : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<disk-closure-counter>"

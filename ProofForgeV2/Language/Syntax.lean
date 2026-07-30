@@ -341,6 +341,41 @@ private def decodeBytesLengthAtom (stx : Syntax) : Except String UInt32 := do
       throw "unsupported portable type"
   pure (UInt32.ofNat value)
 
+private def decodeIntegerLiteralV1 (stx : Syntax) : Except String Nat := do
+  unless stx.isOfKind numLitKind do
+    throw "unsupported portable integer literal"
+  let spelling ← match stx.isLit? numLitKind with
+    | some value => pure value
+    | none => throw "unsupported portable integer literal"
+  let (base, digits) ← match spelling.toList with
+    | '0' :: 'x' :: rest =>
+        if rest.isEmpty then
+          throw "integer literal must use unsigned decimal or lowercase 0x hexadecimal spelling"
+        pure (16, rest)
+    | rest => pure (10, rest)
+  if digits.isEmpty then
+    throw "integer literal must use unsigned decimal or lowercase 0x hexadecimal spelling"
+  let limit : Nat := 2 ^ 256
+  let mut value : Nat := 0
+  for c in digits do
+    let digit? : Option Nat :=
+      if '0' ≤ c && c ≤ '9' then
+        some (c.toNat - '0'.toNat)
+      else if base == 16 && 'a' ≤ c && c ≤ 'f' then
+        some (10 + c.toNat - 'a'.toNat)
+      else if base == 16 && 'A' ≤ c && c ≤ 'F' then
+        some (10 + c.toNat - 'A'.toNat)
+      else
+        none
+    let digit ← match digit? with
+      | some digit => pure digit
+      | none =>
+          throw "integer literal must use unsigned decimal or lowercase 0x hexadecimal spelling"
+    value := value * base + digit
+    if value ≥ limit then
+      throw "integer literal exceeds UInt256"
+  pure value
+
 private def reservedPortableKeywords : Array String :=
   #["program", "where", "state", "struct", "enum", "const", "event", "error",
     "init", "entry", "view", "fn", "invariant", "requires", "extension",
@@ -598,10 +633,8 @@ private partial def decodePatternV1Unchecked : Syntax → Except String PatternV
   | `(pfPattern| _) => pure .wildcard
   | `(boolTruePattern| true) => pure (.literal (.bool true))
   | `(boolFalsePattern| false) => pure (.literal (.bool false))
-  | `(pfPattern| $value:num) =>
-      let number := value.getNat
-      if number < 2 ^ 256 then pure (.literal (.integer number))
-      else throw "integer literal exceeds UInt256"
+  | `(pfPattern| $value:num) => do
+      pure (.literal (.integer (← decodeIntegerLiteralV1 value)))
   | `(pfPattern| $value:str) => pure (.literal (.string value.getString))
   | `(pfPattern| $ctor:ident ($args:pfPattern,*)) => do
       let ctor ← decodePortableQualifiedIdV1 ctor
@@ -613,10 +646,8 @@ private partial def decodePatternV1Unchecked : Syntax → Except String PatternV
 private partial def decodeExprV1Unchecked : Syntax → Except String ExprV1
   | `(boolTrueExpr| true) => pure (.literal (.bool true))
   | `(boolFalseExpr| false) => pure (.literal (.bool false))
-  | `(pfExpr| $value:num) =>
-      let number := value.getNat
-      if number < 2 ^ 256 then pure (.literal (.integer number))
-      else throw "integer literal exceeds UInt256"
+  | `(pfExpr| $value:num) => do
+      pure (.literal (.integer (← decodeIntegerLiteralV1 value)))
   | `(pfExpr| $value:str) => pure (.literal (.string value.getString))
   | `(pfExpr| $callee:ident ($args:pfExpr,*)) => do
       if callee.getId.components.length == 1 then

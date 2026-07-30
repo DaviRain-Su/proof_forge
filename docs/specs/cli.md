@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-07-29
+updated: 2026-07-30
 normative: true
 ---
 
@@ -161,17 +161,21 @@ human stderr 文本 **不是** `receipts` 的稳定替代 API。
 
 多个 diagnostics 取最高优先级：70 > 7 > 6 > 5 > 4 > 3 > 2。
 
-### B8b product diagnostic exit（engineering）
+### B8b/B12 product diagnostic exit（engineering）
 
-`build` / `build-counter` 产品路径经 Loader product → located Normalize → product Compiler，
-失败时 stderr 一次打印全部 `DiagnosticBundleV1.renderHuman` 行，exit 为
+`build` / `build-counter` 产品路径经 pinned safe-open helper → B10 worker → success-only reconstructed product carrier → located Normalize → product Compiler；CLI Main 不再 source `realPath`/`readFile`、不 import Loader、不 caller-side reconstruct或 fallback；physical compiler path逐 component拒绝 symlink，pinned workers为 regular siblings，native只执行 no-follow fd-derived bounded private snapshot（suspended spawn + vnode recheck），`build-counter` package source root不依赖 caller cwd。Frontend.Err 与后续失败在 stderr 一次打印全部 `DiagnosticBundleV1.renderHuman` 行；source-open为 `PF-SRC-INVALID`，resource event为对应 `PF-RESOURCE-*`，worker snapshot/protocol/supervisor异常为 `PF-FRONTEND-PROTOCOL`。exit 为
 `DiagnosticBundleV1.selectExitCode`：仅 `severity=error`；`PF-DIAG-LIMIT` 与 warning/note
 中立；`PF-INTERNAL` → 70；phase deploy/verify → 7；emit/tool → 6；plan/lower → 5；
-resolve → 4；source/type/effect/semantic → 3。CLI usage/config（缺 `--module`/未知选项/
-未知 `--target`/非法 argv）**exit 2**（`failUsage` plain message），**不是** diagnostic，
-且不发明 `PF-CLI-USAGE`、不 throw `CompileError.render` / uncaught-exception exit 1。
-Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。Full JSON
-result envelope/receipts 与 formal `TASK-D1-07` 仍 pending。
+resolve → 4；source/type/effect/semantic → 3。canonical SafeOpen `.tooLarge` 由 private supervised
+fault join 精确映射为 `PF-SRC-INVALID: source exceeds the 16 MiB limit`；CLI 不得为恢复该分类而
+reopen/stat source。CLI usage/config（缺 `--module`/未知选项/未知 `--target`/非法 argv）**exit 2**
+（`failUsage` plain message），**不是** diagnostic，且不发明 `PF-CLI-USAGE`、不 throw
+`CompileError.render` / uncaught-exception exit 1。
+Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。当前 product
+supervisor 仅 Darwin development-observed；非 Darwin `build`/`build-counter` 必须
+`PF-FRONTEND-PROTOCOL`/exit 3/零制品 fail closed。Linux `just ci` 只执行 portable core、selection
+与该负向，不得宣称 product materialization positive。Full JSON result envelope/receipts 与 formal
+`TASK-D1-07` 仍 pending。
 
 ## Secret、Inputs 与副作用
 

@@ -1403,6 +1403,99 @@ private unsafe def testUInt64Literals
       "value.checked-arithmetic"])
     s!"lit-assign: exact requirements, got {reqIds}"
 
+/-- UInt64 subtraction extends the same single-block checked-arithmetic envelope
+    without changing type, requirement, state, or callable identities. -/
+private unsafe def testUInt64Subtraction
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let subSource := wrap "Subtract" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let subValidated ← loadSource session "sub" subSource
+  let typed := checkProgramTypedResultV1 subValidated
+  expect typed.ok "sub: CheckV1.ok"
+  expect typed.analysisComplete "sub: CheckV1.analysisComplete"
+  let subCarrier ← match normalizeProgramV1 subValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"sub: normalize: {repr e}"
+  let subData ← match validateSemanticProgramV1 subCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"sub: validate: {repr e}"
+  expect (subData.types.size == 2)
+    s!"sub: retain UInt64 + Unit closure, got {subData.types.size} types"
+  let some u64Type := subData.types[0]? |
+    throw <| IO.userError "sub: missing UInt64 type"
+  expect (match u64Type.shape with | TypeShapeV1.uint 64 => true | _ => false)
+    "sub: type[0] must remain anonymous UInt64"
+  let reqIds := subData.requirements.items.map (·.id)
+  expect (reqIds == #["failure.atomic-rollback", "state.persistent",
+      "value.checked-arithmetic"])
+    s!"sub: exact existing requirements, got {reqIds}"
+  let some entryC := subData.callables[1]? |
+    throw <| IO.userError "sub: missing decrement callable"
+  let some block := entryC.blocks[0]? |
+    throw <| IO.userError "sub: missing decrement block"
+  expect (block.instructions.size == 4)
+    s!"sub: expected load/sub/store/load, got {block.instructions.size}"
+  let some binaryInstr := block.instructions[1]? |
+    throw <| IO.userError "sub: missing binary instruction"
+  let some binaryResult := binaryInstr.result |
+    throw <| IO.userError "sub: binary result missing"
+  match binaryInstr.op with
+  | .binary .sub lhs rhs =>
+      expect (binaryResult.valueId == 2 && binaryResult.typeId == 0 &&
+          lhs == 1 && rhs == 0)
+        s!"sub: expected vid2=load1-param0, got {binaryResult.valueId}/{lhs}/{rhs}"
+  | _ => throw <| IO.userError "sub: expected exact BinaryOpV1.sub"
+  let some storeInstr := block.instructions[2]? |
+    throw <| IO.userError "sub: missing stateStore instruction"
+  match storeInstr.op with
+  | SemanticOpV1.stateStore sid vid =>
+      expect (sid == 0 && vid == 2)
+        s!"sub: expected store state0/vid2, got {sid}/{vid}"
+  | _ => throw <| IO.userError "sub: expected stateStore"
+  match block.terminator with
+  | TerminatorV1.return_ (some returned) =>
+      expect (returned == 3) s!"sub: expected return vid3, got {returned}"
+  | _ => throw <| IO.userError "sub: expected return after stateStore"
+  let subCarrier2 ← match normalizeProgramV1 subValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"sub-repeat: normalize: {repr e}"
+  expect (subCarrier.canonicalBytes == subCarrier2.canonicalBytes)
+    "sub: repeated normalization bytes deterministic"
+  let subHash ← match semanticHashV1 subCarrier with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"sub: hash: {repr e}"
+  let subHash2 ← match semanticHashV1 subCarrier2 with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"sub-repeat: hash: {repr e}"
+  expect (subHash == subHash2) "sub: repeated semanticHash deterministic"
+
+  -- An otherwise identical add program must not alias subtraction bytes/hash.
+  let addSource := wrap "Subtract" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let addValidated ← loadSource session "sub-add-nonalias" addSource
+  let addCarrier ← match normalizeProgramV1 addValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"sub-add-nonalias: normalize: {repr e}"
+  let addHash ← match semanticHashV1 addCarrier with
+    | .ok h => pure h
+    | .error e => throw <| IO.userError s!"sub-add-nonalias: hash: {repr e}"
+  expect (subCarrier.canonicalBytes != addCarrier.canonicalBytes && subHash != addHash)
+    "sub: BinaryOpV1.sub must not alias add bytes/hash"
+
 private unsafe def testUnsupportedIf
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "IfOnly" <|
@@ -1566,6 +1659,52 @@ private unsafe def testUInt64LiteralProvenance
     throw <| IO.userError "lit-prov: missing value origin"
   expect (instrOrigin == literalOrigin && valueOrigin == literalOrigin)
     "lit-prov: instruction/value origins must equal literal expression origin"
+
+/-- Subtraction instruction/result and both checked-arithmetic requirements bind
+    the exact binary expression node through the sole provenance rebuild. -/
+private unsafe def testUInt64SubtractionProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "SubProv" <|
+    "  entry run(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    return x - y\n"
+  let (validated, spans) ← loadSourceWithSpans session "sub-prov" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "sub-prov: CheckV1.ok"
+  expect typed.analysisComplete "sub-prov: CheckV1.analysisComplete"
+  let path ← parseTestPath "sub-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"sub-prov: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"sub-prov: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"sub-prov: validate: {repr e}"
+  expect (data.requirements.items.map (·.id) ==
+      #["failure.atomic-rollback", "value.checked-arithmetic"])
+    "sub-prov: exact checked-arithmetic requirement order"
+  let itemPath := childPathT #[] "Program" "items" 0
+  let bodyPath := directChildT itemPath "EntryDecl" "body"
+  let stmtPath := childPathT bodyPath "Block" "statements" 0
+  let binaryPath := directChildT stmtPath "Stmt.Return" "value"
+  let binaryOrigin ← originAtExplicitPath validated inventory binaryPath
+  let some instrOrigin := findOrigin provenance (.instruction 0 0 0) |
+    throw <| IO.userError "sub-prov: missing instruction origin"
+  let some valueOrigin := findOrigin provenance (.value 0 2) |
+    throw <| IO.userError "sub-prov: missing result value origin"
+  let some rollbackOrigin := findOrigin provenance (.requirement 0) |
+    throw <| IO.userError "sub-prov: missing rollback requirement origin"
+  let some arithmeticOrigin := findOrigin provenance (.requirement 1) |
+    throw <| IO.userError "sub-prov: missing arithmetic requirement origin"
+  expect (instrOrigin == binaryOrigin && valueOrigin == binaryOrigin &&
+      rollbackOrigin == binaryOrigin && arithmeticOrigin == binaryOrigin)
+    "sub-prov: instruction/value/requirements must bind the subtraction expression"
+  match ProofForgeV2.Semantic.NormalizeV1.validateSemanticProvenanceV1
+      validated path spans carrier provenance with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"sub-prov: authority: {repr e}"
 
 private def sortOriginsByWire
     (origins : Array SourceOrigin) : IO (Array SourceOrigin) := do
@@ -2442,7 +2581,9 @@ unsafe def run : IO Unit := do
   testDeterminism session
   testTypedNotOk session
   testUInt64Literals session
+  testUInt64Subtraction session
   testUInt64LiteralProvenance session
+  testUInt64SubtractionProvenance session
   testUnsupportedIf session
   testUnsupportedFn session
   testUnsupportedPrivateState session

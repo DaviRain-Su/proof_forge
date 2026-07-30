@@ -1,43 +1,20 @@
 /-
-  ProofForgeV2.Typed.RequirementsInferV1 — D2-05 ProgramRequirements inference
-  engineering subset.
+  ProofForgeV2.Typed.RequirementsInferV1 — target-neutral ProgramV1 requirement
+  contribution analysis.
 
-  Independent pure-AST walk over ValidatedSourceV1 / ProgramV1 that produces a
-  deterministic `Array ProgramRequirement` (alpha `Core.Diagnostic.ProgramRequirement`
-  carrier) with source-order first-seen `stableUnique` semantics matching
-  `Semantic.deriveRequirements`.
+  This module is the sole ProgramV1 AST walk for requirement inference. It emits
+  stable first-seen contribution identities only; it does not know Semantic wire
+  records, versions, digests, predicates, target support, or the legacy alpha
+  `ProgramRequirement` enum.
 
-  Inference covers only currently expressible ProgramV1 surface:
-    * non-empty state ⇒ `.persistentState`
-    * state visibility: public_ none; private_ ⇒ `.privateState`;
-      commitment ⇒ `.commitmentState` (never `.privateWitness` for state)
-    * init/entry/view/fn param visibility: private_ ⇒ `.privateWitness`;
-      commitment ⇒ `.commitmentDisclosure`
-    * type carriers (state/param/result/const; Option/Array recurse; Map key+value):
-      `.bool` ⇒ `.boolValues`; `.field bn254_fr` ⇒ `.fieldBn254`
-    * arithmetic binary `+ - * / %` and unary `-` ⇒ `.checkedArithmetic` +
-      `.transactionalRollback`
-    * `Stmt.call` ⇒ `.synchronousCall` + `.transactionalRollback`
-    * `Stmt.schedule` ⇒ `.asynchronousWorkflow` only (alpha has no schedule
-      rule; fail-closed stable choice — no invented transactionalRollback)
-    * `Stmt.emit` ⇒ `.eventEmission`
-    * `assert_` / `revert` ⇒ `.transactionalRollback`
+  `Semantic.RequirementsV1` is the sole product consumer. That layer validates
+  the closed engineering catalog, mints `RequirementRequestV1` rows, and applies
+  canonical wire ordering. Targets and resolvers must consume only the frozen
+  `ProgramRequirementsV1` embedded in `SemanticProgramV1`.
 
-  Does NOT invent `.callerContext`, authority.*, state-custody.*, or
-  disclosure.commit. Does NOT depend on call-graph edges, so duplicate `fn`
-  keys still yield `analysisComplete = true` / `ok = true` for declaration-
-  level requirements (body walk is pure AST, not name-resolution edges).
-
-  Product wiring (this engineering subset):
-    * NOT composed into CheckV1 phases
-    * does NOT change Typed.checkV1 / compileValidatedSourceV1 / CLI
-    * does NOT replace Semantic.deriveRequirements
-    * independent module + tests only (same posture as early EffectCheck)
-
-  Formal TASK-D2-05 / RequirementRef / predicate merge / SemanticProgramV1 /
-  provenance remain pending.
+  Formal TASK-D2-05 / RequirementRef / predicate merge / contribution origins
+  remain pending.
 -/
-import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
@@ -50,7 +27,6 @@ import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Typed.RequirementsInferV1
 
-open ProofForgeV2.Core
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -61,150 +37,174 @@ open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
-/-- Result of independent ProgramV1 requirements inference. -/
-structure RequirementsInferResultV1 where
-  requirements : Array ProgramRequirement
-  ok : Bool
-  analysisComplete : Bool
+/-- One target-neutral requirement contribution identity.
+    Private constructor: only this AST analysis can mint contributions. -/
+structure RequirementContributionV1 where
+  private mk ::
+  id : String
   deriving BEq, Repr, Inhabited
 
-/-- First-seen stable unique, matching `SemanticIR.stableUnique`. -/
-def stableUnique [BEq α] (values : Array α) : Array α :=
-  values.foldl (fun found value =>
-    if found.contains value then found else found.push value) #[]
+namespace RequirementContributionV1
 
-/-- Type-carrier requirements (alpha `ValueType.requirements` + Map recurse). -/
-partial def typeRequirements : TypeV1 → Array ProgramRequirement
-  | .bool => #[.boolValues]
+def idOf (contribution : RequirementContributionV1) : String := contribution.id
+
+end RequirementContributionV1
+
+private def contribution (id : String) : RequirementContributionV1 :=
+  RequirementContributionV1.mk id
+
+private def persistentState := contribution "state.persistent"
+private def checkedArithmetic := contribution "value.checked-arithmetic"
+private def transactionalRollback := contribution "failure.atomic-rollback"
+private def synchronousCall := contribution "effect.synchronous-call"
+private def asynchronousWorkflow := contribution "effect.asynchronous-workflow"
+private def privateWitness := contribution "disclosure.private-witness"
+private def eventEmission := contribution "effect.event"
+private def boolValues := contribution "value.bool"
+private def commitmentDisclosure := contribution "disclosure.commitment"
+private def fieldBn254 := contribution "value.field.bn254-fr"
+private def privateState := contribution "disclosure.private-state"
+private def commitmentState := contribution "disclosure.commitment-state"
+
+private def stableUniqueContributions
+    (values : Array RequirementContributionV1) : Array RequirementContributionV1 :=
+  values.foldl (fun found value =>
+    if found.any (fun existing =>
+        RequirementContributionV1.idOf existing == RequirementContributionV1.idOf value) then
+      found
+    else
+      found.push value) #[]
+
+private partial def typeContributions : TypeV1 → Array RequirementContributionV1
+  | .bool => #[boolValues]
   | .field id =>
-      if id.raw == "bn254_fr" then #[.fieldBn254] else #[]
-  | .option element => typeRequirements element
-  | .array element _ => typeRequirements element
-  | .map key value => typeRequirements key ++ typeRequirements value
+      if id.raw == "bn254_fr" then #[fieldBn254] else #[]
+  | .option element => typeContributions element
+  | .array element _ => typeContributions element
+  | .map key value => typeContributions key ++ typeContributions value
   | .uint _ | .int _ | .principal | .unit | .named _ | .bytes _ => #[]
 
-/-- State visibility → state-specific disclosure (never privateWitness). -/
-def stateVisibilityRequirements : VisibilityV1 → Array ProgramRequirement
+private def stateVisibilityContributions : VisibilityV1 → Array RequirementContributionV1
   | .public_ => #[]
-  | .private_ => #[.privateState]
-  | .commitment => #[.commitmentState]
+  | .private_ => #[privateState]
+  | .commitment => #[commitmentState]
 
-/-- Param visibility on init/entry/view/fn. -/
-def paramVisibilityRequirements : VisibilityV1 → Array ProgramRequirement
+private def paramVisibilityContributions : VisibilityV1 → Array RequirementContributionV1
   | .public_ => #[]
-  | .private_ => #[.privateWitness]
-  | .commitment => #[.commitmentDisclosure]
+  | .private_ => #[privateWitness]
+  | .commitment => #[commitmentDisclosure]
 
-def paramRequirements (param : ParamV1) : Array ProgramRequirement :=
-  typeRequirements param.type_ ++ paramVisibilityRequirements param.visibility
+private def paramContributions (param : ParamV1) : Array RequirementContributionV1 :=
+  typeContributions param.type_ ++ paramVisibilityContributions param.visibility
 
-def stateRequirements (state : StateDeclV1) : Array ProgramRequirement :=
-  typeRequirements state.type_ ++ stateVisibilityRequirements state.visibility
+private def stateContributions (state : StateDeclV1) : Array RequirementContributionV1 :=
+  typeContributions state.type_ ++ stateVisibilityContributions state.visibility
 
 mutual
-  partial def placeRequirements : PlaceV1 → Array ProgramRequirement
+  private partial def placeContributions : PlaceV1 → Array RequirementContributionV1
     | .name _ => #[]
-    | .field base _ => placeRequirements base
-    | .index base idx => placeRequirements base ++ exprRequirements idx
+    | .field base _ => placeContributions base
+    | .index base index => placeContributions base ++ exprContributions index
 
-  partial def exprRequirements : ExprV1 → Array ProgramRequirement
+  private partial def exprContributions : ExprV1 → Array RequirementContributionV1
     | .literal _ => #[]
-    | .place p => placeRequirements p
-    | .constructor _ args => args.flatMap exprRequirements
+    | .place place => placeContributions place
+    | .constructor _ args => args.flatMap exprContributions
     | .unary .neg operand =>
-        exprRequirements operand ++ #[.checkedArithmetic, .transactionalRollback]
-    | .unary _ operand => exprRequirements operand
+        exprContributions operand ++ #[checkedArithmetic, transactionalRollback]
+    | .unary _ operand => exprContributions operand
     | .binary op lhs rhs =>
-        let child := exprRequirements lhs ++ exprRequirements rhs
+        let child := exprContributions lhs ++ exprContributions rhs
         match op with
         | .add | .sub | .mul | .div | .mod =>
-            child ++ #[.checkedArithmetic, .transactionalRollback]
+            child ++ #[checkedArithmetic, transactionalRollback]
         | _ => child
-    | .localCall _ args => args.flatMap exprRequirements
+    | .localCall _ args => args.flatMap exprContributions
     | .match_ scrutinee arms =>
-        exprRequirements scrutinee ++
-          arms.flatMap (fun arm => exprRequirements arm.value)
+        exprContributions scrutinee ++
+          arms.flatMap (fun arm => exprContributions arm.value)
 
-  partial def stmtRequirements : StmtV1 → Array ProgramRequirement
+  private partial def stmtContributions : StmtV1 → Array RequirementContributionV1
     | .let_ _ typeAnn? value =>
         (match typeAnn? with
-          | some t => typeRequirements t
+          | some type => typeContributions type
           | none => #[]) ++
-          exprRequirements value
+          exprContributions value
     | .assign target value =>
-        placeRequirements target ++ exprRequirements value
-    | .if_ cond thenB elseB? =>
-        exprRequirements cond ++ blockRequirements thenB ++
-          (match elseB? with
-            | some b => blockRequirements b
+        placeContributions target ++ exprContributions value
+    | .if_ condition thenBlock elseBlock? =>
+        exprContributions condition ++ blockContributions thenBlock ++
+          (match elseBlock? with
+            | some block => blockContributions block
             | none => #[])
     | .match_ scrutinee arms =>
-        exprRequirements scrutinee ++
-          arms.flatMap (fun arm => blockRequirements arm.body)
-    | .for_ _ start endEx _ body =>
-        exprRequirements start ++ exprRequirements endEx ++ blockRequirements body
-    | .assert_ cond _ =>
-        exprRequirements cond ++ #[.transactionalRollback]
+        exprContributions scrutinee ++
+          arms.flatMap (fun arm => blockContributions arm.body)
+    | .for_ _ start endExclusive _ body =>
+        exprContributions start ++ exprContributions endExclusive ++
+          blockContributions body
+    | .assert_ condition _ =>
+        exprContributions condition ++ #[transactionalRollback]
     | .revert _ args =>
-        args.flatMap exprRequirements ++ #[.transactionalRollback]
+        args.flatMap exprContributions ++ #[transactionalRollback]
     | .emit _ args =>
-        args.flatMap exprRequirements ++ #[.eventEmission]
+        args.flatMap exprContributions ++ #[eventEmission]
     | .return_ value? =>
         match value? with
-        | some e => exprRequirements e
+        | some value => exprContributions value
         | none => #[]
     | .call call =>
-        call.args.flatMap exprRequirements ++
-          #[.synchronousCall, .transactionalRollback]
+        call.args.flatMap exprContributions ++
+          #[synchronousCall, transactionalRollback]
     | .schedule call =>
-        -- Alpha `deriveRequirements` has no schedule rule. Engineering choice:
-        -- emit `.asynchronousWorkflow` only; do not invent transactionalRollback.
-        call.args.flatMap exprRequirements ++ #[.asynchronousWorkflow]
+        call.args.flatMap exprContributions ++ #[asynchronousWorkflow]
 
-  partial def blockRequirements (block : BlockV1) : Array ProgramRequirement :=
-    block.statements.flatMap stmtRequirements
+  private partial def blockContributions
+      (block : BlockV1) : Array RequirementContributionV1 :=
+    block.statements.flatMap stmtContributions
 end
 
-/-- Requirements contributed by one program item (excluding the top-level
-    `.persistentState` flag, which is emitted once when any state exists). -/
-def itemRequirements : ProgramItemV1 → Array ProgramRequirement
-  | .state decl => stateRequirements decl
-  | .init decl =>
-      decl.params.flatMap paramRequirements ++ blockRequirements decl.body
-  | .entry decl =>
-      decl.params.flatMap paramRequirements ++
-        typeRequirements decl.result ++
-        blockRequirements decl.body
-  | .view decl =>
-      decl.params.flatMap paramRequirements ++
-        typeRequirements decl.result ++
-        blockRequirements decl.body
-  | .fn decl =>
-      decl.params.flatMap paramRequirements ++
-        typeRequirements decl.result ++
-        blockRequirements decl.body
-  | .const decl =>
-      typeRequirements decl.type_ ++ exprRequirements decl.value
-  | .invariant decl => exprRequirements decl.predicate
+private def itemContributions : ProgramItemV1 → Array RequirementContributionV1
+  | .state declaration => stateContributions declaration
+  | .init declaration =>
+      declaration.params.flatMap paramContributions ++
+        blockContributions declaration.body
+  | .entry declaration =>
+      declaration.params.flatMap paramContributions ++
+        typeContributions declaration.result ++
+        blockContributions declaration.body
+  | .view declaration =>
+      declaration.params.flatMap paramContributions ++
+        typeContributions declaration.result ++
+        blockContributions declaration.body
+  | .fn declaration =>
+      declaration.params.flatMap paramContributions ++
+        typeContributions declaration.result ++
+        blockContributions declaration.body
+  | .const declaration =>
+      typeContributions declaration.type_ ++ exprContributions declaration.value
+  | .invariant declaration => exprContributions declaration.predicate
   | .struct _ | .enum _ | .event _ | .error _ | .extensionReq _ | .proof _ => #[]
 
-/-- Infer requirements from a ProgramV1 AST. Pure declaration+body walk;
-    always complete (`analysisComplete = true`, `ok = true`). -/
-def inferRequirementsFromProgramV1 (program : ProgramV1) : RequirementsInferResultV1 :=
+/-- Sole ProgramV1 requirement-contribution walk. Results are source-order,
+    first-seen stable unique identities. Product callers must pass them through
+    `Semantic.RequirementsV1.freezeProgramRequirementsV1`; they are not resolved
+    support decisions or wire rows. -/
+def inferRequirementContributionsV1
+    (program : ProgramV1) : Array RequirementContributionV1 :=
   let hasState := program.items.any fun item =>
     match item with
     | .state _ => true
     | _ => false
-  let head : Array ProgramRequirement :=
-    if hasState then #[.persistentState] else #[]
-  let collected := program.items.foldl (fun acc item =>
-    acc ++ itemRequirements item) head
-  { requirements := stableUnique collected
-    ok := true
-    analysisComplete := true }
+  let head : Array RequirementContributionV1 :=
+    if hasState then #[persistentState] else #[]
+  let collected := program.items.foldl (fun accumulated item =>
+    accumulated ++ itemContributions item) head
+  stableUniqueContributions collected
 
-/-- Infer requirements from a validated source unit. -/
-def inferRequirementsV1 (source : ValidatedSourceV1) : RequirementsInferResultV1 :=
-  inferRequirementsFromProgramV1 source.program
+/-- Validated-source inspection projection of the sole contribution walk. -/
+def inferRequirementContributionsFromSourceV1
+    (source : ValidatedSourceV1) : Array RequirementContributionV1 :=
+  inferRequirementContributionsV1 source.program
 
 end ProofForgeV2.Typed.RequirementsInferV1

@@ -22,8 +22,9 @@
   false`, `ok = false`, and `checkProgramEffectsV1` surfaces name-resolution
   structural diagnostics so the independent entry cannot report success.
 
-  Product consumption: composed into `CheckV1` and fail-closed gated from
-  `Typed.checkV1`.  Out of scope here: context.read.*, disclosure.*, extension.*,
+  Product consumption: composed into `CheckV1`, whose located result is the
+  Normalize product gate. The legacy alpha compatibility checker also consumes
+  the unlocated projection. Out of scope here: context.read.*, disclosure.*, extension.*,
   resource/termination bounds, Bound/Disclosure/CheckV1 locate wiring.
 
   Scope and local-call resolution reuse ModelV1 / NameResolutionV1 /

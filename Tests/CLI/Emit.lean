@@ -16,10 +16,10 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 unsafe def run : IO Unit := do
-  -- Path-safety pure seam (package-visible). Forged residual names cannot mint
-  -- private-ctor CompiledProgramV1, so PF-OUTPUT-PATH on emitProgram is unreachable
-  -- without a public two-carrier factory; emitProgram still dual-calls
-  -- validProgramArtifactNameV1 on residual name then materializeResult.
+  -- Path-safety pure seam (package-visible). Forged artifact names cannot mint
+  -- private-ctor CompiledSemanticV1, so PF-OUTPUT-PATH on emitProgram is unreachable
+  -- without a public carrier factory; emitProgram still validates the compiled
+  -- semantic-derived artifact name before materialization.
   expect (!ProofForgeV2.CLI.validProgramArtifactNameV1 "../escaped")
     "artifact names must not escape the staging root"
   expect (!ProofForgeV2.CLI.validProgramArtifactNameV1 "")
@@ -35,14 +35,14 @@ unsafe def run : IO Unit := do
   let compiled ← match Compiler.compileValidatedSourceV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError e.render
-  -- Real product carrier: residual name is the identity emitProgram gates via
-  -- validArtifactName; Counter must be accepted so later PF-OUTPUT-COLLISION is
+  -- Real product carrier: the semantic-derived artifact name is the identity
+  -- emitProgram gates. Counter must be accepted so later PF-OUTPUT-COLLISION is
   -- not masked by a path-safety failure.
-  let residual := CompiledProgramV1.alphaResidualOf compiled
-  expect (residual.name == "Counter")
-    "Counter residual alpha name must be the product artifact identity"
-  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 residual.name)
-    "emitProgram residual name must pass the same path-safety predicate"
+  let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
+  expect (artifactName == "Counter")
+    "Counter semantic suffix must be the product artifact identity"
+  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 artifactName)
+    "emitProgram artifact name must pass the same path-safety predicate"
 
   let collision := FilePath.mk "build/v2/existing-output"
   if ← collision.pathExists then IO.FS.removeDirAll collision

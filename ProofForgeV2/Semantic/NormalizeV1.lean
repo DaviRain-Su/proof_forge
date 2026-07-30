@@ -17,7 +17,7 @@
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none)
     * expressions: bare place (param or state name), UInt64 integer literal,
-      and binary add; integer width is supplied by the enclosing typed context
+      and checked binary add/sub; integer width is supplied by the enclosing typed context
     * types: anonymous UInt64 + Unit (init result); one TypeId per distinct shape
     * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
       invariantSteps=none; empty constants/events/errors/invariants
@@ -39,7 +39,7 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * broadening the S1 surface beyond Counter-like public UInt64
+    * broadening beyond the single-block public UInt64 add/sub envelope
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -253,25 +253,34 @@ private partial def lowerExpr
         return ← failUnsupported "S1 place type does not match enclosing expected type"
       pure (vid, tid, st1)
   | .binary op lhs rhs =>
-      if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then do
-        requireExpectedUInt64 types expectedTid "binary add"
-        -- Preserve source evaluation / ValueId order: lhs, then rhs, then add.
-        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid types st states
-        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid types st1 states
-        unless lTid == expectedTid && rTid == expectedTid do
-          return ← failUnsupported "S1 binary add requires expected UInt64 operands"
-        let vid := st2.nextValueId
-        let instr : InstructionV1 := {
-          result := some { valueId := vid, typeId := expectedTid }
-          op := .binary BinaryOpV1.add lVid rVid
-        }
-        pure (vid, expectedTid, {
-          instructions := st2.instructions.push instr
-          nextValueId := vid + 1
-          env := st2.env
-        })
-      else
-        failUnsupported "S1 normalizer supports only binary add"
+      let semanticOp? : Option BinaryOpV1 :=
+        if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then
+          some BinaryOpV1.add
+        else if op == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then
+          some BinaryOpV1.sub
+        else
+          none
+      match semanticOp? with
+      | some semanticOp => do
+          requireExpectedUInt64 types expectedTid "binary checked arithmetic"
+          -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
+          let (lVid, lTid, st1) ← lowerExpr lhs expectedTid types st states
+          let (rVid, rTid, st2) ← lowerExpr rhs expectedTid types st1 states
+          unless lTid == expectedTid && rTid == expectedTid do
+            return ← failUnsupported
+              "S1 binary checked arithmetic requires expected UInt64 operands"
+          let vid := st2.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := expectedTid }
+            op := .binary semanticOp lVid rVid
+          }
+          pure (vid, expectedTid, {
+            instructions := st2.instructions.push instr
+            nextValueId := vid + 1
+            env := st2.env
+          })
+      | none =>
+          failUnsupported "S1 normalizer supports only binary add/sub"
   | .literal literal =>
       match literal with
       | .integer magnitude => do

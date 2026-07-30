@@ -220,6 +220,9 @@ private def testCrossFieldInvariants : IO Unit := do
   expect ((← lift "pre-request rerender"
       (renderDarwinFrontendSupervisorReceiptJcsV1 preRequestParsed)) == preRequestWire)
     "pre-request null digest round-trip"
+  expectErr "source-open failure requires complete cleanup"
+    (mkDarwinFrontendSupervisorReceiptV1 hardFrontendProfile none zeroObservations
+      .sourceOpenFailed .noResponse .incomplete)
   expectErr "source-open failure cannot carry request"
     (mkDarwinFrontendSupervisorReceiptV1 hardFrontendProfile request zeroObservations
       .sourceOpenFailed .noResponse .observedComplete)

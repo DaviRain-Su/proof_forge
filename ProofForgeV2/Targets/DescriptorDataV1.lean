@@ -1,13 +1,10 @@
 /-
-  Shared residual TargetDescriptor data for the four implemented targets.
+  Shared engineering TargetDescriptor data for the four implemented targets.
 
   Cycle-free leaf: Protocol + TargetIdentity only. Target Plan modules re-export
-  the same values; there is no second source of truth.
-
-  `supportedRequirements` is residual characterization / describe-target data
-  only — **not** product support authority. Product support is the engineering
-  exact requirement resolver static S2 index (`RequirementResolverV1` +
-  `resolveEngineeringRequirementsV1`). Formal SupportClaim still pending.
+  the same values; there is no second source of truth. Requirement support is
+  intentionally absent: the engineering resolver index is the sole current
+  authority, while formal SupportClaim remains pending.
 -/
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Core.TargetIdentityV1
@@ -26,9 +23,6 @@ def evm : TargetDescriptor := {
   proofModel := .none
   settlementModel := .ethereum
   codegenProfile := CodegenProfileId.evmYulSolc0834V1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
 }
 
 def solana : TargetDescriptor := {
@@ -41,9 +35,6 @@ def solana : TargetDescriptor := {
   proofModel := .none
   settlementModel := .solana
   codegenProfile := CodegenProfileId.solanaSbpfPlanV1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
 }
 
 def near : TargetDescriptor := {
@@ -56,9 +47,6 @@ def near : TargetDescriptor := {
   proofModel := .none
   settlementModel := .near
   codegenProfile := CodegenProfileId.nearWasmRawU64V1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback
-  ]
 }
 
 def noir : TargetDescriptor := {
@@ -71,12 +59,9 @@ def noir : TargetDescriptor := {
   proofModel := .circuitProof
   settlementModel := .externalVerifier
   codegenProfile := CodegenProfileId.noirSourceU64RelationsV1
-  supportedRequirements := #[
-    .persistentState, .checkedArithmetic, .transactionalRollback, .privateWitness
-  ]
 }
 
-/-- Residual descriptor for an implemented kind. Design-only kinds → none. -/
+/-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
   | .solana => some solana
