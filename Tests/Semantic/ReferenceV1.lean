@@ -359,6 +359,80 @@ private def qn2 (a b : String) : IO QualifiedName := do
   | .error e => throw <| IO.userError s!"qn2: {e}"
 
 /-- NormalizeV1 Counter path: admission, init/entry/view, overflow rollback. -/
+private unsafe def testBoolResultReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Bool entry/view results: comparison and Bool literal return values.
+  let source := wrap "BoolRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry equalsCount(delta : UInt64) : Bool do\n" ++
+    "    return count == delta\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n"
+  let validated ← loadSource session "bool-result" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bool-result: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bool-result: validate failed: {repr e}"
+  let admitted ← admitOk "bool-result" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let boolTid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .bool => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  expect (data.callables.size == 4) "bool-result: init + bump + equalsCount + positive"
+  let initId : CallableIdV1 := 0
+  let bumpId : CallableIdV1 := 1
+  let equalsId : CallableIdV1 := 2
+  let posId : CallableIdV1 := 3
+
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"bool-result: initialLogicalState: {repr e}"
+  let afterInit :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0]) emptyResponses
+  let zeroPost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "bool-result-init" afterInit zeroPost none #[]
+
+  -- positive() on count=0 → false (Bool 0x00)
+  let afterPos0 :=
+    stepReferenceSliceV1 admitted zeroPost (inv posId #[]) emptyResponses
+  expectReturned "bool-result-pos0" afterPos0 zeroPost
+    (some { typeId := boolTid, valueBytes := ByteArray.mk #[0] }) #[]
+
+  -- equalsCount(0) on count=0 → true; equalsCount(1) → false
+  let afterEqT :=
+    stepReferenceSliceV1 admitted zeroPost (inv equalsId #[refU64 u64Tid 0]) emptyResponses
+  expectReturned "bool-result-eqT" afterEqT zeroPost
+    (some { typeId := boolTid, valueBytes := ByteArray.mk #[1] }) #[]
+  let afterEqF :=
+    stepReferenceSliceV1 admitted zeroPost (inv equalsId #[refU64 u64Tid 1]) emptyResponses
+  expectReturned "bool-result-eqF" afterEqF zeroPost
+    (some { typeId := boolTid, valueBytes := ByteArray.mk #[0] }) #[]
+
+  -- bump(5) → count=5; positive() → true
+  let afterBump :=
+    stepReferenceSliceV1 admitted zeroPost (inv bumpId #[refU64 u64Tid 5]) emptyResponses
+  let fivePost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  expectReturned "bool-result-bump" afterBump fivePost (some (refU64 u64Tid 5)) #[]
+  let afterPos1 :=
+    stepReferenceSliceV1 admitted fivePost (inv posId #[]) emptyResponses
+  expectReturned "bool-result-pos1" afterPos1 fivePost
+    (some { typeId := boolTid, valueBytes := ByteArray.mk #[1] }) #[]
+
 private unsafe def testGuardedCounterReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Guarded counter: assert gates the subtraction (comparison + assert slice).
@@ -1206,6 +1280,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterReferenceSlice session
   testGuardedCounterReferenceSlice session
+  testBoolResultReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects
