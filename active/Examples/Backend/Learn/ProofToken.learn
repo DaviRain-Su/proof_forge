@@ -1,8 +1,0 @@
-token ProofToken {
-  name "Proof Token"
-  symbol "PRF"
-  decimals 9
-  initial_supply 1000000
-  feature mintable
-  feature burnable
-}

@@ -1,7 +1,0 @@
-{
-  "name": "proof-forge-tooling",
-  "private": true,
-  "devDependencies": {
-    "typescript": "5.9.3"
-  }
-}

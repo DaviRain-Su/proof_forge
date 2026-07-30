@@ -1,1 +1,0 @@
-{"schemaVersion": 0, "interfaceSchema": "interface.v0", "contractName": "EvmCreateHostOp", "entrypoints": [{"name": "deploy", "mutability": "call", "paramTypes": [], "retType": "address"}, {"name": "deploy2", "mutability": "call", "paramTypes": [], "retType": "address"}], "events": [], "errors": []}

@@ -1,9 +1,0 @@
-[package]
-name = "cosmwasm-vm-runner"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-cosmwasm-vm = "2.2"
-cosmwasm-std = "2.2"
-serde_json = "1"

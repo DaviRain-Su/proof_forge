@@ -1,1 +1,0 @@
-{"schemaVersion": 0, "interfaceSchema": "interface.v0", "contractName": "Counter", "entrypoints": [{"name": "initialize", "mutability": "call", "paramTypes": [], "retType": "unit"}, {"name": "increment", "mutability": "call", "paramTypes": [], "retType": "unit"}, {"name": "get", "mutability": "view", "paramTypes": [], "retType": "u64"}], "events": [], "errors": []}

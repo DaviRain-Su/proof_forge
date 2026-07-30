@@ -1,8 +1,8 @@
 # Contributing to ProofForge V2
 
 Thanks for your interest. This repository is the **V2 product tree**
-(`proof-forge-next`). The archived v1 tree under [`active/`](active/ARCHIVE.md)
-is research-only and must never become a build or runtime dependency.
+(`proof-forge-next`). It contains only the V2 product tree — no v1 archive,
+no legacy `ProofForge.*` imports, and no v1 fallbacks.
 
 ## Before you open a PR
 

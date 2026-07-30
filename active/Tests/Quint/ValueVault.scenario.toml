@@ -1,5 +1,0 @@
-# ValueVault scenario: tight bounds for MBT replay and model checking.
-max_uint = 100
-users = ["alice", "bob"]
-max_steps = 5
-n_traces = 10

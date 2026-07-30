@@ -1,7 +1,0 @@
-token FeeToken {
-  name "Fee Token"
-  symbol "FEE"
-  decimals 6
-  initial_supply 1000000
-  features [mintable, transfer_fee]
-}

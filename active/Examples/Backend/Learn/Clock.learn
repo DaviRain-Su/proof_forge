@@ -1,8 +1,0 @@
-contract SolanaClock {
-  state last_slot: u64
-
-  entry record selector "09"() {
-    let slot: u64 = checkpoint_id()
-    last_slot = slot
-  }
-}

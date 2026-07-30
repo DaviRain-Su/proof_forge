@@ -1,7 +1,0 @@
-contract SolanaRent {
-  state lamports_per_byte_year: u64
-
-  entry record_rent selector "0f"() {
-    solana sysvar rent lamports_per_byte_year read_rent(lamports_per_byte_year)
-  }
-}

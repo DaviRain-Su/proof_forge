@@ -1,7 +1,0 @@
-contract SolanaLastRestartSlot {
-  state last_restart_slot: u64
-
-  entry record_last_restart_slot selector "11"() {
-    solana sysvar last_restart_slot last_restart_slot read_last_restart_slot(last_restart_slot)
-  }
-}
