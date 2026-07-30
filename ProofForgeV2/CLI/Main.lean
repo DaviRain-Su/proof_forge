@@ -25,8 +25,8 @@ private def usage : String :=
   "Usage:\n" ++
   "  proof-forge-next list-targets [--all]\n" ++
   "  proof-forge-next describe-target <target>\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>]\n" ++
-  "  proof-forge-next build-counter --target <target> [-o <dir>] [--profile <id>]\n"
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>]\n" ++
+  "  proof-forge-next build-counter --target <target> [-o <dir>] [--profile <id>] [--language-version <semver>]\n"
 
 /-- Stable project-relative path for the built-in Counter diagnostic origins. -/
 private def counterLogicalSourcePath : String := "Examples/Counter.lean"
@@ -44,12 +44,6 @@ private def failBundle (bundle : DiagnosticBundleV1) : IO α := do
   let code := DiagnosticBundleV1.selectExitCode bundle
   let exitByte : UInt8 := if code ≥ 256 then 70 else UInt8.ofNat code
   IO.Process.exit exitByte
-
-private def languageVersion100 : SemVer := {
-  major := 1
-  minor := 0
-  patch := 0
-}
 
 private def safeOpenWorkerExecutableName : String :=
   "proof-forge-frontend-safe-open-worker-v1"
@@ -245,12 +239,13 @@ private unsafe def loadSupervisedProduct
     (projectRoot : FilePath)
     (sourcePath : ProjectRelativePath)
     (moduleSelector : String)
-    (programSelector : Option String) :
+    (programSelector : Option String)
+    (languageVersion : SemVer) :
     IO (ValidatedSourceV1 × OriginInventoryV1) := do
   let (safeOpenWorker, frontendWorker) ← pinnedFrontendWorkers
   let supervised ←
     match ← superviseFrontendSourceV1 safeOpenWorker frontendWorker projectRoot
-        languageVersion100 sourcePath moduleSelector programSelector
+        languageVersion sourcePath moduleSelector programSelector
         hardFrontendProfile with
     | .ok value => pure value
     | .error detail => failSupervisorCall sourcePath detail
@@ -269,6 +264,11 @@ private def liftCompileResult (result : Except CompileError α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+private def resolveLanguageVersionForCli (requested : Option String) : IO SemVer :=
+  match resolveLanguageParserDescriptorV1 requested with
+  | .ok descriptor => pure (LanguageParserDescriptorV1.version descriptor)
+  | .error diagnostic => failBundle (mkFailureBundleV1 #[diagnostic])
+
 /-- Build argv selection. An ID absent from the frozen target catalog is a
 usage/config error; registered design-only targets and profile-selection
 failures remain typed product-selection errors. -/
@@ -283,6 +283,7 @@ private def resolveBuildSelectionForCli (options : BuildOptions) : IO ResolvedBu
 
 private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let selection ← resolveBuildSelectionForCli options
+  let languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source
     | none => failUsage "source file is required"
@@ -292,7 +293,7 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
   let (sourceProgram, origins) ←
-    loadSupervisedProduct root sourcePath moduleName options.programName
+    loadSupervisedProduct root sourcePath moduleName options.programName languageVersion
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
@@ -308,10 +309,11 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
 
 private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let selection ← resolveBuildSelectionForCli options
+  let languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let root ← builtInSourceRoot
   let sourcePath ← validateSourceArgument counterLogicalSourcePath
   let (sourceProgram, origins) ←
-    loadSupervisedProduct root sourcePath Examples.counterModuleNameV1 none
+    loadSupervisedProduct root sourcePath Examples.counterModuleNameV1 none languageVersion
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>

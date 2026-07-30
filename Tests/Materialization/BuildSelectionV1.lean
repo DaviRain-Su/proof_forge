@@ -495,7 +495,14 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .ok (.buildCounter opts) =>
       expect (opts.target == some TargetId.evm) "dispatcher build-counter target"
       expect opts.profile.isNone "dispatcher build-counter default profile"
+      expect opts.languageVersion.isNone "dispatcher omitted language version"
   | other => throw <| IO.userError s!"parse build-counter default: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["build-counter", "--target", "evm", "--language-version", "1.0.0"] with
+  | .ok (.buildCounter opts) =>
+      expect (opts.languageVersion == some "1.0.0")
+        "dispatcher explicit language version"
+  | other => throw <| IO.userError s!"parse explicit language version: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build-counter", "--target", "evm", "--profile", "evm-yul-solc-0.8.34-v1"] with
   | .ok (.buildCounter opts) =>
@@ -534,6 +541,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "--profile", "near-wasm-raw-u64-v1"] with
   | .error msg => expect (msg == "duplicate --profile") "duplicate --profile message"
   | .ok _ => throw <| IO.userError "duplicate --profile must fail"
+  match ProofForgeV2.CLI.parseBuildArgsExcept
+      ["--language-version", "1.0.0", "--language-version", "1.0.1"] with
+  | .error msg =>
+      expect (msg == "duplicate --language-version") "duplicate --language-version message"
+  | .ok _ => throw <| IO.userError "duplicate --language-version must fail"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build-counter", "--target", "evm", "--target", "near"] with
   | .error msg => expect (msg == "duplicate --target") "dispatcher duplicate --target"

@@ -262,6 +262,7 @@ structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
   profile : Option CodegenProfileId := none
+  languageVersion : Option String := none
   output : Option String := none
   moduleName : Option String := none
   programName : Option String := none
@@ -306,6 +307,9 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
   | "--profile" :: value :: rest =>
       if options.profile.isSome then throw "duplicate --profile"
       parseBuildArgsExcept rest { options with profile := some (← parseProfileExcept value) }
+  | "--language-version" :: value :: rest =>
+      if options.languageVersion.isSome then throw "duplicate --language-version"
+      parseBuildArgsExcept rest { options with languageVersion := some value }
   | "-o" :: value :: rest | "--output" :: value :: rest =>
       if options.output.isSome then throw "duplicate --output"
       parseBuildArgsExcept rest { options with output := some value }

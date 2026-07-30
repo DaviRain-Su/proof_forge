@@ -92,6 +92,35 @@ private def q (parts : Array String) : IO SourceQualifiedNameV1 :=
 private def languageVersion100 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
+private def expectLanguageSelectionError
+    (label raw : String) (expectedCode : DiagnosticCodeV1) : IO Unit :=
+  match resolveLanguageParserDescriptorV1 (some raw) with
+  | .error diagnostic =>
+      expect (diagnostic.code == expectedCode)
+        s!"{label}: expected {expectedCode.wire}, got {diagnostic.code.wire}"
+  | .ok _ => throw <| IO.userError s!"{label}: expected language selection failure"
+
+private def testLanguageParserSelection : IO Unit := do
+  let omitted ← match resolveLanguageParserDescriptorV1 none with
+    | .ok descriptor => pure descriptor
+    | .error diagnostic =>
+        throw <| IO.userError s!"omitted language version failed: {diagnostic.code.wire}"
+  let explicit ← match resolveLanguageParserDescriptorV1 (some "1.0.0") with
+    | .ok descriptor => pure descriptor
+    | .error diagnostic =>
+        throw <| IO.userError s!"explicit language version failed: {diagnostic.code.wire}"
+  expect (LanguageParserDescriptorV1.version omitted == languageVersion100)
+    "omitted language version resolves to 1.0.0"
+  expect (LanguageParserDescriptorV1.version explicit ==
+      LanguageParserDescriptorV1.version omitted)
+    "omitted and explicit 1.0.0 resolve to the same parser descriptor"
+  expect (LanguageParserDescriptorV1.enabled explicit)
+    "selected 1.0.0 parser descriptor is enabled"
+  expectLanguageSelectionError "unknown exact" "1.0.1" .languageVersionUnknown
+  expectLanguageSelectionError "latest alias" "latest" .languageVersionUnknown
+  expectLanguageSelectionError "range" "^1.0.0" .languageVersionUnknown
+  expectLanguageSelectionError "major negotiation" "1" .languageVersionUnknown
+
 private def testPath : IO ProjectRelativePath :=
   lift "path" (parseProjectRelativePath "tests/frontend/protocol-v1.pf")
 
@@ -697,6 +726,7 @@ private def testDigestDomainSeparation : IO Unit := do
 /-! ### Entry -/
 
 def run : IO Unit := do
+  testLanguageParserSelection
   testRequestRoundTrip
   testSuccessRoundTripAndReconstruct
   testFailureRoundTrip

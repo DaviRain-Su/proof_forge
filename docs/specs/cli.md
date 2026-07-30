@@ -171,7 +171,10 @@ fault join 精确映射为 `PF-SRC-INVALID: source exceeds the 16 MiB limit`；C
 reopen/stat source。CLI usage/config（缺 `--module`/未知选项/未知 `--target`/非法 argv）**exit 2**
 （`failUsage` plain message），**不是** diagnostic，且不发明 `PF-CLI-USAGE`、不 throw
 `CompileError.render` / uncaught-exception exit 1。
-Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。当前 product
+Emit/Toolchain alpha 失败仍可走既有 `IO.userError` 面（本切片未迁 bundle）。`build` 与
+`build-counter` 已接线 static `LanguageParserDescriptorV1`：省略与显式 `1.0.0` 解析为同一
+descriptor；range、`latest`、malformed 与 unknown exact 在 source open 前以
+`PF-LANGUAGE-VERSION-UNKNOWN`/exit 3/零制品拒绝。当前 product
 supervisor 仅 Darwin development-observed；非 Darwin `build`/`build-counter` 必须
 `PF-FRONTEND-PROTOCOL`/exit 3/零制品 fail closed。Linux `just ci` 只执行 portable core、selection
 与该负向，不得宣称 product materialization positive。Full JSON result envelope/receipts 与 formal

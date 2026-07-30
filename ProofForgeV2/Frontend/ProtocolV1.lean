@@ -88,6 +88,64 @@ def maxSourceBytes : Nat := 16 * 1024 * 1024
 /-- NodeId assignment / span table hard maximum (shared with ProgramV1 node bound). -/
 def maxNodeSpanCount : Nat := 100000
 
+/-- Opaque static parser registration selected at the CLI/frontend boundary.
+    Parser selection never contributes to ProgramV1 identity, sourceHash, or NodeId. -/
+structure LanguageParserDescriptorV1 where
+  private mk ::
+  private version_ : SemVer
+  private enabled_ : Bool
+
+namespace LanguageParserDescriptorV1
+
+def version (descriptor : LanguageParserDescriptorV1) : SemVer := descriptor.version_
+def enabled (descriptor : LanguageParserDescriptorV1) : Bool := descriptor.enabled_
+
+end LanguageParserDescriptorV1
+
+/-- Current language major frozen by ADR-0022. -/
+def currentLanguageMajorV1 : UInt64 := 1
+
+/-- Sole registered parser descriptor for the current engineering product. -/
+def languageParser100V1 : LanguageParserDescriptorV1 :=
+  ⟨{ major := 1, minor := 0, patch := 0 }, true⟩
+
+private def languageParserRegistryV1 : Array LanguageParserDescriptorV1 :=
+  #[languageParser100V1]
+
+private def languageSelectionDiagnosticV1
+    (code : DiagnosticCodeV1) (message actual : String) : DiagnosticV1 :=
+  DiagnosticV1.make code message
+    (expected := some (.string "exact enabled language version 1.0.0"))
+    (actual := some (.string actual))
+
+/-- Resolve an omitted or exact CLI language version against the static parser registry.
+    Omission and explicit `1.0.0` return the same descriptor. Ranges, aliases,
+    malformed SemVer, unknown exact versions, and disabled entries fail closed. -/
+def resolveLanguageParserDescriptorV1
+    (requested : Option String) : Except DiagnosticV1 LanguageParserDescriptorV1 := do
+  match requested with
+  | none =>
+      let defaults := languageParserRegistryV1.filter fun descriptor =>
+        descriptor.enabled_ && descriptor.version_.major == currentLanguageMajorV1
+      match defaults with
+      | #[descriptor] => pure descriptor
+      | _ => throw (languageSelectionDiagnosticV1 .languageDefault
+          "current language major does not have exactly one enabled default" "omitted")
+  | some raw =>
+      let requestedVersion ← match parseSemVer raw with
+        | .ok version => pure version
+        | .error _ => throw (languageSelectionDiagnosticV1 .languageVersionUnknown
+            s!"language version '{raw}' is not registered" raw)
+      match languageParserRegistryV1.find? (fun descriptor =>
+          descriptor.version_ == requestedVersion) with
+      | none => throw (languageSelectionDiagnosticV1 .languageVersionUnknown
+          s!"language version '{raw}' is not registered" raw)
+      | some descriptor =>
+          unless descriptor.enabled_ do
+            throw (languageSelectionDiagnosticV1 .languageVersionDisabled
+              s!"language version '{raw}' is disabled" raw)
+          pure descriptor
+
 /-- Compatibility allocation/frame guard for module/program selector UTF-8 payloads.
     Equal to `maxProtocolBytes`. This is **not** a semantic qualified-name limit:
     every selector frame that fits the protocol byte budget is accepted here;

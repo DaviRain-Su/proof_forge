@@ -140,6 +140,48 @@ private def testUnknownTargetExit2 : IO Unit := do
   expect (stdout == "")
     "unknown target must not print success stdout"
 
+private def testLanguageVersionSelection : IO Unit := do
+  let explicitOut := FilePath.mk "build/v2/language-version-explicit"
+  let unknownOut := FilePath.mk "build/v2/language-version-unknown"
+  if ← explicitOut.pathExists then IO.FS.removeDirAll explicitOut
+  if ← unknownOut.pathExists then IO.FS.removeDirAll unknownOut
+  let (explicitEc, explicitStdout, explicitStderr) ← runCli #[
+    "build", "Examples/Counter.lean",
+    "--module", "Examples.Counter",
+    "--target", "solana",
+    "--language-version", "1.0.0",
+    "-o", explicitOut.toString
+  ]
+  if System.Platform.isOSX then
+    expect (explicitEc == 0)
+      s!"explicit 1.0.0 must follow the default product path: {explicitStderr}"
+    expect (containsSubstr explicitStdout "built target=solana")
+      "explicit 1.0.0 must build the same product"
+    expect (← explicitOut.pathExists) "explicit 1.0.0 must publish on supported host"
+    IO.FS.removeDirAll explicitOut
+  else
+    expect (explicitEc == 3 && containsSubstr explicitStderr "PF-FRONTEND-PROTOCOL")
+      "explicit 1.0.0 must reach the same unsupported-host supervisor boundary"
+    expect (explicitStdout == "" && !(← explicitOut.pathExists))
+      "explicit 1.0.0 must not bypass unsupported-host fail-closed behavior"
+  let (unknownEc, unknownStdout, unknownStderr) ← runCli #[
+    "build", "does-not-exist.lean",
+    "--root", "does-not-exist-root",
+    "--module", "Root",
+    "--target", "solana",
+    "--language-version", "latest",
+    "-o", unknownOut.toString
+  ]
+  expect (unknownEc == 3)
+    s!"unknown language version must exit 3, got {unknownEc}: {unknownStderr}"
+  expect (containsSubstr unknownStderr
+      "PF-LANGUAGE-VERSION-UNKNOWN: language version 'latest' is not registered")
+    s!"unknown language version diagnostic missing: {unknownStderr}"
+  expect (!containsSubstr unknownStderr "source open failed")
+    "language selection must fail before source open"
+  expect (unknownStdout == "" && !(← unknownOut.pathExists))
+    "unknown language version must produce no success output or artifact"
+
 private def testParserBoundaryExit3 : IO Unit := do
   -- Reuse a known parser-rejected invalid fixture under testdata/invalid.
   -- Relative output is resolved under --root, so inspect that exact destination.
@@ -306,6 +348,7 @@ unsafe def run : IO Unit := do
   testUsageExit2
   testUnknownCommandExit2
   testUnknownTargetExit2
+  testLanguageVersionSelection
   if !System.Platform.isOSX then
     testUnsupportedPlatformFailsClosed
     IO.println "Tests.CLI.DiagnosticsV1: ok (unsupported host fails closed)"

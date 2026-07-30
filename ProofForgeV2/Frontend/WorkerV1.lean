@@ -37,11 +37,8 @@ inductive FrontendWorkerFaultV1 where
 
 /-- Sole enabled exact parser version for the B10 worker. No ranges/default
     negotiation is performed inside the worker protocol. -/
-def languageVersion100V1 : SemVer := {
-  major := 1
-  minor := 0
-  patch := 0
-}
+def languageVersion100V1 : SemVer :=
+  LanguageParserDescriptorV1.version languageParser100V1
 
 /-- Stable public-safe stderr tokens used only for abnormal process exits. -/
 def usageStderrTokenV1 : String := "frontend-worker: usage"
