@@ -359,6 +359,65 @@ private def qn2 (a b : String) : IO QualifiedName := do
   | .error e => throw <| IO.userError s!"qn2: {e}"
 
 /-- NormalizeV1 Counter path: admission, init/entry/view, overflow rollback. -/
+private unsafe def testGuardedCounterReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Guarded counter: assert gates the subtraction (comparison + assert slice).
+  let source := wrap "GuardedRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    assert count >= delta\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "guarded" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"guarded: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"guarded: validate failed: {repr e}"
+  let admitted ← admitOk "guarded" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  expect (data.callables.size == 3) "guarded: 3 callables (init/entry/view)"
+  let initId : CallableIdV1 := 0
+  let entryId : CallableIdV1 := 1
+  let viewId : CallableIdV1 := 2
+
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"guarded: initialLogicalState: {repr e}"
+  let afterInit :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 5]) emptyResponses
+  let expectedInitPost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  expectReturned "guarded-init" afterInit expectedInitPost none #[]
+
+  -- decrement(3) → returned 2, state=2
+  let afterDec :=
+    stepReferenceSliceV1 admitted expectedInitPost
+      (inv entryId #[refU64 u64Tid 3]) emptyResponses
+  let expectedDecPost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 2) }
+  expectReturned "guarded-dec" afterDec expectedDecPost (some (refU64 u64Tid 2)) #[]
+
+  -- view get → returns 2, no state change
+  let afterView :=
+    stepReferenceSliceV1 admitted expectedDecPost (inv viewId #[]) emptyResponses
+  expectReturned "guarded-view" afterView expectedDecPost (some (refU64 u64Tid 2)) #[]
+
+  -- decrement(4): 2 >= 4 is false → assertionFailed, state untouched
+  let guarded :=
+    stepReferenceSliceV1 admitted expectedDecPost
+      (inv entryId #[refU64 u64Tid 4]) emptyResponses
+  expectRevertedStandard "guarded-assert" guarded .assertionFailed expectedDecPost
+
 private unsafe def testCounterReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "CounterRef" <|
@@ -1146,6 +1205,7 @@ private def testUIntStandardReverts : IO Unit := do
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterReferenceSlice session
+  testGuardedCounterReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects
