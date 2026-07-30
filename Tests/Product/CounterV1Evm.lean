@@ -143,4 +143,52 @@ unsafe def run : IO Unit := do
     "EVM carrier must bind canonical ProgramV1 source and semantic digests"
   let _ := plan
 
+  -- Guarded counter: product capability path for comparison+assert envelope.
+  let guardedText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Guarded where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    assert count >= delta\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let guardedSource ← liftCompile "load Guarded" (← session.selectProgramV1
+    guardedText "<counter-v1-guarded>" "Product.Guarded" none)
+  let guardedCompiled ← liftCompile "compile Guarded" <|
+    Compiler.compileValidatedSourceV1 guardedSource
+  let guardedFirst ← liftCompile "build Guarded" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection guardedCompiled
+    Targets.Evm.buildFromCapability capability)
+  let guardedSecond ← liftCompile "build Guarded again" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection guardedCompiled
+    Targets.Evm.buildFromCapability capability)
+  expect (guardedFirst == guardedSecond)
+    "Guarded EVM buildFromCapability must be deterministic"
+  expect (guardedFirst.map (·.path) == #["Guarded.yul", "Guarded.abi.json"])
+    "Guarded must emit Yul and ABI"
+  let guardedYul ← match guardedFirst.find? (·.path == "Guarded.yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "missing Guarded.yul"
+  let guardedAbi ← match guardedFirst.find? (·.path == "Guarded.abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "missing Guarded.abi.json"
+  expect (guardedAbi.contains "\"name\":\"decrement\"" &&
+      guardedAbi.contains "\"name\":\"get\"" &&
+      guardedAbi.contains "\"type\":\"uint64\"")
+    "Guarded ABI must retain UInt64 entry shape (no Bool in signatures)"
+  expect (guardedYul.contains "iszero(lt(expr0, expr1))" &&
+      guardedYul.contains "if iszero(expr2) { revert(0, 0) }")
+    "Guarded Yul must contain the assert guard over count >= delta"
+  expect (guardedYul.contains "sub(expr")
+    "Guarded Yul must still emit checked subtraction"
+
 end Tests.Product.CounterV1Evm

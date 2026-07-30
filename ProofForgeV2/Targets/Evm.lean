@@ -30,6 +30,12 @@ structure Param where
   wordIndex : Nat
   deriving BEq, Inhabited, Repr
 
+/-- Unsigned comparison ops over UInt64 operands. Result is a Bool word (0/1)
+in Yul; operator identity is preserved through Plan validation. -/
+inductive ComparisonOp where
+  | eq | ne | lt | le | gt | ge
+  deriving BEq, Inhabited, Repr
+
 /-- EVM scalar expression for the Phase-1 UInt64 fragment. Storage slots and
 ABI word positions have already been selected by the plan builder. -/
 inductive Expr where
@@ -38,6 +44,7 @@ inductive Expr where
   | storageLoad (slot : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | compare (op : ComparisonOp) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -48,11 +55,17 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | assert (condition : Expr)
   deriving BEq, Inhabited, Repr
 
+/-- Constructor carries store-only `stores` for the historical store-only path
+(byte-identical Yul) and an ordered `body` when asserts interleave with stores.
+When `body` is non-empty it is the sole validation/render authority; when empty,
+`stores` is used (aggregate Plan-mutation tests still target `stores`). -/
 structure Constructor where
   params : Array Param
   stores : Array Store
+  body : Array Statement := #[]
   deriving BEq, Inhabited, Repr
 
 inductive Mutability where
@@ -125,15 +138,18 @@ private def validSelector (selector : String) : Bool :=
 private structure EvmTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
+  boolTypeId : Option TypeIdV1
 
-/-- EVM pilot accepts exactly the anonymous UInt64/Unit closure currently
-    emitted by the current NormalizeV1 public-UInt64 envelope. Valid but richer
-    SemanticProgramV1 programs fail
-    at the target Plan seam rather than being silently erased. -/
+/-- EVM pilot accepts the anonymous UInt64/Unit/Bool closure currently emitted
+    by the NormalizeV1 public-UInt64 comparison+assert envelope. Valid but richer
+    SemanticProgramV1 programs fail at the target Plan seam rather than being
+    silently erased. Bool is optional (at most one) and never appears in
+    state/param/result positions. -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 := do
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
+  let mut boolTypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| .planInvariant .evm
@@ -149,14 +165,19 @@ private def validateEvmTypeClosureV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: duplicate Unit type"
         unitTypeId := some decl.id
+    | .bool =>
+        unless boolTypeId.isNone do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: duplicate Bool type"
+        boolTypeId := some decl.id
     | _ =>
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: only UInt64 and Unit are supported"
+          "unsupported EVM semantic shape: only UInt64, Unit, and Bool are supported"
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (.planInvariant .evm
         "unsupported EVM semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId }
 
 private def makeStorageLayoutV1
     (uint64TypeId : TypeIdV1)
@@ -295,6 +316,46 @@ private def makeCheckedSubValueV1
     dependencies := #[lhsId, rhsId]
   }
 
+/-- Comparison has the same bounded SSA-tree cost as checked arithmetic. -/
+private def makeCompareValueV1
+    (op : ComparisonOp)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .compare op lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
+  match op with
+  | .eq => some .eq
+  | .ne => some .ne
+  | .lt => some .lt
+  | .le => some .le
+  | .gt => some .gt
+  | .ge => some .ge
+  | _ => none
+
+private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Bool literal must contain exactly 1 byte"
+  let b := bytes.get! 0
+  unless b == 0 || b == 1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Bool literal must be 0x00 or 0x01"
+  pure (UInt64.ofNat b.toNat)
+
 /-- Every instruction result emitted since the prior stateStore must be in the
     current sink's dependency closure. This preserves the current NormalizeV1
     evaluation regions instead of deferring stale state loads or checked failures across a
@@ -334,13 +395,13 @@ private def consumeCurrentSegmentV1
   pure rootValue.expr
 
 private def appendResultValueV1
-    (uint64TypeId : TypeIdV1)
+    (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
     (result : ValueDefV1)
     (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
-  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+  unless result.valueId.toNat == values.size && result.typeId == expectedTypeId do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: result ValueId/type is not canonical UInt64"
+      "unsupported EVM semantic shape: result ValueId/type is not canonical for the expected type"
   if values.size >= maxPlanNodes then
     throw <| .planInvariant .evm s!"EVM value table exceeds node limit {maxPlanNodes}"
   pure (values.push value)
@@ -359,9 +420,10 @@ private structure LoweredCallableV1 where
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (uint64TypeId : TypeIdV1)
+    (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  let uint64TypeId := types.uint64TypeId
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .evm
@@ -382,19 +444,34 @@ private def lowerCallableV1
   let mut segmentStart := values.size
   let mut stores : Array Store := #[]
   let mut body : Array Statement := #[]
+  let mut hasAssert := false
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        unless typeId == uint64TypeId do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: literal is not UInt64"
-        let value ← decodeUInt64LiteralV1 bytes
-        values := ← appendResultValueV1 uint64TypeId values result {
-          expr := .literal value
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+        if typeId == uint64TypeId then
+          let value ← decodeUInt64LiteralV1 bytes
+          values := ← appendResultValueV1 uint64TypeId values result {
+            expr := .literal value
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
+          let boolTid ← match types.boolTypeId with
+            | some tid => pure tid
+            | none => throw (.planInvariant .evm
+                "unsupported EVM semantic shape: Bool literal requires anonymous Bool type")
+          unless typeId == boolTid do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: literal is not UInt64 or Bool"
+          let value ← decodeBoolLiteralV1 bytes
+          -- Bool words are 0/1 UInt64 literals in the Plan expression surface.
+          values := ← appendResultValueV1 boolTid values result {
+            expr := .literal value
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
     | .stateLoad stateId, some result =>
         let binding ← findStorageV1 layout stateId
         values := ← appendResultValueV1 uint64TypeId values result {
@@ -406,15 +483,27 @@ private def lowerCallableV1
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueV1 values paramCount segmentStart lhsId
         let rhs ← currentValueV1 values paramCount segmentStart rhsId
-        let value ←
-          if op == .add then
-            makeCheckedAddValueV1 lhsId rhsId lhs rhs
-          else if op == .sub then
-            makeCheckedSubValueV1 lhsId rhsId lhs rhs
-          else
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: only checked UInt64 add/sub are supported"
-        values := ← appendResultValueV1 uint64TypeId values result value
+        if op == .add then
+          let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .sub then
+          let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
+        else
+          match comparisonOpOfBinaryV1 op with
+          | none =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: only checked UInt64 add/sub and comparisons are supported"
+          | some cmpOp =>
+              let boolTid ← match types.boolTypeId with
+                | some tid => pure tid
+                | none => throw (.planInvariant .evm
+                    "unsupported EVM semantic shape: comparison requires anonymous Bool type")
+              unless result.typeId == boolTid do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: comparison result must be Bool"
+              let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 boolTid values result value
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .evm
@@ -422,10 +511,16 @@ private def lowerCallableV1
         let binding ← findStorageV1 layout stateId
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
         let store : Store := { slot := binding.slot, value }
-        match mode with
-        | .constructor => stores := stores.push store
-        | .entry => body := body.push (.store store)
-        | .view => pure ()
+        stores := stores.push store
+        body := body.push (.store store)
+        segmentStart := values.size
+    | .assert_ condId errorId args, none =>
+        unless errorId.isNone && args.isEmpty do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: assert must have errorId=none and empty args"
+        let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        body := body.push (.assert cond)
+        hasAssert := true
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .evm
@@ -450,7 +545,15 @@ private def lowerCallableV1
       "unsupported EVM semantic shape: callable has unconsumed values"
   if stores.size > maxBodyStatements || body.size > maxBodyStatements then
     throw <| .planInvariant .evm s!"{owner} body exceeds profile limit {maxBodyStatements}"
-  pure { params, stores, body }
+  -- Constructor store-only path keeps body empty so aggregate tests that mutate
+  -- `stores` remain authoritative; interleaved assert requires ordered body.
+  let constructorBody :=
+    if mode == .constructor && !hasAssert then #[] else body
+  let constructorStores :=
+    if mode == .constructor && hasAssert then #[] else stores
+  let entryBody := if mode == .constructor then constructorBody else body
+  let entryStores := if mode == .constructor then constructorStores else #[]
+  pure { params, stores := entryStores, body := entryBody }
 
 private def makeConstructorV1
     (types : EvmTypeClosureV1)
@@ -466,9 +569,12 @@ private def makeConstructorV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "constructor" .constructor
-    types.uint64TypeId layout callable
-  pure { params := lowered.params, stores := lowered.stores }
+  let lowered ← lowerCallableV1 "constructor" .constructor types layout callable
+  pure {
+    params := lowered.params
+    stores := lowered.stores
+    body := lowered.body
+  }
 
 private def makeEntryV1
     (types : EvmTypeClosureV1)
@@ -492,8 +598,7 @@ private def makeEntryV1
     | .entry => .nonpayable
     | .view => .view
     | .constructor => .nonpayable
-  let lowered ← lowerCallableV1 s!"entry '{name}'" mode
-    types.uint64TypeId layout callable
+  let lowered ← lowerCallableV1 s!"entry '{name}'" mode types layout callable
   pure {
     name
     selector := Keccak.selector name (lowered.params.map fun _ => "uint64")
@@ -521,6 +626,15 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .checkedSub lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available lhs with
@@ -574,14 +688,18 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         plan.storageLayout[index]!.sourceId == index do
       throw <| .planInvariant .evm "storage slots and semantic origins must match declaration order"
   let constructorNodes := plan.constructor.map (fun constructor =>
-    1 + constructor.params.size + constructor.stores.size) |>.getD 0
+    let stmtCount :=
+      if constructor.body.isEmpty then constructor.stores.size else constructor.body.size
+    1 + constructor.params.size + stmtCount) |>.getD 0
   let entryNodes := plan.entries.foldl (fun total entry =>
     total + entry.params.size + entry.body.size) 0
   let mut totalPlanNodes := plan.storageLayout.size + plan.entries.size + constructorNodes + entryNodes
   if totalPlanNodes > maxPlanNodes then
     throw <| .planInvariant .evm s!"plan exceeds aggregate node limit {maxPlanNodes}"
   if let some constructor := plan.constructor then
-    if constructor.params.size > maxParams || constructor.stores.size > maxBodyStatements then
+    let ctorBodySize :=
+      if constructor.body.isEmpty then constructor.stores.size else constructor.body.size
+    if constructor.params.size > maxParams || ctorBodySize > maxBodyStatements then
       throw <| .planInvariant .evm "constructor exceeds the profile resource limits"
     for index in [0:constructor.params.size] do
       unless constructor.params[index]!.wordIndex == index &&
@@ -594,8 +712,18 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     let words := constructor.params.map (·.wordIndex)
     if hasDuplicates sourceIds || hasDuplicates names || hasDuplicates words then
       throw <| .planInvariant .evm "constructor parameter bindings must be unique"
-    for store in constructor.stores do
-      totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
+    if constructor.body.isEmpty then
+      for store in constructor.stores do
+        totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
+    else
+      for statement in constructor.body do
+        match statement with
+        | .store store =>
+            totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
+        | .assert condition =>
+            totalPlanNodes ← addPlanExprNodes slots constructor.params.size totalPlanNodes condition
+        | .returnValue _ =>
+            throw <| .planInvariant .evm "constructor cannot return a value"
   for entry in plan.entries do
     unless isIdentifier entry.name && validSelector entry.selector do
       throw <| .planInvariant .evm s!"entry '{entry.name}' has an invalid ABI identity"
@@ -635,6 +763,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           if entry.mutability == .view then
             throw <| .planInvariant .evm s!"view entry '{entry.name}' writes storage"
           totalPlanNodes ← addPlanStoreNodes slots entry.params.size totalPlanNodes store
+      | .assert condition =>
+          totalPlanNodes ← addPlanExprNodes slots entry.params.size totalPlanNodes condition
       | .returnValue value =>
           totalPlanNodes ← addPlanExprNodes slots entry.params.size totalPlanNodes value
           returned := true
@@ -744,6 +874,19 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}if lt({lhs.value}, {rhs.value}) \{ revert(0, 0) }\n" ++
           s!"{indent}let {name} := sub({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .compare op lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let yul := match op with
+        | .eq => s!"eq({lhs.value}, {rhs.value})"
+        | .ne => s!"iszero(eq({lhs.value}, {rhs.value}))"
+        | .lt => s!"lt({lhs.value}, {rhs.value})"
+        | .le => s!"iszero(gt({lhs.value}, {rhs.value}))"
+        | .gt => s!"gt({lhs.value}, {rhs.value})"
+        | .ge => s!"iszero(lt({lhs.value}, {rhs.value}))"
+      { code := lhs.code ++ rhs.code ++ s!"{indent}let {name} := {yul}\n",
+        value := name, next := rhs.next + 1 }
 
 private def renderStores (indent paramPrefix : String) (stores : Array Store) : String := Id.run do
   let mut output := ""
@@ -762,6 +905,11 @@ private def renderBody (indent paramPrefix : String) (body : Array Statement) : 
     | .store store =>
         let rendered := renderExpr indent paramPrefix next store.value
         output := output ++ rendered.code ++ s!"{indent}sstore({store.slot}, {rendered.value})\n"
+        next := rendered.next
+    | .assert condition =>
+        let rendered := renderExpr indent paramPrefix next condition
+        output := output ++ rendered.code ++
+          s!"{indent}if iszero({rendered.value}) \{ revert(0, 0) }\n"
         next := rendered.next
     | .returnValue value =>
         let rendered := renderExpr indent paramPrefix next value
@@ -783,7 +931,12 @@ private def renderConstructor (plan : Plan) : String := Id.run do
     output := output ++
       s!"    let ctor_arg{param.wordIndex} := mload({param.wordIndex * 32})\n" ++
       s!"    if gt(ctor_arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
-  output := output ++ renderStores "    " "ctor_arg" constructor.stores
+  -- Store-only constructors keep body empty for byte-identical Yul via stores.
+  output := output ++
+    (if constructor.body.isEmpty then
+      renderStores "    " "ctor_arg" constructor.stores
+    else
+      renderBody "    " "ctor_arg" constructor.body)
   return output ++
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"

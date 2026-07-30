@@ -118,9 +118,328 @@ private unsafe def testRichUInt64SemanticPlan : IO Unit := do
       yul.contains "let expr4 := sub(expr2, expr3)")
     "EVM Yul must check UInt64 underflow before subtraction"
 
+/-- Guarded counter: assert count >= delta before checked subtract. -/
+private def guardedCounterSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program Guarded where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    count := i\n" ++
+  "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+  "    assert count >= delta\n" ++
+  "    count := count - delta\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Init with assert interleaved before the store. -/
+private def initAssertSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program InitGuard where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    assert i >= 0\n" ++
+  "    count := i\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+private partial def nestedCompareExpr : Nat → Targets.Evm.Expr
+  | 0 => .literal 0
+  | level + 1 => .compare .eq (nestedCompareExpr level) (.literal 0)
+
+private partial def fullCompareExpr : Nat → Targets.Evm.Expr
+  | 0 => .literal 0
+  | level + 1 =>
+      let child := fullCompareExpr level
+      .compare .eq child child
+
+private unsafe def testGuardedCounterSemanticPlan : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load Guarded" (← session.selectProgramV1
+    guardedCounterSourceText "<evm-guarded>" "Tests.EvmGuarded" none)
+  let compiled ← liftResult "compile Guarded" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan Guarded" <| planEvm compiled
+  expect (plan.objectName == "Guarded")
+    "guarded counter object name must be Guarded"
+  expect (plan.storageLayout.map (·.name) == #["count"])
+    "guarded counter must retain count storage"
+  expect (plan.entries.map (·.name) == #["decrement", "get"])
+    "guarded counter must preserve entry order"
+  let decrement := plan.entries[0]!
+  expect (decrement.params == #[{ sourceId := 0, name := "delta", wordIndex := 0 }])
+    "decrement param must map to ABI word 0"
+  expect (decrement.body == #[
+      .assert (.compare .ge (.storageLoad 0) (.param 0)),
+      .store {
+        slot := 0
+        value := .checkedSub (.storageLoad 0) (.param 0)
+      },
+      .returnValue (.storageLoad 0)])
+    "decrement must lower assert(count >= delta) then store(count - delta) then return"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"guarded plan must validate: {e.render}"
+  let ir ← liftResult "ir Guarded" <| (do
+    let selection ← resolveBuildSelectionV1 TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
+    Targets.Evm.irFromCapability capability)
+  let yul := ir.yul
+  -- Comparison Yul: ge → iszero(lt(l,r)); assert → if iszero(cond) revert
+  expect (yul.contains "iszero(lt(expr0, expr1))")
+    "EVM Yul must render >= as iszero(lt(...))"
+  expect (yul.contains "if iszero(expr2) { revert(0, 0) }")
+    "EVM Yul must revert when assert condition is zero"
+  expect (yul.contains "sub(expr" || yul.contains "let expr" && yul.contains "sub(")
+    "EVM Yul must still emit checked subtraction after assert"
+  -- Materialize product path for the real guarded source (ge + assert).
+  let output ← liftResult "materialize Guarded" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "Guarded.yul") |
+    throw <| IO.userError "guarded: missing Guarded.yul"
+  expect (yulFile.contents.contains "iszero(lt(expr0, expr1))" &&
+      yulFile.contents.contains "if iszero(expr2) { revert(0, 0) }")
+    "materialized Guarded Yul must contain ge comparison and assert revert"
+  -- All six comparison ops via product source (Yul substring pins).
+  let allCmpText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AllCmp where\n" ++
+    "  view check(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    assert x == y\n" ++
+    "    assert x != y\n" ++
+    "    assert x < y\n" ++
+    "    assert x <= y\n" ++
+    "    assert x > y\n" ++
+    "    assert x >= y\n" ++
+    "    return x\n"
+  let allCmpSource ← liftResult "load AllCmp" (← session.selectProgramV1
+    allCmpText "<evm-all-cmp>" "Tests.EvmAllCmp" none)
+  let allCmpCompiled ← liftResult "compile AllCmp" <|
+    Compiler.compileValidatedSourceV1 allCmpSource
+  let allCmpPlan ← liftResult "plan AllCmp" <| planEvm allCmpCompiled
+  let checkBody := allCmpPlan.entries[0]!.body
+  expect (checkBody == #[
+      .assert (.compare .eq (.param 0) (.param 1)),
+      .assert (.compare .ne (.param 0) (.param 1)),
+      .assert (.compare .lt (.param 0) (.param 1)),
+      .assert (.compare .le (.param 0) (.param 1)),
+      .assert (.compare .gt (.param 0) (.param 1)),
+      .assert (.compare .ge (.param 0) (.param 1)),
+      .returnValue (.param 0)])
+    "AllCmp must lower all six comparison ops in source order"
+  let allCmpOutput ← liftResult "materialize AllCmp" <|
+    materializeSelected TargetId.evm allCmpCompiled
+  let some allCmpYul := (MaterializedArtifactsV1.filesOf allCmpOutput).find?
+      (·.path == "AllCmp.yul") |
+    throw <| IO.userError "AllCmp: missing AllCmp.yul"
+  let allYul := allCmpYul.contents
+  expect (allYul.contains "eq(expr0, expr1)")
+    "AllCmp Yul must render eq"
+  expect (allYul.contains "iszero(eq(expr")
+    "AllCmp Yul must render ne as iszero(eq(...))"
+  expect (allYul.contains "lt(expr")
+    "AllCmp Yul must render lt"
+  expect (allYul.contains "iszero(gt(expr")
+    "AllCmp Yul must render le as iszero(gt(...))"
+  expect (allYul.contains "gt(expr")
+    "AllCmp Yul must render gt"
+  expect (allYul.contains "iszero(lt(expr")
+    "AllCmp Yul must render ge as iszero(lt(...))"
+  expect (allYul.contains "if iszero(expr")
+    "AllCmp Yul must render assert reverts"
+
+private unsafe def testInitWithAssert : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load InitGuard" (← session.selectProgramV1
+    initAssertSourceText "<evm-init-assert>" "Tests.EvmInitAssert" none)
+  let compiled ← liftResult "compile InitGuard" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan InitGuard" <| planEvm compiled
+  match plan.constructor with
+  | none => throw <| IO.userError "InitGuard must retain constructor"
+  | some ctor =>
+      expect (ctor.body == #[
+          .assert (.compare .ge (.param 0) (.literal 0)),
+          .store { slot := 0, value := .param 0 }])
+        "constructor body must interleave assert then store in source order"
+      expect (ctor.stores.isEmpty)
+        "constructor with assert must leave stores empty (body is authority)"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"InitGuard plan must validate: {e.render}"
+  let output ← liftResult "materialize InitGuard" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "InitGuard.yul") |
+    throw <| IO.userError "InitGuard: missing InitGuard.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "iszero(lt(" && yul.contains "if iszero(" &&
+      yul.contains "sstore(0,")
+    "InitGuard Yul must render assert guard before sstore"
+
+private def testCompareAssertPlanMutations : IO Unit := do
+  -- Minimal valid plan shell for mutation negatives.
+  let basePlan : Targets.Evm.Plan := {
+    objectName := "Mut"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    constructor := some {
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      stores := #[{ slot := 0, value := .param 0 }]
+    }
+    entries := #[{
+      name := "get"
+      selector := Targets.Evm.Keccak.selector "get" #[]
+      params := #[]
+      mutability := .view
+      body := #[.returnValue (.storageLoad 0)]
+    }]
+  }
+  match Targets.Evm.validatePlan basePlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"base mutation plan must validate: {e.render}"
+  -- Dangling compare operand (unknown storage slot).
+  let danglingCompare := { basePlan with entries := #[{
+    basePlan.entries[0]! with body := #[
+      .assert (.compare .ge (.storageLoad 99) (.literal 0)),
+      .returnValue (.storageLoad 0)
+    ]
+  }] }
+  match Targets.Evm.validatePlan danglingCompare with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject dangling compare storageLoad"
+  -- Assert condition referencing unknown param word.
+  let danglingParam := { basePlan with entries := #[{
+    basePlan.entries[0]! with body := #[
+      .assert (.compare .eq (.param 7) (.literal 0)),
+      .returnValue (.storageLoad 0)
+    ]
+  }] }
+  match Targets.Evm.validatePlan danglingParam with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject assert with unknown param word"
+  -- Depth budget rejection on nested compare.
+  let deepOk := { basePlan with entries := #[{
+    basePlan.entries[0]! with body := #[
+      .assert (nestedCompareExpr 255),
+      .returnValue (.storageLoad 0)
+    ]
+  }] }
+  match Targets.Evm.validatePlan deepOk with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"depth-255 compare must accept: {e.render}"
+  let deepBad := { basePlan with entries := #[{
+    basePlan.entries[0]! with body := #[
+      .assert (nestedCompareExpr 256),
+      .returnValue (.storageLoad 0)
+    ]
+  }] }
+  match Targets.Evm.validatePlan deepBad with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "depth-256 compare must reject"
+  -- Node budget rejection.
+  let nodeBad := { basePlan with entries := #[{
+    basePlan.entries[0]! with body := #[
+      .assert (fullCompareExpr 16),
+      .returnValue (.storageLoad 0)
+    ]
+  }] }
+  match Targets.Evm.validatePlan nodeBad with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "oversized compare tree must reject"
+  -- Constructor body with assert + store validates; return in constructor body rejects.
+  let ctorAssert : Targets.Evm.Plan := {
+    basePlan with constructor := some {
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      stores := #[]
+      body := #[
+        .assert (.compare .ge (.param 0) (.literal 0)),
+        .store { slot := 0, value := .param 0 }
+      ]
+    }
+  }
+  match Targets.Evm.validatePlan ctorAssert with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"constructor assert body must accept: {e.render}"
+  let ctorReturn : Targets.Evm.Plan := {
+    basePlan with constructor := some {
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      stores := #[]
+      body := #[.returnValue (.param 0)]
+    }
+  }
+  match Targets.Evm.validatePlan ctorReturn with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "constructor returnValue must reject"
+
+private unsafe def testComparisonNegatives : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Bool in state position must fail closed before EVM Plan (typed/normalize).
+  let boolState :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BadBoolState where\n" ++
+    "  state flag : Bool\n" ++
+    "  init() do\n" ++
+    "    flag := true\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← session.selectProgramV1 boolState "<evm-bool-state>" "Tests.EvmBoolState" none with
+  | .error _ => pure ()
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error _ => pure ()
+      | .ok compiled =>
+          match planEvm compiled with
+          | .error (.planInvariant .evm _) => pure ()
+          | .error e => throw <| IO.userError s!"Bool state must fail closed, got {e.render}"
+          | .ok _ => throw <| IO.userError "Bool state must not produce an EVM plan"
+  -- Bool as entry result fails closed.
+  let boolResult :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BadBoolResult where\n" ++
+    "  view isZero(x : UInt64) : Bool do\n" ++
+    "    return x == 0\n"
+  match ← session.selectProgramV1 boolResult "<evm-bool-result>" "Tests.EvmBoolResult" none with
+  | .error _ => pure ()
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error _ => pure ()
+      | .ok compiled =>
+          match planEvm compiled with
+          | .error (.planInvariant .evm _) => pure ()
+          | .error e => throw <| IO.userError s!"Bool result must fail closed, got {e.render}"
+          | .ok _ => throw <| IO.userError "Bool result must not produce an EVM plan"
+  -- Bool as param fails closed.
+  let boolParam :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BadBoolParam where\n" ++
+    "  view pick(flag : Bool) : UInt64 do\n" ++
+    "    return 1\n"
+  match ← session.selectProgramV1 boolParam "<evm-bool-param>" "Tests.EvmBoolParam" none with
+  | .error _ => pure ()
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error _ => pure ()
+      | .ok compiled =>
+          match planEvm compiled with
+          | .error (.planInvariant .evm _) => pure ()
+          | .error e => throw <| IO.userError s!"Bool param must fail closed, got {e.render}"
+          | .ok _ => throw <| IO.userError "Bool param must not produce an EVM plan"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
+  testGuardedCounterSemanticPlan
+  testInitWithAssert
+  testCompareAssertPlanMutations
+  testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
@@ -132,6 +451,12 @@ unsafe def run : IO Unit := do
     "EVM smoke must preserve the Counter identity and storage layout"
   expect (plan.entries.map (·.name) == #["increment", "get"])
     "EVM smoke must preserve both Counter entries"
+  -- Store-only constructor remains stores-authoritative (body empty).
+  match plan.constructor with
+  | none => throw <| IO.userError "Counter must retain constructor"
+  | some ctor =>
+      expect (ctor.body.isEmpty && !ctor.stores.isEmpty)
+        "store-only Counter constructor must keep body empty for aggregate compatibility"
 
   -- S6: no public Plan→IR; capability materialize is sole emit path.
   let output ← liftResult "materialize EVM" <| materializeSelected TargetId.evm compiled
