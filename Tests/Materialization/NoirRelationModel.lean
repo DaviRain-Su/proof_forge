@@ -175,6 +175,23 @@ private partial def step (machine : Machine) :
       match cases.find? (fun (caseValue, _) => caseValue == value) with
       | some (_, caseOps) => runOperations caseOps.toList machine
       | none => runOperations defaultOps.toList machine
+  | .selectRegion destination condition _ thenOps thenValue elseOps elseValue => do
+      let value ← readComparable machine condition
+      let machine' ← runOperations
+        (if value != 0 then thenOps.toList else elseOps.toList) machine
+      let result ← readValue machine' (if value != 0 then thenValue else elseValue)
+      writeTemp machine' destination result
+  | .selectSwitch destination scrutinee _ _ cases defaultOps defaultValue => do
+      let value ← readComparable machine scrutinee
+      match cases.find? (fun (caseValue, _, _) => caseValue == value) with
+      | some (_, caseOps, caseResult) => do
+          let machine' ← runOperations caseOps.toList machine
+          let result ← readValue machine' caseResult
+          writeTemp machine' destination result
+      | none => do
+          let machine' ← runOperations defaultOps.toList machine
+          let result ← readValue machine' defaultValue
+          writeTemp machine' destination result
 
 private partial def runOperations :
     List Targets.Noir.Operation → Machine → Except String Machine
@@ -1232,6 +1249,82 @@ private unsafe def checkEmitRevertProduct : IO Unit := do
   expect (bumpNr.contents.contains "assert(ev_e0_a0 ==")
     "EventFlow .nr must bind the event slot on executing paths"
 
+/-- Pure-fn inlining: nested fn→fn calls and an fn revert path. The check fn
+    inlines into the bump relation with a result-selecting if expression;
+    the revert arm is inadmissible. -/
+private def fnFlowSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program FnFlow where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  error Cap(limit : UInt64)\n\n" ++
+  "  fn double(x : UInt64) : UInt64 do\n" ++
+  "    return x + x\n\n" ++
+  "  fn check(x : UInt64, lim : UInt64) : UInt64 do\n" ++
+  "    if x > lim then\n" ++
+  "      revert Cap(lim)\n" ++
+  "    else\n" ++
+  "      return double(x)\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := check(delta, 10) + double(count)\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkFnLocalCallProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 fnFlowSourceText
+    "Examples.FnFlow" "<noir-fn-flow>"
+  let bump ← findRelation ir "bump"
+  let selects := bump.operations.filter fun op =>
+    match op with | .selectRegion .. => true | _ => false
+  expect (selects.size == 1)
+    s!"FnFlow bump must inline check as one select region, got {selects.size}"
+  match selects[0]! with
+  | .selectRegion _ _ resultIsBool thenOps _ elseOps _ =>
+      expect (!resultIsBool) "FnFlow select must be u64-typed"
+      let hasRevert := thenOps.any fun op =>
+        match op with | .assertConstraint (.literal 0) => true | _ => false
+      expect hasRevert "FnFlow revert arm must be inadmissible"
+      let hasNestedAdd := elseOps.any fun op =>
+        match op with | .checkedAdd .. => true | _ => false
+      expect hasNestedAdd "FnFlow else arm must inline double's add"
+  | _ => throw <| IO.userError "FnFlow: expected a selectRegion"
+  -- delta=4 ≤ 10: check → double(4)=8; double(count)=6; post=14, result=14.
+  let ok ← liftModel "FnFlow ok inputs" <|
+    statefulInputs bump true 3 4 14 true 14
+  expectAccept "FnFlow delta=4 accepts" bump ok
+  let wrong ← liftModel "FnFlow wrong inputs" <|
+    statefulInputs bump true 3 4 14 true 13
+  expectReject "FnFlow wrong result rejects" bump wrong
+  -- delta=20 > 10: check reverts Cap(10) → inadmissible for any witness.
+  let reverting ← liftModel "FnFlow revert inputs" <|
+    statefulInputs bump true 3 20 3 true 20
+  expectReject "FnFlow revert path is inadmissible" bump reverting
+  let reverting2 ← liftModel "FnFlow revert inputs 2" <|
+    statefulInputs bump true 3 20 43 true 43
+  expectReject "FnFlow revert path stays inadmissible" bump reverting2
+
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 fnFlowSourceText
+      "<noir-fn-flow-emit>" "Examples.FnFlow" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some bumpNr := files.find? (fun file =>
+      file.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "FnFlow missing bump main.nr"
+  expect (bumpNr.contents.contains "let t" && bumpNr.contents.contains ": u64 = if")
+    "FnFlow .nr must render the select as a block-valued if expression"
+  expect (bumpNr.contents.contains "assert(false)")
+    "FnFlow .nr must render the fn revert arm as assert(false)"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1261,5 +1354,6 @@ unsafe def run : IO Unit := do
   checkPrivateSum4ProductClosed
   checkBranchingProduct
   checkEmitRevertProduct
+  checkFnLocalCallProduct
 
 end Tests.Materialization.NoirRelationModel

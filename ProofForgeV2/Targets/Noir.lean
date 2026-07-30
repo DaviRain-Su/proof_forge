@@ -99,6 +99,7 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -136,6 +137,28 @@ structure InterfaceBinding where
   fieldCount : Nat
   deriving BEq, Inhabited, Repr
 
+/-- One validated pure-fn signature keyed by GLOBAL callable id (the id
+    Op.PureCall references). Bodies lower against this complete table; the
+    IR inline walker consumes the full FnBinding bodies from the Plan. -/
+private structure FnSigV1 where
+  callableId : Nat
+  name : String
+  paramCount : Nat
+  resultIsBool : Bool
+  deriving Inhabited
+
+/-- One lowered pure function: its global callable id, name, lowered params,
+    result kind, and the path-tree statement body (region-last form, same as
+    relations). Pure fn bodies contain no state/effect statements by
+    construction. -/
+structure FnBinding where
+  callableId : Nat
+  name : String
+  params : Array Param
+  resultIsBool : Bool
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
 /-- Target-owned source-relation plan. It deliberately retains no
 SemanticProgram and records that proof production/settlement are external. -/
 structure Plan where
@@ -157,6 +180,7 @@ structure Plan where
   states : Array StateField
   events : Array InterfaceBinding
   errors : Array InterfaceBinding
+  fns : Array FnBinding
   relations : Array Relation
   -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
   deriving BEq, Repr
@@ -177,6 +201,13 @@ inductive Operation where
   | ifRegion (condition : ValueRef) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : ValueRef) (scrutIsBool : Bool)
       (cases : Array (UInt64 × Array Operation)) (defaultOps : Array Operation)
+  | selectRegion (destination : Nat) (condition : ValueRef) (resultIsBool : Bool)
+      (thenOps : Array Operation) (thenValue : ValueRef)
+      (elseOps : Array Operation) (elseValue : ValueRef)
+  | selectSwitch (destination : Nat) (scrutinee : ValueRef) (scrutIsBool : Bool)
+      (resultIsBool : Bool)
+      (cases : Array (UInt64 × Array Operation × ValueRef))
+      (defaultOps : Array Operation) (defaultValue : ValueRef)
   deriving BEq, Inhabited, Repr
 
 structure RelationIR where
@@ -736,6 +767,7 @@ private def lowerBlockInstructionsV1
     (mode : SemanticCallableModeV1)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
+    (fnSigs : Array FnSigV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
@@ -845,6 +877,41 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
         segmentStart := values.size
+    | .pureCall callableId argIds, some result =>
+        let some fnSig := fnSigs.find? (fun sig => sig.callableId == callableId.toNat) |
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: pure call target is not a declared fn"
+        unless argIds.size == fnSig.paramCount do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: pure call argument count mismatch"
+        let mut argExprs : Array Expr := #[]
+        let mut maxDepth := 0
+        let mut expanded := 1
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: pure call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+          maxDepth := max maxDepth root.depth
+          if expanded > maxPlanNodes - 1 - root.expandedNodes then
+            throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+          expanded := expanded + root.expandedNodes
+        -- Pure expression: the segment continues (no effect boundary).
+        let resultKind : NoirValueKindV1 := if fnSig.resultIsBool then .bool else .uint64
+        let resultTypeId ← match resultKind, types.boolTypeId with
+          | .uint64, _ => pure types.uint64TypeId
+          | .bool, some boolTid => pure boolTid
+          | .bool, none =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Bool fn result requires interned Bool type"
+        values := ← appendResultValueV1 resultTypeId values result {
+          expr := .callFn callableId.toNat argExprs
+          kind := resultKind
+          depth := 1 + maxDepth
+          expandedNodes := expanded
+          dependencies := argIds
+        }
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -867,6 +934,7 @@ private partial def emitRegionV1
     (mode : SemanticCallableModeV1)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
+    (fnSigs : Array FnSigV1)
     (returnKind : Option NoirValueKindV1)
     (blocks : Array BlockV1)
     (paramCount : Nat)
@@ -886,7 +954,7 @@ private partial def emitRegionV1
     throw <| .planInvariant .noir
       "unsupported Noir semantic shape: block ids are not dense"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types states paramCount armReadables block values0
+    owner mode types states fnSigs paramCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
@@ -927,18 +995,18 @@ private partial def emitRegionV1
           "unsupported Noir semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
       let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode types states returnKind blocks paramCount
+        emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
           armReadables (fuel - 1) thenT.blockId.toNat values
       match thenNext with
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, next) ←
-              emitRegionV1 owner mode types states returnKind blocks paramCount
+              emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
                 armReadables (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
           else
             let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode types states returnKind blocks paramCount
+              emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
                 armReadables (fuel - 1) elseT.blockId.toNat values1
             match elseNext with
             | some j2 =>
@@ -946,17 +1014,17 @@ private partial def emitRegionV1
                   throw <| .planInvariant .noir
                     "unsupported Noir semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode types states returnKind blocks paramCount
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
             | none =>
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode types states returnKind blocks paramCount
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
       | none =>
           let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode types states returnKind blocks paramCount
+            emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
               armReadables (fuel - 1) elseT.blockId.toNat values1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
   | .switch scrutId cases defaultTarget =>
@@ -972,7 +1040,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
         let (body, values1, armNext) ←
-          emitRegionV1 owner mode types states returnKind blocks paramCount
+          emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
             (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -985,7 +1053,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode types states returnKind blocks paramCount
+        emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
           (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
@@ -1000,7 +1068,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
       | some j =>
           let (rest, values3, next) ←
-            emitRegionV1 owner mode types states returnKind blocks paramCount
+            emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
   | .revert errorId argIds =>
@@ -1023,6 +1091,7 @@ private def lowerCallableV1
     (inputOffset : Nat)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
+    (fnSigs : Array FnSigV1)
     (returnKind : Option NoirValueKindV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
@@ -1035,7 +1104,7 @@ private def lowerCallableV1
   let (params, initialValues) ← makeParamsV1 owner inputOffset types.uint64TypeId callable.params
   let paramCount := params.size
   let (body0, values0, nextJoin0) ←
-    emitRegionV1 owner mode types states returnKind callable.blocks paramCount #[]
+    emitRegionV1 owner mode types states fnSigs returnKind callable.blocks paramCount #[]
       callable.blocks.size 0 initialValues
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -1048,7 +1117,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, next1) ←
-          emitRegionV1 owner mode types states returnKind callable.blocks paramCount #[]
+          emitRegionV1 owner mode types states fnSigs returnKind callable.blocks paramCount #[]
             callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -1079,6 +1148,7 @@ private def makeRelationV1
     (index : Nat)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
+    (fnSigs : Array FnSigV1)
     (name : String)
     (mode : RelationMode)
     (callable : CallableV1) : CompileResult Relation := do
@@ -1110,7 +1180,7 @@ private def makeRelationV1
     | .mutate => .mutate
     | .view => .view
   let lowered ← lowerCallableV1 s!"relation '{name}'" semanticMode inputOffset
-    types states returnKind callable
+    types states fnSigs returnKind callable
   pure {
     index
     name
@@ -1122,8 +1192,10 @@ private def makeRelationV1
     body := lowered.body
   }
 
+mutual
+
 private partial def planExprNodes? (states : Array StateField) (inputs : Array InputBinding)
-    (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
+    (fnCount : Nat) (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
@@ -1136,35 +1208,58 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
     | .stateLoad fieldIndex => if fieldIndex < states.size then some 1 else none
     | .checkedAdd lhs rhs =>
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .checkedSub lhs rhs =>
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .compare _ lhs rhs =>
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .callFn fnIndex args =>
+        if fnIndex >= fnCount then none
+        else
+          match planCallArgNodes? states inputs fnCount (depthLeft - 1) (nodeBudget - 1) args.toList with
+          | none => none
+          | some argNodes => some (1 + argNodes)
+
+/-- Sum node counts of pure-call arguments in source order under the
+    remaining budget (helper for the non-do expression walker). -/
+private partial def planCallArgNodes? (states : Array StateField) (inputs : Array InputBinding)
+    (fnCount depthLeft remaining : Nat) (args : List Expr) : Option Nat :=
+  match args with
+  | [] => some 0
+  | arg :: rest =>
+      match planExprNodes? states inputs fnCount (depthLeft - 1) remaining arg with
+      | none => none
+      | some argNodes =>
+          match planCallArgNodes? states inputs fnCount (depthLeft - 1)
+              (remaining - argNodes) rest with
+          | none => none
+          | some restNodes => some (argNodes + restNodes)
+
+end
 
 private def addPlanExprNodes (plan : Plan) (relation : Relation)
     (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= plan.resourceLimits.maxPlanNodes then
     throw <| .planInvariant .noir "Noir Plan exceeds aggregate node limit"
-  match planExprNodes? plan.states relation.inputs plan.resourceLimits.maxExprDepth
-      (plan.resourceLimits.maxPlanNodes - total) expr with
+  match planExprNodes? plan.states relation.inputs plan.fns.size
+      plan.resourceLimits.maxExprDepth (plan.resourceLimits.maxPlanNodes - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .noir
@@ -1377,6 +1472,10 @@ private def makePlanFromSemanticDataV1
       "retained SemanticProgramV1 name diverges from compiled artifact identity"
   let mut initializer : Option CallableV1 := none
   let mut entries : Array CallableV1 := #[]
+  -- Pass 1: collect validated fn signatures keyed by GLOBAL callable id, so
+  -- bodies lowered in pass 2 can resolve pure calls to any declared fn
+  -- (including later-declared ones) with exact arity/result kinds.
+  let mut fnSigs : Array FnSigV1 := #[]
   for callable in source.callables do
     match callable.kind with
     | .initializer =>
@@ -1384,16 +1483,61 @@ private def makePlanFromSemanticDataV1
           throw <| .planInvariant .noir "semantic program has multiple initializers"
         initializer := some callable
     | .entry | .view => entries := entries.push callable
-    | .pureFn | .invariant =>
+    | .pureFn =>
+        let fnName ← match callable.name with
+          | some value => pure value
+          | none => throw (.planInvariant .noir
+              "unsupported Noir semantic shape: pure fn is missing its name")
+        unless isIdentifier fnName do
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: fn name '{fnName}' is not a safe identifier"
+        let resultIsBool ←
+          if callable.result.typeId == types.uint64TypeId then
+            pure false
+          else if types.boolTypeId == some callable.result.typeId then
+            pure true
+          else
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: fn '{fnName}' result is not UInt64 or Bool"
+        unless callable.result.visibility == .public_ do
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: fn '{fnName}' result is not public"
+        fnSigs := fnSigs.push {
+          callableId := callable.id.toNat
+          name := fnName
+          paramCount := callable.params.size
+          resultIsBool
+        }
+    | .invariant =>
         throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+          "unsupported Noir semantic shape: invariants are outside the current UInt64 pilot"
+  -- Pass 2: lower fn bodies against the complete signature table and an
+  -- empty state table (fn purity).
+  let mut fns : Array FnBinding := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .pureFn =>
+        let some fnSig := fnSigs.find? (fun sig => sig.callableId == callable.id.toNat) |
+          throw (.planInvariant .noir
+            "unsupported Noir semantic shape: pure fn signature is missing")
+        let resultKind : NoirValueKindV1 := if fnSig.resultIsBool then .bool else .uint64
+        let lowered ← lowerCallableV1 s!"fn '{fnSig.name}'" .mutate 0
+          types #[] fnSigs (some resultKind) callable
+        fns := fns.push {
+          callableId := callable.id.toNat
+          name := fnSig.name
+          params := lowered.params
+          resultIsBool := fnSig.resultIsBool
+          body := lowered.body
+        }
+    | _ => pure ()
   if states.isEmpty && initializer.isSome then
     throw <| .planInvariant .noir "stateless circuit programs cannot declare an initializer"
   if !states.isEmpty && initializer.isNone then
     throw <| .planInvariant .noir "stateful circuit programs require an initializer relation"
   let mut relations : Array Relation := #[]
   if let some initCallable := initializer then
-    relations := relations.push (← makeRelationV1 0 types states "init" .initialize initCallable)
+    relations := relations.push (← makeRelationV1 0 types states fnSigs "init" .initialize initCallable)
   for callable in entries do
     let name ← match callable.name with
       | some value => pure value
@@ -1403,7 +1547,7 @@ private def makePlanFromSemanticDataV1
       | .entry => .mutate
       | .view => .view
       | _ => .mutate
-    relations := relations.push (← makeRelationV1 relations.size types states name mode callable)
+    relations := relations.push (← makeRelationV1 relations.size types states fnSigs name mode callable)
   let unsignedPlan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -1420,6 +1564,7 @@ private def makePlanFromSemanticDataV1
     states
     events
     errors
+    fns
     relations
   }
   let plan := { unsignedPlan with planHash := canonicalPlanHash unsignedPlan }
@@ -1456,42 +1601,262 @@ private structure LoweredExpr where
   next : Nat
   deriving Inhabited
 
-private partial def lowerExpr (stateValues : Array ValueRef) (next : Nat) : Expr → LoweredExpr
-  | .literal value => { operations := #[], value := .literal value, next }
-  | .param inputIndex => { operations := #[], value := .input inputIndex, next }
-  | .stateLoad fieldIndex => { operations := #[], value := stateValues[fieldIndex]!, next }
-  | .checkedAdd lhs rhs =>
-      let lhs := lowerExpr stateValues next lhs
-      let rhs := lowerExpr stateValues lhs.next rhs
-      {
+private def inputIndexFor (relation : Relation) (role : InputRole) : Nat := Id.run do
+  for index in [0:relation.inputs.size] do
+    if relation.inputs[index]!.role == role then return index
+  return 0
+
+/-- Whether every path through a statement list ends in a return (valued or
+    bare marker), matching the region emitter's closedness: a list closes iff
+    its last statement is a return or a region whose arms all close. An empty
+    else/default arm is a fallthrough (open). -/
+private partial def statementListClosesV1 : List Statement → Bool
+  | [] => false
+  | [statement] =>
+      match statement with
+      | .returnValue _ | .returnNone | .revertError .. => true
+      | .ifThenElse _ thenBody elseBody =>
+          !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
+            statementListClosesV1 elseBody.toList
+      | .switchOn _ cases defaultBody =>
+          !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
+            cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
+      | .store _ | .assert _ | .emitEvent .. => false
+  | _ :: _ :: rest => statementListClosesV1 rest
+
+
+mutual
+
+/-- Relation-level expression lowering. Pure calls inline the callee body at
+    the call site (circuits have no call instruction); everything else maps
+    to the flat temp/constraint form. -/
+private partial def lowerExpr (plan : Plan) (fuel : Nat)
+    (stateValues : Array ValueRef) (next : Nat) :
+    Expr → CompileResult LoweredExpr
+  | .literal value => pure { operations := #[], value := .literal value, next }
+  | .param inputIndex => pure { operations := #[], value := .input inputIndex, next }
+  | .stateLoad fieldIndex => pure { operations := #[], value := stateValues[fieldIndex]!, next }
+  | .checkedAdd lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
       }
-  | .checkedSub lhs rhs =>
-      let lhs := lowerExpr stateValues next lhs
-      let rhs := lowerExpr stateValues lhs.next rhs
-      {
+  | .checkedSub lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
       }
-  | .compare op lhs rhs =>
-      let lhs := lowerExpr stateValues next lhs
-      let rhs := lowerExpr stateValues lhs.next rhs
-      {
+  | .compare op lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare op rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
       }
+  | .callFn fnIndex args => do
+      let some fn := plan.fns.find? (fun binding => binding.callableId == fnIndex) |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call target is not a declared fn"
+      unless args.size == fn.params.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call argument count mismatch"
+      if fuel == 0 then
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call inlining exceeds the operation limit"
+      let mut acc : Array Operation := #[]
+      let mut next' := next
+      let mut argRefs : Array ValueRef := #[]
+      for arg in args do
+        let value ← lowerExpr plan fuel stateValues next' arg
+        acc := acc ++ value.operations
+        argRefs := argRefs.push value.value
+        next' := value.next
+      let (inlineOps, result, next'') ← inlineStmtsV1 plan (fuel - 1) 1
+        fn.resultIsBool argRefs stateValues next' #[] fn.body.toList
+      pure {
+        operations := acc ++ inlineOps
+        value := result
+        next := next''
+      }
 
-private def inputIndexFor (relation : Relation) (role : InputRole) : Nat := Id.run do
-  for index in [0:relation.inputs.size] do
-    if relation.inputs[index]!.role == role then return index
-  return 0
+/-- Fn-body expression lowering: `.param` resolves against the caller's
+    argument ValueRefs (inlining substitution); `.stateLoad` fails closed
+    (fn purity). Everything else mirrors the relation-level lowerExpr. -/
+private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
+    (paramValues stateValues : Array ValueRef) (next : Nat) :
+    Expr → CompileResult LoweredExpr
+  | .literal value =>
+      pure { operations := #[], value := .literal value, next }
+  | .param inputIndex =>
+      match paramValues[inputIndex]? with
+      | some value => pure { operations := #[], value, next }
+      | none =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn param reference out of range"
+  | .stateLoad _ =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: fn body reads state"
+  | .checkedAdd lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedAdd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedSub lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSub rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .compare op lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.compare op rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .callFn fnIndex args => do
+      let some fn := plan.fns.find? (fun binding => binding.callableId == fnIndex) |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: nested pure call target is not a declared fn"
+      unless args.size == fn.params.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: nested pure call argument count mismatch"
+      if fuel == 0 then
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call inlining exceeds the operation limit"
+      if depth > plan.fns.size then
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call inlining exceeds the fn depth bound"
+      let mut acc : Array Operation := #[]
+      let mut next' := next
+      let mut argRefs : Array ValueRef := #[]
+      for arg in args do
+        let value ← lowerExprFn plan fuel depth paramValues stateValues next' arg
+        acc := acc ++ value.operations
+        argRefs := argRefs.push value.value
+        next' := value.next
+      let (inlineOps, result, next'') ← inlineStmtsV1 plan (fuel - 1) (depth + 1)
+        fn.resultIsBool argRefs stateValues next' #[] fn.body.toList
+      pure {
+        operations := acc ++ inlineOps
+        value := result
+        next := next''
+      }
+
+/-- Inline a pure-fn statement tree at a call site: path-enumerate with
+    params substituted by the caller's argument ValueRefs. Regions produce
+    result-selecting temps (Noir block-valued if/else-if expressions), so the
+    enclosing expression keeps a single result value per path. Reverting
+    paths emit assert(false) (inadmissible, discarding any partial path). -/
+private partial def inlineStmtsV1
+    (plan : Plan) (fuel depth : Nat) (resultIsBool : Bool)
+    (paramValues stateValues : Array ValueRef) (next : Nat)
+    (acc : Array Operation) (statements : List Statement) :
+    CompileResult (Array Operation × ValueRef × Nat) := do
+  match statements with
+  | [] =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: fn body path does not end in a return"
+  | statement :: rest =>
+      if fuel == 0 then
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: pure call inlining exceeds the operation limit"
+      let fuel := fuel - 1
+      match statement with
+      | .store _ =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn body writes state"
+      | .emitEvent .. =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn body emits an event"
+      | .assert condition => do
+          let value ← lowerExprFn plan fuel depth paramValues stateValues next condition
+          inlineStmtsV1 plan fuel depth resultIsBool paramValues stateValues value.next
+            (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
+      | .returnValue valueExpr => do
+          unless rest.isEmpty do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: fn body has a statement after a return"
+          let value ← lowerExprFn plan fuel depth paramValues stateValues next valueExpr
+          pure (acc ++ value.operations, value.value, value.next)
+      | .returnNone =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn body must return a value"
+      | .revertError _ args => do
+          unless rest.isEmpty do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: fn body has a statement after a revert"
+          let mut acc' := acc
+          let mut next' := next
+          for arg in args do
+            let value ← lowerExprFn plan fuel depth paramValues stateValues next' arg
+            acc' := acc' ++ value.operations
+            next' := value.next
+          pure (acc' ++ #[.assertConstraint (.literal 0)], .literal 0, next')
+      | .ifThenElse condition thenBody elseBody => do
+          let condition ← lowerExprFn plan fuel depth paramValues stateValues next condition
+          if statementListClosesV1 thenBody.toList &&
+              statementListClosesV1 elseBody.toList && !rest.isEmpty then
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: fn body has a continuation after a closed region"
+          let fold := fun (arm : Array Statement) =>
+            if statementListClosesV1 arm.toList then arm.toList else arm.toList ++ rest
+          let (thenOps, thenValue, next1) ← inlineStmtsV1 plan fuel depth resultIsBool
+            paramValues stateValues condition.next #[] (fold thenBody)
+          let (elseOps, elseValue, next2) ← inlineStmtsV1 plan fuel depth resultIsBool
+            paramValues stateValues next1 #[] (fold elseBody)
+          let destination := next2
+          pure (acc ++ condition.operations ++ #[
+              .selectRegion destination condition.value resultIsBool
+                thenOps thenValue elseOps elseValue
+            ], .temp destination, next2 + 1)
+      | .switchOn scrutineeExpr cases defaultBody => do
+          let scrutIsBool := match scrutineeExpr with
+            | .compare .. => true
+            | _ => false
+          let scrutinee ← lowerExprFn plan fuel depth paramValues stateValues next scrutineeExpr
+          if statementListClosesV1 defaultBody.toList &&
+              (cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList) &&
+              !rest.isEmpty then
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: fn body has a continuation after a closed region"
+          let fold := fun (arm : Array Statement) =>
+            if statementListClosesV1 arm.toList then arm.toList else arm.toList ++ rest
+          let mut caseOps : Array (UInt64 × Array Operation × ValueRef) := #[]
+          let mut nextAcc := scrutinee.next
+          for (caseValue, caseBody) in cases do
+            let (operations, value, next') ← inlineStmtsV1 plan fuel depth resultIsBool
+              paramValues stateValues nextAcc #[] (fold caseBody)
+            caseOps := caseOps.push (caseValue, operations, value)
+            nextAcc := next'
+          let (defaultOps, defaultValue, next') ← inlineStmtsV1 plan fuel depth resultIsBool
+            paramValues stateValues nextAcc #[] (fold defaultBody)
+          let destination := next'
+          pure (acc ++ scrutinee.operations ++ #[
+              .selectSwitch destination scrutinee.value scrutIsBool resultIsBool
+                caseOps defaultOps defaultValue
+            ], .temp destination, next' + 1)
+
+end
 
 /-- Final path assertions: post-state equality per field, post-initialized
     flag, (non-initializer) the public result binding, and event-slot
@@ -1536,24 +1901,6 @@ private def revertAssertions (relation : Relation)
         (.input (inputIndexFor relation (.eventSlot effectId argIndex))) (.literal 0)
   operations.push (.assertConstraint (.literal 0))
 
-/-- Whether every path through a statement list ends in a return (valued or
-    bare marker), matching the region emitter's closedness: a list closes iff
-    its last statement is a return or a region whose arms all close. An empty
-    else/default arm is a fallthrough (open). -/
-private partial def statementListClosesV1 : List Statement → Bool
-  | [] => false
-  | [statement] =>
-      match statement with
-      | .returnValue _ | .returnNone | .revertError .. => true
-      | .ifThenElse _ thenBody elseBody =>
-          !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
-            statementListClosesV1 elseBody.toList
-      | .switchOn _ cases defaultBody =>
-          !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
-            cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. => false
-  | _ :: _ :: rest => statementListClosesV1 rest
-
 /-- Lower a relation statement list into a complete path constraint sequence
     (path enumeration). A region folds the enclosing continuation into each
     of its open arms, so every walk ends at a leaf — a return marker, a
@@ -1583,12 +1930,12 @@ private partial def lowerPathStatementsV1
       let fuel := fuel - 1
       match statement with
       | .store store =>
-          let value := lowerExpr stateValues next store.value
+          let value ← lowerExpr plan fuel stateValues next store.value
           lowerPathStatementsV1 plan relation fuel emitSlots
             (stateValues.set! store.fieldIndex value.value) value.next pathEmits
             (acc ++ value.operations) rest
       | .assert condition =>
-          let value := lowerExpr stateValues next condition
+          let value ← lowerExpr plan fuel stateValues next condition
           lowerPathStatementsV1 plan relation fuel emitSlots stateValues value.next
             pathEmits (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
       | .emitEvent effectId _ args =>
@@ -1598,7 +1945,7 @@ private partial def lowerPathStatementsV1
           let mut next' := next
           let mut argRefs : Array ValueRef := #[]
           for arg in args do
-            let value := lowerExpr stateValues next' arg
+            let value ← lowerExpr plan fuel stateValues next' arg
             acc' := acc' ++ value.operations
             argRefs := argRefs.push value.value
             next' := value.next
@@ -1608,7 +1955,7 @@ private partial def lowerPathStatementsV1
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
-          let value := lowerExpr stateValues next valueExpr
+          let value ← lowerExpr plan fuel stateValues next valueExpr
           pure (acc ++ value.operations ++
             leafAssertions plan relation emitSlots stateValues (some value.value) pathEmits,
             value.next)
@@ -1628,12 +1975,12 @@ private partial def lowerPathStatementsV1
           let mut acc' := acc
           let mut next' := next
           for arg in args do
-            let value := lowerExpr stateValues next' arg
+            let value ← lowerExpr plan fuel stateValues next' arg
             acc' := acc' ++ value.operations
             next' := value.next
           pure (acc' ++ revertAssertions relation emitSlots, next')
       | .ifThenElse condition thenBody elseBody =>
-          let condition := lowerExpr stateValues next condition
+          let condition ← lowerExpr plan fuel stateValues next condition
           -- Emission invariant: a region followed by a continuation always
           -- has at least one open arm (the continuation folds into it).
           if statementListClosesV1 thenBody.toList &&
@@ -1654,7 +2001,7 @@ private partial def lowerPathStatementsV1
           let scrutIsBool := match scrutineeExpr with
             | .compare .. => true
             | _ => false
-          let scrutinee := lowerExpr stateValues next scrutineeExpr
+          let scrutinee ← lowerExpr plan fuel stateValues next scrutineeExpr
           if statementListClosesV1 defaultBody.toList &&
               (cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList) &&
               !rest.isEmpty then
@@ -1729,6 +2076,24 @@ private partial def collectLiveTempsV1 (relationName : String)
         for (_, caseOps) in cases do
           live ← collectLiveTempsV1 relationName caseOps live
         live ← collectLiveTempsV1 relationName defaultOps live
+    | .selectRegion destination condition _ thenOps thenValue elseOps elseValue =>
+        -- The select result is consumed downstream (it is a def whose uses
+        -- appear later); the arm tail values are roots (they feed it).
+        unless live.contains destination do
+          throw <| .planInvariant .noir
+            s!"relation '{relationName}' contains dead checked arithmetic whose failure would not be constrained"
+        live := addLiveTemp (addLiveTemp (addLiveTemp live condition) thenValue) elseValue
+        live ← collectLiveTempsV1 relationName thenOps live
+        live ← collectLiveTempsV1 relationName elseOps live
+    | .selectSwitch destination scrutinee _ _ cases defaultOps defaultValue =>
+        unless live.contains destination do
+          throw <| .planInvariant .noir
+            s!"relation '{relationName}' contains dead checked arithmetic whose failure would not be constrained"
+        live := addLiveTemp (addLiveTemp live scrutinee) defaultValue
+        for (_, caseOps, caseValue) in cases do
+          live := addLiveTemp live caseValue
+          live ← collectLiveTempsV1 relationName caseOps live
+        live ← collectLiveTempsV1 relationName defaultOps live
     | .checkedAdd destination lhs rhs
     | .checkedSub destination lhs rhs
     | .compare _ destination lhs rhs =>
@@ -1752,6 +2117,12 @@ private partial def countOperationsV1 (operations : Array Operation) : Nat :=
     | .switchRegion _ _ cases defaultOps =>
         1 + countOperationsV1 defaultOps +
           (cases.foldl (fun subtotal (_, caseOps) =>
+            subtotal + countOperationsV1 caseOps) 0)
+    | .selectRegion _ _ _ thenOps _ elseOps _ =>
+        1 + countOperationsV1 thenOps + countOperationsV1 elseOps
+    | .selectSwitch _ _ _ _ cases defaultOps _ =>
+        1 + countOperationsV1 defaultOps +
+          (cases.foldl (fun subtotal (_, caseOps, _) =>
             subtotal + countOperationsV1 caseOps) 0)
     | _ => 1) 0
 
@@ -1871,6 +2242,41 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         s!" else \{\n" ++
         renderArm defaultOps ++
         s!"{indent}}}\n"
+  | .selectRegion destination condition resultIsBool thenOps thenValue elseOps elseValue =>
+      let renderArm := fun operations =>
+        String.intercalate "" <|
+          operations.toList.map (renderOperation relation (indent ++ "  "))
+      let type := if resultIsBool then "bool" else "u64"
+      s!"{indent}let t{destination}: {type} = if {renderAssertCondition relation condition} \{\n" ++
+        renderArm thenOps ++
+        s!"{indent}  {renderValue relation thenValue}\n" ++
+        s!"{indent}}} else \{\n" ++
+        renderArm elseOps ++
+        s!"{indent}  {renderValue relation elseValue}\n" ++
+        s!"{indent}}};\n"
+  | .selectSwitch destination scrutinee scrutIsBool resultIsBool cases defaultOps defaultValue =>
+      let scrut := renderValue relation scrutinee
+      let renderArm := fun operations =>
+        String.intercalate "" <|
+          operations.toList.map (renderOperation relation (indent ++ "  "))
+      let renderCaseValue := fun (value : UInt64) =>
+        if scrutIsBool then
+          if value == 0 then "false" else "true"
+        else
+          toString value.toNat
+      let type := if resultIsBool then "bool" else "u64"
+      let branches := cases.toList.mapIdx fun index (caseValue, caseOps, caseResult) =>
+        let keyword := if index == 0 then "if" else " else if"
+        s!"{keyword} {scrut} == {renderCaseValue caseValue} \{\n" ++
+          renderArm caseOps ++
+          s!"{indent}  {renderValue relation caseResult}\n" ++
+          s!"{indent}}}"
+      s!"{indent}let t{destination}: {type} = " ++
+        String.intercalate "" branches ++
+        s!" else \{\n" ++
+        renderArm defaultOps ++
+        s!"{indent}  {renderValue relation defaultValue}\n" ++
+        s!"{indent}}};\n"
 
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""
