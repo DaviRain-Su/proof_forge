@@ -1807,6 +1807,362 @@ private unsafe def testBoolEntryResultAndLiteral
       expect (returned == 0) s!"bool-entry: expected return vid0, got {returned}"
   | _ => throw <| IO.userError "bool-entry: expected return of literal"
 
+private unsafe def testIfMultiBlock
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "IfFlow" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "if-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "if-flow: CheckV1.ok"
+  expect typed.analysisComplete "if-flow: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"if-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"if-flow: validate: {repr e}"
+  let some entryC := data.callables[1]? |
+    throw <| IO.userError "if-flow: missing bump callable"
+  expect (entryC.blocks.size == 4)
+    s!"if-flow: expected cond/then/else/join blocks, got {entryC.blocks.size}"
+  -- block0: load count(vid1), literal 0(vid2), gt(vid3 Bool), branch
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "if-flow: missing block0"
+  expect (blk0.instructions.size == 3)
+    s!"if-flow: block0 expected 3 instrs, got {blk0.instructions.size}"
+  match blk0.terminator with
+  | .branch cond thenT elseT =>
+      expect (cond == 3 && thenT.blockId == 1 && thenT.args.isEmpty &&
+          elseT.blockId == 2 && elseT.args.isEmpty)
+        s!"if-flow: branch must target then=1 else=2, got {cond}/{thenT.blockId}/{elseT.blockId}"
+  | _ => throw <| IO.userError "if-flow: block0 must terminate in branch"
+  -- then: load count(vid4), add(vid5), store, jump join
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "if-flow: missing then block"
+  expect (blk1.instructions.size == 3)
+    s!"if-flow: then expected load/add/store, got {blk1.instructions.size}"
+  match blk1.terminator with
+  | .jump t =>
+      expect (t.blockId == 3 && t.args.isEmpty)
+        s!"if-flow: then must jump join=3, got {t.blockId}"
+  | _ => throw <| IO.userError "if-flow: then must terminate in jump"
+  -- else: store param delta (vid0), jump join
+  let some blk2 := entryC.blocks[2]? |
+    throw <| IO.userError "if-flow: missing else block"
+  expect (blk2.instructions.size == 1)
+    s!"if-flow: else expected single store, got {blk2.instructions.size}"
+  match blk2.terminator with
+  | .jump t =>
+      expect (t.blockId == 3 && t.args.isEmpty)
+        s!"if-flow: else must jump join=3, got {t.blockId}"
+  | _ => throw <| IO.userError "if-flow: else must terminate in jump"
+  -- join: load count(vid6), return vid6
+  let some blk3 := entryC.blocks[3]? |
+    throw <| IO.userError "if-flow: missing join block"
+  expect (blk3.instructions.size == 1)
+    s!"if-flow: join expected single load, got {blk3.instructions.size}"
+  match blk3.terminator with
+  | .return_ (some vid) =>
+      expect (vid == 6) s!"if-flow: join must return vid6, got {vid}"
+  | _ => throw <| IO.userError "if-flow: join must return"
+  let carrier2 ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"if-flow-repeat: normalize: {repr e}"
+  expect (carrier.canonicalBytes == carrier2.canonicalBytes)
+    "if-flow: repeated normalization bytes deterministic"
+  -- Provenance authority accepts the multi-block program.
+  let (withSpans, spans) ← loadSourceWithSpans session "if-flow-prov" source
+  let path ← parseTestPath "if-flow-prov"
+  match ← (pure (normalizeProgramWithProvenanceV1 withSpans path spans)
+      : IO (Except NormalizeErrorV1 _)) with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"if-flow-prov: provenance authority: {repr e}"
+
+private unsafe def testIfBothBranchesReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "IfBoth" <|
+    "  state count : UInt64\n" ++
+    "  entry pick(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      return count\n" ++
+    "    else\n" ++
+    "      return delta\n"
+  let validated ← loadSource session "if-both" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "if-both: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"if-both: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"if-both: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "if-both: missing pick callable"
+  expect (entryC.blocks.size == 3)
+    s!"if-both: both-return if must not materialize a join, got {entryC.blocks.size}"
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "if-both: missing then block"
+  match blk1.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "if-both: then must return"
+  let some blk2 := entryC.blocks[2]? |
+    throw <| IO.userError "if-both: missing else block"
+  match blk2.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "if-both: else must return"
+
+private unsafe def testIfNoElse
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "IfNoElse" <|
+    "  state count : UInt64\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n"
+  let validated ← loadSource session "if-noelse" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "if-noelse: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"if-noelse: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"if-noelse: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "if-noelse: missing bump callable"
+  expect (entryC.blocks.size == 3)
+    s!"if-noelse: expected cond/then/join (else falls to join), got {entryC.blocks.size}"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "if-noelse: missing block0"
+  match blk0.terminator with
+  | .branch _ thenT elseT =>
+      expect (thenT.blockId == 1 && elseT.blockId == 2)
+        s!"if-noelse: absent else must target join=2, got {elseT.blockId}"
+  | _ => throw <| IO.userError "if-noelse: block0 must branch"
+  let some blk2 := entryC.blocks[2]? |
+    throw <| IO.userError "if-noelse: missing join block"
+  match blk2.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "if-noelse: join must return"
+
+private unsafe def testNestedIf
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestedIf" <|
+    "  state count : UInt64\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      if delta > 0 then\n" ++
+    "        count := count + delta\n" ++
+    "      else\n" ++
+    "        count := 1\n" ++
+    "    else\n" ++
+    "      count := 2\n" ++
+    "    return count\n"
+  let validated ← loadSource session "nested-if" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "nested-if: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"nested-if: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"nested-if: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "nested-if: missing bump callable"
+  -- outer cond(0) + inner cond(1) + inner then(2) + inner else(3) + inner join(4)
+  -- + outer else(5) + outer join(6)
+  expect (entryC.blocks.size == 7)
+    s!"nested-if: expected 7 blocks, got {entryC.blocks.size}"
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "nested-if: missing inner-cond block"
+  match blk1.terminator with
+  | .branch _ thenT elseT =>
+      expect (thenT.blockId == 2 && elseT.blockId == 3)
+        s!"nested-if: inner branch targets, got {thenT.blockId}/{elseT.blockId}"
+  | _ => throw <| IO.userError "nested-if: block1 must be inner branch"
+  let some blk4 := entryC.blocks[4]? |
+    throw <| IO.userError "nested-if: missing inner join block"
+  match blk4.terminator with
+  | .jump t =>
+      expect (t.blockId == 6)
+        s!"nested-if: inner join must jump outer join=6, got {t.blockId}"
+  | _ => throw <| IO.userError "nested-if: inner join must jump"
+  let some blk6 := entryC.blocks[6]? |
+    throw <| IO.userError "nested-if: missing outer join block"
+  match blk6.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "nested-if: outer join must return"
+
+private unsafe def testMatchUIntLiterals
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MatchUint" <|
+    "  state count : UInt64\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n"
+  let validated ← loadSource session "match-uint" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "match-uint: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"match-uint: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"match-uint: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "match-uint: missing apply callable"
+  -- scrut block(0) + case0(1) + case1(2) + default(3) + join(4)
+  expect (entryC.blocks.size == 5)
+    s!"match-uint: expected 5 blocks, got {entryC.blocks.size}"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "match-uint: missing scrut block"
+  match blk0.terminator with
+  | .switch scrut cases (some defaultT) =>
+      expect (scrut == 0) s!"match-uint: scrutinee must be param vid0, got {scrut}"
+      expect (cases.size == 2) s!"match-uint: expected 2 cases, got {cases.size}"
+      let some c0 := cases[0]? |
+        throw <| IO.userError "match-uint: missing case0"
+      expect (c0.valueBytes == encodeU64le 0 && c0.target.blockId == 1)
+        s!"match-uint: case0 must be 0→block1"
+      let some c1 := cases[1]? |
+        throw <| IO.userError "match-uint: missing case1"
+      expect (c1.valueBytes == encodeU64le 1 && c1.target.blockId == 2)
+        s!"match-uint: case1 must be 1→block2"
+      expect (defaultT.blockId == 3)
+        s!"match-uint: default must target block3, got {defaultT.blockId}"
+  | _ => throw <| IO.userError "match-uint: scrut block must switch"
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "match-uint: missing case0 block"
+  match blk1.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "match-uint: case0 must return"
+  let some blk2 := entryC.blocks[2]? |
+    throw <| IO.userError "match-uint: missing case1 block"
+  match blk2.terminator with
+  | .jump t =>
+      expect (t.blockId == 4) s!"match-uint: case1 must jump join=4, got {t.blockId}"
+  | _ => throw <| IO.userError "match-uint: case1 must jump"
+  let some blk3 := entryC.blocks[3]? |
+    throw <| IO.userError "match-uint: missing default block"
+  match blk3.terminator with
+  | .jump t =>
+      expect (t.blockId == 4) s!"match-uint: default must jump join=4, got {t.blockId}"
+  | _ => throw <| IO.userError "match-uint: default must jump"
+  let some blk4 := entryC.blocks[4]? |
+    throw <| IO.userError "match-uint: missing join block"
+  match blk4.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "match-uint: join must return"
+
+private unsafe def testMatchBoolAndBind
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MatchBind" <|
+    "  state count : UInt64\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | rest => do\n" ++
+    "      count := count + rest\n" ++
+    "    return count\n"
+  let validated ← loadSource session "match-bind" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "match-bind: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"match-bind: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"match-bind: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "match-bind: missing apply callable"
+  -- Catch-all-only match: scrut block jumps straight into the single arm block.
+  expect (entryC.blocks.size == 2)
+    s!"match-bind: catch-all-only match must materialize 2 blocks, got {entryC.blocks.size}"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "match-bind: missing scrut block"
+  match blk0.terminator with
+  | .jump t =>
+      expect (t.blockId == 1) s!"match-bind: scrut must jump arm block=1, got {t.blockId}"
+  | _ => throw <| IO.userError "match-bind: scrut must jump (no switch for catch-all-only)"
+  let some blk1 := entryC.blocks[1]? |
+    throw <| IO.userError "match-bind: missing arm block"
+  -- Arm body: load count(vid1), add(load, binder=scrut vid0)→vid2, store; join return.
+  expect (blk1.instructions.size == 4)
+    s!"match-bind: arm expected load/add/store/load, got {blk1.instructions.size}"
+  let some addInstr := blk1.instructions[1]? |
+    throw <| IO.userError "match-bind: missing add instruction"
+  match addInstr.op with
+  | .binary .add lhs rhs =>
+      expect (lhs == 1 && rhs == 0)
+        s!"match-bind: binder must alias scrutinee vid0, got {lhs}/{rhs}"
+  | _ => throw <| IO.userError "match-bind: expected binary add on binder"
+  match blk1.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "match-bind: arm must return"
+
+private unsafe def testUnsupportedStatementAfterTerminalIf
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "DeadAfterIf" <|
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    if x > 0 then\n" ++
+    "      return x\n" ++
+    "    else\n" ++
+    "      return 0\n" ++
+    "    return 1\n"
+  expectUnsupportedAfterCheckOk session "dead-after-if" source
+    (fun d => d.contains "after return")
+    "statements after return"
+
+private unsafe def testUnsupportedMatchDuplicateLiteral
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "DupLit" <|
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | 1 => do\n" ++
+    "      return 1\n" ++
+    "    | 1 => do\n" ++
+    "      return 2\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  expectUnsupportedAfterCheckOk session "dup-lit" source
+    (fun d => d.contains "duplicate")
+    "duplicate literal"
+
+private unsafe def testUnsupportedMatchConstructorPattern
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Constructor patterns need struct/enum declarations, which the S1
+  -- normalizer still rejects at the item boundary (the pattern-level gate is
+  -- defense-in-depth behind it).
+  let source := wrap "CtorPat" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Green\n" ++
+    "  entry f(c : Color) : UInt64 do\n" ++
+    "    match c with\n" ++
+    "    | Color.Red() => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  expectUnsupportedAfterCheckOk session "ctor-pat" source
+    (fun d => d.contains "enum")
+    "enum"
+
 private unsafe def testUnsupportedBoolState
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "BoolState" <|
@@ -1851,18 +2207,6 @@ private unsafe def testUnsupportedNestedComparison
   expectUnsupportedAfterCheckOk session "nested-cmp" source
     (fun d => d.contains "UInt64" || d.contains "comparison")
     "UInt64 comparison operands"
-
-private unsafe def testUnsupportedIf
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "IfOnly" <|
-    "  entry run(x : UInt64) : UInt64 do\n" ++
-    "    if true then\n" ++
-    "      return x\n" ++
-    "    else\n" ++
-    "      return x\n"
-  expectUnsupportedAfterCheckOk session "if" source
-    (fun d => d.contains "if" || d.contains "If")
-    "if"
 
 private unsafe def testUnsupportedFn
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2942,9 +3286,17 @@ unsafe def run : IO Unit := do
   testAssertBoolLiteral session
   testBoolViewResult session
   testBoolEntryResultAndLiteral session
+  testIfMultiBlock session
+  testIfBothBranchesReturn session
+  testIfNoElse session
+  testNestedIf session
+  testMatchUIntLiterals session
+  testMatchBoolAndBind session
+  testUnsupportedStatementAfterTerminalIf session
+  testUnsupportedMatchDuplicateLiteral session
+  testUnsupportedMatchConstructorPattern session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
-  testUnsupportedIf session
   testUnsupportedFn session
   testUnsupportedPrivateState session
   testUnsupportedBoolState session

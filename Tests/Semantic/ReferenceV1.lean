@@ -359,6 +359,111 @@ private def qn2 (a b : String) : IO QualifiedName := do
   | .error e => throw <| IO.userError s!"qn2: {e}"
 
 /-- NormalizeV1 Counter path: admission, init/entry/view, overflow rollback. -/
+private unsafe def testIfMatchReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Multi-block CFG: if/else branches and switch on UInt64 literals.
+  let ifSource := wrap "IfRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let ifValidated ← loadSource session "if-ref" ifSource
+  let ifCarrier ← match normalizeProgramV1 ifValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"if-ref: normalize failed: {repr e}"
+  let ifData ← match validateSemanticProgramV1 ifCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"if-ref: validate failed: {repr e}"
+  let ifAdmitted ← admitOk "if-ref" ifCarrier
+  let u64Tid : TypeIdV1 :=
+    match ifData.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let ifInit : CallableIdV1 := 0
+  let ifBump : CallableIdV1 := 1
+  let ifGet : CallableIdV1 := 2
+  let ifInitial ← match initialLogicalStateV1 ifCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"if-ref: initialLogicalState: {repr e}"
+  let zeroPost :=
+    stepReferenceSliceV1 ifAdmitted ifInitial (inv ifInit #[refU64 u64Tid 0]) emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "if-ref-init" zeroPost zeroState none #[]
+  -- count=0 → else branch: count := delta (3)
+  let elseRes :=
+    stepReferenceSliceV1 ifAdmitted zeroState (inv ifBump #[refU64 u64Tid 3]) emptyResponses
+  let threeState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 3) }
+  expectReturned "if-ref-else" elseRes threeState (some (refU64 u64Tid 3)) #[]
+  -- count=3>0 → then branch: count := 3+2 = 5
+  let thenRes :=
+    stepReferenceSliceV1 ifAdmitted threeState (inv ifBump #[refU64 u64Tid 2]) emptyResponses
+  let fiveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  expectReturned "if-ref-then" thenRes fiveState (some (refU64 u64Tid 5)) #[]
+  let afterGet :=
+    stepReferenceSliceV1 ifAdmitted fiveState (inv ifGet #[]) emptyResponses
+  expectReturned "if-ref-get" afterGet fiveState (some (refU64 u64Tid 5)) #[]
+
+  -- Switch on UInt64 literals with wildcard.
+  let matchSource := wrap "MatchRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n"
+  let matchValidated ← loadSource session "match-ref" matchSource
+  let matchCarrier ← match normalizeProgramV1 matchValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"match-ref: normalize failed: {repr e}"
+  let matchAdmitted ← admitOk "match-ref" matchCarrier
+  let matchInit : CallableIdV1 := 0
+  let matchApply : CallableIdV1 := 1
+  let matchInitial ← match initialLogicalStateV1 matchCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"match-ref: initialLogicalState: {repr e}"
+  let mInitPost :=
+    stepReferenceSliceV1 matchAdmitted matchInitial
+      (inv matchInit #[refU64 u64Tid 7]) emptyResponses
+  let sevenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 7) }
+  expectReturned "match-ref-init" mInitPost sevenState none #[]
+  -- delta=0 → case 0: return count (7), state unchanged
+  let case0 :=
+    stepReferenceSliceV1 matchAdmitted sevenState
+      (inv matchApply #[refU64 u64Tid 0]) emptyResponses
+  expectReturned "match-ref-case0" case0 sevenState (some (refU64 u64Tid 7)) #[]
+  -- delta=1 → case 1: count := 7+1 = 8, return 8
+  let case1 :=
+    stepReferenceSliceV1 matchAdmitted sevenState
+      (inv matchApply #[refU64 u64Tid 1]) emptyResponses
+  let eightState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 8) }
+  expectReturned "match-ref-case1" case1 eightState (some (refU64 u64Tid 8)) #[]
+  -- delta=5 → default: count := 5, return 5
+  let caseD :=
+    stepReferenceSliceV1 matchAdmitted eightState
+      (inv matchApply #[refU64 u64Tid 5]) emptyResponses
+  let fiveStateM : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  expectReturned "match-ref-default" caseD fiveStateM (some (refU64 u64Tid 5)) #[]
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1281,6 +1386,7 @@ unsafe def run : IO Unit := do
   testCounterReferenceSlice session
   testGuardedCounterReferenceSlice session
   testBoolResultReferenceSlice session
+  testIfMatchReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

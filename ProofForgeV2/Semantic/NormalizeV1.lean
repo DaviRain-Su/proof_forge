@@ -16,7 +16,12 @@
     * declarations: public primitive state (UInt64 only), init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none); bare `assert` with a Bool condition
-      (assert-else still fails closed)
+      (assert-else still fails closed); `if cond then B (else B)?` lowered to
+      branch/jump blocks; `match scrut with` on a UInt64 or Bool scrutinee
+      with integer/Bool literal arms plus exactly one wildcard/bind catch-all
+      lowered to switch/jump blocks (constructor patterns, string patterns,
+      match expressions, and duplicate literals still fail closed; a
+      catch-all-only match materializes to a plain jump)
     * expressions: bare place (param or state name), UInt64 integer literal,
       Bool literal, checked binary add/sub on UInt64, and the six UInt64
       comparisons (==/!=/</<=/>/>=) producing Bool; integer width is supplied
@@ -25,8 +30,10 @@
       Bool literals); one TypeId per distinct shape, interned on first actual
       use in source traversal order. State/parameter positions stay
       UInt64-only; entry/view results may be UInt64, Unit, or Bool
-    * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
-      invariantSteps=none; empty constants/events/errors/invariants
+    * callables: multi-block forward-only CFG (entryBlock=0, dense block ids,
+      no block params, empty loopBounds, invariantSteps=none; every emitted
+      edge points to a higher block id, so no back edges exist);
+      empty constants/events/errors/invariants
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
       before encode/hash; companion provenance only via
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
@@ -45,8 +52,9 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * broadening beyond the single-block public UInt64 add/sub + comparison +
-      bare-assert envelope
+    * broadening beyond the forward-only public UInt64 add/sub + comparison +
+      bare-assert + if/match-literal envelope (block params, loops, let
+      bindings, match expressions, aggregates, effects)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -107,6 +115,10 @@ inductive NormalizeErrorV1 where
   | identity (detail : String)
   | wire (error : SemanticWireErrorV1)
   deriving Repr
+
+/-- Default for mutual-partial inhabitedness only; never produced by the
+    lowering paths (they always fail or succeed explicitly). -/
+instance : Inhabited NormalizeErrorV1 := ⟨.unsupported "unreachable"⟩
 
 private def failUnsupported (detail : String) : Except NormalizeErrorV1 α :=
   .error (.unsupported detail)
@@ -247,14 +259,68 @@ private def stateLookup (table : StateTableV1) (name : String) :
   table.rows.findSome? fun (n, sid, tid) =>
     if n == name then some (sid, tid) else none
 
-/-- Lowering accumulator for one callable body. The interner is live:
-comparison/Bool-literal lowering interns shapes on first actual use so
-existing programs keep byte-identical type tables. -/
+/-- Multi-block lowering accumulator for one callable body. The interner is
+live: comparison/Bool-literal lowering interns shapes on first actual use so
+existing programs keep byte-identical type tables. `blocks` holds completed
+blocks in id order; `instructions` accumulates the current open block. -/
 structure BodyStateV1 where
+  blocks : Array BlockV1
   instructions : Array InstructionV1
   nextValueId : ValueIdV1
   env : LocalEnvV1
   interner : TypeInternerV1
+
+/-- Seal the current open block with a terminator and start a fresh one. Block
+ids are dense (`id == blocks.size` at seal time) and every edge emitted by
+this normalizer points forward, so `loopBounds` stays empty. -/
+private def sealCurrentBlock (st : BodyStateV1) (term : TerminatorV1) : BodyStateV1 :=
+  { st with
+    blocks := st.blocks.push {
+      id := UInt32.ofNat st.blocks.size
+      params := #[]
+      instructions := st.instructions
+      terminator := term
+    }
+    instructions := #[] }
+
+/-- Whether the current control-flow path is still open (can take more
+statements / needs an explicit or implicit return) or closed (already ended
+in return; a following statement is dead code). -/
+inductive PathStatusV1 where
+  | open_
+  | closed
+  deriving BEq
+
+/-- Rewrite the terminator of an already-sealed block (back-patch target used
+by control-flow lowering; out-of-range indices are a no-op by construction
+discipline and never occur from the paths below). -/
+private def patchTerminatorAt (st : BodyStateV1) (blockIdx : Nat)
+    (f : TerminatorV1 → TerminatorV1) : BodyStateV1 :=
+  match st.blocks[blockIdx]? with
+  | none => st
+  | some blk =>
+      { st with blocks := st.blocks.set! blockIdx { blk with terminator := f blk.terminator } }
+
+/-- Back-patch the else target of a branch terminator. -/
+private def patchBranchElse (st : BodyStateV1) (blockIdx : Nat) (elseId : BlockIdV1) :
+    BodyStateV1 :=
+  patchTerminatorAt st blockIdx fun
+    | .branch cond thenT _ => .branch cond thenT { blockId := elseId, args := #[] }
+    | t => t
+
+/-- Back-patch a jump terminator's target block. -/
+private def patchJumpTarget (st : BodyStateV1) (blockIdx : Nat) (targetId : BlockIdV1) :
+    BodyStateV1 :=
+  patchTerminatorAt st blockIdx fun
+    | .jump _ => .jump { blockId := targetId, args := #[] }
+    | t => t
+
+/-- Back-patch a switch terminator's cases and default target. -/
+private def patchSwitch (st : BodyStateV1) (blockIdx : Nat)
+    (cases : Array SwitchCaseV1) (defaultTarget : Option JumpTargetV1) : BodyStateV1 :=
+  patchTerminatorAt st blockIdx fun
+    | .switch scrut _ _ => .switch scrut cases defaultTarget
+    | t => t
 
 private def lowerPlace
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
@@ -388,10 +454,32 @@ private partial def lowerExpr
   | .localCall _ _ => failUnsupported "S1 normalizer does not support localCall"
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
 
-private def lowerStmt
+mutual
+
+private partial def lowerStmts
+    (stmts : Array SrcStmt) (resultTid : TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
+  let mut st := st
+  let mut i : Nat := 0
+  for stmt in stmts do
+    let (st', status) ← lowerStmt stmt resultTid st states
+    st := st'
+    if status == .closed then
+      if i + 1 < stmts.size then
+        return ← failUnsupported
+          "S1 normalizer does not support statements after return"
+      else
+        return (st, .closed)
+    i := i + 1
+  pure (st, .open_)
+
+/-- Lower one statement into the current open block, sealing blocks for
+control-flow. Returns the builder and whether this path is closed. -/
+private partial def lowerStmt
     (stmt : SrcStmt) (resultTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) :
-    Except NormalizeErrorV1 (BodyStateV1 × Option (Option ValueIdV1)) :=
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   match stmt with
   | .assign target value => do
       match target with
@@ -402,12 +490,12 @@ private def lowerStmt
           -- lowers unshadowed state assigns; param assigns fail closed.
           match envLookup st.env key with
           | some _ =>
-              failUnsupported
-                s!"S1 assign target must be a state place, not a param '{key}'"
+              return (← failUnsupported
+                s!"S1 assign target must be a state place, not a param '{key}'")
           | none =>
               match stateLookup states key with
               | none =>
-                  failUnsupported s!"S1 assign target '{key}' must be a state place"
+                  return (← failUnsupported s!"S1 assign target '{key}' must be a state place")
               | some (sid, expectedTid) =>
                   let (vid, tid, st1) ←
                     lowerExpr value expectedTid st states
@@ -420,7 +508,7 @@ private def lowerStmt
                   }
                   pure ({ st1 with
                     instructions := st1.instructions.push instr
-                  }, none)
+                  }, .open_)
       | .field _ _ => failUnsupported "S1 assign does not support field targets"
       | .index _ _ => failUnsupported "S1 assign does not support index targets"
   -- Explicit bare `return` is rejected at the S1 gate so product compile never
@@ -433,7 +521,7 @@ private def lowerStmt
       let (vid, tid, st1) ← lowerExpr e resultTid st states
       unless tid == resultTid do
         return ← failUnsupported "S1 return expression type mismatch"
-      pure (st1, some (some vid))
+      pure (sealCurrentBlock st1 (TerminatorV1.return_ (some vid)), .closed)
   | .assert_ condition errorRef => do
       match errorRef with
       | some _ =>
@@ -450,45 +538,215 @@ private def lowerStmt
           }
           pure ({ st1 with
             instructions := st1.instructions.push instr
-          }, none)
+          }, .open_)
+  | .if_ condition thenBlock elseBlock? => do
+      let (i1, boolTid) := internShape st.interner .bool
+      let st0 := { st with interner := i1 }
+      let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states
+      unless condTid == boolTid do
+        return ← failUnsupported "S1 if condition must be Bool"
+      -- Seal the condition block with a placeholder else target; nested
+      -- control-flow inside a branch may seal many blocks, so exact else/join
+      -- ids are only known after each branch completes (back-patch below).
+      let condIdx := st1.blocks.size
+      let thenId := UInt32.ofNat (condIdx + 1)
+      let st2 := sealCurrentBlock st1 (.branch condVid
+        { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
+      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states
+      let (stT, thenJump?) := match thenStatus with
+        | .closed => (stT, none)
+        | .open_ =>
+            let jumpIdx := stT.blocks.size
+            (sealCurrentBlock stT (.jump { blockId := 0, args := #[] }), some jumpIdx)
+      -- elseId is only known AFTER the then block completes (nested control
+      -- flow may have sealed many blocks in between).
+      let elseId := UInt32.ofNat stT.blocks.size
+      let (stE, elseJump?, elseClosed) ← match elseBlock? with
+        | some elseBlock => do
+            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states
+            match status with
+            | .closed => pure (stE0, none, true)
+            | .open_ =>
+                let jumpIdx := stE0.blocks.size
+                pure (sealCurrentBlock stE0 (.jump { blockId := 0, args := #[] }),
+                  some jumpIdx, false)
+        -- Absent else: no block at all; the branch else target is the join.
+        | none => pure (stT, none, false)
+      match thenStatus, elseClosed with
+      | .closed, true =>
+          -- Both branches returned: no join block; only the else target needs
+          -- a back-patch. Ids stay dense (no slot is burned for a join).
+          pure (patchBranchElse stE condIdx elseId, .closed)
+      | _, _ =>
+          let joinId := UInt32.ofNat stE.blocks.size
+          -- Without an else block the else path falls directly into the join.
+          let elseTarget := if elseBlock?.isSome then elseId else joinId
+          let stP := patchBranchElse stE condIdx elseTarget
+          let stP := match thenJump? with
+            | some j => patchJumpTarget stP j joinId
+            | none => stP
+          let stP := match elseJump? with
+            | some j => patchJumpTarget stP j joinId
+            | none => stP
+          pure (stP, .open_)
+  | .match_ scrutinee arms => do
+      if arms.isEmpty then
+        return ← failUnsupported "S1 match requires at least one arm"
+      let (iU, u64Tid) := internShape st.interner (.uint 64)
+      let (iB, boolTid) := internShape iU .bool
+      let st0 := { st with interner := iB }
+      -- Scrutinee must be UInt64 or Bool in this envelope.
+      let (scrutVid, scrutTid, st1) ←
+        match scrutinee with
+        | .literal (.bool _) =>
+            lowerExpr scrutinee boolTid st0 states
+        | _ =>
+            lowerExpr scrutinee u64Tid st0 states
+      unless scrutTid == u64Tid || scrutTid == boolTid do
+        return ← failUnsupported "S1 match scrutinee must be UInt64 or Bool"
+      -- Split arms into literal cases and exactly-one catch-all (wildcard or
+      -- bind); CheckV1 already requires a catch-all for UInt64/Bool scrutinee.
+      let mut caseArms : Array (UInt64 × Bool × SrcBlock) := #[]
+      let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcBlock) := none
+      for arm in arms do
+        match arm.pattern with
+        | .literal lit =>
+            match lit with
+            | .integer magnitude =>
+                unless scrutTid == u64Tid do
+                  return ← failUnsupported
+                    "S1 match integer literal requires a UInt64 scrutinee"
+                unless magnitude < UInt64.size do
+                  return ← failUnsupported "S1 match integer literal is out of range"
+                if caseArms.any (fun (v, _, _) => v == UInt64.ofNat magnitude) then
+                  return ← failUnsupported "S1 match has duplicate literal cases"
+                caseArms := caseArms.push (UInt64.ofNat magnitude, false, arm.body)
+            | .bool value =>
+                unless scrutTid == boolTid do
+                  return ← failUnsupported
+                    "S1 match Bool literal requires a Bool scrutinee"
+                if caseArms.any (fun (_, b, _) => b == value) then
+                  return ← failUnsupported "S1 match has duplicate literal cases"
+                caseArms := caseArms.push (UInt64.ofNat (if value then 1 else 0), true, arm.body)
+            | .string _ =>
+                return ← failUnsupported "S1 match does not support string literal patterns"
+        | .wildcard =>
+            if defaultArm?.isSome then
+              return ← failUnsupported "S1 match has more than one catch-all arm"
+            defaultArm? := some (none, arm.body)
+        | .bind name =>
+            if defaultArm?.isSome then
+              return ← failUnsupported "S1 match has more than one catch-all arm"
+            defaultArm? := some (some name, arm.body)
+        | .constructor _ _ =>
+            return ← failUnsupported "S1 match does not support constructor patterns"
+      let (defaultBinder?, defaultBody) ← match defaultArm? with
+        | some da => pure da
+        | none =>
+            return ← failUnsupported
+              "S1 match on UInt64/Bool requires a catch-all arm"
+      -- Case order on the wire follows literal-arm source order. A catch-all-
+      -- only match has no switch cases and is materialized as a plain jump
+      -- (the structure gate requires nonempty switch cases).
+      let scrutIdx := st1.blocks.size
+      if caseArms.isEmpty then
+        let st2 := sealCurrentBlock st1 (.jump { blockId := 0, args := #[] })
+        let stD := match defaultBinder? with
+          | none => st2
+          | some name => { st2 with env := envInsert st2.env (raw name) scrutVid scrutTid }
+        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states
+        match dStatus with
+        | .closed =>
+            -- Seal a direct jump for the scrutinee block into the default arm.
+            pure (patchJumpTarget stD scrutIdx (UInt32.ofNat scrutIdx.succ), .closed)
+        | .open_ =>
+            -- The default arm is open; its block continues as the current one,
+            -- so the scrutinee block jumps straight into it.
+            let stP := patchJumpTarget stD scrutIdx (UInt32.ofNat scrutIdx.succ)
+            pure (stP, .open_)
+      else
+        let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
+        -- Lower each literal arm body into its own block; record exact case
+        -- targets and jump-back-patch slots as we go.
+        let mut stA := st2
+        let mut caseTargets : Array BlockIdV1 := #[]
+        let mut jumpSlots : Array Nat := #[]
+        let mut closedCount : Nat := 0
+        for (_, _, body) in caseArms do
+          caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
+          let (stB, status) ← lowerStmts body.statements resultTid stA states
+          stA := stB
+          match status with
+          | .closed => closedCount := closedCount + 1
+          | .open_ =>
+              jumpSlots := jumpSlots.push stA.blocks.size
+              stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+        -- Default arm: optional binder maps to the scrutinee value.
+        let defaultId := UInt32.ofNat stA.blocks.size
+        let stD := match defaultBinder? with
+          | none => stA
+          | some name => { stA with env := envInsert stA.env (raw name) scrutVid scrutTid }
+        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states
+        stA := stD
+        match dStatus with
+        | .closed => closedCount := closedCount + 1
+        | .open_ =>
+            jumpSlots := jumpSlots.push stA.blocks.size
+            stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+        let switchCases : Array SwitchCaseV1 := caseArms.mapIdx fun i (value, isBool, _) =>
+          {
+            typeId := if isBool then boolTid else u64Tid
+            valueBytes :=
+              if isBool then encodeBool (value == 1)
+              else encodeU64le value
+            target := { blockId := caseTargets[i]!, args := #[] }
+          }
+        if closedCount == caseArms.size + 1 then
+          -- Every arm returned: no join block; only the switch needs the
+          -- final case/default targets.
+          let stP := patchSwitch stA scrutIdx switchCases (some {
+            blockId := defaultId, args := #[] })
+          pure (stP, .closed)
+        else
+          let joinId := UInt32.ofNat stA.blocks.size
+          let stP := patchSwitch stA scrutIdx switchCases (some {
+            blockId := defaultId, args := #[] })
+          let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
+          pure (stP, .open_)
   | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
-  | .if_ _ _ _ => failUnsupported "S1 normalizer does not support if"
-  | .match_ _ _ => failUnsupported "S1 normalizer does not support match statements"
   | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
   | .revert _ _ => failUnsupported "S1 normalizer does not support revert"
   | .emit _ _ => failUnsupported "S1 normalizer does not support emit"
   | .call _ => failUnsupported "S1 normalizer does not support call"
   | .schedule _ => failUnsupported "S1 normalizer does not support schedule"
 
+end
+
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
     (interner : TypeInternerV1) (states : StateTableV1)
     (allowImplicitReturnNone : Bool) :
-    Except NormalizeErrorV1 (Array InstructionV1 × TerminatorV1 × TypeInternerV1) := do
+    Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
   let mut env := emptyEnv
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
-  let mut st : BodyStateV1 := {
+  let st : BodyStateV1 := {
+    blocks := #[]
     instructions := #[]
     nextValueId := UInt32.ofNat params.size
     env := env
     interner := interner
   }
-  let mut term : Option (Option ValueIdV1) := none
-  for stmt in body.statements do
-    match term with
-    | some _ =>
-        return ← failUnsupported
-          "S1 normalizer does not support statements after return"
-    | none =>
-        let (st', t?) ← lowerStmt stmt resultTid st states
-        st := st'
-        term := t?
-  match term with
-  | some v => pure (st.instructions, TerminatorV1.return_ v, st.interner)
-  | none =>
+  let (st', status) ← lowerStmts body.statements resultTid st states
+  match status with
+  | .closed =>
+      -- Body ended in return on every path; the trailing open block (if any
+      -- instructions were sealed already) is complete.
+      pure (st'.blocks, st'.interner)
+  | .open_ =>
       if allowImplicitReturnNone then
-        pure (st.instructions, TerminatorV1.return_ none, st.interner)
+        let st'' := sealCurrentBlock st' (TerminatorV1.return_ none)
+        pure (st''.blocks, st''.interner)
       else
         failUnsupported "S1 normalizer requires explicit return for entry/view"
 
@@ -514,7 +772,7 @@ private def lowerParams
 private def mkCallable
     (id : CallableIdV1) (kind : CallableKindV1) (name : Option String)
     (params : Array ParameterV1) (result : CallableResultV1)
-    (instructions : Array InstructionV1) (terminator : TerminatorV1) :
+    (blocks : Array BlockV1) :
     CallableV1 :=
   {
     id
@@ -523,12 +781,7 @@ private def mkCallable
     params
     result
     entryBlock := 0
-    blocks := #[{
-      id := 0
-      params := #[]
-      instructions
-      terminator
-    }]
+    blocks
     loopBounds := #[]
     invariantSteps := none
   }
@@ -581,12 +834,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (instrs, term, interner''') ←
+        let (blocks, interner''') ←
           lowerBlock d.body params unitTid interner stateTable true
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
-          { typeId := unitTid, visibility := VisibilityV1.public_ } instrs term)
+          { typeId := unitTid, visibility := VisibilityV1.public_ } blocks)
         callableId := callableId + 1
     | .entry e =>
         let (interner', params) ← lowerParams e.params interner
@@ -594,12 +847,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
-        let (instrs, term, interner''') ←
+        let (blocks, interner''') ←
           lowerBlock e.body params resultTid interner stateTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
         callableId := callableId + 1
     | .view v =>
         let (interner', params) ← lowerParams v.params interner
@@ -607,12 +860,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (instrs, term, interner''') ←
+        let (blocks, interner''') ←
           lowerBlock v.body params resultTid interner stateTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
         callableId := callableId + 1
     | .struct _ =>
         return ← failUnsupported "S1 normalizer does not support struct"

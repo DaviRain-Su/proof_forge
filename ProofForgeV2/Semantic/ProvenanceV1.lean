@@ -89,6 +89,10 @@ inductive ProvenanceBuildErrorV1 where
   | unsupported (detail : String)
   deriving Repr
 
+/-- Default for mutual-partial inhabitedness only; never produced by the
+    attribution paths (they always fail or succeed explicitly). -/
+instance : Inhabited ProvenanceBuildErrorV1 := ⟨.unsupported "unreachable"⟩
+
 private def failIdentity (detail : String) : Except ProvenanceBuildErrorV1 α :=
   .error (.identity detail)
 
@@ -391,8 +395,16 @@ private def stateHas (s : StateNamesV1) (name : String) : Bool :=
 private structure BodyAttrV1 where
   nextValueId : ValueIdV1
   nextInstr : Nat
+  blockId : Nat
+  nextBlockId : Nat
   env : AttrEnvV1
   acc : AttrAccumV1
+
+/-- Mirror of the normalizer's per-path status for attribution. -/
+private inductive AttrPathStatusV1 where
+  | open_
+  | closed
+  deriving BEq
 
 private def attrPlace
     (callableId : CallableIdV1)
@@ -411,14 +423,13 @@ private def attrPlace
           -- State load instruction + result value at the Place.Name node.
           let vid := st.nextValueId
           let instrEntity :=
-            SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st.nextInstr)
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId) (UInt32.ofNat st.nextInstr)
           let valEntity := SemanticEntityRefV1.value callableId vid
           let acc1 ← attrPushPath st.acc idx instrEntity placePath
           let acc2 ← attrPushPath acc1 idx valEntity placePath
-          pure (vid, {
+          pure (vid, { st with
             nextValueId := vid + 1
             nextInstr := st.nextInstr + 1
-            env := st.env
             acc := acc2
           })
   | .field _ _ => failUnsupported "S2 provenance does not support field places"
@@ -451,15 +462,14 @@ private partial def attrExpr
         let _ := lVid; let _ := rVid
         let vid := st2.nextValueId
         let instrEntity :=
-          SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st2.nextInstr)
+          SemanticEntityRefV1.instruction callableId (UInt32.ofNat st2.blockId) (UInt32.ofNat st2.nextInstr)
         let valEntity := SemanticEntityRefV1.value callableId vid
         -- Binary instruction/result bind the binary expression node.
         let acc1 ← attrPushPath st2.acc idx instrEntity exprPath
         let acc2 ← attrPushPath acc1 idx valEntity exprPath
-        pure (vid, {
+        pure (vid, { st2 with
           nextValueId := vid + 1
           nextInstr := st2.nextInstr + 1
-          env := st2.env
           acc := acc2
         })
       else
@@ -471,29 +481,27 @@ private partial def attrExpr
             return ← failUnsupported "S2 provenance UInt64 literal out of range"
           let vid := st.nextValueId
           let instrEntity :=
-            SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st.nextInstr)
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId) (UInt32.ofNat st.nextInstr)
           let valEntity := SemanticEntityRefV1.value callableId vid
           -- Op.Literal and its result bind the literal expression itself.
           let acc1 ← attrPushPath st.acc idx instrEntity exprPath
           let acc2 ← attrPushPath acc1 idx valEntity exprPath
-          pure (vid, {
+          pure (vid, { st with
             nextValueId := vid + 1
             nextInstr := st.nextInstr + 1
-            env := st.env
             acc := acc2
           })
       | .bool _ => do
           let vid := st.nextValueId
           let instrEntity :=
-            SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st.nextInstr)
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st.blockId) (UInt32.ofNat st.nextInstr)
           let valEntity := SemanticEntityRefV1.value callableId vid
           -- Bool Op.Literal and its result bind the literal expression itself.
           let acc1 ← attrPushPath st.acc idx instrEntity exprPath
           let acc2 ← attrPushPath acc1 idx valEntity exprPath
-          pure (vid, {
+          pure (vid, { st with
             nextValueId := vid + 1
             nextInstr := st.nextInstr + 1
-            env := st.env
             acc := acc2
           })
       | .string _ =>
@@ -503,11 +511,34 @@ private partial def attrExpr
   | .localCall _ _ => failUnsupported "S2 provenance does not support localCall"
   | .match_ _ _ => failUnsupported "S2 provenance does not support match expr"
 
-private def attrStmt
+mutual
+
+/-- Attribute one statement list in the current open block (mirrors
+    NormalizeV1.lowerStmts: closed path + trailing statements fail). -/
+private partial def attrStmts
+    (callableId : CallableIdV1)
+    (stmts : Array SrcStmt) (blockPath : NormalizedSyntacticPathV1)
+    (st : BodyAttrV1) (states : StateNamesV1) (idx : OriginIndexV1) :
+    Except ProvenanceBuildErrorV1 (BodyAttrV1 × AttrPathStatusV1) := do
+  let mut st := st
+  let mut si : Nat := 0
+  for stmt in stmts do
+    let stmtPath := childPath blockPath "Block" "statements" si
+    let (st', status) ← attrStmt callableId stmt stmtPath st states idx
+    st := st'
+    if status == .closed then
+      if si + 1 < stmts.size then
+        return ← failUnsupported "S2 provenance: statement after return"
+      else
+        return (st, .closed)
+    si := si + 1
+  pure (st, .open_)
+
+private partial def attrStmt
     (callableId : CallableIdV1)
     (stmt : SrcStmt) (stmtPath : NormalizedSyntacticPathV1)
     (st : BodyAttrV1) (states : StateNamesV1) (idx : OriginIndexV1) :
-    Except ProvenanceBuildErrorV1 (BodyAttrV1 × Option Unit) := do
+    Except ProvenanceBuildErrorV1 (BodyAttrV1 × AttrPathStatusV1) := do
   match stmt with
   | .assign target value => do
       match target with
@@ -524,33 +555,25 @@ private def attrStmt
               let valuePath := directChild stmtPath "Stmt.Assign" "value"
               let (_vid, st1) ← attrExpr callableId value valuePath st states idx
               let instrEntity :=
-                SemanticEntityRefV1.instruction callableId 0
-                  (UInt32.ofNat st1.nextInstr)
+                SemanticEntityRefV1.instruction callableId
+                  (UInt32.ofNat st.blockId) (UInt32.ofNat st1.nextInstr)
               -- StateStore binds the assign statement node.
               let acc1 ← attrPushPath st1.acc idx instrEntity stmtPath
-              pure ({
-                nextValueId := st1.nextValueId
+              pure ({ st1 with
                 nextInstr := st1.nextInstr + 1
-                env := st1.env
                 acc := acc1
-              }, none)
+              }, .open_)
       | .field _ _ => failUnsupported "S2 provenance assign field"
       | .index _ _ => failUnsupported "S2 provenance assign index"
   | .return_ none =>
-      -- Terminator binds the return statement.
-      let termEntity := SemanticEntityRefV1.terminator callableId 0
-      let acc1 ← attrPushPath st.acc idx termEntity stmtPath
-      pure ({ st with acc := acc1 }, some ())
+      failUnsupported "S2 provenance does not support bare return"
   | .return_ (some e) => do
       let valuePath := directChild stmtPath "Stmt.Return" "value"
       let (_vid, st1) ← attrExpr callableId e valuePath st states idx
-      let termEntity := SemanticEntityRefV1.terminator callableId 0
+      let termEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat st.blockId)
       let acc1 ← attrPushPath st1.acc idx termEntity stmtPath
-      pure ({ st1 with acc := acc1 }, some ())
-  | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
-  | .if_ _ _ _ => failUnsupported "S2 provenance does not support if"
-  | .match_ _ _ => failUnsupported "S2 provenance does not support match stmt"
-  | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
+      pure ({ st1 with acc := acc1 }, .closed)
   | .assert_ condition errorRef => do
       match errorRef with
       | some _ =>
@@ -559,20 +582,144 @@ private def attrStmt
           let condPath := directChild stmtPath "Stmt.Assert" "condition"
           let (_vid, st1) ← attrExpr callableId condition condPath st states idx
           let instrEntity :=
-            SemanticEntityRefV1.instruction callableId 0
-              (UInt32.ofNat st1.nextInstr)
+            SemanticEntityRefV1.instruction callableId
+              (UInt32.ofNat st.blockId) (UInt32.ofNat st1.nextInstr)
           -- Void Op.Assert binds the assert statement node (no value entity).
           let acc1 ← attrPushPath st1.acc idx instrEntity stmtPath
-          pure ({
-            nextValueId := st1.nextValueId
+          pure ({ st1 with
             nextInstr := st1.nextInstr + 1
-            env := st1.env
             acc := acc1
-          }, none)
+          }, .open_)
+  | .if_ condition thenBlock elseBlock? => do
+      let condPath := directChild stmtPath "Stmt.If" "condition"
+      let (_condVid, st1) ← attrExpr callableId condition condPath st states idx
+      -- Branch terminator binds the if statement.
+      let branchEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat st.blockId)
+      let accB ← attrPushPath st1.acc idx branchEntity stmtPath
+      -- Then block: fresh block id in creation order.
+      let thenId := st1.nextBlockId
+      let thenPath := directChild stmtPath "Stmt.If" "thenBlock"
+      let accT ← attrPushPath accB idx
+        (SemanticEntityRefV1.block callableId (UInt32.ofNat thenId)) thenPath
+      let stT0 : BodyAttrV1 := { st1 with
+        blockId := thenId, nextBlockId := thenId + 1, nextInstr := 0, acc := accT }
+      let (stT, thenStatus) ← attrStmts callableId
+        thenBlock.statements thenPath stT0 states idx
+      let (stT, thenOpen) ← match thenStatus with
+        | .closed => pure (stT, false)
+        | .open_ => do
+            -- Open then-branch gets a jump terminator bound to the if statement.
+            let jumpEntity := SemanticEntityRefV1.terminator callableId
+              (UInt32.ofNat stT.blockId)
+            let accJ ← attrPushPath stT.acc idx jumpEntity stmtPath
+            pure ({ stT with acc := accJ }, true)
+      -- Else path: an absent else falls into the join without a block or
+      -- terminator entity (matching the normalizer exactly).
+      let (stE, elseJumpBinds, elseClosed) ← match elseBlock? with
+        | some elseBlock => do
+            let elseId := stT.nextBlockId
+            let elsePath := directChild stmtPath "Stmt.If" "elseBlock"
+            let accE ← attrPushPath stT.acc idx
+              (SemanticEntityRefV1.block callableId (UInt32.ofNat elseId)) elsePath
+            let stE0 : BodyAttrV1 := { stT with
+              blockId := elseId, nextBlockId := elseId + 1, nextInstr := 0, acc := accE }
+            let (stE1, status) ← attrStmts callableId
+              elseBlock.statements elsePath stE0 states idx
+            match status with
+            | .closed => pure (stE1, false, true)
+            | .open_ => do
+                let jumpEntity := SemanticEntityRefV1.terminator callableId
+                  (UInt32.ofNat stE1.blockId)
+                let accJ ← attrPushPath stE1.acc idx jumpEntity stmtPath
+                pure ({ stE1 with acc := accJ }, true, false)
+        | none => pure (stT, false, false)
+      if !thenOpen && elseClosed then
+        pure (stE, .closed)
+      else
+        -- Join block: nearest producing node is the if statement itself.
+        let joinId := stE.nextBlockId
+        let accJoin ← attrPushPath stE.acc idx
+          (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
+        pure ({ stE with
+          blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
+          acc := accJoin }, .open_)
+  | .match_ scrutinee arms => do
+      if arms.isEmpty then
+        return ← failUnsupported "S2 provenance match requires at least one arm"
+      let scrutPath := directChild stmtPath "Stmt.Match" "scrutinee"
+      let (_scrutVid, st1) ← attrExpr callableId scrutinee scrutPath st states idx
+      -- Split arms exactly like the normalizer (literal cases / catch-all).
+      let mut caseIdxs : Array Nat := #[]
+      let mut defaultIdx? : Option Nat := none
+      let mut ai : Nat := 0
+      for arm in arms do
+        match arm.pattern with
+        | .literal _ =>
+            caseIdxs := caseIdxs.push ai
+        | .wildcard | .bind _ =>
+            if defaultIdx?.isSome then
+              return ← failUnsupported "S2 provenance match has multiple catch-alls"
+            defaultIdx? := some ai
+        | .constructor _ _ =>
+            return ← failUnsupported "S2 provenance does not support constructor patterns"
+        ai := ai + 1
+      let defaultIdx ← match defaultIdx? with
+        | some d => pure d
+        | none =>
+            return ← failUnsupported
+              "S2 provenance match on UInt64/Bool requires a catch-all arm"
+      -- Switch terminator (or plain jump for a catch-all-only match) binds the
+      -- match statement.
+      let termEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat st.blockId)
+      let accS ← attrPushPath st1.acc idx termEntity stmtPath
+      let stS := { st1 with acc := accS }
+      let orderedArmIdxs := caseIdxs ++ #[defaultIdx]
+      let mut stA := stS
+      let mut openCount : Nat := 0
+      for armIdx in orderedArmIdxs do
+        let some arm := arms[armIdx]? |
+          return ← failUnsupported "S2 provenance match arm index out of range"
+        let armPath := childPath stmtPath "Stmt.Match" "arms" armIdx
+        let armBlockId := stA.nextBlockId
+        let bodyPath := directChild armPath "StmtMatchArm" "body"
+        let accA ← attrPushPath stA.acc idx
+          (SemanticEntityRefV1.block callableId (UInt32.ofNat armBlockId)) bodyPath
+        -- A bind arm's binder maps to the scrutinee value (same env slot).
+        let envA := match arm.pattern with
+          | .bind name => envInsertAttr stA.env (raw name) _scrutVid
+          | _ => stA.env
+        let stA0 : BodyAttrV1 := { stA with
+          blockId := armBlockId, nextBlockId := armBlockId + 1, nextInstr := 0,
+          env := envA, acc := accA }
+        let (stB, status) ← attrStmts callableId arm.body.statements bodyPath stA0 states idx
+        stA := stB
+        match status with
+        | .closed => pure ()
+        | .open_ => do
+            let jumpEntity := SemanticEntityRefV1.terminator callableId
+              (UInt32.ofNat stA.blockId)
+            let accJ ← attrPushPath stA.acc idx jumpEntity stmtPath
+            stA := { stA with acc := accJ }
+            openCount := openCount + 1
+      if openCount == 0 then
+        pure (stA, .closed)
+      else
+        let joinId := stA.nextBlockId
+        let accJoin ← attrPushPath stA.acc idx
+          (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
+        pure ({ stA with
+          blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
+          acc := accJoin }, .open_)
+  | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
+  | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
   | .revert _ _ => failUnsupported "S2 provenance does not support revert"
   | .emit _ _ => failUnsupported "S2 provenance does not support emit"
   | .call _ => failUnsupported "S2 provenance does not support call"
   | .schedule _ => failUnsupported "S2 provenance does not support schedule"
+
+end
 
 private def attrBlock
     (callableId : CallableIdV1)
@@ -582,38 +729,30 @@ private def attrBlock
     (acc0 : AttrAccumV1)
     (allowImplicitReturnNone : Bool) :
     Except ProvenanceBuildErrorV1 AttrAccumV1 := do
-  -- Block entity
+  -- Block 0 entity
   let accB ← attrPushPath acc0 idx (SemanticEntityRefV1.block callableId 0) blockPath
   let mut env : AttrEnvV1 := ⟨#[]⟩
   for (name, vid) in params do
     env := envInsertAttr env name vid
-  let mut st : BodyAttrV1 := {
+  let st : BodyAttrV1 := {
     nextValueId := UInt32.ofNat params.size
     nextInstr := 0
+    blockId := 0
+    nextBlockId := 1
     env := env
     acc := accB
   }
-  let mut returned := false
-  let mut si : Nat := 0
-  for stmt in body.statements do
-    if returned then
-      return ← failUnsupported "S2 provenance: statement after return"
-    let stmtPath := childPath blockPath "Block" "statements" si
-    let (st', ret?) ← attrStmt callableId stmt stmtPath st states idx
-    st := st'
-    match ret? with
-    | some _ => returned := true
-    | none => pure ()
-    si := si + 1
-  if !returned then
-    if allowImplicitReturnNone then
-      -- Implicit return none: terminator binds the body block (nearest producer).
-      let termEntity := SemanticEntityRefV1.terminator callableId 0
-      attrPushPath st.acc idx termEntity blockPath
-    else
-      failUnsupported "S2 provenance requires explicit return for entry/view"
-  else
-    pure st.acc
+  let (st', status) ← attrStmts callableId body.statements blockPath st states idx
+  match status with
+  | .closed => pure st'.acc
+  | .open_ =>
+      if allowImplicitReturnNone then
+        -- Implicit return none: terminator binds the body block (nearest producer).
+        let termEntity := SemanticEntityRefV1.terminator callableId
+          (UInt32.ofNat st'.blockId)
+        attrPushPath st'.acc idx termEntity blockPath
+      else
+        failUnsupported "S2 provenance requires explicit return for entry/view"
 
 /-- Collect requirement contribution origin paths (all producing sites). -/
 private structure ReqSitesV1 where
@@ -943,37 +1082,37 @@ private def attributeCounterEntitiesV1
 
   -- Implicitly body-interned types (Bool from comparisons/Bool literals) have
   -- no annotation node: bind each unbound type to the first producing
-  -- instruction's recorded origin, in canonical callable/instruction order.
-  -- Annotation-bound types (UInt64/Unit) are already marked, so this is a
-  -- no-op for comparison-free programs and never moves their attribution.
+  -- instruction's recorded origin, in canonical callable/block/instruction
+  -- order. Annotation-bound types (UInt64/Unit) are already marked, so this
+  -- is a no-op for comparison-free programs and never moves their
+  -- attribution.
   for c in data.callables do
-    let some blk := c.blocks[0]? |
-      return ← failUnsupported "S2 provenance: callable missing block 0"
-    let mut ii : Nat := 0
-    for instr in blk.instructions do
-      match instr.result with
-      | none => pure ()
-      | some r =>
-          let ti := r.typeId.toNat
-          if ti < typeBound.size && !typeBound[ti]! then
-            let entity := SemanticEntityRefV1.instruction c.id 0 (UInt32.ofNat ii)
-            let kb ← match encodeSemanticEntityRefV1 entity with
-              | .ok b => pure b
-              | .error e => return ← .error (.wire e)
-            match acc.table.get? kb with
-            | some (_, origins) =>
-                match origins[0]? with
-                | some o =>
-                    acc ← attrPush acc (.typeRef r.typeId) o
-                    typeBound := typeBound.set! ti true
-                | none =>
-                    return ← failUnsupported
-                      s!"S2 provenance: type TypeId {ti} has no producing source node"
-            | none =>
-                return ← failUnsupported
-                  s!"S2 provenance: instruction for TypeId {ti} has no recorded origin"
-          else pure ()
-      ii := ii + 1
+    for blk in c.blocks do
+      let mut ii : Nat := 0
+      for instr in blk.instructions do
+        match instr.result with
+        | none => pure ()
+        | some r =>
+            let ti := r.typeId.toNat
+            if ti < typeBound.size && !typeBound[ti]! then
+              let entity := SemanticEntityRefV1.instruction c.id blk.id (UInt32.ofNat ii)
+              let kb ← match encodeSemanticEntityRefV1 entity with
+                | .ok b => pure b
+                | .error e => return ← .error (.wire e)
+              match acc.table.get? kb with
+              | some (_, origins) =>
+                  match origins[0]? with
+                  | some o =>
+                      acc ← attrPush acc (.typeRef r.typeId) o
+                      typeBound := typeBound.set! ti true
+                  | none =>
+                      return ← failUnsupported
+                        s!"S2 provenance: type TypeId {ti} has no producing source node"
+              | none =>
+                  return ← failUnsupported
+                    s!"S2 provenance: instruction for TypeId {ti} has no recorded origin"
+            else pure ()
+        ii := ii + 1
 
   -- Ensure every type got a binding (fail closed if interned type unused).
   for i in [:data.types.size] do
@@ -1075,8 +1214,22 @@ private def finalizeOriginMap
       | .error e => return ← .error (.wire e)
     match acc.table.get? kb with
     | none =>
+        let desc := match entity with
+          | .typeRef i => s!"typeRef {i}"
+          | .constant i => s!"constant {i}"
+          | .state i => s!"state {i}"
+          | .event i => s!"event {i}"
+          | .errorRef i => s!"errorRef {i}"
+          | .callable i => s!"callable {i}"
+          | .block c b => s!"block {c}/{b}"
+          | .instruction c b i => s!"instruction {c}/{b}/{i}"
+          | .terminator c b => s!"terminator {c}/{b}"
+          | .value c v => s!"value {c}/{v}"
+          | .effect c e => s!"effect {c}/{e}"
+          | .invariant i => s!"invariant {i}"
+          | .requirement i => s!"requirement {i}"
         return ← failUnsupported
-          s!"S2 provenance missing attribution for entity"
+          s!"S2 provenance missing attribution for entity {desc}"
     | some (_, origins) =>
         let sorted ← sortOriginsUnique origins
         bindings := bindings.push { entity, origins := sorted }
