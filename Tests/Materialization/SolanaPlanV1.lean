@@ -1014,6 +1014,125 @@ private unsafe def testRegionValidationNegatives
   | .error (.planInvariant .solana _) => pure ()
   | _ => throw <| IO.userError "validatePlan must reject a statement after a both-returning branch"
 
+/-- Wave E: pureFn + localCall → Plan.fns / Expr.callFn / Operation.callFn. -/
+private unsafe def testFnLocalCall
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "FnCall" <|
+    "  state count : UInt64\n\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n\n" ++
+    "  fn quadruple(x : UInt64) : UInt64 do\n" ++
+    "    return double(double(x))\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := double(i)\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + double(delta)\n" ++
+    "    return quadruple(count)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return double(count)\n"
+  let compiled ← compileSource session text
+    "Examples.FnCall" "<solana-fn-local-call>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.fns.size == 2)
+    s!"FnCall must carry two pureFns, got {plan.fns.size}"
+  expect (plan.fns[0]!.name == "double" && plan.fns[0]!.params.size == 1 &&
+      !plan.fns[0]!.resultIsBool &&
+      plan.fns[0]!.body == #[
+        .returnValue (.checkedAdd (.param 8) (.param 8))])
+    "double fn Plan: name/params/UInt64 result + return x+x"
+  expect (plan.fns[1]!.name == "quadruple" && plan.fns[1]!.params.size == 1 &&
+      !plan.fns[1]!.resultIsBool &&
+      plan.fns[1]!.body == #[
+        .returnValue (.callFn 0 #[.callFn 0 #[.param 8]])])
+    "quadruple fn Plan: nested callFn double(double(x))"
+  let initHandler ← findHandler plan "initialize"
+  expect (initHandler.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .callFn 0 #[.param 8]
+      },
+      .returnNone])
+    "init must store double(i)"
+  let bump ← findHandler plan "bump"
+  expect (bump.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .checkedAdd (.stateLoad 0 8) (.callFn 0 #[.param 8])
+      },
+      .returnValue (.callFn 1 #[.stateLoad 0 8])])
+    "bump must store count+double(delta) and return quadruple(count)"
+  let getHandler ← findHandler plan "get"
+  expect (getHandler.body == #[.returnValue (.callFn 0 #[.stateLoad 0 8])])
+    "get must return double(count)"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  expect (ir.fns.size == 2 && ir.fns[0]!.name == "double" && ir.fns[1]!.name == "quadruple")
+    "IR must lower both pureFn bodies"
+  let overflow := plan.arithmeticOverflowError
+  expect (ir.fns[0]!.operations == #[
+      .loadParam 0 8,
+      .loadParam 1 8,
+      .checkedAdd 2 0 1 overflow,
+      .setReturnData 2])
+    "double IR: load x twice, checkedAdd, setReturnData (rendered as ret)"
+  expect (ir.fns[1]!.operations == #[
+      .loadParam 0 8,
+      .callFn 0 1 #[0],
+      .callFn 0 2 #[1],
+      .setReturnData 2])
+    "quadruple IR: two callFn double with dense destinations"
+  let bumpIR ← findHandlerIR ir "bump"
+  expect (bumpIR.operations == #[
+      .loadState 0 0 8,
+      .loadParam 1 8,
+      .callFn 0 2 #[1],
+      .checkedAdd 3 0 2 overflow,
+      .storeState 0 8 3,
+      .loadState 4 0 8,
+      .callFn 1 5 #[4],
+      .setReturnData 5])
+    "bump IR must call double then quadruple with dense temps"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "FnCall.sbpf-plan"
+  expect (planText.contains ".fn 0 double (-> u64)" &&
+      planText.contains ".fn 1 quadruple (-> u64)" &&
+      planText.contains "ret %2" &&
+      planText.contains "call double" &&
+      planText.contains "call quadruple")
+    "sbpf-plan must render .fn sections, ret, and call sites"
+  expect (planText.contains "%5 = call quadruple %4" ||
+      planText.contains "call quadruple")
+    "sbpf-plan must render the quadruple call site"
+  let idl ← findFile files "FnCall.idl.json"
+  expect (idl.contains "\"fns\": [" &&
+      idl.contains "\"name\":\"double\"" &&
+      idl.contains "\"name\":\"quadruple\"" &&
+      idl.contains "\"argCount\":1" &&
+      idl.contains "\"result\":\"u64\"")
+    "IDL must declare the fns array with name/argCount/result"
+  -- Hand-crafted negative: callFn with out-of-range fnIndex fails validatePlan.
+  let badBump := {
+    bump with
+    body := #[
+      .returnValue (.callFn 99 #[.param 8])
+    ]
+  }
+  expectPlanError "callFn fnIndex out of range" <|
+    validatePlan { plan with entries := plan.entries.map fun e =>
+      if e.name == "bump" then badBump else e }
+  -- Hand-crafted IR negative: callFn with out-of-range index fails validateIR.
+  let badOps := bumpIR.operations.map fun op =>
+    match op with
+    | .callFn _ dest args => .callFn 99 dest args
+    | other => other
+  expectPlanError "IR callFn fnIndex out of range" <|
+    validateIR (withHandlers ir (ir.handlers.map fun h =>
+      if h.name == "bump" then { h with operations := badOps } else h))
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "FnCall IR rebuild must be structure-identical"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1037,6 +1156,7 @@ unsafe def run : IO Unit := do
   testRegionValidationNegatives session
   testAssertElseRejected session
   testValidatePlanNegatives session
+  testFnLocalCall session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

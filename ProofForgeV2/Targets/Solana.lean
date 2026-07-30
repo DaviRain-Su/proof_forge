@@ -99,6 +99,7 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -129,6 +130,15 @@ structure Handler where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
+/-- Pure local function binding (retained Semantic pureFn). Params reuse the
+    handler Param layout; `resultIsBool` selects UInt64 vs Bool return. -/
+structure FnBinding where
+  name : String
+  params : Array Param
+  resultIsBool : Bool
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
 /-- One declared event/error binding: its name and UInt64 argument count. -/
 structure InterfaceBinding where
   name : String
@@ -148,10 +158,10 @@ structure Plan where
   stateAccount : StateAccount
   events : Array InterfaceBinding
   errors : Array InterfaceBinding
+  fns : Array FnBinding
   initializer : Handler
   entries : Array Handler
   deriving BEq, Inhabited, Repr
-
 inductive Check where
   | instructionDataLen (bytes : Nat)
   | ownerCurrentProgram (accountIndex : Nat)
@@ -180,6 +190,7 @@ inductive Operation where
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
+  | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -193,6 +204,14 @@ structure HandlerIR where
   operations : Array Operation
   deriving BEq, Inhabited, Repr
 
+/-- Lowered pureFn body (plan-level temps; returns via setReturnData*/fn ret). -/
+structure FnIR where
+  name : String
+  params : Array Param
+  resultIsBool : Bool
+  operations : Array Operation
+  deriving BEq, Inhabited, Repr
+
 /-- Typed, plan-level sBPF audit IR. It is intentionally not an ELF or an
 assembler input until the pinned sBPF toolchain/backend exists.
     Private `mk`: public Plan→IR construction is capability-gated only
@@ -202,9 +221,9 @@ structure IR where
   sourcePlan : Plan
   name : String
   stateAccount : StateAccount
+  fns : Array FnIR
   handlers : Array HandlerIR
   deriving BEq, Repr
-
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .solana message
 
@@ -499,6 +518,73 @@ private def makeCompareValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
 
+/-- Pure local-call value: n-ary args, pure expression (not an effect boundary). -/
+private def makeCallFnValueV1
+    (fnIndex : Nat)
+    (argIds : Array ValueIdV1)
+    (args : Array LoweredValueV1)
+    (isBool : Bool) : CompileResult LoweredValueV1 := do
+  let mut depth : Nat := 1
+  let mut expandedNodes : Nat := 1
+  for arg in args do
+    depth := Nat.max depth (1 + arg.depth)
+    if arg.expandedNodes > maxPlanNodes - expandedNodes then
+      throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+    expandedNodes := expandedNodes + arg.expandedNodes
+  if depth > maxExprDepth then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
+  pure {
+    expr := .callFn fnIndex (args.map (·.expr))
+    depth
+    expandedNodes
+    dependencies := argIds
+    isBool
+  }
+
+/-- Signature index for pureFn callables: CallableId → fnIndex, arity, result kind. -/
+private structure PureFnTableV1 where
+  byCallableId : Array (Option Nat)
+  paramCounts : Array Nat
+  resultIsBool : Array Bool
+
+private def buildPureFnTableV1
+    (types : SolanaTypeClosureV1)
+    (callables : Array CallableV1) : CompileResult PureFnTableV1 := do
+  let mut byCallableId : Array (Option Nat) := Array.mk (List.replicate callables.size none)
+  let mut paramCounts : Array Nat := #[]
+  let mut resultIsBool : Array Bool := #[]
+  let mut i : Nat := 0
+  for callable in callables do
+    match callable.kind with
+    | .pureFn =>
+        if paramCounts.size >= maxEntries then
+          throw <| .planInvariant .solana s!"pureFn count exceeds profile limit {maxEntries}"
+        let name ← match callable.name with
+          | some value => pure value
+          | none => throw (.planInvariant .solana
+              "unsupported Solana semantic shape: pureFn is missing its name")
+        unless isIdentifier name do
+          throw <| .planInvariant .solana s!"fn name '{name}' is not a safe identifier"
+        unless callable.result.visibility == .public_ do
+          throw <| .planInvariant .solana s!"fn '{name}' result is not public"
+        let isBool := types.boolTypeId == some callable.result.typeId
+        unless callable.result.typeId == types.uint64TypeId || isBool do
+          throw <| .planInvariant .solana
+            s!"fn '{name}' does not return public UInt64 or Bool"
+        for param in callable.params do
+          unless param.typeId == types.uint64TypeId && param.visibility == .public_ do
+            throw <| .planInvariant .solana
+              s!"fn '{name}' parameters must be public UInt64"
+        byCallableId := byCallableId.set! i (some paramCounts.size)
+        paramCounts := paramCounts.push callable.params.size
+        resultIsBool := resultIsBool.push isBool
+    | .invariant =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: invariants are outside the current UInt64 pilot"
+    | .initializer | .entry | .view => pure ()
+    i := i + 1
+  pure { byCallableId, paramCounts, resultIsBool }
+
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -616,6 +702,7 @@ private def lowerBlockInstructionsV1
     (mode : SemanticCallableModeV1)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
+    (pureFns : PureFnTableV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
@@ -689,6 +776,37 @@ private def lowerBlockInstructionsV1
           | none =>
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: only checked UInt64 add/sub and comparisons are supported"
+    | .pureCall callableId argIds, some result =>
+        -- Pure local call: value-producing, not an effect boundary (like checkedAdd).
+        let fnIndex ← match pureFns.byCallableId[callableId.toNat]? with
+          | some (some index) => pure index
+          | _ =>
+              throw <| .planInvariant .solana
+                s!"unsupported Solana semantic shape: pureCall targets unknown pureFn {callableId.toNat}"
+        unless argIds.size == pureFns.paramCounts[fnIndex]! do
+          throw <| .planInvariant .solana
+            s!"unsupported Solana semantic shape: pureCall arity mismatch for pureFn {fnIndex}"
+        let mut argValues : Array LoweredValueV1 := #[]
+        for argId in argIds do
+          let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !arg.isBool do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: pureCall arguments must be UInt64"
+          argValues := argValues.push arg
+        let resultIsBool := pureFns.resultIsBool[fnIndex]!
+        let expectedTypeId ←
+          if resultIsBool then
+            match types.boolTypeId with
+            | some value => pure value
+            | none => throw (.planInvariant .solana
+                "unsupported Solana semantic shape: Bool type is missing for pureCall result")
+          else
+            pure types.uint64TypeId
+        unless result.typeId == expectedTypeId do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: pureCall result type does not match callee"
+        let value ← makeCallFnValueV1 fnIndex argIds argValues resultIsBool
+        values := ← appendResultValueV1 expectedTypeId values result value
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .solana
@@ -756,6 +874,7 @@ private partial def emitRegionV1
     (expectsBoolReturn : Bool)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
+    (pureFns : PureFnTableV1)
     (blocks : Array BlockV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
@@ -774,7 +893,7 @@ private partial def emitRegionV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: block ids are not dense"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types account paramCount armReadables block values0
+    owner mode types account pureFns paramCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
@@ -813,18 +932,18 @@ private partial def emitRegionV1
           "unsupported Solana semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
       let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
           armReadables (fuel - 1) thenT.blockId.toNat values
       match thenNext with
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, next) ←
-              emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
                 armReadables (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
           else
             let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
                 armReadables (fuel - 1) elseT.blockId.toNat values1
             match elseNext with
             | some j2 =>
@@ -832,17 +951,17 @@ private partial def emitRegionV1
                   throw <| .planInvariant .solana
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
             | none =>
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
       | none =>
           let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
               armReadables (fuel - 1) elseT.blockId.toNat values1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
   | .switch scrutId cases defaultTarget =>
@@ -857,7 +976,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
         let (body, values1, armNext) ←
-          emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+          emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
             (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -870,7 +989,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
           (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
@@ -885,7 +1004,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
       | some j =>
           let (rest, values3, next) ←
-            emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
   | .revert errorId argIds =>
@@ -908,6 +1027,7 @@ private def lowerCallableV1
     (expectsBoolReturn : Bool)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
+    (pureFns : PureFnTableV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
@@ -919,8 +1039,8 @@ private def lowerCallableV1
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
   let (body0, values0, nextJoin0) ←
-    emitRegionV1 owner mode expectsBoolReturn types account callable.blocks paramCount #[]
-      callable.blocks.size 0 initialValues
+    emitRegionV1 owner mode expectsBoolReturn types account pureFns callable.blocks
+      paramCount #[] callable.blocks.size 0 initialValues
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
   -- in the forward-only CFG, so this terminates within blocks.size folds.
@@ -932,7 +1052,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, next1) ←
-          emitRegionV1 owner mode expectsBoolReturn types account callable.blocks
+          emitRegionV1 owner mode expectsBoolReturn types account pureFns callable.blocks
             paramCount #[] callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -949,6 +1069,7 @@ private def lowerCallableV1
 private def makeInitializerV1
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
+    (pureFns : PureFnTableV1)
     (callable : CallableV1) : CompileResult Handler := do
   unless callable.name.isNone && callable.result.visibility == .public_ do
     throw <| .planInvariant .solana
@@ -960,7 +1081,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize false types account callable
+  let lowered ← lowerCallableV1 "initializer" .initialize false types account pureFns callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
@@ -975,6 +1096,7 @@ private def makeInitializerV1
 private def makeEntryV1
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
+    (pureFns : PureFnTableV1)
     (callable : CallableV1) : CompileResult Handler := do
   let name ← match callable.name with
     | some value => pure value
@@ -1003,7 +1125,7 @@ private def makeEntryV1
     | .initialize => .initialize
   let expectsBoolReturn := resultKind == .bool
   let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
-    types account callable
+    types account pureFns callable
   let handler : Handler := {
     name
     discriminator := ""
@@ -1015,7 +1137,35 @@ private def makeEntryV1
   }
   pure { handler with discriminator := instructionDiscriminator handler.name handler.params }
 
+private def makePureFnV1
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (pureFns : PureFnTableV1)
+    (callable : CallableV1) : CompileResult FnBinding := do
+  let name ← match callable.name with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: pureFn is missing its name")
+  unless isIdentifier name do
+    throw <| .planInvariant .solana s!"fn name '{name}' is not a safe identifier"
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .solana s!"fn '{name}' result is not public"
+  let resultIsBool := types.boolTypeId == some callable.result.typeId
+  unless callable.result.typeId == types.uint64TypeId || resultIsBool do
+    throw <| .planInvariant .solana
+      s!"fn '{name}' does not return public UInt64 or Bool"
+  -- pureFn bodies use view mode so store/emit fail closed at the lowerer.
+  let lowered ← lowerCallableV1 s!"fn '{name}'" .view resultIsBool
+    types account pureFns callable
+  pure {
+    name
+    params := lowered.params
+    resultIsBool
+    body := lowered.body
+  }
+
 private partial def planExprNodes? (account : StateAccount) (params : Array Param)
+    (fns : Array FnBinding)
     (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
@@ -1032,23 +1182,44 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? account params childDepth available lhs with
+        match planExprNodes? account params fns childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? account params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? account params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .callFn fnIndex args =>
+        match fns[fnIndex]? with
+        | none => none
+        | some fn =>
+            if args.size != fn.params.size then
+              none
+            else
+              let childDepth := depthLeft - 1
+              let rec walk (remaining : List Expr) (available totalNodes : Nat) : Option Nat :=
+                match remaining with
+                | [] => some totalNodes
+                | arg :: rest =>
+                    match planExprNodes? account params fns childDepth available arg with
+                    | none => none
+                    | some n => walk rest (available - n) (totalNodes + n)
+              walk args.toList (nodeBudget - 1) 1
 
-/-- UInt64-compatible plan expression (comparison results are Bool). -/
-private def exprIsUInt64CompatibleV1 : Expr → Bool
+/-- UInt64-compatible plan expression (comparison results and Bool-returning
+    callFn results are not UInt64). -/
+private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .compare .. => false
+  | .callFn fnIndex _ =>
+      match fns[fnIndex]? with
+      | some fn => !fn.resultIsBool
+      | none => false
   | _ => true
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
-    (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= maxPlanNodes then
     throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
-  match planExprNodes? account params maxExprDepth (maxPlanNodes - total) expr with
+  match planExprNodes? account params fns maxExprDepth (maxPlanNodes - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .solana
@@ -1106,6 +1277,7 @@ private partial def checkHandlerStatementsV1
     (allowReturnNone : Bool)
     (eventCount : Nat) (eventFieldCounts : Array Nat)
     (errorCount : Nat) (errorFieldCounts : Array Nat)
+    (fns : Array FnBinding)
     (params : Array Param) (statements : Array Statement) (total : Nat) :
     CompileResult (Nat × Bool) := do
   let mut total := total
@@ -1120,11 +1292,11 @@ private partial def checkHandlerStatementsV1
         unless account.fields.any (fun field =>
             field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) do
           throw <| .planInvariant .solana "handler stores to an unknown field"
-        total ← addPlanExprNodes account params total store.value
+        total ← addPlanExprNodes account params fns total store.value
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .solana "initializer cannot return a value"
-        total ← addPlanExprNodes account params total value
+        total ← addPlanExprNodes account params fns total value
         closed := true
     | .returnNone =>
         unless allowReturnNone do
@@ -1139,9 +1311,9 @@ private partial def checkHandlerStatementsV1
         unless args.size == eventFieldCounts[eventIndex]! do
           throw <| .planInvariant .solana "handler event argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .solana "handler event arguments must be UInt64 expressions"
-          total ← addPlanExprNodes account params total arg
+          total ← addPlanExprNodes account params fns total arg
         total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
@@ -1149,38 +1321,38 @@ private partial def checkHandlerStatementsV1
         unless args.size == errorFieldCounts[errorIndex]! do
           throw <| .planInvariant .solana "handler error argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .solana "handler error arguments must be UInt64 expressions"
-          total ← addPlanExprNodes account params total arg
+          total ← addPlanExprNodes account params fns total arg
         total := total + 1
         closed := true
     | .assert condition =>
-        total ← addPlanExprNodes account params total condition
+        total ← addPlanExprNodes account params fns total condition
     | .ifThenElse condition thenBody elseBody =>
-        total ← addPlanExprNodes account params total condition
+        total ← addPlanExprNodes account params fns total condition
         total := total + 1
         let (t1, c1) ← checkHandlerStatementsV1
           account isInitializer isView false
-          eventCount eventFieldCounts errorCount errorFieldCounts params thenBody total
+          eventCount eventFieldCounts errorCount errorFieldCounts fns params thenBody total
         let (t2, c2) ← checkHandlerStatementsV1
           account isInitializer isView false
-          eventCount eventFieldCounts errorCount errorFieldCounts params elseBody t1
+          eventCount eventFieldCounts errorCount errorFieldCounts fns params elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
-        total ← addPlanExprNodes account params total scrutinee
+        total ← addPlanExprNodes account params fns total scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkHandlerStatementsV1
             account isInitializer isView false
-            eventCount eventFieldCounts errorCount errorFieldCounts params caseBody total
+            eventCount eventFieldCounts errorCount errorFieldCounts fns params caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkHandlerStatementsV1
           account isInitializer isView false
-          eventCount eventFieldCounts errorCount errorFieldCounts params defaultBody total
+          eventCount eventFieldCounts errorCount errorFieldCounts fns params defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1190,6 +1362,7 @@ private def expectedAccess (account : StateAccount) (mode : HandlerMode) : Accou
 
 private def validateHandler (account : StateAccount) (isInitializer : Bool)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (fns : Array FnBinding)
     (baseNodes : Nat) (handler : Handler) : CompileResult Nat := do
   unless isIdentifier handler.name && validDiscriminator handler.discriminator do
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid ABI identity"
@@ -1210,10 +1383,29 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
   let (total, closed) ← checkHandlerStatementsV1
     account isInitializer (handler.mode == .view) isInitializer
     events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
-    handler.params handler.body baseNodes
+    fns handler.params handler.body baseNodes
   unless closed do
     throw <| .planInvariant .solana
       s!"handler '{handler.name}' does not terminate on all paths"
+  return total
+
+private def validateFnBinding (account : StateAccount)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (fns : Array FnBinding)
+    (baseNodes : Nat) (fn : FnBinding) : CompileResult Nat := do
+  unless isIdentifier fn.name do
+    throw <| .planInvariant .solana s!"fn '{fn.name}' has an invalid name"
+  validateParams s!"fn '{fn.name}'" fn.params
+  if fn.body.isEmpty || fn.body.size > maxBodyStatements then
+    throw <| .planInvariant .solana s!"fn '{fn.name}' has an invalid body size"
+  -- pureFn bodies: isView=true bans store/emit; no bare returnNone.
+  let (total, closed) ← checkHandlerStatementsV1
+    account false true false
+    events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
+    fns fn.params fn.body baseNodes
+  unless closed do
+    throw <| .planInvariant .solana
+      s!"fn '{fn.name}' does not terminate on all paths"
   return total
 
 /-- Validate the public target-owned Plan before typed IR lowering. -/
@@ -1233,22 +1425,36 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   validateStateAccount plan.stateAccount
   if plan.entries.isEmpty || plan.entries.size > maxEntries then
     throw <| .planInvariant .solana "entry count is outside the profile limits"
+  if plan.fns.size > maxEntries then
+    throw <| .planInvariant .solana s!"pureFn count exceeds profile limit {maxEntries}"
   let handlerCount := 1 + plan.entries.size
   let paramCount := plan.initializer.params.size +
-    plan.entries.foldl (fun total handler => total + handler.params.size) 0
+    plan.entries.foldl (fun total handler => total + handler.params.size) 0 +
+    plan.fns.foldl (fun total fn => total + fn.params.size) 0
   let statementCount := plan.initializer.body.size +
-    plan.entries.foldl (fun total handler => total + handler.body.size) 0
-  let mut total := plan.stateAccount.fields.size + handlerCount + paramCount + statementCount
+    plan.entries.foldl (fun total handler => total + handler.body.size) 0 +
+    plan.fns.foldl (fun total fn => total + fn.body.size) 0
+  let mut total := plan.stateAccount.fields.size + handlerCount + plan.fns.size +
+    paramCount + statementCount
   if total > maxPlanNodes then
     throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
-  total ← validateHandler plan.stateAccount true plan.events plan.errors total plan.initializer
+  for fn in plan.fns do
+    total ← validateFnBinding plan.stateAccount plan.events plan.errors plan.fns total fn
+  if hasDuplicates (plan.fns.map (·.name)) then
+    throw <| .planInvariant .solana "fn names must be unique"
+  total ← validateHandler plan.stateAccount true plan.events plan.errors plan.fns
+    total plan.initializer
   for handler in plan.entries do
-    total ← validateHandler plan.stateAccount false plan.events plan.errors total handler
+    total ← validateHandler plan.stateAccount false plan.events plan.errors plan.fns
+      total handler
   let handlers := #[plan.initializer] ++ plan.entries
   if hasDuplicates (handlers.map (·.name)) then
     throw <| .planInvariant .solana "handler names must be unique"
   if hasDuplicates (handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "handler discriminators collide"
+  -- pureFn names must not collide with handler names either.
+  if hasDuplicates (handlers.map (·.name) ++ plan.fns.map (·.name)) then
+    throw <| .planInvariant .solana "handler and fn names must be unique together"
 
 /-- Validate one declared event/error binding: safe name and public UInt64
     fields (the Solana pilot plan records UInt64 args only). -/
@@ -1271,8 +1477,10 @@ private def makePlanFromSemanticDataV1
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: constants/invariants are outside the current UInt64 pilot"
-  if source.callables.size > maxEntries + 1 then
-    throw <| .planInvariant .solana s!"callable count exceeds Solana profile limit {maxEntries + 1}"
+  -- init+entries ≤ maxEntries+1; pureFns ≤ maxEntries (checked in buildPureFnTableV1).
+  if source.callables.size > maxEntries + 1 + maxEntries then
+    throw <| .planInvariant .solana
+      s!"callable count exceeds Solana profile limit {maxEntries + 1 + maxEntries}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
     throw <| .planInvariant .solana
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
@@ -1282,23 +1490,27 @@ private def makePlanFromSemanticDataV1
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
     makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+  let pureFnTable ← buildPureFnTableV1 types source.callables
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   let mut initializer : Option Handler := none
   let mut entries : Array Handler := #[]
+  let mut fns : Array FnBinding := #[]
   for callable in source.callables do
     match callable.kind with
     | .initializer =>
         if initializer.isSome then
           throw <| .planInvariant .solana "semantic program has multiple initializers"
-        initializer := some (← makeInitializerV1 types stateAccount callable)
+        initializer := some (← makeInitializerV1 types stateAccount pureFnTable callable)
     | .entry | .view =>
         if entries.size >= maxEntries then
           throw <| .planInvariant .solana s!"entry count exceeds profile limit {maxEntries}"
-        entries := entries.push (← makeEntryV1 types stateAccount callable)
-    | .pureFn | .invariant =>
+        entries := entries.push (← makeEntryV1 types stateAccount pureFnTable callable)
+    | .pureFn =>
+        fns := fns.push (← makePureFnV1 types stateAccount pureFnTable callable)
+    | .invariant =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+          "unsupported Solana semantic shape: invariants are outside the current UInt64 pilot"
   let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .solana "state-account programs require an initializer"
@@ -1313,6 +1525,7 @@ private def makePlanFromSemanticDataV1
     stateAccount
     events
     errors
+    fns
     initializer := resolvedInitializer
     entries
   }
@@ -1375,7 +1588,21 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         value := rhs.next
         next := rhs.next + 1
       }
-
+  | .callFn fnIndex args =>
+      Id.run do
+        let mut operations : Array Operation := #[]
+        let mut next := next
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let lowered := lowerExpr overflowError next arg
+          operations := operations ++ lowered.operations
+          argTemps := argTemps.push lowered.value
+          next := lowered.next
+        {
+          operations := operations ++ #[.callFn fnIndex next argTemps]
+          value := next
+          next := next + 1
+        }
 private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
     (handler : Handler) : Array Check := Id.run do
   let access := handler.accountAccess
@@ -1525,9 +1752,20 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
-      .checkedSub destination .. | .compare destination .. => some destination
+      .checkedSub destination .. | .compare destination .. |
+      .callFn _ destination _ => some destination
   | _ => none
 
+private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
+  let resultKind : ResultKind := if fn.resultIsBool then .bool else .u64
+  let (bodyOps, _) := lowerBodyOps
+    plan.arithmeticOverflowError resultKind plan.assertionFailedError 0 fn.body
+  {
+    name := fn.name
+    params := fn.params
+    resultIsBool := fn.resultIsBool
+    operations := bodyOps
+  }
 /-- Recursive operation-sequence validator: canonical temp numbering across
     nested regions, operand range checks, and per-level terminator ordering.
     Returns (next, returnedOnThisLevel, initializedOnThisLevel). -/
@@ -1558,7 +1796,7 @@ private partial def validateOperationSequence
     | .compare .. | .assert .. | .zeroState .. | .storeState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError ..
-    | .ifRegion .. | .switchRegion .. =>
+    | .ifRegion .. | .switchRegion .. | .callFn .. =>
         if returned || initialized then
           throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
     match operation with
@@ -1581,6 +1819,13 @@ private partial def validateOperationSequence
     | .compare _ lhs rhs _op =>
         unless lhs < next - 1 && rhs < next - 1 do
           throw <| .planInvariant .solana "typed Solana IR compare operands are invalid"
+    | .callFn fnIndex _destination args =>
+        unless fnIndex < plan.fns.size do
+          throw <| .planInvariant .solana "typed Solana IR callFn index is out of range"
+        unless args.size == plan.fns[fnIndex]!.params.size do
+          throw <| .planInvariant .solana "typed Solana IR callFn arity is invalid"
+        unless args.all (· < next - 1) do
+          throw <| .planInvariant .solana "typed Solana IR callFn arguments are invalid"
     | .assert condition errorCode =>
         unless condition < next && errorCode == plan.assertionFailedError do
           throw <| .planInvariant .solana "typed Solana IR assert condition/error is invalid"
@@ -1668,6 +1913,52 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
   else unless returned do
     throw <| .planInvariant .solana "entry IR does not set return data"
 
+private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
+  unless isIdentifier fn.name do
+    throw <| .planInvariant .solana "typed Solana IR has an invalid fn name"
+  validateParams s!"IR fn '{fn.name}'" fn.params
+  -- Synthetic view-mode handler so store/emit fail and setReturnData* is accepted.
+  let resultKind : ResultKind := if fn.resultIsBool then .bool else .u64
+  let synthetic : HandlerIR := {
+    name := fn.name
+    discriminator := instructionDiscriminator fn.name fn.params
+    params := fn.params
+    mode := .view
+    resultKind
+    accountAccess := accessFor plan.stateAccount .view
+    checks := #[]
+    operations := fn.operations
+  }
+  let fieldOffsets := plan.stateAccount.fields.map (·.byteOffset)
+  let paramOffsets := fn.params.map (·.dataOffset)
+  let (_, returned, _) ← validateOperationSequence
+    plan synthetic fieldOffsets paramOffsets fn.operations 0
+  unless returned do
+    throw <| .planInvariant .solana s!"fn IR '{fn.name}' does not set return data"
+  -- pureFn bodies must not load state (purity defense beyond view-mode write ban).
+  for op in fn.operations do
+    match op with
+    | .loadState .. | .storeState .. | .zeroState .. | .setHeader ..
+    | .emitEvent .. =>
+        throw <| .planInvariant .solana
+          s!"fn IR '{fn.name}' contains a non-pure operation"
+    | .ifRegion _ thenOps elseOps =>
+        for nested in thenOps ++ elseOps do
+          match nested with
+          | .loadState .. | .storeState .. | .emitEvent .. =>
+              throw <| .planInvariant .solana
+                s!"fn IR '{fn.name}' contains a non-pure nested operation"
+          | _ => pure ()
+    | .switchRegion _ cases defaultOps =>
+        let nestedOps := cases.foldl (fun acc (_, ops) => acc ++ ops) defaultOps
+        for nested in nestedOps do
+          match nested with
+          | .loadState .. | .storeState .. | .emitEvent .. =>
+              throw <| .planInvariant .solana
+                s!"fn IR '{fn.name}' contains a non-pure nested operation"
+          | _ => pure ()
+    | _ => pure ()
+
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
   unless ir.name == ir.sourcePlan.programName &&
@@ -1686,12 +1977,22 @@ def validateIR (ir : IR) : CompileResult Unit := do
   if hasDuplicates (ir.handlers.map (·.name)) ||
       hasDuplicates (ir.handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "typed Solana IR handler identities must be unique"
+  if ir.fns.size != ir.sourcePlan.fns.size then
+    throw <| .planInvariant .solana "typed Solana IR fn count does not match its source Plan"
+  if hasDuplicates (ir.fns.map (·.name)) then
+    throw <| .planInvariant .solana "typed Solana IR fn names must be unique"
   let operationCount := ir.handlers.foldl (fun total handler =>
-    total + handler.checks.size + handler.operations.size + handler.params.size) 0
+    total + handler.checks.size + handler.operations.size + handler.params.size) 0 +
+    ir.fns.foldl (fun total fn => total + fn.operations.size + fn.params.size) 0
   if operationCount > maxPlanNodes then
     throw <| .planInvariant .solana "typed Solana IR exceeds the aggregate node limit"
+  for fn in ir.fns do
+    validateFnIR ir.sourcePlan fn
   for handler in ir.handlers do
     validateHandlerIR ir.sourcePlan handler
+  let expectedFns := ir.sourcePlan.fns.map (lowerFn ir.sourcePlan)
+  unless ir.fns == expectedFns do
+    throw <| .planInvariant .solana "typed Solana IR fns are not the exact lowering of its source Plan"
   let expectedHandlers := #[lowerHandler ir.sourcePlan ir.sourcePlan.initializer] ++
     ir.sourcePlan.entries.map (lowerHandler ir.sourcePlan)
   unless ir.handlers == expectedHandlers do
@@ -1699,12 +2000,14 @@ def validateIR (ir : IR) : CompileResult Unit := do
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
+  let fns := plan.fns.map (lowerFn plan)
   let handlers := #[lowerHandler plan plan.initializer] ++
     plan.entries.map (lowerHandler plan)
   let ir : IR := {
     sourcePlan := plan
     name := plan.programName
     stateAccount := plan.stateAccount
+    fns
     handlers
   }
   validateIR ir
@@ -1751,7 +2054,8 @@ private def renderComparisonOp : ComparisonOp → String
 def declaredErrorBase : Nat := 8192
 
 private partial def renderOperation (indent : String)
-    (events : Array InterfaceBinding) (errors : Array InterfaceBinding) :
+    (fns : Array FnBinding) (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (fnReturnStyle : Bool) :
     Operation → String
   | .literal destination value => s!"{indent}%{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
@@ -1768,8 +2072,12 @@ private partial def renderOperation (indent : String)
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .setHeader accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
-  | .setReturnData value => s!"{indent}set_return_data_u64_le %{value}\n"
-  | .setReturnDataBool value => s!"{indent}set_return_data_bool %{value}\n"
+  | .setReturnData value =>
+      if fnReturnStyle then s!"{indent}ret %{value}\n"
+      else s!"{indent}set_return_data_u64_le %{value}\n"
+  | .setReturnDataBool value =>
+      if fnReturnStyle then s!"{indent}ret %{value}\n"
+      else s!"{indent}set_return_data_bool %{value}\n"
   | .compare destination lhs rhs op =>
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .assert condition errorCode =>
@@ -1782,27 +2090,42 @@ private partial def renderOperation (indent : String)
   | .revertError errorIndex args =>
       let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
       s!"{indent}program_error 0x{natHex (declaredErrorBase + errorIndex)} ; {errors[errorIndex]!.name}({argText})\n"
+  | .callFn fnIndex destination args =>
+      let name := fns[fnIndex]!.name
+      let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
+      if args.isEmpty then
+        s!"{indent}%{destination} = call {name}\n"
+      else
+        s!"{indent}%{destination} = call {name} {argText}\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") events errors operation) ""
+        output ++ renderOperation (indent ++ "  ") fns events errors fnReturnStyle operation) ""
       let elseText := elseOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") events errors operation) ""
+        output ++ renderOperation (indent ++ "  ") fns events errors fnReturnStyle operation) ""
       s!"{indent}if %{condition} \{\n" ++ thenText ++
         s!"{indent}} else \{\n" ++ elseText ++ s!"{indent}}\n"
   | .switchRegion scrutinee cases defaultOps =>
       let caseText := cases.foldl (fun output (caseValue, ops) =>
         let body := ops.foldl (fun inner operation =>
-          inner ++ renderOperation (indent ++ "  ") events errors operation) ""
+          inner ++ renderOperation (indent ++ "  ") fns events errors fnReturnStyle operation) ""
         output ++ s!"{indent}case {caseValue} \{\n" ++ body ++ s!"{indent}}\n") ""
       let defaultText := defaultOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") events errors operation) ""
+        output ++ renderOperation (indent ++ "  ") fns events errors fnReturnStyle operation) ""
       s!"{indent}switch %{scrutinee} \{\n" ++ caseText ++
         s!"{indent}default \{\n" ++ defaultText ++ s!"{indent}}\n"
+
+private def renderFnPlan (ir : IR) (index : Nat) (fn : FnIR) : String :=
+  let result := if fn.resultIsBool then "bool" else "u64"
+  let operations := fn.operations.foldl (fun output operation =>
+    output ++ renderOperation "  " ir.sourcePlan.fns ir.sourcePlan.events
+      ir.sourcePlan.errors true operation) ""
+  s!".fn {index} {fn.name} (-> {result})\n" ++ operations ++ ".end-fn\n"
 
 private def renderHandlerPlan (ir : IR) (handler : HandlerIR) : String :=
   let checks := handler.checks.foldl (fun output check => output ++ renderCheck check) ""
   let operations := handler.operations.foldl (fun output operation =>
-    output ++ renderOperation "  " ir.sourcePlan.events ir.sourcePlan.errors operation) ""
+    output ++ renderOperation "  " ir.sourcePlan.fns ir.sourcePlan.events
+      ir.sourcePlan.errors false operation) ""
   s!".handler {handler.discriminator} {handler.name} mode={renderMode handler.mode}\n" ++
     checks ++ operations ++ ".end-handler\n"
 
@@ -1810,6 +2133,11 @@ private def renderPlanText (ir : IR) : String :=
   let account := ir.stateAccount
   let fields := account.fields.foldl (fun output field => output ++
     s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type=u64-le\n") ""
+  let fnsText := Id.run do
+    let mut text := ""
+    for index in [0:ir.fns.size] do
+      text := text ++ renderFnPlan ir index ir.fns[index]!
+    pure text
   let handlers := ir.handlers.foldl (fun output handler =>
     output ++ renderHandlerPlan ir handler) ""
   "; PROOF-FORGE-SBPF-PLAN v1\n" ++
@@ -1819,7 +2147,7 @@ private def renderPlanText (ir : IR) : String :=
     s!"; state-account index={account.index} owner=current-program exact-data-len={account.exactDataLen}\n" ++
     s!"; header offset={account.headerOffset} type=u64-le initialized-marker=0x{uint64Hex account.initializedMarker} layout-domain={ir.sourcePlan.stateLayoutDomain}\n" ++
     "; initializer-payload-policy: zero-all-fields\n" ++
-    fields ++ handlers
+    fields ++ fnsText ++ handlers
 
 private def renderParamJson (param : Param) : String :=
   s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"u64\",\"dataOffset\":{param.dataOffset}}"
@@ -1858,12 +2186,21 @@ private def renderInterfaceBindingJson (binding : InterfaceBinding) : String :=
     String.intercalate "," ((List.range binding.fieldCount).map fun _ => "\"u64-le\"") ++
     "]}"
 
+private def renderFnJson (fn : FnIR) : String :=
+  let result := if fn.resultIsBool then "bool" else "u64"
+  "{" ++
+    s!"\"name\":\"{Targets.escapeJson fn.name}\"," ++
+    s!"\"argCount\":{fn.params.size}," ++
+    s!"\"result\":\"{result}\"" ++
+    "}"
+
 private def renderIdl (ir : IR) : String :=
   let account := ir.stateAccount
   let fields := String.intercalate "," (account.fields.toList.map renderFieldJson)
   let handlers := String.intercalate ",\n    " (ir.handlers.toList.map renderHandlerJson)
   let events := String.intercalate "," (ir.sourcePlan.events.toList.map renderInterfaceBindingJson)
   let errors := String.intercalate "," (ir.sourcePlan.errors.toList.map renderInterfaceBindingJson)
+  let fns := String.intercalate "," (ir.fns.toList.map renderFnJson)
   "{\n" ++
     "  \"version\": \"proof-forge-solana-idl/v1\",\n" ++
     s!"  \"name\": \"{Targets.escapeJson ir.name}\",\n" ++
@@ -1882,6 +2219,7 @@ private def renderIdl (ir : IR) : String :=
     s!"\"fields\":[{fields}]" ++
     "}],\n" ++
     "  \"instructions\": [\n    " ++ handlers ++ "\n  ],\n" ++
+    s!"  \"fns\": [{fns}],\n" ++
     s!"  \"events\": [{events}],\n" ++
     s!"  \"errors\": [{errors}]\n" ++
     "}\n"
@@ -1904,6 +2242,10 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
 /-- Replace handlers on an existing IR (private `mk`; for validateIR characterization). -/
 def withHandlers (ir : IR) (handlers : Array HandlerIR) : IR :=
   { ir with handlers }
+
+/-- Replace pureFn IR table (private `mk`; for validateIR characterization). -/
+def withFns (ir : IR) (fns : Array FnIR) : IR :=
+  { ir with fns }
 
 /-- Capability-gated public IR inspection (S6 repair). Input must be
     `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files. -/
