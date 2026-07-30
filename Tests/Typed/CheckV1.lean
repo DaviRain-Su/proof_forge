@@ -2091,30 +2091,26 @@ private unsafe def testMatchBoolAndBind
     | .error e => throw <| IO.userError s!"match-bind: validate: {repr e}"
   let some entryC := data.callables[0]? |
     throw <| IO.userError "match-bind: missing apply callable"
-  -- Catch-all-only match: scrut block jumps straight into the single arm block.
-  expect (entryC.blocks.size == 2)
-    s!"match-bind: catch-all-only match must materialize 2 blocks, got {entryC.blocks.size}"
+  -- Catch-all-only match is straight-line: binder aliases the scrutinee and
+  -- the arm body lowers inline into the single block (no block, no jump).
+  expect (entryC.blocks.size == 1)
+    s!"match-bind: catch-all-only match must stay single-block, got {entryC.blocks.size}"
   let some blk0 := entryC.blocks[0]? |
-    throw <| IO.userError "match-bind: missing scrut block"
-  match blk0.terminator with
-  | .jump t =>
-      expect (t.blockId == 1) s!"match-bind: scrut must jump arm block=1, got {t.blockId}"
-  | _ => throw <| IO.userError "match-bind: scrut must jump (no switch for catch-all-only)"
-  let some blk1 := entryC.blocks[1]? |
-    throw <| IO.userError "match-bind: missing arm block"
-  -- Arm body: load count(vid1), add(load, binder=scrut vid0)→vid2, store; join return.
-  expect (blk1.instructions.size == 4)
-    s!"match-bind: arm expected load/add/store/load, got {blk1.instructions.size}"
-  let some addInstr := blk1.instructions[1]? |
+    throw <| IO.userError "match-bind: missing entry block"
+  -- Body: load count(vid1), add(load, binder=scrut vid0)→vid2, store; load(vid3); return vid3.
+  expect (blk0.instructions.size == 4)
+    s!"match-bind: expected load/add/store/load, got {blk0.instructions.size}"
+  let some addInstr := blk0.instructions[1]? |
     throw <| IO.userError "match-bind: missing add instruction"
   match addInstr.op with
   | .binary .add lhs rhs =>
       expect (lhs == 1 && rhs == 0)
         s!"match-bind: binder must alias scrutinee vid0, got {lhs}/{rhs}"
   | _ => throw <| IO.userError "match-bind: expected binary add on binder"
-  match blk1.terminator with
-  | .return_ (some _) => pure ()
-  | _ => throw <| IO.userError "match-bind: arm must return"
+  match blk0.terminator with
+  | .return_ (some vid) =>
+      expect (vid == 3) s!"match-bind: expected return vid3, got {vid}"
+  | _ => throw <| IO.userError "match-bind: expected return"
 
 private unsafe def testUnsupportedStatementAfterTerminalIf
     (session : Language.Loader.ParserSession) : IO Unit := do

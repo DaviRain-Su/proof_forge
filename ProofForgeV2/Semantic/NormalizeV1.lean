@@ -646,25 +646,17 @@ private partial def lowerStmt
             return ← failUnsupported
               "S1 match on UInt64/Bool requires a catch-all arm"
       -- Case order on the wire follows literal-arm source order. A catch-all-
-      -- only match has no switch cases and is materialized as a plain jump
-      -- (the structure gate requires nonempty switch cases).
-      let scrutIdx := st1.blocks.size
+      -- only match is straight-line: the binder binds the scrutinee and the
+      -- arm body lowers inline into the current block (no block, no jump;
+      -- the structure gate requires nonempty switch cases, so a switch would
+      -- be invalid here anyway).
       if caseArms.isEmpty then
-        let st2 := sealCurrentBlock st1 (.jump { blockId := 0, args := #[] })
         let stD := match defaultBinder? with
-          | none => st2
-          | some name => { st2 with env := envInsert st2.env (raw name) scrutVid scrutTid }
-        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states
-        match dStatus with
-        | .closed =>
-            -- Seal a direct jump for the scrutinee block into the default arm.
-            pure (patchJumpTarget stD scrutIdx (UInt32.ofNat scrutIdx.succ), .closed)
-        | .open_ =>
-            -- The default arm is open; its block continues as the current one,
-            -- so the scrutinee block jumps straight into it.
-            let stP := patchJumpTarget stD scrutIdx (UInt32.ofNat scrutIdx.succ)
-            pure (stP, .open_)
+          | none => st1
+          | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
+        lowerStmts defaultBody.statements resultTid stD states
       else
+        let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         -- Lower each literal arm body into its own block; record exact case
         -- targets and jump-back-patch slots as we go.

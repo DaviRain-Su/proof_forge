@@ -544,6 +544,348 @@ private unsafe def testBoolPredicateEndToEnd : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "validatePlan must reject storing Bool comparison into slot"
 
+/-- If/else multi-block program: branch diamond lowered to ifThenElse. -/
+private def ifFlowSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program IfFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count > 0 then\n" ++
+  "      count := count + delta\n" ++
+  "    else\n" ++
+  "      count := delta\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+private unsafe def testIfFlowMultiBlock : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load IfFlow" (← session.selectProgramV1
+    ifFlowSourceText "<evm-if-flow>" "Tests.EvmIfFlow" none)
+  let compiled ← liftResult "compile IfFlow" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan IfFlow" <| planEvm compiled
+  expect (plan.entries.map (·.name) == #["bump", "get"])
+    "IfFlow must preserve entry order"
+  let bump := plan.entries[0]!
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }]
+        #[.store { slot := 0, value := .param 0 }],
+      .returnValue (.storageLoad 0)])
+    "IfFlow bump must lower the branch diamond then join return"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"IfFlow plan must validate: {e.render}"
+  let plan2 ← liftResult "plan IfFlow again" <| planEvm compiled
+  expect (plan == plan2) "IfFlow plan must be deterministic"
+  let output ← liftResult "materialize IfFlow" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "IfFlow.yul") |
+    throw <| IO.userError "IfFlow: missing IfFlow.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "gt(expr0, expr1)")
+    "IfFlow Yul must render the gt comparison"
+  expect (yul.contains "if expr")
+    "IfFlow Yul must render the then-branch if"
+  expect (yul.contains "if iszero(expr")
+    "IfFlow Yul must render the else-branch guard"
+  expect (yul.contains "add(expr" && yul.contains "sstore(0, expr")
+    "IfFlow Yul must render the then-branch checked add store"
+  expect (yul.contains "arg0")
+    "IfFlow Yul must reference the else-branch param"
+  expect (yul.contains "mstore(0, expr")
+    "IfFlow Yul must render the join return"
+
+/-- No-else if: absent else falls into the join; only the then if renders. -/
+private unsafe def testIfNoElse : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfNoElse where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n"
+  let source ← liftResult "load IfNoElse" (← session.selectProgramV1
+    text "<evm-if-noelse>" "Tests.EvmIfNoElse" none)
+  let compiled ← liftResult "compile IfNoElse" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan IfNoElse" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }]
+        #[],
+      .returnValue (.storageLoad 0)])
+    "IfNoElse must lower an empty else body and keep the join"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"IfNoElse plan must validate: {e.render}"
+  let output ← liftResult "materialize IfNoElse" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "IfNoElse.yul") |
+    throw <| IO.userError "IfNoElse: missing IfNoElse.yul"
+  let yul := yulFile.contents
+  let thenIfs := yul.splitOn "if expr"
+  expect (thenIfs.length == 2)
+    s!"IfNoElse must render exactly one branch if (no else guard), got {thenIfs.length - 1}"
+
+/-- Both branches return: the if is the final statement (no join). -/
+private unsafe def testIfBothReturn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfBoth where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry pick(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      return count\n" ++
+    "    else\n" ++
+    "      return delta\n"
+  let source ← liftResult "load IfBoth" (← session.selectProgramV1
+    text "<evm-if-both>" "Tests.EvmIfBoth" none)
+  let compiled ← liftResult "compile IfBoth" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan IfBoth" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+        #[.returnValue (.storageLoad 0)]
+        #[.returnValue (.param 0)]])
+    "IfBoth must lower both-returning branches without a join statement"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"IfBoth plan must validate: {e.render}"
+
+/-- Nested if: inner diamond inside the then branch. -/
+private unsafe def testNestedIf : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NestedIf where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      if delta > 0 then\n" ++
+    "        count := count + delta\n" ++
+    "      else\n" ++
+    "        count := 1\n" ++
+    "    else\n" ++
+    "      count := 2\n" ++
+    "    return count\n"
+  let source ← liftResult "load NestedIf" (← session.selectProgramV1
+    text "<evm-nested-if>" "Tests.EvmNestedIf" none)
+  let compiled ← liftResult "compile NestedIf" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan NestedIf" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+        #[.ifThenElse (.compare .gt (.param 0) (.literal 0))
+          #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }]
+          #[.store { slot := 0, value := .literal 1 }]]
+        #[.store { slot := 0, value := .literal 2 }],
+      .returnValue (.storageLoad 0)])
+    "NestedIf must nest the inner diamond inside the then branch"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"NestedIf plan must validate: {e.render}"
+  let output ← liftResult "materialize NestedIf" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "NestedIf.yul") |
+    throw <| IO.userError "NestedIf: missing NestedIf.yul"
+  expect ((yulFile.contents.splitOn "sstore(0,").length >= 4 &&
+      yulFile.contents.contains "add(expr" &&
+      yulFile.contents.contains "let expr")
+    "NestedIf Yul must render all three branch stores"
+
+/-- Assert inside a branch: revert renders inside the branch body. -/
+private unsafe def testAssertInBranch : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BranchAssert where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry withdraw(delta : UInt64) : UInt64 do\n" ++
+    "    if delta > 0 then\n" ++
+    "      assert count >= delta\n" ++
+    "      count := count - delta\n" ++
+    "    else\n" ++
+    "      count := 0\n" ++
+    "    return count\n"
+  let source ← liftResult "load BranchAssert" (← session.selectProgramV1
+    text "<evm-branch-assert>" "Tests.EvmBranchAssert" none)
+  let compiled ← liftResult "compile BranchAssert" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BranchAssert" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.param 0) (.literal 0))
+        #[.assert (.compare .ge (.storageLoad 0) (.param 0)),
+          .store { slot := 0, value := .checkedSub (.storageLoad 0) (.param 0) }]
+        #[.store { slot := 0, value := .literal 0 }],
+      .returnValue (.storageLoad 0)])
+    "BranchAssert must keep assert-then-store order inside the taken branch"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BranchAssert plan must validate: {e.render}"
+  let output ← liftResult "materialize BranchAssert" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BranchAssert.yul") |
+    throw <| IO.userError "BranchAssert: missing BranchAssert.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "if iszero(expr" && yul.contains "revert(0, 0)")
+    "BranchAssert Yul must render the assert revert inside the branch"
+
+/-- Match on UInt64 literals: switch with two cases and a wildcard default. -/
+private unsafe def testMatchUIntLiterals : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MatchUint where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n"
+  let source ← liftResult "load MatchUint" (← session.selectProgramV1
+    text "<evm-match-uint>" "Tests.EvmMatchUint" none)
+  let compiled ← liftResult "compile MatchUint" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MatchUint" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .switchOn (.param 0)
+        #[(0, #[.returnValue (.storageLoad 0)]),
+          (1, #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.literal 1) }])]
+        #[.store { slot := 0, value := .param 0 }],
+      .returnValue (.storageLoad 0)])
+    "MatchUint must lower literal cases to switchOn with a default store"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MatchUint plan must validate: {e.render}"
+  let output ← liftResult "materialize MatchUint" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "MatchUint.yul") |
+    throw <| IO.userError "MatchUint: missing MatchUint.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "eq(expr" && yul.contains ", 0)")
+    "MatchUint Yul must compare the scrutinee against literal 0"
+  expect (yul.contains ", 1)")
+    "MatchUint Yul must compare the scrutinee against literal 1"
+  expect (yul.contains "iszero(or(eq(")
+    "MatchUint Yul must guard the default with the disjunction of cases"
+  expect (yul.contains "arg0")
+    "MatchUint Yul must render the default store from the scrutinee param"
+
+/-- Match-bind arm: the binder aliases the scrutinee in the arm body. -/
+private unsafe def testMatchBindArm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MatchBind where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | rest => do\n" ++
+    "      count := count + rest\n" ++
+    "    return count\n"
+  let source ← liftResult "load MatchBind" (← session.selectProgramV1
+    text "<evm-match-bind>" "Tests.EvmMatchBind" none)
+  let compiled ← liftResult "compile MatchBind" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MatchBind" <| planEvm compiled
+  -- Catch-all-only match: scrutinee is not re-materialized; the arm body
+  -- reads the binder as the scrutinee value (param 0) directly.
+  expect (plan.entries[0]!.body == #[
+      .store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) },
+      .returnValue (.storageLoad 0)])
+    "MatchBind must alias the binder to the scrutinee value without a switch"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MatchBind plan must validate: {e.render}"
+
+/-- validatePlan negatives for the new control-flow constructors. -/
+private unsafe def testRegionValidationNegatives : IO Unit := do
+  let base : Targets.Evm.Plan := {
+    objectName := "NegRegion"
+    runtimeObjectName := "NegRegion_runtime"
+    storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    constructor := none
+    entries := #[
+      { name := "go"
+        selector := Targets.Evm.Keccak.selector "go" #[]
+        params := #[]
+        mutability := .nonpayable
+        resultKind := .uint64
+        body := #[
+          .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+            #[.store { slot := 0, value := .literal 1 }]
+            #[],
+          .returnValue (.storageLoad 0)] }
+    ]
+  }
+  match Targets.Evm.validatePlan base with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"base region plan must validate: {e.render}"
+  -- If condition must be Bool-typed (arithmetic is not).
+  let badCond := { base with entries := base.entries.map fun e =>
+    { e with body := #[
+        .ifThenElse (.checkedAdd (.storageLoad 0) (.literal 1))
+          #[.store { slot := 0, value := .literal 1 }] #[],
+        .returnValue (.storageLoad 0)] } }
+  match Targets.Evm.validatePlan badCond with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject non-Bool if condition"
+  -- Statement after a both-returning branch at the same level.
+  let afterReturn := { base with entries := base.entries.map fun e =>
+    { e with body := #[
+        .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+          #[.returnValue (.storageLoad 0)] #[.returnValue (.literal 0)],
+        .store { slot := 0, value := .literal 1 }] } }
+  match Targets.Evm.validatePlan afterReturn with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject a statement after a both-returning branch"
+  -- Store inside a view branch is rejected.
+  let viewStore := { base with entries := base.entries.map fun e =>
+    { e with
+        mutability := .view
+        body := #[
+          .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+            #[.store { slot := 0, value := .literal 1 }] #[],
+          .returnValue (.storageLoad 0)] } }
+  match Targets.Evm.validatePlan viewStore with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject a store inside a view branch"
+
 private unsafe def testComparisonNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Bool in state position must fail closed before EVM Plan (typed/normalize).
@@ -592,6 +934,14 @@ unsafe def run : IO Unit := do
   testCompareAssertPlanMutations
   testBoolResultPositive
   testBoolPredicateEndToEnd
+  testIfFlowMultiBlock
+  testIfNoElse
+  testIfBothReturn
+  testNestedIf
+  testAssertInBranch
+  testMatchUIntLiterals
+  testMatchBindArm
+  testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1

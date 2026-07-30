@@ -687,7 +687,10 @@ s1-evm-semantic-plan-deletion-gate:
     rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1 source' "$source"
     rg -q 'expandedNodes' "$source"
     rg -q 'consumeCurrentSegmentV1' "$source"
-    rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+    # checked-arithmetic makers and segment discipline must survive in the
+    # per-block lowering reached from lowerCallableV1 via emitRegionV1.
+    rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+    rg -Uq '(?s)private def lowerCallableV1.*?emitRegionV1' "$source"
     rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
     rg -Uq '(?s)\.checkedSub lhs rhs =>.*?if lt\(\{lhs\.value\}, \{rhs\.value\}\).*?let \{name\} := sub\(' "$source"
     rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"

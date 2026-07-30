@@ -669,49 +669,63 @@ private partial def attrStmt
         | none =>
             return ← failUnsupported
               "S2 provenance match on UInt64/Bool requires a catch-all arm"
-      -- Switch terminator (or plain jump for a catch-all-only match) binds the
-      -- match statement.
+      -- Switch terminator binds the match statement (a catch-all-only match
+      -- is straight-line: no block or terminator entity is produced).
       let termEntity := SemanticEntityRefV1.terminator callableId
         (UInt32.ofNat st.blockId)
-      let accS ← attrPushPath st1.acc idx termEntity stmtPath
+      let accS ← if caseIdxs.isEmpty then pure st1.acc
+        else attrPushPath st1.acc idx termEntity stmtPath
       let stS := { st1 with acc := accS }
-      let orderedArmIdxs := caseIdxs ++ #[defaultIdx]
-      let mut stA := stS
-      let mut openCount : Nat := 0
-      for armIdx in orderedArmIdxs do
-        let some arm := arms[armIdx]? |
+      if caseIdxs.isEmpty then
+        -- Catch-all-only match: straight-line — the arm body attributes inline
+        -- into the current block (binder env only; no block/terminator entity).
+        let some arm := arms[defaultIdx]? |
           return ← failUnsupported "S2 provenance match arm index out of range"
-        let armPath := childPath stmtPath "Stmt.Match" "arms" armIdx
-        let armBlockId := stA.nextBlockId
+        let armPath := childPath stmtPath "Stmt.Match" "arms" defaultIdx
         let bodyPath := directChild armPath "StmtMatchArm" "body"
-        let accA ← attrPushPath stA.acc idx
-          (SemanticEntityRefV1.block callableId (UInt32.ofNat armBlockId)) bodyPath
-        -- A bind arm's binder maps to the scrutinee value (same env slot).
-        let envA := match arm.pattern with
-          | .bind name => envInsertAttr stA.env (raw name) _scrutVid
-          | _ => stA.env
-        let stA0 : BodyAttrV1 := { stA with
-          blockId := armBlockId, nextBlockId := armBlockId + 1, nextInstr := 0,
-          env := envA, acc := accA }
-        let (stB, status) ← attrStmts callableId arm.body.statements bodyPath stA0 states idx
-        stA := stB
-        match status with
-        | .closed => pure ()
-        | .open_ => do
-            let jumpEntity := SemanticEntityRefV1.terminator callableId
-              (UInt32.ofNat stA.blockId)
-            let accJ ← attrPushPath stA.acc idx jumpEntity stmtPath
-            stA := { stA with acc := accJ }
-            openCount := openCount + 1
-      if openCount == 0 then
-        pure (stA, .closed)
+        let envD := match arm.pattern with
+          | .bind name => envInsertAttr stS.env (raw name) _scrutVid
+          | _ => stS.env
+        let stD := { stS with env := envD }
+        attrStmts callableId arm.body.statements bodyPath stD states idx
       else
-        let joinId := stA.nextBlockId
-        let accJoin ← attrPushPath stA.acc idx
-          (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
-        pure ({ stA with
-          blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
-          acc := accJoin }, .open_)
+        let orderedArmIdxs := caseIdxs ++ #[defaultIdx]
+        let mut stA := stS
+        let mut openCount : Nat := 0
+        for armIdx in orderedArmIdxs do
+          let some arm := arms[armIdx]? |
+            return ← failUnsupported "S2 provenance match arm index out of range"
+          let armPath := childPath stmtPath "Stmt.Match" "arms" armIdx
+          let armBlockId := stA.nextBlockId
+          let bodyPath := directChild armPath "StmtMatchArm" "body"
+          let accA ← attrPushPath stA.acc idx
+            (SemanticEntityRefV1.block callableId (UInt32.ofNat armBlockId)) bodyPath
+          -- A bind arm's binder maps to the scrutinee value (same env slot).
+          let envA := match arm.pattern with
+            | .bind name => envInsertAttr stA.env (raw name) _scrutVid
+            | _ => stA.env
+          let stA0 : BodyAttrV1 := { stA with
+            blockId := armBlockId, nextBlockId := armBlockId + 1, nextInstr := 0,
+            env := envA, acc := accA }
+          let (stB, status) ← attrStmts callableId arm.body.statements bodyPath stA0 states idx
+          stA := stB
+          match status with
+          | .closed => pure ()
+          | .open_ => do
+              let jumpEntity := SemanticEntityRefV1.terminator callableId
+                (UInt32.ofNat stA.blockId)
+              let accJ ← attrPushPath stA.acc idx jumpEntity stmtPath
+              stA := { stA with acc := accJ }
+              openCount := openCount + 1
+        if openCount == 0 then
+          pure (stA, .closed)
+        else
+          let joinId := stA.nextBlockId
+          let accJoin ← attrPushPath stA.acc idx
+            (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
+          pure ({ stA with
+            blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
+            acc := accJoin }, .open_)
   | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
   | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
   | .revert _ _ => failUnsupported "S2 provenance does not support revert"

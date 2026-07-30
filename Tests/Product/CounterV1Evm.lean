@@ -17,6 +17,7 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Source.NodeAssignmentV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Targets.BuildSelectionV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -59,6 +60,47 @@ unsafe def run : IO Unit := do
   expect ((NonEmptyArray.toArray selected.programIdentity.components).map (·.raw) ==
       #["Product", "Multi", "Two"])
     "--program must select by parser-produced raw component arrays"
+
+  -- Product build of a branching (if/else) program through the capability path.
+  let ifFlowText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IfFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    else\n" ++
+    "      count := delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let ifSource ← liftCompile "load IfFlow" (← session.selectProgramV1
+    ifFlowText "<counter-if-flow>" "Product.IfFlow" none)
+  let ifCompiled ← liftCompile "compile IfFlow" <|
+    Compiler.compileValidatedSourceV1 ifSource
+  let ifSelection ← liftCompile "resolve selection" <|
+    resolveBuildSelectionV1 TargetId.evm none
+  let ifCapability ← liftCompile "resolve requirements" <|
+    Targets.resolveEngineeringRequirementsV1 ifSelection ifCompiled
+  let ifFiles ← liftCompile "build IfFlow" <|
+    Targets.Evm.buildFromCapability ifCapability
+  let some yulFile := ifFiles.find? (·.path == "IfFlow.yul") |
+    throw <| IO.userError "IfFlow: missing IfFlow.yul"
+  expect (yulFile.contents.contains "if expr" &&
+      yulFile.contents.contains "if iszero(expr" &&
+      yulFile.contents.contains "sstore(0,")
+    "IfFlow Yul must contain the branch ifs and stores"
+  let some abiFile := ifFiles.find? (·.path == "IfFlow.abi.json") |
+    throw <| IO.userError "IfFlow: missing IfFlow.abi.json"
+  expect (abiFile.contents.contains "\"stateMutability\":\"view\"")
+    "IfFlow ABI must keep the view entry"
+  let ifFiles2 ← liftCompile "build IfFlow again" <|
+    Targets.Evm.buildFromCapability ifCapability
+  expect ((ifFiles.map (·.contents) == ifFiles2.map (·.contents)))
+    "IfFlow product build must be byte-deterministic"
 
   let digest ← liftSource "sourceHashV1" (sourceHashV1 source)
   let renderedDigest ← liftSource "render sourceHashV1" (renderDigest digest)
