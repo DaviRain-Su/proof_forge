@@ -552,6 +552,119 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
       applyNr.contents.contains "== 0")
     "branching Noir source must render the switch as an else-if chain"
 
+/-- ProgramV1 fn/localCall source text for the Wave E pureCall leaf. -/
+private def fnFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program FnFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  error Cap(limit : UInt64)\n" ++
+  "  fn double(x : UInt64) : UInt64 do\n" ++
+  "    return x + x\n" ++
+  "  fn check(x : UInt64, lim : UInt64) : UInt64 do\n" ++
+  "    if x > lim then\n" ++
+  "      revert Cap(lim)\n" ++
+  "    else\n" ++
+  "      return double(x)\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := check(delta, 10) + double(count)\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 pureCall conformance: dense fn tables, nested
+    localCall lowering with exact args, typed IR call operations, and each
+    target's emitter surface for pure functions (Yul functions, sbpf .fn
+    sections, WAT funcs, Noir block-valued selects). -/
+private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    fnFlowSourceTextV1 "<targets-fn-call>" "Tests.Targets.FnFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.fns.map (·.name) == #["double", "check"] &&
+      solana.fns.map (·.name) == #["double", "check"] &&
+      near.fns.map (·.name) == #["double", "check"] &&
+      noir.fns.map (·.name) == #["double", "check"])
+    "all four targets must carry the double/check fn tables in source order"
+  expect (evm.fns[1]!.body == #[
+      .ifThenElse (.compare .gt (.param 0) (.param 1))
+        #[.revertError 0 #[.param 1]]
+        #[.returnValue (.callFn 0 #[.param 0])]])
+    "EVM check body must lower the revert arm and the nested double call"
+  expect (evm.entries[0]!.body == #[
+      .store { slot := 0, value :=
+        .checkedAdd (.callFn 1 #[.param 0, .literal 10]) (.callFn 0 #[.storageLoad 0]) },
+      .returnValue (.storageLoad 0)])
+    "EVM bump must add check(delta,10) and double(count)"
+  expect (solana.entries[0]!.body == #[
+      .store { accountIndex := 0, byteOffset := 8, value :=
+        .checkedAdd (.callFn 1 #[.param 8, .literal 10]) (.callFn 0 #[.stateLoad 0 8]) },
+      .returnValue (.stateLoad 0 8)])
+    "Solana bump must add check(delta,10) and double(count)"
+  expect (near.entries[0]!.body == #[
+      .store { fieldIndex := 0, value :=
+        .checkedAdd (.callFn 1 #[.param 0, .literal 10]) (.callFn 0 #[.stateLoad 0]) },
+      .returnValue (.stateLoad 0)])
+    "NEAR bump must add check(delta,10) and double(count)"
+  expect (noir.relations.map (·.name) == #["init", "bump", "get"])
+    "Noir relations must stay init/entry/view only (fns inline, no fn relations)"
+  let noirBump := noir.relations[1]!
+  let noirIR ← liftResult <| irNoir compiled
+  liftResult <| Targets.Noir.validateIR noirIR
+  let noirBumpIR := noirIR.relations[1]!
+  expect (noirBumpIR.operations.any (fun
+      | .selectRegion .. => true | _ => false))
+    "Noir bump must inline check as a block-valued select"
+
+  let solanaIR ← liftResult <| irSolana compiled
+  expect (solanaIR.fns.size == 2 &&
+      solanaIR.handlers[1]!.operations.any (fun
+      | .callFn .. => true | _ => false))
+    "Solana IR must carry fn bodies and callFn ops"
+  let nearIR ← liftResult <| irNear compiled
+  expect (nearIR.fns.size == 2 &&
+      nearIR.methods[1]!.operations.any (fun
+      | .callFn .. => true | _ => false))
+    "NEAR recipe IR must carry fn bodies and callFn ops"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some yulFile := evmOutput.files.find? (·.path == "FnFlow.yul") |
+    throw <| IO.userError "fn-call: missing FnFlow.yul"
+  expect (yulFile.contents.contains "function pf_fn0(" &&
+      yulFile.contents.contains "function pf_fn1(" &&
+      yulFile.contents.contains "pf_fn1(" && yulFile.contents.contains "pf_fn0(")
+    "fn-call Yul must define and call both pure functions"
+  let some sbpf := solanaOutput.files.find? (·.path == "FnFlow.sbpf-plan") |
+    throw <| IO.userError "fn-call: missing FnFlow.sbpf-plan"
+  expect (sbpf.contents.contains ".fn 0 double" &&
+      sbpf.contents.contains ".fn 1 check" &&
+      sbpf.contents.contains "= call check" &&
+      sbpf.contents.contains "= call double")
+    "fn-call sbpf-plan must render fn sections and call sites"
+  let some wat := nearOutput.files.find? (·.path == "FnFlow.wat") |
+    throw <| IO.userError "fn-call: missing FnFlow.wat"
+  expect (wat.contents.contains "(func $fn_double" &&
+      wat.contents.contains "(func $fn_check" &&
+      wat.contents.contains "(call $fn_check" &&
+      wat.contents.contains "(call $fn_double")
+    "fn-call WAT must render fn definitions and call sites"
+  let some bumpNr := noirOutput.files.find?
+      (·.path == "relations/r1-bump/src/main.nr") |
+    throw <| IO.userError "fn-call: missing Noir bump relation"
+  expect (bumpNr.contents.contains ": u64 = if" &&
+      bumpNr.contents.contains "assert(false)")
+    "fn-call Noir source must inline check as a block-valued select with an inadmissible revert arm"
+
 /-- ProgramV1 emit/revert source text for the Wave D event/error leaf. -/
 private def eventFlowSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
@@ -789,6 +902,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testBoolPredicateSemanticPlans
   testBranchingSemanticPlans
   testEmitRevertSemanticPlans
+  testFnLocalCallSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=

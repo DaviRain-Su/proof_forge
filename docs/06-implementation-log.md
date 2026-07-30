@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — S1 Normalize 扩面：fn/localCall（pureCall）贯穿四 target
+
+- Context/State：formal D1–D4 仍为 0/27 done。承接 revert/emit 扩面，本切片把 `fn` 声明与 localCall 表达式贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。fn 参数/结果限 public UInt64/Bool；fn body 禁 state read/write 与 event emit（EffectCheck allowlist 上游已闸，target 端全部带纵深 fail closed）；call/schedule、assert-else 继续 fail closed。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理只读审计 diff 后逐一 `git apply` 集成与独立复验；Noir lane 由主代理串行实现。
+- Shared core（主代理，先行提交）：Normalize 新增 fn 签名表 pass（GLOBAL callableId 键控，覆盖先/后声明的互调），fn body 以空 state 表降低（state 名 fail closed）；`.localCall` 降为 `Op.PureCall callableId argIds`（结果类型=callee 结果类型，参数按 callee 参数类型逐位检查）；ProvenanceV1 镜像 fn callable/param/result 实体、localCall 指令/值实体（绑 local-call 表达式节点）与 fn body 需求产出点；ReferenceV1 以**显式调用帧栈**执行 PureCall（machine 携带 frames：调用时挂起 caller env/loopCounts/位置/结果槽，同一 fuel 进入 callee，return 弹帧续跑；revert/trap 穿帧传播；admission 检查 callee 为 pureFn 且 arity 一致）。既有 EffectCheck/CallGraph 不变（fn 仅 failure.revert、无环上游已闸）。
+- 横切模式（四 lane 统一）：dense pureFn 表 + 前置 CallableId→fnIndex 签名索引（先签名后 body，支持后声明互调）；pureCall 为**纯值表达式**（非 effect 边界，段内连续）；fn body 以专用 pureFn/view 模式降低与验证（state read/write、event emit 全部 fail closed）；结果 kind 取自 callee 声明（UInt64/Bool）。
+- EVM lane（worker，主代理审计后集成）：`Expr.callFn`（dense fnIndex）+ `Plan.fns`；Yul `function pf_fn{i}(args) -> r { … }` 同时物化进 constructor 与 runtime 两个对象（Yul object 自包含），函数上下文 return 改为结果变量赋值（非 mstore/return）；验证器覆盖 fn 身份/参数 canonical/唯一性与必须 return。
+- Solana lane（worker）：`FnBinding`/`FnIR` + `.fn {i} {name} (-> u64|bool)` plan 段（fn 上下文 `ret %v`）与 `%{d} = call {name} %args` 调用点；IR exact re-derivation 含 fn 表且 purity walk 拒绝任何 state/event op；IDL 新增 `fns` 表。
+- NEAR lane（worker）：`FnBinding`/`FnIR` + `isPureFn` 校验维度（禁 store/emit）；WAT 每 fn 一个 `(func $fn_{name} (param…) (result i64) (local…))` 先于 method exports，调用点 `(call $fn_{name})`，fn 内 return 为 `(return (local.get $tV))`；host model 以嵌套帧（深度 ≤ fn 数）执行 callFn；Accumulator WAT golden 不受影响（无 fn 程序零变化）。
+- Noir lane（主代理）：电路无调用指令——**call site 内联展开**。Noir 以两阶段全局 id 键控 fn 绑定表（签名 pass → body pass 空 state 表）；关系级 lowerExpr 遇 `.callFn` 即按参数 ValueRef 替换并路径枚举 callee 语句树；分支 callee 产生 **block-valued if/else-if select 操作**（新 `selectRegion`/`selectSwitch` ops：臂内约束保持路径作用域，外层表达式保留单一结果值）；内联与路径复制共享 IR fuel 并 fail closed；fn body 的 state read/emit/store/缺 return 全部 fail closed。关系模型执行 select（取臂、读尾值、写目的临时）。
+- 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testFnLocalCallSemanticPlans` 接入 `runSemanticPlanLeafFast`——四 target fn 表（double/check source 序）、check body（revert 臂 + 嵌套 double 调用）、bump 的 `check(delta,10)+double(count)` 精确形状、IR callFn/select ops、emitter 文本（Yul `function pf_fn`、sbpf `.fn … = call`、WAT `(func $fn_`、`.nr` `: u64 = if`+`assert(false)`）。
+- Verification：共享核心与四 lane focused build/test 各自绿（worker 在隔离 worktree 自验，主代理逐一审计 diff：文件集合、无 fallback/adapter/residual、dense 索引精确、purity 禁令双向覆盖、无 fn 程序零变化）；集成后 `proof_forge_next_fast_tests` 与 `proof_forge_next_tests` 全绿（含 Darwin supervisor 套件、四 host/relation model 全量）；`just dev-check` 与完整 `just ci` 通过；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
+- Boundary：fn 参数/结果仍限 public UInt64/Bool；fn body 不得 state read/write 或 emit（call cycle 上游 CheckV1 拒绝）；`call`/`schedule`（external call）、assert-else、mul/div/mod/unary、let/for、aggregates 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+
 ## 2026-07-30 — S1 Normalize 扩面：revert/emit + event/error 表贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 if/match 多块 CFG 扩面，本切片把声明式 `error Name(f : UInt64, ...)` / `event Name(f : UInt64, ...)` 表、`revert Name(args)` 语句与 `emit Name(args)` 语句贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。`call`/`schedule`（依赖 caller context/target 解析）与 assert-else 继续 fail closed。执行模式：worker 派发仍 401，全部由主代理串行实现与验证。
