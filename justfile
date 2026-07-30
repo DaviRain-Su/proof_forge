@@ -730,7 +730,10 @@ s1-target-semantic-plan-deletion-gate:
       rg -Uq '(?s)(makeCheckedSubValueV1|makeBinaryTreeValueV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
       rg -q 'makeCheckedAddValueV1' "$source"
       rg -q 'makeCheckedSubValueV1' "$source"
-      rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+      # Wave C: per-block lowering (reached from lowerCallableV1 via
+      # emitRegionV1) owns checked add/sub and effect-segment consumption.
+      rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+      rg -Uq '(?s)private def lowerBlockInstructionsV1.*?private partial def emitRegionV1.*?private def lowerCallableV1' "$source"
       rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
       rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
       case "$target" in

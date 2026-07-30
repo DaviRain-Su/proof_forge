@@ -55,6 +55,7 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | returnNone
   | assert (condition : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -625,7 +626,10 @@ private partial def emitRegionV1
       unless segmentStart == values.size do
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: block has unconsumed values"
-      pure (instrs, values, none, hA, false)
+      -- Explicit marker: an early bare `return` inside a branch arm is
+      -- otherwise indistinguishable from a fallthrough arm once the join
+      -- continuation is emitted after the region.
+      pure (instrs.push .returnNone, values, none, hA, false)
   | .jump target =>
       unless segmentStart == values.size do
         throw <| .planInvariant .evm
@@ -742,9 +746,29 @@ private def lowerCallableV1
       "unsupported EVM semantic shape: block parameters are not supported"
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
-  let (body, values, nextJoin, hasAssert, hasRegion) ←
+  let (body0, values0, nextJoin0, hA0, hasRegion0) ←
     emitRegionV1 owner mode types layout callable.blocks paramCount #[]
       expectedResultKind callable.blocks.size 0 initialValues
+  -- Fold trailing join continuations (an arm that returned early leaves the
+  -- remaining open path's join to the caller). Join targets strictly increase
+  -- in the forward-only CFG, so this terminates within blocks.size folds.
+  let mut body := body0
+  let mut values := values0
+  let mut nextJoin := nextJoin0
+  let mut hasAssert := hA0
+  let mut hasRegion := hasRegion0
+  for _ in [0:callable.blocks.size] do
+    match nextJoin with
+    | none => break
+    | some j =>
+        let (rest, values1, next1, hA1, hasRegion1) ←
+          emitRegionV1 owner mode types layout callable.blocks paramCount #[]
+            expectedResultKind callable.blocks.size j values
+        body := body ++ rest
+        values := values1
+        nextJoin := next1
+        hasAssert := hasAssert || hA1
+        hasRegion := hasRegion || hasRegion1
   match nextJoin with
   | some _ =>
       throw <| .planInvariant .evm
@@ -903,11 +927,15 @@ private def exprIsUInt64CompatibleV1 (expr : Expr) : Bool :=
 /-- Recursive statement-tree validator: kind gates, view-write ban (including
     inside branches), node accounting, and per-level return ordering. Returns
     the updated node total and whether execution of this statement list always
-    ends in a return on every path. -/
+    ends in a return on every path. A bare-return marker is accepted only at
+    the top level of a constructor body (`allowReturnNone`); early bare returns
+    inside branch arms fail closed (the constructor deployment epilogue must
+    run on every path, which a mid-arm halt would skip). -/
 private partial def checkPlanStatementsV1
     (owner : String) (isConstructor : Bool) (isView : Bool)
     (resultKind : ResultKind) (slots : Array Nat) (paramCount : Nat)
-    (statements : Array Statement) (total : Nat) : CompileResult (Nat × Bool) := do
+    (allowReturnNone : Bool) (statements : Array Statement) (total : Nat) :
+    CompileResult (Nat × Bool) := do
   let mut total := total
   let mut closed := false
   for statement in statements do
@@ -940,6 +968,12 @@ private partial def checkPlanStatementsV1
                 s!"{owner} resultKind bool is inconsistent with UInt64 return expression"
         total ← addPlanExprNodes slots paramCount total value
         closed := true
+    | .returnNone =>
+        unless allowReturnNone do
+          throw <| .planInvariant .evm
+            s!"{owner} has an early bare return inside a branch arm"
+        total := total + 1
+        closed := true
     | .ifThenElse condition thenBody elseBody =>
         unless exprIsBoolCompatibleV1 condition do
           throw <| .planInvariant .evm
@@ -947,23 +981,23 @@ private partial def checkPlanStatementsV1
         total ← addPlanExprNodes slots paramCount total condition
         total := total + 1
         let (t1, c1) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount thenBody total
+          owner isConstructor isView resultKind slots paramCount false thenBody total
         let (t2, c2) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount elseBody t1
+          owner isConstructor isView resultKind slots paramCount false elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
         total ← addPlanExprNodes slots paramCount total scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
-        for (caseValue, caseBody) in cases do
+        for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkPlanStatementsV1
-            owner isConstructor isView resultKind slots paramCount caseBody total
+            owner isConstructor isView resultKind slots paramCount false caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount defaultBody total
+          owner isConstructor isView resultKind slots paramCount false defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1028,7 +1062,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
     else
       let (t, _) ← checkPlanStatementsV1 "constructor" true false .uint64
-        slots constructor.params.size constructor.body totalPlanNodes
+        slots constructor.params.size true constructor.body totalPlanNodes
       totalPlanNodes := t
   for entry in plan.entries do
     unless isIdentifier entry.name && validSelector entry.selector do
@@ -1062,7 +1096,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm s!"entry '{entry.name}' has no body"
     let (t, returned) ← checkPlanStatementsV1 s!"entry '{entry.name}'" false
       (entry.mutability == .view) entry.resultKind slots entry.params.size
-      entry.body totalPlanNodes
+      false entry.body totalPlanNodes
     totalPlanNodes := t
     unless returned do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
@@ -1218,6 +1252,10 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++ rendered.code ++
           s!"{indent}mstore(0, {rendered.value})\n{indent}return(0, 32)\n"
         next := rendered.next
+    | .returnNone =>
+        -- Valid only as the constructor body's final statement (validated);
+        -- falling off the body reaches the deployment epilogue on this path.
+        pure ()
     | .ifThenElse condition thenBody elseBody =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code

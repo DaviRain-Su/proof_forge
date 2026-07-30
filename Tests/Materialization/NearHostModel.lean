@@ -40,6 +40,7 @@ private structure Machine where
   storage : HostStorage
   temps : Array (Option U64)
   returned : Option U64 := none
+  halted : Bool := false
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64)
@@ -220,6 +221,8 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         modelError "return data was already set"
       let value ← readTemp machine source
       pure { machine with returned := some value }
+  | .returnNone =>
+      pure { machine with halted := true }
   | .ifRegion condition thenOps elseOps => do
       let value ← readTemp machine condition
       if value != 0 then
@@ -239,7 +242,9 @@ private partial def runOperations (input : ByteArray) (deposit : Deposit) :
   | [], machine => .ok machine
   | operation :: remaining, machine =>
       match step input deposit machine operation with
-      | .ok next => runOperations input deposit remaining next
+      | .ok next =>
+          if next.halted then .ok next
+          else runOperations input deposit remaining next
       | .error reason => .error reason
 
 end
@@ -382,6 +387,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .gt => "compare.gt"
         | .ge => "compare.ge"
     | .assert _ => "assert"
+    | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
     | .switchRegion .. => "switchRegion"
 
@@ -965,6 +971,135 @@ private unsafe def testBoolPredicateProductPath
     "bool-predicate: buildFromCapability must be byte-identical on rebuild"
   expect (plan.programName == "BoolPredicate") "bool-predicate plan program name"
 
+/-- Early valued return in the then arm with a trailing join (the mirror
+    guard-clause shape): the trailing join folds after the region, and the
+    closed arm gains a hard `return` after value_return so the early path
+    does not fall through into the join. -/
+private unsafe def testEarlyReturnJoinProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EarlyReturn where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry cap(limit : UInt64) : UInt64 do\n" ++
+    "    if count > limit then\n" ++
+    "      return limit\n" ++
+    "    else\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-early-return>" "Examples.EarlyReturn" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let cap := plan.entries[0]!
+  expect (cap.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.param 0))
+        #[.returnValue (.param 0)]
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.literal 1) }],
+      .returnValue (.stateLoad 0)])
+    "EarlyReturn cap must fold the trailing join return after the region"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let capIR ← findMethod ir "cap"
+  let some region := capIR.operations.find? (fun op => match op with
+    | .ifRegion .. => true | _ => false) |
+    throw <| IO.userError "EarlyReturn cap IR must contain the if-region"
+  match region with
+  | .ifRegion _ thenOps _ =>
+      expect (thenOps.back? == some .returnNone)
+        "EarlyReturn closed arm must gain a hard return after value_return"
+  | _ => throw <| IO.userError "EarlyReturn cap IR must contain the if-region"
+  -- Host-model execution: init(10) → cap(5) early-returns 5 (state stays 10);
+  -- cap(20) falls through the join to 11.
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _) ← requireSuccess "early-return init"
+    (execute initializer empty (encodeUInt64LE 10) zero)
+  let (storage1, ret1) ← requireSuccess "early-return cap(5)"
+    (execute capIR storage0 (encodeUInt64LE 5) zero)
+  expect (ret1 == some 5 && storedUInt64? storage1 field.key == some 10)
+    "early-return path must return the limit and leave state untouched"
+  let (storage2, ret2) ← requireSuccess "early-return cap(20)"
+    (execute capIR storage1 (encodeUInt64LE 20) zero)
+  expect (ret2 == some 11 && storedUInt64? storage2 field.key == some 11)
+    "fallthrough path must store and return count + 1"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "early-return: missing .wat artifact"
+  expectContains wat.contents "(return)" "early-return WAT hard return"
+
+/-- An early bare return inside an initializer branch arm fails closed: the
+    layout-marking epilogue must run on every path. Normalize currently
+    rejects explicit bare `return` at the source boundary; the Plan validator
+    independently rejects an in-arm bare-return marker. -/
+private unsafe def testInitEarlyBareReturnClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program InitEarlyReturn where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    if initial > 0 then\n" ++
+    "      return\n" ++
+    "    else\n" ++
+    "      count := initial\n" ++
+    "    count := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  match ← session.selectProgramV1 text "<near-init-early-return>"
+      "Examples.InitEarlyReturn" none with
+  | .error e => throw <| IO.userError s!"InitEarlyReturn must load, got {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error (.invalidProgram message) =>
+          expect (message.contains "bare return")
+            s!"InitEarlyReturn must fail closed at Normalize, got {message}"
+      | .error e =>
+          throw <| IO.userError
+            s!"InitEarlyReturn must fail with invalidProgram, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "InitEarlyReturn must not compile (bare return)"
+  -- Validator level: an in-arm bare-return marker in the initializer body is
+  -- rejected even though a final top-level marker is the canonical shape.
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 (←
+    liftResult (← session.selectProgramV1 accumulatorSourceText
+      "<near-early-return-plan>" accumulatorModuleNameV1 none))
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let earlyArm := {
+    plan.initializer with
+    body := #[
+      .ifThenElse (.compare .ge (.param 0) (.literal 0))
+        #[.returnNone]
+        #[],
+      .store { fieldIndex := 0, value := .param 0 },
+      .returnNone
+    ]
+  }
+  match Targets.Near.validatePlan { plan with initializer := earlyArm } with
+  | .error (.planInvariant .near message) =>
+      expect (message.contains "early bare return")
+        s!"validatePlan must reject the in-arm bare return, got {message}"
+  | .error e =>
+      throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
+  | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -972,6 +1107,8 @@ unsafe def run : IO Unit := do
   testIfFlowProductPath session
   testMatchProductPath session
   testBranchAssertTrap session
+  testEarlyReturnJoinProductPath session
+  testInitEarlyBareReturnClosed session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

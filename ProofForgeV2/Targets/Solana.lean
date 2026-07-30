@@ -110,6 +110,7 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | returnNone
   | assert (condition : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -163,6 +164,7 @@ inductive Operation where
   | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
+  | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
@@ -728,7 +730,10 @@ private partial def emitRegionV1
       unless segmentStart == values.size do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: block has unconsumed values"
-      pure (instrs, values, none)
+      -- Explicit marker: an early bare `return` inside a branch arm is
+      -- otherwise indistinguishable from a fallthrough arm once the join
+      -- continuation is emitted after the region.
+      pure (instrs.push .returnNone, values, none)
   | .jump target =>
       unless segmentStart == values.size do
         throw <| .planInvariant .solana
@@ -836,9 +841,25 @@ private def lowerCallableV1
       "unsupported Solana semantic shape: block parameters are not supported"
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
-  let (body, _values, nextJoin) ←
+  let (body0, values0, nextJoin0) ←
     emitRegionV1 owner mode expectsBoolReturn types account callable.blocks paramCount #[]
       callable.blocks.size 0 initialValues
+  -- Fold trailing join continuations (an arm that returned early leaves the
+  -- remaining open path's join to the caller). Join targets strictly increase
+  -- in the forward-only CFG, so this terminates within blocks.size folds.
+  let mut body := body0
+  let mut values := values0
+  let mut nextJoin := nextJoin0
+  for _ in [0:callable.blocks.size] do
+    match nextJoin with
+    | none => break
+    | some j =>
+        let (rest, values1, next1) ←
+          emitRegionV1 owner mode expectsBoolReturn types account callable.blocks
+            paramCount #[] callable.blocks.size j values
+        body := body ++ rest
+        values := values1
+        nextJoin := next1
   match nextJoin with
   | some _ =>
       throw <| .planInvariant .solana
@@ -994,9 +1015,13 @@ private def validateParams (owner : String) (params : Array Param) : CompileResu
 /-- Recursive statement-tree validator for one handler: view-write ban
     (including inside branches), node accounting, and per-level return
     ordering. Returns the updated node total and whether this level closes in
-    return on every path. -/
+    return on every path. A bare-return marker is accepted only at the top
+    level of the initializer body (`allowReturnNone`); early bare returns
+    inside branch arms fail closed (the initializer's header-marking epilogue
+    must run on every path). -/
 private partial def checkHandlerStatementsV1
     (account : StateAccount) (isInitializer : Bool) (isView : Bool)
+    (allowReturnNone : Bool)
     (params : Array Param) (statements : Array Statement) (total : Nat) :
     CompileResult (Nat × Bool) := do
   let mut total := total
@@ -1017,29 +1042,34 @@ private partial def checkHandlerStatementsV1
           throw <| .planInvariant .solana "initializer cannot return a value"
         total ← addPlanExprNodes account params total value
         closed := true
+    | .returnNone =>
+        unless allowReturnNone do
+          throw <| .planInvariant .solana "handler has an early bare return inside a branch arm"
+        total := total + 1
+        closed := true
     | .assert condition =>
         total ← addPlanExprNodes account params total condition
     | .ifThenElse condition thenBody elseBody =>
         total ← addPlanExprNodes account params total condition
         total := total + 1
         let (t1, c1) ← checkHandlerStatementsV1
-          account isInitializer isView params thenBody total
+          account isInitializer isView false params thenBody total
         let (t2, c2) ← checkHandlerStatementsV1
-          account isInitializer isView params elseBody t1
+          account isInitializer isView false params elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
         total ← addPlanExprNodes account params total scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
-        for (caseValue, caseBody) in cases do
+        for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkHandlerStatementsV1
-            account isInitializer isView params caseBody total
+            account isInitializer isView false params caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkHandlerStatementsV1
-          account isInitializer isView params defaultBody total
+          account isInitializer isView false params defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1066,12 +1096,11 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
   if handler.body.isEmpty || handler.body.size > maxBodyStatements then
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid body size"
   let (total, closed) ← checkHandlerStatementsV1
-    account isInitializer (handler.mode == .view) handler.params handler.body baseNodes
-  if isInitializer then
-    if closed then
-      throw <| .planInvariant .solana "initializer cannot return a value"
-  else unless closed do
-    throw <| .planInvariant .solana s!"handler '{handler.name}' does not return a value"
+    account isInitializer (handler.mode == .view) isInitializer handler.params
+    handler.body baseNodes
+  unless closed do
+    throw <| .planInvariant .solana
+      s!"handler '{handler.name}' does not terminate on all paths"
   return total
 
 /-- Validate the public target-owned Plan before typed IR lowering. -/
@@ -1229,6 +1258,35 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
   if access.writableRequired then checks := checks.push (.writable access.accountIndex)
   return checks.push (.headerEquals access.accountIndex account.headerOffset headerValue)
 
+/-- Whether every path through a statement list ends in a return (valued or
+    bare marker), matching the region emitter's closedness: a list closes iff
+    its last statement is a return or a region whose arms all close. An empty
+    else/default arm is a fallthrough (open). Used to append a hard `exit`
+    after arms whose set_return_data would otherwise fall through into the
+    region's continuation (the syscall does not halt execution). -/
+private partial def statementListClosesV1 : List Statement → Bool
+  | [] => false
+  | [statement] =>
+      match statement with
+      | .returnValue _ | .returnNone => true
+      | .ifThenElse _ thenBody elseBody =>
+          !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
+            statementListClosesV1 elseBody.toList
+      | .switchOn _ cases defaultBody =>
+          !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
+            cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
+      | .store _ | .assert _ => false
+  | _ :: _ :: rest => statementListClosesV1 rest
+
+/-- Append the hard exit after a closed region arm, unless the arm already
+    ends in the initializer's bare-return marker (which lowers to `exit`). -/
+private def armOpsWithHardExit (arm : Array Statement)
+    (operations : Array Operation) : Array Operation :=
+  if statementListClosesV1 arm.toList && arm.back? != some .returnNone then
+    operations.push .returnNone
+  else
+    operations
+
 private partial def lowerBodyOps
     (overflowError : Nat) (resultKind : ResultKind) (assertErr : Nat)
     (next : Nat) (statements : Array Statement) : Array Operation × Nat := Id.run do
@@ -1249,6 +1307,10 @@ private partial def lowerBodyOps
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
         next := value.next
+    | .returnNone =>
+        -- Valid only inside region arms (validated); the initializer's own
+        -- final marker is stripped by lowerHandler before lowering.
+        operations := operations.push .returnNone
     | .assert condition =>
         let value := lowerExpr overflowError next condition
         operations := operations ++ value.operations
@@ -1259,7 +1321,8 @@ private partial def lowerBodyOps
         operations := operations ++ value.operations
         let (thenOps, next1) := lowerBodyOps overflowError resultKind assertErr value.next thenBody
         let (elseOps, next2) := lowerBodyOps overflowError resultKind assertErr next1 elseBody
-        operations := operations.push (.ifRegion value.value thenOps elseOps)
+        operations := operations.push (.ifRegion value.value
+          (armOpsWithHardExit thenBody thenOps) (armOpsWithHardExit elseBody elseOps))
         next := next2
     | .switchOn scrutinee cases defaultBody =>
         let value := lowerExpr overflowError next scrutinee
@@ -1268,10 +1331,11 @@ private partial def lowerBodyOps
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
           let (ops, next1) := lowerBodyOps overflowError resultKind assertErr nextC caseBody
-          caseOps := caseOps.push (caseValue, ops)
+          caseOps := caseOps.push (caseValue, armOpsWithHardExit caseBody ops)
           nextC := next1
         let (defaultOps, nextD) := lowerBodyOps overflowError resultKind assertErr nextC defaultBody
-        operations := operations.push (.switchRegion value.value caseOps defaultOps)
+        operations := operations.push (.switchRegion value.value caseOps
+          (armOpsWithHardExit defaultBody defaultOps))
         next := nextD
   pure (operations, next)
 
@@ -1282,8 +1346,14 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
       account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
     else
       #[]
+  -- The initializer's final bare-return marker is the natural fall-through;
+  -- in-arm markers are rejected by validatePlan and never reach this point.
+  let body := if handler.body.back? == some .returnNone then
+    handler.body.pop
+  else
+    handler.body
   let (bodyOps, _) := lowerBodyOps
-    plan.arithmeticOverflowError handler.resultKind plan.assertionFailedError 0 handler.body
+    plan.arithmeticOverflowError handler.resultKind plan.assertionFailedError 0 body
   let mut operations := operations0 ++ bodyOps
   if handler.mode == .initialize then
     operations := operations.push <|
@@ -1317,14 +1387,28 @@ private partial def validateOperationSequence
   let mut next := next
   let mut returned := false
   let mut initialized := false
+  let mut halted := false
   for operation in operations do
-    if returned || initialized then
-      throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
+    if halted then
+      throw <| .planInvariant .solana "typed Solana IR has an operation after its hard exit"
     if let some destination := tempDestination? operation then
       unless destination == next do
         throw <| .planInvariant .solana "typed Solana IR temporary numbering is not canonical"
       next := next + 1
     match operation with
+    | .returnNone =>
+        -- The hard exit terminates an arm after set_return_data (or the
+        -- initializer's bare return); it neither sets nor requires flags.
+        halted := true
+    | .literal ..
+    | .loadParam .. | .loadState .. | .checkedAdd .. | .checkedSub ..
+    | .compare .. | .assert .. | .zeroState .. | .storeState ..
+    | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
+    | .ifRegion .. | .switchRegion .. =>
+        if returned || initialized then
+          throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
+    match operation with
+    | .returnNone => pure ()
     | .literal .. => pure ()
     | .loadParam _ dataOffset =>
         unless paramOffsets.contains dataOffset do
@@ -1517,6 +1601,8 @@ private partial def renderOperation (indent : String) : Operation → String
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .assert condition errorCode =>
       s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
+  | .returnNone =>
+      s!"{indent}exit\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
         output ++ renderOperation (indent ++ "  ") operation) ""

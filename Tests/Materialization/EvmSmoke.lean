@@ -264,8 +264,9 @@ private unsafe def testInitWithAssert : IO Unit := do
   | some ctor =>
       expect (ctor.body == #[
           .assert (.compare .ge (.param 0) (.literal 0)),
-          .store { slot := 0, value := .param 0 }])
-        "constructor body must interleave assert then store in source order"
+          .store { slot := 0, value := .param 0 },
+          .returnNone])
+        "constructor body must interleave assert then store in source order, closed by the bare-return marker"
       expect (ctor.stores.isEmpty)
         "constructor with assert must leave stores empty (body is authority)"
   match Targets.Evm.validatePlan plan with
@@ -886,6 +887,116 @@ private unsafe def testRegionValidationNegatives : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "validatePlan must reject a store inside a view branch"
 
+/-- Early valued return in the then arm with a trailing join (the mirror
+    guard-clause shape): the trailing join folds after the region. -/
+private unsafe def testEarlyReturnJoin : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EarlyReturn where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry cap(limit : UInt64) : UInt64 do\n" ++
+    "    if count > limit then\n" ++
+    "      return limit\n" ++
+    "    else\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load EarlyReturn" (← session.selectProgramV1
+    text "<evm-early-return>" "Tests.EvmEarlyReturn" none)
+  let compiled ← liftResult "compile EarlyReturn" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan EarlyReturn" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.param 0))
+        #[.returnValue (.param 0)]
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.literal 1) }],
+      .returnValue (.storageLoad 0)])
+    "EarlyReturn cap must fold the trailing join return after the region"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"EarlyReturn plan must validate: {e.render}"
+  let output ← liftResult "materialize EarlyReturn" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "EarlyReturn.yul") |
+    throw <| IO.userError "EarlyReturn: missing EarlyReturn.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "if expr" && yul.contains "if iszero(expr")
+    "EarlyReturn Yul must render both branch guards"
+  expect ((yul.splitOn "return(0, 32)").length == 4)
+    "EarlyReturn Yul must render the early return, the join return, and the view return"
+
+/-- An early bare return inside an initializer branch arm fails closed: the
+    deployment epilogue must run on every path. Normalize currently rejects
+    explicit bare `return` at the source boundary; the Plan validator
+    independently rejects an in-arm bare-return marker. -/
+private unsafe def testInitEarlyBareReturnClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program InitEarlyReturn where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    if initial > 0 then\n" ++
+    "      return\n" ++
+    "    else\n" ++
+    "      count := initial\n" ++
+    "    count := 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  match ← session.selectProgramV1 text "<evm-init-early-return>"
+      "Tests.EvmInitEarlyReturn" none with
+  | .error e => throw <| IO.userError s!"InitEarlyReturn must load, got {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error (.invalidProgram message) =>
+          expect (message.contains "bare return")
+            s!"InitEarlyReturn must fail closed at Normalize, got {message}"
+      | .error e =>
+          throw <| IO.userError
+            s!"InitEarlyReturn must fail with invalidProgram, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "InitEarlyReturn must not compile (bare return)"
+  -- Validator level: an in-arm bare-return marker in a constructor body is
+  -- rejected even though a final top-level marker is the canonical shape.
+  let base : Targets.Evm.Plan := {
+    objectName := "InitEarly"
+    runtimeObjectName := "InitEarly_runtime"
+    storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    constructor := some {
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      stores := #[]
+      body := #[
+        .ifThenElse (.compare .gt (.param 0) (.literal 0))
+          #[.returnNone]
+          #[.store { slot := 0, value := .param 0 }],
+        .store { slot := 0, value := .literal 0 },
+        .returnNone
+      ]
+    }
+    entries := #[
+      { name := "get"
+        selector := Targets.Evm.Keccak.selector "get" #[]
+        params := #[]
+        mutability := .view
+        resultKind := .uint64
+        body := #[.returnValue (.storageLoad 0)] }
+    ]
+  }
+  match Targets.Evm.validatePlan base with
+  | .error (.planInvariant .evm message) =>
+      expect (message.contains "early bare return")
+        s!"validatePlan must reject the in-arm bare return, got {message}"
+  | .error e =>
+      throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
+  | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
+
 private unsafe def testComparisonNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Bool in state position must fail closed before EVM Plan (typed/normalize).
@@ -941,6 +1052,8 @@ unsafe def run : IO Unit := do
   testAssertInBranch
   testMatchUIntLiterals
   testMatchBindArm
+  testEarlyReturnJoin
+  testInitEarlyBareReturnClosed
   testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared

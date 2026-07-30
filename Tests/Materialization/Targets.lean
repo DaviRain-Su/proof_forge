@@ -185,7 +185,8 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
         endianness := .little }] &&
       solana.initializer.body == #[
         .store { accountIndex := 0, byteOffset := 8, value := .param 8 },
-        .store { accountIndex := 0, byteOffset := 16, value := .param 16 }])
+        .store { accountIndex := 0, byteOffset := 16, value := .param 16 },
+        .returnNone ])
     "Solana initializer must preserve parameter and store order"
   expect (solana.entries.map (·.name) == #["mix", "getRight"] &&
       solana.entries[0]!.params == #[
@@ -218,7 +219,8 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
         endianness := .little }] &&
       near.initializer.body == #[
         .store { fieldIndex := 0, value := .param 0 },
-        .store { fieldIndex := 1, value := .param 8 }])
+        .store { fieldIndex := 1, value := .param 8 },
+        .returnNone ])
     "NEAR initializer must preserve parameter and store order"
   expect (near.entries.map (·.name) == #["mix", "getRight"] &&
       near.entries[0]!.params == #[

@@ -123,6 +123,7 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | returnNone
   | assert (condition : Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
@@ -204,6 +205,7 @@ inductive Operation where
   | setReturnData (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
+  | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
@@ -799,7 +801,10 @@ private partial def emitRegionV1
       unless segmentStart == values.size do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: block has unconsumed values"
-      pure (instrs, values, none)
+      -- Explicit marker: an early bare `return` inside a branch arm is
+      -- otherwise indistinguishable from a fallthrough arm once the join
+      -- continuation is emitted after the region.
+      pure (instrs.push .returnNone, values, none)
   | .jump target =>
       unless segmentStart == values.size do
         throw <| .planInvariant .near
@@ -908,9 +913,25 @@ private def lowerCallableV1
       "unsupported NEAR semantic shape: block parameters are not supported"
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
-  let (body, _values, nextJoin) ←
+  let (body0, values0, nextJoin0) ←
     emitRegionV1 owner mode expectedReturn types layout callable.blocks paramCount #[]
       callable.blocks.size 0 initialValues
+  -- Fold trailing join continuations (an arm that returned early leaves the
+  -- remaining open path's join to the caller). Join targets strictly increase
+  -- in the forward-only CFG, so this terminates within blocks.size folds.
+  let mut body := body0
+  let mut values := values0
+  let mut nextJoin := nextJoin0
+  for _ in [0:callable.blocks.size] do
+    match nextJoin with
+    | none => break
+    | some j =>
+        let (rest, values1, next1) ←
+          emitRegionV1 owner mode expectedReturn types layout callable.blocks
+            paramCount #[] callable.blocks.size j values
+        body := body ++ rest
+        values := values1
+        nextJoin := next1
   match nextJoin with
   | some _ =>
       throw <| .planInvariant .near
@@ -1083,10 +1104,14 @@ private def validateParams (limits : ResourceLimits) (owner : String)
 
 /-- Recursive statement-tree validator for one method: view-write ban
     (including inside branches), node/temp accounting, and per-level return
-    ordering. Returns (total, methodTemps, closed). -/
+    ordering. Returns (total, methodTemps, closed). A bare-return marker is
+    accepted only at the top level of the initializer body
+    (`allowReturnNone`); early bare returns inside branch arms fail closed
+    (the initializer's layout-marking epilogue must run on every path). -/
 private partial def checkMethodStatementsV1
     (limits : ResourceLimits) (layout : StorageLayout)
     (isInitializer : Bool) (isView : Bool)
+    (allowReturnNone : Bool)
     (params : Array Param) (statements : Array Statement)
     (total : Nat) (methodTemps : Nat) :
     CompileResult (Nat × Nat × Bool) := do
@@ -1110,6 +1135,11 @@ private partial def checkMethodStatementsV1
         total ← addPlanExprNodes limits layout params total value
         methodTemps ← addMethodExprTemps limits layout params methodTemps value
         closed := true
+    | .returnNone =>
+        unless allowReturnNone do
+          throw <| .planInvariant .near "method has an early bare return inside a branch arm"
+        total := total + 1
+        closed := true
     | .assert condition =>
         total ← addPlanExprNodes limits layout params total condition
         methodTemps ← addMethodExprTemps limits layout params methodTemps condition
@@ -1118,9 +1148,9 @@ private partial def checkMethodStatementsV1
         methodTemps ← addMethodExprTemps limits layout params methodTemps condition
         total := total + 1
         let (t1, m1, c1) ← checkMethodStatementsV1
-          limits layout isInitializer isView params thenBody total methodTemps
+          limits layout isInitializer isView false params thenBody total methodTemps
         let (t2, m2, c2) ← checkMethodStatementsV1
-          limits layout isInitializer isView params elseBody t1 m1
+          limits layout isInitializer isView false params elseBody t1 m1
         total := t2
         methodTemps := m2
         closed := c1 && c2 && !elseBody.isEmpty
@@ -1129,15 +1159,15 @@ private partial def checkMethodStatementsV1
         methodTemps ← addMethodExprTemps limits layout params methodTemps scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
-        for (caseValue, caseBody) in cases do
+        for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, m, c) ← checkMethodStatementsV1
-            limits layout isInitializer isView params caseBody total methodTemps
+            limits layout isInitializer isView false params caseBody total methodTemps
           total := t
           methodTemps := m
           allClosed := allClosed && c
         let (td, md, cd) ← checkMethodStatementsV1
-          limits layout isInitializer isView params defaultBody total methodTemps
+          limits layout isInitializer isView false params defaultBody total methodTemps
         total := td
         methodTemps := md
         closed := allClosed && cd
@@ -1165,12 +1195,11 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
   let (total, _, closed) ← checkMethodStatementsV1
-    limits layout isInitializer (method.mode == .view) method.params method.body baseNodes 0
-  if isInitializer then
-    if closed then
-      throw <| .planInvariant .near "initializer cannot return a value"
-  else unless closed do
-    throw <| .planInvariant .near s!"method '{method.name}' does not return a scalar value"
+    limits layout isInitializer (method.mode == .view) isInitializer method.params
+    method.body baseNodes 0
+  unless closed do
+    throw <| .planInvariant .near
+      s!"method '{method.name}' does not terminate on all paths"
   return total
 
 /-- Validate the public target-owned NEAR Plan before recipe lowering. -/
@@ -1358,6 +1387,35 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := rhs.next + 1
       }
 
+/-- Whether every path through a statement list ends in a return (valued or
+    bare marker), matching the region emitter's closedness: a list closes iff
+    its last statement is a return or a region whose arms all close. An empty
+    else/default arm is a fallthrough (open). Used to append a hard `return`
+    after arms whose value_return would otherwise fall through into the
+    region's continuation (the host call does not halt execution). -/
+private partial def statementListClosesV1 : List Statement → Bool
+  | [] => false
+  | [statement] =>
+      match statement with
+      | .returnValue _ | .returnNone => true
+      | .ifThenElse _ thenBody elseBody =>
+          !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
+            statementListClosesV1 elseBody.toList
+      | .switchOn _ cases defaultBody =>
+          !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
+            cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
+      | .store _ | .assert _ => false
+  | _ :: _ :: rest => statementListClosesV1 rest
+
+/-- Append the hard return after a closed region arm, unless the arm already
+    ends in the initializer's bare-return marker (which lowers to `return`). -/
+private def armOpsWithHardReturn (arm : Array Statement)
+    (operations : Array Operation) : Array Operation :=
+  if statementListClosesV1 arm.toList && arm.back? != some .returnNone then
+    operations.push .returnNone
+  else
+    operations
+
 private partial def lowerBodyOps
     (keys : Array KeyRegion) (next : Nat) (statements : Array Statement) :
     Array Operation × Nat := Id.run do
@@ -1375,6 +1433,10 @@ private partial def lowerBodyOps
         operations := operations ++ value.operations
         operations := operations.push (.setReturnData value.value)
         next := value.next
+    | .returnNone =>
+        -- Valid only inside region arms (validated); the initializer's own
+        -- final marker is stripped by lowerMethod before lowering.
+        operations := operations.push .returnNone
     | .assert condition =>
         let value := lowerExpr keys next condition
         operations := operations ++ value.operations
@@ -1385,7 +1447,8 @@ private partial def lowerBodyOps
         operations := operations ++ value.operations
         let (thenOps, next1) := lowerBodyOps keys value.next thenBody
         let (elseOps, next2) := lowerBodyOps keys next1 elseBody
-        operations := operations.push (.ifRegion value.value thenOps elseOps)
+        operations := operations.push (.ifRegion value.value
+          (armOpsWithHardReturn thenBody thenOps) (armOpsWithHardReturn elseBody elseOps))
         next := next2
     | .switchOn scrutinee cases defaultBody =>
         let value := lowerExpr keys next scrutinee
@@ -1394,10 +1457,11 @@ private partial def lowerBodyOps
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
           let (ops, next1) := lowerBodyOps keys nextC caseBody
-          caseOps := caseOps.push (caseValue, ops)
+          caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops)
           nextC := next1
         let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody
-        operations := operations.push (.switchRegion value.value caseOps defaultOps)
+        operations := operations.push (.switchRegion value.value caseOps
+          (armOpsWithHardReturn defaultBody defaultOps))
         next := nextD
   pure (operations, next)
 
@@ -1413,7 +1477,13 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
       operations := operations.push (.zeroState (fieldRegion keys index))
   else
     operations := operations.push (.requireLayout marker plan.storage.markerValue)
-  let (bodyOps, next) := lowerBodyOps keys 0 method.body
+  -- The initializer's final bare-return marker is the natural fall-through;
+  -- in-arm markers are rejected by validatePlan and never reach this point.
+  let body := if method.body.back? == some .returnNone then
+    method.body.pop
+  else
+    method.body
+  let (bodyOps, next) := lowerBodyOps keys 0 body
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -1547,6 +1617,8 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
   | .assert condition =>
       s!"{indent}(if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
+  | .returnNone =>
+      s!"{indent}(return)\n"
   | .storeState field value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++

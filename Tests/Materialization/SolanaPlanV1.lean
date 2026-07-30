@@ -161,8 +161,9 @@ private unsafe def testGuardedCounterPlan
     "decrement Plan body must be assert(ge(load,param)) → store(checkedSub) → return load"
   let initHandler ← findHandler plan "initialize"
   expect (initHandler.body == #[
-      .store { accountIndex := 0, byteOffset := 8, value := .param 8 }])
-    "initializer Plan body must stay a single param store"
+      .store { accountIndex := 0, byteOffset := 8, value := .param 8 },
+      .returnNone])
+    "initializer Plan body must stay a single param store with the bare-return marker"
   let getHandler ← findHandler plan "get"
   expect (getHandler.mode == .view && getHandler.body == #[.returnValue (.stateLoad 0 8)])
     "view Plan body must stay a single state load return"
@@ -811,6 +812,106 @@ private unsafe def testMatchBindArmRegion
   let ir ← liftResult <| irSolana compiled
   liftResult <| validateIR ir
 
+/-- Early valued return in the then arm with a trailing join (the mirror
+    guard-clause shape): the trailing join folds after the region, and the
+    closed arm gains a hard exit after set_return_data. -/
+private unsafe def testEarlyReturnJoinRegion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "EarlyReturn" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry cap(limit : UInt64) : UInt64 do\n" ++
+    "    if count > limit then\n" ++
+    "      return limit\n" ++
+    "    else\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.EarlyReturn" "<solana-early-return>"
+  let plan ← liftResult <| planSolana compiled
+  let cap ← findHandler plan "cap"
+  expect (cap.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.param 8))
+        #[.returnValue (.param 8)]
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.literal 1)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "EarlyReturn cap must fold the trailing join return after the region"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let capIR ← findHandlerIR ir "cap"
+  let some region := capIR.operations.find? (fun op => match op with
+    | .ifRegion .. => true | _ => false) |
+    throw <| IO.userError "EarlyReturn cap IR must contain the if-region"
+  match region with
+  | .ifRegion _ thenOps _ =>
+      expect (thenOps.back? == some .returnNone)
+        "EarlyReturn closed arm must gain a hard exit after set_return_data"
+  | _ => throw <| IO.userError "EarlyReturn cap IR must contain the if-region"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "EarlyReturn.sbpf-plan"
+  expect (planText.contains "exit")
+    "sbpf-plan must render the hard exit for the early-return arm"
+
+/-- An early bare return inside an initializer branch arm fails closed: the
+    header-marking epilogue must run on every path. Normalize currently
+    rejects explicit bare `return` at the source boundary; the Plan validator
+    independently rejects an in-arm bare-return marker. -/
+private unsafe def testInitEarlyBareReturnClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "InitEarlyReturn" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    if initial > 0 then\n" ++
+    "      return\n" ++
+    "    else\n" ++
+    "      count := initial\n" ++
+    "    count := 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  match ← session.selectProgramV1 text "<solana-init-early-return>"
+      "Examples.InitEarlyReturn" none with
+  | .error e => throw <| IO.userError s!"InitEarlyReturn must load, got {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error (.invalidProgram message) =>
+          expect (message.contains "bare return")
+            s!"InitEarlyReturn must fail closed at Normalize, got {message}"
+      | .error e =>
+          throw <| IO.userError
+            s!"InitEarlyReturn must fail with invalidProgram, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "InitEarlyReturn must not compile (bare return)"
+  -- Validator level: an in-arm bare-return marker in the initializer body is
+  -- rejected even though a final top-level marker is the canonical shape.
+  let compiled ← compileSource session guardedCounterSourceText
+    guardedCounterModuleNameV1 "<solana-early-return-plan>"
+  let plan ← liftResult <| planSolana compiled
+  let initHandler ← findHandler plan "initialize"
+  let earlyArm := {
+    initHandler with
+    body := #[
+      .ifThenElse (.compare .ge (.param 8) (.literal 0))
+        #[.returnNone]
+        #[],
+      .store { accountIndex := 0, byteOffset := 8, value := .param 8 },
+      .returnNone
+    ]
+  }
+  match validatePlan { plan with initializer := earlyArm } with
+  | .error (.planInvariant .solana message) =>
+      expect (message.contains "early bare return")
+        s!"validatePlan must reject the in-arm bare return, got {message}"
+  | .error e =>
+      throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
+  | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
+
 /-- validatePlan/validateIR negatives for the new region constructors. -/
 private unsafe def testRegionValidationNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -863,6 +964,8 @@ unsafe def run : IO Unit := do
   testAssertInBranchRegion session
   testMatchUIntLiteralRegions session
   testMatchBindArmRegion session
+  testEarlyReturnJoinRegion session
+  testInitEarlyBareReturnClosed session
   testRegionValidationNegatives session
   testAssertElseRejected session
   testValidatePlanNegatives session
