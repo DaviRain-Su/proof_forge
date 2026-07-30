@@ -401,6 +401,155 @@ private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
   expect (nearAbi.contents.contains "\"bool\"")
     "NEAR ABI must carry the bool result type"
 
+/-- ProgramV1 branching source text for the Wave C if/match multi-block leaf. -/
+private def branchFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program BranchFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count > 0 then\n" ++
+  "      count := count + delta\n" ++
+  "    else\n" ++
+  "      count := delta\n" ++
+  "    return count\n" ++
+  "  entry apply(choice : UInt64) : UInt64 do\n" ++
+  "    match choice with\n" ++
+  "    | 0 => do\n" ++
+  "      return count\n" ++
+  "    | 1 => do\n" ++
+  "      count := count + 1\n" ++
+  "    | other => do\n" ++
+  "      count := other\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 if/match multi-block conformance: branch diamond
+    plus literal-match switch lowered through Plan, typed IR regions, and
+    each target's emitter surface. -/
+private unsafe def testBranchingSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    branchFlowSourceTextV1 "<targets-branching>" "Tests.Targets.BranchFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["bump", "apply", "get"])
+    "EVM branching entries must preserve source order"
+  expect (evm.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.storageLoad 0) (.literal 0))
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }]
+        #[.store { slot := 0, value := .param 0 }],
+      .returnValue (.storageLoad 0)])
+    "EVM bump must lower the if/else diamond then the join return"
+  expect (evm.entries[1]!.body == #[
+      .switchOn (.param 0)
+        #[(0, #[.returnValue (.storageLoad 0)]),
+          (1, #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.literal 1) }])]
+        #[.store { slot := 0, value := .param 0 }],
+      .returnValue (.storageLoad 0)])
+    "EVM apply must lower the literal match to a switch with a bind default"
+
+  expect (solana.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .param 8 }],
+      .returnValue (.stateLoad 0 8)])
+    "Solana bump must lower the if/else diamond then the join return"
+  expect (solana.entries[1]!.body == #[
+      .switchOn (.param 8)
+        #[(0, #[.returnValue (.stateLoad 0 8)]),
+          (1, #[.store {
+            accountIndex := 0
+            byteOffset := 8
+            value := .checkedAdd (.stateLoad 0 8) (.literal 1)
+          }])]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .param 8 }],
+      .returnValue (.stateLoad 0 8)])
+    "Solana apply must lower the literal match to a switch with a bind default"
+
+  expect (near.entries[0]!.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.literal 0))
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.param 0) }]
+        #[.store { fieldIndex := 0, value := .param 0 }],
+      .returnValue (.stateLoad 0)])
+    "NEAR bump must lower the if/else diamond then the join return"
+  expect (near.entries[1]!.body == #[
+      .switchOn (.param 0)
+        #[(0, #[.returnValue (.stateLoad 0)]),
+          (1, #[.store {
+            fieldIndex := 0
+            value := .checkedAdd (.stateLoad 0) (.literal 1)
+          }])]
+        #[.store { fieldIndex := 0, value := .param 0 }],
+      .returnValue (.stateLoad 0)])
+    "NEAR apply must lower the literal match to a switch with a bind default"
+
+  expect (noir.relations.map (·.name) == #["init", "bump", "apply", "get"])
+    "Noir branching relations must preserve source order"
+  let noirIR ← liftResult <| irNoir compiled
+  let noirBump := noirIR.relations[1]!
+  expect (noirBump.operations.any (fun
+      | .ifRegion .. => true | _ => false))
+    "Noir bump relation must lower the diamond to an ifRegion of complete paths"
+  let noirApply := noirIR.relations[2]!
+  expect (noirApply.operations.any (fun
+      | .switchRegion .. => true | _ => false))
+    "Noir apply relation must lower the match to a switchRegion"
+  liftResult <| Targets.Noir.validateIR noirIR
+
+  let solanaIR ← liftResult <| irSolana compiled
+  expect (solanaIR.handlers[1]!.operations.any (fun
+      | .ifRegion .. => true | _ => false) &&
+      solanaIR.handlers[2]!.operations.any (fun
+      | .switchRegion .. => true | _ => false))
+    "Solana IR must carry if/switch regions on the branching handlers"
+  let nearIR ← liftResult <| irNear compiled
+  expect (nearIR.methods[1]!.operations.any (fun
+      | .ifRegion .. => true | _ => false) &&
+      nearIR.methods[2]!.operations.any (fun
+      | .switchRegion .. => true | _ => false))
+    "NEAR recipe IR must carry if/switch regions on the branching methods"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some yulFile := evmOutput.files.find? (·.path == "BranchFlow.yul") |
+    throw <| IO.userError "branching: missing BranchFlow.yul"
+  expect (yulFile.contents.contains "if expr" &&
+      yulFile.contents.contains "if eq(expr")
+    "branching Yul must render branch and switch guards"
+  let some sbpf := solanaOutput.files.find? (·.path == "BranchFlow.sbpf-plan") |
+    throw <| IO.userError "branching: missing BranchFlow.sbpf-plan"
+  expect (sbpf.contents.contains "case 0 {" && sbpf.contents.contains "default {")
+    "branching sbpf-plan must render switch cases and the default region"
+  let some wat := nearOutput.files.find? (·.path == "BranchFlow.wat") |
+    throw <| IO.userError "branching: missing BranchFlow.wat"
+  expect (wat.contents.contains "(if (local.get $t")
+    "branching WAT must render region conditions"
+  let some bumpNr := noirOutput.files.find?
+      (·.path == "relations/r1-bump/src/main.nr") |
+    throw <| IO.userError "branching: missing Noir bump relation"
+  expect (bumpNr.contents.contains "if t" && bumpNr.contents.contains "} else {")
+    "branching Noir source must render the if/else region"
+  let some applyNr := noirOutput.files.find?
+      (·.path == "relations/r2-apply/src/main.nr") |
+    throw <| IO.userError "branching: missing Noir apply relation"
+  expect (applyNr.contents.contains "else if" &&
+      applyNr.contents.contains "== 0")
+    "branching Noir source must render the switch as an else-if chain"
+
 /-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
 private def guardedCounterSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
@@ -510,6 +659,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans
+  testBranchingSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
