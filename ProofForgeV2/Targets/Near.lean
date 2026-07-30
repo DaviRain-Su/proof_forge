@@ -126,17 +126,27 @@ inductive Statement where
   | assert (condition : Expr)
   deriving BEq, Inhabited, Repr
 
+/-- Result kind of a NEAR method export. Init is always unit; entry/view may be
+UInt64 or Bool. Wire encoding for both scalar returns is still 8-byte little-
+endian i64 (Bool is 0/1); the ABI JSON result type distinguishes them. -/
+inductive MethodResultKind where
+  | unit
+  | uint64
+  | bool
+  deriving BEq, Inhabited, Repr
+
 structure Method where
   name : String
   params : Array Param
   exactInputLen : Nat
   mode : MethodMode
   depositPolicy : DepositPolicy
+  resultKind : MethodResultKind
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
 /-- The NEAR-owned KV, raw ABI, method, and error policy for the supported
-UInt64 fragment. It deliberately retains no SemanticProgram. -/
+UInt64 (+ Bool result) fragment. It deliberately retains no SemanticProgram. -/
 structure Plan where
   targetDescriptor : TargetDescriptor
   semanticSchemaVersion : Nat
@@ -307,8 +317,9 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 
 /-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
-/-- Value kinds admitted in the NEAR pilot value table. Bool is intermediate-only
-(comparison/literal results feeding assert); state/params/returns stay UInt64. -/
+/-- Value kinds admitted in the NEAR pilot value table. Bool is admitted for
+comparison/literal temps, assert conditions, and entry/view return values.
+State/params remain UInt64-only; initializer result stays Unit. -/
 private inductive NearValueKindV1 where
   | uint64
   | bool
@@ -584,6 +595,7 @@ private structure LoweredCallableV1 where
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
+    (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
@@ -698,15 +710,27 @@ private def lowerCallableV1
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
   match mode, block.terminator with
   | .initialize, .return_ none =>
+      unless expectedReturn.isNone do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: initializer expected-return kind is non-empty"
       unless segmentStart == values.size do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: initializer has unconsumed values"
   | .mutate, .return_ (some valueId)
   | .view, .return_ (some valueId) =>
+      let expectedKind ← match expectedReturn with
+        | some kind => pure kind
+        | none =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: entry/view is missing expected return kind"
       let root ← currentValueV1 values paramCount segmentStart valueId
-      unless root.kind == .uint64 do
+      unless root.kind == expectedKind do
+        let expectedLabel :=
+          match expectedKind with
+          | .uint64 => "UInt64"
+          | .bool => "Bool"
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: return value must be UInt64"
+          s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
@@ -736,13 +760,14 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize types layout callable
+  let lowered ← lowerCallableV1 "initializer" .initialize none types layout callable
   pure {
     name := "init"
     params := lowered.params
     exactInputLen := lowered.params.size * 8
     mode := .initialize
     depositPolicy := .requireZero
+    resultKind := .unit
     body := lowered.body
   }
 
@@ -756,9 +781,16 @@ private def makeEntryV1
         "unsupported NEAR semantic shape: named entry is missing its name")
   unless isIdentifier name do
     throw <| .planInvariant .near s!"entry name '{name}' is not a safe identifier"
-  unless callable.result.typeId == types.uint64TypeId &&
-      callable.result.visibility == .public_ do
-    throw <| .planInvariant .near s!"entry '{name}' does not return public UInt64"
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .near s!"entry '{name}' does not return a public result"
+  let (resultKind, expectedReturn) ←
+    if callable.result.typeId == types.uint64TypeId then
+      pure (MethodResultKind.uint64, some NearValueKindV1.uint64)
+    else if types.boolTypeId == some callable.result.typeId then
+      pure (MethodResultKind.bool, some NearValueKindV1.bool)
+    else
+      throw <| .planInvariant .near
+        s!"entry '{name}' does not return public UInt64 or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -768,13 +800,15 @@ private def makeEntryV1
     | .mutate => .mutate
     | .view => .view
     | .initialize => .initialize
-  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode types layout callable
+  let lowered ←
+    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types layout callable
   pure {
     name
     params := lowered.params
     exactInputLen := lowered.params.size * 8
     mode
     depositPolicy := if mode == .view then .queryOnly else .requireZero
+    resultKind
     body := lowered.body
   }
 
@@ -879,10 +913,13 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     throw <| .planInvariant .near s!"method '{method.name}' is not a safe export name"
   if isInitializer then
     unless method.name == "init" && method.mode == .initialize &&
-        method.depositPolicy == .requireZero do
+        method.depositPolicy == .requireZero && method.resultKind == .unit do
       throw <| .planInvariant .near "initializer export identity is not canonical"
   else if method.mode == .initialize then
     throw <| .planInvariant .near "entry method cannot use initialize mode"
+  else unless method.resultKind == .uint64 || method.resultKind == .bool do
+    throw <| .planInvariant .near
+      s!"method '{method.name}' result kind must be UInt64 or Bool"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .near s!"method '{method.name}' deposit policy is not canonical"
@@ -918,7 +955,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     if returned then
       throw <| .planInvariant .near "initializer cannot return a value"
   else unless returned do
-    throw <| .planInvariant .near s!"method '{method.name}' does not return UInt64"
+    throw <| .planInvariant .near s!"method '{method.name}' does not return a scalar value"
   return total
 
 /-- Validate the public target-owned NEAR Plan before recipe lowering. -/
@@ -1312,8 +1349,13 @@ private def renderParamsJson (params : Array Param) : String :=
 private def renderFieldJson (field : StorageField) : String :=
   s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"key\":\"{Targets.escapeJson field.key}\",\"type\":\"u64-le\"}"
 
+private def renderResultKindJson : MethodResultKind → String
+  | .unit => "null"
+  | .uint64 => "\"u64-le\""
+  | .bool => "\"bool\""
+
 private def renderMethodJson (method : Method) : String :=
-  let returns := if method.mode == .initialize then "null" else "\"u64-le\""
+  let returns := renderResultKindJson method.resultKind
   "{" ++
     s!"\"name\":\"{Targets.escapeJson method.name}\"," ++
     s!"\"mode\":\"{renderMode method.mode}\"," ++

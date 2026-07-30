@@ -526,7 +526,8 @@ private unsafe def testAssertElseRejected
   | .ok _ =>
       throw <| IO.userError "assert-else must fail product compile before NEAR materialization"
 
-private unsafe def testBoolStateParamResultRejected
+/-- Bool state/param remain outside the NEAR pilot; Bool results are accepted. -/
+private unsafe def testBoolStateParamRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let cases : Array (String × String × String) := #[
     ("bool-state", "Examples.BoolState",
@@ -538,12 +539,7 @@ private unsafe def testBoolStateParamResultRejected
       "program BoolParam where\n" ++
       "  state count : UInt64\n" ++
       "  entry ping(flag : Bool) : UInt64 do\n" ++
-      "    return count\n"),
-    ("bool-result", "Examples.BoolResult",
-      "program BoolResult where\n" ++
-      "  state count : UInt64\n" ++
-      "  view positive() : Bool do\n" ++
-      "    return count > 0\n")
+      "    return count\n")
   ]
   for item in cases do
     let (label, moduleName, body) := item
@@ -566,7 +562,214 @@ private unsafe def testBoolStateParamResultRejected
             | .error _ => pure ()
             | .ok _ =>
                 throw <| IO.userError
-                  s!"{label}: Bool state/param/result must fail closed for NEAR"
+                  s!"{label}: Bool state/param must fail closed for NEAR"
+
+/-- Result-kind mismatches fail closed (Typed/Normalize, or NEAR return-kind gate). -/
+private unsafe def testBoolResultKindMismatchRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cases : Array (String × String × String) := #[
+    ("bool-method-returns-uint64", "Examples.BoolReturnU64",
+      "program BoolReturnU64 where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  view positive() : Bool do\n" ++
+      "    return count\n"),
+    ("uint64-method-returns-bool", "Examples.U64ReturnBool",
+      "program U64ReturnBool where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return count > 0\n")
+  ]
+  for item in cases do
+    let (label, moduleName, body) := item
+    let sourceText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      body ++ "\nend ProofForgeV2.Examples\n"
+    let source ← liftResult (← session.selectProgramV1
+      sourceText s!"<near-host-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+        let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok capability =>
+            match Targets.Near.planFromCapability capability with
+            | .error _ => pure ()
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: result-kind mismatch must fail closed for NEAR"
+
+/-- Wave-A bool-result defensive negative flipped to a positive plan accept. -/
+private unsafe def testBoolResultAccepted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoolResult where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-bool-result>" "Examples.BoolResult" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let positive ← match plan.entries.find? (·.name == "positive") with
+    | some method => pure method
+    | none => throw <| IO.userError "bool-result: missing positive method"
+  expect (positive.resultKind == .bool && positive.mode == .view)
+    "bool-result: positive must be a Bool view"
+  expect (positive.body.any fun s => match s with
+      | .returnValue (.compare .gt (.stateLoad 0) (.literal 0)) => true
+      | _ => false)
+    "bool-result: positive body must return the count > 0 compare"
+
+/-- Full BoolPredicate product path: mixed UInt64 + Bool entry/view results. -/
+private def boolPredicateSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolPredicate where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    count := i\n\n" ++
+  "  entry add(amount : UInt64) : UInt64 do\n" ++
+  "    count := count + amount\n" ++
+  "    return count\n\n" ++
+  "  view positive() : Bool do\n" ++
+  "    return count > 0\n\n" ++
+  "  entry equalsCount(d : UInt64) : Bool do\n" ++
+  "    return count == d\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def boolPredicateModuleNameV1 : String := "Examples.BoolPredicate"
+
+private def findPlanMethod (plan : Targets.Near.Plan) (name : String) :
+    IO Targets.Near.Method :=
+  match plan.entries.find? (fun method => method.name == name) with
+  | some method => pure method
+  | none =>
+      if plan.initializer.name == name then pure plan.initializer
+      else throw <| IO.userError s!"plan is missing method '{name}'"
+
+private unsafe def testBoolPredicateProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source ← liftResult (← session.selectProgramV1
+    boolPredicateSourceText "<near-host-bool-predicate>"
+    boolPredicateModuleNameV1 none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "bool-predicate: irFromCapability must be byte-identical on rebuild"
+
+  expect (plan.initializer.resultKind == .unit)
+    "bool-predicate: init result kind must be unit"
+  let addMethod ← findPlanMethod plan "add"
+  let positiveMethod ← findPlanMethod plan "positive"
+  let equalsMethod ← findPlanMethod plan "equalsCount"
+  expect (addMethod.resultKind == .uint64 && addMethod.mode == .mutate)
+    "bool-predicate: add must be UInt64 mutate"
+  expect (positiveMethod.resultKind == .bool && positiveMethod.mode == .view)
+    "bool-predicate: positive must be Bool view"
+  expect (equalsMethod.resultKind == .bool && equalsMethod.mode == .mutate)
+    "bool-predicate: equalsCount must be Bool entry"
+
+  let initializer ← findMethod ir "init"
+  let add ← findMethod ir "add"
+  let positive ← findMethod ir "positive"
+  let equalsCount ← findMethod ir "equalsCount"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
+
+  -- Pin Bool method ops: compare temp feeds setReturnData (no assert).
+  let positiveKinds := operationKinds positive.operations
+  expect (positiveKinds.contains "compare.gt")
+    s!"bool-predicate: positive must lower gt compare, got {positiveKinds}"
+  expect (positiveKinds.contains "setReturnData")
+    s!"bool-predicate: positive must set return data, got {positiveKinds}"
+  expect (!positiveKinds.contains "assert")
+    s!"bool-predicate: positive must not assert, got {positiveKinds}"
+  let equalsKinds := operationKinds equalsCount.operations
+  expect (equalsKinds.contains "compare.eq")
+    s!"bool-predicate: equalsCount must lower eq compare, got {equalsKinds}"
+  expect (equalsKinds.contains "setReturnData")
+    s!"bool-predicate: equalsCount must set return data, got {equalsKinds}"
+
+  let (initialized, initReturn) ← requireSuccess "bool-predicate init" <|
+    execute initializer empty (encodeUInt64LE 0) zeroDeposit
+  expect (initReturn.isNone) "bool-predicate init must not set return data"
+  expect (storedUInt64? initialized field.key == some 0)
+    "bool-predicate init must store seed 0"
+
+  let (_, posFalse) ← requireSuccess "bool-predicate positive false" <|
+    execute positive initialized ByteArray.empty zeroDeposit
+  expect (posFalse == some 0)
+    "bool-predicate: positive on count=0 must return Bool false as i64 0"
+
+  let (afterAdd, addReturn) ← requireSuccess "bool-predicate add" <|
+    execute add initialized (encodeUInt64LE 7) zeroDeposit
+  expect (addReturn == some 7 && storedUInt64? afterAdd field.key == some 7)
+    "bool-predicate: add must return UInt64 7 and store it"
+
+  let (_, posTrue) ← requireSuccess "bool-predicate positive true" <|
+    execute positive afterAdd ByteArray.empty zeroDeposit
+  expect (posTrue == some 1)
+    "bool-predicate: positive on count=7 must return Bool true as i64 1"
+
+  let (_, eqTrue) ← requireSuccess "bool-predicate equals true" <|
+    execute equalsCount afterAdd (encodeUInt64LE 7) zeroDeposit
+  expect (eqTrue == some 1)
+    "bool-predicate: equalsCount(7) on count=7 must return true"
+
+  let (_, eqFalse) ← requireSuccess "bool-predicate equals false" <|
+    execute equalsCount afterAdd (encodeUInt64LE 3) zeroDeposit
+  expect (eqFalse == some 0)
+    "bool-predicate: equalsCount(3) on count=7 must return false"
+
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "bool-predicate: missing .wat artifact"
+  let some abiFile := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "bool-predicate: missing .near-abi.json artifact"
+  expectContains watFile.contents "i64.gt_u" "bool-predicate WAT gt"
+  expectContains watFile.contents "i64.eq" "bool-predicate WAT eq"
+  expectContains watFile.contents "i64.extend_i32_u" "bool-predicate WAT extend"
+  expectContains watFile.contents "export \"positive\"" "bool-predicate WAT positive export"
+  expectContains watFile.contents "export \"equalsCount\"" "bool-predicate WAT equalsCount export"
+  expectContains watFile.contents "pf_value_return" "bool-predicate WAT value_return"
+  -- Bool methods return the compare temp via the same 8-byte LE convention.
+  expectContains watFile.contents "(call $pf_value_return (i64.const 8)"
+    "bool-predicate WAT return length"
+  expectContains abiFile.contents "\"returns\":\"bool\""
+    "bool-predicate ABI must mark Bool method results"
+  expectContains abiFile.contents "\"returns\":\"u64-le\""
+    "bool-predicate ABI must retain UInt64 method results"
+  expectContains abiFile.contents "\"name\":\"positive\""
+    "bool-predicate ABI must list positive"
+  expectContains abiFile.contents "\"name\":\"add\""
+    "bool-predicate ABI must list add"
+  -- Deterministic rebuild of files.
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "bool-predicate: buildFromCapability must be byte-identical on rebuild"
+  expect (plan.programName == "BoolPredicate") "bool-predicate plan program name"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
@@ -665,7 +868,10 @@ unsafe def run : IO Unit := do
   testGuardedCounterProductPath session
   testAllComparisonOpsWat session
   testAssertElseRejected session
-  testBoolStateParamResultRejected session
+  testBoolStateParamRejected session
+  testBoolResultKindMismatchRejected session
+  testBoolResultAccepted session
+  testBoolPredicateProductPath session
   IO.println "Tests.Materialization.NearHostModel: ok"
 
 end Tests.Materialization.NearHostModel
