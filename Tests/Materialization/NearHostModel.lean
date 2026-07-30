@@ -182,6 +182,24 @@ private def step (input : ByteArray) (deposit : Deposit)
         modelError "UInt64 subtraction underflow"
       else
         writeTemp machine destination (left - right)
+  | .compare destination lhs rhs op => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let flag : Bool :=
+        match op with
+        | .eq => left == right
+        | .ne => left != right
+        | .lt => left < right
+        | .le => left ≤ right
+        | .gt => left > right
+        | .ge => left ≥ right
+      writeTemp machine destination (if flag then 1 else 0)
+  | .assert condition => do
+      let value ← readTemp machine condition
+      if value != 0 then
+        pure machine
+      else
+        modelError "assert condition is false"
   | .storeState field source => do
       let previous ← requireStorage machine field
       unless previous.size == 8 do
@@ -256,12 +274,303 @@ private def testCheckedSubModel : IO Unit := do
         s!"checked-sub model must classify underflow, got {reason}"
   | .ok _ => throw <| IO.userError "checked-sub model accepted 5 - 7"
 
+private def testCompareAssertModel : IO Unit := do
+  let deposit : Deposit := { lowWord := 0, highWord := 0 }
+  let machine : Machine := {
+    storage := #[]
+    temps := #[some 7, some 5, none]
+  }
+  let ops : Array (Targets.Near.ComparisonOp × (U64 → U64 → Bool)) := #[
+    (.eq, fun a b => a == b),
+    (.ne, fun a b => a != b),
+    (.lt, fun a b => a < b),
+    (.le, fun a b => a ≤ b),
+    (.gt, fun a b => a > b),
+    (.ge, fun a b => a ≥ b)
+  ]
+  for pair in ops do
+    let (op, pred) := pair
+    let success ← match step ByteArray.empty deposit machine (.compare 2 0 1 op) with
+      | .ok value => pure value
+      | .error reason => throw <| IO.userError s!"compare model {repr op}: {reason}"
+    let expected : U64 := if pred 7 5 then 1 else 0
+    expect (success.temps[2]? == some (some expected))
+      s!"compare model {repr op} must write the exact UInt64 0/1 flag"
+  let trueMachine ← match step ByteArray.empty deposit machine (.compare 2 0 1 .ge) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"compare model ge: {reason}"
+  match step ByteArray.empty deposit trueMachine (.assert 2) with
+  | .ok _ => pure ()
+  | .error reason => throw <| IO.userError s!"assert model true: {reason}"
+  let falseMachine ← match step ByteArray.empty deposit machine (.compare 2 1 0 .ge) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"compare model ge-false: {reason}"
+  match step ByteArray.empty deposit falseMachine (.assert 2) with
+  | .error reason =>
+      expect (reason.contains "assert")
+        s!"assert model must classify false condition, got {reason}"
+  | .ok _ => throw <| IO.userError "assert model accepted a zero condition"
+
 def runCheckedSubFast : IO Unit := do
   testCheckedSubModel
+  testCompareAssertModel
   IO.println "Tests.Materialization.NearHostModel.checkedSub: ok"
+
+def runCompareAssertFast : IO Unit := do
+  testCompareAssertModel
+  IO.println "Tests.Materialization.NearHostModel.compareAssert: ok"
+
+/-- Guarded counter: assert count >= delta before checked subtraction. -/
+private def guardedCounterSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program Guarded where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    count := i\n\n" ++
+  "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+  "    assert count >= delta\n" ++
+  "    count := count - delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def guardedCounterModuleNameV1 : String := "Examples.Guarded"
+
+private def operationKinds (operations : Array Targets.Near.Operation) :
+    Array String :=
+  operations.map fun op =>
+    match op with
+    | .checkInputLen _ => "checkInputLen"
+    | .requireZeroAttachedDeposit => "requireZeroAttachedDeposit"
+    | .requireLayoutAbsent _ => "requireLayoutAbsent"
+    | .requireLayout _ _ => "requireLayout"
+    | .zeroState _ => "zeroState"
+    | .literal _ _ => "literal"
+    | .loadParam _ _ => "loadParam"
+    | .loadState _ _ => "loadState"
+    | .checkedAdd _ _ _ => "checkedAdd"
+    | .checkedSub _ _ _ => "checkedSub"
+    | .storeState _ _ => "storeState"
+    | .setLayout _ _ => "setLayout"
+    | .setReturnData _ => "setReturnData"
+    | .compare _ _ _ op =>
+        match op with
+        | .eq => "compare.eq"
+        | .ne => "compare.ne"
+        | .lt => "compare.lt"
+        | .le => "compare.le"
+        | .gt => "compare.gt"
+        | .ge => "compare.ge"
+    | .assert _ => "assert"
+
+private def expectContains (haystack needle label : String) : IO Unit :=
+  expect (haystack.contains needle) s!"{label}: missing WAT substring {needle}"
+
+private unsafe def testGuardedCounterProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source ← liftResult (← session.selectProgramV1
+    guardedCounterSourceText "<near-host-guarded>"
+    guardedCounterModuleNameV1 none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "guarded: irFromCapability must be byte-identical on rebuild"
+  let initializer ← findMethod ir "init"
+  let decrement ← findMethod ir "decrement"
+  let get ← findMethod ir "get"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
+
+  -- Pin method operations: compare.ge then assert before checkedSub.
+  let kinds := operationKinds decrement.operations
+  expect (kinds.contains "compare.ge")
+    s!"guarded: decrement must lower comparison, got {kinds}"
+  expect (kinds.contains "assert")
+    s!"guarded: decrement must lower assert, got {kinds}"
+  expect (kinds.contains "checkedSub")
+    s!"guarded: decrement must lower checkedSub, got {kinds}"
+  let some geIdx := kinds.findIdx? (· == "compare.ge") |
+    throw <| IO.userError "guarded: missing compare.ge index"
+  let some assertIdx := kinds.findIdx? (· == "assert") |
+    throw <| IO.userError "guarded: missing assert index"
+  let some subIdx := kinds.findIdx? (· == "checkedSub") |
+    throw <| IO.userError "guarded: missing checkedSub index"
+  expect (geIdx < assertIdx && assertIdx < subIdx)
+    s!"guarded: expected compare→assert→sub order, got {geIdx}/{assertIdx}/{subIdx}"
+  match decrement.operations[geIdx]? with
+  | some (.compare destination lhs rhs .ge) =>
+      expect (destination + 1 > destination)
+        s!"guarded: compare destination must be a local slot, got {destination}/{lhs}/{rhs}"
+  | other =>
+      throw <| IO.userError s!"guarded: expected compare.ge at {geIdx}, got {repr other}"
+  match decrement.operations[assertIdx]? with
+  | some (.assert condition) =>
+      match decrement.operations[geIdx]? with
+      | some (.compare destination _ _ .ge) =>
+          expect (condition == destination)
+            s!"guarded: assert must consume compare destination, got {condition} vs {destination}"
+      | _ => pure ()
+  | other =>
+      throw <| IO.userError s!"guarded: expected assert at {assertIdx}, got {repr other}"
+
+  let (initialized, initReturn) ← requireSuccess "guarded init" <|
+    execute initializer empty (encodeUInt64LE 10) zeroDeposit
+  expect (initReturn.isNone) "guarded init must not set return data"
+  expect (storedUInt64? initialized field.key == some 10)
+    "guarded init must store seed 10"
+
+  let (afterOk, decReturn) ← requireSuccess "guarded decrement success" <|
+    execute decrement initialized (encodeUInt64LE 3) zeroDeposit
+  expect (decReturn == some 7 && storedUInt64? afterOk field.key == some 7)
+    "guarded: 10 - 3 must yield 7 under assert"
+
+  let (_, getReturn) ← requireSuccess "guarded view" <|
+    execute get afterOk ByteArray.empty zeroDeposit
+  expect (getReturn == some 7) "guarded view must observe committed 7"
+
+  -- Underflowing decrement is trapped by the assert (not checkedSub).
+  match execute decrement afterOk (encodeUInt64LE 8) zeroDeposit with
+  | .trapped storage reason =>
+      expect (storage == afterOk)
+        "guarded underflow trap must restore pre-call storage"
+      expect (reason.contains "assert")
+        s!"guarded underflow must classify as assert trap, got {reason}"
+  | .success .. =>
+      throw <| IO.userError "guarded underflow unexpectedly succeeded"
+
+  -- WAT text substrings for comparison op and assert trap.
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "guarded: missing .wat artifact"
+  expectContains watFile.contents "i64.ge_u" "guarded WAT ge"
+  expectContains watFile.contents "i64.extend_i32_u" "guarded WAT extend"
+  expectContains watFile.contents "(if (i64.eqz" "guarded WAT assert trap"
+  expectContains watFile.contents "unreachable" "guarded WAT unreachable"
+  -- Deterministic rebuild of files.
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "guarded: buildFromCapability must be byte-identical on rebuild"
+  -- Keep plan identity stable for comparison-free consumers.
+  expect (plan.programName == "Guarded") "guarded plan program name"
+
+private unsafe def testAllComparisonOpsWat
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- NEAR requires KV state + initializer; comparisons themselves are UInt64-only.
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Compares where\n" ++
+    "  state seed : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    seed := i\n\n" ++
+    "  entry check(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    assert a == b\n" ++
+    "    assert a != b\n" ++
+    "    assert a < b\n" ++
+    "    assert a <= b\n" ++
+    "    assert a > b\n" ++
+    "    assert a >= b\n" ++
+    "    return a\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-compares>" "Examples.Compares" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let check ← findMethod ir "check"
+  let kinds := operationKinds check.operations
+  for expected in (#[
+      "compare.eq", "compare.ne", "compare.lt",
+      "compare.le", "compare.gt", "compare.ge"] : Array String) do
+    expect (kinds.contains expected)
+      s!"compares: missing {expected} in {kinds}"
+  let assertCount := kinds.foldl (fun n k => if k == "assert" then n + 1 else n) 0
+  expect (assertCount == 6)
+    s!"compares: expected 6 asserts, got {assertCount}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "compares: missing .wat artifact"
+  for insn in (#[
+      "i64.eq", "i64.ne", "i64.lt_u", "i64.le_u", "i64.gt_u", "i64.ge_u"] : Array String) do
+    expectContains watFile.contents insn s!"compares WAT {insn}"
+
+private unsafe def testAssertElseRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Assert-else is rejected at Normalize (before target). Confirm product path
+  -- still fails closed and does not produce NEAR artifacts.
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program AssertElse where\n" ++
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    assert x > 0 else bad\n" ++
+    "    return x\n" ++
+    "  error bad()\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-assert-else>" "Examples.AssertElse" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok _ =>
+      throw <| IO.userError "assert-else must fail product compile before NEAR materialization"
+
+private unsafe def testBoolStateParamResultRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cases : Array (String × String × String) := #[
+    ("bool-state", "Examples.BoolState",
+      "program BoolState where\n" ++
+      "  state flag : Bool\n" ++
+      "  entry ping(x : UInt64) : UInt64 do\n" ++
+      "    return x\n"),
+    ("bool-param", "Examples.BoolParam",
+      "program BoolParam where\n" ++
+      "  state count : UInt64\n" ++
+      "  entry ping(flag : Bool) : UInt64 do\n" ++
+      "    return count\n"),
+    ("bool-result", "Examples.BoolResult",
+      "program BoolResult where\n" ++
+      "  state count : UInt64\n" ++
+      "  view positive() : Bool do\n" ++
+      "    return count > 0\n")
+  ]
+  for item in cases do
+    let (label, moduleName, body) := item
+    let sourceText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      body ++ "\nend ProofForgeV2.Examples\n"
+    let source ← liftResult (← session.selectProgramV1
+      sourceText s!"<near-host-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+        -- If Normalize ever admits these, the NEAR type/signature gates must still fail closed.
+        let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok capability =>
+            match Targets.Near.planFromCapability capability with
+            | .error _ => pure ()
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: Bool state/param/result must fail closed for NEAR"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
+  runCompareAssertFast
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
@@ -351,5 +660,12 @@ unsafe def run : IO Unit := do
     execute initializer empty (encodeUInt64LE maximum) zeroDeposit
   expectTrap "maximum UInt64 plus one" maximumState <|
     execute add maximumState (encodeUInt64LE 1) zeroDeposit
+
+  -- Comparison + assert envelope product paths.
+  testGuardedCounterProductPath session
+  testAllComparisonOpsWat session
+  testAssertElseRejected session
+  testBoolStateParamResultRejected session
+  IO.println "Tests.Materialization.NearHostModel: ok"
 
 end Tests.Materialization.NearHostModel

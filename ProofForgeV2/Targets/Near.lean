@@ -101,12 +101,18 @@ structure Param where
   endianness : Endianness
   deriving BEq, Inhabited, Repr
 
+/-- Unsigned comparison operators for the public-UInt64 comparison envelope. -/
+inductive ComparisonOp where
+  | eq | ne | lt | le | gt | ge
+  deriving BEq, Inhabited, Repr
+
 inductive Expr where
   | literal (value : UInt64)
   | param (inputOffset : Nat)
   | stateLoad (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | compare (op : ComparisonOp) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -117,6 +123,7 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | assert (condition : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -182,6 +189,8 @@ inductive Operation where
   | storeState (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   | setReturnData (value : Nat)
+  | compare (destination lhs rhs : Nat) (op : ComparisonOp)
+  | assert (condition : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -298,14 +307,23 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 
 /-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
+/-- Value kinds admitted in the NEAR pilot value table. Bool is intermediate-only
+(comparison/literal results feeding assert); state/params/returns stay UInt64. -/
+private inductive NearValueKindV1 where
+  | uint64
+  | bool
+  deriving BEq, Inhabited, Repr
+
 private structure NearTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
+  boolTypeId : Option TypeIdV1
 
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 := do
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
+  let mut boolTypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| .planInvariant .near
@@ -321,14 +339,19 @@ private def validateNearTypeClosureV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: duplicate Unit type"
         unitTypeId := some decl.id
+    | .bool =>
+        unless boolTypeId.isNone do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: duplicate Bool type"
+        boolTypeId := some decl.id
     | _ =>
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: only UInt64 and Unit are supported"
+          "unsupported NEAR semantic shape: only UInt64, Unit, and Bool are supported"
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (.planInvariant .near
         "unsupported NEAR semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId }
 
 private def makeStorageLayoutV1
     (uint64TypeId : TypeIdV1)
@@ -363,6 +386,7 @@ private def makeStorageLayoutV1
 
 private structure LoweredValueV1 where
   expr : Expr
+  kind : NearValueKindV1
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
@@ -395,6 +419,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
     planned := planned.push binding
     values := values.push {
       expr := .param binding.inputOffset
+      kind := .uint64
       depth := 1
       expandedNodes := 1
       dependencies := #[]
@@ -429,6 +454,27 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: trailing UInt64 literal bytes"
 
+private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
+  unless bytes.size == 1 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: Bool literal must contain exactly 1 byte"
+  match bytes[0]! with
+  | 0 => pure false
+  | 1 => pure true
+  | _ =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: Bool literal must be 0x00 or 0x01"
+
+private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
+  match op with
+  | .eq => some .eq
+  | .ne => some .ne
+  | .lt => some .lt
+  | .le => some .le
+  | .gt => some .gt
+  | .ge => some .ge
+  | _ => none
+
 private def currentValueV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -439,9 +485,14 @@ private def currentValueV1
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-private def makeCheckedAddValueV1
+private def makeBinaryTreeValueV1
+    (mk : Expr → Expr → Expr)
+    (kind : NearValueKindV1)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: binary operands must be UInt64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
@@ -451,29 +502,28 @@ private def makeCheckedAddValueV1
   if rhs.expandedNodes > remaining then
     throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
   pure {
-    expr := .checkedAdd lhs.expr rhs.expr
+    expr := mk lhs.expr rhs.expr
+    kind
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
   }
 
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .checkedAdd l r) .uint64 lhsId rhsId lhs rhs
+
 private def makeCheckedSubValueV1
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  let depth := 1 + max lhs.depth rhs.depth
-  if depth > maxExprDepth then
-    throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
-  if lhs.expandedNodes > maxPlanNodes - 1 then
-    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
-  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
-  if rhs.expandedNodes > remaining then
-    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
-  pure {
-    expr := .checkedSub lhs.expr rhs.expr
-    depth
-    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
-    dependencies := #[lhsId, rhsId]
-  }
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .checkedSub l r) .uint64 lhsId rhsId lhs rhs
+
+private def makeCompareValueV1
+    (op : ComparisonOp)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .compare op l r) .bool lhsId rhsId lhs rhs
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
@@ -510,13 +560,13 @@ private def consumeCurrentSegmentV1
   pure rootValue.expr
 
 private def appendResultValueV1
-    (uint64TypeId : TypeIdV1)
+    (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
     (result : ValueDefV1)
     (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
-  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+  unless result.valueId.toNat == values.size && result.typeId == expectedTypeId do
     throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: result ValueId/type is not canonical UInt64"
+      "unsupported NEAR semantic shape: result ValueId/type is not canonical for its kind"
   if values.size >= maxPlanNodes then
     throw <| .planInvariant .near s!"NEAR value table exceeds node limit {maxPlanNodes}"
   pure (values.push value)
@@ -534,7 +584,7 @@ private structure LoweredCallableV1 where
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (uint64TypeId : TypeIdV1)
+    (types : NearTypeClosureV1)
     (layout : StorageLayout)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
@@ -551,7 +601,7 @@ private def lowerCallableV1
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .near
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
-  let (params, initialValues) ← makeParamsV1 owner uint64TypeId callable.params
+  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
   let mut values := initialValues
   let mut segmentStart := values.size
@@ -559,20 +609,38 @@ private def lowerCallableV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        unless typeId == uint64TypeId do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: literal is not UInt64"
-        let value ← decodeUInt64LiteralV1 bytes
-        values := ← appendResultValueV1 uint64TypeId values result {
-          expr := .literal value
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+        if typeId == types.uint64TypeId then
+          let value ← decodeUInt64LiteralV1 bytes
+          values := ← appendResultValueV1 types.uint64TypeId values result {
+            expr := .literal value
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
+          let boolTypeId ← match types.boolTypeId with
+            | some tid =>
+                unless typeId == tid do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: literal is not UInt64 or Bool"
+                pure tid
+            | none =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: Bool type is missing for Bool literal"
+          let flag ← decodeBoolLiteralV1 bytes
+          values := ← appendResultValueV1 boolTypeId values result {
+            expr := .literal (if flag then 1 else 0)
+            kind := .bool
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
     | .stateLoad stateId, some result =>
         let field ← findFieldV1 layout stateId
-        values := ← appendResultValueV1 uint64TypeId values result {
+        values := ← appendResultValueV1 types.uint64TypeId values result {
           expr := .stateLoad field.sourceId
+          kind := .uint64
           depth := 1
           expandedNodes := 1
           dependencies := #[]
@@ -580,22 +648,50 @@ private def lowerCallableV1
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueV1 values paramCount segmentStart lhsId
         let rhs ← currentValueV1 values paramCount segmentStart rhsId
-        let value ←
-          if op == .add then
-            makeCheckedAddValueV1 lhsId rhsId lhs rhs
-          else if op == .sub then
-            makeCheckedSubValueV1 lhsId rhsId lhs rhs
-          else
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: only checked UInt64 add/sub are supported"
-        values := ← appendResultValueV1 uint64TypeId values result value
+        if op == .add then
+          let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .sub then
+          let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else
+          match comparisonOpOfBinaryV1 op with
+          | some cmpOp =>
+              let boolTypeId ← match types.boolTypeId with
+                | some tid => pure tid
+                | none =>
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: Bool type is missing for comparison"
+              unless result.typeId == boolTypeId do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: comparison result must be Bool"
+              let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 boolTypeId values result value
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: only checked UInt64 add/sub and comparisons are supported"
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: view callable writes state"
         let field ← findFieldV1 layout stateId
+        let root ← currentValueV1 values paramCount segmentStart valueId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: state store value must be UInt64"
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
         body := body.push (.store { fieldIndex := field.sourceId, value })
+        segmentStart := values.size
+    | .assert_ condId errorId args, none =>
+        unless errorId.isNone && args.isEmpty do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: assert must use errorId=none and empty args"
+        let root ← currentValueV1 values paramCount segmentStart condId
+        unless root.kind == .bool do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: assert condition must be Bool"
+        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        body := body.push (.assert condition)
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .near
@@ -607,6 +703,10 @@ private def lowerCallableV1
           "unsupported NEAR semantic shape: initializer has unconsumed values"
   | .mutate, .return_ (some valueId)
   | .view, .return_ (some valueId) =>
+      let root ← currentValueV1 values paramCount segmentStart valueId
+      unless root.kind == .uint64 do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: return value must be UInt64"
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
@@ -636,8 +736,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize
-    types.uint64TypeId layout callable
+  let lowered ← lowerCallableV1 "initializer" .initialize types layout callable
   pure {
     name := "init"
     params := lowered.params
@@ -669,8 +768,7 @@ private def makeEntryV1
     | .mutate => .mutate
     | .view => .view
     | .initialize => .initialize
-  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode
-    types.uint64TypeId layout callable
+  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode types layout callable
   pure {
     name
     params := lowered.params
@@ -707,8 +805,18 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
             match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .compare _ lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? layout params childDepth available lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
+
     (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= limits.maxPlanNodes then
     throw <| .planInvariant .near
@@ -803,6 +911,9 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
         total ← addPlanExprNodes limits layout method.params total value
         methodTemps ← addMethodExprTemps limits layout method.params methodTemps value
         returned := true
+    | .assert condition =>
+        total ← addPlanExprNodes limits layout method.params total condition
+        methodTemps ← addMethodExprTemps limits layout method.params methodTemps condition
   if isInitializer then
     if returned then
       throw <| .planInvariant .near "initializer cannot return a value"
@@ -985,6 +1096,15 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         value := rhs.next
         next := rhs.next + 1
       }
+  | .compare op lhs rhs =>
+      let lhs := lowerExpr keys next lhs
+      let rhs := lowerExpr keys lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.compare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -1010,6 +1130,11 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
         let value := lowerExpr keys next value
         operations := operations ++ value.operations
         operations := operations.push (.setReturnData value.value)
+        next := value.next
+    | .assert condition =>
+        let value := lowerExpr keys next condition
+        operations := operations ++ value.operations
+        operations := operations.push (.assert value.value)
         next := value.next
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -1131,6 +1256,18 @@ private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
   | .checkedSub destination lhs rhs =>
       s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
         s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .compare destination lhs rhs op =>
+      let insn :=
+        match op with
+        | .eq => "i64.eq"
+        | .ne => "i64.ne"
+        | .lt => "i64.lt_u"
+        | .le => "i64.le_u"
+        | .gt => "i64.gt_u"
+        | .ge => "i64.ge_u"
+      s!"    (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .assert condition =>
+      s!"    (if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
   | .storeState field value =>
       s!"    (i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"    (if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
