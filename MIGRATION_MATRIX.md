@@ -24,7 +24,7 @@ D1–D4 共 27 个 formal task，当前仍为：
 
 ```text
 ValidatedSourceV1 / ProgramV1
-  → NormalizeV1 (CheckV1 ok∧analysisComplete + narrow public-UInt64 add/sub + 六比较 + bare assert lowering；Bool 限 body 临时值)
+  → NormalizeV1 (CheckV1 ok∧analysisComplete + narrow public-UInt64 add/sub + 六比较 + bare assert + Bool entry/view 返回值 lowering；state/param 仍 UInt64-only)
   → structure-valid SemanticProgramV1 (retained)
   → CompiledSemanticV1 (private ctor; sole product compile success type;
      artifact name + canonical ProgramV1 source Digest + semanticHashV1 Digest)

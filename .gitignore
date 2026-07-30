@@ -9,3 +9,6 @@
 __pycache__/
 *.pyc
 .orca
+
+# Riptide artifacts (cloud-synced)
+.humanlayer/tasks/

@@ -12,6 +12,18 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-30 — S1 Normalize 扩面：Bool entry/view 返回值贯穿四 target
+
+- Context/State：formal D1–D4 仍为 0/27 done。承接比较/assert 扩面，本切片把 Bool 从 body 临时值扩到 entry/view 返回值位置；state/param 仍 UInt64-only，init result 仍 Unit-only。执行模式同上一切片：共享核心串行（主代理）→ 四 target worktree worker 并行 → 主代理只读审计 `git am` 串行集成。
+- Shared core（主代理）：`Semantic/NormalizeV1.lean` result 门 `requireUInt64OrUnitTypeId` → `requireScalarResultTypeId`（UInt64/Unit/Bool；Unit 继续走 bare-return 既有 pinned 行为）；**S2 catalog 扩为四键**（新增 `value.bool`，UTF-8 wire 序位于 `state.persistent` 与 `value.checked-arithmetic` 之间），resolver 四行 support seed 自动随 catalog 派生；`Semantic/ProvenanceV1.lean` 新增 `value.bool` 类型注记产出点（state/param/result Bool 类型路径，镜像 contribution engine 的 type carriers）；Bool 程序经 production Normalize → admit → reference step 的 true/false trace 已固定（`Tests/Semantic/ReferenceV1.lean`）。Counter 等无 Bool carrier 程序的 requirements/canonical bytes 不变；`Tests/Typed/RequirementsInferV1.lean`、`Tests/Materialization/RequirementResolverV1.lean`、`Tests/Language/ProgramSyntax.lean` 的 trio pin 改为显式 contributed 集合，describe-target CLI 与 justfile `target-cli-positive` expected stdout 同步到四键。
+- EVM lane（worker 于 401 中断后由主代理审计其 worktree 完整实现并代为验证提交）：`ResultKind`（默认 `.uint64`）+ `isBool` value tracking；result 门接受 UInt64/Bool；return kind 一致（Bool entry 返回比较/Bool literal，UInt64 entry 拒绝比较）；ABI `"bool"`/uint64；Yul 不变（0/1 word）；`validatePlan` 覆盖 kind 不一致；EvmSmoke/CounterV1Evm 翻转负例为正向并增 kind-mismatch mutation。
+- Solana lane（worker）：`ResultKind`（`u64|bool`）on Handler/HandlerIR；`expectsBoolReturn` 线程化 return kind gate；`setReturnDataBool`（单字节 0/1）；IDL `"returns":"bool"`；SolanaPlanV1 翻转负例 + BoolPredicate end-to-end + kind-mismatch 负例。
+- NEAR lane（worker）：`MethodResultKind`（`unit|uint64|bool`）；`expectedReturn` 线程化 return kind gate；ABI `"returns":"bool"`；WAT 复用 i64 0/1 return；NearHostModel 翻转负例 + BoolPredicate（host model 0/1 结果）。
+- Noir lane（worker）：`NoirValueKindV1`；result 门接受 UInt64/Bool；result public input type `.bool`；`.nr` `result: pub bool` + `assert(result == tN)`；既有 Counter planHash 不变；NoirRelationModel 翻转负例 + BoolPredicate accept/reject。
+- 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testBoolPredicateSemanticPlans` 接入 `runSemanticPlanLeafFast`——四 target result kind 顺序（uint64/bool/bool）、EVM/Solana 比较返回表达式精确形状、Solana `setReturnDataBool` 路由、Noir Bool result input、IDL/ABI/`.nr` 文本。
+- Verification：四 lane 各自 focused build/test 绿（主代理逐 lane 审计 diff：allowlist 零越界、ctor/字段默认保持既有程序字节不变、无 fallback/adapter）；集成后 `lake build proof_forge_next_tests proof_forge_next_fast_tests` 与两二进制全绿；`just dev-check` 与完整 `just ci`（含全部 deletion gates、`target-cli-positive`）通过；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。EVM worker 两次因 401 凭证失效中断，其 worktree 完整实现由主代理独立构建+完整测试二进制验证后代为提交（同工审计标准）。这些结果不是 formal/hermetic evidence。
+- Boundary：Bool 仍不进入 state/param；if/match 多块 CFG、revert/emit/call/schedule、fn/localCall、mul/div/mod/unary、let/for、aggregates 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+
 ## 2026-07-30 — S1 Normalize 扩面：UInt64 六比较 + bare assert 贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。本切片是 sole Normalize 首个 post-checked-sub 扩面，按「共享核心串行 + 四 target 叶子 worktree 并行 + 主代理只读审计集成」执行；Bool 只存在于 body 临时值（比较结果/Bool literal），state/param/result 仍 UInt64-only，Bool 返回值/ABI 未接线。

@@ -309,6 +309,96 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
       noirSource.contents.contains "let t1: u64 = t0 - arg_p1;")
     "Noir source must constrain underflow before subtraction"
 
+private def boolPredicateSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program BoolPredicate where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n" ++
+  "  view positive() : Bool do\n" ++
+  "    return count > 0\n" ++
+  "  entry equalsCount(delta : UInt64) : Bool do\n" ++
+  "    return count == delta\n"
+
+/-- Four-target retained-V1 Bool-result conformance: mixed UInt64/Bool
+    entry/view results keep exact per-target result kinds and ABI surfaces. -/
+private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    boolPredicateSourceTextV1 "<targets-bool-predicate>" "Tests.Targets.BoolPredicate" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["bump", "positive", "equalsCount"] &&
+      evm.entries.map (·.resultKind) == #[.uint64, .bool, .bool])
+    "EVM result kinds must stay uint64/bool/bool in source order"
+  expect (evm.entries[1]!.body == #[
+      .returnValue (.compare .gt (.storageLoad 0) (.literal 0))] &&
+      evm.entries[2]!.body == #[
+        .returnValue (.compare .eq (.storageLoad 0) (.param 0))])
+    "EVM Bool entries must return the comparison expressions"
+
+  expect (solana.entries.map (·.name) == #["bump", "positive", "equalsCount"] &&
+      solana.entries.map (·.resultKind) == #[.u64, .bool, .bool])
+    "Solana result kinds must stay u64/bool/bool in source order"
+  expect (solana.entries[1]!.body == #[
+      .returnValue (.compare .gt (.stateLoad 0 8) (.literal 0))] &&
+      solana.entries[2]!.body == #[
+        .returnValue (.compare .eq (.stateLoad 0 8) (.param 8))])
+    "Solana Bool handlers must return the comparison expressions"
+
+  expect (near.entries.map (·.name) == #["bump", "positive", "equalsCount"] &&
+      near.entries.map (·.resultKind) == #[.uint64, .bool, .bool])
+    "NEAR result kinds must stay uint64/bool/bool in source order"
+
+  expect (noir.relations.map (·.name) == #["init", "bump", "positive", "equalsCount"])
+    "Noir relations must preserve source order"
+  let noirPositive := noir.relations[2]!
+  let noirPosResult := noirPositive.inputs.filter (·.role == .result)
+  expect (noirPosResult.size == 1 && noirPosResult[0]!.type == .bool)
+    "Noir positive relation must bind a Bool result input"
+  let noirBumpResult := noir.relations[1]!.inputs.filter (·.role == .result)
+  expect (noirBumpResult.size == 1 && noirBumpResult[0]!.type != .bool)
+    "Noir bump relation must keep a UInt64 result input"
+
+  let solanaIR ← liftResult <| irSolana compiled
+  expect (solanaIR.handlers[2]!.operations.contains (.setReturnDataBool 2) &&
+      !(solanaIR.handlers[0]!.operations.any (fun
+        | .setReturnDataBool _ => true | _ => false)))
+    "Solana IR must route Bool handlers to setReturnDataBool and UInt64 to setReturnData"
+  let nearIR ← liftResult <| irNear compiled
+  expect (nearIR.methods.map (·.name) == #["init", "bump", "positive", "equalsCount"])
+    "NEAR recipe IR must preserve method order for mixed result kinds"
+
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some solanaIdl := solanaOutput.files.find?
+      (·.path == "BoolPredicate.idl.json") |
+    throw <| IO.userError "bool-predicate: missing Solana IDL"
+  expect (solanaIdl.contents.contains "\"bool\"" &&
+      solanaIdl.contents.contains "\"u64-le\"")
+    "Solana IDL must carry both bool and u64-le result types"
+  let some noirSource := noirOutput.files.find?
+      (·.path == "relations/r2-positive/src/main.nr") |
+    throw <| IO.userError "bool-predicate: missing Noir positive relation"
+  expect (noirSource.contents.contains "result: pub bool" &&
+      noirSource.contents.contains "assert(result ==")
+    "Noir source must declare pub bool result bound by assert"
+  let some nearAbi := nearOutput.files.find?
+      (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "bool-predicate: missing NEAR ABI"
+  expect (nearAbi.contents.contains "\"bool\"")
+    "NEAR ABI must carry the bool result type"
+
+/-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
 private def guardedCounterSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -416,8 +506,9 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlans
   testGuardedCounterSemanticPlans
+  testBoolPredicateSemanticPlans
 
-/-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
+/-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
 
