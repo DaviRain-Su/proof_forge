@@ -309,12 +309,115 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
       noirSource.contents.contains "let t1: u64 = t0 - arg_p1;")
     "Noir source must constrain underflow before subtraction"
 
+private def guardedCounterSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program Guarded where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+  "    assert count >= delta\n" ++
+  "    count := count - delta\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 comparison+assert Plan/IR/emitter conformance for
+    the guarded counter: assert(ge) → checkedSub → return, with each target's
+    own assert failure rendering. -/
+private unsafe def testGuardedCounterSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    guardedCounterSourceTextV1 "<targets-guarded>" "Tests.Targets.Guarded" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["decrement", "get"] &&
+      evm.entries[0]!.body == #[
+        .assert (.compare .ge (.storageLoad 0) (.param 0)),
+        .store { slot := 0, value := .checkedSub (.storageLoad 0) (.param 0) },
+        .returnValue (.storageLoad 0)])
+    "EVM retained V1 must lower assert(ge) → checkedSub store → return in order"
+
+  expect (solana.entries.map (·.name) == #["decrement", "get"] &&
+      solana.entries[0]!.body == #[
+        .assert (.compare .ge (.stateLoad 0 8) (.param 8)),
+        .store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedSub (.stateLoad 0 8) (.param 8)
+        },
+        .returnValue (.stateLoad 0 8)])
+    "Solana retained V1 must lower assert(ge) → checkedSub store → return in order"
+
+  expect (near.entries.map (·.name) == #["decrement", "get"] &&
+      near.entries[0]!.body == #[
+        .assert (.compare .ge (.stateLoad 0) (.param 0)),
+        .store {
+          fieldIndex := 0
+          value := .checkedSub (.stateLoad 0) (.param 0)
+        },
+        .returnValue (.stateLoad 0)])
+    "NEAR retained V1 must lower assert(ge) → checkedSub store → return in order"
+
+  expect (noir.relations.map (·.name) == #["init", "decrement", "get"] &&
+      noir.relations[1]!.body == #[
+        .assert (.compare .ge (.stateLoad 0) (.param 2)),
+        .store {
+          fieldIndex := 0
+          value := .checkedSub (.stateLoad 0) (.param 2)
+        },
+        .returnValue (.stateLoad 0)])
+    "Noir retained V1 must lower assert(ge) → checkedSub store → return in order"
+
+  let solanaIR ← liftResult <| irSolana compiled
+  let nearIR ← liftResult <| irNear compiled
+  let noirIR ← liftResult <| irNoir compiled
+  expect (solanaIR.handlers[1]!.operations.contains
+      (.compare 2 0 1 .ge) &&
+      solanaIR.handlers[1]!.operations.contains
+        (.assert 2 solana.assertionFailedError))
+    "Solana IR must keep the ge compare immediately feeding the assert"
+  expect (nearIR.methods[1]!.operations.contains (.compare 2 0 1 .ge) &&
+      nearIR.methods[1]!.operations.contains (.assert 2))
+    "NEAR recipe IR must keep the ge compare immediately feeding the assert"
+  let noirOps := noirIR.relations[1]!.operations
+  expect (noirOps.any (fun | .compare .ge .. => true | _ => false) &&
+      noirOps.any (fun | .assertConstraint _ => true | _ => false))
+    "Noir relation IR must keep a ge compare with an assertConstraint"
+
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some solanaPlanText := solanaOutput.files.find?
+      (·.path == "Guarded.sbpf-plan") |
+    throw <| IO.userError "guarded: missing Guarded.sbpf-plan"
+  expect (solanaPlanText.contents.contains "cmp_ge_u64" &&
+      solanaPlanText.contents.contains "else program_error")
+    "Solana emitter must retain the ge comparison and assert error routing"
+  let some nearWat := nearOutput.files.find? (·.path == "Guarded.wat") |
+    throw <| IO.userError "guarded: missing Guarded.wat"
+  expect (nearWat.contents.contains "i64.ge_u" &&
+      nearWat.contents.contains "(then unreachable)")
+    "NEAR WAT must emit the unsigned ge comparison and assert trap"
+  let some noirSource := noirOutput.files.find?
+      (·.path == "relations/r1-decrement/src/main.nr") |
+    throw <| IO.userError "guarded: missing Noir decrement relation"
+  expect (noirSource.contents.contains ">=" && noirSource.contents.contains "assert(")
+    "Noir source must constrain the ge comparison and assert"
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlans
+  testGuardedCounterSemanticPlans
 
+/-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
   ByteArray.mk (Array.replicate count value)
 
