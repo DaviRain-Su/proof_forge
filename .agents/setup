@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
+
+echo "[orb setup] checking system packages"
+packages=(build-essential ca-certificates curl git python3 ripgrep)
+missing=()
+for package in "${packages[@]}"; do
+  if ! dpkg-query -W -f='${Status}' "$package" 2>/dev/null | grep -Fqx 'install ok installed'; then
+    missing+=("$package")
+  fi
+done
+if ((${#missing[@]} > 0)); then
+  if [[ "$(id -u)" -eq 0 ]]; then
+    apt=(apt-get)
+  else
+    apt=(sudo apt-get)
+  fi
+  export DEBIAN_FRONTEND=noninteractive
+  "${apt[@]}" update
+  "${apt[@]}" install -y --no-install-recommends "${missing[@]}"
+fi
+
+just_version="1.48.0"
+if ! command -v just >/dev/null 2>&1 || [[ "$(just --version)" != "just $just_version" ]]; then
+  echo "[orb setup] installing just $just_version"
+  case "$(uname -m)" in
+    x86_64) just_arch="x86_64-unknown-linux-musl" ;;
+    aarch64|arm64) just_arch="aarch64-unknown-linux-musl" ;;
+    *) echo "unsupported architecture for just: $(uname -m)" >&2; exit 1 ;;
+  esac
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf -- "$tmp_dir"' EXIT
+  curl --retry 5 --retry-all-errors --connect-timeout 20 -sSfL \
+    "https://github.com/casey/just/releases/download/$just_version/just-$just_version-$just_arch.tar.gz" \
+    | tar -xz -C "$tmp_dir" just
+  install -d "$HOME/.local/bin"
+  install -m 0755 "$tmp_dir/just" "$HOME/.local/bin/just"
+  rm -rf -- "$tmp_dir"
+  trap - EXIT
+fi
+
+toolchain="$(cat "$repo_root/lean-toolchain")"
+if ! command -v elan >/dev/null 2>&1 \
+  || ! elan toolchain list 2>/dev/null | awk '{print $1}' | grep -Fxq "$toolchain"; then
+  echo "[orb setup] installing Lean toolchain $toolchain"
+  "$repo_root/scripts/ci/install-lean.sh"
+fi
+elan default "$toolchain" >/dev/null
+
+# Lean 4.31 ships Clang's builtin headers under include/clang while its
+# bundled compiler searches lib/clang/<version>/include.
+lean_root="$(cd "$(dirname "$(elan which lean)")/.." && pwd)"
+clang_resource_dir="$($lean_root/bin/clang -print-resource-dir)"
+if [[ ! -e "$clang_resource_dir/include" ]]; then
+  echo "[orb setup] linking Lean's bundled Clang headers"
+  mkdir -p "$clang_resource_dir"
+  ln -s "$lean_root/include/clang" "$clang_resource_dir/include"
+fi
+
+profile_marker="# proof-forge orb toolchain"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  echo "[orb setup] persisting tool paths for login shells"
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# proof-forge orb toolchain
+export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
+EOF
+fi
+
+echo "[orb setup] building development targets"
+cd "$repo_root"
+lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1 \
+  proof_forge_frontend_safe_open_worker_v1
+
+echo "[orb setup] complete"

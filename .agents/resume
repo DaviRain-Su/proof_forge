@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="$HOME/.elan/bin:$HOME/.local/bin:$PATH"
+
+command -v elan >/dev/null
+command -v lean >/dev/null
+command -v lake >/dev/null
+command -v just >/dev/null
+lean --version >/dev/null
+
+echo "[orb resume] development toolchain available"
