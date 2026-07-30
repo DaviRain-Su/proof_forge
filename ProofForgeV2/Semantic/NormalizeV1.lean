@@ -23,8 +23,8 @@
       by the enclosing typed context, comparison operands are always UInt64
     * types: anonymous UInt64 + Unit (init result) + Bool (comparison results,
       Bool literals); one TypeId per distinct shape, interned on first actual
-      use in source traversal order. State/parameter/entry/view-result
-      positions stay UInt64-only; Bool results remain unsupported
+      use in source traversal order. State/parameter positions stay
+      UInt64-only; entry/view results may be UInt64, Unit, or Bool
     * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
       invariantSteps=none; empty constants/events/errors/invariants
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
@@ -192,19 +192,19 @@ private def requireUInt64TypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
-/-- Require an already-interned TypeId to resolve to anonymous UInt64 or Unit.
-    Entry/view results use this gate: Unit results keep flowing to the
-    bare-return gate, while Bool and richer shapes fail here. -/
-private def requireUInt64OrUnitTypeId
+/-- Require an already-interned TypeId to resolve to an anonymous scalar
+    supported at entry/view results: UInt64, Unit, or Bool. Unit results keep
+    flowing to the bare-return gate; richer shapes fail here. -/
+private def requireScalarResultTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
   match types[typeId.toNat]? with
   | some decl =>
       if decl.name.isNone && (match decl.shape with
-          | .uint 64 => true | .unit => true | _ => false) then
+          | .uint 64 => true | .unit => true | .bool => true | _ => false) then
         pure ()
       else
-        failUnsupported s!"S1 {context} requires UInt64/Unit type"
+        failUnsupported s!"S1 {context} requires UInt64/Unit/Bool type"
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
@@ -593,7 +593,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
-        requireUInt64OrUnitTypeId interner.types resultTid s!"entry '{raw e.name}' result"
+        requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
         let (instrs, term, interner''') ←
           lowerBlock e.body params resultTid interner stateTable false
         interner := interner'''
@@ -606,7 +606,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
-        requireUInt64OrUnitTypeId interner.types resultTid s!"view '{raw v.name}' result"
+        requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
         let (instrs, term, interner''') ←
           lowerBlock v.body params resultTid interner stateTable false
         interner := interner'''

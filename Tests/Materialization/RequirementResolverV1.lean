@@ -352,7 +352,8 @@ private def testFourRowTable : IO Unit := do
     | some row, some (tid, prof) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
-        expect (row.supported.size == 3) s!"row {i} S2 trio size"
+        expect (row.supported.size == s2CatalogIdsWireOrderV1.size)
+          s!"row {i} S2 catalog size"
         expect (row.supported.map (·.id) == s2CatalogIdsWireOrderV1)
           s!"row {i} S2 ids wire order"
         for item in row.supported do
@@ -535,7 +536,7 @@ private def testSeedPrecedence : IO Unit := do
     inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
       TargetId.evm CodegenProfileId.evmYulSolc0834V1
   expect (insp.targetId == TargetId.evm) "DI inspection target"
-  expect (insp.supported.size == 3) "DI inspection S2 trio"
+  expect (insp.supported.size == s2CatalogIdsWireOrderV1.size) "DI inspection S2 catalog"
 
 private def testRequestInspectionErrors : IO Unit := do
   let trio ← s2Trio
@@ -623,8 +624,11 @@ private unsafe def testProductFourTargets : IO Unit := do
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
     | .error e => throw <| IO.userError s!"Counter SemanticProgramV1 invalid: {repr e}"
-  expect (frozen.items.map (·.id) == s2CatalogIdsWireOrderV1)
-    "Counter retained requirements are the S2 trio"
+  -- Counter contributes three of the four catalog ids (no Bool carrier).
+  let counterCatalogTrio : Array String :=
+    #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
+  expect (frozen.items.map (·.id) == counterCatalogTrio)
+    "Counter retained requirements are its contributed catalog ids"
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult <| resolveBuildSelectionV1 tid none
     let capability ← liftResult <|
@@ -639,8 +643,8 @@ private unsafe def testProductFourTargets : IO Unit := do
     -- Capability stores exact retained frozen requirements (no empty/subset).
     expect (accepted == frozen)
       s!"capability.requirements exact retained freeze for {tid}"
-    expect (accepted.items.map (·.id) == s2CatalogIdsWireOrderV1)
-      s!"accepted S2 trio for {tid}"
+    expect (accepted.items.map (·.id) == counterCatalogTrio)
+      s!"accepted contributed catalog ids for {tid}"
     let output ← liftResult <| Targets.materializeResult capability
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
       s!"{tid} materialize via capability"
@@ -801,9 +805,10 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
     "CLI emit profile"
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
+      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
       expect
         (text ==
-          "target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.checked-arithmetic]")
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
         s!"describe-target exact S2 stdout, got {text}"
   | .error e => throw <| IO.userError e.render
   match ProofForgeV2.CLI.describeTargetText "noir" with

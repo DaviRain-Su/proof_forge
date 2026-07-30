@@ -327,12 +327,20 @@ private unsafe def testBoolEnvelopeRejected
     "    return count > 0\n"
   for item in #[
       ("bool-state", boolState, "Examples.BoolState"),
-      ("bool-param", boolParam, "Examples.BoolParam"),
-      ("bool-result", boolResult, "Examples.BoolResult")] do
+      ("bool-param", boolParam, "Examples.BoolParam")] do
     let (label, source, moduleName) := item
     let validated ← liftResult (← session.selectProgramV1
       source s!"<solana-{label}>" moduleName none)
     expectCompileFailure label (Compiler.compileValidatedSourceV1 validated)
+  -- Bool results pass Normalize; the Solana plan seam must still fail closed
+  -- until the target grows Bool result support.
+  let validated ← liftResult (← session.selectProgramV1
+    boolResult "<solana-bool-result>" "Examples.BoolResult" none)
+  match ← pure (Compiler.compileValidatedSourceV1 validated) with
+  | .error _ =>
+      throw <| IO.userError "bool-result: expected Normalize acceptance"
+  | .ok compiled =>
+      expectPlanError "bool-result" (planSolana compiled)
 
 /-- `assert … else Ident` is outside the envelope (errorId/args non-empty path). -/
 private unsafe def testAssertElseRejected

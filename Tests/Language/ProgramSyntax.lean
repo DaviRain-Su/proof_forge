@@ -126,8 +126,8 @@ unsafe def run : IO Unit := do
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"Counter semantic carrier invalid: {repr error}"
   expect (semanticData.requirements.items.map (·.id) ==
-      ProofForgeV2.Semantic.RequirementsV1.s2CatalogIdsWireOrderV1)
-    "semantic requirements must be the canonical Counter S2 request set"
+      #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"])
+    "semantic requirements must be the canonical Counter contributed catalog set"
 
   let aCounter ← match ← Language.Loader.selectProgramV1
       aSource "<program-syntax-a>" "A" none with

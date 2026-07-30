@@ -86,7 +86,7 @@ private def isStrictlyAscendingAscii (values : Array String) : Bool :=
       i := i + 1
     return true
 
-private def s2TrioRequests : CompileResult (Array RequirementRequestV1) := do
+private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
   let mut items : Array RequirementRequestV1 := #[]
   for id in s2CatalogIdsWireOrderV1 do
     match mkS2RequirementRequestV1 id with
@@ -107,7 +107,7 @@ private def validateSupportedRequests
       s!"support requirements for '{label}' must be in SPEC wire order"
   unless supported.size == s2CatalogIdsWireOrderV1.size do
     throw <| .registryInvalid
-      s!"support row '{label}' must declare exactly the current S2 catalog trio"
+      s!"support row '{label}' must declare exactly the current S2 catalog"
   let mut i : Nat := 0
   while i < supported.size do
     match supported[i]?, s2CatalogIdsWireOrderV1[i]? with
@@ -217,12 +217,12 @@ private def mkImplementedRow
 
 /-- Shipped four-row seed body (canonical targetId order: evm, near, noir, solana). -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
-  let trio ← s2TrioRequests
+  let catalogRequests ← s2CatalogRequests
   pure #[
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
-    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
+    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 catalogRequests,
+    mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

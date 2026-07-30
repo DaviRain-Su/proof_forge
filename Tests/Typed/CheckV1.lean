@@ -1693,6 +1693,120 @@ private unsafe def testAssertBoolLiteral
         s!"bool-lit: expected assert(vid1), got {cond}"
   | _ => throw <| IO.userError "bool-lit: expected Op.Assert"
 
+private unsafe def testBoolViewResult
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolView" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n" ++
+    "  view saturated() : Bool do\n" ++
+    "    return count == 18446744073709551615\n"
+  let validated ← loadSource session "bool-view" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "bool-view: CheckV1.ok"
+  expect typed.analysisComplete "bool-view: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bool-view: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bool-view: validate: {repr e}"
+  -- Types: state UInt64 (0), init Unit (1), first comparison Bool (2).
+  expect (data.types.size == 3)
+    s!"bool-view: expected UInt64+Unit+Bool closure, got {data.types.size}"
+  let some boolType := data.types[2]? |
+    throw <| IO.userError "bool-view: missing interned Bool type"
+  expect (boolType.name.isNone &&
+      (match boolType.shape with | TypeShapeV1.bool => true | _ => false))
+    "bool-view: type[2] must be anonymous Bool"
+  expect (data.callables.size == 4) "bool-view: init + entry + 2 views"
+  let some posC := data.callables[2]? |
+    throw <| IO.userError "bool-view: missing positive view"
+  expect (posC.kind == .view && posC.name == some "positive")
+    "bool-view: positive view kind/name"
+  expect (posC.result.typeId == 2 && posC.result.visibility == .public_)
+    "bool-view: positive result must be public Bool"
+  let some posBlk := posC.blocks[0]? |
+    throw <| IO.userError "bool-view: missing positive block"
+  expect (posBlk.instructions.size == 3)
+    s!"bool-view: expected load + literal + gt, got {posBlk.instructions.size}"
+  let some gtInstr := posBlk.instructions[2]? |
+    throw <| IO.userError "bool-view: missing gt instruction"
+  let some gtResult := gtInstr.result |
+    throw <| IO.userError "bool-view: gt result missing"
+  match gtInstr.op with
+  | .binary .gt lhs rhs =>
+      expect (gtResult.valueId == 2 && gtResult.typeId == 2 && lhs == 0 && rhs == 1)
+        s!"bool-view: expected vid2=gt(load0,lit1) Bool, got {gtResult.valueId}/{lhs}/{rhs}"
+  | _ => throw <| IO.userError "bool-view: expected BinaryOpV1.gt"
+  match posBlk.terminator with
+  | TerminatorV1.return_ (some returned) =>
+      expect (returned == 2) s!"bool-view: expected return vid2, got {returned}"
+  | _ => throw <| IO.userError "bool-view: expected return of comparison"
+  let some satC := data.callables[3]? |
+    throw <| IO.userError "bool-view: missing saturated view"
+  expect (satC.result.typeId == 2) "bool-view: saturated result must be Bool"
+  let carrier2 ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bool-view-repeat: normalize: {repr e}"
+  expect (carrier.canonicalBytes == carrier2.canonicalBytes)
+    "bool-view: repeated normalization bytes deterministic"
+  -- Provenance authority accepts a Bool-result program.
+  let (withSpans, spans) ← loadSourceWithSpans session "bool-view-prov" source
+  let path ← parseTestPath "bool-view-prov"
+  match ← (pure (normalizeProgramWithProvenanceV1 withSpans path spans)
+      : IO (Except NormalizeErrorV1 _)) with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"bool-view-prov: provenance authority: {repr e}"
+
+private unsafe def testBoolEntryResultAndLiteral
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolEntry" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry equalsCount(delta : UInt64) : Bool do\n" ++
+    "    return count == delta\n" ++
+    "  view yes() : Bool do\n" ++
+    "    return true\n"
+  let validated ← loadSource session "bool-entry" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "bool-entry: CheckV1.ok"
+  expect typed.analysisComplete "bool-entry: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bool-entry: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bool-entry: validate: {repr e}"
+  let some entryC := data.callables[1]? |
+    throw <| IO.userError "bool-entry: missing matches entry"
+  expect (entryC.kind == .entry && entryC.result.typeId == 2)
+    "bool-entry: entry result must be Bool"
+  let some viewC := data.callables[2]? |
+    throw <| IO.userError "bool-entry: missing yes view"
+  let some viewBlk := viewC.blocks[0]? |
+    throw <| IO.userError "bool-entry: missing yes block"
+  expect (viewBlk.instructions.size == 1)
+    s!"bool-entry: expected single Bool literal, got {viewBlk.instructions.size}"
+  let some litInstr := viewBlk.instructions[0]? |
+    throw <| IO.userError "bool-entry: missing literal instruction"
+  match litInstr.op with
+  | .literal typeId bytes =>
+      expect (typeId == 2 && bytes == ByteArray.mk #[1])
+        s!"bool-entry: expected literal Bool true, got tid{typeId}/{bytes.toList}"
+  | _ => throw <| IO.userError "bool-entry: expected Op.Literal"
+  match viewBlk.terminator with
+  | TerminatorV1.return_ (some returned) =>
+      expect (returned == 0) s!"bool-entry: expected return vid0, got {returned}"
+  | _ => throw <| IO.userError "bool-entry: expected return of literal"
+
 private unsafe def testUnsupportedBoolState
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "BoolState" <|
@@ -1712,16 +1826,6 @@ private unsafe def testUnsupportedBoolParam
   expectUnsupportedAfterCheckOk session "bool-param" source
     (fun d => d.contains "UInt64" || d.contains "param")
     "UInt64 param"
-
-private unsafe def testUnsupportedBoolResult
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "BoolResult" <|
-    "  state count : UInt64\n" ++
-    "  view positive() : Bool do\n" ++
-    "    return count > 0\n"
-  expectUnsupportedAfterCheckOk session "bool-result" source
-    (fun d => d.contains "UInt64" || d.contains "result")
-    "UInt64 result"
 
 private unsafe def testUnsupportedAssertElse
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2775,18 +2879,17 @@ private unsafe def testFreezeRejectsForeignKeys
       expect (detail ==
           "S2 semantic requirements freeze rejects non-catalog key 'disclosure.private-witness'")
         s!"freeze-priv-param detail: {detail}"
-  -- Bool result contributes value.bool
+  -- Bool result contributes catalog value.bool and now freezes.
   let boolSrc := wrap "FreezeBool" <|
     "  entry run() : Bool do\n" ++
     "    return true\n"
   let boolProg ← loadSource session "freeze-bool" boolSrc
   match freezeProgramRequirementsV1 boolProg.program with
-  | .ok _ =>
-      throw <| IO.userError "freeze-bool: expected non-catalog rejection"
+  | .ok frozen =>
+      expect (frozen.items.map (·.id) == #["value.bool"])
+        s!"freeze-bool: expected catalog value.bool freeze, got {frozen.items.map (·.id)}"
   | .error detail =>
-      expect (detail ==
-          "S2 semantic requirements freeze rejects non-catalog key 'value.bool'")
-        s!"freeze-bool detail: {detail}"
+      throw <| IO.userError s!"freeze-bool: expected catalog freeze, got {detail}"
   -- emit contributes effect.event
   let emitSrc := wrap "FreezeEmit" <|
     "  event Tick()\n" ++
@@ -2837,6 +2940,8 @@ unsafe def run : IO Unit := do
   testAssertComparison session
   testAllComparisonOps session
   testAssertBoolLiteral session
+  testBoolViewResult session
+  testBoolEntryResultAndLiteral session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testUnsupportedIf session
@@ -2844,7 +2949,6 @@ unsafe def run : IO Unit := do
   testUnsupportedPrivateState session
   testUnsupportedBoolState session
   testUnsupportedBoolParam session
-  testUnsupportedBoolResult session
   testUnsupportedAssertElse session
   testUnsupportedNestedComparison session
   testUnsupportedParamShadowsStateAssign session

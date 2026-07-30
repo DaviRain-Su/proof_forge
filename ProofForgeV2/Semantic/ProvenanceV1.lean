@@ -986,6 +986,54 @@ private def attributeCounterEntitiesV1
   for itemI in stateItemIdxs do
     let itemPath := childPath #[] "Program" "items" itemI
     rs := reqPush rs "state.persistent" itemPath
+  -- Type-annotation producing sites for value.bool (mirrors the contribution
+  -- engine's type carriers: state/param/result Bool types).
+  itemIdx := 0
+  for item in program.items do
+    let itemPath := childPath #[] "Program" "items" itemIdx
+    match item with
+    | .state s =>
+        match s.type_ with
+        | .bool =>
+            rs := reqPush rs "value.bool" (directChild itemPath "StateDecl" "type")
+        | _ => pure ()
+    | .init d =>
+        let mut pi : Nat := 0
+        for p in d.params do
+          match p.type_ with
+          | .bool =>
+              let paramPath := childPath itemPath "InitDecl" "params" pi
+              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+          | _ => pure ()
+          pi := pi + 1
+    | .entry e =>
+        let mut pi : Nat := 0
+        for p in e.params do
+          match p.type_ with
+          | .bool =>
+              let paramPath := childPath itemPath "EntryDecl" "params" pi
+              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+          | _ => pure ()
+          pi := pi + 1
+        match e.result with
+        | .bool =>
+            rs := reqPush rs "value.bool" (directChild itemPath "EntryDecl" "result")
+        | _ => pure ()
+    | .view v =>
+        let mut pi : Nat := 0
+        for p in v.params do
+          match p.type_ with
+          | .bool =>
+              let paramPath := childPath itemPath "ViewDecl" "params" pi
+              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+          | _ => pure ()
+          pi := pi + 1
+        match v.result with
+        | .bool =>
+            rs := reqPush rs "value.bool" (directChild itemPath "ViewDecl" "result")
+        | _ => pure ()
+    | _ => pure ()
+    itemIdx := itemIdx + 1
   itemIdx := 0
   for item in program.items do
     let itemPath := childPath #[] "Program" "items" itemIdx

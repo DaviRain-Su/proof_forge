@@ -86,7 +86,8 @@ private unsafe def testCounterLike
   expect (ids == #["state.persistent", "value.checked-arithmetic",
       "failure.atomic-rollback"])
     s!"counter contribution order: {ids}"
-  expectFreezeIds "counter" validated s2CatalogIdsWireOrderV1
+  expectFreezeIds "counter" validated
+    #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
 
 private unsafe def testForeignContributions
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -119,10 +120,6 @@ private unsafe def testForeignContributions
       "  entry run() : UInt64 do\n    schedule External.Later()\n    return 0\n",
       #["effect.asynchronous-workflow"],
       "effect.asynchronous-workflow"),
-    ("bool",
-      "  entry run(flag : Bool) : Bool do\n    return flag\n",
-      #["value.bool"],
-      "value.bool"),
     ("field",
       "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n",
       #["value.field.bn254-fr"],
@@ -149,6 +146,15 @@ private unsafe def testCatalogAndDedup
     s!"public state contribution ids: {publicIds}"
   expectFreezeIds "public" publicValidated #["state.persistent"]
 
+  -- Bool type carriers contribute catalog value.bool and now freeze.
+  let boolSource := wrap "ReqBool" <|
+    "  entry run(flag : Bool) : Bool do\n" ++
+    "    return flag\n"
+  let (boolValidated, boolIds) ← inferSource session "bool" boolSource
+  expect (boolIds == #["value.bool"])
+    s!"bool carrier contribution ids: {boolIds}"
+  expectFreezeIds "bool" boolValidated #["value.bool"]
+
   let rollbackSource := wrap "ReqRollback" <|
     "  error Boom()\n" ++
     "  entry run(x : Bool) : UInt64 do\n" ++
@@ -158,6 +164,9 @@ private unsafe def testCatalogAndDedup
   let (_, rollbackIds) ← inferSource session "rollback" rollbackSource
   expect (rollbackIds == #["value.bool", "failure.atomic-rollback"])
     s!"duplicate rollback contribution must be first-seen unique: {rollbackIds}"
+  let (rollbackValidated, _) ← inferSource session "rollback-freeze" rollbackSource
+  expectFreezeIds "rollback-freeze" rollbackValidated
+    #["failure.atomic-rollback", "value.bool"]
 
 private unsafe def testIdempotent
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -180,7 +189,8 @@ private unsafe def testCounterAuthority
       expect (ids == #["state.persistent", "value.checked-arithmetic",
           "failure.atomic-rollback"])
         s!"Counter contribution authority: {ids}"
-      expectFreezeIds "Counter authority" source s2CatalogIdsWireOrderV1
+      expectFreezeIds "Counter authority" source
+        #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
