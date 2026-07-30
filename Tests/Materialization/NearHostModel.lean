@@ -41,9 +41,12 @@ private structure Machine where
   temps : Array (Option U64)
   returned : Option U64 := none
   halted : Bool := false
+  logs : Array String := #[]
+  eventNames : Array String := #[]
+  errorNames : Array String := #[]
 
 private inductive Outcome where
-  | success (storage : HostStorage) (returned : Option U64)
+  | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
   | trapped (storage : HostStorage) (reason : String)
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -112,6 +115,16 @@ private def storageRemove (storage : HostStorage) (key : String) : HostStorage :
 
 private def modelError (message : String) : Except String α :=
   .error message
+
+/-- Lowercase 16-digit big-endian hex of one UInt64 word. -/
+private def hex16 (value : U64) : String :=
+  let raw := String.ofList (Nat.toDigits 16 value.toNat)
+  String.ofList (List.replicate (16 - raw.length) '0') ++ raw
+
+/-- Comma-separated hex16 encoding of interface arguments (`h0,h1,...`). -/
+private def hexArgs (values : Array U64) : String :=
+  if values.isEmpty then "" else
+    String.intercalate "," (values.toList.map hex16)
 
 private def requireStorage (machine : Machine)
     (region : Targets.Near.KeyRegion) : Except String ByteArray :=
@@ -223,6 +236,21 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       pure { machine with returned := some value }
   | .returnNone =>
       pure { machine with halted := true }
+  | .emitEvent eventIndex args => do
+      let some name := machine.eventNames[eventIndex]? |
+        modelError s!"event index {eventIndex} is outside the declared table"
+      let mut values : Array U64 := #[]
+      for arg in args do
+        values := values.push (← readTemp machine arg)
+      pure { machine with
+        logs := machine.logs.push s!"pf-event:{name}:{hexArgs values}" }
+  | .revertError errorIndex args => do
+      let some name := machine.errorNames[errorIndex]? |
+        modelError s!"error index {errorIndex} is outside the declared table"
+      let mut values : Array U64 := #[]
+      for arg in args do
+        values := values.push (← readTemp machine arg)
+      modelError s!"pf-error:{name}:{hexArgs values}"
   | .ifRegion condition thenOps elseOps => do
       let value ← readTemp machine condition
       if value != 0 then
@@ -253,17 +281,20 @@ end
 pre-call storage snapshot, modeling NEAR's receipt-local rollback contract.
 This is not a NEAR VM, sandbox, gas, or protocol-profile execution. -/
 private def execute (method : Targets.Near.MethodIR) (storage : HostStorage)
-    (input : ByteArray) (deposit : Deposit) : Outcome :=
+    (input : ByteArray) (deposit : Deposit)
+    (eventNames errorNames : Array String := #[]) : Outcome :=
   let initial : Machine := {
     storage
     temps := Array.replicate method.tempCount none
+    eventNames := eventNames
+    errorNames := errorNames
   }
   match runOperations input deposit method.operations.toList initial with
-  | .ok result => .success result.storage result.returned
+  | .ok result => .success result.storage result.returned result.logs
   | .error reason => .trapped storage reason
 
-private def requireSuccess (label : String) : Outcome → IO (HostStorage × Option U64)
-  | .success storage returned => pure (storage, returned)
+private def requireSuccess (label : String) : Outcome → IO (HostStorage × Option U64 × Array String)
+  | .success storage returned logs => pure (storage, returned, logs)
   | .trapped _ reason => throw <| IO.userError s!"{label} trapped: {reason}"
 
 private def expectTrap (label : String) (snapshot : HostStorage) : Outcome → IO Unit
@@ -387,6 +418,8 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .gt => "compare.gt"
         | .ge => "compare.ge"
     | .assert _ => "assert"
+    | .emitEvent .. => "emitEvent"
+    | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
     | .switchRegion .. => "switchRegion"
@@ -443,17 +476,17 @@ private unsafe def testIfFlowProductPath
   let get ← findMethod ir "get"
   let field := ir.keys[1]!
   let empty : HostStorage := #[]
-  let (storage0, _) ← requireSuccess "if-flow init"
+  let (storage0, _, _) ← requireSuccess "if-flow init"
     (execute initializer empty (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
-  let (storage1, ret1) ← requireSuccess "if-flow else"
+  let (storage1, ret1, _) ← requireSuccess "if-flow else"
     (execute bumpIR storage0 (encodeUInt64LE 3) { lowWord := 0, highWord := 0 })
   expect (ret1 == some 3 && storedUInt64? storage1 field.key == some 3)
     "if-flow else branch must store delta (3)"
-  let (storage2, ret2) ← requireSuccess "if-flow then"
+  let (storage2, ret2, _) ← requireSuccess "if-flow then"
     (execute bumpIR storage1 (encodeUInt64LE 2) { lowWord := 0, highWord := 0 })
   expect (ret2 == some 5 && storedUInt64? storage2 field.key == some 5)
     "if-flow then branch must store count+delta (5)"
-  let (_, retGet) ← requireSuccess "if-flow get"
+  let (_, retGet, _) ← requireSuccess "if-flow get"
     (execute get storage2 ByteArray.empty { lowWord := 0, highWord := 0 })
   expect (retGet == some 5) "if-flow view must return 5"
   -- WAT: nested if with i64 condition.
@@ -500,17 +533,17 @@ private unsafe def testMatchProductPath
     s!"MatchUint IR must contain exactly one switch-region, got {switchOps.size}"
   let initializer ← findMethod ir "init"
   let field := ir.keys[1]!
-  let (storage0, _) ← requireSuccess "match init"
+  let (storage0, _, _) ← requireSuccess "match init"
     (execute initializer #[] (encodeUInt64LE 7) { lowWord := 0, highWord := 0 })
-  let (storage1, ret1) ← requireSuccess "match case0"
+  let (storage1, ret1, _) ← requireSuccess "match case0"
     (execute applyIR storage0 (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
   expect (ret1 == some 7 && storedUInt64? storage1 field.key == some 7)
     "match case 0 must return count without writing"
-  let (storage2, ret2) ← requireSuccess "match case1"
+  let (storage2, ret2, _) ← requireSuccess "match case1"
     (execute applyIR storage1 (encodeUInt64LE 1) { lowWord := 0, highWord := 0 })
   expect (ret2 == some 8 && storedUInt64? storage2 field.key == some 8)
     "match case 1 must increment"
-  let (storage3, ret3) ← requireSuccess "match default"
+  let (storage3, ret3, _) ← requireSuccess "match default"
     (execute applyIR storage2 (encodeUInt64LE 5) { lowWord := 0, highWord := 0 })
   expect (ret3 == some 5 && storedUInt64? storage3 field.key == some 5)
     "match default must store the scrutinee"
@@ -549,10 +582,10 @@ private unsafe def testBranchAssertTrap
   let withdraw ← findMethod ir "withdraw"
   let initializer ← findMethod ir "init"
   let field := ir.keys[1]!
-  let (storage0, _) ← requireSuccess "branch-assert init"
+  let (storage0, _, _) ← requireSuccess "branch-assert init"
     (execute initializer #[] (encodeUInt64LE 5) { lowWord := 0, highWord := 0 })
   -- delta=3 → then branch, assert passes, state 2.
-  let (storage1, ret1) ← requireSuccess "branch-assert pass"
+  let (storage1, ret1, _) ← requireSuccess "branch-assert pass"
     (execute withdraw storage0 (encodeUInt64LE 3) { lowWord := 0, highWord := 0 })
   expect (ret1 == some 2 && storedUInt64? storage1 field.key == some 2)
     "branch-assert: taken branch must apply the subtraction"
@@ -561,10 +594,10 @@ private unsafe def testBranchAssertTrap
   | .trapped restored reason =>
       expect (storedUInt64? restored field.key == some 5)
         s!"branch-assert: trap must roll back to pre-call storage, got {reason}"
-  | .success _ _ =>
+  | .success _ _ _ =>
       throw <| IO.userError "branch-assert: underflowing branch must trap"
   -- delta=0 → else branch, no assert fires, state 0.
-  let (storage3, ret3) ← requireSuccess "branch-assert else"
+  let (storage3, ret3, _) ← requireSuccess "branch-assert else"
     (execute withdraw storage0 (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
   expect (ret3 == some 0 && storedUInt64? storage3 field.key == some 0)
     "branch-assert: else branch must not fire the assert"
@@ -621,18 +654,18 @@ private unsafe def testGuardedCounterProductPath
   | other =>
       throw <| IO.userError s!"guarded: expected assert at {assertIdx}, got {repr other}"
 
-  let (initialized, initReturn) ← requireSuccess "guarded init" <|
+  let (initialized, initReturn, _) ← requireSuccess "guarded init" <|
     execute initializer empty (encodeUInt64LE 10) zeroDeposit
   expect (initReturn.isNone) "guarded init must not set return data"
   expect (storedUInt64? initialized field.key == some 10)
     "guarded init must store seed 10"
 
-  let (afterOk, decReturn) ← requireSuccess "guarded decrement success" <|
+  let (afterOk, decReturn, _) ← requireSuccess "guarded decrement success" <|
     execute decrement initialized (encodeUInt64LE 3) zeroDeposit
   expect (decReturn == some 7 && storedUInt64? afterOk field.key == some 7)
     "guarded: 10 - 3 must yield 7 under assert"
 
-  let (_, getReturn) ← requireSuccess "guarded view" <|
+  let (_, getReturn, _) ← requireSuccess "guarded view" <|
     execute get afterOk ByteArray.empty zeroDeposit
   expect (getReturn == some 7) "guarded view must observe committed 7"
 
@@ -912,33 +945,33 @@ private unsafe def testBoolPredicateProductPath
   expect (equalsKinds.contains "setReturnData")
     s!"bool-predicate: equalsCount must set return data, got {equalsKinds}"
 
-  let (initialized, initReturn) ← requireSuccess "bool-predicate init" <|
+  let (initialized, initReturn, _) ← requireSuccess "bool-predicate init" <|
     execute initializer empty (encodeUInt64LE 0) zeroDeposit
   expect (initReturn.isNone) "bool-predicate init must not set return data"
   expect (storedUInt64? initialized field.key == some 0)
     "bool-predicate init must store seed 0"
 
-  let (_, posFalse) ← requireSuccess "bool-predicate positive false" <|
+  let (_, posFalse, _) ← requireSuccess "bool-predicate positive false" <|
     execute positive initialized ByteArray.empty zeroDeposit
   expect (posFalse == some 0)
     "bool-predicate: positive on count=0 must return Bool false as i64 0"
 
-  let (afterAdd, addReturn) ← requireSuccess "bool-predicate add" <|
+  let (afterAdd, addReturn, _) ← requireSuccess "bool-predicate add" <|
     execute add initialized (encodeUInt64LE 7) zeroDeposit
   expect (addReturn == some 7 && storedUInt64? afterAdd field.key == some 7)
     "bool-predicate: add must return UInt64 7 and store it"
 
-  let (_, posTrue) ← requireSuccess "bool-predicate positive true" <|
+  let (_, posTrue, _) ← requireSuccess "bool-predicate positive true" <|
     execute positive afterAdd ByteArray.empty zeroDeposit
   expect (posTrue == some 1)
     "bool-predicate: positive on count=7 must return Bool true as i64 1"
 
-  let (_, eqTrue) ← requireSuccess "bool-predicate equals true" <|
+  let (_, eqTrue, _) ← requireSuccess "bool-predicate equals true" <|
     execute equalsCount afterAdd (encodeUInt64LE 7) zeroDeposit
   expect (eqTrue == some 1)
     "bool-predicate: equalsCount(7) on count=7 must return true"
 
-  let (_, eqFalse) ← requireSuccess "bool-predicate equals false" <|
+  let (_, eqFalse, _) ← requireSuccess "bool-predicate equals false" <|
     execute equalsCount afterAdd (encodeUInt64LE 3) zeroDeposit
   expect (eqFalse == some 0)
     "bool-predicate: equalsCount(3) on count=7 must return false"
@@ -1024,13 +1057,13 @@ private unsafe def testEarlyReturnJoinProductPath
   let field := ir.keys[1]!
   let empty : HostStorage := #[]
   let zero : Deposit := { lowWord := 0, highWord := 0 }
-  let (storage0, _) ← requireSuccess "early-return init"
+  let (storage0, _, _) ← requireSuccess "early-return init"
     (execute initializer empty (encodeUInt64LE 10) zero)
-  let (storage1, ret1) ← requireSuccess "early-return cap(5)"
+  let (storage1, ret1, _) ← requireSuccess "early-return cap(5)"
     (execute capIR storage0 (encodeUInt64LE 5) zero)
   expect (ret1 == some 5 && storedUInt64? storage1 field.key == some 10)
     "early-return path must return the limit and leave state untouched"
-  let (storage2, ret2) ← requireSuccess "early-return cap(20)"
+  let (storage2, ret2, _) ← requireSuccess "early-return cap(20)"
     (execute capIR storage1 (encodeUInt64LE 20) zero)
   expect (ret2 == some 11 && storedUInt64? storage2 field.key == some 11)
     "fallthrough path must store and return count + 1"
@@ -1100,6 +1133,81 @@ private unsafe def testInitEarlyBareReturnClosed
       throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
   | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
 
+/-- Declared event/error: emit logs the canonical pf-event message, revert
+    traps with the pf-error message and rolls back. -/
+private unsafe def testEmitRevertProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EventFlow where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-event-flow>" "Examples.EventFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.events.map (·.name) == #["Moved"] &&
+      plan.errors.map (·.name) == #["Cap"])
+    "EventFlow must carry the declared event/error bindings"
+  let bump := plan.entries[0]!
+  expect (bump.body == #[
+      .emitEvent 0 #[.stateLoad 0, .param 0],
+      .ifThenElse (.compare .gt (.stateLoad 0) (.param 0))
+        #[.revertError 0 #[.param 0]]
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.param 0) }],
+      .returnValue (.stateLoad 0)])
+    "EventFlow bump must lower emit, branch revert, join return"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let bumpIR ← findMethod ir "bump"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let eventNames := plan.events.map (·.name)
+  let errorNames := plan.errors.map (·.name)
+  let (storage0, _, _) ← requireSuccess "event-flow init"
+    (execute initializer empty (encodeUInt64LE 5) zero)
+  -- count=5 > delta=3 → revert Cap(3): trap with the pf-error message and
+  -- storage rolled back to the pre-call snapshot.
+  match execute bumpIR storage0 (encodeUInt64LE 3) zero eventNames errorNames with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 5)
+        s!"event-flow revert must roll back storage, got {reason}"
+      expect (reason == "pf-error:Cap:0000000000000003")
+        s!"event-flow revert message must carry the declared error and arg, got {reason}"
+  | .success _ _ _ =>
+      throw <| IO.userError "event-flow: reverting branch must trap"
+  -- count=5 < delta=7 → else: count=12, return 12, log Moved(5,7).
+  let (storage1, ret1, logs1) ← requireSuccess "event-flow emit"
+    (execute bumpIR storage0 (encodeUInt64LE 7) zero eventNames errorNames)
+  expect (ret1 == some 12 && storedUInt64? storage1 field.key == some 12)
+    "event-flow else branch must store and return count+delta"
+  expect (logs1 == #["pf-event:Moved:0000000000000005,0000000000000007"])
+    s!"event-flow must log the canonical pf-event message, got {logs1}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "event-flow: missing .wat artifact"
+  expectContains wat.contents "log_utf8" "event-flow WAT log import"
+  expectContains wat.contents "panic_utf8" "event-flow WAT panic import"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1109,6 +1217,7 @@ unsafe def run : IO Unit := do
   testBranchAssertTrap session
   testEarlyReturnJoinProductPath session
   testInitEarlyBareReturnClosed session
+  testEmitRevertProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
@@ -1140,7 +1249,7 @@ unsafe def run : IO Unit := do
   expectTrap "init with high attached deposit" empty <|
     execute initializer empty (encodeUInt64LE 7) highDeposit
 
-  let (initialized, initReturn) ← requireSuccess "eight-byte init input" <|
+  let (initialized, initReturn, _) ← requireSuccess "eight-byte init input" <|
     execute initializer empty (encodeUInt64LE 7) zeroDeposit
   expect (initReturn.isNone) "initializer must not set return data"
   expect (storedUInt64? initialized field.key == some 7)
@@ -1161,7 +1270,7 @@ unsafe def run : IO Unit := do
   expectTrap "zero-parameter view with trailing input" initialized <|
     execute current initialized (repeatedByte 1 0) zeroDeposit
 
-  let (_, initialViewReturn) ← requireSuccess "zero-parameter view" <|
+  let (_, initialViewReturn, _) ← requireSuccess "zero-parameter view" <|
     execute current initialized ByteArray.empty zeroDeposit
   expect (initialViewReturn == some 7)
     "zero-parameter view must read the initialized UInt64 value"
@@ -1184,16 +1293,16 @@ unsafe def run : IO Unit := do
   expectTrap "eight-byte mismatched layout marker" oldLayout <|
     execute current oldLayout ByteArray.empty zeroDeposit
 
-  let (added, addReturn) ← requireSuccess "7 + 5 mutate" <|
+  let (added, addReturn, _) ← requireSuccess "7 + 5 mutate" <|
     execute add initialized (encodeUInt64LE 5) zeroDeposit
   expect (addReturn == some 12 && storedUInt64? added field.key == some 12)
     "mutate must store 12 and its post-store state read must return 12"
-  let (_, currentReturn) ← requireSuccess "view after mutate" <|
+  let (_, currentReturn, _) ← requireSuccess "view after mutate" <|
     execute current added ByteArray.empty zeroDeposit
   expect (currentReturn == some 12) "view must observe the committed mutate state"
 
   let maximum := UInt64.ofNat 18446744073709551615
-  let (maximumState, _) ← requireSuccess "maximum UInt64 init" <|
+  let (maximumState, _, _) ← requireSuccess "maximum UInt64 init" <|
     execute initializer empty (encodeUInt64LE maximum) zeroDeposit
   expectTrap "maximum UInt64 plus one" maximumState <|
     execute add maximumState (encodeUInt64LE 1) zeroDeposit

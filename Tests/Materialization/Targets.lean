@@ -89,10 +89,12 @@ private def irNoir (compiled : CompiledSemanticV1) : CompileResult Targets.Noir.
 
 /-- Independent fixed complete-byte evidence for capability Accumulator NEAR WAT
     (UTF-8 length + SHA-256 of real materializeResult bytes; not a reimplemented
-    renderer). Trailing newline is part of the hashed bytes. -/
-private def accumulatorNearWatExactUtf8Len : Nat := 4918
+    renderer). Trailing newline is part of the hashed bytes. Wave D: the two new
+    host imports (log_utf8/panic_utf8) extend every method's WAT by exactly two
+    import lines. -/
+private def accumulatorNearWatExactUtf8Len : Nat := 5050
 private def accumulatorNearWatSha256Hex : String :=
-  "14223fa01511215995ff82a7ab0cffa7484a537d51c7c86ff8250cd12f3b99c0"
+  "a22f301f9de41312b7c3cc6f5bc5ca4ab0bdada7ed85c68ea354cbb39b7c32b8"
 
 /-- Independent fixed exact complete Noir add relation source for capability
     Accumulator (full string golden; trailing newline included). -/
@@ -1132,8 +1134,10 @@ unsafe def run : IO Unit := do
       nearPlan.entries[1]!.depositPolicy == .queryOnly &&
       nearPlan.entries[1]!.exactInputLen == 0)
     "NearPlan must own dynamic exports, exact raw input, mode, and deposit policies"
-  expect (nearPlan.hostImports.size == 7 &&
+  expect (nearPlan.hostImports.size == 9 &&
       nearPlan.hostImports.contains .attachedDeposit &&
+      nearPlan.hostImports.contains .logUtf8 &&
+      nearPlan.hostImports.contains .panicUtf8 &&
       nearPlan.failurePolicy.invalidInput == .trap &&
       nearPlan.failurePolicy.corruptStorage == .trap &&
       nearPlan.failurePolicy.arithmeticOverflow == .trap &&

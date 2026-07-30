@@ -63,6 +63,8 @@ inductive HostImport where
   | storageWrite
   | valueReturn
   | attachedDeposit
+  | logUtf8
+  | panicUtf8
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -125,6 +127,8 @@ inductive Statement where
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
+  | emitEvent (eventIndex : Nat) (args : Array Expr)
+  | revertError (errorIndex : Nat) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -149,6 +153,12 @@ structure Method where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
+/-- One declared event/error binding: its name and UInt64 argument count. -/
+structure InterfaceBinding where
+  name : String
+  fieldCount : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- The NEAR-owned KV, raw ABI, method, and error policy for the supported
 UInt64 (+ Bool result) fragment. It deliberately retains no SemanticProgram. -/
 structure Plan where
@@ -164,6 +174,8 @@ structure Plan where
   resourceLimits : ResourceLimits
   programName : String
   storage : StorageLayout
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
   initializer : Method
   entries : Array Method
   -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
@@ -205,6 +217,8 @@ inductive Operation where
   | setReturnData (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
+  | emitEvent (eventIndex : Nat) (args : Array Nat)
+  | revertError (errorIndex : Nat) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -275,7 +289,7 @@ private def canonicalResourceLimits : ResourceLimits := {
 
 private def canonicalImports : Array HostImport := #[
   .input, .registerLen, .readRegister, .storageRead, .storageWrite, .valueReturn,
-  .attachedDeposit
+  .attachedDeposit, .logUtf8, .panicUtf8
 ]
 
 private def canonicalRegisters : RegisterLayout := {
@@ -592,6 +606,45 @@ private def consumeCurrentSegmentV1
       "unsupported NEAR semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
+/-- Multi-root effect-boundary consumption (event/revert argument lists):
+    every value produced in the current segment must be reachable from at
+    least one sink root, mirroring the single-root discipline. -/
+private def consumeSegmentRootsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (roots : Array ValueIdV1) : CompileResult Unit := do
+  for root in roots do
+    let _ ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  for root in roots do
+    if root.toNat >= paramCount then
+      stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: dead or reordered value instructions"
+  pure ()
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -726,6 +779,22 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: assert condition must be Bool"
         let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
         body := body.push (.assert condition)
+        segmentStart := values.size
+    | .emit _effectId eventId argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: view callable emits an event"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: event arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Multi-root effect boundary: every value produced in the current
+        -- segment must be reachable from at least one argument tree.
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .near
@@ -893,9 +962,19 @@ private partial def emitRegionV1
             emitRegionV1 owner mode expectedReturn types layout blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
-  | .revert _ _ | .trap _ =>
+  | .revert errorId argIds =>
+      let mut argExprs : Array Expr := #[]
+      for argId in argIds do
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: revert arguments must be UInt64"
+        argExprs := argExprs.push root.expr
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+  | .trap _ =>
       throw <| .planInvariant .near
-        "unsupported NEAR semantic shape: revert/trap terminators are outside the current pilot"
+        "unsupported NEAR semantic shape: trap terminators are outside the current pilot"
 
 private def lowerCallableV1
     (owner : String)
@@ -1044,6 +1123,11 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
+/-- UInt64-compatible plan expression (comparison results are Bool). -/
+private def exprIsUInt64CompatibleV1 : Expr → Bool
+  | .compare .. => false
+  | _ => true
+
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
 
     (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
@@ -1112,6 +1196,8 @@ private partial def checkMethodStatementsV1
     (limits : ResourceLimits) (layout : StorageLayout)
     (isInitializer : Bool) (isView : Bool)
     (allowReturnNone : Bool)
+    (eventCount : Nat) (eventFieldCounts : Array Nat)
+    (errorCount : Nat) (errorFieldCounts : Array Nat)
     (params : Array Param) (statements : Array Statement)
     (total : Nat) (methodTemps : Nat) :
     CompileResult (Nat × Nat × Bool) := do
@@ -1140,6 +1226,31 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .near "method has an early bare return inside a branch arm"
         total := total + 1
         closed := true
+    | .emitEvent eventIndex args =>
+        if isView then
+          throw <| .planInvariant .near "view method emits an event"
+        unless eventIndex < eventCount do
+          throw <| .planInvariant .near "method emits an unknown event"
+        unless args.size == eventFieldCounts[eventIndex]! do
+          throw <| .planInvariant .near "method event argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .near "method event arguments must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params total arg
+          methodTemps ← addMethodExprTemps limits layout params methodTemps arg
+        total := total + 1
+    | .revertError errorIndex args =>
+        unless errorIndex < errorCount do
+          throw <| .planInvariant .near "method reverts with an unknown error"
+        unless args.size == errorFieldCounts[errorIndex]! do
+          throw <| .planInvariant .near "method error argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .near "method error arguments must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params total arg
+          methodTemps ← addMethodExprTemps limits layout params methodTemps arg
+        total := total + 1
+        closed := true
     | .assert condition =>
         total ← addPlanExprNodes limits layout params total condition
         methodTemps ← addMethodExprTemps limits layout params methodTemps condition
@@ -1148,9 +1259,13 @@ private partial def checkMethodStatementsV1
         methodTemps ← addMethodExprTemps limits layout params methodTemps condition
         total := total + 1
         let (t1, m1, c1) ← checkMethodStatementsV1
-          limits layout isInitializer isView false params thenBody total methodTemps
+          limits layout isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts
+          params thenBody total methodTemps
         let (t2, m2, c2) ← checkMethodStatementsV1
-          limits layout isInitializer isView false params elseBody t1 m1
+          limits layout isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts
+          params elseBody t1 m1
         total := t2
         methodTemps := m2
         closed := c1 && c2 && !elseBody.isEmpty
@@ -1162,18 +1277,23 @@ private partial def checkMethodStatementsV1
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, m, c) ← checkMethodStatementsV1
-            limits layout isInitializer isView false params caseBody total methodTemps
+            limits layout isInitializer isView false
+            eventCount eventFieldCounts errorCount errorFieldCounts
+            params caseBody total methodTemps
           total := t
           methodTemps := m
           allClosed := allClosed && c
         let (td, md, cd) ← checkMethodStatementsV1
-          limits layout isInitializer isView false params defaultBody total methodTemps
+          limits layout isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts
+          params defaultBody total methodTemps
         total := td
         methodTemps := md
         closed := allClosed && cd
   pure (total, methodTemps, closed)
 
 private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (isInitializer : Bool) (baseNodes : Nat) (method : Method) : CompileResult Nat := do
   unless isIdentifier method.name && method.name != "memory" do
     throw <| .planInvariant .near s!"method '{method.name}' is not a safe export name"
@@ -1195,8 +1315,9 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
   let (total, _, closed) ← checkMethodStatementsV1
-    limits layout isInitializer (method.mode == .view) isInitializer method.params
-    method.body baseNodes 0
+    limits layout isInitializer (method.mode == .view) isInitializer
+    events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
+    method.params method.body baseNodes 0
   unless closed do
     throw <| .planInvariant .near
       s!"method '{method.name}' does not terminate on all paths"
@@ -1231,20 +1352,36 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if total > plan.resourceLimits.maxPlanNodes then
     throw <| .planInvariant .near
       s!"plan exceeds aggregate node limit {plan.resourceLimits.maxPlanNodes}"
-  total ← validateMethod plan.resourceLimits plan.storage true total plan.initializer
+  total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors
+    true total plan.initializer
   for method in plan.entries do
-    total ← validateMethod plan.resourceLimits plan.storage false total method
+    total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors
+      false total method
   let methods := #[plan.initializer] ++ plan.entries
   if hasDuplicates (methods.map (·.name)) then
     throw <| .planInvariant .near "NEAR export names must be unique"
 
+/-- Validate one declared event/error binding: safe name and public UInt64
+    fields (the NEAR pilot logs UInt64 args as hex words). -/
+private def makeInterfaceBindingV1 (label : String) (name : String)
+    (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
+    CompileResult InterfaceBinding := do
+  unless isIdentifier name do
+    throw <| .planInvariant .near
+      s!"unsupported NEAR semantic shape: {label} name '{name}' is not a safe identifier"
+  for field in fields do
+    unless field.typeId == uint64TypeId && field.visibility == .public_ do
+      throw <| .planInvariant .near
+        s!"unsupported NEAR semantic shape: {label} '{name}' fields must be public UInt64"
+  pure { name, fieldCount := fields.size }
+
 /-- NEAR-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
+
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
-      !source.invariants.isEmpty then
+  if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+      "unsupported NEAR semantic shape: constants/invariants are outside the current UInt64 pilot"
   if source.callables.size > maxEntries + 1 then
     throw <| .planInvariant .near s!"callable count exceeds NEAR profile limit {maxEntries + 1}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
@@ -1252,6 +1389,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNearTypeClosureV1 source.types
   let storage ← makeStorageLayoutV1 types.uint64TypeId source.logicalState
+  let events ← source.events.mapM (fun d =>
+    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
+  let errors ← source.errors.mapM (fun d =>
+    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   let mut initializer : Option Method := none
@@ -1285,6 +1426,8 @@ private def makePlanFromSemanticDataV1
     resourceLimits := canonicalResourceLimits
     programName
     storage
+    events
+    errors
     initializer := resolvedInitializer
     entries
   }
@@ -1397,21 +1540,25 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone => true
+      | .returnValue _ | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ => false
+      | .store _ | .assert _ | .emitEvent .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
-    ends in the initializer's bare-return marker (which lowers to `return`). -/
+    ends in a halting statement (the initializer's bare-return marker, or a
+    declared revert, which panics by itself). -/
 private def armOpsWithHardReturn (arm : Array Statement)
     (operations : Array Operation) : Array Operation :=
-  if statementListClosesV1 arm.toList && arm.back? != some .returnNone then
+  let alreadyHalts := match arm.back? with
+    | some .returnNone | some (.revertError ..) => true
+    | _ => false
+  if statementListClosesV1 arm.toList && !alreadyHalts then
     operations.push .returnNone
   else
     operations
@@ -1437,6 +1584,22 @@ private partial def lowerBodyOps
         -- Valid only inside region arms (validated); the initializer's own
         -- final marker is stripped by lowerMethod before lowering.
         operations := operations.push .returnNone
+    | .emitEvent eventIndex args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr keys next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.emitEvent eventIndex argTemps)
+    | .revertError errorIndex args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr keys next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.revertError errorIndex argTemps)
     | .assert condition =>
         let value := lowerExpr keys next condition
         operations := operations ++ value.operations
@@ -1564,6 +1727,10 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"value_return\" (func $pf_value_return (param i64 i64)))\n"
   | .attachedDeposit =>
       "  (import \"env\" \"attached_deposit\" (func $pf_attached_deposit (param i64)))\n"
+  | .logUtf8 =>
+      "  (import \"env\" \"log_utf8\" (func $pf_log_utf8 (param i64 i64)))\n"
+  | .panicUtf8 =>
+      "  (import \"env\" \"panic_utf8\" (func $pf_panic_utf8 (param i64 i64)))\n"
 
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     (indent : String) (destination : Nat) (field : KeyRegion) : String :=
@@ -1572,7 +1739,55 @@ private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
     s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.valueOffset})))\n"
 
+/-- Offset of the transient interface-message scratch region (right after the
+    8-byte value-return cell; bounded well inside the first memory page). -/
+private def messageOffset (memory : MemoryLayout) : Nat :=
+  memory.valueOffset + 8
+
+/-- Render a u64 temp as 16 lowercase-hex chars (MSB first) at consecutive
+    scratch offsets. `c = d + 48 + 39·(d > 9)` per nibble. -/
+private def renderHexArg (indent : String) (offset : Nat) (arg : Nat) : String := Id.run do
+  let mut output := ""
+  for nibble in [0:16] do
+    let shift := 60 - 4 * nibble
+    let digit :=
+      s!"(i64.and (i64.shr_u (local.get $t{arg}) (i64.const {shift})) (i64.const 15))"
+    output := output ++
+      s!"{indent}(i32.store8 (i32.const {offset + nibble}) (i32.add (i32.add (i32.const 48) (i32.wrap_i64 {digit})) (i32.mul (i32.const 39) (i64.gt_u {digit} (i64.const 9)))))\n"
+  return output
+
+/-- Render the canonical interface message `pf-{tag}:{name}:{hex,...}` into the
+    scratch region and the host call consuming it. -/
+private def renderInterfaceMessage (registers : RegisterLayout) (memory : MemoryLayout)
+    (indent : String) (tag : String) (hostCall : String)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (isEvent : Bool) (declIndex : Nat) (args : Array Nat) : String := Id.run do
+  let _ := registers
+  let binding := (if isEvent then events else errors)[declIndex]!
+  let prefixBytes := s!"pf-{tag}:{binding.name}".toUTF8
+  let offset := messageOffset memory
+  let mut output := ""
+  for i in [0:prefixBytes.size] do
+    output := output ++
+      s!"{indent}(i32.store8 (i32.const {offset + i}) (i32.const {prefixBytes[i]!.toNat}))\n"
+  let mut cursor := offset + prefixBytes.size
+  if !args.isEmpty then
+    output := output ++
+      s!"{indent}(i32.store8 (i32.const {cursor}) (i32.const 58))\n"
+    cursor := cursor + 1
+    for j in [0:args.size] do
+      if j > 0 then
+        output := output ++
+          s!"{indent}(i32.store8 (i32.const {cursor}) (i32.const 44))\n"
+        cursor := cursor + 1
+      output := output ++ renderHexArg indent cursor args[j]!
+      cursor := cursor + 16
+  output := output ++
+    s!"{indent}(call ${hostCall} (i64.const {cursor - offset}) (i64.const {offset}))\n"
+  return output
+
 private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (indent : String) : Operation → String
   | .checkInputLen bytes =>
       s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
@@ -1619,6 +1834,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
   | .returnNone =>
       s!"{indent}(return)\n"
+  | .emitEvent eventIndex args =>
+      renderInterfaceMessage registers memory indent "event" "pf_log_utf8"
+        events errors true eventIndex args
+  | .revertError errorIndex args =>
+      renderInterfaceMessage registers memory indent "error" "pf_panic_utf8"
+        events errors false errorIndex args
   | .storeState field value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
@@ -1631,9 +1852,9 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+        output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
       let elseText := elseOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+        output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
       s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenText ++
         s!"{indent}  )\n" ++
         (if elseOps.isEmpty then "" else
@@ -1645,11 +1866,11 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         match remaining.toList with
         | [] =>
             let defaultText := defaultOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+              output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
             s!"{indent}(then\n" ++ defaultText ++ s!"{indent})\n"
         | (caseValue, caseOps) :: rest =>
             let caseText := caseOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+              output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
             s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
               s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
               s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
@@ -1657,10 +1878,10 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       match cases.toList with
       | [] =>
           defaultOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory indent operation) ""
+            output ++ renderOperation registers memory events errors indent operation) ""
       | (caseValue, caseOps) :: rest =>
           let caseText := caseOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+            output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
           s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
             s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
             s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
@@ -1670,7 +1891,8 @@ private def renderMethod (ir : IR) (method : MethodIR) : String :=
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
     s!" (local $t{index} i64)"
   let operations := String.intercalate "" <| method.operations.toList.map
-    (renderOperation ir.registers ir.memory "    ")
+    (renderOperation ir.registers ir.memory
+      ir.sourcePlan.events ir.sourcePlan.errors "    ")
   s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
 
 private def renderWat (ir : IR) : String :=
