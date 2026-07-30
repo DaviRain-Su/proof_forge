@@ -15,10 +15,16 @@
   Supported S1/S2 surface (everything else fails closed at this boundary):
     * declarations: public primitive state (UInt64 only), init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
-      return (implicit return none)
+      return (implicit return none); bare `assert` with a Bool condition
+      (assert-else still fails closed)
     * expressions: bare place (param or state name), UInt64 integer literal,
-      and checked binary add/sub; integer width is supplied by the enclosing typed context
-    * types: anonymous UInt64 + Unit (init result); one TypeId per distinct shape
+      Bool literal, checked binary add/sub on UInt64, and the six UInt64
+      comparisons (==/!=/</<=/>/>=) producing Bool; integer width is supplied
+      by the enclosing typed context, comparison operands are always UInt64
+    * types: anonymous UInt64 + Unit (init result) + Bool (comparison results,
+      Bool literals); one TypeId per distinct shape, interned on first actual
+      use in source traversal order. State/parameter/entry/view-result
+      positions stay UInt64-only; Bool results remain unsupported
     * callables: single-block CFG (entryBlock=0, block id=0), empty loopBounds,
       invariantSteps=none; empty constants/events/errors/invariants
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
@@ -39,7 +45,8 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * broadening beyond the single-block public UInt64 add/sub envelope
+    * broadening beyond the single-block public UInt64 add/sub + comparison +
+      bare-assert envelope
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -160,8 +167,8 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
   match ty with
   | .uint 64 => pure (internShape interner (.uint 64))
   | .unit => pure (internShape interner .unit)
+  | .bool => pure (internShape interner .bool)
   | .uint w => failUnsupported s!"S1 normalizer supports only UInt64, got UInt{w}"
-  | .bool => failUnsupported "S1 normalizer does not support Bool type"
   | .int w => failUnsupported s!"S1 normalizer does not support Int{w}"
   | .principal => failUnsupported "S1 normalizer does not support Principal"
   | .named n => failUnsupported s!"S1 normalizer does not support named type '{raw n}'"
@@ -170,6 +177,36 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
   | .option _ => failUnsupported "S1 normalizer does not support Option"
   | .bytes _ => failUnsupported "S1 normalizer does not support Bytes"
   | .field _ => failUnsupported "S1 normalizer does not support Field"
+
+/-- Require an already-interned TypeId to resolve to anonymous UInt64. State,
+parameter, and entry/view result positions stay UInt64-only in this envelope. -/
+private def requireUInt64TypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      if decl.name.isNone && (match decl.shape with | .uint 64 => true | _ => false) then
+        pure ()
+      else
+        failUnsupported s!"S1 {context} requires UInt64 type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
+
+/-- Require an already-interned TypeId to resolve to anonymous UInt64 or Unit.
+    Entry/view results use this gate: Unit results keep flowing to the
+    bare-return gate, while Bool and richer shapes fail here. -/
+private def requireUInt64OrUnitTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      if decl.name.isNone && (match decl.shape with
+          | .uint 64 => true | .unit => true | _ => false) then
+        pure ()
+      else
+        failUnsupported s!"S1 {context} requires UInt64/Unit type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
 /-- Require an already-interned expected TypeId to resolve to anonymous UInt64.
     Literal width is never inferred or defaulted inside the expression: the
@@ -210,11 +247,14 @@ private def stateLookup (table : StateTableV1) (name : String) :
   table.rows.findSome? fun (n, sid, tid) =>
     if n == name then some (sid, tid) else none
 
-/-- Lowering accumulator for one callable body. -/
+/-- Lowering accumulator for one callable body. The interner is live:
+comparison/Bool-literal lowering interns shapes on first actual use so
+existing programs keep byte-identical type tables. -/
 structure BodyStateV1 where
   instructions : Array InstructionV1
   nextValueId : ValueIdV1
   env : LocalEnvV1
+  interner : TypeInternerV1
 
 private def lowerPlace
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
@@ -234,16 +274,15 @@ private def lowerPlace
                 result := some { valueId := vid, typeId := tid }
                 op := .stateLoad sid
               }
-              pure (vid, tid, {
+              pure (vid, tid, { st with
                 instructions := st.instructions.push instr
                 nextValueId := vid + 1
-                env := st.env
               })
   | .field _ _ => failUnsupported "S1 normalizer does not support field places"
   | .index _ _ => failUnsupported "S1 normalizer does not support index places"
 
 private partial def lowerExpr
-    (expr : SrcExpr) (expectedTid : TypeIdV1) (types : Array TypeDeclV1)
+    (expr : SrcExpr) (expectedTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
   match expr with
@@ -252,39 +291,67 @@ private partial def lowerExpr
       unless tid == expectedTid do
         return ← failUnsupported "S1 place type does not match enclosing expected type"
       pure (vid, tid, st1)
-  | .binary op lhs rhs =>
-      let semanticOp? : Option BinaryOpV1 :=
-        if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add then
-          some BinaryOpV1.add
-        else if op == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then
-          some BinaryOpV1.sub
-        else
-          none
-      match semanticOp? with
-      | some semanticOp => do
-          requireExpectedUInt64 types expectedTid "binary checked arithmetic"
-          -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
-          let (lVid, lTid, st1) ← lowerExpr lhs expectedTid types st states
-          let (rVid, rTid, st2) ← lowerExpr rhs expectedTid types st1 states
-          unless lTid == expectedTid && rTid == expectedTid do
-            return ← failUnsupported
-              "S1 binary checked arithmetic requires expected UInt64 operands"
-          let vid := st2.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := expectedTid }
-            op := .binary semanticOp lVid rVid
-          }
-          pure (vid, expectedTid, {
-            instructions := st2.instructions.push instr
-            nextValueId := vid + 1
-            env := st2.env
-          })
-      | none =>
-          failUnsupported "S1 normalizer supports only binary add/sub"
+  | .binary op lhs rhs => do
+      let srcOp := op
+      let isAdd := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add
+      let isSub := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub
+      let cmpOp? : Option BinaryOpV1 :=
+        if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq then some BinaryOpV1.eq
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne then some BinaryOpV1.ne
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt then some BinaryOpV1.lt
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.le then some BinaryOpV1.le
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt then some BinaryOpV1.gt
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge then some BinaryOpV1.ge
+        else none
+      if isAdd || isSub then do
+        let semanticOp := if isAdd then BinaryOpV1.add else BinaryOpV1.sub
+        requireExpectedUInt64 st.interner.types expectedTid "binary checked arithmetic"
+        -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
+        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states
+        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states
+        unless lTid == expectedTid && rTid == expectedTid do
+          return ← failUnsupported
+            "S1 binary checked arithmetic requires expected UInt64 operands"
+        let vid := st2.nextValueId
+        let instr : InstructionV1 := {
+          result := some { valueId := vid, typeId := expectedTid }
+          op := .binary semanticOp lVid rVid
+        }
+        pure (vid, expectedTid, { st2 with
+          instructions := st2.instructions.push instr
+          nextValueId := vid + 1
+        })
+      else
+        match cmpOp? with
+        | some semanticOp => do
+            -- Comparison operands are UInt64; the result is Bool. Both shapes
+            -- intern on first actual use, in source traversal order.
+            let (i1, u64Tid) := internShape st.interner (.uint 64)
+            let (i2, boolTid) := internShape i1 .bool
+            let st0 := { st with interner := i2 }
+            let (lVid, lTid, st1) ← lowerExpr lhs u64Tid st0 states
+            unless lTid == u64Tid do
+              return ← failUnsupported
+                "S1 comparison requires UInt64 operands"
+            let (rVid, rTid, st2) ← lowerExpr rhs u64Tid st1 states
+            unless rTid == u64Tid do
+              return ← failUnsupported
+                "S1 comparison requires UInt64 operands"
+            let vid := st2.nextValueId
+            let instr : InstructionV1 := {
+              result := some { valueId := vid, typeId := boolTid }
+              op := .binary semanticOp lVid rVid
+            }
+            pure (vid, boolTid, { st2 with
+              instructions := st2.instructions.push instr
+              nextValueId := vid + 1
+            })
+        | none =>
+            failUnsupported "S1 normalizer supports only binary add/sub/comparisons"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
-          requireExpectedUInt64 types expectedTid "integer literal"
+          requireExpectedUInt64 st.interner.types expectedTid "integer literal"
           -- CheckV1 owns the user-facing width diagnostic. This defensive seam
           -- still rejects direct lowerProgramDataV1 misuse instead of allowing
           -- UInt64.ofNat to truncate modulo 2^64.
@@ -295,22 +362,34 @@ private partial def lowerExpr
             result := some { valueId := vid, typeId := expectedTid }
             op := .literal expectedTid (encodeU64le (UInt64.ofNat magnitude))
           }
-          pure (vid, expectedTid, {
+          pure (vid, expectedTid, { st with
             instructions := st.instructions.push instr
             nextValueId := vid + 1
-            env := st.env
           })
-      | .bool _ =>
-          failUnsupported "S1 normalizer supports only UInt64 integer literals"
+      | .bool value => do
+          let (i1, boolTid) := internShape st.interner .bool
+          unless boolTid == expectedTid do
+            return ← failUnsupported
+              "S1 Bool literal requires an enclosing Bool expected type"
+          let st0 := { st with interner := i1 }
+          let vid := st0.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := boolTid }
+            op := .literal boolTid (encodeBool value)
+          }
+          pure (vid, boolTid, { st0 with
+            instructions := st0.instructions.push instr
+            nextValueId := vid + 1
+          })
       | .string _ =>
-          failUnsupported "S1 normalizer supports only UInt64 integer literals"
+          failUnsupported "S1 normalizer supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
   | .unary _ _ => failUnsupported "S1 normalizer does not support unary expressions"
   | .localCall _ _ => failUnsupported "S1 normalizer does not support localCall"
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
 
 private def lowerStmt
-    (stmt : SrcStmt) (resultTid : TypeIdV1) (types : Array TypeDeclV1)
+    (stmt : SrcStmt) (resultTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × Option (Option ValueIdV1)) :=
   match stmt with
@@ -331,7 +410,7 @@ private def lowerStmt
                   failUnsupported s!"S1 assign target '{key}' must be a state place"
               | some (sid, expectedTid) =>
                   let (vid, tid, st1) ←
-                    lowerExpr value expectedTid types st states
+                    lowerExpr value expectedTid st states
                   unless tid == expectedTid do
                     return ← failUnsupported
                       s!"S1 assign type mismatch for state '{key}'"
@@ -339,10 +418,8 @@ private def lowerStmt
                     result := none
                     op := .stateStore sid vid
                   }
-                  pure ({
+                  pure ({ st1 with
                     instructions := st1.instructions.push instr
-                    nextValueId := st1.nextValueId
-                    env := st1.env
                   }, none)
       | .field _ _ => failUnsupported "S1 assign does not support field targets"
       | .index _ _ => failUnsupported "S1 assign does not support index targets"
@@ -353,15 +430,31 @@ private def lowerStmt
   | .return_ none =>
       failUnsupported "S1 normalizer does not support bare return"
   | .return_ (some e) => do
-      let (vid, tid, st1) ← lowerExpr e resultTid types st states
+      let (vid, tid, st1) ← lowerExpr e resultTid st states
       unless tid == resultTid do
         return ← failUnsupported "S1 return expression type mismatch"
       pure (st1, some (some vid))
+  | .assert_ condition errorRef => do
+      match errorRef with
+      | some _ =>
+          failUnsupported "S1 normalizer does not support assert-else"
+      | none => do
+          let (i1, boolTid) := internShape st.interner .bool
+          let st0 := { st with interner := i1 }
+          let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states
+          unless condTid == boolTid do
+            return ← failUnsupported "S1 assert condition must be Bool"
+          let instr : InstructionV1 := {
+            result := none
+            op := .assert_ condVid none #[]
+          }
+          pure ({ st1 with
+            instructions := st1.instructions.push instr
+          }, none)
   | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
   | .if_ _ _ _ => failUnsupported "S1 normalizer does not support if"
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match statements"
   | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
-  | .assert_ _ _ => failUnsupported "S1 normalizer does not support assert"
   | .revert _ _ => failUnsupported "S1 normalizer does not support revert"
   | .emit _ _ => failUnsupported "S1 normalizer does not support emit"
   | .call _ => failUnsupported "S1 normalizer does not support call"
@@ -369,9 +462,9 @@ private def lowerStmt
 
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
-    (types : Array TypeDeclV1) (states : StateTableV1)
+    (interner : TypeInternerV1) (states : StateTableV1)
     (allowImplicitReturnNone : Bool) :
-    Except NormalizeErrorV1 (Array InstructionV1 × TerminatorV1) := do
+    Except NormalizeErrorV1 (Array InstructionV1 × TerminatorV1 × TypeInternerV1) := do
   let mut env := emptyEnv
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
@@ -379,6 +472,7 @@ private def lowerBlock
     instructions := #[]
     nextValueId := UInt32.ofNat params.size
     env := env
+    interner := interner
   }
   let mut term : Option (Option ValueIdV1) := none
   for stmt in body.statements do
@@ -387,14 +481,14 @@ private def lowerBlock
         return ← failUnsupported
           "S1 normalizer does not support statements after return"
     | none =>
-        let (st', t?) ← lowerStmt stmt resultTid types st states
+        let (st', t?) ← lowerStmt stmt resultTid st states
         st := st'
         term := t?
   match term with
-  | some v => pure (st.instructions, TerminatorV1.return_ v)
+  | some v => pure (st.instructions, TerminatorV1.return_ v, st.interner)
   | none =>
       if allowImplicitReturnNone then
-        pure (st.instructions, TerminatorV1.return_ none)
+        pure (st.instructions, TerminatorV1.return_ none, st.interner)
       else
         failUnsupported "S1 normalizer requires explicit return for entry/view"
 
@@ -407,6 +501,7 @@ private def lowerParams
   for p in ps do
     let (interner', tid) ← internSourceType interner p.type_
     interner := interner'
+    requireUInt64TypeId interner.types tid s!"parameter '{raw p.name}'"
     out := out.push {
       valueId := UInt32.ofNat i
       name := raw p.name
@@ -462,6 +557,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
             s!"S1 normalizer supports only public state, got non-public '{raw s.name}'"
         let (interner', tid) ← internSourceType interner s.type_
         interner := interner'
+        requireUInt64TypeId interner.types tid s!"state '{raw s.name}'"
         let sid := UInt32.ofNat stateRows.size
         stateRows := stateRows.push {
           id := sid
@@ -485,8 +581,9 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (instrs, term) ←
-          lowerBlock d.body params unitTid interner.types stateTable true
+        let (instrs, term, interner''') ←
+          lowerBlock d.body params unitTid interner stateTable true
+        interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
           { typeId := unitTid, visibility := VisibilityV1.public_ } instrs term)
@@ -496,8 +593,10 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
-        let (instrs, term) ←
-          lowerBlock e.body params resultTid interner.types stateTable false
+        requireUInt64OrUnitTypeId interner.types resultTid s!"entry '{raw e.name}' result"
+        let (instrs, term, interner''') ←
+          lowerBlock e.body params resultTid interner stateTable false
+        interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)
@@ -507,8 +606,10 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
-        let (instrs, term) ←
-          lowerBlock v.body params resultTid interner.types stateTable false
+        requireUInt64OrUnitTypeId interner.types resultTid s!"view '{raw v.name}' result"
+        let (instrs, term, interner''') ←
+          lowerBlock v.body params resultTid interner stateTable false
+        interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } instrs term)

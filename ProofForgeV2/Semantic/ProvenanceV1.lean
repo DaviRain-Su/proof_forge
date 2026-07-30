@@ -434,8 +434,16 @@ private partial def attrExpr
       let placePath := directChild exprPath "Expr.Place" "place"
       attrPlace callableId p placePath st states idx
   | .binary op lhs rhs =>
-      if op == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
-          op == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then do
+      let srcOp := op
+      let isSupported := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.le ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge
+      if isSupported then do
         let lhsPath := directChild exprPath "Expr.Binary" "lhs"
         let rhsPath := directChild exprPath "Expr.Binary" "rhs"
         let (lVid, st1) ← attrExpr callableId lhs lhsPath st states idx
@@ -455,7 +463,7 @@ private partial def attrExpr
           acc := acc2
         })
       else
-        failUnsupported "S2 provenance supports only binary add/sub"
+        failUnsupported "S2 provenance supports only binary add/sub/comparisons"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
@@ -474,8 +482,22 @@ private partial def attrExpr
             env := st.env
             acc := acc2
           })
-      | .bool _ | .string _ =>
-          failUnsupported "S2 provenance supports only UInt64 integer literals"
+      | .bool _ => do
+          let vid := st.nextValueId
+          let instrEntity :=
+            SemanticEntityRefV1.instruction callableId 0 (UInt32.ofNat st.nextInstr)
+          let valEntity := SemanticEntityRefV1.value callableId vid
+          -- Bool Op.Literal and its result bind the literal expression itself.
+          let acc1 ← attrPushPath st.acc idx instrEntity exprPath
+          let acc2 ← attrPushPath acc1 idx valEntity exprPath
+          pure (vid, {
+            nextValueId := vid + 1
+            nextInstr := st.nextInstr + 1
+            env := st.env
+            acc := acc2
+          })
+      | .string _ =>
+          failUnsupported "S2 provenance supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S2 provenance does not support constructors"
   | .unary _ _ => failUnsupported "S2 provenance does not support unary"
   | .localCall _ _ => failUnsupported "S2 provenance does not support localCall"
@@ -529,7 +551,24 @@ private def attrStmt
   | .if_ _ _ _ => failUnsupported "S2 provenance does not support if"
   | .match_ _ _ => failUnsupported "S2 provenance does not support match stmt"
   | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
-  | .assert_ _ _ => failUnsupported "S2 provenance does not support assert"
+  | .assert_ condition errorRef => do
+      match errorRef with
+      | some _ =>
+          failUnsupported "S2 provenance does not support assert-else"
+      | none => do
+          let condPath := directChild stmtPath "Stmt.Assert" "condition"
+          let (_vid, st1) ← attrExpr callableId condition condPath st states idx
+          let instrEntity :=
+            SemanticEntityRefV1.instruction callableId 0
+              (UInt32.ofNat st1.nextInstr)
+          -- Void Op.Assert binds the assert statement node (no value entity).
+          let acc1 ← attrPushPath st1.acc idx instrEntity stmtPath
+          pure ({
+            nextValueId := st1.nextValueId
+            nextInstr := st1.nextInstr + 1
+            env := st1.env
+            acc := acc1
+          }, none)
   | .revert _ _ => failUnsupported "S2 provenance does not support revert"
   | .emit _ _ => failUnsupported "S2 provenance does not support emit"
   | .call _ => failUnsupported "S2 provenance does not support call"
@@ -901,6 +940,40 @@ private def attributeCounterEntitiesV1
     itemIdx := itemIdx + 1
   unless callableId == data.callables.size do
     return ← failUnsupported "S2 provenance: callable count mismatch"
+
+  -- Implicitly body-interned types (Bool from comparisons/Bool literals) have
+  -- no annotation node: bind each unbound type to the first producing
+  -- instruction's recorded origin, in canonical callable/instruction order.
+  -- Annotation-bound types (UInt64/Unit) are already marked, so this is a
+  -- no-op for comparison-free programs and never moves their attribution.
+  for c in data.callables do
+    let some blk := c.blocks[0]? |
+      return ← failUnsupported "S2 provenance: callable missing block 0"
+    let mut ii : Nat := 0
+    for instr in blk.instructions do
+      match instr.result with
+      | none => pure ()
+      | some r =>
+          let ti := r.typeId.toNat
+          if ti < typeBound.size && !typeBound[ti]! then
+            let entity := SemanticEntityRefV1.instruction c.id 0 (UInt32.ofNat ii)
+            let kb ← match encodeSemanticEntityRefV1 entity with
+              | .ok b => pure b
+              | .error e => return ← .error (.wire e)
+            match acc.table.get? kb with
+            | some (_, origins) =>
+                match origins[0]? with
+                | some o =>
+                    acc ← attrPush acc (.typeRef r.typeId) o
+                    typeBound := typeBound.set! ti true
+                | none =>
+                    return ← failUnsupported
+                      s!"S2 provenance: type TypeId {ti} has no producing source node"
+            | none =>
+                return ← failUnsupported
+                  s!"S2 provenance: instruction for TypeId {ti} has no recorded origin"
+          else pure ()
+      ii := ii + 1
 
   -- Ensure every type got a binding (fail closed if interned type unused).
   for i in [:data.types.size] do

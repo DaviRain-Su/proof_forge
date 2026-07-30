@@ -1496,6 +1496,258 @@ private unsafe def testUInt64Subtraction
   expect (subCarrier.canonicalBytes != addCarrier.canonicalBytes && subHash != addHash)
     "sub: BinaryOpV1.sub must not alias add bytes/hash"
 
+private unsafe def testAssertComparison
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "Guarded" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    assert count >= delta\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "assert-cmp" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "assert-cmp: CheckV1.ok"
+  expect typed.analysisComplete "assert-cmp: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"assert-cmp: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"assert-cmp: validate: {repr e}"
+  -- Interner order: state UInt64 (0), init Unit (1), entry comparison Bool (2).
+  expect (data.types.size == 3)
+    s!"assert-cmp: expected UInt64+Unit+Bool closure, got {data.types.size} types"
+  let some boolType := data.types[2]? |
+    throw <| IO.userError "assert-cmp: missing interned Bool type"
+  expect (boolType.name.isNone &&
+      (match boolType.shape with | TypeShapeV1.bool => true | _ => false))
+    "assert-cmp: type[2] must be anonymous Bool"
+  let reqIds := data.requirements.items.map (·.id)
+  expect (reqIds == #["failure.atomic-rollback", "state.persistent",
+      "value.checked-arithmetic"])
+    s!"assert-cmp: assert must reuse existing rollback requirement, got {reqIds}"
+  let some entryC := data.callables[1]? |
+    throw <| IO.userError "assert-cmp: missing decrement callable"
+  let some block := entryC.blocks[0]? |
+    throw <| IO.userError "assert-cmp: missing decrement block"
+  expect (block.instructions.size == 7)
+    s!"assert-cmp: expected load/ge/assert/load/sub/store/load, got {block.instructions.size}"
+  let some cmpInstr := block.instructions[1]? |
+    throw <| IO.userError "assert-cmp: missing comparison instruction"
+  let some cmpResult := cmpInstr.result |
+    throw <| IO.userError "assert-cmp: comparison result missing"
+  match cmpInstr.op with
+  | .binary .ge lhs rhs =>
+      expect (cmpResult.valueId == 2 && cmpResult.typeId == 2 && lhs == 1 && rhs == 0)
+        s!"assert-cmp: expected vid2=ge(load1,param0) Bool, got {cmpResult.valueId}/{lhs}/{rhs}"
+  | _ => throw <| IO.userError "assert-cmp: expected exact BinaryOpV1.ge"
+  let some assertInstr := block.instructions[2]? |
+    throw <| IO.userError "assert-cmp: missing assert instruction"
+  expect assertInstr.result.isNone "assert-cmp: assert must be void"
+  match assertInstr.op with
+  | SemanticOpV1.assert_ cond errorId args =>
+      expect (cond == 2 && errorId.isNone && args.isEmpty)
+        s!"assert-cmp: expected assert(vid2,none,[]), got {cond}/{errorId.isSome}/{args.size}"
+  | _ => throw <| IO.userError "assert-cmp: expected Op.Assert"
+  let some subInstr := block.instructions[4]? |
+    throw <| IO.userError "assert-cmp: missing sub instruction"
+  match subInstr.op with
+  | .binary .sub lhs rhs =>
+      expect (lhs == 3 && rhs == 0)
+        s!"assert-cmp: sub must consume fresh load vid3 after assert, got {lhs}/{rhs}"
+  | _ => throw <| IO.userError "assert-cmp: expected BinaryOpV1.sub after assert"
+  match block.terminator with
+  | TerminatorV1.return_ (some returned) =>
+      expect (returned == 5) s!"assert-cmp: expected return vid5, got {returned}"
+  | _ => throw <| IO.userError "assert-cmp: expected return after store"
+  let carrier2 ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"assert-cmp-repeat: normalize: {repr e}"
+  expect (carrier.canonicalBytes == carrier2.canonicalBytes)
+    "assert-cmp: repeated normalization bytes deterministic"
+  -- The same program without the assert must not alias bytes/hash.
+  let plainSource := wrap "Guarded" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+    "    count := count - delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let plainValidated ← loadSource session "assert-cmp-nonalias" plainSource
+  let plainCarrier ← match normalizeProgramV1 plainValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"assert-cmp-nonalias: normalize: {repr e}"
+  expect (carrier.canonicalBytes != plainCarrier.canonicalBytes)
+    "assert-cmp: assert program must not alias assert-free bytes"
+  -- Provenance authority accepts the assert/comparison program.
+  let (withSpans, spans) ← loadSourceWithSpans session "assert-cmp-prov" source
+  let path ← parseTestPath "assert-cmp-prov"
+  match ← (pure (normalizeProgramWithProvenanceV1 withSpans path spans)
+      : IO (Except NormalizeErrorV1 _)) with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"assert-cmp-prov: provenance authority: {repr e}"
+
+private unsafe def testAllComparisonOps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "Compares" <|
+    "  entry check(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    assert a == b\n" ++
+    "    assert a != b\n" ++
+    "    assert a < b\n" ++
+    "    assert a <= b\n" ++
+    "    assert a > b\n" ++
+    "    assert a >= b\n" ++
+    "    return a\n"
+  let validated ← loadSource session "cmp-ops" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "cmp-ops: CheckV1.ok"
+  expect typed.analysisComplete "cmp-ops: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"cmp-ops: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"cmp-ops: validate: {repr e}"
+  -- No state/init: types are UInt64 (0) then Bool (1); rollback is the only requirement.
+  expect (data.types.size == 2)
+    s!"cmp-ops: expected UInt64+Bool closure, got {data.types.size}"
+  let reqIds := data.requirements.items.map (·.id)
+  expect (reqIds == #["failure.atomic-rollback"])
+    s!"cmp-ops: comparisons add no requirement beyond assert rollback, got {reqIds}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "cmp-ops: missing check callable"
+  let some block := entryC.blocks[0]? |
+    throw <| IO.userError "cmp-ops: missing check block"
+  expect (block.instructions.size == 12)
+    s!"cmp-ops: expected 6 comparisons + 6 asserts, got {block.instructions.size}"
+  let opOf : Nat → ProofForgeV2.Semantic.WireV1.BinaryOpV1
+    | 0 => .eq | 1 => .ne | 2 => .lt | 3 => .le | 4 => .gt | _ => .ge
+  for i in [:6] do
+    let some cmpInstr := block.instructions[i * 2]? |
+      throw <| IO.userError s!"cmp-ops: missing comparison {i}"
+    let some cmpResult := cmpInstr.result |
+      throw <| IO.userError s!"cmp-ops: comparison {i} result missing"
+    match cmpInstr.op with
+    | .binary op lhs rhs =>
+        expect (op == opOf i && cmpResult.valueId == UInt32.ofNat (i + 2) &&
+            cmpResult.typeId == 1 && lhs == 0 && rhs == 1)
+          s!"cmp-ops: comparison {i} expected {repr (opOf i)} on params, got {repr op}"
+    | _ => throw <| IO.userError s!"cmp-ops: comparison {i} expected binary"
+    let some assertInstr := block.instructions[i * 2 + 1]? |
+      throw <| IO.userError s!"cmp-ops: missing assert {i}"
+    expect assertInstr.result.isNone s!"cmp-ops: assert {i} must be void"
+    match assertInstr.op with
+    | SemanticOpV1.assert_ cond errorId args =>
+        expect (cond == UInt32.ofNat (i + 2) && errorId.isNone && args.isEmpty)
+          s!"cmp-ops: assert {i} must bind comparison vid{i + 2}"
+    | _ => throw <| IO.userError s!"cmp-ops: assert {i} expected Op.Assert"
+  match block.terminator with
+  | TerminatorV1.return_ (some returned) =>
+      expect (returned == 0) s!"cmp-ops: expected return param vid0, got {returned}"
+  | _ => throw <| IO.userError "cmp-ops: expected return after asserts"
+
+private unsafe def testAssertBoolLiteral
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolLit" <|
+    "  entry check(x : UInt64) : UInt64 do\n" ++
+    "    assert true\n" ++
+    "    return x\n"
+  let validated ← loadSource session "bool-lit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "bool-lit: CheckV1.ok"
+  expect typed.analysisComplete "bool-lit: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bool-lit: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bool-lit: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "bool-lit: missing check callable"
+  let some block := entryC.blocks[0]? |
+    throw <| IO.userError "bool-lit: missing check block"
+  expect (block.instructions.size == 2)
+    s!"bool-lit: expected literal + assert, got {block.instructions.size}"
+  let some litInstr := block.instructions[0]? |
+    throw <| IO.userError "bool-lit: missing literal instruction"
+  let some litResult := litInstr.result |
+    throw <| IO.userError "bool-lit: literal result missing"
+  match litInstr.op with
+  | .literal typeId bytes =>
+      expect (litResult.valueId == 1 && litResult.typeId == 1 &&
+          typeId == 1 && bytes == ByteArray.mk #[1])
+        s!"bool-lit: expected literal Bool(1) true, got tid{typeId}/{bytes.toList}"
+  | _ => throw <| IO.userError "bool-lit: expected Op.Literal"
+  let some assertInstr := block.instructions[1]? |
+    throw <| IO.userError "bool-lit: missing assert instruction"
+  match assertInstr.op with
+  | SemanticOpV1.assert_ cond errorId args =>
+      expect (cond == 1 && errorId.isNone && args.isEmpty)
+        s!"bool-lit: expected assert(vid1), got {cond}"
+  | _ => throw <| IO.userError "bool-lit: expected Op.Assert"
+
+private unsafe def testUnsupportedBoolState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolState" <|
+    "  state flag : Bool\n" ++
+    "  entry ping(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  expectUnsupportedAfterCheckOk session "bool-state" source
+    (fun d => d.contains "UInt64" || d.contains "state")
+    "UInt64 state"
+
+private unsafe def testUnsupportedBoolParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolParam" <|
+    "  state count : UInt64\n" ++
+    "  entry ping(flag : Bool) : UInt64 do\n" ++
+    "    return count\n"
+  expectUnsupportedAfterCheckOk session "bool-param" source
+    (fun d => d.contains "UInt64" || d.contains "param")
+    "UInt64 param"
+
+private unsafe def testUnsupportedBoolResult
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BoolResult" <|
+    "  state count : UInt64\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n"
+  expectUnsupportedAfterCheckOk session "bool-result" source
+    (fun d => d.contains "UInt64" || d.contains "result")
+    "UInt64 result"
+
+private unsafe def testUnsupportedAssertElse
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Entry precedes the error declaration so the assert-else gate (not the
+  -- item-level error gate) produces the unsupported detail.
+  let source := wrap "AssertElse" <|
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    assert x > 0 else bad\n" ++
+    "    return x\n" ++
+    "  error bad()\n"
+  expectUnsupportedAfterCheckOk session "assert-else" source
+    (fun d => d.contains "assert" || d.contains "else")
+    "assert-else"
+
+private unsafe def testUnsupportedNestedComparison
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- `(a == b) == true` is CheckV1-ok (eq on Bool operands is serializable),
+  -- but the S1 normalizer lowers comparisons on UInt64 operands only.
+  let source := wrap "NestedCmp" <|
+    "  entry f(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    assert (a == b) == true\n" ++
+    "    return a\n"
+  expectUnsupportedAfterCheckOk session "nested-cmp" source
+    (fun d => d.contains "UInt64" || d.contains "comparison")
+    "UInt64 comparison operands"
+
 private unsafe def testUnsupportedIf
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "IfOnly" <|
@@ -2582,11 +2834,19 @@ unsafe def run : IO Unit := do
   testTypedNotOk session
   testUInt64Literals session
   testUInt64Subtraction session
+  testAssertComparison session
+  testAllComparisonOps session
+  testAssertBoolLiteral session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testUnsupportedIf session
   testUnsupportedFn session
   testUnsupportedPrivateState session
+  testUnsupportedBoolState session
+  testUnsupportedBoolParam session
+  testUnsupportedBoolResult session
+  testUnsupportedAssertElse session
+  testUnsupportedNestedComparison session
   testUnsupportedParamShadowsStateAssign session
   testCounterRequirementsAndProvenance session
   testMultiSiteProvenanceAttribution session
