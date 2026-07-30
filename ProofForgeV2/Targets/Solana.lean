@@ -43,6 +43,13 @@ inductive HandlerMode where
   | view
   deriving BEq, Inhabited, Repr
 
+/-- Entry/view return ABI kind. Init handlers ignore this field (IDL `null`).
+    Bool is a single-byte 0/1 return-data payload; UInt64 remains 8-byte LE. -/
+inductive ResultKind where
+  | u64
+  | bool
+  deriving BEq, Inhabited, Repr
+
 structure StateField where
   sourceId : Nat
   name : String
@@ -111,6 +118,7 @@ structure Handler where
   discriminator : String
   params : Array Param
   mode : HandlerMode
+  resultKind : ResultKind
   accountAccess : AccountAccess
   body : Array Statement
   deriving BEq, Inhabited, Repr
@@ -149,6 +157,7 @@ inductive Operation where
   | storeState (accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (value : Nat)
+  | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
   deriving BEq, Inhabited, Repr
@@ -158,6 +167,7 @@ structure HandlerIR where
   discriminator : String
   params : Array Param
   mode : HandlerMode
+  resultKind : ResultKind
   accountAccess : AccountAccess
   checks : Array Check
   operations : Array Operation
@@ -523,6 +533,7 @@ private structure LoweredCallableV1 where
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
+    (expectsBoolReturn : Bool)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
@@ -643,9 +654,12 @@ private def lowerCallableV1
   | .mutate, .return_ (some valueId)
   | .view, .return_ (some valueId) =>
       let returned ← currentValueV1 values paramCount segmentStart valueId
-      unless !returned.isBool do
+      unless returned.isBool == expectsBoolReturn do
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: return value must be UInt64"
+          (if expectsBoolReturn then
+            "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
+           else
+            "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
@@ -675,12 +689,13 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize types account callable
+  let lowered ← lowerCallableV1 "initializer" .initialize false types account callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
     params := lowered.params
     mode := .initialize
+    resultKind := .u64
     accountAccess := accessFor account .initialize
     body := lowered.body
   }
@@ -696,9 +711,16 @@ private def makeEntryV1
         "unsupported Solana semantic shape: named entry is missing its name")
   unless isIdentifier name do
     throw <| .planInvariant .solana s!"entry name '{name}' is not a safe identifier"
-  unless callable.result.typeId == types.uint64TypeId &&
-      callable.result.visibility == .public_ do
-    throw <| .planInvariant .solana s!"entry '{name}' does not return public UInt64"
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .solana s!"entry '{name}' result is not public"
+  let resultKind : ResultKind ←
+    if callable.result.typeId == types.uint64TypeId then
+      pure .u64
+    else if types.boolTypeId == some callable.result.typeId then
+      pure .bool
+    else
+      throw <| .planInvariant .solana
+        s!"entry '{name}' does not return public UInt64 or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -708,12 +730,15 @@ private def makeEntryV1
     | .mutate => .mutate
     | .view => .view
     | .initialize => .initialize
-  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode types account callable
+  let expectsBoolReturn := resultKind == .bool
+  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
+    types account callable
   let handler : Handler := {
     name
     discriminator := ""
     params := lowered.params
     mode
+    resultKind
     accountAccess := accessFor account mode
     body := lowered.body
   }
@@ -838,7 +863,7 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
     if returned then
       throw <| .planInvariant .solana "initializer cannot return a value"
   else unless returned do
-    throw <| .planInvariant .solana s!"handler '{handler.name}' does not return UInt64"
+    throw <| .planInvariant .solana s!"handler '{handler.name}' does not return a value"
   return total
 
 /-- Validate the public target-owned Plan before typed IR lowering. -/
@@ -1014,7 +1039,10 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
     | .returnValue value =>
         let value := lowerExpr plan.arithmeticOverflowError next value
         operations := operations ++ value.operations
-        operations := operations.push (.setReturnData value.value)
+        let returnOp : Operation := match handler.resultKind with
+          | .u64 => .setReturnData value.value
+          | .bool => .setReturnDataBool value.value
+        operations := operations.push returnOp
         next := value.next
     | .assert condition =>
         let value := lowerExpr plan.arithmeticOverflowError next condition
@@ -1029,6 +1057,7 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
     discriminator := handler.discriminator
     params := handler.params
     mode := handler.mode
+    resultKind := handler.resultKind
     accountAccess := handler.accountAccess
     checks := checksFor plan.instructionDiscriminatorBytes account handler
     operations
@@ -1054,6 +1083,7 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
     discriminator := handler.discriminator
     params := handler.params
     mode := handler.mode
+    resultKind := handler.resultKind
     accountAccess := handler.accountAccess
     body := #[.returnValue (.literal 0)]
   }
@@ -1107,14 +1137,18 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
           throw <| .planInvariant .solana "typed Solana IR header write is invalid"
         initialized := true
     | .setReturnData value =>
-        unless handler.mode != .initialize && value < next do
-          throw <| .planInvariant .solana "typed Solana IR return value is invalid"
+        unless handler.mode != .initialize && handler.resultKind == .u64 && value < next do
+          throw <| .planInvariant .solana "typed Solana IR UInt64 return value is invalid"
+        returned := true
+    | .setReturnDataBool value =>
+        unless handler.mode != .initialize && handler.resultKind == .bool && value < next do
+          throw <| .planInvariant .solana "typed Solana IR Bool return value is invalid"
         returned := true
   if handler.mode == .initialize then
     unless initialized do
       throw <| .planInvariant .solana "initializer IR does not set the initialized marker"
   else unless returned do
-    throw <| .planInvariant .solana "entry IR does not set UInt64 return data"
+    throw <| .planInvariant .solana "entry IR does not set return data"
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
@@ -1210,6 +1244,7 @@ private def renderOperation : Operation → String
   | .setHeader accountIndex byteOffset value =>
       s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
   | .setReturnData value => s!"  set_return_data_u64_le %{value}\n"
+  | .setReturnDataBool value => s!"  set_return_data_bool %{value}\n"
   | .compare destination lhs rhs op =>
       s!"  %{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .assert condition errorCode =>
@@ -1250,7 +1285,11 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
   let access := handler.accountAccess
   let signer := if access.signerRequired then "true" else "false"
   let writable := if access.writableRequired then "true" else "false"
-  let returns := if handler.mode == .initialize then "null" else "\"u64-le\""
+  let returns :=
+    if handler.mode == .initialize then "null"
+    else match handler.resultKind with
+      | .u64 => "\"u64-le\""
+      | .bool => "\"bool\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson handler.name}\"," ++
     s!"\"discriminator\":\"{handler.discriminator}\"," ++

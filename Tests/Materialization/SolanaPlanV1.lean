@@ -304,7 +304,9 @@ private unsafe def testAssertInAllModes
   let ir ← liftResult <| irSolana compiled
   liftResult <| validateIR ir
 
-/-- Product-path envelopes that put Bool in state/param/result fail closed. -/
+/-- Product-path envelopes that put Bool in state/param still fail closed.
+    Bool entry/view results are now accepted (see testBoolResultPositive /
+    testBoolPredicateEndToEnd). -/
 private unsafe def testBoolEnvelopeRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let boolState := wrapProgram "BoolState" <|
@@ -319,12 +321,6 @@ private unsafe def testBoolEnvelopeRejected
     "    return count\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let boolResult := wrapProgram "BoolResult" <|
-    "  state count : UInt64\n\n" ++
-    "  init(i : UInt64) do\n" ++
-    "    count := i\n\n" ++
-    "  view positive() : Bool do\n" ++
-    "    return count > 0\n"
   for item in #[
       ("bool-state", boolState, "Examples.BoolState"),
       ("bool-param", boolParam, "Examples.BoolParam")] do
@@ -332,15 +328,159 @@ private unsafe def testBoolEnvelopeRejected
     let validated ← liftResult (← session.selectProgramV1
       source s!"<solana-{label}>" moduleName none)
     expectCompileFailure label (Compiler.compileValidatedSourceV1 validated)
-  -- Bool results pass Normalize; the Solana plan seam must still fail closed
-  -- until the target grows Bool result support.
-  let validated ← liftResult (← session.selectProgramV1
-    boolResult "<solana-bool-result>" "Examples.BoolResult" none)
-  match ← pure (Compiler.compileValidatedSourceV1 validated) with
-  | .error _ =>
-      throw <| IO.userError "bool-result: expected Normalize acceptance"
-  | .ok compiled =>
-      expectPlanError "bool-result" (planSolana compiled)
+  -- Type-mismatched returns fail closed at typed/normalize (not Solana Plan).
+  let boolReturnsU64 := wrapProgram "BoolReturnsU64" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count\n\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    return count\n"
+  let u64ReturnsBool := wrapProgram "U64ReturnsBool" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count > 0\n\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    return count\n"
+  for item in #[
+      ("bool-handler-returns-u64", boolReturnsU64, "Examples.BoolReturnsU64"),
+      ("u64-handler-returns-bool", u64ReturnsBool, "Examples.U64ReturnsBool")] do
+    let (label, source, moduleName) := item
+    let validated ← liftResult (← session.selectProgramV1
+      source s!"<solana-{label}>" moduleName none)
+    expectCompileFailure label (Compiler.compileValidatedSourceV1 validated)
+
+/-- Wave-A Bool result negative flipped to positive: view returning Bool plans. -/
+private unsafe def testBoolResultPositive
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let boolResult := wrapProgram "BoolResult" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n"
+  let compiled ← compileSource session boolResult
+    "Examples.BoolResult" "<solana-bool-result>"
+  let plan ← liftResult <| planSolana compiled
+  let positive ← findHandler plan "positive"
+  expect (positive.mode == .view && positive.resultKind == .bool)
+    "positive view must carry Bool result kind"
+  expect (positive.body == #[
+      .returnValue (.compare .gt (.stateLoad 0 8) (.literal 0))])
+    "positive Plan body must return gt(load, 0)"
+  let ir ← liftResult <| irSolana compiled
+  let positiveIR ← findHandlerIR ir "positive"
+  expect (positiveIR.resultKind == .bool && positiveIR.operations == #[
+      .loadState 0 0 8,
+      .literal 1 0,
+      .compare 2 0 1 .gt,
+      .setReturnDataBool 2])
+    "positive IR must lower compare then set_return_data_bool"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "BoolResult.sbpf-plan"
+  expect (planText.contains "set_return_data_bool %2")
+    "sbpf-plan must render set_return_data_bool for Bool views"
+  expect (planText.contains "cmp_gt_u64")
+    "sbpf-plan must render cmp_gt_u64 for the comparison"
+  expect (!planText.contains "set_return_data_u64_le %2")
+    "Bool return must not reuse the UInt64 return-data renderer"
+  let idl ← findFile files "BoolResult.idl.json"
+  expect (idl.contains "\"name\":\"positive\"" && idl.contains "\"returns\":\"bool\"")
+    "IDL must describe positive()→bool"
+  expect (!idl.contains "\"returns\":\"u64-le\"")
+    "BoolResult has no UInt64 entry/view return (init is null)"
+  liftResult <| validateIR ir
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "BoolResult IR rebuild must be structure-identical"
+
+/-- BoolPredicate: state + init + UInt64 entry + Bool view + Bool entry. -/
+private unsafe def testBoolPredicateEndToEnd
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "BoolPredicate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n\n" ++
+    "  entry equalsCount(delta : UInt64) : Bool do\n" ++
+    "    return count == delta\n"
+  let compiled ← compileSource session source
+    "Examples.BoolPredicate" "<solana-bool-predicate>"
+  let plan ← liftResult <| planSolana compiled
+  let capability ← liftResult <| solanaCapability compiled
+  let planCap ← liftResult <| planFromCapability capability
+  expect (plan == planCap) "planFromCapability must match planSolana helper"
+  let bump ← findHandler plan "bump"
+  expect (bump.mode == .mutate && bump.resultKind == .u64)
+    "bump must remain a UInt64 mutate entry"
+  let positive ← findHandler plan "positive"
+  expect (positive.mode == .view && positive.resultKind == .bool &&
+      positive.body == #[
+        .returnValue (.compare .gt (.stateLoad 0 8) (.literal 0))])
+    "positive must be Bool view returning gt(load,0)"
+  let equalsCount ← findHandler plan "equalsCount"
+  expect (equalsCount.mode == .mutate && equalsCount.resultKind == .bool &&
+      equalsCount.params.size == 1 && equalsCount.params[0]!.name == "delta" &&
+      equalsCount.body == #[
+        .returnValue (.compare .eq (.stateLoad 0 8) (.param 8))])
+    "equalsCount must be Bool entry returning eq(load,param)"
+  let ir ← liftResult <| irFromCapability capability
+  let positiveIR ← findHandlerIR ir "positive"
+  expect (positiveIR.operations == #[
+      .loadState 0 0 8,
+      .literal 1 0,
+      .compare 2 0 1 .gt,
+      .setReturnDataBool 2])
+    "positive IR ops: load/literal/compare/setReturnDataBool"
+  let equalsIR ← findHandlerIR ir "equalsCount"
+  expect (equalsIR.operations == #[
+      .loadState 0 0 8,
+      .loadParam 1 8,
+      .compare 2 0 1 .eq,
+      .setReturnDataBool 2])
+    "equalsCount IR ops: load/param/compare/setReturnDataBool"
+  let bumpIR ← findHandlerIR ir "bump"
+  expect (bumpIR.resultKind == .u64) "bump IR result kind must be u64"
+  let mut sawU64Return := false
+  for op in bumpIR.operations do
+    match op with
+    | .setReturnData _ => sawU64Return := true
+    | .setReturnDataBool _ =>
+        throw <| IO.userError "bump must not emit setReturnDataBool"
+    | _ => pure ()
+  expect sawU64Return "bump must emit setReturnData (u64-le)"
+  let files ← liftResult <| buildFromCapability capability
+  let planText ← findFile files "BoolPredicate.sbpf-plan"
+  expect (planText.contains "set_return_data_bool %2")
+    "sbpf-plan must contain set_return_data_bool"
+  expect (planText.contains "cmp_gt_u64" && planText.contains "cmp_eq_u64")
+    "sbpf-plan must render both comparison ops"
+  expect (planText.contains "set_return_data_u64_le")
+    "UInt64 bump return must retain set_return_data_u64_le"
+  let idl ← findFile files "BoolPredicate.idl.json"
+  expect (idl.contains "\"name\":\"positive\"" && idl.contains "\"returns\":\"bool\"")
+    "IDL positive returns bool"
+  expect (idl.contains "\"name\":\"equalsCount\"" && idl.contains "\"name\":\"delta\"")
+    "IDL equalsCount(delta) surface"
+  expect (idl.contains "\"name\":\"bump\"" && idl.contains "\"returns\":\"u64-le\"")
+    "IDL bump returns u64-le"
+  -- Pin exact returns tokens: two bool + one u64-le (init null excluded from count).
+  let boolReturns := (idl.splitOn "\"returns\":\"bool\"").length - 1
+  let u64Returns := (idl.splitOn "\"returns\":\"u64-le\"").length - 1
+  expect (boolReturns == 2 && u64Returns == 1)
+    s!"IDL return kinds: expected 2 bool + 1 u64-le, got {boolReturns} bool / {u64Returns} u64"
+  let files2 ← liftResult <| buildFromCapability capability
+  let planText2 ← findFile files2 "BoolPredicate.sbpf-plan"
+  let idl2 ← findFile files2 "BoolPredicate.idl.json"
+  expect (planText == planText2 && idl == idl2)
+    "BoolPredicate artifacts must rebuild byte-identically"
+  liftResult <| validateIR ir
 
 /-- `assert … else Ident` is outside the envelope (errorId/args non-empty path). -/
 private unsafe def testAssertElseRejected
@@ -416,6 +556,8 @@ unsafe def run : IO Unit := do
   testAllComparisonOps session
   testAssertInAllModes session
   testBoolEnvelopeRejected session
+  testBoolResultPositive session
+  testBoolPredicateEndToEnd session
   testAssertElseRejected session
   testValidatePlanNegatives session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
