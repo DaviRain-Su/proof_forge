@@ -115,6 +115,7 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -153,6 +154,15 @@ structure Method where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
+/-- Pure function binding: public UInt64 params, UInt64-or-Bool result, and a
+    pure statement body (no state/event effects). Indexed by Plan.fns. -/
+structure FnBinding where
+  name : String
+  params : Array Param
+  resultIsBool : Bool
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
 /-- One declared event/error binding: its name and UInt64 argument count. -/
 structure InterfaceBinding where
   name : String
@@ -176,6 +186,7 @@ structure Plan where
   storage : StorageLayout
   events : Array InterfaceBinding
   errors : Array InterfaceBinding
+  fns : Array FnBinding
   initializer : Method
   entries : Array Method
   -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
@@ -223,12 +234,24 @@ inductive Operation where
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
+  | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
+  | returnValue (value : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
   name : String
   params : Array Param
   mode : MethodMode
+  tempCount : Nat
+  operations : Array Operation
+  deriving BEq, Inhabited, Repr
+
+/-- Pure-function recipe: params occupy temps `0..paramCount-1`; body ops use
+    `returnValue` (Wasm `return`) rather than host `value_return`. -/
+structure FnIR where
+  name : String
+  paramCount : Nat
+  resultIsBool : Bool
   tempCount : Nat
   operations : Array Operation
   deriving BEq, Inhabited, Repr
@@ -246,6 +269,7 @@ structure IR where
   keys : Array KeyRegion
   memory : MemoryLayout
   methods : Array MethodIR
+  fns : Array FnIR
   -- No Inhabited: IR embeds Plan → TargetDescriptor identities.
   deriving BEq, Repr
 
@@ -661,7 +685,22 @@ private inductive SemanticCallableModeV1 where
   | initialize
   | mutate
   | view
+  | pureFn
   deriving BEq
+
+/-- PureFn signature environment used while lowering: `byCallable[callableId]`
+    is `some fnIndex` for pureFn callables; `sigs` is indexed by fnIndex. -/
+private structure NearFnSigV1 where
+  paramCount : Nat
+  resultKind : NearValueKindV1
+  deriving BEq, Inhabited
+
+private structure NearFnEnvV1 where
+  byCallable : Array (Option Nat)
+  sigs : Array NearFnSigV1
+  deriving Inhabited
+
+private def emptyNearFnEnvV1 : NearFnEnvV1 := { byCallable := #[], sigs := #[] }
 
 private structure LoweredCallableV1 where
   params : Array Param
@@ -672,6 +711,31 @@ private structure LoweredBlockV1 where
   values : Array LoweredValueV1
   segmentStart : Nat
 
+private def makeCallFnValueV1
+    (fnIndex : Nat)
+    (resultKind : NearValueKindV1)
+    (argIds : Array ValueIdV1)
+    (args : Array LoweredValueV1) : CompileResult LoweredValueV1 := do
+  let mut depth : Nat := 1
+  let mut expanded : Nat := 1
+  for arg in args do
+    unless arg.kind == .uint64 do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: pureCall arguments must be UInt64"
+    depth := max depth (1 + arg.depth)
+    if expanded > maxPlanNodes - arg.expandedNodes then
+      throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+    expanded := expanded + arg.expandedNodes
+  if depth > maxExprDepth then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
+  pure {
+    expr := .callFn fnIndex (args.map (·.expr))
+    kind := resultKind
+    depth
+    expandedNodes := expanded
+    dependencies := argIds
+  }
+
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; values from dominating
     blocks stay referenceable only via params or match-arm scrutinees. -/
@@ -680,6 +744,7 @@ private def lowerBlockInstructionsV1
     (mode : SemanticCallableModeV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
@@ -724,6 +789,9 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
     | .stateLoad stateId, some result =>
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot load state"
         let field ← findFieldV1 layout stateId
         values := ← appendResultValueV1 types.uint64TypeId values result {
           expr := .stateLoad field.sourceId
@@ -757,10 +825,49 @@ private def lowerBlockInstructionsV1
           | none =>
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: only checked UInt64 add/sub and comparisons are supported"
+    | .pureCall callableId argIds, some result =>
+        let fnIndex ← match fnEnv.byCallable[callableId.toNat]? with
+          | some (some idx) => pure idx
+          | _ =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pureCall target is not a declared pureFn"
+        let sig ← match fnEnv.sigs[fnIndex]? with
+          | some s => pure s
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: pureCall fnIndex is out of range"
+        unless argIds.size == sig.paramCount do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureCall arity does not match the callee"
+        let expectedTypeId ← match sig.resultKind with
+          | .uint64 => pure types.uint64TypeId
+          | .bool =>
+              match types.boolTypeId with
+              | some tid => pure tid
+              | none =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: Bool type is missing for pureCall result"
+        unless result.typeId == expectedTypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureCall result type does not match the callee"
+        let mut argValues : Array LoweredValueV1 := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pureCall arguments must be UInt64"
+          argValues := argValues.push root
+        -- Pure expression (not an effect boundary): stay inside the segment;
+        -- dependencies on the arg roots let later sinks consume the tree.
+        let value ← makeCallFnValueV1 fnIndex sig.resultKind argIds argValues
+        values := ← appendResultValueV1 expectedTypeId values result value
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: view callable writes state"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot store state"
         let field ← findFieldV1 layout stateId
         let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless root.kind == .uint64 do
@@ -784,6 +891,9 @@ private def lowerBlockInstructionsV1
         if mode == .view then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: view callable emits an event"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot emit events"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -820,6 +930,7 @@ private partial def emitRegionV1
     (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
     (blocks : Array BlockV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
@@ -838,7 +949,7 @@ private partial def emitRegionV1
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: block ids are not dense"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types layout paramCount armReadables block values0
+    owner mode types layout fnEnv paramCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
@@ -847,12 +958,12 @@ private partial def emitRegionV1
       match mode with
       | .initialize =>
           throw <| .planInvariant .near "initializer cannot return a value"
-      | .mutate | .view =>
+      | .mutate | .view | .pureFn =>
           let expectedKind ← match expectedReturn with
             | some kind => pure kind
             | none =>
                 throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: entry/view is missing expected return kind"
+                  "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
           unless root.kind == expectedKind do
             let expectedLabel :=
@@ -886,18 +997,18 @@ private partial def emitRegionV1
           "unsupported NEAR semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
       let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
           armReadables (fuel - 1) thenT.blockId.toNat values
       match thenNext with
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, next) ←
-              emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
                 armReadables (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
           else
             let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
                 armReadables (fuel - 1) elseT.blockId.toNat values1
             match elseNext with
             | some j2 =>
@@ -905,17 +1016,17 @@ private partial def emitRegionV1
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
             | none =>
                 let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
                     armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
       | none =>
           let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
               armReadables (fuel - 1) elseT.blockId.toNat values1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
   | .switch scrutId cases defaultTarget =>
@@ -931,7 +1042,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
         let (body, values1, armNext) ←
-          emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+          emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
             (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -944,7 +1055,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
           (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
@@ -959,7 +1070,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
       | some j =>
           let (rest, values3, next) ←
-            emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
   | .revert errorId argIds =>
@@ -982,6 +1093,7 @@ private def lowerCallableV1
     (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
@@ -993,7 +1105,7 @@ private def lowerCallableV1
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
   let (body0, values0, nextJoin0) ←
-    emitRegionV1 owner mode expectedReturn types layout callable.blocks paramCount #[]
+    emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks paramCount #[]
       callable.blocks.size 0 initialValues
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -1006,7 +1118,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, next1) ←
-          emitRegionV1 owner mode expectedReturn types layout callable.blocks
+          emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks
             paramCount #[] callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -1023,6 +1135,7 @@ private def lowerCallableV1
 private def makeInitializerV1
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult Method := do
   unless callable.name.isNone && callable.result.visibility == .public_ do
     throw <| .planInvariant .near
@@ -1034,7 +1147,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize none types layout callable
+  let lowered ← lowerCallableV1 "initializer" .initialize none types layout fnEnv callable
   pure {
     name := "init"
     params := lowered.params
@@ -1048,6 +1161,7 @@ private def makeInitializerV1
 private def makeEntryV1
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult Method := do
   let name ← match callable.name with
     | some value => pure value
@@ -1074,8 +1188,9 @@ private def makeEntryV1
     | .mutate => .mutate
     | .view => .view
     | .initialize => .initialize
+    | .pureFn => .mutate
   let lowered ←
-    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types layout callable
+    lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types layout fnEnv callable
   pure {
     name
     params := lowered.params
@@ -1086,8 +1201,47 @@ private def makeEntryV1
     body := lowered.body
   }
 
+private def makePureFnV1
+    (types : NearTypeClosureV1)
+    (layout : StorageLayout)
+    (fnEnv : NearFnEnvV1)
+    (callable : CallableV1) : CompileResult FnBinding := do
+  let name ← match callable.name with
+    | some value => pure value
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: pureFn is missing its name")
+  unless isIdentifier name do
+    throw <| .planInvariant .near s!"pureFn name '{name}' is not a safe identifier"
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .near s!"pureFn '{name}' does not return a public result"
+  let (resultIsBool, expectedReturn) ←
+    if callable.result.typeId == types.uint64TypeId then
+      pure (false, NearValueKindV1.uint64)
+    else if types.boolTypeId == some callable.result.typeId then
+      pure (true, NearValueKindV1.bool)
+    else
+      throw <| .planInvariant .near
+        s!"pureFn '{name}' does not return public UInt64 or Bool"
+  let lowered ←
+    lowerCallableV1 s!"pureFn '{name}'" .pureFn (some expectedReturn) types layout fnEnv callable
+  pure {
+    name
+    params := lowered.params
+    resultIsBool
+    body := lowered.body
+  }
+
+/-- UInt64-compatible plan expression (comparison / Bool callFn results are not). -/
+private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
+  | .compare .. => false
+  | .callFn fnIndex _ =>
+      match fns[fnIndex]? with
+      | some fn => !fn.resultIsBool
+      | none => false
+  | _ => true
+
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
-    (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
+    (fns : Array FnBinding) (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
@@ -1098,54 +1252,71 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .checkedAdd lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params fns childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .checkedSub lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params fns childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params fns childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-
-/-- UInt64-compatible plan expression (comparison results are Bool). -/
-private def exprIsUInt64CompatibleV1 : Expr → Bool
-  | .compare .. => false
-  | _ => true
+    | .callFn fnIndex args => Id.run do
+        match fns[fnIndex]? with
+        | none => pure none
+        | some fn =>
+            if args.size != fn.params.size then pure none
+            else
+              let childDepth := depthLeft - 1
+              let mut available := nodeBudget - 1
+              let mut totalNodes : Nat := 1
+              let mut ok := true
+              for arg in args do
+                unless exprIsUInt64CompatibleV1 fns arg do
+                  ok := false
+                match planExprNodes? layout params fns childDepth available arg with
+                | none => ok := false
+                | some n =>
+                    totalNodes := totalNodes + n
+                    available := available - n
+              pure (if ok then some totalNodes else none)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
-
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr) :
+    CompileResult Nat := do
   if total >= limits.maxPlanNodes then
     throw <| .planInvariant .near
       s!"plan exceeds aggregate node limit {limits.maxPlanNodes}"
-  match planExprNodes? layout params limits.maxExprDepth (limits.maxPlanNodes - total) expr with
+  match planExprNodes? layout params fns limits.maxExprDepth
+      (limits.maxPlanNodes - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
         s!"plan expression has a dangling reference or exceeds depth {limits.maxExprDepth}/node limit {limits.maxPlanNodes}"
 
 private def addMethodExprTemps (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr) :
+    CompileResult Nat := do
   if total >= limits.maxMethodLocals then
     throw <| .planInvariant .near
       s!"method expression exceeds local limit {limits.maxMethodLocals}"
-  match planExprNodes? layout params limits.maxExprDepth (limits.maxMethodLocals - total) expr with
+  match planExprNodes? layout params fns limits.maxExprDepth
+      (limits.maxMethodLocals - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
@@ -1186,19 +1357,20 @@ private def validateParams (limits : ResourceLimits) (owner : String)
   if hasDuplicates (params.map (·.name)) then
     throw <| .planInvariant .near s!"parameter names in {owner} must be unique"
 
-/-- Recursive statement-tree validator for one method: view-write ban
-    (including inside branches), node/temp accounting, and per-level return
-    ordering. Returns (total, methodTemps, closed). A bare-return marker is
-    accepted only at the top level of the initializer body
-    (`allowReturnNone`); early bare returns inside branch arms fail closed
+/-- Recursive statement-tree validator for one method or pureFn: view-write ban
+    (including inside branches), pureFn state/event ban, node/temp accounting,
+    and per-level return ordering. Returns (total, methodTemps, closed). A
+    bare-return marker is accepted only at the top level of the initializer
+    body (`allowReturnNone`); early bare returns inside branch arms fail closed
     (the initializer's layout-marking epilogue must run on every path). -/
 private partial def checkMethodStatementsV1
     (limits : ResourceLimits) (layout : StorageLayout)
-    (isInitializer : Bool) (isView : Bool)
+    (isInitializer : Bool) (isView : Bool) (isPureFn : Bool)
     (allowReturnNone : Bool)
     (eventCount : Nat) (eventFieldCounts : Array Nat)
     (errorCount : Nat) (errorFieldCounts : Array Nat)
-    (params : Array Param) (statements : Array Statement)
+    (params : Array Param) (fns : Array FnBinding)
+    (statements : Array Statement)
     (total : Nat) (methodTemps : Nat) :
     CompileResult (Nat × Nat × Bool) := do
   let mut total := total
@@ -1211,15 +1383,17 @@ private partial def checkMethodStatementsV1
     | .store store =>
         if isView then
           throw <| .planInvariant .near s!"view method writes state"
+        if isPureFn then
+          throw <| .planInvariant .near s!"pureFn body writes state"
         unless store.fieldIndex < layout.fields.size do
           throw <| .planInvariant .near s!"method stores to an unknown KV field"
-        total ← addPlanExprNodes limits layout params total store.value
-        methodTemps ← addMethodExprTemps limits layout params methodTemps store.value
+        total ← addPlanExprNodes limits layout params fns total store.value
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .near "initializer cannot return a value"
-        total ← addPlanExprNodes limits layout params total value
-        methodTemps ← addMethodExprTemps limits layout params methodTemps value
+        total ← addPlanExprNodes limits layout params fns total value
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps value
         closed := true
     | .returnNone =>
         unless allowReturnNone do
@@ -1229,15 +1403,17 @@ private partial def checkMethodStatementsV1
     | .emitEvent eventIndex args =>
         if isView then
           throw <| .planInvariant .near "view method emits an event"
+        if isPureFn then
+          throw <| .planInvariant .near s!"pureFn body emits an event"
         unless eventIndex < eventCount do
           throw <| .planInvariant .near "method emits an unknown event"
         unless args.size == eventFieldCounts[eventIndex]! do
           throw <| .planInvariant .near "method event argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .near "method event arguments must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params total arg
-          methodTemps ← addMethodExprTemps limits layout params methodTemps arg
+          total ← addPlanExprNodes limits layout params fns total arg
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
@@ -1245,48 +1421,48 @@ private partial def checkMethodStatementsV1
         unless args.size == errorFieldCounts[errorIndex]! do
           throw <| .planInvariant .near "method error argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .near "method error arguments must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params total arg
-          methodTemps ← addMethodExprTemps limits layout params methodTemps arg
+          total ← addPlanExprNodes limits layout params fns total arg
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
         closed := true
     | .assert condition =>
-        total ← addPlanExprNodes limits layout params total condition
-        methodTemps ← addMethodExprTemps limits layout params methodTemps condition
+        total ← addPlanExprNodes limits layout params fns total condition
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
     | .ifThenElse condition thenBody elseBody =>
-        total ← addPlanExprNodes limits layout params total condition
-        methodTemps ← addMethodExprTemps limits layout params methodTemps condition
+        total ← addPlanExprNodes limits layout params fns total condition
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
         total := total + 1
         let (t1, m1, c1) ← checkMethodStatementsV1
-          limits layout isInitializer isView false
+          limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params thenBody total methodTemps
+          params fns thenBody total methodTemps
         let (t2, m2, c2) ← checkMethodStatementsV1
-          limits layout isInitializer isView false
+          limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params elseBody t1 m1
+          params fns elseBody t1 m1
         total := t2
         methodTemps := m2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
-        total ← addPlanExprNodes limits layout params total scrutinee
-        methodTemps ← addMethodExprTemps limits layout params methodTemps scrutinee
+        total ← addPlanExprNodes limits layout params fns total scrutinee
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, m, c) ← checkMethodStatementsV1
-            limits layout isInitializer isView false
+            limits layout isInitializer isView isPureFn false
             eventCount eventFieldCounts errorCount errorFieldCounts
-            params caseBody total methodTemps
+            params fns caseBody total methodTemps
           total := t
           methodTemps := m
           allClosed := allClosed && c
         let (td, md, cd) ← checkMethodStatementsV1
-          limits layout isInitializer isView false
+          limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params defaultBody total methodTemps
+          params fns defaultBody total methodTemps
         total := td
         methodTemps := md
         closed := allClosed && cd
@@ -1294,6 +1470,7 @@ private partial def checkMethodStatementsV1
 
 private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (fns : Array FnBinding)
     (isInitializer : Bool) (baseNodes : Nat) (method : Method) : CompileResult Nat := do
   unless isIdentifier method.name && method.name != "memory" do
     throw <| .planInvariant .near s!"method '{method.name}' is not a safe export name"
@@ -1315,12 +1492,29 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
   let (total, _, closed) ← checkMethodStatementsV1
-    limits layout isInitializer (method.mode == .view) isInitializer
+    limits layout isInitializer (method.mode == .view) false isInitializer
     events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
-    method.params method.body baseNodes 0
+    method.params fns method.body baseNodes 0
   unless closed do
     throw <| .planInvariant .near
       s!"method '{method.name}' does not terminate on all paths"
+  return total
+
+private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (fns : Array FnBinding) (baseNodes : Nat) (fn : FnBinding) : CompileResult Nat := do
+  unless isIdentifier fn.name && fn.name != "memory" do
+    throw <| .planInvariant .near s!"pureFn '{fn.name}' is not a safe identifier"
+  validateParams limits s!"pureFn '{fn.name}'" fn.params
+  if fn.body.isEmpty || fn.body.size > limits.maxBodyStatements then
+    throw <| .planInvariant .near s!"pureFn '{fn.name}' has an invalid body size"
+  let (total, _, closed) ← checkMethodStatementsV1
+    limits layout false false true false
+    events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
+    fn.params fns fn.body baseNodes 0
+  unless closed do
+    throw <| .planInvariant .near
+      s!"pureFn '{fn.name}' does not terminate on all paths"
   return total
 
 /-- Validate the public target-owned NEAR Plan before recipe lowering. -/
@@ -1343,23 +1537,35 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   validateStorageLayout plan.resourceLimits plan.storage
   if plan.entries.isEmpty || plan.entries.size > plan.resourceLimits.maxEntries then
     throw <| .planInvariant .near "entry count is outside the profile limits"
-  let handlerCount := 1 + plan.entries.size
+  if plan.fns.size > plan.resourceLimits.maxEntries then
+    throw <| .planInvariant .near "pureFn count is outside the profile limits"
+  let handlerCount := 1 + plan.entries.size + plan.fns.size
   let paramCount := plan.initializer.params.size +
-    plan.entries.foldl (fun total method => total + method.params.size) 0
+    plan.entries.foldl (fun total method => total + method.params.size) 0 +
+    plan.fns.foldl (fun total fn => total + fn.params.size) 0
   let statementCount := plan.initializer.body.size +
-    plan.entries.foldl (fun total method => total + method.body.size) 0
+    plan.entries.foldl (fun total method => total + method.body.size) 0 +
+    plan.fns.foldl (fun total fn => total + fn.body.size) 0
   let mut total := plan.storage.fields.size + handlerCount + paramCount + statementCount
   if total > plan.resourceLimits.maxPlanNodes then
     throw <| .planInvariant .near
       s!"plan exceeds aggregate node limit {plan.resourceLimits.maxPlanNodes}"
-  total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors
+  for fn in plan.fns do
+    total ← validateFnBinding plan.resourceLimits plan.storage plan.events plan.errors
+      plan.fns total fn
+  total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors plan.fns
     true total plan.initializer
   for method in plan.entries do
-    total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors
+    total ← validateMethod plan.resourceLimits plan.storage plan.events plan.errors plan.fns
       false total method
   let methods := #[plan.initializer] ++ plan.entries
   if hasDuplicates (methods.map (·.name)) then
     throw <| .planInvariant .near "NEAR export names must be unique"
+  if hasDuplicates (plan.fns.map (·.name)) then
+    throw <| .planInvariant .near "NEAR pureFn names must be unique"
+  let exportAndFnNames := methods.map (·.name) ++ plan.fns.map (·.name)
+  if hasDuplicates exportAndFnNames then
+    throw <| .planInvariant .near "NEAR export and pureFn names must not collide"
 
 /-- Validate one declared event/error binding: safe name and public UInt64
     fields (the NEAR pilot logs UInt64 args as hex words). -/
@@ -1375,6 +1581,34 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
         s!"unsupported NEAR semantic shape: {label} '{name}' fields must be public UInt64"
   pure { name, fieldCount := fields.size }
 
+/-- Build the pureFn index environment from the unified callable table without
+    lowering bodies (signatures only). -/
+private def buildNearFnEnvV1
+    (types : NearTypeClosureV1)
+    (callables : Array CallableV1) : CompileResult NearFnEnvV1 := do
+  let mut byCallable : Array (Option Nat) := Array.replicate callables.size none
+  let mut sigs : Array NearFnSigV1 := #[]
+  for callable in callables do
+    match callable.kind with
+    | .pureFn =>
+        let resultKind ←
+          if callable.result.typeId == types.uint64TypeId then
+            pure NearValueKindV1.uint64
+          else if types.boolTypeId == some callable.result.typeId then
+            pure NearValueKindV1.bool
+          else
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pureFn result is not UInt64 or Bool"
+        let fnIndex := sigs.size
+        if callable.id.toNat < byCallable.size then
+          byCallable := byCallable.set! callable.id.toNat (some fnIndex)
+        else
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn CallableId is out of range"
+        sigs := sigs.push { paramCount := callable.params.size, resultKind }
+    | _ => pure ()
+  pure { byCallable, sigs }
+
 /-- NEAR-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
 
 private def makePlanFromSemanticDataV1
@@ -1382,8 +1616,11 @@ private def makePlanFromSemanticDataV1
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: constants/invariants are outside the current UInt64 pilot"
-  if source.callables.size > maxEntries + 1 then
-    throw <| .planInvariant .near s!"callable count exceeds NEAR profile limit {maxEntries + 1}"
+  -- init + entries + pureFns share the profile budget (maxEntries each class,
+  -- plus one initializer); total still fails closed above 2·maxEntries + 1.
+  if source.callables.size > maxEntries + maxEntries + 1 then
+    throw <| .planInvariant .near
+      s!"callable count exceeds NEAR profile limit {maxEntries + maxEntries + 1}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
     throw <| .planInvariant .near
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
@@ -1395,21 +1632,27 @@ private def makePlanFromSemanticDataV1
     makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
+  let fnEnv ← buildNearFnEnvV1 types source.callables
   let mut initializer : Option Method := none
   let mut entries : Array Method := #[]
+  let mut fns : Array FnBinding := #[]
   for callable in source.callables do
     match callable.kind with
     | .initializer =>
         if initializer.isSome then
           throw <| .planInvariant .near "semantic program has multiple initializers"
-        initializer := some (← makeInitializerV1 types storage callable)
+        initializer := some (← makeInitializerV1 types storage fnEnv callable)
     | .entry | .view =>
         if entries.size >= maxEntries then
           throw <| .planInvariant .near s!"entry count exceeds profile limit {maxEntries}"
-        entries := entries.push (← makeEntryV1 types storage callable)
-    | .pureFn | .invariant =>
+        entries := entries.push (← makeEntryV1 types storage fnEnv callable)
+    | .pureFn =>
+        if fns.size >= maxEntries then
+          throw <| .planInvariant .near s!"pureFn count exceeds profile limit {maxEntries}"
+        fns := fns.push (← makePureFnV1 types storage fnEnv callable)
+    | .invariant =>
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+          "unsupported NEAR semantic shape: invariants are outside the current UInt64 pilot"
   let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .near "KV-state programs require an initializer"
@@ -1428,6 +1671,7 @@ private def makePlanFromSemanticDataV1
     storage
     events
     errors
+    fns
     initializer := resolvedInitializer
     entries
   }
@@ -1491,11 +1735,17 @@ private structure LoweredExpr where
 private def fieldRegion (keys : Array KeyRegion) (fieldIndex : Nat) : KeyRegion :=
   keys[fieldIndex + 1]!
 
-private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → LoweredExpr
+/-- `paramAsTemp`: pureFn bodies bind params to temps `0..n-1` (Wasm params),
+    so `.param` is a direct temp reference rather than a host input load. -/
+private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
+    (paramAsTemp : Bool) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
   | .param inputOffset =>
-      { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
+      if paramAsTemp then
+        { operations := #[], value := inputOffset / 8, next := next }
+      else
+        { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
   | .stateLoad fieldIndex =>
       {
         operations := #[.loadState next (fieldRegion keys fieldIndex)]
@@ -1503,8 +1753,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := next + 1
       }
   | .checkedAdd lhs rhs =>
-      let lhs := lowerExpr keys next lhs
-      let rhs := lowerExpr keys lhs.next rhs
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
@@ -1512,8 +1762,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := rhs.next + 1
       }
   | .checkedSub lhs rhs =>
-      let lhs := lowerExpr keys next lhs
-      let rhs := lowerExpr keys lhs.next rhs
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value]
@@ -1521,13 +1771,27 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := rhs.next + 1
       }
   | .compare op lhs rhs =>
-      let lhs := lowerExpr keys next lhs
-      let rhs := lowerExpr keys lhs.next rhs
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
         value := rhs.next
         next := rhs.next + 1
+      }
+  | .callFn fnIndex args => Id.run do
+      let mut operations : Array Operation := #[]
+      let mut next := next
+      let mut argTemps : Array Nat := #[]
+      for arg in args do
+        let lowered := lowerExpr keys next paramAsTemp arg
+        operations := operations ++ lowered.operations
+        argTemps := argTemps.push lowered.value
+        next := lowered.next
+      pure {
+        operations := operations.push (.callFn fnIndex next argTemps)
+        value := next
+        next := next + 1
       }
 
 /-- Whether every path through a statement list ends in a return (valued or
@@ -1551,12 +1815,14 @@ private partial def statementListClosesV1 : List Statement → Bool
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
-    ends in a halting statement (the initializer's bare-return marker, or a
-    declared revert, which panics by itself). -/
+    ends in a halting statement (the initializer's bare-return marker, a
+    declared revert, or — in pureFn mode — a valued `return` which is already
+    a Wasm `return`). -/
 private def armOpsWithHardReturn (arm : Array Statement)
-    (operations : Array Operation) : Array Operation :=
+    (operations : Array Operation) (fnMode : Bool) : Array Operation :=
   let alreadyHalts := match arm.back? with
     | some .returnNone | some (.revertError ..) => true
+    | some (.returnValue _) => fnMode
     | _ => false
   if statementListClosesV1 arm.toList && !alreadyHalts then
     operations.push .returnNone
@@ -1564,21 +1830,25 @@ private def armOpsWithHardReturn (arm : Array Statement)
     operations
 
 private partial def lowerBodyOps
-    (keys : Array KeyRegion) (next : Nat) (statements : Array Statement) :
+    (keys : Array KeyRegion) (next : Nat) (statements : Array Statement)
+    (fnMode : Bool) :
     Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
   for statement in statements do
     match statement with
     | .store store =>
-        let value := lowerExpr keys next store.value
+        let value := lowerExpr keys next fnMode store.value
         operations := operations ++ value.operations
         operations := operations.push (.storeState (fieldRegion keys store.fieldIndex) value.value)
         next := value.next
     | .returnValue value =>
-        let value := lowerExpr keys next value
+        let value := lowerExpr keys next fnMode value
         operations := operations ++ value.operations
-        operations := operations.push (.setReturnData value.value)
+        if fnMode then
+          operations := operations.push (.returnValue value.value)
+        else
+          operations := operations.push (.setReturnData value.value)
         next := value.next
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
@@ -1587,7 +1857,7 @@ private partial def lowerBodyOps
     | .emitEvent eventIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next arg
+          let value := lowerExpr keys next fnMode arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
@@ -1595,36 +1865,37 @@ private partial def lowerBodyOps
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next arg
+          let value := lowerExpr keys next fnMode arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
     | .assert condition =>
-        let value := lowerExpr keys next condition
+        let value := lowerExpr keys next fnMode condition
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value)
         next := value.next
     | .ifThenElse condition thenBody elseBody =>
-        let value := lowerExpr keys next condition
+        let value := lowerExpr keys next fnMode condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps keys value.next thenBody
-        let (elseOps, next2) := lowerBodyOps keys next1 elseBody
+        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode
+        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode
         operations := operations.push (.ifRegion value.value
-          (armOpsWithHardReturn thenBody thenOps) (armOpsWithHardReturn elseBody elseOps))
+          (armOpsWithHardReturn thenBody thenOps fnMode)
+          (armOpsWithHardReturn elseBody elseOps fnMode))
         next := next2
     | .switchOn scrutinee cases defaultBody =>
-        let value := lowerExpr keys next scrutinee
+        let value := lowerExpr keys next fnMode scrutinee
         operations := operations ++ value.operations
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps keys nextC caseBody
-          caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops)
+          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode
+          caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops fnMode)
           nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody
+        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode
         operations := operations.push (.switchRegion value.value caseOps
-          (armOpsWithHardReturn defaultBody defaultOps))
+          (armOpsWithHardReturn defaultBody defaultOps fnMode))
         next := nextD
   pure (operations, next)
 
@@ -1646,7 +1917,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps, next) := lowerBodyOps keys 0 body
+  let (bodyOps, next) := lowerBodyOps keys 0 body false
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -1658,8 +1929,45 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     operations
   }
 
+private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
+  let paramCount := fn.params.size
+  -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.
+  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true
+  {
+    name := fn.name
+    paramCount
+    resultIsBool := fn.resultIsBool
+    tempCount := next
+    operations := bodyOps
+  }
+
 private def expectedMethods (plan : Plan) (keys : Array KeyRegion) : Array MethodIR :=
   #[lowerMethod plan keys plan.initializer] ++ plan.entries.map (lowerMethod plan keys)
+
+private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
+  plan.fns.map (lowerFn keys)
+
+/-- PureFn ops may not touch host storage, layout, deposits, or method returns. -/
+private partial def opIsMethodOnlyV1 : Operation → Bool
+  | .checkInputLen _ | .requireZeroAttachedDeposit
+  | .requireLayoutAbsent _ | .requireLayout _ _
+  | .zeroState _ | .loadState _ _ | .storeState _ _
+  | .setLayout _ _ | .setReturnData _ | .loadParam _ _ => true
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
+  | .switchRegion _ cases defaultOps =>
+      defaultOps.any opIsMethodOnlyV1 ||
+        cases.any fun (_, ops) => ops.any opIsMethodOnlyV1
+  | _ => false
+
+private partial def opIsFnReturnValueV1 : Operation → Bool
+  | .returnValue _ => true
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.any opIsFnReturnValueV1 || elseOps.any opIsFnReturnValueV1
+  | .switchRegion _ cases defaultOps =>
+      defaultOps.any opIsFnReturnValueV1 ||
+        cases.any fun (_, ops) => ops.any opIsFnReturnValueV1
+  | _ => false
 
 /-- Validate the typed host-call recipe and bind it exactly to its source Plan. -/
 def validateIR (ir : IR) : CompileResult Unit := do
@@ -1678,12 +1986,27 @@ def validateIR (ir : IR) : CompileResult Unit := do
     throw <| .planInvariant .near "typed NEAR IR memory layout is not canonical or exceeds one page"
   if ir.methods.size != ir.sourcePlan.entries.size + 1 then
     throw <| .planInvariant .near "typed NEAR IR export count does not match its source Plan"
+  if ir.fns.size != ir.sourcePlan.fns.size then
+    throw <| .planInvariant .near "typed NEAR IR pureFn count does not match its source Plan"
   for method in ir.methods do
     if method.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .near
         s!"typed NEAR IR method '{method.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
-  let operationCount := ir.methods.foldl (fun total method =>
-    total + method.params.size + method.operations.size) 0
+    if method.operations.any opIsFnReturnValueV1 then
+      throw <| .planInvariant .near
+        s!"typed NEAR IR method '{method.name}' must not use pureFn returnValue ops"
+  for fn in ir.fns do
+    if fn.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
+      throw <| .planInvariant .near
+        s!"typed NEAR IR pureFn '{fn.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
+    if fn.operations.any opIsMethodOnlyV1 then
+      throw <| .planInvariant .near
+        s!"typed NEAR IR pureFn '{fn.name}' must not use method-only host ops"
+  let operationCount :=
+    ir.methods.foldl (fun total method =>
+      total + method.params.size + method.operations.size) 0 +
+    ir.fns.foldl (fun total fn =>
+      total + fn.paramCount + fn.operations.size) 0
   if operationCount > ir.sourcePlan.resourceLimits.maxRecipeNodes then
     throw <| .planInvariant .near
       s!"typed NEAR IR exceeds recipe node limit {ir.sourcePlan.resourceLimits.maxRecipeNodes}"
@@ -1691,6 +2014,10 @@ def validateIR (ir : IR) : CompileResult Unit := do
   unless ir.methods == expected do
     throw <| .planInvariant .near
       "typed NEAR IR methods/operations are not the exact lowering of their source Plan"
+  let expectedFnIR := expectedFns ir.sourcePlan expectedKeys
+  unless ir.fns == expectedFnIR do
+    throw <| .planInvariant .near
+      "typed NEAR IR pureFn operations are not the exact lowering of their source Plan"
 
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
@@ -1704,6 +2031,7 @@ private def lower (plan : Plan) : CompileResult IR := do
     keys
     memory
     methods := expectedMethods plan keys
+    fns := expectedFns plan keys
   }
   validateIR ir
   return ir
@@ -1788,7 +2116,7 @@ private def renderInterfaceMessage (registers : RegisterLayout) (memory : Memory
 
 private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
-    (indent : String) : Operation → String
+    (fnNames : Array String) (indent : String) : Operation → String
   | .checkInputLen bytes =>
       s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
@@ -1850,11 +2178,23 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .setReturnData value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"{indent}(call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
+  | .callFn fnIndex destination args =>
+      let name := match fnNames[fnIndex]? with
+        | some n => n
+        | none => "unknown"
+      let argGets := String.intercalate " " <| args.toList.map fun a =>
+        s!"(local.get $t{a})"
+      let callArgs := if args.isEmpty then "" else " " ++ argGets
+      s!"{indent}(local.set $t{destination} (call $fn_{name}{callArgs}))\n"
+  | .returnValue value =>
+      s!"{indent}(return (local.get $t{value}))\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
+        output ++ renderOperation registers memory events errors fnNames
+          (indent ++ "  ") operation) ""
       let elseText := elseOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
+        output ++ renderOperation registers memory events errors fnNames
+          (indent ++ "  ") operation) ""
       s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenText ++
         s!"{indent}  )\n" ++
         (if elseOps.isEmpty then "" else
@@ -1866,11 +2206,13 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         match remaining.toList with
         | [] =>
             let defaultText := defaultOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
+              output ++ renderOperation registers memory events errors fnNames
+                (indent ++ "  ") operation) ""
             s!"{indent}(then\n" ++ defaultText ++ s!"{indent})\n"
         | (caseValue, caseOps) :: rest =>
             let caseText := caseOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
+              output ++ renderOperation registers memory events errors fnNames
+                (indent ++ "  ") operation) ""
             s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
               s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
               s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
@@ -1878,30 +2220,52 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       match cases.toList with
       | [] =>
           defaultOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory events errors indent operation) ""
+            output ++ renderOperation registers memory events errors fnNames
+              indent operation) ""
       | (caseValue, caseOps) :: rest =>
           let caseText := caseOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory events errors (indent ++ "  ") operation) ""
+            output ++ renderOperation registers memory events errors fnNames
+              (indent ++ "  ") operation) ""
           s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
             s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
             s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
             s!"{indent})\n"
 
 private def renderMethod (ir : IR) (method : MethodIR) : String :=
+  let fnNames := ir.fns.map (·.name)
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
     s!" (local $t{index} i64)"
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
-      ir.sourcePlan.events ir.sourcePlan.errors "    ")
+      ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
   s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
+
+/-- PureFn WAT: params occupy the first local indices (`$t0..`), extra temps
+    follow, and the body ends with Wasm `return` of the result value. -/
+private def renderFn (ir : IR) (fn : FnIR) : String :=
+  let fnNames := ir.fns.map (·.name)
+  let params := String.intercalate "" <| (Array.range fn.paramCount).toList.map fun index =>
+    s!" (param $t{index} i64)"
+  let extraLocals :=
+    if fn.tempCount <= fn.paramCount then ""
+    else
+      String.intercalate "" <|
+        (List.range (fn.tempCount - fn.paramCount)).map fun i =>
+          s!" (local $t{fn.paramCount + i} i64)"
+  let operations := String.intercalate "" <| fn.operations.toList.map
+    (renderOperation ir.registers ir.memory
+      ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
+  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}\n" ++
+    operations ++ "  )\n"
 
 private def renderWat (ir : IR) : String :=
   let imports := String.intercalate "" <| ir.imports.toList.map renderImport
   let data := String.intercalate "" <| ir.keys.toList.map fun key =>
     s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
+  let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir)
   let methods := String.intercalate "" <| ir.methods.toList.map (renderMethod ir)
   "(module\n" ++ imports ++
-    s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++ data ++ methods ++ ")\n"
+    s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++ data ++ fns ++ methods ++ ")\n"
 
 private def renderMode : MethodMode → String
   | .initialize => "initialize"
@@ -1973,6 +2337,10 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
 /-- Replace methods on an existing IR (private `mk`; for validateIR characterization). -/
 def withMethods (ir : IR) (methods : Array MethodIR) : IR :=
   { ir with methods }
+
+/-- Replace pureFns on an existing IR (private `mk`; for validateIR characterization). -/
+def withFns (ir : IR) (fns : Array FnIR) : IR :=
+  { ir with fns }
 
 /-- Capability-gated public IR inspection (S6 repair). Input must be
     `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files. -/

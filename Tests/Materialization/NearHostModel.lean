@@ -44,6 +44,8 @@ private structure Machine where
   logs : Array String := #[]
   eventNames : Array String := #[]
   errorNames : Array String := #[]
+  fns : Array Targets.Near.FnIR := #[]
+  callDepth : Nat := 0
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
@@ -236,6 +238,48 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       pure { machine with returned := some value }
   | .returnNone =>
       pure { machine with halted := true }
+  | .returnValue source => do
+      -- PureFn body return: halt the current frame with a value.
+      let value ← readTemp machine source
+      pure { machine with returned := some value, halted := true }
+  | .callFn fnIndex destination args => do
+      let some fnIR := machine.fns[fnIndex]? |
+        modelError s!"callFn index {fnIndex} is outside the pureFn table"
+      -- Acyclic pureFns: depth is bounded by the table size.
+      if machine.callDepth >= machine.fns.size then
+        modelError "pureFn call depth exceeds the pureFn table size"
+      unless args.size == fnIR.paramCount do
+        modelError s!"callFn arity mismatch for pureFn '{fnIR.name}'"
+      let mut argValues : Array U64 := #[]
+      for arg in args do
+        argValues := argValues.push (← readTemp machine arg)
+      let mut calleeTemps : Array (Option U64) :=
+        Array.replicate fnIR.tempCount none
+      for i in [0:argValues.size] do
+        calleeTemps := calleeTemps.set! i (some argValues[i]!)
+      let callee : Machine := {
+        storage := machine.storage
+        temps := calleeTemps
+        returned := none
+        halted := false
+        logs := machine.logs
+        eventNames := machine.eventNames
+        errorNames := machine.errorNames
+        fns := machine.fns
+        callDepth := machine.callDepth + 1
+      }
+      match runOperations input deposit fnIR.operations.toList callee with
+      | .ok result =>
+          match result.returned with
+          | some value =>
+              writeTemp {
+                machine with
+                storage := result.storage
+                logs := result.logs
+              } destination value
+          | none =>
+              modelError s!"pureFn '{fnIR.name}' did not return a value"
+      | .error reason => .error reason
   | .emitEvent eventIndex args => do
       let some name := machine.eventNames[eventIndex]? |
         modelError s!"event index {eventIndex} is outside the declared table"
@@ -282,12 +326,14 @@ pre-call storage snapshot, modeling NEAR's receipt-local rollback contract.
 This is not a NEAR VM, sandbox, gas, or protocol-profile execution. -/
 private def execute (method : Targets.Near.MethodIR) (storage : HostStorage)
     (input : ByteArray) (deposit : Deposit)
-    (eventNames errorNames : Array String := #[]) : Outcome :=
+    (eventNames errorNames : Array String := #[])
+    (fns : Array Targets.Near.FnIR := #[]) : Outcome :=
   let initial : Machine := {
     storage
     temps := Array.replicate method.tempCount none
     eventNames := eventNames
     errorNames := errorNames
+    fns := fns
   }
   match runOperations input deposit method.operations.toList initial with
   | .ok result => .success result.storage result.returned result.logs
@@ -423,6 +469,8 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
     | .switchRegion .. => "switchRegion"
+    | .callFn .. => "callFn"
+    | .returnValue _ => "returnValue"
 
 private def expectContains (haystack needle label : String) : IO Unit :=
   expect (haystack.contains needle) s!"{label}: missing WAT substring {needle}"
@@ -1133,6 +1181,121 @@ private unsafe def testInitEarlyBareReturnClosed
       throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
   | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
 
+/-- Wave E: pureFn/localCall product path. double/quadruple fns + init/entry;
+    pins Plan fn table, callFn expr, WAT `$fn_double` and call sites, and
+    host-model execution init(3) → bump(2) = double(3)+quadruple(2) = 6+8 = 14. -/
+private unsafe def testFnLocalCallProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program FnFlow where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n\n" ++
+    "  fn quadruple(y : UInt64) : UInt64 do\n" ++
+    "    return double(y) + double(y)\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := double(count) + quadruple(delta)\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-fn-flow>" "Examples.FnFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  -- Plan fn table: double then quadruple in source order.
+  expect (plan.fns.size == 2)
+    s!"fn-flow: expected two pureFns, got {plan.fns.size}"
+  expect (plan.fns[0]!.name == "double" && !plan.fns[0]!.resultIsBool &&
+      plan.fns[0]!.params.size == 1)
+    "fn-flow: double must be UInt64 pureFn with one param"
+  expect (plan.fns[1]!.name == "quadruple" && !plan.fns[1]!.resultIsBool &&
+      plan.fns[1]!.params.size == 1)
+    "fn-flow: quadruple must be UInt64 pureFn with one param"
+  -- double body: return x + x
+  expect (plan.fns[0]!.body == #[
+      .returnValue (.checkedAdd (.param 0) (.param 0))])
+    "fn-flow: double body must return param+param"
+  -- quadruple body: return double(y) + double(y)
+  expect (plan.fns[1]!.body == #[
+      .returnValue (.checkedAdd
+        (.callFn 0 #[.param 0])
+        (.callFn 0 #[.param 0]))])
+    "fn-flow: quadruple body must call double twice and add"
+  -- bump: store double(count)+quadruple(delta), return count
+  let bump := plan.entries[0]!
+  expect (bump.body == #[
+      .store {
+        fieldIndex := 0
+        value := .checkedAdd
+          (.callFn 0 #[.stateLoad 0])
+          (.callFn 1 #[.param 0])
+      },
+      .returnValue (.stateLoad 0)])
+    "fn-flow: bump must store double(count)+quadruple(delta) then return"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "fn-flow: irFromCapability must be structure-identical on rebuild"
+  expect (ir.fns.size == 2 && ir.fns[0]!.name == "double" &&
+      ir.fns[1]!.name == "quadruple")
+    "fn-flow: IR pureFn table must mirror the Plan"
+  -- IR pureFn ops: returnValue (not setReturnData); nested callFn in quadruple.
+  let doubleKinds := operationKinds ir.fns[0]!.operations
+  expect (doubleKinds.contains "returnValue" && !doubleKinds.contains "setReturnData")
+    s!"fn-flow: double IR must use returnValue, got {doubleKinds}"
+  expect (doubleKinds.contains "checkedAdd")
+    s!"fn-flow: double IR must lower checkedAdd, got {doubleKinds}"
+  let quadKinds := operationKinds ir.fns[1]!.operations
+  expect (quadKinds.contains "callFn" && quadKinds.contains "returnValue")
+    s!"fn-flow: quadruple IR must callFn+returnValue, got {quadKinds}"
+  let bumpIR ← findMethod ir "bump"
+  let bumpKinds := operationKinds bumpIR.operations
+  expect (bumpKinds.contains "callFn")
+    s!"fn-flow: bump IR must lower callFn sites, got {bumpKinds}"
+  -- Host-model: init(3) → bump(2) yields 14 = double(3)+quadruple(2) = 6+8.
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "fn-flow init"
+    (execute initializer empty (encodeUInt64LE 3) zero #[] #[] ir.fns)
+  expect (storedUInt64? storage0 field.key == some 3)
+    "fn-flow init must store seed 3"
+  let (storage1, ret1, _) ← requireSuccess "fn-flow bump"
+    (execute bumpIR storage0 (encodeUInt64LE 2) zero #[] #[] ir.fns)
+  expect (ret1 == some 14 && storedUInt64? storage1 field.key == some 14)
+    "fn-flow: init(3)+bump(2) must yield double(3)+quadruple(2)=14"
+  let get ← findMethod ir "get"
+  let (_, retGet, _) ← requireSuccess "fn-flow get"
+    (execute get storage1 ByteArray.empty zero #[] #[] ir.fns)
+  expect (retGet == some 14) "fn-flow view must observe 14"
+  -- WAT: pureFn definitions before exports, and call sites.
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "fn-flow: missing .wat artifact"
+  expectContains wat.contents "(func $fn_double" "fn-flow WAT double func"
+  expectContains wat.contents "(func $fn_quadruple" "fn-flow WAT quadruple func"
+  expectContains wat.contents "(call $fn_double" "fn-flow WAT double call site"
+  expectContains wat.contents "(call $fn_quadruple" "fn-flow WAT quadruple call site"
+  expectContains wat.contents "(return (local.get $t" "fn-flow WAT pureFn return"
+  expectContains wat.contents "export \"bump\"" "fn-flow WAT bump export"
+  -- pureFn definitions are emitted before method exports.
+  let beforeBump := (wat.contents.splitOn "export \"bump\"").head!
+  expect (beforeBump.contains "(func $fn_double")
+    "fn-flow WAT: $fn_double must appear before the bump export"
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "fn-flow: buildFromCapability must be byte-identical on rebuild"
+  expect (plan.programName == "FnFlow") "fn-flow plan program name"
+
 /-- Declared event/error: emit logs the canonical pf-event message, revert
     traps with the pf-error message and rolls back. -/
 private unsafe def testEmitRevertProductPath
@@ -1217,6 +1380,7 @@ unsafe def run : IO Unit := do
   testBranchAssertTrap session
   testEarlyReturnJoinProductPath session
   testInitEarlyBareReturnClosed session
+  testFnLocalCallProductPath session
   testEmitRevertProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
