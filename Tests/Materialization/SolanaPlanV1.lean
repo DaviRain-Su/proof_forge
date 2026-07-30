@@ -912,6 +912,73 @@ private unsafe def testInitEarlyBareReturnClosed
       throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
   | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
 
+/-- Declared event/error: emit lowers to an emit_event plan op and revert to
+    program_error at the declared-error base, in Plan, typed IR, and the
+    sbpf-plan text. -/
+private unsafe def testEmitRevertFlow
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "EventFlow" <|
+    "  state count : UInt64\n\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.EventFlow" "<solana-event-flow>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.events.map (·.name) == #["Moved"] &&
+      plan.events[0]!.fieldCount == 2 &&
+      plan.errors.map (·.name) == #["Cap"] &&
+      plan.errors[0]!.fieldCount == 1)
+    "EventFlow must carry the declared event/error bindings"
+  let bump ← findHandler plan "bump"
+  expect (bump.body == #[
+      .emitEvent 0 #[.stateLoad 0 8, .param 8],
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.param 8))
+        #[.revertError 0 #[.param 8]]
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "EventFlow bump must lower emit, branch revert, join return"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let bumpIR ← findHandlerIR ir "bump"
+  let emitOps := bumpIR.operations.filter fun op =>
+    match op with | .emitEvent .. => true | _ => false
+  expect (emitOps.size == 1 && emitOps[0]! == .emitEvent 0 #[0, 1])
+    "EventFlow IR must emit event 0 with [load count, param delta]"
+  let some region := bumpIR.operations.find? (fun op => match op with
+    | .ifRegion .. => true | _ => false) |
+    throw <| IO.userError "EventFlow bump IR must contain the if-region"
+  match region with
+  | .ifRegion _ thenOps _ =>
+      expect (thenOps.any (fun op => match op with
+        | .revertError 0 _ => true | _ => false))
+        "EventFlow then arm must carry the declared revert op"
+  | _ => throw <| IO.userError "EventFlow bump IR must contain the if-region"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "EventFlow.sbpf-plan"
+  expect (planText.contains "emit_event Moved")
+    "sbpf-plan must render the named event emission"
+  expect (planText.contains s!"program_error 0x{Nat.toDigits 16 (Targets.Solana.declaredErrorBase + 0) |> String.ofList}")
+    "sbpf-plan must render the declared-error program_error code"
+  let idl ← findFile files "EventFlow.idl.json"
+  expect (idl.contains "\"events\": [{\"name\":\"Moved\"" &&
+      idl.contains "\"errors\": [{\"name\":\"Cap\"")
+    "EventFlow IDL must declare the Moved event and Cap error"
+
 /-- validatePlan/validateIR negatives for the new region constructors. -/
 private unsafe def testRegionValidationNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -966,6 +1033,7 @@ unsafe def run : IO Unit := do
   testMatchBindArmRegion session
   testEarlyReturnJoinRegion session
   testInitEarlyBareReturnClosed session
+  testEmitRevertFlow session
   testRegionValidationNegatives session
   testAssertElseRejected session
   testValidatePlanNegatives session

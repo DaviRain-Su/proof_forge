@@ -112,6 +112,8 @@ inductive Statement where
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
+  | emitEvent (eventIndex : Nat) (args : Array Expr)
+  | revertError (errorIndex : Nat) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -127,6 +129,12 @@ structure Handler where
   body : Array Statement
   deriving BEq, Inhabited, Repr
 
+/-- One declared event/error binding: its name and UInt64 argument count. -/
+structure InterfaceBinding where
+  name : String
+  fieldCount : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Every Solana-specific ABI, account, layout, and dispatch decision for the
 current UInt64 planning fragment. It deliberately retains no SemanticProgram. -/
 structure Plan where
@@ -138,6 +146,8 @@ structure Plan where
   assertionFailedError : Nat
   programName : String
   stateAccount : StateAccount
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
   initializer : Handler
   entries : Array Handler
   deriving BEq, Inhabited, Repr
@@ -164,6 +174,8 @@ inductive Operation where
   | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
+  | emitEvent (eventIndex : Nat) (args : Array Nat)
+  | revertError (errorIndex : Nat) (args : Array Nat)
   | returnNone
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
@@ -521,6 +533,45 @@ private def consumeCurrentSegmentV1
       "unsupported Solana semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
+/-- Multi-root effect-boundary consumption (event/revert argument lists):
+    every value produced in the current segment must be reachable from at
+    least one sink root, mirroring the single-root discipline. -/
+private def consumeSegmentRootsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (roots : Array ValueIdV1) : CompileResult Unit := do
+  for root in roots do
+    let _ ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  for root in roots do
+    if root.toNat >= paramCount then
+      stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: dead or reordered value instructions"
+  pure ()
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -664,6 +715,22 @@ private def lowerBlockInstructionsV1
             "unsupported Solana semantic shape: assert condition must be Bool"
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart condId
         body := body.push (.assert value)
+        segmentStart := values.size
+    | .emit _effectId eventId argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable emits an event"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: event arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Multi-root effect boundary: every value produced in the current
+        -- segment must be reachable from at least one argument tree.
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .solana
@@ -821,9 +888,19 @@ private partial def emitRegionV1
             emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
-  | .revert _ _ | .trap _ =>
+  | .revert errorId argIds =>
+      let mut argExprs : Array Expr := #[]
+      for argId in argIds do
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        unless !root.isBool do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: revert arguments must be UInt64"
+        argExprs := argExprs.push root.expr
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+  | .trap _ =>
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: revert/trap terminators are outside the current pilot"
+        "unsupported Solana semantic shape: trap terminators are outside the current pilot"
 
 private def lowerCallableV1
     (owner : String)
@@ -962,6 +1039,11 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
+/-- UInt64-compatible plan expression (comparison results are Bool). -/
+private def exprIsUInt64CompatibleV1 : Expr → Bool
+  | .compare .. => false
+  | _ => true
+
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= maxPlanNodes then
@@ -1015,13 +1097,15 @@ private def validateParams (owner : String) (params : Array Param) : CompileResu
 /-- Recursive statement-tree validator for one handler: view-write ban
     (including inside branches), node accounting, and per-level return
     ordering. Returns the updated node total and whether this level closes in
-    return on every path. A bare-return marker is accepted only at the top
-    level of the initializer body (`allowReturnNone`); early bare returns
-    inside branch arms fail closed (the initializer's header-marking epilogue
-    must run on every path). -/
+    return or revert on every path. A bare-return marker is accepted only at
+    the top level of the initializer body (`allowReturnNone`); early bare
+    returns inside branch arms fail closed (the initializer's header-marking
+    epilogue must run on every path). -/
 private partial def checkHandlerStatementsV1
     (account : StateAccount) (isInitializer : Bool) (isView : Bool)
     (allowReturnNone : Bool)
+    (eventCount : Nat) (eventFieldCounts : Array Nat)
+    (errorCount : Nat) (errorFieldCounts : Array Nat)
     (params : Array Param) (statements : Array Statement) (total : Nat) :
     CompileResult (Nat × Bool) := do
   let mut total := total
@@ -1047,15 +1131,40 @@ private partial def checkHandlerStatementsV1
           throw <| .planInvariant .solana "handler has an early bare return inside a branch arm"
         total := total + 1
         closed := true
+    | .emitEvent eventIndex args =>
+        if isView then
+          throw <| .planInvariant .solana "view handler emits an event"
+        unless eventIndex < eventCount do
+          throw <| .planInvariant .solana "handler emits an unknown event"
+        unless args.size == eventFieldCounts[eventIndex]! do
+          throw <| .planInvariant .solana "handler event argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .solana "handler event arguments must be UInt64 expressions"
+          total ← addPlanExprNodes account params total arg
+        total := total + 1
+    | .revertError errorIndex args =>
+        unless errorIndex < errorCount do
+          throw <| .planInvariant .solana "handler reverts with an unknown error"
+        unless args.size == errorFieldCounts[errorIndex]! do
+          throw <| .planInvariant .solana "handler error argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .solana "handler error arguments must be UInt64 expressions"
+          total ← addPlanExprNodes account params total arg
+        total := total + 1
+        closed := true
     | .assert condition =>
         total ← addPlanExprNodes account params total condition
     | .ifThenElse condition thenBody elseBody =>
         total ← addPlanExprNodes account params total condition
         total := total + 1
         let (t1, c1) ← checkHandlerStatementsV1
-          account isInitializer isView false params thenBody total
+          account isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts params thenBody total
         let (t2, c2) ← checkHandlerStatementsV1
-          account isInitializer isView false params elseBody t1
+          account isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts params elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
@@ -1065,11 +1174,13 @@ private partial def checkHandlerStatementsV1
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkHandlerStatementsV1
-            account isInitializer isView false params caseBody total
+            account isInitializer isView false
+            eventCount eventFieldCounts errorCount errorFieldCounts params caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkHandlerStatementsV1
-          account isInitializer isView false params defaultBody total
+          account isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts params defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1078,6 +1189,7 @@ private def expectedAccess (account : StateAccount) (mode : HandlerMode) : Accou
   accessFor account mode
 
 private def validateHandler (account : StateAccount) (isInitializer : Bool)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (baseNodes : Nat) (handler : Handler) : CompileResult Nat := do
   unless isIdentifier handler.name && validDiscriminator handler.discriminator do
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid ABI identity"
@@ -1096,8 +1208,9 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
   if handler.body.isEmpty || handler.body.size > maxBodyStatements then
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid body size"
   let (total, closed) ← checkHandlerStatementsV1
-    account isInitializer (handler.mode == .view) isInitializer handler.params
-    handler.body baseNodes
+    account isInitializer (handler.mode == .view) isInitializer
+    events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
+    handler.params handler.body baseNodes
   unless closed do
     throw <| .planInvariant .solana
       s!"handler '{handler.name}' does not terminate on all paths"
@@ -1128,22 +1241,36 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   let mut total := plan.stateAccount.fields.size + handlerCount + paramCount + statementCount
   if total > maxPlanNodes then
     throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
-  total ← validateHandler plan.stateAccount true total plan.initializer
+  total ← validateHandler plan.stateAccount true plan.events plan.errors total plan.initializer
   for handler in plan.entries do
-    total ← validateHandler plan.stateAccount false total handler
+    total ← validateHandler plan.stateAccount false plan.events plan.errors total handler
   let handlers := #[plan.initializer] ++ plan.entries
   if hasDuplicates (handlers.map (·.name)) then
     throw <| .planInvariant .solana "handler names must be unique"
   if hasDuplicates (handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "handler discriminators collide"
 
+/-- Validate one declared event/error binding: safe name and public UInt64
+    fields (the Solana pilot plan records UInt64 args only). -/
+private def makeInterfaceBindingV1 (label : String) (name : String)
+    (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
+    CompileResult InterfaceBinding := do
+  unless isIdentifier name do
+    throw <| .planInvariant .solana
+      s!"unsupported Solana semantic shape: {label} name '{name}' is not a safe identifier"
+  for field in fields do
+    unless field.typeId == uint64TypeId && field.visibility == .public_ do
+      throw <| .planInvariant .solana
+        s!"unsupported Solana semantic shape: {label} '{name}' fields must be public UInt64"
+  pure { name, fieldCount := fields.size }
+
 /-- Solana-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
+
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
-      !source.invariants.isEmpty then
+  if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+      "unsupported Solana semantic shape: constants/invariants are outside the current UInt64 pilot"
   if source.callables.size > maxEntries + 1 then
     throw <| .planInvariant .solana s!"callable count exceeds Solana profile limit {maxEntries + 1}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
@@ -1151,6 +1278,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateSolanaTypeClosureV1 source.types
   let stateAccount ← makeStateAccountV1 types.uint64TypeId source.logicalState
+  let events ← source.events.mapM (fun d =>
+    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
+  let errors ← source.errors.mapM (fun d =>
+    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   let mut initializer : Option Handler := none
@@ -1180,6 +1311,8 @@ private def makePlanFromSemanticDataV1
     assertionFailedError
     programName
     stateAccount
+    events
+    errors
     initializer := resolvedInitializer
     entries
   }
@@ -1268,21 +1401,25 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone => true
+      | .returnValue _ | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ => false
+      | .store _ | .assert _ | .emitEvent .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
-    ends in the initializer's bare-return marker (which lowers to `exit`). -/
+    ends in a halting statement (the initializer's bare-return marker, or a
+    declared revert, which traps by itself). -/
 private def armOpsWithHardExit (arm : Array Statement)
     (operations : Array Operation) : Array Operation :=
-  if statementListClosesV1 arm.toList && arm.back? != some .returnNone then
+  let alreadyHalts := match arm.back? with
+    | some .returnNone | some (.revertError ..) => true
+    | _ => false
+  if statementListClosesV1 arm.toList && !alreadyHalts then
     operations.push .returnNone
   else
     operations
@@ -1311,6 +1448,22 @@ private partial def lowerBodyOps
         -- Valid only inside region arms (validated); the initializer's own
         -- final marker is stripped by lowerHandler before lowering.
         operations := operations.push .returnNone
+    | .emitEvent eventIndex args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.emitEvent eventIndex argTemps)
+    | .revertError errorIndex args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr overflowError next arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.revertError errorIndex argTemps)
     | .assert condition =>
         let value := lowerExpr overflowError next condition
         operations := operations ++ value.operations
@@ -1404,6 +1557,7 @@ private partial def validateOperationSequence
     | .loadParam .. | .loadState .. | .checkedAdd .. | .checkedSub ..
     | .compare .. | .assert .. | .zeroState .. | .storeState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
+    | .emitEvent .. | .revertError ..
     | .ifRegion .. | .switchRegion .. =>
         if returned || initialized then
           throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
@@ -1450,6 +1604,18 @@ private partial def validateOperationSequence
     | .setReturnDataBool value =>
         unless handler.mode != .initialize && handler.resultKind == .bool && value < next do
           throw <| .planInvariant .solana "typed Solana IR Bool return value is invalid"
+        returned := true
+    | .emitEvent eventIndex args =>
+        unless handler.mode != .view && eventIndex < plan.events.size &&
+            args.size == plan.events[eventIndex]!.fieldCount &&
+            args.all (· < next) do
+          throw <| .planInvariant .solana "typed Solana IR event emission is invalid"
+    | .revertError errorIndex args =>
+        unless errorIndex < plan.errors.size &&
+            args.size == plan.errors[errorIndex]!.fieldCount &&
+            args.all (· < next) do
+          throw <| .planInvariant .solana "typed Solana IR declared revert is invalid"
+        -- A declared revert closes this path (return or revert on all paths).
         returned := true
     | .ifRegion condition thenOps elseOps =>
         unless condition < next do
@@ -1579,7 +1745,14 @@ private def renderComparisonOp : ComparisonOp → String
   | .gt => "gt"
   | .ge => "ge"
 
-private partial def renderOperation (indent : String) : Operation → String
+/-- Plan-level declared-error program_error code base: declared error `i`
+    traps with `0x{declaredErrorBase:x} + i`, disjoint from the arithmetic and
+    assertion-failure policy codes. -/
+def declaredErrorBase : Nat := 8192
+
+private partial def renderOperation (indent : String)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding) :
+    Operation → String
   | .literal destination value => s!"{indent}%{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
       s!"{indent}%{destination} = load_u64_le(instruction_data + {dataOffset})\n"
@@ -1603,27 +1776,33 @@ private partial def renderOperation (indent : String) : Operation → String
       s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
   | .returnNone =>
       s!"{indent}exit\n"
+  | .emitEvent eventIndex args =>
+      let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
+      s!"{indent}emit_event {events[eventIndex]!.name} {argText}\n"
+  | .revertError errorIndex args =>
+      let argText := String.intercalate ", " (args.toList.map (fun a => s!"%{a}"))
+      s!"{indent}program_error 0x{natHex (declaredErrorBase + errorIndex)} ; {errors[errorIndex]!.name}({argText})\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") operation) ""
+        output ++ renderOperation (indent ++ "  ") events errors operation) ""
       let elseText := elseOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") operation) ""
+        output ++ renderOperation (indent ++ "  ") events errors operation) ""
       s!"{indent}if %{condition} \{\n" ++ thenText ++
         s!"{indent}} else \{\n" ++ elseText ++ s!"{indent}}\n"
   | .switchRegion scrutinee cases defaultOps =>
       let caseText := cases.foldl (fun output (caseValue, ops) =>
         let body := ops.foldl (fun inner operation =>
-          inner ++ renderOperation (indent ++ "  ") operation) ""
+          inner ++ renderOperation (indent ++ "  ") events errors operation) ""
         output ++ s!"{indent}case {caseValue} \{\n" ++ body ++ s!"{indent}}\n") ""
       let defaultText := defaultOps.foldl (fun output operation =>
-        output ++ renderOperation (indent ++ "  ") operation) ""
+        output ++ renderOperation (indent ++ "  ") events errors operation) ""
       s!"{indent}switch %{scrutinee} \{\n" ++ caseText ++
         s!"{indent}default \{\n" ++ defaultText ++ s!"{indent}}\n"
 
-private def renderHandlerPlan (handler : HandlerIR) : String :=
+private def renderHandlerPlan (ir : IR) (handler : HandlerIR) : String :=
   let checks := handler.checks.foldl (fun output check => output ++ renderCheck check) ""
   let operations := handler.operations.foldl (fun output operation =>
-    output ++ renderOperation "  " operation) ""
+    output ++ renderOperation "  " ir.sourcePlan.events ir.sourcePlan.errors operation) ""
   s!".handler {handler.discriminator} {handler.name} mode={renderMode handler.mode}\n" ++
     checks ++ operations ++ ".end-handler\n"
 
@@ -1632,7 +1811,7 @@ private def renderPlanText (ir : IR) : String :=
   let fields := account.fields.foldl (fun output field => output ++
     s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type=u64-le\n") ""
   let handlers := ir.handlers.foldl (fun output handler =>
-    output ++ renderHandlerPlan handler) ""
+    output ++ renderHandlerPlan ir handler) ""
   "; PROOF-FORGE-SBPF-PLAN v1\n" ++
     "; PLAN-ONLY NON-EXECUTABLE: no sBPF instructions, object, or ELF are present\n" ++
     s!"; codegen-profile: {ir.sourcePlan.codegenProfile}\n" ++
@@ -1673,10 +1852,18 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
     s!"\"args\":[{renderParamsJson handler.params}],\"returns\":{returns}" ++
     "}"
 
+private def renderInterfaceBindingJson (binding : InterfaceBinding) : String :=
+  "{\"name\":\"" ++ Targets.escapeJson binding.name ++
+    "\",\"args\":[" ++
+    String.intercalate "," ((List.range binding.fieldCount).map fun _ => "\"u64-le\"") ++
+    "]}"
+
 private def renderIdl (ir : IR) : String :=
   let account := ir.stateAccount
   let fields := String.intercalate "," (account.fields.toList.map renderFieldJson)
   let handlers := String.intercalate ",\n    " (ir.handlers.toList.map renderHandlerJson)
+  let events := String.intercalate "," (ir.sourcePlan.events.toList.map renderInterfaceBindingJson)
+  let errors := String.intercalate "," (ir.sourcePlan.errors.toList.map renderInterfaceBindingJson)
   "{\n" ++
     "  \"version\": \"proof-forge-solana-idl/v1\",\n" ++
     s!"  \"name\": \"{Targets.escapeJson ir.name}\",\n" ++
@@ -1694,7 +1881,9 @@ private def renderIdl (ir : IR) : String :=
     "\"initializerPayloadPolicy\":\"zero-all-fields\"," ++
     s!"\"fields\":[{fields}]" ++
     "}],\n" ++
-    "  \"instructions\": [\n    " ++ handlers ++ "\n  ]\n" ++
+    "  \"instructions\": [\n    " ++ handlers ++ "\n  ],\n" ++
+    s!"  \"events\": [{events}],\n" ++
+    s!"  \"errors\": [{errors}]\n" ++
     "}\n"
 
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
