@@ -53,6 +53,7 @@ inductive InputRole where
   | postState (sourceId : Nat)
   | postInitialized
   | result
+  | eventSlot (emitIndex argIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -110,6 +111,8 @@ inductive Statement where
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
+  | emitEvent (effectId : Nat) (eventIndex : Nat) (args : Array Expr)
+  | revertError (errorIndex : Nat) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -125,6 +128,12 @@ structure Relation where
   params : Array Param
   inputs : Array InputBinding
   body : Array Statement
+  deriving BEq, Inhabited, Repr
+
+/-- One declared event/error binding: its name and UInt64 argument count. -/
+structure InterfaceBinding where
+  name : String
+  fieldCount : Nat
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned source-relation plan. It deliberately retains no
@@ -146,6 +155,8 @@ structure Plan where
   untrusted serialized Plan. -/
   planHash : String
   states : Array StateField
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
   relations : Array Relation
   -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
   deriving BEq, Repr
@@ -385,10 +396,29 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     throw <| .planInvariant .noir s!"parameter names in {owner} must be unique"
   pure (planned, values)
 
+/-- Pre-order emit scan of a relation body: (eventIndex, argCount) keyed by
+    the canonical EffectId each static emit statement carries. Event slots
+    are keyed by that EffectId. -/
+private partial def collectEmitSlots (statements : Array Statement) :
+    Array (Nat × Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .emitEvent effectId eventIndex args => slots.push (effectId, eventIndex, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectEmitSlots thenBody ++ collectEmitSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectEmitSlots body) #[]
+        slots ++ caseSlots ++ collectEmitSlots defaultBody
+    | _ => slots) #[]
+
 /-- Build the canonical public-input envelope. `resultType` is used only for
-    non-initializer relations (entry/view) and is ignored for `.initialize`. -/
+    non-initializer relations (entry/view) and is ignored for `.initialize`.
+    Event slots trail the result input: one verifier-visible u64 per argument
+    of each static emit statement in pre-order. -/
 private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
-    (params : Array Param) (resultType : InputType) : Array InputBinding := Id.run do
+    (params : Array Param) (resultType : InputType)
+    (emitSlots : Array (Nat × Nat × Nat)) : Array InputBinding := Id.run do
   let mut inputs : Array InputBinding := #[]
   if !states.isEmpty then
     inputs := inputs.push {
@@ -439,6 +469,15 @@ private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
       visibility := .verifier
       role := .result
     }
+  for (effectId, _, argCount) in emitSlots do
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"ev_e{effectId}_a{argIndex}"
+        sourceName := s!"event_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .eventSlot effectId argIndex
+      }
   pure inputs
 
 private def resultInputTypeOf (relation : Relation) : InputType :=
@@ -621,6 +660,45 @@ private def consumeCurrentSegmentV1
       "unsupported Noir semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
+/-- Multi-root effect-boundary consumption (event/revert argument lists):
+    every value produced in the current segment must be reachable from at
+    least one sink root, mirroring the single-root discipline. -/
+private def consumeSegmentRootsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (roots : Array ValueIdV1) : CompileResult Unit := do
+  for root in roots do
+    let _ ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  for root in roots do
+    if root.toNat >= paramCount then
+      stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: dead or reordered value instructions"
+  pure ()
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -750,6 +828,22 @@ private def lowerBlockInstructionsV1
             "unsupported Noir semantic shape: assert condition must be Bool"
         let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
         body := body.push (.assert condition)
+        segmentStart := values.size
+    | .emit effectId eventId argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable emits an event"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: event arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Multi-root effect boundary: every value produced in the current
+        -- segment must be reachable from at least one argument tree.
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .noir
@@ -909,9 +1003,19 @@ private partial def emitRegionV1
             emitRegionV1 owner mode types states returnKind blocks paramCount
               armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
-  | .revert _ _ | .trap _ =>
+  | .revert errorId argIds =>
+      let mut argExprs : Array Expr := #[]
+      for argId in argIds do
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: revert arguments must be UInt64"
+        argExprs := argExprs.push root.expr
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+  | .trap _ =>
       throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: revert/trap terminators are outside the current pilot"
+        "unsupported Noir semantic shape: trap terminators are outside the current pilot"
 
 private def lowerCallableV1
     (owner : String)
@@ -1014,6 +1118,7 @@ private def makeRelationV1
     mode
     params := lowered.params
     inputs := makeInputsV1 states mode lowered.params resultType
+      (collectEmitSlots lowered.body)
     body := lowered.body
   }
 
@@ -1105,6 +1210,25 @@ private partial def checkRelationStatementsV1
             s!"relation '{relation.name}' uses bare return outside the initializer"
         total := total + 1
         closed := true
+    | .emitEvent _ eventIndex args =>
+        if relation.mode == .view then
+          throw <| .planInvariant .noir s!"view relation '{relation.name}' emits an event"
+        unless eventIndex < plan.events.size do
+          throw <| .planInvariant .noir s!"relation '{relation.name}' emits an unknown event"
+        unless args.size == plan.events[eventIndex]!.fieldCount do
+          throw <| .planInvariant .noir s!"relation '{relation.name}' event argument count mismatch"
+        for arg in args do
+          total ← addPlanExprNodes plan relation total arg
+        total := total + 1
+    | .revertError errorIndex args =>
+        unless errorIndex < plan.errors.size do
+          throw <| .planInvariant .noir s!"relation '{relation.name}' reverts with an unknown error"
+        unless args.size == plan.errors[errorIndex]!.fieldCount do
+          throw <| .planInvariant .noir s!"relation '{relation.name}' error argument count mismatch"
+        for arg in args do
+          total ← addPlanExprNodes plan relation total arg
+        total := total + 1
+        closed := true
     | .assert condition =>
         total ← addPlanExprNodes plan relation total condition
     | .ifThenElse condition thenBody elseBody =>
@@ -1138,7 +1262,8 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     (if plan.states.isEmpty then 0 else 2) +
     (if relation.mode == .initialize then 0 else plan.states.size) +
     relation.params.size + plan.states.size +
-    (if relation.mode == .initialize then 0 else 1)
+    (if relation.mode == .initialize then 0 else 1) +
+    (collectEmitSlots relation.body).foldl (fun acc (_, _, argCount) => acc + argCount) 0
   unless relation.inputs.size == expectedInputCount do
     throw <| .planInvariant .noir "relation input count is outside the canonical envelope"
   unless relation.index == expectedIndex && isIdentifier relation.name &&
@@ -1150,7 +1275,7 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
   let expectedResultType := resultInputTypeOf relation
   unless relation.params == expectedParams plan.states relation &&
       relation.inputs == makeInputsV1 plan.states relation.mode relation.params
-        expectedResultType do
+        expectedResultType (collectEmitSlots relation.body) do
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
   if relation.mode != .initialize then
     unless expectedResultType == .u64 || expectedResultType == .bool do
@@ -1210,16 +1335,30 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   unless plan.planHash == canonicalPlanHash plan do
     throw <| .planInvariant .noir "complete Plan hash is not canonical"
 
+/-- Validate one declared event/error binding: safe name and public UInt64
+    fields (the Noir pilot binds UInt64 event slots only). -/
+private def makeInterfaceBindingV1 (label : String) (name : String)
+    (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
+    CompileResult InterfaceBinding := do
+  unless isIdentifier name do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} name '{name}' is not a safe identifier"
+  for field in fields do
+    unless field.typeId == uint64TypeId && field.visibility == .public_ do
+      throw <| .planInvariant .noir
+        s!"unsupported Noir semantic shape: {label} '{name}' fields must be public UInt64"
+  pure { name, fieldCount := fields.size }
+
 /-- Noir-private retained SemanticProgramV1 data → target-owned Plan pilot.
     Name/source/semantic identity comes from the same non-alpha compiled carrier;
     hash strings are derived from sourceHashV1/semanticHashV1 digests. -/
+
 private def makePlanFromSemanticDataV1
     (artifactProgramName sourceHash semanticHash : String)
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
-      !source.invariants.isEmpty then
+  if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+      "unsupported Noir semantic shape: constants/invariants are outside the current UInt64 pilot"
   if source.callables.size > maxRelations then
     throw <| .planInvariant .noir s!"callable count exceeds Noir profile limit {maxRelations}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
@@ -1227,6 +1366,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNoirTypeClosureV1 source.types
   let states ← makeStatesV1 types.uint64TypeId source.logicalState
+  let events ← source.events.mapM (fun d =>
+    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
+  let errors ← source.errors.mapM (fun d =>
+    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let programName := components.back!
   unless programName == artifactProgramName do
@@ -1275,6 +1418,8 @@ private def makePlanFromSemanticDataV1
     semanticHash
     planHash := String.ofList (List.replicate 64 '0')
     states
+    events
+    errors
     relations
   }
   let plan := { unsignedPlan with planHash := canonicalPlanHash unsignedPlan }
@@ -1349,12 +1494,14 @@ private def inputIndexFor (relation : Relation) (role : InputRole) : Nat := Id.r
   return 0
 
 /-- Final path assertions: post-state equality per field, post-initialized
-    flag, and (for non-initializer relations) the public result binding. One
-    copy is emitted at every path leaf so each execution path forms a
-    complete self-contained constraint sequence; no cross-path value merging
-    (phi/select) is needed. -/
+    flag, (non-initializer) the public result binding, and event-slot
+    bindings. Each static emit in `emitSlots` binds its argument slots to the
+    values recorded on this path, or to zero on paths that did not execute it
+    (and on reverted paths, whose effects are discarded). -/
 private def leafAssertions (plan : Plan) (relation : Relation)
-    (stateValues : Array ValueRef) (returned : Option ValueRef) : Array Operation := Id.run do
+    (emitSlots : Array (Nat × Nat × Nat))
+    (stateValues : Array ValueRef) (returned : Option ValueRef)
+    (pathEmits : Array (Nat × Array ValueRef)) : Array Operation := Id.run do
   let mut operations : Array Operation := #[]
   for field in plan.states do
     operations := operations.push <| .assertEqual
@@ -1366,7 +1513,28 @@ private def leafAssertions (plan : Plan) (relation : Relation)
   if relation.mode != .initialize then
     operations := operations.push <| .assertEqual
       (.input (inputIndexFor relation .result)) returned.get!
+  for (effectId, _, argCount) in emitSlots do
+    let pathValues? := pathEmits.findSome? fun (slotId, values) =>
+      if slotId == effectId then some values else none
+    for argIndex in [0:argCount] do
+      let value := match pathValues? with
+        | some values => values[argIndex]!
+        | none => .literal 0
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.eventSlot effectId argIndex))) value
   pure operations
+
+/-- Reverted path assertions: every event slot zeroed (effects are discarded
+    on revert) and the path marked inadmissible — a reverting call admits no
+    post-state or result witness. -/
+private def revertAssertions (relation : Relation)
+    (emitSlots : Array (Nat × Nat × Nat)) : Array Operation := Id.run do
+  let mut operations : Array Operation := #[]
+  for (effectId, _, argCount) in emitSlots do
+    for argIndex in [0:argCount] do
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.eventSlot effectId argIndex))) (.literal 0)
+  operations.push (.assertConstraint (.literal 0))
 
 /-- Whether every path through a statement list ends in a return (valued or
     bare marker), matching the region emitter's closedness: a list closes iff
@@ -1376,26 +1544,29 @@ private partial def statementListClosesV1 : List Statement → Bool
   | [] => false
   | [statement] =>
       match statement with
-      | .returnValue _ | .returnNone => true
+      | .returnValue _ | .returnNone | .revertError .. => true
       | .ifThenElse _ thenBody elseBody =>
           !elseBody.isEmpty && statementListClosesV1 thenBody.toList &&
             statementListClosesV1 elseBody.toList
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ => false
+      | .store _ | .assert _ | .emitEvent .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Lower a relation statement list into a complete path constraint sequence
     (path enumeration). A region folds the enclosing continuation into each
-    of its open arms, so every walk ends at a leaf — a return marker, or the
-    initializer's implicit fallthrough — which emits its own post-state and
-    result assertions. Straight-line walking is tail-recursive; only region
-    arm recursion nests (bounded by statement nesting). Path duplication from
-    sequential diamonds is bounded by `fuel` and fails closed. -/
+    of its open arms, so every walk ends at a leaf — a return marker, a
+    declared revert, or the initializer's implicit fallthrough — which emits
+    its own post-state/result/event-slot assertions. Straight-line walking is
+    tail-recursive; only region arm recursion nests (bounded by statement
+    nesting). Path duplication from sequential diamonds is bounded by `fuel`
+    and fails closed. -/
 private partial def lowerPathStatementsV1
     (plan : Plan) (relation : Relation) (fuel : Nat)
+    (emitSlots : Array (Nat × Nat × Nat))
     (stateValues : Array ValueRef) (next : Nat)
+    (pathEmits : Array (Nat × Array ValueRef))
     (acc : Array Operation) (statements : List Statement) :
     CompileResult (Array Operation × Nat) := do
   match statements with
@@ -1404,7 +1575,7 @@ private partial def lowerPathStatementsV1
       unless relation.mode == .initialize do
         throw <| .planInvariant .noir
           s!"relation '{relation.name}' path does not end in a return"
-      pure (acc ++ leafAssertions plan relation stateValues none, next)
+      pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits, next)
   | statement :: rest =>
       if fuel == 0 then
         throw <| .planInvariant .noir
@@ -1413,25 +1584,54 @@ private partial def lowerPathStatementsV1
       match statement with
       | .store store =>
           let value := lowerExpr stateValues next store.value
-          lowerPathStatementsV1 plan relation fuel
-            (stateValues.set! store.fieldIndex value.value) value.next
+          lowerPathStatementsV1 plan relation fuel emitSlots
+            (stateValues.set! store.fieldIndex value.value) value.next pathEmits
             (acc ++ value.operations) rest
       | .assert condition =>
           let value := lowerExpr stateValues next condition
-          lowerPathStatementsV1 plan relation fuel stateValues value.next
-            (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
+          lowerPathStatementsV1 plan relation fuel emitSlots stateValues value.next
+            pathEmits (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
+      | .emitEvent effectId _ args =>
+          -- Evaluate args into the current path; the slot binding lands at
+          -- the path leaf (path-dependent), not at the emission point.
+          let mut acc' := acc
+          let mut next' := next
+          let mut argRefs : Array ValueRef := #[]
+          for arg in args do
+            let value := lowerExpr stateValues next' arg
+            acc' := acc' ++ value.operations
+            argRefs := argRefs.push value.value
+            next' := value.next
+          lowerPathStatementsV1 plan relation fuel emitSlots stateValues next'
+            (pathEmits.push (effectId, argRefs)) acc' rest
       | .returnValue valueExpr =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
           let value := lowerExpr stateValues next valueExpr
           pure (acc ++ value.operations ++
-            leafAssertions plan relation stateValues (some value.value), value.next)
+            leafAssertions plan relation emitSlots stateValues (some value.value) pathEmits,
+            value.next)
       | .returnNone =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
-          pure (acc ++ leafAssertions plan relation stateValues none, next)
+          pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits,
+            next)
+      | .revertError _ args =>
+          unless rest.isEmpty do
+            throw <| .planInvariant .noir
+              s!"relation '{relation.name}' has a statement after a revert"
+          -- Revert args are evaluated for their checked-arithmetic failure
+          -- constraints (they execute before the revert), then the path is
+          -- marked inadmissible with every event slot zeroed.
+          let mut acc' := acc
+          let mut next' := next
+          for arg in args do
+            let value := lowerExpr stateValues next' arg
+            acc' := acc' ++ value.operations
+            next' := value.next
+          pure (acc' ++ revertAssertions relation emitSlots, next')
       | .ifThenElse condition thenBody elseBody =>
           let condition := lowerExpr stateValues next condition
           -- Emission invariant: a region followed by a continuation always
@@ -1442,10 +1642,10 @@ private partial def lowerPathStatementsV1
               s!"relation '{relation.name}' has a continuation after a closed region"
           let fold := fun (arm : Array Statement) =>
             if statementListClosesV1 arm.toList then arm.toList else arm.toList ++ rest
-          let (thenOps, next1) ← lowerPathStatementsV1 plan relation fuel
-            stateValues condition.next #[] (fold thenBody)
-          let (elseOps, next2) ← lowerPathStatementsV1 plan relation fuel
-            stateValues next1 #[] (fold elseBody)
+          let (thenOps, next1) ← lowerPathStatementsV1 plan relation fuel emitSlots
+            stateValues condition.next pathEmits #[] (fold thenBody)
+          let (elseOps, next2) ← lowerPathStatementsV1 plan relation fuel emitSlots
+            stateValues next1 pathEmits #[] (fold elseBody)
           pure (acc ++ condition.operations ++
             #[.ifRegion condition.value thenOps elseOps], next2)
       | .switchOn scrutineeExpr cases defaultBody =>
@@ -1465,12 +1665,12 @@ private partial def lowerPathStatementsV1
           let mut caseOps : Array (UInt64 × Array Operation) := #[]
           let mut nextAcc := scrutinee.next
           for (caseValue, caseBody) in cases do
-            let (operations, next') ← lowerPathStatementsV1 plan relation fuel
-              stateValues nextAcc #[] (fold caseBody)
+            let (operations, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
+              stateValues nextAcc pathEmits #[] (fold caseBody)
             caseOps := caseOps.push (caseValue, operations)
             nextAcc := next'
-          let (defaultOps, next') ← lowerPathStatementsV1 plan relation fuel
-            stateValues nextAcc #[] (fold defaultBody)
+          let (defaultOps, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
+            stateValues nextAcc pathEmits #[] (fold defaultBody)
           pure (acc ++ scrutinee.operations ++
             #[.switchRegion scrutinee.value scrutIsBool caseOps defaultOps], next')
 
@@ -1487,7 +1687,8 @@ private def lowerRelation (plan : Plan) (relation : Relation) :
     operations := operations.push <| .assertBool
       (inputIndexFor relation .preInitialized) (relation.mode != .initialize)
   let (pathOps, next) ← lowerPathStatementsV1 plan relation
-    plan.resourceLimits.maxIrOperations stateValues 0 #[] relation.body.toList
+    plan.resourceLimits.maxIrOperations (collectEmitSlots relation.body)
+    stateValues 0 #[] #[] relation.body.toList
   pure {
     sourceRelation := relation
     tempCount := next
@@ -1706,6 +1907,7 @@ private def renderInputJson (input : InputBinding) : String :=
     | .postState id => ("post-state", toString id)
     | .postInitialized => ("post-initialized", "null")
     | .result => ("result", "null")
+    | .eventSlot emitIndex argIndex => ("event-slot", s!"[{emitIndex},{argIndex}]")
   let type := if input.type == .u64 then "u64" else "bool"
   "{" ++
     s!"\"name\":\"{Targets.escapeJson input.name}\"," ++

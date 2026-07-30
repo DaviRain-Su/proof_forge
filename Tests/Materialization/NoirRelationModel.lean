@@ -344,6 +344,7 @@ private def statefulInputs (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
+    | .eventSlot _ _ => none
 
 /-- Stateful relation witness with a Bool entry/view result binding. -/
 private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
@@ -356,6 +357,7 @@ private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .bool result
+    | .eventSlot _ _ => none
 
 private def privateSumInputs (relation : Targets.Noir.RelationIR)
     (params : Array U64) (result : U64) : Except String (Array ModelValue) :=
@@ -1134,6 +1136,102 @@ private unsafe def checkBranchingProduct : IO Unit := do
   expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
     "BranchCounter IR ops must be byte-identical across rebuilds"
 
+/-- Declared event/error: emit binds verifier-visible event slots per path
+    (zero on non-executing paths); revert marks its path inadmissible. -/
+private def emitRevertSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program EventFlow where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  event Moved(src : UInt64, dst : UInt64)\n" ++
+  "  error Cap(limit : UInt64)\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    emit Moved(count, delta)\n" ++
+  "    if count > delta then\n" ++
+  "      revert Cap(delta)\n" ++
+  "    else\n" ++
+  "      count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Stateful relation witness extended with event-slot values (keyed by
+    (emit index, arg index)). -/
+private def statefulInputsWithSlots (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preState parameter postState : U64)
+    (postInitialized : Bool) (result : U64)
+    (slots : Array (Nat × Nat × U64)) : Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState _ => some <| .u64 preState
+    | .parameter _ => some <| .u64 parameter
+    | .postState _ => some <| .u64 postState
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .u64 result
+    | .eventSlot emitIndex argIndex =>
+        (slots.find? fun (e, a, _) => e == emitIndex && a == argIndex).map
+          fun (_, _, value) => ModelValue.u64 value
+
+private unsafe def checkEmitRevertProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 emitRevertSourceText
+    "Examples.EventFlow" "<noir-event-flow>"
+  let bump ← findRelation ir "bump"
+  let eventSlots := bump.sourceRelation.inputs.filter fun binding =>
+    match binding.role with | .eventSlot .. => true | _ => false
+  expect (eventSlots.size == 2 &&
+      eventSlots.all (·.visibility == .verifier) &&
+      eventSlots.all (·.type == .u64))
+    "EventFlow bump must bind two verifier-visible u64 event slots"
+  expect (eventSlots.map (·.name) == #["ev_e0_a0", "ev_e0_a1"])
+    "EventFlow event slots must use canonical effect-arg names"
+  let hasRevert := bump.operations.any fun op =>
+    match op with
+    | .ifRegion _ thenOps _ =>
+        thenOps.any fun inner =>
+          match inner with | .assertConstraint (.literal 0) => true | _ => false
+    | _ => false
+  expect hasRevert "EventFlow revert path must be marked inadmissible in the then arm"
+
+  -- Else path: delta=7 > count=5 → post=12, result=12, slots=(5,7).
+  let elseOk ← liftModel "EventFlow else inputs" <|
+    statefulInputsWithSlots bump true 5 7 12 true 12 #[(0, 0, 5), (0, 1, 7)]
+  expectAccept "EventFlow else path binds event slots" bump elseOk
+  let elseWrongSlot ← liftModel "EventFlow wrong slot inputs" <|
+    statefulInputsWithSlots bump true 5 7 12 true 12 #[(0, 0, 5), (0, 1, 8)]
+  expectReject "EventFlow rejects a wrong event slot" bump elseWrongSlot
+  -- Then path: delta=3 < count=5 → revert: no admissible witness exists.
+  let revertAny ← liftModel "EventFlow revert inputs" <|
+    statefulInputsWithSlots bump true 5 3 5 true 3 #[(0, 0, 0), (0, 1, 0)]
+  expectReject "EventFlow revert path is inadmissible" bump revertAny
+  let revertSlots ← liftModel "EventFlow revert slot inputs" <|
+    statefulInputsWithSlots bump true 5 3 8 true 3 #[(0, 0, 5), (0, 1, 3)]
+  expectReject "EventFlow revert path stays inadmissible for any slots" bump revertSlots
+
+  -- `.nr` surface: slot inputs and the inadmissible assert.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 emitRevertSourceText
+      "<noir-event-flow-emit>" "Examples.EventFlow" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some bumpNr := files.find? (fun file =>
+      file.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "EventFlow missing bump main.nr"
+  expect (bumpNr.contents.contains "ev_e0_a0: pub u64" &&
+      bumpNr.contents.contains "ev_e0_a1: pub u64")
+    "EventFlow .nr must declare the event slot public inputs"
+  expect (bumpNr.contents.contains "assert(false)")
+    "EventFlow .nr must render the revert path as assert(false)"
+  expect (bumpNr.contents.contains "assert(ev_e0_a0 ==")
+    "EventFlow .nr must bind the event slot on executing paths"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1162,5 +1260,6 @@ unsafe def run : IO Unit := do
   checkPrivateSum4ResidualRelationModel
   checkPrivateSum4ProductClosed
   checkBranchingProduct
+  checkEmitRevertProduct
 
 end Tests.Materialization.NoirRelationModel
