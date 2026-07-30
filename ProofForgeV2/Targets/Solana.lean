@@ -18,6 +18,7 @@ def layoutDomain : String := "proof-forge-solana-layout-v1:"
 def discriminatorBytes : Nat := 8
 def stateHeaderBytes : Nat := 8
 def arithmeticOverflowError : Nat := 0x1001
+def assertionFailedError : Nat := 0x1002
 
 inductive Endianness where
   | little
@@ -80,12 +81,17 @@ structure Param where
   endianness : Endianness
   deriving BEq, Inhabited, Repr
 
+inductive ComparisonOp where
+  | eq | ne | lt | le | gt | ge
+  deriving BEq, Inhabited, Repr
+
 inductive Expr where
   | literal (value : UInt64)
   | param (dataOffset : Nat)
   | stateLoad (accountIndex byteOffset : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | compare (op : ComparisonOp) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -97,6 +103,7 @@ structure Store where
 inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
+  | assert (condition : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Handler where
@@ -116,6 +123,7 @@ structure Plan where
   instructionDiscriminatorBytes : Nat
   stateLayoutDomain : String
   arithmeticOverflowError : Nat
+  assertionFailedError : Nat
   programName : String
   stateAccount : StateAccount
   initializer : Handler
@@ -141,6 +149,8 @@ inductive Operation where
   | storeState (accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (value : Nat)
+  | compare (destination lhs rhs : Nat) (op : ComparisonOp)
+  | assert (condition : Nat) (errorCode : Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -243,11 +253,13 @@ private def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAcc
 private structure SolanaTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
+  boolTypeId : Option TypeIdV1
 
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 := do
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
+  let mut boolTypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| .planInvariant .solana
@@ -263,14 +275,19 @@ private def validateSolanaTypeClosureV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: duplicate Unit type"
         unitTypeId := some decl.id
+    | .bool =>
+        unless boolTypeId.isNone do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: duplicate Bool type"
+        boolTypeId := some decl.id
     | _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: only UInt64 and Unit are supported"
+          "unsupported Solana semantic shape: only UInt64, Unit, and Bool are supported"
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (.planInvariant .solana
         "unsupported Solana semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId }
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId }
 
 private def makeStateAccountV1
     (uint64TypeId : TypeIdV1)
@@ -314,6 +331,7 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
+  isBool : Bool
   deriving Inhabited
 
 private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
@@ -346,6 +364,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
       depth := 1
       expandedNodes := 1
       dependencies := #[]
+      isBool := false
     }
   pure (planned, values)
 
@@ -378,6 +397,17 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: trailing UInt64 literal bytes"
 
+private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
+  unless bytes.size == 1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: Bool literal must contain exactly 1 byte"
+  match bytes[0]!.toNat with
+  | 0 => pure false
+  | 1 => pure true
+  | _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: Bool literal must be 0x00 or 0x01"
+
 private def currentValueV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -388,9 +418,11 @@ private def currentValueV1
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-private def makeCheckedAddValueV1
+private def makeBinaryTreeValueV1
+    (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+    (lhs rhs : LoweredValueV1)
+    (isBool : Bool) : CompileResult LoweredValueV1 := do
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
@@ -400,29 +432,28 @@ private def makeCheckedAddValueV1
   if rhs.expandedNodes > remaining then
     throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
   pure {
-    expr := .checkedAdd lhs.expr rhs.expr
+    expr := mk lhs.expr rhs.expr
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
+    isBool
   }
+
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedAdd lhsId rhsId lhs rhs false
 
 private def makeCheckedSubValueV1
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  let depth := 1 + max lhs.depth rhs.depth
-  if depth > maxExprDepth then
-    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
-  if lhs.expandedNodes > maxPlanNodes - 1 then
-    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
-  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
-  if rhs.expandedNodes > remaining then
-    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
-  pure {
-    expr := .checkedSub lhs.expr rhs.expr
-    depth
-    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
-    dependencies := #[lhsId, rhsId]
-  }
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedSub lhsId rhsId lhs rhs false
+
+private def makeCompareValueV1
+    (op : ComparisonOp)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
@@ -459,16 +490,25 @@ private def consumeCurrentSegmentV1
   pure rootValue.expr
 
 private def appendResultValueV1
-    (uint64TypeId : TypeIdV1)
+    (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
     (result : ValueDefV1)
     (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
-  unless result.valueId.toNat == values.size && result.typeId == uint64TypeId do
+  unless result.valueId.toNat == values.size && result.typeId == expectedTypeId do
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: result ValueId/type is not canonical UInt64"
+      "unsupported Solana semantic shape: result ValueId/type is not canonical"
   if values.size >= maxPlanNodes then
     throw <| .planInvariant .solana s!"Solana value table exceeds node limit {maxPlanNodes}"
   pure (values.push value)
+
+private def comparisonOpOfV1 : BinaryOpV1 → Option ComparisonOp
+  | .eq => some .eq
+  | .ne => some .ne
+  | .lt => some .lt
+  | .le => some .le
+  | .gt => some .gt
+  | .ge => some .ge
+  | _ => none
 
 private inductive SemanticCallableModeV1 where
   | initialize
@@ -483,7 +523,7 @@ private structure LoweredCallableV1 where
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (uint64TypeId : TypeIdV1)
+    (types : SolanaTypeClosureV1)
     (account : StateAccount)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
@@ -500,7 +540,7 @@ private def lowerCallableV1
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .solana
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
-  let (params, initialValues) ← makeParamsV1 owner uint64TypeId callable.params
+  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
   let mut values := initialValues
   let mut segmentStart := values.size
@@ -508,47 +548,89 @@ private def lowerCallableV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        unless typeId == uint64TypeId do
+        if typeId == types.uint64TypeId then
+          let value ← decodeUInt64LiteralV1 bytes
+          values := ← appendResultValueV1 types.uint64TypeId values result {
+            expr := .literal value
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+          }
+        else if types.boolTypeId == some typeId then
+          let bit ← decodeBoolLiteralV1 bytes
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal (if bit then 1 else 0)
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := true
+          }
+        else
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: literal is not UInt64"
-        let value ← decodeUInt64LiteralV1 bytes
-        values := ← appendResultValueV1 uint64TypeId values result {
-          expr := .literal value
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+            "unsupported Solana semantic shape: literal is not UInt64 or Bool"
     | .stateLoad stateId, some result =>
         let field ← findFieldV1 account stateId
-        values := ← appendResultValueV1 uint64TypeId values result {
+        values := ← appendResultValueV1 types.uint64TypeId values result {
           expr := .stateLoad field.accountIndex field.byteOffset
           depth := 1
           expandedNodes := 1
           dependencies := #[]
+          isBool := false
         }
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueV1 values paramCount segmentStart lhsId
         let rhs ← currentValueV1 values paramCount segmentStart rhsId
-        let value ←
-          if op == .add then
-            makeCheckedAddValueV1 lhsId rhsId lhs rhs
-          else if op == .sub then
-            makeCheckedSubValueV1 lhsId rhsId lhs rhs
-          else
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: only checked UInt64 add/sub are supported"
-        values := ← appendResultValueV1 uint64TypeId values result value
+        unless !lhs.isBool && !rhs.isBool do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: binary operands must be UInt64"
+        if op == .add then
+          let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .sub then
+          let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else
+          match comparisonOpOfV1 op with
+          | some cmpOp =>
+              let boolTypeId ← match types.boolTypeId with
+                | some value => pure value
+                | none => throw (.planInvariant .solana
+                    "unsupported Solana semantic shape: Bool type is missing for comparison")
+              unless result.typeId == boolTypeId do
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: comparison result must be Bool"
+              let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 boolTypeId values result value
+          | none =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: only checked UInt64 add/sub and comparisons are supported"
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: view callable writes state"
         let field ← findFieldV1 account stateId
+        let stored ← currentValueV1 values paramCount segmentStart valueId
+        unless !stored.isBool do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: state store value must be UInt64"
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
         body := body.push (.store {
           accountIndex := field.accountIndex
           byteOffset := field.byteOffset
           value
         })
+        segmentStart := values.size
+    | .assert_ condId errorId args, none =>
+        unless errorId.isNone && args.isEmpty do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: assert requires errorId=none and empty args"
+        let cond ← currentValueV1 values paramCount segmentStart condId
+        unless cond.isBool do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: assert condition must be Bool"
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        body := body.push (.assert value)
         segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .solana
@@ -560,6 +642,10 @@ private def lowerCallableV1
           "unsupported Solana semantic shape: initializer has unconsumed values"
   | .mutate, .return_ (some valueId)
   | .view, .return_ (some valueId) =>
+      let returned ← currentValueV1 values paramCount segmentStart valueId
+      unless !returned.isBool do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: return value must be UInt64"
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
@@ -589,8 +675,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize
-    types.uint64TypeId account callable
+  let lowered ← lowerCallableV1 "initializer" .initialize types account callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
@@ -623,8 +708,7 @@ private def makeEntryV1
     | .mutate => .mutate
     | .view => .view
     | .initialize => .initialize
-  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode
-    types.uint64TypeId account callable
+  let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode types account callable
   let handler : Handler := {
     name
     discriminator := ""
@@ -649,16 +733,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
           some 1
         else
           none
-    | .checkedAdd lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? account params childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? account params childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedSub lhs rhs =>
+    | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params childDepth available lhs with
@@ -757,6 +832,8 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
           throw <| .planInvariant .solana "initializer cannot return a value"
         total ← addPlanExprNodes account handler.params total value
         returned := true
+    | .assert condition =>
+        total ← addPlanExprNodes account handler.params total condition
   if isInitializer then
     if returned then
       throw <| .planInvariant .solana "initializer cannot return a value"
@@ -770,7 +847,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       plan.instructionDiscriminatorDomain == discriminatorDomain &&
       plan.instructionDiscriminatorBytes == discriminatorBytes &&
       plan.stateLayoutDomain == layoutDomain &&
-      plan.arithmeticOverflowError == arithmeticOverflowError do
+      plan.arithmeticOverflowError == arithmeticOverflowError &&
+      plan.assertionFailedError == assertionFailedError do
     throw <| .planInvariant .solana "Solana Plan profile/error policies are not canonical"
   unless isIdentifier plan.programName do
     throw <| .planInvariant .solana s!"program name '{plan.programName}' is not a safe identifier"
@@ -837,6 +915,7 @@ private def makePlanFromSemanticDataV1
     instructionDiscriminatorBytes := discriminatorBytes
     stateLayoutDomain := layoutDomain
     arithmeticOverflowError
+    assertionFailedError
     programName
     stateAccount
     initializer := resolvedInitializer
@@ -892,6 +971,15 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         value := rhs.next
         next := rhs.next + 1
       }
+  | .compare op lhs rhs =>
+      let lhs := lowerExpr overflowError next lhs
+      let rhs := lowerExpr overflowError lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.compare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
 
 private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
     (handler : Handler) : Array Check := Id.run do
@@ -928,6 +1016,11 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
         operations := operations ++ value.operations
         operations := operations.push (.setReturnData value.value)
         next := value.next
+    | .assert condition =>
+        let value := lowerExpr plan.arithmeticOverflowError next condition
+        operations := operations ++ value.operations
+        operations := operations.push (.assert value.value plan.assertionFailedError)
+        next := value.next
   if handler.mode == .initialize then
     operations := operations.push <|
       .setHeader account.index account.headerOffset account.initializedMarker
@@ -944,7 +1037,7 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
-      .checkedSub destination .. => some destination
+      .checkedSub destination .. | .compare destination .. => some destination
   | _ => none
 
 private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
@@ -994,6 +1087,12 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
         unless lhs < next - 1 && rhs < next - 1 &&
             errorCode == plan.arithmeticOverflowError do
           throw <| .planInvariant .solana "typed Solana IR checked-sub operands/error are invalid"
+    | .compare _ lhs rhs _op =>
+        unless lhs < next - 1 && rhs < next - 1 do
+          throw <| .planInvariant .solana "typed Solana IR compare operands are invalid"
+    | .assert condition errorCode =>
+        unless condition < next && errorCode == plan.assertionFailedError do
+          throw <| .planInvariant .solana "typed Solana IR assert condition/error is invalid"
     | .zeroState accountIndex byteOffset =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             fieldOffsets.contains byteOffset do
@@ -1086,6 +1185,14 @@ private def renderCheck : Check → String
   | .headerEquals accountIndex byteOffset value =>
       s!"  check load_u64_le(account[{accountIndex}].data + {byteOffset}) == 0x{uint64Hex value}\n"
 
+private def renderComparisonOp : ComparisonOp → String
+  | .eq => "eq"
+  | .ne => "ne"
+  | .lt => "lt"
+  | .le => "le"
+  | .gt => "gt"
+  | .ge => "ge"
+
 private def renderOperation : Operation → String
   | .literal destination value => s!"  %{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
@@ -1103,6 +1210,10 @@ private def renderOperation : Operation → String
   | .setHeader accountIndex byteOffset value =>
       s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
   | .setReturnData value => s!"  set_return_data_u64_le %{value}\n"
+  | .compare destination lhs rhs op =>
+      s!"  %{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
+  | .assert condition errorCode =>
+      s!"  assert %{condition} else program_error 0x{natHex errorCode}\n"
 
 private def renderHandlerPlan (handler : HandlerIR) : String :=
   let checks := handler.checks.foldl (fun output check => output ++ renderCheck check) ""
