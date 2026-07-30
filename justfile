@@ -687,7 +687,7 @@ s1-evm-semantic-plan-deletion-gate:
     rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1 source' "$source"
     rg -q 'expandedNodes' "$source"
     rg -q 'consumeCurrentSegmentV1' "$source"
-    rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+    rg -Uq '(?s)private (partial )?def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
     rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
     rg -Uq '(?s)\.checkedSub lhs rhs =>.*?if lt\(\{lhs\.value\}, \{rhs\.value\}\).*?let \{name\} := sub\(' "$source"
     rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
@@ -727,7 +727,7 @@ s1-target-semantic-plan-deletion-gate:
       rg -Uq '(?s)(makeCheckedSubValueV1|makeBinaryTreeValueV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
       rg -q 'makeCheckedAddValueV1' "$source"
       rg -q 'makeCheckedSubValueV1' "$source"
-      rg -Uq '(?s)private def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+      rg -Uq '(?s)private (partial )?def lowerCallableV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
       rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
       rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
       case "$target" in

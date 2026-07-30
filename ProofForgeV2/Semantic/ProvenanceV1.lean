@@ -374,15 +374,15 @@ private def attrPushPath
 
 /-- Local env for body attribution (mirrors Normalize bare-name resolution). -/
 private structure AttrEnvV1 where
-  -- name → ValueId (params only; state loads create new values)
-  bindings : Array (String × ValueIdV1)
+  -- name → ValueId, newest local first (state loads create new values)
+  bindings : List (String × ValueIdV1)
 
 private def envLookupAttr (env : AttrEnvV1) (name : String) : Option ValueIdV1 :=
   env.bindings.findSome? fun (n, vid) => if n == name then some vid else none
 
 private def envInsertAttr (env : AttrEnvV1) (name : String) (vid : ValueIdV1) :
     AttrEnvV1 :=
-  ⟨env.bindings.push (name, vid)⟩
+  ⟨(name, vid) :: env.bindings⟩
 
 /-- State name set for bare-place resolution. -/
 private structure StateNamesV1 where
@@ -519,11 +519,18 @@ private partial def attrStmts
     (callableId : CallableIdV1)
     (stmts : Array SrcStmt) (blockPath : NormalizedSyntacticPathV1)
     (st : BodyAttrV1) (states : StateNamesV1) (idx : OriginIndexV1) :
+    Except ProvenanceBuildErrorV1 (BodyAttrV1 × AttrPathStatusV1) :=
+  attrStmtsFrom callableId stmts blockPath 0 st states idx
+
+private partial def attrStmtsFrom
+    (callableId : CallableIdV1)
+    (stmts : Array SrcStmt) (blockPath : NormalizedSyntacticPathV1) (startIndex : Nat)
+    (st : BodyAttrV1) (states : StateNamesV1) (idx : OriginIndexV1) :
     Except ProvenanceBuildErrorV1 (BodyAttrV1 × AttrPathStatusV1) := do
   let mut st := st
   let mut si : Nat := 0
   for stmt in stmts do
-    let stmtPath := childPath blockPath "Block" "statements" si
+    let stmtPath := childPath blockPath "Block" "statements" (startIndex + si)
     let (st', status) ← attrStmt callableId stmt stmtPath st states idx
     st := st'
     if status == .closed then
@@ -604,6 +611,7 @@ private partial def attrStmt
         (SemanticEntityRefV1.block callableId (UInt32.ofNat thenId)) thenPath
       let stT0 : BodyAttrV1 := { st1 with
         blockId := thenId, nextBlockId := thenId + 1, nextInstr := 0, acc := accT }
+      let branchEnv := st1.env
       let (stT, thenStatus) ← attrStmts callableId
         thenBlock.statements thenPath stT0 states idx
       let (stT, thenOpen) ← match thenStatus with
@@ -616,14 +624,15 @@ private partial def attrStmt
             pure ({ stT with acc := accJ }, true)
       -- Else path: an absent else falls into the join without a block or
       -- terminator entity (matching the normalizer exactly).
-      let (stE, elseJumpBinds, elseClosed) ← match elseBlock? with
+      let (stE, _elseJumpBinds, elseClosed) ← match elseBlock? with
         | some elseBlock => do
             let elseId := stT.nextBlockId
             let elsePath := directChild stmtPath "Stmt.If" "elseBlock"
             let accE ← attrPushPath stT.acc idx
               (SemanticEntityRefV1.block callableId (UInt32.ofNat elseId)) elsePath
             let stE0 : BodyAttrV1 := { stT with
-              blockId := elseId, nextBlockId := elseId + 1, nextInstr := 0, acc := accE }
+              blockId := elseId, nextBlockId := elseId + 1, nextInstr := 0,
+              env := branchEnv, acc := accE }
             let (stE1, status) ← attrStmts callableId
               elseBlock.statements elsePath stE0 states idx
             match status with
@@ -643,7 +652,7 @@ private partial def attrStmt
           (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
         pure ({ stE with
           blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
-          acc := accJoin }, .open_)
+          env := branchEnv, acc := accJoin }, .open_)
   | .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S2 provenance match requires at least one arm"
@@ -675,6 +684,7 @@ private partial def attrStmt
         (UInt32.ofNat st.blockId)
       let accS ← attrPushPath st1.acc idx termEntity stmtPath
       let stS := { st1 with acc := accS }
+      let matchEnv := st1.env
       let orderedArmIdxs := caseIdxs ++ #[defaultIdx]
       let mut stA := stS
       let mut openCount : Nat := 0
@@ -688,8 +698,8 @@ private partial def attrStmt
           (SemanticEntityRefV1.block callableId (UInt32.ofNat armBlockId)) bodyPath
         -- A bind arm's binder maps to the scrutinee value (same env slot).
         let envA := match arm.pattern with
-          | .bind name => envInsertAttr stA.env (raw name) _scrutVid
-          | _ => stA.env
+          | .bind name => envInsertAttr matchEnv (raw name) _scrutVid
+          | _ => matchEnv
         let stA0 : BodyAttrV1 := { stA with
           blockId := armBlockId, nextBlockId := armBlockId + 1, nextInstr := 0,
           env := envA, acc := accA }
@@ -711,8 +721,14 @@ private partial def attrStmt
           (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
         pure ({ stA with
           blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
-          acc := accJoin }, .open_)
-  | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
+          env := matchEnv, acc := accJoin }, .open_)
+  | .let_ name typeAnn value => do
+      match typeAnn with
+      | some (.uint 64) | some .bool => pure ()
+      | _ => return ← failUnsupported "S2 provenance let requires UInt64/Bool annotation"
+      let valuePath := directChild stmtPath "Stmt.Let" "value"
+      let (vid, st1) ← attrExpr callableId value valuePath st states idx
+      pure ({ st1 with env := envInsertAttr st1.env (raw name) vid }, .open_)
   | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
   | .revert _ _ => failUnsupported "S2 provenance does not support revert"
   | .emit _ _ => failUnsupported "S2 provenance does not support emit"
@@ -731,7 +747,7 @@ private def attrBlock
     Except ProvenanceBuildErrorV1 AttrAccumV1 := do
   -- Block 0 entity
   let accB ← attrPushPath acc0 idx (SemanticEntityRefV1.block callableId 0) blockPath
-  let mut env : AttrEnvV1 := ⟨#[]⟩
+  let mut env : AttrEnvV1 := ⟨[]⟩
   for (name, vid) in params do
     env := envInsertAttr env name vid
   let st : BodyAttrV1 := {
@@ -742,6 +758,77 @@ private def attrBlock
     env := env
     acc := accB
   }
+  -- Mirror NormalizeV1's exact sole-UInt64-phi recognizer.
+  if params.isEmpty && body.statements.size > 2 then
+    let first : Option SrcStmt := body.statements[0]?
+    let second : Option SrcStmt := body.statements[1]?
+    match first, second with
+    | some (.let_ selected (some (.uint 64)) (.literal (.integer init))),
+      some (.if_ condition thenBlock (some elseBlock)) => do
+        let selectedName := raw selected
+        let armRhs (arm : SrcBlock) : Option SrcExpr := match arm.statements with
+          | #[.assign (.name target) rhs] => if raw target == selectedName then some rhs else none
+          | _ => none
+        let some thenRhs := armRhs thenBlock | pure ()
+        let some elseRhs := armRhs elseBlock | pure ()
+        unless init < UInt64.size do return ← failUnsupported "S2 phi initializer range"
+        if stateHas states selectedName then
+          return ← failUnsupported "S2 phi local must not shadow state"
+        let rec readsSelected (expr : SrcExpr) : Bool := match expr with
+          | .place (.name n) => raw n == selectedName
+          | .place (.field _ _) | .place (.index _ _) => true
+          | .binary _ lhs rhs => readsSelected lhs || readsSelected rhs
+          | .unary _ operand => readsSelected operand
+          | .constructor _ _ | .localCall _ _ | .match_ _ _ => true
+          | .literal _ => false
+        if readsSelected condition || readsSelected thenRhs || readsSelected elseRhs then
+          return ← failUnsupported "S2 phi condition/arms must not read the selected local"
+        let letPath := childPath blockPath "Block" "statements" 0
+        let ifPath := childPath blockPath "Block" "statements" 1
+        let thenPath := directChild ifPath "Stmt.If" "thenBlock"
+        let elsePath := directChild ifPath "Stmt.If" "elseBlock"
+        let thenAssign := childPath thenPath "Block" "statements" 0
+        let elseAssign := childPath elsePath "Block" "statements" 0
+        let value0 := SemanticEntityRefV1.value callableId 0
+        let acc0 ← attrPushPath st.acc idx value0 letPath
+        let acc0 ← attrPushPath acc0 idx value0 thenAssign
+        let acc0 ← attrPushPath acc0 idx value0 elseAssign
+        let condPath := directChild ifPath "Stmt.If" "condition"
+        let (_, condSt) ← attrExpr callableId condition condPath
+          { st with nextValueId := 1, acc := acc0 } states idx
+        let acc0 ← attrPushPath condSt.acc idx
+          (SemanticEntityRefV1.terminator callableId 0) ifPath
+        let acc0 ← attrPushPath acc0 idx (SemanticEntityRefV1.block callableId 1) thenPath
+        let (_, thenSt) ← attrExpr callableId thenRhs
+          (directChild thenAssign "Stmt.Assign" "value")
+          ({ condSt with blockId := 1, nextBlockId := 2, nextInstr := 0, acc := acc0 }) states idx
+        let acc0 ← attrPushPath thenSt.acc idx
+          (SemanticEntityRefV1.terminator callableId 1) thenAssign
+        let acc0 ← attrPushPath acc0 idx (SemanticEntityRefV1.block callableId 2) elsePath
+        let elseBase : BodyAttrV1 := { thenSt with
+          blockId := 2
+          nextBlockId := 3
+          nextInstr := 0
+          env := condSt.env
+          acc := acc0 }
+        let (_, elseSt) ← attrExpr callableId elseRhs
+          (directChild elseAssign "Stmt.Assign" "value")
+          elseBase states idx
+        let acc0 ← attrPushPath elseSt.acc idx
+          (SemanticEntityRefV1.terminator callableId 2) elseAssign
+        let acc0 ← attrPushPath acc0 idx (SemanticEntityRefV1.block callableId 3) ifPath
+        let cont0 : BodyAttrV1 := { elseSt with
+          blockId := 3
+          nextBlockId := 4
+          nextInstr := 0
+          env := envInsertAttr condSt.env selectedName 0
+          acc := acc0 }
+        let (cont, status) ← attrStmtsFrom callableId (body.statements.drop 2)
+          blockPath 2 cont0 states idx
+        unless status == .closed do
+          return ← failUnsupported "S2 phi continuation requires return"
+        return cont.acc
+    | _, _ => pure ()
   let (st', status) ← attrStmts callableId body.statements blockPath st states idx
   match status with
   | .closed => pure st'.acc

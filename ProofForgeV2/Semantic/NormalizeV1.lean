@@ -235,20 +235,19 @@ private def requireExpectedUInt64
   | none =>
       failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
 
-/-- Param/local env: bare name → (ValueId, TypeId). -/
+/-- Param/local env: bare name → (ValueId, TypeId), newest first. -/
 structure LocalEnvV1 where
-  bindings : Array (String × ValueIdV1 × TypeIdV1)
+  bindings : List (String × ValueIdV1 × TypeIdV1)
 
-private def emptyEnv : LocalEnvV1 := ⟨#[]⟩
+private def emptyEnv : LocalEnvV1 := ⟨[]⟩
 
 private def envLookup (env : LocalEnvV1) (name : String) :
     Option (ValueIdV1 × TypeIdV1) :=
-  env.bindings.findSome? fun (n, vid, tid) =>
-    if n == name then some (vid, tid) else none
+  env.bindings.findSome? fun (n, vid, tid) => if n == name then some (vid, tid) else none
 
 private def envInsert (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
     (tid : TypeIdV1) : LocalEnvV1 :=
-  ⟨env.bindings.push (name, vid, tid)⟩
+  ⟨(name, vid, tid) :: env.bindings⟩
 
 /-- State name → (StateId, TypeId). -/
 structure StateTableV1 where
@@ -552,6 +551,7 @@ private partial def lowerStmt
       let thenId := UInt32.ofNat (condIdx + 1)
       let st2 := sealCurrentBlock st1 (.branch condVid
         { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
+      let branchEnv := st1.env
       let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states
       let (stT, thenJump?) := match thenStatus with
         | .closed => (stT, none)
@@ -563,7 +563,8 @@ private partial def lowerStmt
       let elseId := UInt32.ofNat stT.blocks.size
       let (stE, elseJump?, elseClosed) ← match elseBlock? with
         | some elseBlock => do
-            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states
+            let (stE0, status) ← lowerStmts elseBlock.statements resultTid
+              { stT with env := branchEnv } states
             match status with
             | .closed => pure (stE0, none, true)
             | .open_ =>
@@ -588,7 +589,7 @@ private partial def lowerStmt
           let stP := match elseJump? with
             | some j => patchJumpTarget stP j joinId
             | none => stP
-          pure (stP, .open_)
+          pure ({ stP with env := branchEnv }, .open_)
   | .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S1 match requires at least one arm"
@@ -649,6 +650,7 @@ private partial def lowerStmt
       -- only match has no switch cases and is materialized as a plain jump
       -- (the structure gate requires nonempty switch cases).
       let scrutIdx := st1.blocks.size
+      let matchEnv := st1.env
       if caseArms.isEmpty then
         let st2 := sealCurrentBlock st1 (.jump { blockId := 0, args := #[] })
         let stD := match defaultBinder? with
@@ -663,7 +665,7 @@ private partial def lowerStmt
             -- The default arm is open; its block continues as the current one,
             -- so the scrutinee block jumps straight into it.
             let stP := patchJumpTarget stD scrutIdx (UInt32.ofNat scrutIdx.succ)
-            pure (stP, .open_)
+            pure ({ stP with env := matchEnv }, .open_)
       else
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         -- Lower each literal arm body into its own block; record exact case
@@ -674,7 +676,8 @@ private partial def lowerStmt
         let mut closedCount : Nat := 0
         for (_, _, body) in caseArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let (stB, status) ← lowerStmts body.statements resultTid stA states
+          let (stB, status) ← lowerStmts body.statements resultTid
+            { stA with env := matchEnv } states
           stA := stB
           match status with
           | .closed => closedCount := closedCount + 1
@@ -684,8 +687,8 @@ private partial def lowerStmt
         -- Default arm: optional binder maps to the scrutinee value.
         let defaultId := UInt32.ofNat stA.blocks.size
         let stD := match defaultBinder? with
-          | none => stA
-          | some name => { stA with env := envInsert stA.env (raw name) scrutVid scrutTid }
+          | none => { stA with env := matchEnv }
+          | some name => { stA with env := envInsert matchEnv (raw name) scrutVid scrutTid }
         let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states
         stA := stD
         match dStatus with
@@ -712,8 +715,22 @@ private partial def lowerStmt
           let stP := patchSwitch stA scrutIdx switchCases (some {
             blockId := defaultId, args := #[] })
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
-          pure (stP, .open_)
-  | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
+          pure ({ stP with env := matchEnv }, .open_)
+  | .let_ name typeAnn value => do
+      let ty ← match typeAnn with
+        | some ty => pure ty
+        | none => return ← failUnsupported "S1 let requires an explicit type annotation"
+      let (interner, expectedTid) ← internSourceType st.interner ty
+      match interner.types[expectedTid.toNat]? with
+      | some decl => unless decl.name.isNone && (match decl.shape with
+          | .uint 64 | .bool => true | _ => false) do
+            return ← failUnsupported "S1 let supports only UInt64/Bool"
+      | none => return ← failUnsupported "S1 let type is missing"
+      let (vid, actualTid, st1) ← lowerExpr value expectedTid
+        { st with interner := interner } states
+      unless actualTid == expectedTid do
+        return ← failUnsupported "S1 let expression type mismatch"
+      pure ({ st1 with env := envInsert st1.env (raw name) vid actualTid }, .open_)
   | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
   | .revert _ _ => failUnsupported "S1 normalizer does not support revert"
   | .emit _ _ => failUnsupported "S1 normalizer does not support emit"
@@ -737,6 +754,62 @@ private def lowerBlock
     env := env
     interner := interner
   }
+  -- Exact sole-UInt64-phi source contract. This narrow recognizer precedes
+  -- generalized lowering without changing any other conditional shape.
+  if params.isEmpty && body.statements.size > 2 then
+    let first : Option SrcStmt := body.statements[0]?
+    let second : Option SrcStmt := body.statements[1]?
+    match first, second with
+    | some (.let_ selected (some (.uint 64)) (.literal (.integer init))),
+      some (.if_ condition thenBlock (some elseBlock)) => do
+        let selectedName := raw selected
+        let armRhs (arm : SrcBlock) : Option SrcExpr := match arm.statements with
+          | #[.assign (.name target) rhs] => if raw target == selectedName then some rhs else none
+          | _ => none
+        let some thenRhs := armRhs thenBlock | pure ()
+        let some elseRhs := armRhs elseBlock | pure ()
+        unless init < UInt64.size do
+          return ← failUnsupported "S1 phi initializer must be an in-range UInt64 literal"
+        if (stateLookup states selectedName).isSome then
+          return ← failUnsupported "S1 phi local must not shadow state"
+        let rec readsSelected (expr : SrcExpr) : Bool := match expr with
+          | .place (.name n) => raw n == selectedName
+          | .place (.field _ _) | .place (.index _ _) => true
+          | .binary _ lhs rhs => readsSelected lhs || readsSelected rhs
+          | .unary _ operand => readsSelected operand
+          | .constructor _ _ | .localCall _ _ | .match_ _ _ => true
+          | .literal _ => false
+        if readsSelected condition || readsSelected thenRhs || readsSelected elseRhs then
+          return ← failUnsupported "S1 phi condition/arms must not read the selected local"
+        let (i1, u64Tid) := internShape st.interner (.uint 64)
+        let (i2, boolTid) := internShape i1 .bool
+        let base := { st with interner := i2, nextValueId := 1 }
+        let (condVid, condTid, condSt) ← lowerExpr condition boolTid base states
+        unless condTid == boolTid do return ← failUnsupported "S1 phi condition must be Bool"
+        let block0 : BlockV1 := ⟨0, #[], condSt.instructions,
+          .branch condVid ⟨1, #[]⟩ ⟨2, #[]⟩⟩
+        let (thenVid, thenTid, thenSt) ← lowerExpr thenRhs u64Tid
+          { condSt with instructions := #[] } states
+        unless thenTid == u64Tid do return ← failUnsupported "S1 phi then value must be UInt64"
+        let block1 : BlockV1 := ⟨1, #[], thenSt.instructions, .jump ⟨3, #[thenVid]⟩⟩
+        let (elseVid, elseTid, elseSt) ← lowerExpr elseRhs u64Tid
+          { thenSt with instructions := #[], env := condSt.env } states
+        unless elseTid == u64Tid do return ← failUnsupported "S1 phi else value must be UInt64"
+        let block2 : BlockV1 := ⟨2, #[], elseSt.instructions, .jump ⟨3, #[elseVid]⟩⟩
+        let cont0 : BodyStateV1 := { elseSt with
+          blocks := #[block0, block1, block2]
+          instructions := #[]
+          env := envInsert condSt.env selectedName 0 u64Tid }
+        let (cont, status) ← lowerStmts (body.statements.drop 2) resultTid cont0 states
+        unless status == .closed && cont.blocks.size == 4 do
+          return ← failUnsupported "S1 phi continuation must be straight-line and return"
+        let join ← match cont.blocks[3]? with
+          | some block => pure block
+          | none => failUnsupported "S1 phi join block is missing"
+        unless join.params.isEmpty do return ← failUnsupported "S1 phi internal join shape"
+        let join := { join with params := #[⟨0, u64Tid⟩] }
+        return (cont.blocks.set! 3 join, cont.interner)
+    | _, _ => pure ()
   let (st', status) ← lowerStmts body.statements resultTid st states
   match status with
   | .closed =>

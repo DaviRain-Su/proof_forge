@@ -185,3 +185,13 @@ no-follow bounded walk；limits 1024/64MiB/256MiB）；CLI publisher evidence→
 仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
 ToolchainIdentity/formal exact closure/hermetic publisher/完整 SemanticProgramV1 lowering
 完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。
+
+### 2026-07-30 shared-CFG selective integration
+
+当前 sole Normalize 保留 upstream generalized lowering：`if` 支持嵌套、缺省 else 与
+continuation，literal/bind statement `match` 支持多 case/default/join；Bool entry/view result
+继续属于 shared ABI。新增能力限于显式 UInt64/Bool body-local `let`（新绑定遮蔽参数和旧
+local，分支 local 不逃逸）以及精确 parameterless sole-UInt64-phi source contract。四 target
+没有获得 general CFG adapter，只 fail-closed 识别 exact terminal 3-block Branch、4-block
+empty join、4-block sole-UInt64-phi join 与 3-block one-UInt64-case+default Switch（转 compare-eq
+conditional）。multi-case、nested 与其他 join 的 target materialization 仍 fail closed。

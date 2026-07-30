@@ -109,6 +109,7 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  | conditional (condition : Expr) (thenBody elseBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- One independently provable relation. Initializer, mutate, and view methods
@@ -159,6 +160,7 @@ inductive Operation where
   | assertBool (inputIndex : Nat) (expected : Bool)
   | compare (op : ComparisonOp) (destination : Nat) (lhs rhs : ValueRef)
   | assertConstraint (condition : ValueRef)
+  | conditional (condition : ValueRef) (thenOps elseOps : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure RelationIR where
@@ -248,7 +250,9 @@ def targetDescriptorEngineeringReprV1 (d : TargetDescriptor) : String :=
   "  settlementModel := " ++ reprStr d.settlementModel ++ ",\n" ++
   "  codegenProfile := " ++ codegenProfileWire d.codegenProfile ++ " }"
 
-private def canonicalPlanHash (plan : Plan) : String :=
+/-- Canonical engineering hash seam for tests and callers that deliberately
+forge a public Plan before asking `validatePlan` to classify its invariants. -/
+def canonicalPlanHash (plan : Plan) : String :=
   Crypto.sha256Hex <| ("pf.noir.plan.v1\u0000" ++
     targetDescriptorEngineeringReprV1 plan.targetDescriptor ++ "\u0000" ++
     reprStr plan.semanticSchemaVersion ++ "\u0000" ++
@@ -453,6 +457,19 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
+private def findResultTypeV1 (callable : CallableV1)
+    (id : ValueIdV1) : CompileResult TypeIdV1 := do
+  for param in callable.params do
+    if param.valueId == id then return param.typeId
+  for block in callable.blocks do
+    for param in block.params do
+      if param.valueId == id then return param.typeId
+    for instruction in block.instructions do
+      if let some result := instruction.result then
+        if result.valueId == id then return result.typeId
+  throw <| .planInvariant .noir
+    s!"semantic expression references unknown result ValueId {id.toNat}"
+
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   unless bytes.size == 8 do
     throw <| .planInvariant .noir
@@ -621,17 +638,259 @@ private inductive SemanticCallableModeV1 where
 private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
+  deriving Nonempty
+
+private structure LoweredBlockV1 where
+  values : Array LoweredValueV1
+  segmentStart : Nat
+  body : Array Statement
+
+private def lowerBlockInstructionsV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (paramCount : Nat)
+    (initialValues : Array LoweredValueV1)
+    (initialSegmentStart : Nat)
+    (block : BlockV1) : CompileResult LoweredBlockV1 := do
+  if block.instructions.size > maxBodyStatements then
+    throw <| .planInvariant .noir
+      s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
+  let uint64TypeId := types.uint64TypeId
+  let mut values := initialValues
+  let mut segmentStart := initialSegmentStart
+  let mut body : Array Statement := #[]
+  for instruction in block.instructions do
+    match instruction.op, instruction.result with
+    | .literal typeId bytes, some result =>
+        if typeId == uint64TypeId then
+          let value ← decodeUInt64LiteralV1 bytes
+          values := ← appendResultValueV1 uint64TypeId values result {
+            expr := .literal value, kind := .uint64, depth := 1,
+            expandedNodes := 1, dependencies := #[] }
+        else if types.boolTypeId == some typeId then
+          let value ← decodeBoolLiteralV1 bytes
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value, kind := .bool, depth := 1,
+            expandedNodes := 1, dependencies := #[] }
+        else throw (.planInvariant .noir
+          "unsupported Noir semantic shape: literal is not UInt64 or Bool")
+    | .stateLoad stateId, some result =>
+        let field ← findStateV1 states stateId
+        values := ← appendResultValueV1 uint64TypeId values result {
+          expr := .stateLoad field.sourceId, kind := .uint64, depth := 1,
+          expandedNodes := 1, dependencies := #[] }
+    | .binary op lhsId rhsId, some result =>
+        let lhs ← currentValueV1 values paramCount segmentStart lhsId
+        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        if op == .add then
+          values := ← appendResultValueV1 uint64TypeId values result
+            (← makeCheckedAddValueV1 lhsId rhsId lhs rhs)
+        else if op == .sub then
+          values := ← appendResultValueV1 uint64TypeId values result
+            (← makeCheckedSubValueV1 lhsId rhsId lhs rhs)
+        else match binaryOpToComparisonV1 op with
+        | some comparison =>
+            let boolTypeId ← match types.boolTypeId with
+              | some value => pure value
+              | none => throw (.planInvariant .noir
+                  "unsupported Noir semantic shape: comparison requires interned Bool type")
+            unless result.typeId == boolTypeId do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: comparison result must be Bool"
+            values := ← appendResultValueV1 boolTypeId values result
+              (← makeCompareValueV1 comparison lhsId rhsId lhs rhs)
+        | none => throw (.planInvariant .noir
+            "unsupported Noir semantic shape: only checked UInt64 add/sub and comparisons are supported")
+    | .stateStore stateId valueId, none =>
+        if mode == .view then throw (.planInvariant .noir
+          "unsupported Noir semantic shape: view callable writes state")
+        let field ← findStateV1 states stateId
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        body := body.push (.store { fieldIndex := field.sourceId, value })
+        segmentStart := values.size
+    | .assert_ condId errorId args, none =>
+        unless errorId.isNone && args.isEmpty do throw (.planInvariant .noir
+          "unsupported Noir semantic shape: assert must use errorId=none and empty args")
+        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        body := body.push (.assert condition)
+        segmentStart := values.size
+    | _, _ => throw (.planInvariant .noir
+        "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot")
+  pure { values, segmentStart, body }
 
 /-- `returnKind = none` for initializer (no return value). For entry/view it is
     the admitted result kind (UInt64 or Bool) and must match the returned value. -/
-private def lowerCallableV1
+private partial def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (inputOffset : Nat)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
     (returnKind : Option NoirValueKindV1)
-    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+    (callable : CallableV1)
+    (switchCase : Option UInt64 := none) : CompileResult LoweredCallableV1 := do
+  if callable.blocks.size == 3 && switchCase.isNone then
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing switch block 0"
+    match entry.terminator with
+    | .switch scrutinee cases (some defaultTarget) =>
+      let case ← match cases with | #[c] => pure c | _ => planError "Noir switch requires exactly one case"
+      unless case.typeId == types.uint64TypeId && case.target.blockId.toNat == 1 &&
+          case.target.args.isEmpty && defaultTarget.blockId.toNat == 2 && defaultTarget.args.isEmpty do
+        throw <| .planInvariant .noir "unsupported Noir switch case/target shape"
+      unless (← findResultTypeV1 callable scrutinee) == types.uint64TypeId do
+        throw <| .planInvariant .noir "Noir switch scrutinee must be UInt64"
+      let value ← decodeUInt64LiteralV1 case.valueBytes
+      let rewrittenEntry := { entry with terminator := .branch scrutinee case.target defaultTarget }
+      let rewritten := { callable with blocks := callable.blocks.set! 0 rewrittenEntry }
+      return ← lowerCallableV1 owner mode inputOffset types states returnKind rewritten (some value)
+    | .switch _ _ none => throw <| .planInvariant .noir "Noir switch requires a default target"
+    | _ => pure ()
+  -- Shared Normalize's conditional slice has globally assigned instruction
+  -- ValueIds.  The four-block form additionally reserves ValueId 0 for the
+  -- join's sole UInt64 phi parameter.
+  if callable.blocks.size == 3 || callable.blocks.size == 4 then
+    unless mode != .initialize && callable.params.isEmpty &&
+        callable.entryBlock.toNat == 0 && callable.loopBounds.isEmpty &&
+        callable.invariantSteps.isNone do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: terminal if must be a parameterless entry/view"
+    let (b0, b1, b2) ← match callable.blocks[0]?, callable.blocks[1]?, callable.blocks[2]? with
+      | some b0, some b1, some b2 => pure (b0, b1, b2)
+      | _, _, _ => throw (.planInvariant .noir "terminal if blocks are missing")
+    unless b0.id.toNat == 0 && b1.id.toNat == 1 && b2.id.toNat == 2 &&
+        b0.params.isEmpty && b1.params.isEmpty && b2.params.isEmpty do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: terminal if requires exact parameterless blocks 0/1/2"
+    let (conditionId, thenTarget, elseTarget) ← match b0.terminator with
+      | .branch condition thenTarget elseTarget => pure (condition, thenTarget, elseTarget)
+      | _ => throw (.planInvariant .noir
+          "unsupported Noir semantic shape: terminal if entry must branch")
+    unless thenTarget.blockId.toNat == 1 && elseTarget.blockId.toNat == 2 &&
+        thenTarget.args.isEmpty && elseTarget.args.isEmpty do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: terminal if branch targets/args are not exact"
+    if switchCase.isNone && types.boolTypeId.isNone then
+      throw <| .planInvariant .noir "terminal if requires Bool type"
+    let joinBlock? := callable.blocks[3]?
+    let phiJoin := match joinBlock? with
+      | some b => !b.params.isEmpty
+      | none => false
+    -- In the phi form slot zero is inaccessible to ordinary blocks, but keeps
+    -- array indexes aligned with global instruction ValueIds starting at one.
+    let phiSlot : LoweredValueV1 := {
+      expr := .literal 0, kind := .uint64, depth := 1,
+      expandedNodes := 1, dependencies := #[] }
+    let valueBase := if phiJoin then 1 else 0
+    let initialValues := if valueBase == 1 then #[phiSlot] else #[]
+    let entry ← lowerBlockInstructionsV1 owner mode types states valueBase initialValues valueBase b0
+    unless entry.body.isEmpty do
+      throw <| .planInvariant .noir "terminal if entry cannot have prefix effects"
+    let rawCondition ← consumeCurrentSegmentV1 entry.values valueBase entry.segmentStart conditionId
+    unless (← findValueV1 entry.values conditionId).expr == rawCondition do
+      throw <| .planInvariant .noir "terminal if condition value is not exact"
+    let conditionType ← findResultTypeV1 callable conditionId
+    unless (switchCase.isSome && conditionType == types.uint64TypeId) ||
+        (switchCase.isNone && types.boolTypeId == some conditionType) do
+      throw <| .planInvariant .noir "terminal if condition must be Bool"
+    let condition := match switchCase with
+      | some value => Expr.compare .eq rawCondition (.literal value)
+      | none => rawCondition
+    let lowerArm (block : BlockV1) (values : Array LoweredValueV1) :
+        CompileResult (Array Statement × Array LoweredValueV1) := do
+      let lowered ← lowerBlockInstructionsV1 owner mode types states valueBase values values.size block
+      let returnId ← match block.terminator with
+        | .return_ (some id) => pure id
+        | _ => throw (.planInvariant .noir "terminal if arm must return a scalar")
+      let value ← consumeCurrentSegmentV1 lowered.values valueBase lowered.segmentStart returnId
+      let expectedKind ← match returnKind with
+        | some kind => pure kind
+        | none => throw (.planInvariant .noir "terminal if result kind is missing")
+      unless (← findValueV1 lowered.values returnId).expr == value &&
+          (← findValueV1 lowered.values returnId).kind == expectedKind do
+        throw <| .planInvariant .noir "terminal if arm return/value kind is not exact"
+      pure (lowered.body.push (.returnValue value), lowered.values)
+    if callable.blocks.size == 3 then
+      let thenResult ← lowerArm b1 entry.values
+      let elseResult ← lowerArm b2 thenResult.2
+      pure { params := #[], body := #[.conditional condition thenResult.1 elseResult.1] }
+    else
+      let b3 ← match callable.blocks[3]? with
+        | some b => pure b
+        | none => throw (.planInvariant .noir "join block 3 is missing")
+      unless b3.id.toNat == 3 && (b3.params.isEmpty ||
+          (b3.params.size == 1 && match b3.params[0]? with
+            | some p => p.valueId.toNat == 0 && p.typeId == types.uint64TypeId
+            | none => false)) do
+        throw <| .planInvariant .noir
+          "join parameters must be empty or sole UInt64 ValueId 0"
+      if b3.params.isEmpty then
+        let exactJump (block : BlockV1) : Bool := match block.terminator with
+          | .jump target => target.blockId.toNat == 3 && target.args.isEmpty
+          | _ => false
+        unless exactJump b1 && exactJump b2 do
+          throw <| .planInvariant .noir
+            "conditional arms must jump exactly to empty join block 3"
+        let lowerNonterminalArm (block : BlockV1) (values : Array LoweredValueV1) := do
+          let lowered ← lowerBlockInstructionsV1 owner mode types states 0 values values.size block
+          unless lowered.segmentStart == lowered.values.size do
+            throw <| .planInvariant .noir
+              "conditional arm has branch-local unconsumed values"
+          pure (lowered.body, lowered.values)
+        let thenResult ← lowerNonterminalArm b1 entry.values
+        let elseResult ← lowerNonterminalArm b2 thenResult.2
+        let join ← lowerBlockInstructionsV1 owner mode types states 0
+          elseResult.2 elseResult.2.size b3
+        let returnId ← match b3.terminator with
+          | .return_ (some id) => pure id
+          | _ => throw (.planInvariant .noir "join block must return a scalar")
+        let expectedKind ← match returnKind with | some k => pure k | none => planError "join result kind missing"
+        unless (← findValueV1 join.values returnId).kind == expectedKind do
+          throw <| .planInvariant .noir "join return kind disagrees with relation result"
+        let returnValue ← consumeCurrentSegmentV1 join.values 0 join.segmentStart returnId
+        let continuation := join.body.push (.returnValue returnValue)
+        return { params := #[], body := #[.conditional condition
+          (thenResult.1 ++ continuation) (elseResult.1 ++ continuation)] }
+      let jumpArg (block : BlockV1) : CompileResult ValueIdV1 := match block.terminator with
+        | .jump target =>
+            if target.blockId.toNat == 3 && target.args.size == 1 then pure target.args[0]!
+            else throw (.planInvariant .noir "conditional arm jump target/arguments are not exact")
+        | _ => throw (.planInvariant .noir "conditional arm must jump to join block 3")
+      let thenArg ← jumpArg b1
+      let elseArg ← jumpArg b2
+      let lowerNonterminalArm (block : BlockV1) (arg : ValueIdV1)
+          (values : Array LoweredValueV1) := do
+        let start := values.size
+        let lowered ← lowerBlockInstructionsV1 owner mode types states 1 values start block
+        unless start <= arg.toNat && arg.toNat < lowered.values.size do
+          throw <| .planInvariant .noir
+            "conditional jump argument must be defined in its own arm"
+        let _ ← consumeCurrentSegmentV1 lowered.values 1 lowered.segmentStart arg
+        let argValue ← findValueV1 lowered.values arg
+        pure (lowered.body, lowered.values, argValue)
+      let thenResult ← lowerNonterminalArm b1 thenArg entry.values
+      let elseResult ← lowerNonterminalArm b2 elseArg thenResult.2.1
+      let baseValues := elseResult.2.1
+      let lowerContinuation (phi : LoweredValueV1) := do
+        let phiValue : LoweredValueV1 := { phi with dependencies := #[] }
+        let substituted := baseValues.set! 0 phiValue
+        lowerBlockInstructionsV1 owner mode types states 1 substituted substituted.size b3
+      let thenJoin ← lowerContinuation thenResult.2.2
+      let elseJoin ← lowerContinuation elseResult.2.2
+      let returnId ← match b3.terminator with
+        | .return_ (some id) => pure id
+        | _ => throw (.planInvariant .noir "join block must return UInt64")
+      let thenReturn ← consumeCurrentSegmentV1 thenJoin.values 1 thenJoin.segmentStart returnId
+      let elseReturn ← consumeCurrentSegmentV1 elseJoin.values 1 elseJoin.segmentStart returnId
+      let expectedKind ← match returnKind with | some k => pure k | none => planError "join result kind missing"
+      unless (← findValueV1 thenJoin.values returnId).kind == expectedKind &&
+          (← findValueV1 elseJoin.values returnId).kind == expectedKind do
+        throw <| .planInvariant .noir "phi continuation return kind disagrees with relation result"
+      pure { params := #[], body := #[.conditional condition
+        (thenResult.1 ++ thenJoin.body.push (.returnValue thenReturn))
+        (elseResult.1 ++ elseJoin.body.push (.returnValue elseReturn))] }
+  else
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .noir
@@ -825,48 +1084,55 @@ private def makeRelationV1
     body := lowered.body
   }
 
+private inductive ExpectedExprKind where | uint64 | bool deriving BEq
+
 private partial def planExprNodes? (states : Array StateField) (inputs : Array InputBinding)
-    (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
+    (expected : ExpectedExprKind) (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
     match expr with
-    | .literal .. => some 1
+    | .literal value => if expected == .uint64 || value == 0 || value == 1 then some 1 else none
     | .param inputIndex =>
         match inputs[inputIndex]? with
-        | some input => if let .parameter .. := input.role then some 1 else none
+        | some input =>
+            if expected == .uint64 && input.type == .u64 &&
+                (if let .parameter .. := input.role then true else false) then some 1 else none
         | none => none
-    | .stateLoad fieldIndex => if fieldIndex < states.size then some 1 else none
+    | .stateLoad fieldIndex => if expected == .uint64 && fieldIndex < states.size then some 1 else none
     | .checkedAdd lhs rhs =>
+        if expected != .uint64 then none else
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs .uint64 (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs .uint64 (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .checkedSub lhs rhs =>
+        if expected != .uint64 then none else
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs .uint64 (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs .uint64 (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .compare _ lhs rhs =>
+        if expected != .bool then none else
         let available := nodeBudget - 1
-        match planExprNodes? states inputs (depthLeft - 1) available lhs with
+        match planExprNodes? states inputs .uint64 (depthLeft - 1) available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? states inputs (depthLeft - 1) (available - lhsNodes) rhs with
+            match planExprNodes? states inputs .uint64 (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (plan : Plan) (relation : Relation)
-    (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (expected : ExpectedExprKind) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= plan.resourceLimits.maxPlanNodes then
     throw <| .planInvariant .noir "Noir Plan exceeds aggregate node limit"
-  match planExprNodes? plan.states relation.inputs plan.resourceLimits.maxExprDepth
+  match planExprNodes? plan.states relation.inputs expected plan.resourceLimits.maxExprDepth
       (plan.resourceLimits.maxPlanNodes - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
@@ -881,11 +1147,23 @@ private def expectedParams (states : Array StateField)
     param with sourceId := index, inputIndex := inputOffset + index
   }
 
+private def statementContainsConditional : Statement → Bool
+  | .conditional .. => true
+  | _ => false
+
+private def bodyContainsConditional (body : Array Statement) : Bool :=
+  body.any statementContainsConditional
+
 private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     (relation : Relation) : CompileResult Nat := do
+  let body := relation.body
   if relation.params.size > plan.resourceLimits.maxParams then
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds parameter limit"
-  if relation.body.size > plan.resourceLimits.maxBodyStatements then
+  let recursiveStatementCount := body.foldl (fun count statement =>
+    match statement with
+    | .conditional _ thenBody elseBody => count + thenBody.size + elseBody.size
+    | _ => count) body.size
+  if recursiveStatementCount > plan.resourceLimits.maxBodyStatements then
     throw <| .planInvariant .noir s!"relation '{relation.name}' exceeds body limit"
   let expectedInputCount :=
     (if plan.states.isEmpty then 0 else 2) +
@@ -901,6 +1179,8 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
       !hasDuplicates (relation.params.map (·.name)) do
     throw <| .planInvariant .noir "relation parameter names are not canonical"
   let expectedResultType := resultInputTypeOf relation
+  let expectedReturnKind := if expectedResultType == .bool then
+      ExpectedExprKind.bool else ExpectedExprKind.uint64
   unless relation.params == expectedParams plan.states relation &&
       relation.inputs == makeInputsV1 plan.states relation.mode relation.params
         expectedResultType do
@@ -909,9 +1189,14 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     unless expectedResultType == .u64 || expectedResultType == .bool do
       throw <| .planInvariant .noir
         s!"relation '{relation.name}' result type is outside the UInt64/Bool pilot"
+  if bodyContainsConditional body &&
+      (!relation.params.isEmpty ||
+        !(match body with | #[.conditional ..] => true | _ => false)) then
+    throw <| .planInvariant .noir
+      "conditional relation must be parameterless with exactly one leading conditional"
   let mut total := baseNodes
   let mut returned := false
-  for statement in relation.body do
+  for statement in body do
     if returned then
       throw <| .planInvariant .noir s!"relation '{relation.name}' has a statement after return"
     match statement with
@@ -920,14 +1205,44 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
           throw <| .planInvariant .noir s!"view relation '{relation.name}' writes state"
         unless store.fieldIndex < plan.states.size do
           throw <| .planInvariant .noir s!"relation '{relation.name}' stores unknown state"
-        total ← addPlanExprNodes plan relation total store.value
+        total ← addPlanExprNodes plan relation .uint64 total store.value
     | .returnValue value =>
         if relation.mode == .initialize then
           throw <| .planInvariant .noir "initializer relation cannot return a value"
-        total ← addPlanExprNodes plan relation total value
+        total ← addPlanExprNodes plan relation expectedReturnKind total value
         returned := true
     | .assert condition =>
-        total ← addPlanExprNodes plan relation total condition
+        total ← addPlanExprNodes plan relation .bool total condition
+    | .conditional condition thenBody elseBody =>
+        total ← addPlanExprNodes plan relation .bool total condition
+        let nestedStatements := thenBody.size + elseBody.size
+        if nestedStatements > plan.resourceLimits.maxPlanNodes - total then
+          throw <| .planInvariant .noir "Noir Plan exceeds aggregate node limit"
+        total := total + nestedStatements
+        -- Nested conditionals are intentionally not part of this slice.
+        if thenBody.any (fun s => match s with | .conditional .. => true | _ => false) ||
+            elseBody.any (fun s => match s with | .conditional .. => true | _ => false) then
+          throw <| .planInvariant .noir "nested Noir conditionals are unsupported"
+        for arm in #[thenBody, elseBody] do
+          let mut armReturned := false
+          for nested in arm do
+            if armReturned then
+              throw <| .planInvariant .noir "conditional arm has a statement after return"
+            match nested with
+            | .store store =>
+                if relation.mode == .view then
+                  throw <| .planInvariant .noir "view conditional arm writes state"
+                unless store.fieldIndex < plan.states.size do
+                  throw <| .planInvariant .noir "conditional arm stores unknown state"
+                total ← addPlanExprNodes plan relation .uint64 total store.value
+            | .assert value => total ← addPlanExprNodes plan relation .bool total value
+            | .returnValue value =>
+                total ← addPlanExprNodes plan relation expectedReturnKind total value
+                armReturned := true
+            | .conditional .. => pure ()
+          unless armReturned do
+            throw <| .planInvariant .noir "conditional arm does not return UInt64"
+        returned := true
   if relation.mode == .initialize then
     if returned then
       throw <| .planInvariant .noir "initializer relation cannot return a value"
@@ -1121,6 +1436,7 @@ private def inputIndexFor (relation : Relation) (role : InputRole) : Nat := Id.r
   return 0
 
 private def lowerRelation (plan : Plan) (relation : Relation) : RelationIR := Id.run do
+  let body := relation.body
   let mut stateValues : Array ValueRef := #[]
   for field in plan.states do
     stateValues := stateValues.push <| if relation.mode == .initialize then
@@ -1133,7 +1449,8 @@ private def lowerRelation (plan : Plan) (relation : Relation) : RelationIR := Id
       (inputIndexFor relation .preInitialized) (relation.mode != .initialize)
   let mut next := 0
   let mut returned : Option ValueRef := none
-  for statement in relation.body do
+  let mut hasConditional := false
+  for statement in body do
     match statement with
     | .store store =>
         let value := lowerExpr stateValues next store.value
@@ -1150,14 +1467,64 @@ private def lowerRelation (plan : Plan) (relation : Relation) : RelationIR := Id
         operations := operations ++ value.operations ++
           #[.assertConstraint value.value]
         next := value.next
-  for field in plan.states do
-    operations := operations.push <| .assertEqual
-      (.input (inputIndexFor relation (.postState field.sourceId)))
-      stateValues[field.sourceId]!
-  if !plan.states.isEmpty then
+    | .conditional condition thenBody elseBody =>
+        hasConditional := true
+        let cond := lowerExpr stateValues next condition
+        let lowerArm (statements : Array Statement) (start : Nat) :
+            Array Operation × Nat × Array ValueRef × Option ValueRef := Id.run do
+          let mut armOps : Array Operation := #[]
+          let mut armNext := start
+          let mut armStateValues := stateValues
+          let mut armReturned : Option ValueRef := none
+          for nested in statements do
+            match nested with
+            | .store store =>
+                let value := lowerExpr armStateValues armNext store.value
+                armOps := armOps ++ value.operations
+                armStateValues := armStateValues.set! store.fieldIndex value.value
+                armNext := value.next
+            | .returnValue value =>
+                let value := lowerExpr armStateValues armNext value
+                armOps := armOps ++ value.operations
+                armReturned := some value.value
+                armNext := value.next
+            | .assert value =>
+                let value := lowerExpr armStateValues armNext value
+                armOps := armOps ++ value.operations ++ #[.assertConstraint value.value]
+                armNext := value.next
+            | .conditional .. => pure ()
+          return (armOps, armNext, armStateValues, armReturned)
+        let thenResult := lowerArm thenBody cond.next
+        let elseResult := lowerArm elseBody thenResult.2.1
+        let mut thenOps := thenResult.1
+        let mut elseOps := elseResult.1
+        for field in plan.states do
+          thenOps := thenOps.push <| .assertEqual
+            (.input (inputIndexFor relation (.postState field.sourceId))) thenResult.2.2.1[field.sourceId]!
+          elseOps := elseOps.push <| .assertEqual
+            (.input (inputIndexFor relation (.postState field.sourceId))) elseResult.2.2.1[field.sourceId]!
+        thenOps := thenOps.push <| .assertEqual
+          (.input (inputIndexFor relation .result)) thenResult.2.2.2.get!
+        elseOps := elseOps.push <| .assertEqual
+          (.input (inputIndexFor relation .result)) elseResult.2.2.2.get!
+        if !plan.states.isEmpty then
+          thenOps := thenOps.push <| .assertBool
+            (inputIndexFor relation .postInitialized) true
+          elseOps := elseOps.push <| .assertBool
+            (inputIndexFor relation .postInitialized) true
+        returned := some (.literal 0)
+        operations := operations ++ cond.operations ++
+          #[.conditional cond.value thenOps elseOps]
+        next := elseResult.2.1
+  unless hasConditional do
+    for field in plan.states do
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.postState field.sourceId)))
+        stateValues[field.sourceId]!
+  if !plan.states.isEmpty && !hasConditional then
     operations := operations.push <| .assertBool
       (inputIndexFor relation .postInitialized) true
-  if relation.mode != .initialize then
+  if relation.mode != .initialize && !hasConditional then
     operations := operations.push <| .assertEqual
       (.input (inputIndexFor relation .result)) returned.get!
   return { sourceRelation := relation, tempCount := next, operations }
@@ -1172,24 +1539,42 @@ private def addLiveTemp (live : Array Nat) : ValueRef → Array Nat
 /-- Noir may eliminate an unused checked integer expression, including its
 failure constraint. Reject every checked add/sub/compare result that is not
 transitively consumed by a final equality or assert constraint. -/
-private def validateCheckedArithmeticLiveness
-    (relation : RelationIR) : CompileResult Unit := do
-  let mut live : Array Nat := #[]
-  for offset in [0:relation.operations.size] do
-    let operation := relation.operations[relation.operations.size - 1 - offset]!
-    match operation with
-    | .assertEqual lhs rhs =>
-        live := addLiveTemp (addLiveTemp live lhs) rhs
-    | .assertConstraint condition =>
-        live := addLiveTemp live condition
+private def validateFlatArithmeticLiveness (owner : String)
+    (operations : Array Operation) (initialLive : Array Nat := #[]) :
+    CompileResult (Array Nat) := do
+  let mut live := initialLive
+  for offset in [0:operations.size] do
+    match operations[operations.size - 1 - offset]! with
+    | .assertEqual lhs rhs => live := addLiveTemp (addLiveTemp live lhs) rhs
+    | .assertConstraint condition => live := addLiveTemp live condition
     | .assertBool .. => pure ()
+    | .conditional .. =>
+        throw <| .planInvariant .noir "nested typed Noir IR conditional is unsupported"
     | .checkedAdd destination lhs rhs
     | .checkedSub destination lhs rhs
     | .compare _ destination lhs rhs =>
         unless live.contains destination do
           throw <| .planInvariant .noir
-            s!"relation '{relation.sourceRelation.name}' contains dead checked arithmetic whose failure would not be constrained"
+            s!"relation '{owner}' contains dead checked arithmetic whose failure would not be constrained"
         live := addLiveTemp (addLiveTemp live lhs) rhs
+  pure live
+
+private def validateCheckedArithmeticLiveness
+    (relation : RelationIR) : CompileResult Unit := do
+  let mut live : Array Nat := #[]
+  for offset in [0:relation.operations.size] do
+    match relation.operations[relation.operations.size - 1 - offset]! with
+    | .conditional condition thenOps elseOps =>
+        let thenLive ← validateFlatArithmeticLiveness
+          relation.sourceRelation.name thenOps live
+        let elseLive ← validateFlatArithmeticLiveness
+          relation.sourceRelation.name elseOps live
+        for temp in thenLive ++ elseLive do
+          unless live.contains temp do live := live.push temp
+        live := addLiveTemp live condition
+    | operation =>
+        live ← validateFlatArithmeticLiveness relation.sourceRelation.name #[operation] live
+  pure ()
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
@@ -1197,14 +1582,27 @@ def validateIR (ir : IR) : CompileResult Unit := do
       ir.relations.size == ir.sourcePlan.relations.size do
     throw <| .planInvariant .noir "typed Noir IR identity/catalog is not bound to its Plan"
   let limit := ir.sourcePlan.resourceLimits.maxIrOperations
+  let rec operationNodes : Nat → Array Operation → Option Nat
+    | 0, _ => none
+    | fuel + 1, operations =>
+      operations.foldl (fun total operation => total.bind fun count =>
+        match operation with
+        | .conditional _ thenOps elseOps => do
+            let left ← operationNodes fuel thenOps
+            let right ← operationNodes fuel elseOps
+            some (count + 1 + left + right)
+        | _ => some (count + 1)) (some 0)
   let mut operationCount := 0
   for relation in ir.relations do
     if relation.tempCount > limit - operationCount then
       throw <| .planInvariant .noir "typed Noir IR exceeds operation limit"
     operationCount := operationCount + relation.tempCount
-    if relation.operations.size > limit - operationCount then
+    let nodes ← match operationNodes ir.sourcePlan.resourceLimits.maxExprDepth relation.operations with
+      | some value => pure value
+      | none => throw (.planInvariant .noir "typed Noir IR conditional nesting exceeds limit")
+    if nodes > limit - operationCount then
       throw <| .planInvariant .noir "typed Noir IR exceeds operation limit"
-    operationCount := operationCount + relation.operations.size
+    operationCount := operationCount + nodes
     validateCheckedArithmeticLiveness relation
   unless ir.relations == expectedRelations ir.sourcePlan do
     throw <| .planInvariant .noir
@@ -1261,7 +1659,7 @@ private def renderEqualOperand (relation : Relation) (asBool : Bool) :
         toString value.toNat
   | value => renderValue relation value
 
-private def renderOperation (relation : Relation) : Operation → String
+private partial def renderOperation (relation : Relation) : Operation → String
   | .checkedAdd destination lhs rhs =>
       s!"    let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n"
   | .checkedSub destination lhs rhs =>
@@ -1276,6 +1674,12 @@ private def renderOperation (relation : Relation) : Operation → String
       s!"    let t{destination}: bool = {renderValue relation lhs} {renderComparisonOp op} {renderValue relation rhs};\n"
   | .assertConstraint condition =>
       s!"    assert({renderAssertCondition relation condition});\n"
+  | .conditional condition thenOps elseOps =>
+      let renderArm (ops : Array Operation) : String :=
+        String.intercalate "" <| ops.toList.map fun op =>
+          (renderOperation relation op).replace "    " "        "
+      s!"    if {renderAssertCondition relation condition} \{\n" ++
+        renderArm thenOps ++ "    } else {\n" ++ renderArm elseOps ++ "    }\n"
 
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""

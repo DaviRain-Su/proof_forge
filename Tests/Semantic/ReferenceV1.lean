@@ -597,6 +597,192 @@ private unsafe def testGuardedCounterReferenceSlice
       (inv entryId #[refU64 u64Tid 4]) emptyResponses
   expectRevertedStandard "guarded-assert" guarded .assertionFailed expectedDecPost
 
+/-- Normalize-produced terminal branches execute the selected arm end to end. -/
+private unsafe def testTerminalIfReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "TerminalIfRef" <|
+    "  view chooseTrue() : UInt64 do\n" ++
+    "    if true then\n" ++
+    "      return 7\n" ++
+    "    else\n" ++
+    "      return 9\n" ++
+    "  view chooseFalse() : UInt64 do\n" ++
+    "    if false then\n" ++
+    "      return 7\n" ++
+    "    else\n" ++
+    "      return 9\n"
+  let validated ← loadSource session "terminal-if" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"terminal-if: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"terminal-if: validate failed: {repr e}"
+  let admitted ← admitOk "terminal-if" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  expect (data.callables.size == 2) "terminal-if: expected two view callables"
+  for callable in data.callables do
+    expect (callable.blocks.size == 3)
+      s!"terminal-if: callable {callable.id} must have three blocks"
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"terminal-if initial: {repr e}"
+  expectReturned "terminal-if-true"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 7)) #[]
+  expectReturned "terminal-if-false"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 9)) #[]
+
+/-- Normalize-produced Switch executes both its literal case and default. -/
+private unsafe def testTerminalMatchReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "TerminalMatchRef" <|
+    "  state hitValue : UInt64\n" ++
+    "  state fallbackValue : UInt64\n" ++
+    "  init() do\n" ++
+    "    hitValue := 7\n" ++
+    "    fallbackValue := 8\n" ++
+    "  view hit() : UInt64 do\n" ++
+    "    match hitValue with\n" ++
+    "    | 7 => do\n" ++
+    "      return 3\n" ++
+    "    | _ => do\n" ++
+    "      return 4\n" ++
+    "  view fallback() : UInt64 do\n" ++
+    "    match fallbackValue with\n" ++
+    "    | 7 => do\n" ++
+    "      return 3\n" ++
+    "    | _ => do\n" ++
+    "      return 4\n"
+  let validated ← loadSource session "terminal-match" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"terminal-match: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"terminal-match: validate failed: {repr e}"
+  let admitted ← admitOk "terminal-match" carrier
+  let some firstCallable := data.callables[1]? |
+    throw <| IO.userError "terminal-match callable missing"
+  let u64Tid := firstCallable.result.typeId
+  for callable in data.callables.drop 1 do
+    let some entryBlock := callable.blocks[0]? |
+      throw <| IO.userError "terminal-match entry block missing"
+    match entryBlock.terminator with
+    | .switch _ #[case] (some fallback) =>
+        expect (case.target.blockId == 1 && fallback.blockId == 2)
+          "terminal-match Reference fixture must retain exact Switch"
+    | _ => throw <| IO.userError "terminal-match Reference fixture lost Switch"
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"terminal-match initial: {repr e}"
+  let initialized : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := (stateSlot (u64Bytes 7)).append (stateSlot (u64Bytes 8)) }
+  expectReturned "terminal-match-init"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    initialized none #[]
+  expectReturned "terminal-match-hit"
+    (stepReferenceSliceV1 admitted initialized (inv 1 #[]) emptyResponses)
+    initialized (some (refU64 u64Tid 3)) #[]
+  expectReturned "terminal-match-default"
+    (stepReferenceSliceV1 admitted initialized (inv 2 #[]) emptyResponses)
+    initialized (some (refU64 u64Tid 4)) #[]
+
+private unsafe def testJoinContinuationReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "JoinRef" <|
+    "  state count : UInt64\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    count := seed\n" ++
+    "  entry chooseTrue() : UInt64 do\n" ++
+    "    if true then\n" ++
+    "      count := 10\n" ++
+    "    else\n" ++
+    "      count := 20\n" ++
+    "    let loaded : UInt64 := count\n" ++
+    "    return loaded + 1\n" ++
+    "  entry chooseFalse() : UInt64 do\n" ++
+    "    if false then\n" ++
+    "      count := 30\n" ++
+    "    else\n" ++
+    "      count := 40\n" ++
+    "    return count + 2\n"
+  let validated ← loadSource session "join-if" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"join-if: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"join-if: validate failed: {repr e}"
+  let admitted ← admitOk "join-if" carrier
+  let some stateDecl := data.logicalState[0]? | throw <| IO.userError "join-if: state"
+  let u64Tid := stateDecl.typeId
+  let some trueCallable := data.callables[1]? | throw <| IO.userError "join-if: true callable"
+  let some falseCallable := data.callables[2]? | throw <| IO.userError "join-if: false callable"
+  expect (trueCallable.blocks.size == 4 && falseCallable.blocks.size == 4)
+    "join-if: both entries exact four-block CFG"
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"join-if initial: {repr e}"
+  let initializedState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "join-if-init"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[refU64 u64Tid 0]) emptyResponses)
+    initializedState none #[]
+  let trueState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 10) }
+  expectReturned "join-if-true"
+    (stepReferenceSliceV1 admitted initializedState (inv 1 #[]) emptyResponses)
+    trueState (some (refU64 u64Tid 11)) #[]
+  let falseState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 40) }
+  expectReturned "join-if-false"
+    (stepReferenceSliceV1 admitted trueState (inv 2 #[]) emptyResponses)
+    falseState (some (refU64 u64Tid 42)) #[]
+
+private unsafe def testPhiContinuationReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "PhiRef" <|
+    "  entry chooseTrue() : UInt64 do\n" ++
+    "    let selected : UInt64 := 99\n" ++
+    "    if true then\n" ++
+    "      selected := 7\n" ++
+    "    else\n" ++
+    "      selected := 8\n" ++
+    "    return selected + 1\n" ++
+    "  entry chooseFalse() : UInt64 do\n" ++
+    "    let selected : UInt64 := 99\n" ++
+    "    if false then\n" ++
+    "      selected := 17\n" ++
+    "    else\n" ++
+    "      selected := 18\n" ++
+    "    return selected + 2\n"
+  let validated ← loadSource session "phi-if" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"phi-if: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"phi-if: validate failed: {repr e}"
+  let admitted ← admitOk "phi-if" carrier
+  let some callable := data.callables[0]? | throw <| IO.userError "phi-if: callable"
+  let u64Tid := callable.result.typeId
+  let pre ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"phi-if initial: {repr e}"
+  expectReturned "phi-if-true"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 8)) #[]
+  expectReturned "phi-if-false"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 20)) #[]
+
 private unsafe def testCounterReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "CounterRef" <|
@@ -1387,6 +1573,10 @@ unsafe def run : IO Unit := do
   testGuardedCounterReferenceSlice session
   testBoolResultReferenceSlice session
   testIfMatchReferenceSlice session
+  testTerminalIfReferenceSlice session
+  testTerminalMatchReferenceSlice session
+  testJoinContinuationReferenceSlice session
+  testPhiContinuationReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

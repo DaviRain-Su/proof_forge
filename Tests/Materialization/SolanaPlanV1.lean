@@ -529,6 +529,20 @@ private unsafe def testValidatePlanNegatives
   -- validateIR: out-of-range assert condition / wrong error code.
   let ir ← liftResult <| irSolana compiled
   let decIR ← findHandlerIR ir "decrement"
+  let mut deepOperation : Operation := .setReturnData 0
+  for _ in [0:300] do
+    deepOperation := .conditional 0 #[deepOperation] #[.setReturnData 0]
+  let deepHandlers := ir.handlers.map fun handler =>
+    if handler.name == "decrement" then { handler with operations := #[deepOperation] }
+    else handler
+  expectPlanError "deep public withHandlers IR mutation" <|
+    validateIR (withHandlers ir deepHandlers)
+  let wideHandlers := ir.handlers.map fun handler =>
+    if handler.name == "decrement" then
+      { handler with operations := Array.replicate 100001 (.setReturnData 0) }
+    else handler
+  expectPlanError "wide public withHandlers IR mutation" <|
+    validateIR (withHandlers ir wideHandlers)
   let badCondition := {
     decIR with
     operations := decIR.operations.map fun op =>
@@ -548,6 +562,184 @@ private unsafe def testValidatePlanNegatives
   expectPlanError "IR assert wrong error code" <|
     validateIR (withHandlers ir (ir.handlers.set! 1 badError))
 
+/-- Exact terminal-branch slice lowers to structured Plan/IR and deterministic text. -/
+private unsafe def testTerminalConditional
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "SolanaIf" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view choose() : UInt64 do\n" ++
+    "    if count > 2 then\n" ++
+    "      return count + 3\n" ++
+    "    else\n" ++
+    "      return count + 4\n\n" ++
+    "  view literalChoice() : UInt64 do\n" ++
+    "    if true then\n" ++
+    "      return 7\n" ++
+    "    else\n" ++
+    "      return count\n"
+  let compiled ← compileSource session source "Examples.SolanaIf" "<solana-if>"
+  let plan ← liftResult <| planSolana compiled
+  let choose ← findHandler plan "choose"
+  expect (choose.params.isEmpty && choose.mode == .view)
+    "terminal conditional callable must preserve its parameterless view ABI"
+  match choose.body with
+  | #[.conditional (.compare .gt (.stateLoad 0 8) (.literal 2))
+        #[.returnValue (.checkedAdd (.stateLoad 0 8) (.literal 3))]
+        #[.returnValue (.checkedAdd (.stateLoad 0 8) (.literal 4))]] => pure ()
+  | body => throw <| IO.userError s!"unexpected terminal conditional Plan: {repr body}"
+  let literalChoice ← findHandler plan "literalChoice"
+  expect (literalChoice.body == #[.conditional (.literal 1)
+      #[.returnValue (.literal 7)] #[.returnValue (.stateLoad 0 8)]])
+    "Bool-literal condition and literal/state-load arms must preserve the terminal-if shape"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let text ← findFile files "SolanaIf.sbpf-plan"
+  expect (text.contains "if %2 then\n" && text.contains "else\n" &&
+      text.contains "end-if\n") "sbpf-plan must render structured conditional control flow"
+  let files2 ← liftResult <| filesSolana compiled
+  expect (text == (← findFile files2 "SolanaIf.sbpf-plan"))
+    "conditional sbpf-plan output must be deterministic"
+  -- Public Plan mutations: nested control flow and writes in a view fail closed.
+  let nested := { choose with body := #[.conditional (.literal 1)
+    #[.conditional (.literal 1) #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+    #[.returnValue (.literal 3)]] }
+  expectPlanError "nested conditional" <|
+    validatePlan { plan with entries := plan.entries.map fun h => if h.name == "choose" then nested else h }
+  let conditionalParam : Param := {
+    sourceId := 0, name := "x", dataOffset := 8, byteWidth := 8, endianness := .little }
+  let parameterized := { choose with
+    discriminator := instructionDiscriminator choose.name #[conditionalParam]
+    params := #[conditionalParam] }
+  expectPlanError "parameterized singleton conditional" <|
+    validatePlan { plan with entries := plan.entries.map fun h =>
+      if h.name == "choose" then parameterized else h }
+  let writing := { choose with body := #[.conditional (.literal 1)
+    #[.store { accountIndex := 0, byteOffset := 8, value := .literal 1 },
+      .returnValue (.literal 1)] #[.returnValue (.literal 2)]] }
+  expectPlanError "view conditional write" <|
+    validatePlan { plan with entries := plan.entries.map fun h => if h.name == "choose" then writing else h }
+  let effectfulPrefix := { choose with body := #[
+    .assert (.literal 1),
+    .conditional (.literal 1) #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]] }
+  expectPlanError "effectful branch prefix" <|
+    validatePlan { plan with entries := plan.entries.map fun h =>
+      if h.name == "choose" then effectfulPrefix else h }
+  let oversizedArm := Array.replicate 4096 (Statement.assert (.literal 1)) |>
+    (·.push (.returnValue (.literal 1)))
+  let oversized := { choose with body := #[.conditional (.literal 1)
+    oversizedArm #[.returnValue (.literal 2)]] }
+  expectPlanError "nested arm body resource limit" <|
+    validatePlan { plan with entries := plan.entries.map fun h =>
+      if h.name == "choose" then oversized else h }
+  let boolStore : Statement := .store {
+    accountIndex := 0
+    byteOffset := 8
+    value := .compare .eq (.literal 0) (.literal 0)
+  }
+  let mistypedBodies : Array (Array Statement) := #[
+    #[.conditional (.stateLoad 0 8) #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]],
+    #[.conditional (.literal 1) #[.assert (.literal 7), .returnValue (.literal 1)]
+      #[.returnValue (.literal 2)]],
+    #[.conditional (.literal 1)
+      #[.returnValue (.compare .eq (.literal 0) (.literal 0))] #[.returnValue (.literal 2)]],
+    #[.conditional (.literal 1)
+      #[boolStore, .returnValue (.literal 1)]
+      #[.returnValue (.literal 2)]]]
+  for body in mistypedBodies do
+    let mutateAccess : AccountAccess := {
+      choose.accountAccess with signerRequired := false, writableRequired := true }
+    let forged := { choose with mode := .mutate, accountAccess := mutateAccess, body }
+    expectPlanError "contextually mistyped terminal-if Plan" <|
+      validatePlan { plan with entries := plan.entries.map fun h =>
+        if h.name == "choose" then forged else h }
+
+private unsafe def testJoinContinuation
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "SolanaJoin" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view choose() : UInt64 do\n" ++
+    "    let selected : UInt64 := 0\n" ++
+    "    if true then\n" ++
+    "      selected := 7\n" ++
+    "    else\n" ++
+    "      selected := 9\n" ++
+    "    return selected + 1\n"
+  let compiled ← compileSource session source "Examples.SolanaJoin" "<solana-join>"
+  let plan ← liftResult <| planSolana compiled
+  let choose ← findHandler plan "choose"
+  expect (choose.body == #[.conditional (.literal 1)
+      #[.returnValue (.checkedAdd (.literal 7) (.literal 1))]
+      #[.returnValue (.checkedAdd (.literal 9) (.literal 1))]])
+    "Solana phi lowering must duplicate the continuation with arm substitution"
+  let files ← liftResult <| filesSolana compiled
+  let text ← findFile files "SolanaJoin.sbpf-plan"
+  expect (text.contains "if " && text.contains "else\n" &&
+      text.contains "end-if\n" && text.contains "checked_add_u64" &&
+      !text.contains "load_state_u64 %")
+    "Solana phi plan text must render complete continuation arithmetic in each arm"
+
+private unsafe def testTerminalSwitch (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "SolanaMatch" <|
+    "  state n : UInt64\n  init() do\n    n := 7\n" ++
+    "  view choose() : UInt64 do\n    match n with\n    | 7 => do\n      return 3\n" ++
+    "    | _ => do\n      return 4\n"
+  let compiled ← compileSource session source "Examples.SolanaMatch" "<solana-match>"
+  let plan ← liftResult <| planSolana compiled
+  let choose ← findHandler plan "choose"
+  expect (choose.body == #[.conditional (.compare .eq (.stateLoad 0 8) (.literal 7))
+    #[.returnValue (.literal 3)] #[.returnValue (.literal 4)]])
+    "Solana switch must lower to exact UInt64 equality"
+  let text ← findFile (← liftResult <| filesSolana compiled) "SolanaMatch.sbpf-plan"
+  expect (text.contains "cmp_eq_u64" && text.contains "const_u64 3" &&
+    text.contains "const_u64 4") "Solana plan text must retain switch case/default"
+
+/-- A parameterized three-block callable is deliberately outside the exact slice. -/
+private unsafe def testConditionalShapeRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "SolanaIfParam" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry choose(x : UInt64) : UInt64 do\n" ++
+    "    if x > 2 then\n" ++
+    "      return x + 3\n" ++
+    "    else\n" ++
+    "      return x + 4\n"
+  let validated ← liftResult (← session.selectProgramV1 source "<solana-if-param>"
+    "Examples.SolanaIfParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 validated
+  expectPlanError "parameterized conditional" (planSolana compiled)
+
+/-- General shared Normalize accepts these forms; the exact target-only shape
+    recognizer remains fail closed for parameterized/prefix/nested CFGs. -/
+private unsafe def testConditionalNearMissesRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let common := "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n"
+  let cases := #[
+    ("prefix", "IfPrefix", common ++
+      "  view choose() : UInt64 do\n" ++
+      "    assert count > 0\n" ++
+      "    if true then\n      return 1\n    else\n      return 2\n"),
+    ("nested", "IfNested", common ++
+      "  view choose() : UInt64 do\n" ++
+      "    if true then\n" ++
+      "      if false then\n        return 1\n      else\n        return 2\n" ++
+      "    else\n      return 3\n")]
+  for item in cases do
+    let (label, name, body) := item
+    let source := wrapProgram name body
+    let validated ← liftResult (← session.selectProgramV1 source s!"<solana-if-{label}>"
+      s!"Examples.{name}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 validated
+    expectPlanError s!"conditional {label} near miss" (planSolana compiled)
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -560,6 +752,11 @@ unsafe def run : IO Unit := do
   testBoolPredicateEndToEnd session
   testAssertElseRejected session
   testValidatePlanNegatives session
+  testTerminalConditional session
+  testJoinContinuation session
+  testTerminalSwitch session
+  testConditionalShapeRejected session
+  testConditionalNearMissesRejected session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

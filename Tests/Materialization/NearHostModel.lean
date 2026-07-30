@@ -130,7 +130,7 @@ private def writeTemp (machine : Machine) (index : Nat)
   else
     modelError s!"temporary {index} is outside the method frame"
 
-private def step (input : ByteArray) (deposit : Deposit)
+private partial def step (input : ByteArray) (deposit : Deposit)
     (machine : Machine) : Targets.Near.Operation → Except String Machine
   | .checkInputLen expected =>
       if input.size == expected then .ok machine
@@ -218,6 +218,15 @@ private def step (input : ByteArray) (deposit : Deposit)
         modelError "return data was already set"
       let value ← readTemp machine source
       pure { machine with returned := some value }
+  | .conditional condition thenBody elseBody => do
+      let flag ← readTemp machine condition
+      let selected := if flag != 0 then thenBody else elseBody
+      let rec runArm : List Targets.Near.Operation → Machine → Except String Machine
+        | [], current => .ok current
+        | operation :: rest, current => do
+            let next ← step input deposit current operation
+            runArm rest next
+      runArm selected.toList machine
 
 private def runOperations (input : ByteArray) (deposit : Deposit) :
     List Targets.Near.Operation → Machine → Except String Machine
@@ -339,7 +348,7 @@ private def guardedCounterSourceText : String :=
 
 private def guardedCounterModuleNameV1 : String := "Examples.Guarded"
 
-private def operationKinds (operations : Array Targets.Near.Operation) :
+private partial def operationKinds (operations : Array Targets.Near.Operation) :
     Array String :=
   operations.map fun op =>
     match op with
@@ -365,6 +374,9 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .gt => "compare.gt"
         | .ge => "compare.ge"
     | .assert _ => "assert"
+    | .conditional _ thenBody elseBody =>
+        "conditional[" ++ String.intercalate "," (operationKinds thenBody).toList ++
+          "][" ++ String.intercalate "," (operationKinds elseBody).toList ++ "]"
 
 private def expectContains (haystack needle label : String) : IO Unit :=
   expect (haystack.contains needle) s!"{label}: missing WAT substring {needle}"
@@ -505,6 +517,150 @@ private unsafe def testAllComparisonOpsWat
       "i64.eq", "i64.ne", "i64.lt_u", "i64.le_u", "i64.gt_u", "i64.ge_u"] : Array String) do
     expectContains watFile.contents insn s!"compares WAT {insn}"
 
+private unsafe def testTerminalConditionalProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NearIf where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  view choose() : UInt64 do\n" ++
+    "    if count > 2 then\n" ++
+    "      return count + 3\n" ++
+    "    else\n" ++
+    "      return count + 4\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-host-if>" "Examples.NearIf" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let choosePlan ← match plan.entries.find? (·.name == "choose") with
+    | some method => pure method
+    | none => throw <| IO.userError "terminal-if Plan is missing choose"
+  match choosePlan.body with
+  | #[.conditional (.compare .gt (.stateLoad 0) (.literal 2))
+        #[.returnValue (.checkedAdd (.stateLoad 0) (.literal 3))]
+        #[.returnValue (.checkedAdd (.stateLoad 0) (.literal 4))]] => pure ()
+  | body => throw <| IO.userError s!"unexpected terminal-if NEAR Plan: {repr body}"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let choose ← findMethod ir "choose"
+  expect ((operationKinds choose.operations).any (·.startsWith "conditional["))
+    "terminal-if IR must retain a structured conditional"
+  let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
+  let (highState, _) ← requireSuccess "terminal-if high init" <|
+    execute initializer #[] (encodeUInt64LE 5) zeroDeposit
+  let (_, highResult) ← requireSuccess "terminal-if true arm" <|
+    execute choose highState ByteArray.empty zeroDeposit
+  expect (highResult == some 8) "terminal-if host model must execute the true arm"
+  let (lowState, _) ← requireSuccess "terminal-if low init" <|
+    execute initializer #[] (encodeUInt64LE 1) zeroDeposit
+  let (_, lowResult) ← requireSuccess "terminal-if false arm" <|
+    execute choose lowState ByteArray.empty zeroDeposit
+  expect (lowResult == some 5) "terminal-if host model must execute the false arm"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "terminal-if: missing .wat artifact"
+  expectContains watFile.contents "(if (i64.ne" "terminal-if WAT"
+  expectContains watFile.contents "(then" "terminal-if WAT true arm"
+  expectContains watFile.contents "(else" "terminal-if WAT false arm"
+
+private unsafe def testTerminalSwitchProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText := "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+    "program NearMatch where\n  state n : UInt64\n  init(i : UInt64) do\n    n := i\n" ++
+    "  view choose() : UInt64 do\n    match n with\n    | 7 => do\n      return 3\n" ++
+    "    | _ => do\n      return 4\nend ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1 sourceText "<near-match>" "Examples.NearMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <| Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some choosePlan := plan.entries.find? (·.name == "choose") |
+    throw <| IO.userError "NEAR switch Plan missing choose"
+  expect (choosePlan.body == #[.conditional (.compare .eq (.stateLoad 0) (.literal 7))
+    #[.returnValue (.literal 3)] #[.returnValue (.literal 4)]]) "NEAR exact switch Plan"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let choose ← findMethod ir "choose"
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  for pair in (#[(7, 3), (8, 4)] : Array (U64 × U64)) do
+    let (storage, _) ← requireSuccess "switch init" <| execute initializer #[] (encodeUInt64LE pair.1) zero
+    let (_, result) ← requireSuccess "switch choose" <| execute choose storage ByteArray.empty zero
+    expect (result == some pair.2) "NEAR model must select case/default"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let wat := (files.find? (fun f => f.path.endsWith ".wat")).get!.contents
+  expectContains wat "i64.eq" "switch WAT equality"
+
+private unsafe def testJoinConditionalProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+    "program NearJoin where\n  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n    count := i\n" ++
+    "  entry adjust() : UInt64 do\n    if count > 2 then\n      count := count + 1\n" ++
+    "    else\n      count := count + 2\n    count := count + 10\n    return count\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1 sourceText
+    "<near-host-join>" "Examples.NearJoin" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <| Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let adjustPlan := plan.entries.find? (·.name == "adjust")
+  match adjustPlan.map (·.body) with
+  | some #[Targets.Near.Statement.conditional _ thenBody elseBody,
+      Targets.Near.Statement.store _, Targets.Near.Statement.returnValue _] =>
+      expect (!thenBody.isEmpty && !elseBody.isEmpty)
+        "state-mediated join Plan must retain both nonterminal arms and its continuation"
+  | other => throw <| IO.userError s!"unexpected NEAR join Plan: {repr other}"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let adjust ← findMethod ir "adjust"
+  let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
+  let field := ir.keys[1]!
+  for pair in (#[(5, 16), (1, 13)] : Array (U64 × U64)) do
+    let (initialized, _) ← requireSuccess "join init" <|
+      execute initializer #[] (encodeUInt64LE pair.1) zeroDeposit
+    let (after, result) ← requireSuccess "join adjust" <|
+      execute adjust initialized ByteArray.empty zeroDeposit
+    expect (result == some pair.2 && storedUInt64? after field.key == some pair.2)
+      s!"join selected arm must feed continuation for seed {pair.1.toNat}"
+
+private unsafe def testPhiJoinConditionalProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+    "program NearPhiJoin where\n  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n    count := i\n" ++
+    "  entry adjust() : UInt64 do\n    let next : UInt64 := 0\n    if count > 2 then\n      next := count + 1\n" ++
+    "    else\n      next := count + 2\n    count := next + 10\n    return count\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1 sourceText
+    "<near-host-phi-join>" "Examples.NearPhiJoin" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <| Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  match plan.entries.find? (·.name == "adjust") |>.map (·.body) with
+  | some #[Targets.Near.Statement.conditional _ thenBody elseBody] =>
+      expect (match thenBody.back?, elseBody.back? with
+        | some (Targets.Near.Statement.returnValue _),
+            some (Targets.Near.Statement.returnValue _) => true
+        | _, _ => false)
+        "phi join must duplicate its continuation and return into both arms"
+  | other => throw <| IO.userError s!"unexpected NEAR phi join Plan: {repr other}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun file => file.path.endsWith ".wat") |
+    throw <| IO.userError "phi join conditional is missing its .wat artifact"
+  expect ((watFile.contents.splitOn "i64.const 10").length == 3)
+    "phi join WAT must duplicate continuation arithmetic inside both lexical arms"
 private unsafe def testAssertElseRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Assert-else is rejected at Normalize (before target). Confirm product path
@@ -775,6 +931,9 @@ unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
   let session ← Tests.Language.ParserSession.shared
+  testJoinConditionalProductPath session
+  testPhiJoinConditionalProductPath session
+  testTerminalSwitchProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
@@ -788,12 +947,114 @@ unsafe def run : IO Unit := do
   let initializer ← findMethod ir "init"
   let add ← findMethod ir "add"
   let current ← findMethod ir "current"
+  let mut deepOperation : Targets.Near.Operation := .setReturnData 0
+  for _ in [0:300] do
+    deepOperation := .conditional 0 #[deepOperation] #[.setReturnData 0]
+  let deepMethods := ir.methods.map fun method =>
+    if method.name == "current" then { method with operations := #[deepOperation] } else method
+  match Targets.Near.validateIR (Targets.Near.withMethods ir deepMethods) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR public withMethods mutation accepted deeply nested forged IR"
+  let wideMethods := ir.methods.map fun method =>
+    if method.name == "current" then
+      { method with operations := Array.replicate 110001 (.setReturnData 0) }
+    else method
+  match Targets.Near.validateIR (Targets.Near.withMethods ir wideMethods) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ => throw <| IO.userError "NEAR public withMethods mutation accepted over-budget wide forged IR"
+  let currentPlan ← match plan.entries.find? (·.name == "current") with
+    | some method => pure method
+    | none => throw <| IO.userError "NEAR Plan is missing current"
   let marker := ir.keys[0]!
   let field := ir.keys[1]!
   let empty : HostStorage := #[]
   let zeroDeposit : Deposit := { lowWord := 0, highWord := 0 }
   let lowDeposit : Deposit := { lowWord := 1, highWord := 0 }
   let highDeposit : Deposit := { lowWord := 0, highWord := 1 }
+
+  -- Target-owned structured Plan characterization: both terminal arms are
+  -- accepted, while a write hidden in a view arm is rejected fail-closed.
+  let conditionalView : Targets.Near.Method := {
+    currentPlan with body := #[.conditional (.literal 1)
+      #[.returnValue (.stateLoad 0)] #[.returnValue (.literal 99)]]
+  }
+  let conditionalPlan := { plan with entries := plan.entries.map fun method =>
+    if method.name == "current" then conditionalView else method }
+  let _ ← liftResult <| Targets.Near.validatePlan conditionalPlan
+  let expectConditionalMutationRejected (label : String)
+      (mutated : Targets.Near.Method) : IO Unit := do
+    let mutatedPlan := { plan with entries := plan.entries.map fun method =>
+      if method.name == "current" then mutated else method }
+    match Targets.Near.validatePlan mutatedPlan with
+    | .error _ => pure ()
+    | .ok _ => throw <| IO.userError s!"NEAR Plan accepted {label}"
+  let parameterizedConditional := {
+    conditionalView with
+    params := #[({ sourceId := 0, name := "value", inputOffset := 0, byteWidth := 8, endianness := .little } : Targets.Near.Param)]
+    exactInputLen := 8
+  }
+  expectConditionalMutationRejected "a parameterized singleton conditional" parameterizedConditional
+  expectConditionalMutationRejected "a prefix plus conditional"
+    { conditionalView with body := #[.assert (.literal 1), conditionalView.body[0]!] }
+  expectConditionalMutationRejected "a nested conditional"
+    { conditionalView with body := #[.conditional (.literal 1)
+        #[.conditional (.literal 1) #[.returnValue (.literal 1)]
+          #[.returnValue (.literal 2)]]
+        #[.returnValue (.literal 3)]] }
+  let mut deeplyNested : Targets.Near.Statement := .returnValue (.literal 1)
+  for _ in [0:1024] do
+    deeplyNested := .conditional (.literal 1) #[deeplyNested]
+      #[.returnValue (.literal 2)]
+  expectConditionalMutationRejected "a deeply nested forged conditional"
+    { conditionalView with body := #[deeplyNested] }
+  expectConditionalMutationRejected "a non-Bool conditional condition"
+    { conditionalView with body := #[.conditional (.stateLoad 0)
+        #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]] }
+  expectConditionalMutationRejected "a non-Bool conditional-arm assert"
+    { conditionalView with body := #[.conditional (.literal 1)
+        #[.assert (.literal 7), .returnValue (.literal 1)]
+        #[.returnValue (.literal 2)]] }
+  expectConditionalMutationRejected "a Bool conditional-arm return"
+    { conditionalView with body := #[.conditional (.literal 1)
+        #[.returnValue (.compare .eq (.literal 1) (.literal 1))]
+        #[.returnValue (.literal 2)]] }
+  let mutatingConditional := { conditionalView with mode := .mutate }
+  let mutatingConditional := { mutatingConditional with depositPolicy := .requireZero }
+  let boolStore : Targets.Near.Store := {
+    fieldIndex := 0
+    value := .compare .eq (.literal 1) (.literal 1)
+  }
+  expectConditionalMutationRejected "a Bool conditional-arm store"
+    { mutatingConditional with body := #[.conditional (.literal 1)
+        #[.store boolStore, .returnValue (.literal 1)]
+        #[.returnValue (.literal 2)]] }
+  let writingView := { conditionalView with body := #[.conditional (.literal 1)
+    #[.store { fieldIndex := 0, value := .literal 7 }, .returnValue (.literal 7)]
+    #[.returnValue (.literal 0)]] }
+  let writingPlan := { plan with entries := plan.entries.map fun method =>
+    if method.name == "current" then writingView else method }
+  match Targets.Near.validatePlan writingPlan with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "NEAR Plan accepted a view write in a conditional arm"
+  let oversizedArm := Array.replicate 4096
+    (Targets.Near.Statement.assert (.literal 1)) |>
+    (·.push (.returnValue (.literal 1)))
+  let oversizedView := { conditionalView with body := #[.conditional (.literal 1)
+    oversizedArm #[.returnValue (.literal 0)]] }
+  let oversizedPlan := { plan with entries := plan.entries.map fun method =>
+    if method.name == "current" then oversizedView else method }
+  match Targets.Near.validatePlan oversizedPlan with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "NEAR Plan accepted an oversized conditional arm"
+
+  let branchMachine : Machine := { storage := #[], temps := #[some 1, none] }
+  let branchOp : Targets.Near.Operation := .conditional 0
+    #[.literal 1 41, .setReturnData 1] #[.literal 1 99, .setReturnData 1]
+  let branchResult ← match step ByteArray.empty zeroDeposit branchMachine branchOp with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"conditional model trapped: {reason}"
+  expect (branchResult.returned == some 41)
+    "conditional model must execute exactly the selected terminal arm"
 
   expectTrap "entry before init" empty <|
     execute add empty (encodeUInt64LE 5) zeroDeposit
@@ -867,6 +1128,7 @@ unsafe def run : IO Unit := do
   -- Comparison + assert envelope product paths.
   testGuardedCounterProductPath session
   testAllComparisonOpsWat session
+  testTerminalConditionalProductPath session
   testAssertElseRejected session
   testBoolStateParamRejected session
   testBoolResultKindMismatchRejected session

@@ -10877,3 +10877,16 @@ normative: false
 - Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` D1-07/D2-04 事实行；本日志。formal 状态不变。
 - Verification：focused `lake build` Disclosure/DiagnosticLocations/CheckV1/fast_tests + `proof-forge-next-fast-tests`；zero-pattern rg；`just sbom-package-files-refresh` / `git diff --check` / `just docs-check` / `just dev-check` / `just ci`。
 - Boundary：无 B7b3d CheckV1 locate composition、无 B8 CLI bundle、无 formal/release 路径；HEAD baseline 保持，变更未提交。
+
+## 2026-07-30 — generalized shared CFG + exact target-shape integration
+
+- 保留 upstream Normalize/Provenance/Reference 的 generalized if 与 generalized literal/bind
+  statement match（含 multi-case/default/join），以及 Bool entry/view result ABI；没有恢复旧
+  terminal-if/terminal-match Normalize special path或 multi-case Normalize rejection。
+- Normalize/Provenance 新增显式 UInt64/Bool body-local let（newest shadows param/older local；
+  env-bound assign 不误写 state；branch-local binding 不逃逸）和 exact parameterless sole-UInt64
+  phi recognizer（block 3 sole `ValueId 0` UInt64 param、两 Jump args、canonical IDs）。
+- 四个 target 的 private lowering仅识别 exact terminal 3-block Branch、4-block empty join、
+  4-block sole UInt64 phi join、3-block one UInt64 case+default Switch→compare-eq conditional；
+  multi-case、nested、其他 join 继续 fail closed。恢复四 target product materialization与 Reference
+  phi/switch/branch/join回归；本切片不执行 formal/release governance。

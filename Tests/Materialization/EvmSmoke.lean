@@ -145,15 +145,21 @@ private def initAssertSourceText : String :=
   "  view get() : UInt64 do\n" ++
   "    return count\n"
 
-private partial def nestedCompareExpr : Nat → Targets.Evm.Expr
+private partial def nestedAddExpr : Nat → Targets.Evm.Expr
   | 0 => .literal 0
-  | level + 1 => .compare .eq (nestedCompareExpr level) (.literal 0)
+  | level + 1 => .checkedAdd (nestedAddExpr level) (.literal 0)
 
-private partial def fullCompareExpr : Nat → Targets.Evm.Expr
+private def nestedCompareExpr (level : Nat) : Targets.Evm.Expr :=
+  .compare .eq (nestedAddExpr (level - 1)) (.literal 0)
+
+private partial def fullAddExpr : Nat → Targets.Evm.Expr
   | 0 => .literal 0
   | level + 1 =>
-      let child := fullCompareExpr level
-      .compare .eq child child
+      let child := fullAddExpr level
+      .checkedAdd child child
+
+private def fullCompareExpr (level : Nat) : Targets.Evm.Expr :=
+  .compare .eq (fullAddExpr level) (.literal 0)
 
 private unsafe def testGuardedCounterSemanticPlan : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -281,6 +287,188 @@ private unsafe def testInitWithAssert : IO Unit := do
       yul.contains "sstore(0,")
     "InitGuard Yul must render assert guard before sstore"
 
+private unsafe def testTerminalIfSemanticPlan : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Choose where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry choose() : UInt64 do\n" ++
+    "    if true then\n" ++
+    "      assert count == 0\n" ++
+    "      count := 7\n" ++
+    "      return count\n" ++
+    "    else\n" ++
+    "      count := 9\n" ++
+    "      assert count == 9\n" ++
+    "      return count\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load terminal if" (← session.selectProgramV1
+    sourceText "<evm-terminal-if>" "Tests.EvmTerminalIf" none)
+  let compiled ← liftResult "compile terminal if" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan terminal if" <| planEvm compiled
+  expect (plan.entries.size == 1 && plan.entries[0]!.params.isEmpty)
+    "terminal-if EVM slice must retain a parameterless entry"
+  expect (plan.entries[0]!.body == #[.conditional (.literal 1)
+      #[.assert (.compare .eq (.storageLoad 0) (.literal 0)),
+        .store { slot := 0, value := .literal 7 },
+        .returnValue (.storageLoad 0)]
+      #[.store { slot := 0, value := .literal 9 },
+        .assert (.compare .eq (.storageLoad 0) (.literal 9)),
+        .returnValue (.storageLoad 0)]])
+    "terminal-if lowering must accept global ValueIds and preserve ordered arm effects"
+  let output ← liftResult "materialize terminal if" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "Choose.yul") |
+    throw <| IO.userError "terminal if: missing Choose.yul"
+  expect (yulFile.contents.contains "switch expr0" &&
+      yulFile.contents.contains "case 0 {" &&
+      yulFile.contents.contains "default {")
+    "terminal-if Yul must render deterministic false/true arms"
+
+private unsafe def testTerminalSwitchSemanticPlan : IO Unit := do
+  let sourceText := "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program MatchSeven where\n  state n : UInt64\n  init() do\n    n := 7\n" ++
+    "  view choose() : UInt64 do\n    match n with\n    | 7 => do\n      return 3\n" ++
+    "    | _ => do\n      return 4\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load terminal switch" (← session.selectProgramV1 sourceText
+    "<evm-terminal-switch>" "Tests.EvmTerminalSwitch" none)
+  let compiled ← liftResult "compile terminal switch" <| Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan terminal switch" <| planEvm compiled
+  let choose := plan.entries[0]!
+  expect (choose.body == #[.conditional (.compare .eq (.storageLoad 0) (.literal 7))
+    #[.returnValue (.literal 3)] #[.returnValue (.literal 4)]])
+    "EVM switch must lower to exact UInt64 equality with case/default arms"
+  let output ← liftResult "materialize terminal switch" <| materializeSelected TargetId.evm compiled
+  let yul := ((MaterializedArtifactsV1.filesOf output).find? (·.path == "MatchSeven.yul")).get!.contents
+  expect (yul.contains "eq(" && yul.contains "let expr0 := 3" && yul.contains "let expr0 := 4")
+    "EVM switch Yul must render equality and both returns"
+
+private unsafe def testTerminalBoolSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let ifText := "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program BoolIf where\n  state n : UInt64\n  init() do\n    n := 1\n" ++
+    "  view choose() : Bool do\n    if true then\n" ++
+    "      return n == 1\n    else\n      return n == 2\n"
+  let ifSource ← liftResult "load terminal Bool if" (← session.selectProgramV1 ifText
+    "<evm-terminal-bool-if>" "Tests.EvmTerminalBoolIf" none)
+  let ifCompiled ← liftResult "compile terminal Bool if" <|
+    Compiler.compileValidatedSourceV1 ifSource
+  let ifPlan ← liftResult "plan terminal Bool if" <| planEvm ifCompiled
+  expect (ifPlan.entries[0]!.resultKind == .bool && ifPlan.entries[0]!.body == #[
+      .conditional (.literal 1)
+        #[.returnValue (.compare .eq (.storageLoad 0) (.literal 1))]
+        #[.returnValue (.compare .eq (.storageLoad 0) (.literal 2))]])
+    "terminal Bool if must retain Bool arm returns in the EVM Plan"
+  let ifOutput ← liftResult "materialize terminal Bool if" <|
+    materializeSelected TargetId.evm ifCompiled
+  let ifYul := ((MaterializedArtifactsV1.filesOf ifOutput).find?
+    (·.path == "BoolIf.yul")).get!.contents
+  expect (ifYul.contains "switch expr0" && ifYul.contains "sload(0)" &&
+      (ifYul.splitOn "eq(").length >= 3)
+    "terminal Bool if must render both Bool returns"
+
+  let matchText := "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program BoolMatch where\n  state n : UInt64\n  init() do\n    n := 7\n" ++
+    "  view choose() : Bool do\n    match n with\n    | 7 => do\n      return n == 7\n" ++
+    "    | _ => do\n      return n == 0\n"
+  let matchSource ← liftResult "load terminal Bool match" (← session.selectProgramV1 matchText
+    "<evm-terminal-bool-match>" "Tests.EvmTerminalBoolMatch" none)
+  let matchCompiled ← liftResult "compile terminal Bool match" <|
+    Compiler.compileValidatedSourceV1 matchSource
+  let matchPlan ← liftResult "plan terminal Bool match" <| planEvm matchCompiled
+  expect (matchPlan.entries[0]!.resultKind == .bool && matchPlan.entries[0]!.body == #[
+      .conditional (.compare .eq (.storageLoad 0) (.literal 7))
+        #[.returnValue (.compare .eq (.storageLoad 0) (.literal 7))]
+        #[.returnValue (.compare .eq (.storageLoad 0) (.literal 0))]])
+    "one-case UInt64 match must retain Bool arm returns in the EVM Plan"
+  let matchOutput ← liftResult "materialize terminal Bool match" <|
+    materializeSelected TargetId.evm matchCompiled
+  let matchYul := ((MaterializedArtifactsV1.filesOf matchOutput).find?
+    (·.path == "BoolMatch.yul")).get!.contents
+  expect (matchYul.contains "eq(" && matchYul.contains "case 0 {" &&
+      matchYul.contains "default {")
+    "one-case UInt64 match returning Bool must render its comparison and arms"
+
+private unsafe def testJoinContinuationSemanticPlan : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program JoinChoice where\n" ++
+    "  view choose() : UInt64 do\n" ++
+    "    let selected : UInt64 := 0\n" ++
+    "    if true then\n" ++
+    "      selected := 7\n" ++
+    "    else\n" ++
+    "      selected := 9\n" ++
+    "    return selected + 1\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load join continuation" (← session.selectProgramV1
+    sourceText "<evm-join-continuation>" "Tests.EvmJoinContinuation" none)
+  let compiled ← liftResult "compile join continuation" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan join continuation" <| planEvm compiled
+  let some choose := plan.entries.find? (·.name == "choose") |
+    throw <| IO.userError "join continuation EVM Plan is missing choose"
+  expect (choose.body == #[.conditional (.literal 1)
+      #[.returnValue (.checkedAdd (.literal 7) (.literal 1))]
+      #[.returnValue (.checkedAdd (.literal 9) (.literal 1))]])
+    "phi lowering must substitute each pure arm value into a duplicated continuation"
+  let output ← liftResult "materialize join continuation" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "JoinChoice.yul") |
+    throw <| IO.userError "join continuation: missing JoinChoice.yul"
+  expect (yulFile.contents.contains "switch expr0" &&
+      yulFile.contents.contains "let expr0 := 7" &&
+      yulFile.contents.contains "let expr0 := 9" &&
+      yulFile.contents.contains "let expr2 := add(expr0, expr1)" &&
+      !yulFile.contents.contains "sload(")
+    "phi Yul must render complete continuation arithmetic independently in both arms"
+
+private unsafe def testStateMediatedJoinContinuationSemanticPlan : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StateJoinChoice where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry choose() : UInt64 do\n" ++
+    "    if true then\n" ++
+    "      count := 7\n" ++
+    "    else\n" ++
+    "      count := 9\n" ++
+    "    return count + 1\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load state-mediated join" (← session.selectProgramV1
+    sourceText "<evm-state-join-continuation>" "Tests.EvmStateJoinContinuation" none)
+  let compiled ← liftResult "compile state-mediated join" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan state-mediated join" <| planEvm compiled
+  let some choose := plan.entries.find? (·.name == "choose") |
+    throw <| IO.userError "state-mediated join EVM Plan is missing choose"
+  expect (choose.body == #[.conditional (.literal 1)
+      #[.store { slot := 0, value := .literal 7 }]
+      #[.store { slot := 0, value := .literal 9 }],
+    .returnValue (.checkedAdd (.storageLoad 0) (.literal 1))])
+    "zero-param join must preserve arm stores followed by one shared continuation"
+  let output ← liftResult "materialize state-mediated join" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "StateJoinChoice.yul") |
+    throw <| IO.userError "state-mediated join: missing StateJoinChoice.yul"
+  expect (yulFile.contents.contains "switch expr0" &&
+      yulFile.contents.contains "sstore(0, expr0)" &&
+      yulFile.contents.contains "let expr1 := sload(0)" &&
+      yulFile.contents.contains "let expr3 := add(expr1, expr2)")
+    "zero-param join Yul must render branch state effects before the shared continuation"
+
 private def testCompareAssertPlanMutations : IO Unit := do
   -- Minimal valid plan shell for mutation negatives.
   let basePlan : Targets.Evm.Plan := {
@@ -375,6 +563,91 @@ private def testCompareAssertPlanMutations : IO Unit := do
   match Targets.Evm.validatePlan ctorReturn with
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "constructor returnValue must reject"
+  -- Structured terminal branches preserve ordered effects in both arms.
+  let branchPlan := { basePlan with entries := #[{
+    basePlan.entries[0]! with
+      mutability := .nonpayable
+      body := #[.conditional (.compare .eq (.literal 1) (.literal 1))
+        #[.assert (.literal 1), .store { slot := 0, value := .literal 7 },
+          .returnValue (.storageLoad 0)]
+        #[.store { slot := 0, value := .literal 9 }, .assert (.literal 1),
+          .returnValue (.storageLoad 0)]]
+  }] }
+  match Targets.Evm.validatePlan branchPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"structured branch plan must accept: {e.render}"
+  let parameterizedBranch := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with
+      selector := Targets.Evm.Keccak.selector "get" #["uint64"]
+      params := #[{ sourceId := 0, name := "x", wordIndex := 0 }]
+  }] }
+  match Targets.Evm.validatePlan parameterizedBranch with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "parameterized singleton conditional must reject"
+  let prefixedBranch := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.assert (.literal 1), branchPlan.entries[0]!.body[0]!]
+  }] }
+  match Targets.Evm.validatePlan prefixedBranch with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "prefix plus conditional must reject"
+  let nestedBranch := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.literal 1)
+      #[.conditional (.literal 1) #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+      #[.returnValue (.literal 3)]]
+  }] }
+  match Targets.Evm.validatePlan nestedBranch with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "nested conditional must reject"
+  let secondConditional := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[
+      .conditional (.literal 1) #[.assert (.literal 1)] #[.assert (.literal 1)],
+      .conditional (.literal 1) #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+  }] }
+  match Targets.Evm.validatePlan secondConditional with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "additional continuation conditional must reject"
+  let branchAfterReturn := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.literal 1)
+      #[.returnValue (.literal 1), .assert (.literal 1)]
+      #[.returnValue (.literal 2)]]
+  }] }
+  match Targets.Evm.validatePlan branchAfterReturn with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "branch arm statement after return must reject"
+  let viewBranchStore := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with mutability := .view
+  }] }
+  match Targets.Evm.validatePlan viewBranchStore with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "view storage write inside branch arm must reject"
+  let danglingBranchCondition := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.storageLoad 99)
+      #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+  }] }
+  match Targets.Evm.validatePlan danglingBranchCondition with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "dangling structured branch condition must reject"
+  let wrongCondition := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.storageLoad 0)
+      #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+  }] }
+  let wrongArmAssert := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.literal 1)
+      #[.assert (.literal 7), .returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+  }] }
+  let boolArmReturn := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.literal 1)
+      #[.returnValue (.compare .eq (.literal 0) (.literal 0))] #[.returnValue (.literal 2)]]
+  }] }
+  let boolArmStore := { branchPlan with entries := #[{
+    branchPlan.entries[0]! with body := #[.conditional (.literal 1)
+      #[.store { slot := 0, value := .compare .eq (.literal 0) (.literal 0) },
+        .returnValue (.literal 1)] #[.returnValue (.literal 2)]]
+  }] }
+  for bad in #[wrongCondition, wrongArmAssert, boolArmReturn, boolArmStore] do
+    match Targets.Evm.validatePlan bad with
+    | .error (.planInvariant .evm _) => pure ()
+    | _ => throw <| IO.userError "contextually mistyped terminal-if Plan must reject"
 
 private unsafe def testBoolResultPositive : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -589,6 +862,11 @@ unsafe def run : IO Unit := do
   testRichUInt64SemanticPlan
   testGuardedCounterSemanticPlan
   testInitWithAssert
+  testTerminalIfSemanticPlan
+  testTerminalSwitchSemanticPlan
+  testTerminalBoolSemanticPlans
+  testJoinContinuationSemanticPlan
+  testStateMediatedJoinContinuationSemanticPlan
   testCompareAssertPlanMutations
   testBoolResultPositive
   testBoolPredicateEndToEnd

@@ -111,6 +111,7 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  | conditional (condition : Expr) (thenBody elseBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 structure Handler where
@@ -160,6 +161,7 @@ inductive Operation where
   | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
+  | conditional (condition : Nat) (thenOps elseOps : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -407,6 +409,16 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: trailing UInt64 literal bytes"
 
+private def findResultTypeV1 (callable : CallableV1)
+    (id : ValueIdV1) : CompileResult TypeIdV1 := do
+  for param in callable.params do if param.valueId == id then return param.typeId
+  for block in callable.blocks do
+    for param in block.params do if param.valueId == id then return param.typeId
+    for instruction in block.instructions do
+      if let some result := instruction.result then
+        if result.valueId == id then return result.typeId
+  throw <| .planInvariant .solana s!"unknown semantic ValueId {id.toNat}"
+
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
   unless bytes.size == 1 do
     throw <| .planInvariant .solana
@@ -529,14 +541,192 @@ private inductive SemanticCallableModeV1 where
 private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
+  deriving Nonempty
 
-private def lowerCallableV1
+private partial def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
-    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+    (callable : CallableV1)
+    (nonterminal : Bool := false)
+    (switchCase : Option UInt64 := none) : CompileResult LoweredCallableV1 := do
+  if callable.blocks.size == 3 && switchCase.isNone then
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing switch block 0"
+    match entry.terminator with
+    | .switch scrutinee cases (some defaultTarget) =>
+      let case ← match cases with | #[c] => pure c | _ => planError "Solana switch requires exactly one case"
+      unless case.typeId == types.uint64TypeId && case.target.blockId.toNat == 1 &&
+          case.target.args.isEmpty && defaultTarget.blockId.toNat == 2 && defaultTarget.args.isEmpty do
+        throw <| .planInvariant .solana "unsupported Solana switch case/target shape"
+      unless (← findResultTypeV1 callable scrutinee) == types.uint64TypeId do
+        throw <| .planInvariant .solana "Solana switch scrutinee must be UInt64"
+      let value ← decodeUInt64LiteralV1 case.valueBytes
+      let rewrittenEntry := { entry with terminator := .branch scrutinee case.target defaultTarget }
+      let rewritten := { callable with blocks := callable.blocks.set! 0 rewrittenEntry }
+      return ← lowerCallableV1 owner mode expectsBoolReturn types account rewritten nonterminal (some value)
+    | .switch _ _ none => throw <| .planInvariant .solana "Solana switch requires a default target"
+    | _ => pure ()
+  if callable.blocks.size == 3 || callable.blocks.size == 4 then
+    let hasJoin := callable.blocks.size == 4
+    unless mode != .initialize && callable.params.isEmpty && callable.entryBlock.toNat == 0 &&
+        callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      throw <| .planInvariant .solana
+        "unsupported Solana conditional shape: entry/view must be parameterless and acyclic"
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing block 0"
+    let thenBlock ← match callable.blocks[1]? with | some b => pure b | none => planError "missing block 1"
+    let elseBlock ← match callable.blocks[2]? with | some b => pure b | none => planError "missing block 2"
+    let joinBlock? := callable.blocks[3]?
+    let joinParamOk (b : BlockV1) := match b.params with
+      | #[param] => param.valueId.toNat == 0 && param.typeId == types.uint64TypeId
+      | _ => false
+    let joinShapeOk (b : BlockV1) := b.id.toNat == 3 &&
+      (b.params.isEmpty || joinParamOk b)
+    unless entry.id.toNat == 0 && thenBlock.id.toNat == 1 && elseBlock.id.toNat == 2 &&
+        entry.params.isEmpty && thenBlock.params.isEmpty && elseBlock.params.isEmpty &&
+        (!hasJoin || joinBlock?.map joinShapeOk == some true) do
+      throw <| .planInvariant .solana
+        "unsupported Solana conditional shape: blocks must be parameterless [0,1,2]"
+    let (condId, thenTarget, elseTarget) ← match entry.terminator with
+      | .branch cond thenTarget elseTarget => pure (cond, thenTarget, elseTarget)
+      | _ => throw (.planInvariant .solana
+          "unsupported Solana conditional shape: block 0 must terminate in Branch")
+    unless thenTarget.blockId.toNat == 1 && elseTarget.blockId.toNat == 2 &&
+        thenTarget.args.isEmpty && elseTarget.args.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana conditional shape: Branch must target blocks 1/2 with empty args"
+    let valueResults (block : BlockV1) := block.instructions.foldl
+      (fun n instruction => if instruction.result.isSome then n + 1 else n) 0
+    let rebaseId (base : Nat) (id : ValueIdV1) : CompileResult ValueIdV1 :=
+      if id.toNat < base then planError
+        "unsupported Solana conditional shape: cross-arm value use"
+      else pure ⟨id.toNat - base⟩
+    let rebaseBlock (base : Nat) (block : BlockV1) (armNonterminal : Bool := false)
+        (expectedJumpArgs : Nat := 0) : CompileResult BlockV1 := do
+      let mut instructions : Array InstructionV1 := #[]
+      let mut next := 0
+      for instruction in block.instructions do
+        let result ← match instruction.result with
+          | none => pure none
+          | some result =>
+              unless result.valueId.toNat == base + next do
+                throw <| .planInvariant .solana
+                  "unsupported Solana conditional shape: arm ValueIds are not canonical"
+              next := next + 1
+              pure (some { result with valueId := ⟨result.valueId.toNat - base⟩ })
+        let op ← match instruction.op with
+          | .literal typeId bytes => pure (.literal typeId bytes)
+          | .stateLoad stateId => pure (.stateLoad stateId)
+          | .binary op lhs rhs => pure (.binary op (← rebaseId base lhs) (← rebaseId base rhs))
+          | .stateStore stateId value => pure (.stateStore stateId (← rebaseId base value))
+          | .assert_ cond errorId args =>
+              let mut rebasedArgs := #[]
+              for arg in args do rebasedArgs := rebasedArgs.push (← rebaseId base arg)
+              pure (.assert_ (← rebaseId base cond) errorId rebasedArgs)
+          | _ => throw (.planInvariant .solana
+              "unsupported Solana conditional shape: arm instruction is unsupported")
+        instructions := instructions.push { instruction with result, op }
+      let terminator ← if armNonterminal then
+          match block.terminator with
+          | .jump target =>
+              unless target.blockId.toNat == 3 && target.args.size == expectedJumpArgs do
+                throw <| .planInvariant .solana
+                  "unsupported Solana join shape: arm jump argument count is invalid"
+              pure (.return_ none)
+          | _ => throw (.planInvariant .solana "unsupported Solana join shape: arms must not return")
+        else match block.terminator with
+          | .return_ (some value) => pure (.return_ (some (← rebaseId base value)))
+          | _ => throw (.planInvariant .solana
+              "unsupported Solana conditional shape: each arm must Return some UInt64")
+      pure { block with id := 0, instructions, terminator }
+    let isPhiJoin := joinBlock?.map joinParamOk == some true
+    let instructionBase := if isPhiJoin then 1 else 0
+    let entryCallable := { callable with blocks := #[← rebaseBlock instructionBase
+      { entry with terminator := .return_ (some condId) }] }
+    let entryLowered ← lowerCallableV1 owner mode switchCase.isNone types account entryCallable
+    let entryPrefix := entryLowered.body.pop
+    unless entryPrefix.isEmpty do
+      throw <| .planInvariant .solana
+        "unsupported Solana conditional shape: block 0 may only compute the Branch condition"
+    let rawCondition ← match entryLowered.body.back? with
+      | some (.returnValue value) => pure value
+      | _ => throw (.planInvariant .solana
+          "unsupported Solana conditional shape: Branch condition did not lower to Bool")
+    let condition := match switchCase with
+      | some value => Expr.compare .eq rawCondition (.literal value)
+      | none => rawCondition
+    let thenBase := instructionBase + valueResults entry
+    let elseBase := thenBase + valueResults thenBlock
+    if !hasJoin then
+      let rebasedThen ← rebaseBlock thenBase thenBlock
+      let rebasedElse ← rebaseBlock elseBase elseBlock
+      let thenLowered ← lowerCallableV1 owner mode expectsBoolReturn types account { callable with blocks := #[rebasedThen] }
+      let elseLowered ← lowerCallableV1 owner mode expectsBoolReturn types account { callable with blocks := #[rebasedElse] }
+      return { params := #[], body := entryPrefix.push (.conditional condition thenLowered.body elseLowered.body) }
+    let joinBlock ← match joinBlock? with | some b => pure b | none => planError "missing block 3"
+    let joinBase := elseBase + valueResults elseBlock
+    if joinBlock.params.isEmpty then
+      let rebasedThen ← rebaseBlock thenBase thenBlock true
+      let rebasedElse ← rebaseBlock elseBase elseBlock true
+      let thenLowered ← lowerCallableV1 owner mode expectsBoolReturn types account
+        { callable with blocks := #[rebasedThen] } true
+      let elseLowered ← lowerCallableV1 owner mode expectsBoolReturn types account
+        { callable with blocks := #[rebasedElse] } true
+      let rebasedJoin ← rebaseBlock joinBase joinBlock
+      let joinLowered ← lowerCallableV1 owner mode expectsBoolReturn types account
+        { callable with blocks := #[rebasedJoin] }
+      return ({
+        params := #[]
+        body := entryPrefix.push
+          (.conditional condition thenLowered.body elseLowered.body) ++ joinLowered.body
+      } : LoweredCallableV1)
+    let makeArm (base : Nat) (arm : BlockV1) : CompileResult (Array Statement) := do
+      let jumpArg ← match arm.terminator with
+        | .jump target =>
+            unless target.blockId.toNat == 3 && target.args.size == 1 do
+              throw <| .planInvariant .solana "unsupported Solana join shape: arms must Jump(3,[UInt64])"
+            pure target.args[0]!
+        | _ => throw (.planInvariant .solana "unsupported Solana join shape: arm must jump")
+      let armCount := valueResults arm
+      unless base <= jumpArg.toNat && jumpArg.toNat < base + armCount do
+        throw <| .planInvariant .solana "unsupported Solana join shape: branch-local/cross-arm jump argument"
+      let rebasedArm ← rebaseBlock base arm true 1
+      let localArg : ValueIdV1 := ⟨jumpArg.toNat - base⟩
+      let rewrite (id : ValueIdV1) : CompileResult ValueIdV1 :=
+        if id.toNat == 0 then pure localArg
+        else if joinBase <= id.toNat then pure ⟨armCount + id.toNat - joinBase⟩
+        else planError "unsupported Solana join shape: continuation references cross-arm value"
+      let mut instructions := rebasedArm.instructions
+      for instruction in joinBlock.instructions do
+        let op ← match instruction.op with
+          | .literal t bytes => pure (.literal t bytes)
+          | .stateLoad s => pure (.stateLoad s)
+          | .binary op l r => pure (.binary op (← rewrite l) (← rewrite r))
+          | .stateStore s v => pure (.stateStore s (← rewrite v))
+          | .assert_ c e args =>
+              let mut xs := #[]
+              for x in args do xs := xs.push (← rewrite x)
+              pure (.assert_ (← rewrite c) e xs)
+          | _ => throw (.planInvariant .solana "unsupported Solana join continuation instruction")
+        let result := instruction.result.map fun r =>
+          { r with valueId := ⟨armCount + r.valueId.toNat - joinBase⟩ }
+        instructions := instructions.push { instruction with op, result }
+      let returnId ← match joinBlock.terminator with
+        | .return_ (some id) => rewrite id
+        | _ => throw (.planInvariant .solana "unsupported Solana join shape: continuation must return UInt64")
+      let finalBlock : BlockV1 := {
+        id := rebasedArm.id
+        params := rebasedArm.params
+        instructions
+        terminator := .return_ (some returnId)
+      }
+      let lowered ← lowerCallableV1 owner mode expectsBoolReturn types account
+        { callable with blocks := #[finalBlock] }
+      pure lowered.body
+    let thenBody ← makeArm thenBase thenBlock
+    let elseBody ← makeArm elseBase elseBlock
+    return { params := #[], body := entryPrefix.push (.conditional condition thenBody elseBody) }
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .solana
@@ -665,6 +855,10 @@ private def lowerCallableV1
       segmentStart := values.size
   | .initialize, .return_ (some _) =>
       throw <| .planInvariant .solana "initializer cannot return a value"
+  | .mutate, .return_ none
+  | .view, .return_ none =>
+      unless nonterminal && segmentStart == values.size do
+        throw <| .planInvariant .solana "unsupported Solana join shape: nonterminal arm has unconsumed values"
   | _, _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: callable terminator is outside the current UInt64 pilot"
@@ -778,6 +972,40 @@ private def addPlanExprNodes (account : StateAccount) (params : Array Param)
       throw <| .planInvariant .solana
         s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
+private inductive ExpectedExprKind where
+  | uint64 | bool
+  deriving BEq
+
+private def exprHasKind? (expected : ExpectedExprKind) (depthLeft : Nat) (expr : Expr) : Bool :=
+  if depthLeft == 0 then false else match expr with
+  | .literal value => expected == .uint64 || value == 0 || value == 1
+  | .param .. | .stateLoad .. => expected == .uint64
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs =>
+      expected == .uint64 && exprHasKind? .uint64 (depthLeft - 1) lhs &&
+        exprHasKind? .uint64 (depthLeft - 1) rhs
+  | .compare _ lhs rhs =>
+      expected == .bool && exprHasKind? .uint64 (depthLeft - 1) lhs &&
+        exprHasKind? .uint64 (depthLeft - 1) rhs
+
+private def addTypedPlanExprNodes (account : StateAccount) (params : Array Param)
+    (total : Nat) (expected : ExpectedExprKind) (expr : Expr) : CompileResult Nat := do
+  unless exprHasKind? expected maxExprDepth expr do
+    throw <| .planInvariant .solana "plan expression has the wrong contextual scalar kind"
+  addPlanExprNodes account params total expr
+
+private partial def bodyNodeCount? (depth fuel : Nat) (body : Array Statement) : Option Nat := do
+  if depth == 0 || body.size > fuel then none else
+  let mut total := body.size
+  for statement in body do
+    match statement with
+    | .conditional _ thenBody elseBody =>
+        let left ← bodyNodeCount? (depth - 1) (fuel - total) thenBody
+        total := total + left
+        let right ← bodyNodeCount? (depth - 1) (fuel - total) elseBody
+        total := total + right
+    | _ => pure ()
+  pure total
+
 private def validateStateAccount (account : StateAccount) : CompileResult Unit := do
   unless account.index == 0 && account.name == "state" &&
       account.ownerPolicy == .currentProgram do
@@ -837,10 +1065,26 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
       s!"handler '{handler.name}' discriminator is not bound to its canonical signature"
   unless handler.accountAccess == expectedAccess account handler.mode do
     throw <| .planInvariant .solana s!"handler '{handler.name}' account access is not canonical"
-  if handler.body.isEmpty || handler.body.size > maxBodyStatements then
+  let bodyNodes ← match bodyNodeCount? maxExprDepth maxBodyStatements handler.body with
+    | some n => pure n
+    | none => throw (.planInvariant .solana "handler body exceeds recursive depth/node limits")
+  if handler.body.isEmpty || bodyNodes > maxBodyStatements then
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid body size"
+  if let some index := handler.body.findIdx? (fun s => match s with | .conditional .. => true | _ => false) then
+    unless index == 0 && (handler.body.drop 1).all
+        (fun s => match s with | .conditional .. => false | _ => true) do
+      throw <| .planInvariant .solana
+        "conditional handler body must begin with exactly one conditional statement"
+  if handler.body.any (fun statement => match statement with
+      | .conditional .. => true
+      | _ => false) && !handler.params.isEmpty then
+    throw <| .planInvariant .solana
+      "conditional handler must be parameterless"
   let mut total := baseNodes
   let mut returned := false
+  let returnKind := match handler.resultKind with
+    | .u64 => ExpectedExprKind.uint64
+    | .bool => ExpectedExprKind.bool
   for statement in handler.body do
     if returned then
       throw <| .planInvariant .solana s!"handler '{handler.name}' has a statement after return"
@@ -851,14 +1095,44 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
         unless account.fields.any (fun field =>
             field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) do
           throw <| .planInvariant .solana s!"handler '{handler.name}' stores to an unknown field"
-        total ← addPlanExprNodes account handler.params total store.value
+        total ← addTypedPlanExprNodes account handler.params total .uint64 store.value
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .solana "initializer cannot return a value"
-        total ← addPlanExprNodes account handler.params total value
+        total ← addTypedPlanExprNodes account handler.params total returnKind value
         returned := true
     | .assert condition =>
-        total ← addPlanExprNodes account handler.params total condition
+        total ← addTypedPlanExprNodes account handler.params total .bool condition
+    | .conditional condition thenBody elseBody =>
+        if isInitializer || thenBody.isEmpty || elseBody.isEmpty then
+          throw <| .planInvariant .solana "conditional is invalid in this handler"
+        total ← addTypedPlanExprNodes account handler.params total .bool condition
+        let armsReturn := thenBody.any (fun s => match s with | .returnValue .. => true | _ => false)
+        unless armsReturn == elseBody.any (fun s => match s with | .returnValue .. => true | _ => false) do
+          throw <| .planInvariant .solana "conditional arms disagree on terminality"
+        for arm in #[thenBody, elseBody] do
+          let mut armReturned := false
+          for armStatement in arm do
+            if armReturned then
+              throw <| .planInvariant .solana "conditional arm has a statement after return"
+            match armStatement with
+            | .store store =>
+                if handler.mode == .view then
+                  throw <| .planInvariant .solana s!"view handler '{handler.name}' writes state"
+                unless account.fields.any (fun field => field.accountIndex == store.accountIndex &&
+                    field.byteOffset == store.byteOffset) do
+                  throw <| .planInvariant .solana "conditional arm stores to an unknown field"
+                total ← addTypedPlanExprNodes account handler.params total .uint64 store.value
+            | .assert value =>
+                total ← addTypedPlanExprNodes account handler.params total .bool value
+            | .returnValue value =>
+                total ← addTypedPlanExprNodes account handler.params total returnKind value
+                armReturned := true
+            | .conditional .. =>
+                throw <| .planInvariant .solana "nested conditional is not supported"
+          unless armReturned || !armsReturn do
+            throw <| .planInvariant .solana "conditional arm does not return UInt64"
+        returned := armsReturn
   if isInitializer then
     if returned then
       throw <| .planInvariant .solana "initializer cannot return a value"
@@ -886,8 +1160,13 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   let handlerCount := 1 + plan.entries.size
   let paramCount := plan.initializer.params.size +
     plan.entries.foldl (fun total handler => total + handler.params.size) 0
-  let statementCount := plan.initializer.body.size +
-    plan.entries.foldl (fun total handler => total + handler.body.size) 0
+  let initializerNodes ← match bodyNodeCount? maxExprDepth maxPlanNodes plan.initializer.body with
+    | some n => pure n | none => throw (.planInvariant .solana "initializer body exceeds recursive limits")
+  let mut statementCount := initializerNodes
+  for handler in plan.entries do
+    let nodes ← match bodyNodeCount? maxExprDepth (maxPlanNodes - statementCount) handler.body with
+      | some n => pure n | none => throw (.planInvariant .solana "entry body exceeds recursive limits")
+    statementCount := statementCount + nodes
   let mut total := plan.stateAccount.fields.size + handlerCount + paramCount + statementCount
   if total > maxPlanNodes then
     throw <| .planInvariant .solana s!"plan exceeds aggregate node limit {maxPlanNodes}"
@@ -1021,15 +1300,11 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
   if access.writableRequired then checks := checks.push (.writable access.accountIndex)
   return checks.push (.headerEquals access.accountIndex account.headerOffset headerValue)
 
-private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
-  let account := plan.stateAccount
-  let mut operations : Array Operation :=
-    if handler.mode == .initialize then
-      account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
-    else
-      #[]
-  let mut next := 0
-  for statement in handler.body do
+private partial def lowerStatements (plan : Plan) (resultKind : ResultKind) (next : Nat)
+    (statements : Array Statement) : Array Operation × Nat := Id.run do
+  let mut operations := #[]
+  let mut next := next
+  for statement in statements do
     match statement with
     | .store store =>
         let value := lowerExpr plan.arithmeticOverflowError next store.value
@@ -1039,7 +1314,7 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
     | .returnValue value =>
         let value := lowerExpr plan.arithmeticOverflowError next value
         operations := operations ++ value.operations
-        let returnOp : Operation := match handler.resultKind with
+        let returnOp : Operation := match resultKind with
           | .u64 => .setReturnData value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
@@ -1049,6 +1324,24 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value plan.assertionFailedError)
         next := value.next
+    | .conditional condition thenBody elseBody =>
+        let value := lowerExpr plan.arithmeticOverflowError next condition
+        let thenResult := lowerStatements plan resultKind value.next thenBody
+        let elseResult := lowerStatements plan resultKind value.next elseBody
+        operations := operations ++ value.operations
+        operations := operations.push (.conditional value.value thenResult.1 elseResult.1)
+        next := max thenResult.2 elseResult.2
+  return (operations, next)
+
+private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
+  let account := plan.stateAccount
+  let mut operations : Array Operation :=
+    if handler.mode == .initialize then
+      account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
+    else
+      #[]
+  let lowered := lowerStatements plan handler.resultKind 0 handler.body
+  operations := operations ++ lowered.1
   if handler.mode == .initialize then
     operations := operations.push <|
       .setHeader account.index account.headerOffset account.initializedMarker
@@ -1094,7 +1387,8 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
   let mut next := 0
   let mut returned := false
   let mut initialized := false
-  for operation in handler.operations do
+  for operationIndex in [:handler.operations.size] do
+    let operation := handler.operations[operationIndex]!
     if returned || initialized then
       throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
     if let some destination := tempDestination? operation then
@@ -1123,6 +1417,39 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
     | .assert condition errorCode =>
         unless condition < next && errorCode == plan.assertionFailedError do
           throw <| .planInvariant .solana "typed Solana IR assert condition/error is invalid"
+    | .conditional condition thenOps elseOps =>
+        let terminalKind : Operation → Option ResultKind
+          | .setReturnData _ => some .u64
+          | .setReturnDataBool _ => some .bool
+          | _ => none
+        let thenKind := thenOps.back?.bind terminalKind
+        let elseKind := elseOps.back?.bind terminalKind
+        let thenReturns := thenKind.isSome
+        let elseReturns := elseKind.isSome
+        let hasContinuation := operationIndex + 1 < handler.operations.size
+        unless condition < next && !thenOps.isEmpty && !elseOps.isEmpty &&
+            thenReturns == elseReturns && (thenReturns || hasContinuation) &&
+            (!thenReturns || (thenKind == some handler.resultKind && elseKind == some handler.resultKind)) do
+          throw <| .planInvariant .solana "typed Solana IR conditional is invalid"
+        -- Exclusive arms reuse the same static temporary range; continuation
+        -- destinations begin after the larger selected-arm range.
+        let armStart := next
+        let mut thenNext := armStart
+        for armOperation in thenOps do
+          if let some destination := tempDestination? armOperation then
+            unless destination == thenNext do
+              throw <| .planInvariant .solana
+                "typed Solana IR conditional temporary numbering is not canonical"
+            thenNext := thenNext + 1
+        let mut elseNext := armStart
+        for armOperation in elseOps do
+          if let some destination := tempDestination? armOperation then
+            unless destination == elseNext do
+              throw <| .planInvariant .solana
+                "typed Solana IR conditional temporary numbering is not canonical"
+            elseNext := elseNext + 1
+        next := max thenNext elseNext
+        returned := thenReturns
     | .zeroState accountIndex byteOffset =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             fieldOffsets.contains byteOffset do
@@ -1168,10 +1495,36 @@ def validateIR (ir : IR) : CompileResult Unit := do
   if hasDuplicates (ir.handlers.map (·.name)) ||
       hasDuplicates (ir.handlers.map (·.discriminator)) then
     throw <| .planInvariant .solana "typed Solana IR handler identities must be unique"
-  let operationCount := ir.handlers.foldl (fun total handler =>
-    total + handler.checks.size + handler.operations.size + handler.params.size) 0
-  if operationCount > maxPlanNodes then
-    throw <| .planInvariant .solana "typed Solana IR exceeds the aggregate node limit"
+  let rec operationNodes : Nat → Nat → Array Operation → Option Nat
+    | 0, _, _ => none
+    | _, 0, _ => none
+    | depth + 1, fuel, operations =>
+        if operations.size > fuel then none
+        else operations.foldl (fun total operation => total.bind fun nodes =>
+          if nodes >= fuel then none
+          else match operation with
+            | .conditional _ thenOps elseOps => do
+                let left ← operationNodes depth (fuel - nodes - 1) thenOps
+                let used := nodes + 1 + left
+                if used >= fuel then none
+                else
+                  let right ← operationNodes depth (fuel - used) elseOps
+                  some (used + right)
+            | _ => some (nodes + 1)) (some 0)
+  let mut operationCount := 0
+  for handler in ir.handlers do
+    let shallow := handler.checks.size + handler.params.size
+    if shallow > maxPlanNodes - operationCount then
+      throw <| .planInvariant .solana "typed Solana IR exceeds the aggregate node limit"
+    operationCount := operationCount + shallow
+    let nodes ← match operationNodes maxExprDepth (maxPlanNodes - operationCount + 1)
+        handler.operations with
+      | some value => pure value
+      | none => throw (.planInvariant .solana
+          "typed Solana IR conditional nesting or aggregate node count exceeds its limit")
+    if nodes > maxPlanNodes - operationCount then
+      throw <| .planInvariant .solana "typed Solana IR exceeds the aggregate node limit"
+    operationCount := operationCount + nodes
   for handler in ir.handlers do
     validateHandlerIR ir.sourcePlan handler
   let expectedHandlers := #[lowerHandler ir.sourcePlan ir.sourcePlan.initializer] ++
@@ -1227,33 +1580,39 @@ private def renderComparisonOp : ComparisonOp → String
   | .gt => "gt"
   | .ge => "ge"
 
-private def renderOperation : Operation → String
-  | .literal destination value => s!"  %{destination} = const_u64 {value}\n"
+private partial def renderOperation (indent : String) : Operation → String
+  | .literal destination value => s!"{indent}%{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
-      s!"  %{destination} = load_u64_le(instruction_data + {dataOffset})\n"
+      s!"{indent}%{destination} = load_u64_le(instruction_data + {dataOffset})\n"
   | .loadState destination accountIndex byteOffset =>
-      s!"  %{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
+      s!"{indent}%{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
   | .checkedAdd destination lhs rhs errorCode =>
-      s!"  %{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}%{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .checkedSub destination lhs rhs errorCode =>
-      s!"  %{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}%{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .zeroState accountIndex byteOffset =>
-      s!"  zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
+      s!"{indent}zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
   | .storeState accountIndex byteOffset value =>
-      s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+      s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .setHeader accountIndex byteOffset value =>
-      s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
-  | .setReturnData value => s!"  set_return_data_u64_le %{value}\n"
-  | .setReturnDataBool value => s!"  set_return_data_bool %{value}\n"
+      s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
+  | .setReturnData value => s!"{indent}set_return_data_u64_le %{value}\n"
+  | .setReturnDataBool value => s!"{indent}set_return_data_bool %{value}\n"
   | .compare destination lhs rhs op =>
-      s!"  %{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
+      s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .assert condition errorCode =>
-      s!"  assert %{condition} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
+  | .conditional condition thenOps elseOps =>
+      let renderArm (ops : Array Operation) := ops.foldl (fun output operation =>
+        output ++ renderOperation (indent ++ "  ") operation) ""
+      s!"{indent}if %{condition} then\n" ++ renderArm thenOps ++
+      s!"{indent}else\n" ++ renderArm elseOps ++
+      s!"{indent}end-if\n"
 
 private def renderHandlerPlan (handler : HandlerIR) : String :=
   let checks := handler.checks.foldl (fun output check => output ++ renderCheck check) ""
   let operations := handler.operations.foldl (fun output operation =>
-    output ++ renderOperation operation) ""
+    output ++ renderOperation "  " operation) ""
   s!".handler {handler.discriminator} {handler.name} mode={renderMode handler.mode}\n" ++
     checks ++ operations ++ ".end-handler\n"
 

@@ -124,6 +124,7 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  | conditional (condition : Expr) (thenBody elseBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
@@ -201,6 +202,7 @@ inductive Operation where
   | setReturnData (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
+  | conditional (condition : Nat) (thenBody elseBody : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -465,6 +467,16 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: trailing UInt64 literal bytes"
 
+private def findResultTypeV1 (callable : CallableV1)
+    (id : ValueIdV1) : CompileResult TypeIdV1 := do
+  for param in callable.params do if param.valueId == id then return param.typeId
+  for block in callable.blocks do
+    for param in block.params do if param.valueId == id then return param.typeId
+    for instruction in block.instructions do
+      if let some result := instruction.result then
+        if result.valueId == id then return result.typeId
+  throw <| .planInvariant .near s!"unknown semantic ValueId {id.toNat}"
+
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
   unless bytes.size == 1 do
     throw <| .planInvariant .near
@@ -591,14 +603,211 @@ private inductive SemanticCallableModeV1 where
 private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
+  deriving Inhabited
 
-private def lowerCallableV1
+private partial def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
-    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+    (callable : CallableV1)
+    (noReturn : Bool := false)
+    (switchCase : Option UInt64 := none) : CompileResult LoweredCallableV1 := do
+  if callable.blocks.size == 3 && switchCase.isNone then
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing switch block 0"
+    match entry.terminator with
+    | .switch scrutinee cases (some defaultTarget) =>
+      let case ← match cases with | #[c] => pure c | _ => planError "NEAR switch requires exactly one case"
+      unless case.typeId == types.uint64TypeId && case.target.blockId.toNat == 1 &&
+          case.target.args.isEmpty && defaultTarget.blockId.toNat == 2 && defaultTarget.args.isEmpty do
+        throw <| .planInvariant .near "unsupported NEAR switch case/target shape"
+      unless (← findResultTypeV1 callable scrutinee) == types.uint64TypeId do
+        throw <| .planInvariant .near "NEAR switch scrutinee must be UInt64"
+      let value ← decodeUInt64LiteralV1 case.valueBytes
+      let rewrittenEntry := { entry with terminator := .branch scrutinee case.target defaultTarget }
+      let rewritten := { callable with blocks := callable.blocks.set! 0 rewrittenEntry }
+      return ← lowerCallableV1 owner mode expectedReturn types layout rewritten noReturn (some value)
+    | .switch _ _ none => throw <| .planInvariant .near "NEAR switch requires a default target"
+    | _ => pure ()
+  if callable.blocks.size == 3 || callable.blocks.size == 4 then
+    unless mode != .initialize && callable.params.isEmpty && callable.entryBlock.toNat == 0 &&
+        callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      throw <| .planInvariant .near
+        "unsupported NEAR conditional shape: entry/view must be parameterless and acyclic"
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing block 0"
+    let thenBlock ← match callable.blocks[1]? with | some b => pure b | none => planError "missing block 1"
+    let elseBlock ← match callable.blocks[2]? with | some b => pure b | none => planError "missing block 2"
+    let joinBlock? := callable.blocks[3]?
+    unless entry.id.toNat == 0 && thenBlock.id.toNat == 1 && elseBlock.id.toNat == 2 &&
+        entry.params.isEmpty && thenBlock.params.isEmpty && elseBlock.params.isEmpty do
+      throw <| .planInvariant .near
+        "unsupported NEAR conditional shape: blocks 0/1/2 are not exact and parameterless"
+    match joinBlock? with
+    | some b =>
+      unless b.id.toNat == 3 && (b.params.isEmpty ||
+          (b.params.size == 1 && match b.params[0]? with
+            | some p => p.valueId.toNat == 0 && p.typeId == types.uint64TypeId
+            | none => false)) do
+        throw <| .planInvariant .near
+          "unsupported NEAR conditional shape: join parameters must be empty or sole UInt64 ValueId 0"
+    | none => pure ()
+    let (condId, thenTarget, elseTarget) ← match entry.terminator with
+      | .branch cond thenTarget elseTarget => pure (cond, thenTarget, elseTarget)
+      | _ => throw (.planInvariant .near
+          "unsupported NEAR conditional shape: block 0 must terminate in Branch")
+    unless thenTarget.blockId.toNat == 1 && elseTarget.blockId.toNat == 2 &&
+        thenTarget.args.isEmpty && elseTarget.args.isEmpty do
+      throw <| .planInvariant .near
+        "unsupported NEAR conditional shape: Branch must target blocks 1/2 with empty args"
+    let valueResults (block : BlockV1) := block.instructions.foldl
+      (fun n instruction => if instruction.result.isSome then n + 1 else n) 0
+    let rebaseId (base : Nat) (id : ValueIdV1) : CompileResult ValueIdV1 :=
+      if id.toNat < base then planError
+        "unsupported NEAR conditional shape: cross-arm value use"
+      else pure ⟨id.toNat - base⟩
+    let rebaseBlock (base : Nat) (block : BlockV1) (terminal : Option ValueIdV1) : CompileResult BlockV1 := do
+      let mut instructions : Array InstructionV1 := #[]
+      let mut next := 0
+      for instruction in block.instructions do
+        let result ← match instruction.result with
+          | none => pure none
+          | some result =>
+              unless result.valueId.toNat == base + next do
+                throw <| .planInvariant .near
+                  "unsupported NEAR conditional shape: arm ValueIds are not canonical"
+              next := next + 1
+              pure (some { result with valueId := ⟨result.valueId.toNat - base⟩ })
+        let op ← match instruction.op with
+          | .literal typeId bytes => pure (.literal typeId bytes)
+          | .stateLoad stateId => pure (.stateLoad stateId)
+          | .binary op lhs rhs => pure (.binary op (← rebaseId base lhs) (← rebaseId base rhs))
+          | .stateStore stateId value => pure (.stateStore stateId (← rebaseId base value))
+          | .assert_ cond errorId args =>
+              let mut rebasedArgs := #[]
+              for arg in args do rebasedArgs := rebasedArgs.push (← rebaseId base arg)
+              pure (.assert_ (← rebaseId base cond) errorId rebasedArgs)
+          | _ => throw (.planInvariant .near
+              "unsupported NEAR conditional shape: arm instruction is unsupported")
+        instructions := instructions.push { instruction with result, op }
+      let terminator ← match terminal with
+        | some value => pure (.return_ (some (← rebaseId base value)))
+        | none => pure (.return_ none)
+      pure { block with id := 0, instructions, terminator }
+    let globalStart := match joinBlock? with
+      | some joinBlock => if joinBlock.params.isEmpty then 0 else 1
+      | none => 0
+    let rebasedEntry ← rebaseBlock globalStart entry (some condId)
+    let entryCallable := { callable with blocks := #[rebasedEntry] }
+    let conditionKind := if switchCase.isSome then some NearValueKindV1.uint64 else some .bool
+    let entryLowered ← lowerCallableV1 owner mode conditionKind types layout entryCallable
+    let entryPrefix := entryLowered.body.pop
+    unless entryPrefix.isEmpty do
+      throw <| .planInvariant .near
+        "unsupported NEAR conditional shape: block 0 may only compute the Branch condition"
+    let rawCondition ← match entryLowered.body.back? with
+      | some (.returnValue value) => pure value
+      | _ => throw (.planInvariant .near
+          "unsupported NEAR conditional shape: Branch condition did not lower to Bool")
+    let condition := match switchCase with
+      | some value => Expr.compare .eq rawCondition (.literal value)
+      | none => rawCondition
+    let thenBase := globalStart + valueResults entry
+    let elseBase := thenBase + valueResults thenBlock
+    match joinBlock? with
+    | none =>
+      let thenReturn ← match thenBlock.terminator with
+        | .return_ (some value) => pure value
+        | _ => throw (.planInvariant .near "conditional arm must return UInt64")
+      let elseReturn ← match elseBlock.terminator with
+        | .return_ (some value) => pure value
+        | _ => throw (.planInvariant .near "conditional arm must return UInt64")
+      let rebasedThen ← rebaseBlock thenBase thenBlock (some thenReturn)
+      let rebasedElse ← rebaseBlock elseBase elseBlock (some elseReturn)
+      let thenLowered ← lowerCallableV1 owner mode expectedReturn types layout { callable with blocks := #[rebasedThen] }
+      let elseLowered ← lowerCallableV1 owner mode expectedReturn types layout { callable with blocks := #[rebasedElse] }
+      return { params := #[], body := entryPrefix.push (.conditional condition thenLowered.body elseLowered.body) }
+    | some joinBlock =>
+      if joinBlock.params.isEmpty then
+        let exactJump (block : BlockV1) : Bool := match block.terminator with
+          | .jump target => target.blockId.toNat == 3 && target.args.isEmpty
+          | _ => false
+        unless exactJump thenBlock && exactJump elseBlock do
+          throw <| .planInvariant .near
+            "conditional arms must jump exactly to empty join block 3"
+        let joinBase := elseBase + valueResults elseBlock
+        let joinReturn ← match joinBlock.terminator with
+          | .return_ (some value) => pure value
+          | _ => throw (.planInvariant .near "conditional join must return UInt64")
+        let rebasedThen ← rebaseBlock thenBase thenBlock none
+        let rebasedElse ← rebaseBlock elseBase elseBlock none
+        let rebasedJoin ← rebaseBlock joinBase joinBlock (some joinReturn)
+        let thenLowered ← lowerCallableV1 owner mode expectedReturn types layout
+          { callable with blocks := #[rebasedThen] } true
+        let elseLowered ← lowerCallableV1 owner mode expectedReturn types layout
+          { callable with blocks := #[rebasedElse] } true
+        let joinLowered ← lowerCallableV1 owner mode expectedReturn types layout
+          { callable with blocks := #[rebasedJoin] }
+        return { params := #[], body :=
+          #[.conditional condition thenLowered.body elseLowered.body] ++ joinLowered.body }
+      let jumpArg (block : BlockV1) : CompileResult ValueIdV1 := match block.terminator with
+        | .jump target =>
+            if target.blockId.toNat == 3 && target.args.size == 1 then pure target.args[0]!
+            else planError "conditional arm jump target/arguments are not exact"
+        | _ => planError "conditional arm must jump to join block 3"
+      let thenArg ← jumpArg thenBlock
+      let elseArg ← jumpArg elseBlock
+      let joinBase := elseBase + valueResults elseBlock
+      let joinReturn ← match joinBlock.terminator with
+        | .return_ (some value) => pure value
+        | _ => throw (.planInvariant .near "conditional join must return UInt64")
+      let fuseArmContinuation (base : Nat) (arm : BlockV1) (arg : ValueIdV1) :
+          CompileResult BlockV1 := do
+        let armCount := valueResults arm
+        unless base <= arg.toNat && arg.toNat < base + armCount do
+          throw <| .planInvariant .near
+            "conditional jump argument must be defined in its own arm"
+        let rebasedArm ← rebaseBlock base arm none
+        let argLocal := arg.toNat - base
+        let mapJoinId (id : ValueIdV1) : CompileResult ValueIdV1 :=
+          if id.toNat == 0 then pure ⟨argLocal⟩
+          else if joinBase <= id.toNat then pure ⟨armCount + id.toNat - joinBase⟩
+          else planError "conditional continuation references an arm value directly"
+        let mut instructions := rebasedArm.instructions
+        let mut next := armCount
+        for instruction in joinBlock.instructions do
+          let result ← match instruction.result with
+            | some result =>
+                unless result.valueId.toNat == joinBase + (next - armCount) do
+                  throw <| .planInvariant .near
+                    "conditional continuation ValueIds are not canonical"
+                let localId := next
+                next := next + 1
+                pure (some { result with valueId := ⟨localId⟩ })
+            | none => pure none
+          let op ← match instruction.op with
+            | .literal typeId bytes => pure (.literal typeId bytes)
+            | .stateLoad stateId => pure (.stateLoad stateId)
+            | .binary op lhs rhs => pure (.binary op (← mapJoinId lhs) (← mapJoinId rhs))
+            | .stateStore stateId value => pure (.stateStore stateId (← mapJoinId value))
+            | .assert_ cond errorId args =>
+                let mut mapped := #[]
+                for value in args do mapped := mapped.push (← mapJoinId value)
+                pure (.assert_ (← mapJoinId cond) errorId mapped)
+            | _ => planError "conditional continuation instruction is unsupported"
+          instructions := instructions.push { instruction with result, op }
+        let mappedReturn ← mapJoinId joinReturn
+        pure {
+          id := rebasedArm.id
+          params := rebasedArm.params
+          instructions := instructions
+          terminator := .return_ (some mappedReturn)
+        }
+      let fusedThen ← fuseArmContinuation thenBase thenBlock thenArg
+      let fusedElse ← fuseArmContinuation elseBase elseBlock elseArg
+      let thenLowered ← lowerCallableV1 owner mode expectedReturn types layout { callable with blocks := #[fusedThen] }
+      let elseLowered ← lowerCallableV1 owner mode expectedReturn types layout { callable with blocks := #[fusedElse] }
+      return { params := #[], body := #[.conditional condition thenLowered.body elseLowered.body] }
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .near
@@ -734,6 +943,10 @@ private def lowerCallableV1
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
+  | .mutate, .return_ none
+  | .view, .return_ none =>
+      unless noReturn && segmentStart == values.size do
+        throw <| .planInvariant .near "nonterminal conditional arm has unconsumed values"
   | .initialize, .return_ (some _) =>
       throw <| .planInvariant .near "initializer cannot return a value"
   | _, _ =>
@@ -812,65 +1025,135 @@ private def makeEntryV1
     body := lowered.body
   }
 
+private inductive ExpectedExprKind where | uint64 | bool deriving BEq
+
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
-    (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
+    (expected : ExpectedExprKind) (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
     match expr with
-    | .literal .. => some 1
-    | .param inputOffset => if params.any (·.inputOffset == inputOffset) then some 1 else none
-    | .stateLoad fieldIndex => if fieldIndex < layout.fields.size then some 1 else none
+    | .literal value =>
+        if expected == .uint64 || value == 0 || value == 1 then some 1 else none
+    | .param inputOffset =>
+        if expected == .uint64 && params.any (·.inputOffset == inputOffset) then some 1 else none
+    | .stateLoad fieldIndex =>
+        if expected == .uint64 && fieldIndex < layout.fields.size then some 1 else none
     | .checkedAdd lhs rhs =>
+        if expected != .uint64 then none else
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params .uint64 childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params .uint64 childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+
     | .checkedSub lhs rhs =>
+        if expected != .uint64 then none else
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params .uint64 childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params .uint64 childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .compare _ lhs rhs =>
+        if expected != .bool then none else
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? layout params childDepth available lhs with
+        match planExprNodes? layout params .uint64 childDepth available lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? layout params childDepth (available - lhsNodes) rhs with
+            match planExprNodes? layout params .uint64 childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
 
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (params : Array Param) (expected : ExpectedExprKind) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= limits.maxPlanNodes then
     throw <| .planInvariant .near
       s!"plan exceeds aggregate node limit {limits.maxPlanNodes}"
-  match planExprNodes? layout params limits.maxExprDepth (limits.maxPlanNodes - total) expr with
+  match planExprNodes? layout params expected limits.maxExprDepth (limits.maxPlanNodes - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
         s!"plan expression has a dangling reference or exceeds depth {limits.maxExprDepth}/node limit {limits.maxPlanNodes}"
 
 private def addMethodExprTemps (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (total : Nat) (expr : Expr) : CompileResult Nat := do
+    (params : Array Param) (expected : ExpectedExprKind) (total : Nat) (expr : Expr) : CompileResult Nat := do
   if total >= limits.maxMethodLocals then
     throw <| .planInvariant .near
       s!"method expression exceeds local limit {limits.maxMethodLocals}"
-  match planExprNodes? layout params limits.maxExprDepth (limits.maxMethodLocals - total) expr with
+  match planExprNodes? layout params expected limits.maxExprDepth (limits.maxMethodLocals - total) expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
         s!"method expression has a dangling reference or exceeds depth {limits.maxExprDepth}/local limit {limits.maxMethodLocals}"
+
+private partial def validateStatements (limits : ResourceLimits) (layout : StorageLayout)
+    (params : Array Param) (mode : MethodMode) (isInitializer : Bool)
+    (returnKind : ExpectedExprKind)
+    (statements : Array Statement) (baseNodes baseTemps : Nat) :
+    CompileResult (Nat × Nat × Bool) := do
+  let mut total := baseNodes
+  let mut temps := baseTemps
+  let mut returned := false
+  for statement in statements do
+    if returned then throw <| .planInvariant .near "statement appears after a terminal return"
+    match statement with
+    | .store store =>
+        if mode == .view then throw <| .planInvariant .near "view method writes state (including a conditional arm)"
+        unless store.fieldIndex < layout.fields.size do throw <| .planInvariant .near "method stores to an unknown KV field"
+        total ← addPlanExprNodes limits layout params .uint64 total store.value
+        temps ← addMethodExprTemps limits layout params .uint64 temps store.value
+    | .assert condition =>
+        total ← addPlanExprNodes limits layout params .bool total condition
+        temps ← addMethodExprTemps limits layout params .bool temps condition
+    | .returnValue value =>
+        if isInitializer then throw <| .planInvariant .near "initializer cannot return a value"
+        total ← addPlanExprNodes limits layout params returnKind total value
+        temps ← addMethodExprTemps limits layout params returnKind temps value
+        returned := true
+    | .conditional condition thenBody elseBody =>
+        if isInitializer || thenBody.isEmpty || elseBody.isEmpty then
+          throw <| .planInvariant .near "conditional is only supported in entry/view methods with two nonempty arms"
+        if thenBody.any (fun s => match s with | .conditional .. => true | _ => false) ||
+            elseBody.any (fun s => match s with | .conditional .. => true | _ => false) then
+          throw <| .planInvariant .near "nested conditional is not supported"
+        total ← addPlanExprNodes limits layout params .bool total condition
+        temps ← addMethodExprTemps limits layout params .bool temps condition
+        let (thenNodes, thenTemps, thenReturned) ← validateStatements limits layout params mode false returnKind thenBody total temps
+        let (elseNodes, elseTemps, elseReturned) ← validateStatements limits layout params mode false returnKind elseBody thenNodes thenTemps
+        unless thenReturned == elseReturned do
+          throw <| .planInvariant .near "conditional arms must either both return or both continue"
+        total := elseNodes
+        temps := elseTemps
+        returned := thenReturned
+  pure (total, temps, returned)
+
+private partial def bodyNodeCount? (depth fuel : Nat) (body : Array Statement) : Option Nat := do
+  if depth == 0 || body.size > fuel then none else
+  let mut total := body.size
+  for statement in body do
+    match statement with
+    | .conditional _ thenBody elseBody =>
+        let left ← bodyNodeCount? (depth - 1) (fuel - total) thenBody
+        total := total + left
+        let right ← bodyNodeCount? (depth - 1) (fuel - total) elseBody
+        total := total + right
+    | _ => pure ()
+  pure total
+
+private def statementContainsConditional : Statement → Bool
+  | .conditional .. => true
+  | _ => false
+
+private def bodyContainsConditional (body : Array Statement) : Bool :=
+  body.any statementContainsConditional
 
 private def validateStorageLayout (limits : ResourceLimits)
     (layout : StorageLayout) : CompileResult Unit := do
@@ -926,31 +1209,30 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   validateParams limits s!"method '{method.name}'" method.params
   unless method.exactInputLen == method.params.size * 8 do
     throw <| .planInvariant .near s!"method '{method.name}' raw input length is not canonical"
-  if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
+  -- Reject the exact-terminal-if envelope before any recursive statement count.
+  -- This keeps forged deeply nested public Plans away from unbounded traversal.
+  if bodyContainsConditional method.body then
+    match method.body with
+    | #[.conditional _ thenBody elseBody] =>
+        if !method.params.isEmpty ||
+            thenBody.any statementContainsConditional || elseBody.any statementContainsConditional then
+          throw <| .planInvariant .near "nested conditional is not supported"
+    | body =>
+        unless method.params.isEmpty && body.size >= 2 &&
+            (match body[0]? with
+             | some (Statement.conditional _ thenBody elseBody) =>
+                 !thenBody.any statementContainsConditional && !elseBody.any statementContainsConditional
+             | _ => false) &&
+            !(body.extract 1 body.size).any statementContainsConditional do
+          throw <| .planInvariant .near
+            "conditional method must be terminal or first with straight-line continuation"
+  let bodyNodes ← match bodyNodeCount? limits.maxExprDepth limits.maxBodyStatements method.body with
+    | some n => pure n
+    | none => throw (.planInvariant .near "method body exceeds recursive depth/node limits")
+  if bodyNodes > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
-  let mut total := baseNodes
-  let mut methodTemps := 0
-  let mut returned := false
-  for statement in method.body do
-    if returned then
-      throw <| .planInvariant .near s!"method '{method.name}' has a statement after return"
-    match statement with
-    | .store store =>
-        if method.mode == .view then
-          throw <| .planInvariant .near s!"view method '{method.name}' writes state"
-        unless store.fieldIndex < layout.fields.size do
-          throw <| .planInvariant .near s!"method '{method.name}' stores to an unknown KV field"
-        total ← addPlanExprNodes limits layout method.params total store.value
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps store.value
-    | .returnValue value =>
-        if isInitializer then
-          throw <| .planInvariant .near "initializer cannot return a value"
-        total ← addPlanExprNodes limits layout method.params total value
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps value
-        returned := true
-    | .assert condition =>
-        total ← addPlanExprNodes limits layout method.params total condition
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps condition
+  let (total, _, returned) ← validateStatements limits layout method.params method.mode
+    isInitializer (if method.resultKind == .bool then .bool else .uint64) method.body baseNodes 0
   if isInitializer then
     if returned then
       throw <| .planInvariant .near "initializer cannot return a value"
@@ -981,8 +1263,15 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   let handlerCount := 1 + plan.entries.size
   let paramCount := plan.initializer.params.size +
     plan.entries.foldl (fun total method => total + method.params.size) 0
-  let statementCount := plan.initializer.body.size +
-    plan.entries.foldl (fun total method => total + method.body.size) 0
+  let initializerNodes ← match bodyNodeCount? plan.resourceLimits.maxExprDepth
+      plan.resourceLimits.maxPlanNodes plan.initializer.body with
+    | some n => pure n | none => throw (.planInvariant .near "initializer body exceeds recursive limits")
+  let mut statementCount := initializerNodes
+  for method in plan.entries do
+    let nodes ← match bodyNodeCount? plan.resourceLimits.maxExprDepth
+        (plan.resourceLimits.maxPlanNodes - statementCount) method.body with
+      | some n => pure n | none => throw (.planInvariant .near "method body exceeds recursive limits")
+    statementCount := statementCount + nodes
   let mut total := plan.storage.fields.size + handlerCount + paramCount + statementCount
   if total > plan.resourceLimits.maxPlanNodes then
     throw <| .planInvariant .near
@@ -1143,6 +1432,36 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := rhs.next + 1
       }
 
+private partial def lowerStatements (keys : Array KeyRegion) (next : Nat)
+    (body : Array Statement) : Array Operation × Nat := Id.run do
+  let mut operations := #[]
+  let mut cursor := next
+  for statement in body do
+    match statement with
+    | .store store =>
+        let value := lowerExpr keys cursor store.value
+        operations := operations ++ value.operations
+        operations := operations.push (.storeState (fieldRegion keys store.fieldIndex) value.value)
+        cursor := value.next
+    | .returnValue expr =>
+        let value := lowerExpr keys cursor expr
+        operations := operations ++ value.operations
+        operations := operations.push (.setReturnData value.value)
+        cursor := value.next
+    | .assert condition =>
+        let value := lowerExpr keys cursor condition
+        operations := operations ++ value.operations
+        operations := operations.push (.assert value.value)
+        cursor := value.next
+    | .conditional condition thenBody elseBody =>
+        let value := lowerExpr keys cursor condition
+        let (thenOps, thenNext) := lowerStatements keys value.next thenBody
+        let (elseOps, elseNext) := lowerStatements keys thenNext elseBody
+        operations := operations ++ value.operations
+        operations := operations.push (.conditional value.value thenOps elseOps)
+        cursor := elseNext
+  return (operations, cursor)
+
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
   let marker := keys[0]!
@@ -1155,24 +1474,8 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
       operations := operations.push (.zeroState (fieldRegion keys index))
   else
     operations := operations.push (.requireLayout marker plan.storage.markerValue)
-  let mut next := 0
-  for statement in method.body do
-    match statement with
-    | .store store =>
-        let value := lowerExpr keys next store.value
-        operations := operations ++ value.operations
-        operations := operations.push (.storeState (fieldRegion keys store.fieldIndex) value.value)
-        next := value.next
-    | .returnValue value =>
-        let value := lowerExpr keys next value
-        operations := operations ++ value.operations
-        operations := operations.push (.setReturnData value.value)
-        next := value.next
-    | .assert condition =>
-        let value := lowerExpr keys next condition
-        operations := operations ++ value.operations
-        operations := operations.push (.assert value.value)
-        next := value.next
+  let (bodyOperations, next) := lowerStatements keys 0 method.body
+  operations := operations ++ bodyOperations
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
   return {
@@ -1185,6 +1488,26 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
 
 private def expectedMethods (plan : Plan) (keys : Array KeyRegion) : Array MethodIR :=
   #[lowerMethod plan keys plan.initializer] ++ plan.entries.map (lowerMethod plan keys)
+
+private def operationNodes (depthLeft nodesLeft : Nat)
+    (operations : Array Operation) : Option Nat :=
+  let rec count : Nat → Nat → Array Operation → Option Nat
+    | 0, _, _ => none
+    | _, 0, _ => none
+    | depth + 1, fuel, operations =>
+        if operations.size > fuel then none
+        else operations.foldl (fun total operation => total.bind fun nodes =>
+          if nodes >= fuel then none
+          else match operation with
+            | .conditional _ thenBody elseBody => do
+                let left ← count depth (fuel - nodes - 1) thenBody
+                let used := nodes + 1 + left
+                if used >= fuel then none
+                else
+                  let right ← count depth (fuel - used) elseBody
+                  some (used + right)
+            | _ => some (nodes + 1)) (some 0)
+  count depthLeft nodesLeft operations
 
 /-- Validate the typed host-call recipe and bind it exactly to its source Plan. -/
 def validateIR (ir : IR) : CompileResult Unit := do
@@ -1207,11 +1530,20 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if method.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .near
         s!"typed NEAR IR method '{method.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
-  let operationCount := ir.methods.foldl (fun total method =>
-    total + method.params.size + method.operations.size) 0
-  if operationCount > ir.sourcePlan.resourceLimits.maxRecipeNodes then
-    throw <| .planInvariant .near
-      s!"typed NEAR IR exceeds recipe node limit {ir.sourcePlan.resourceLimits.maxRecipeNodes}"
+  let limit := ir.sourcePlan.resourceLimits.maxRecipeNodes
+  let mut operationCount := 0
+  for method in ir.methods do
+    if method.params.size > limit - operationCount then
+      throw <| .planInvariant .near s!"typed NEAR IR exceeds recipe node limit {limit}"
+    operationCount := operationCount + method.params.size
+    let nodes ← match operationNodes ir.sourcePlan.resourceLimits.maxExprDepth
+        (limit - operationCount + 1) method.operations with
+      | some value => pure value
+      | none => throw (.planInvariant .near
+          "typed NEAR IR conditional nesting or recipe node count exceeds its limit")
+    if nodes > limit - operationCount then
+      throw <| .planInvariant .near s!"typed NEAR IR exceeds recipe node limit {limit}"
+    operationCount := operationCount + nodes
   let expected := expectedMethods ir.sourcePlan expectedKeys
   unless ir.methods == expected do
     throw <| .planInvariant .near
@@ -1260,7 +1592,7 @@ private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     s!"    (call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
     s!"    (local.set $t{destination} (i64.load (i32.const {memory.valueOffset})))\n"
 
-private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout) :
+private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout) :
     Operation → String
   | .checkInputLen bytes =>
       s!"    (call $pf_input (i64.const {registers.input}))\n" ++
@@ -1315,6 +1647,12 @@ private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
   | .setReturnData value =>
       s!"    (i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
         s!"    (call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
+  | .conditional condition thenBody elseBody =>
+      let renderArm (operations : Array Operation) :=
+        String.intercalate "" <| operations.toList.map (renderOperation registers memory)
+      s!"    (if (i64.ne (local.get $t{condition}) (i64.const 0))\n" ++
+        "      (then\n" ++ renderArm thenBody ++ "      )\n" ++
+        "      (else\n" ++ renderArm elseBody ++ "      ))\n"
 
 private def renderMethod (ir : IR) (method : MethodIR) : String :=
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>

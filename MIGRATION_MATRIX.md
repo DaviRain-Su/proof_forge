@@ -40,9 +40,15 @@ ValidatedSourceV1 / ProgramV1
 
 保留边界（engineering fact，非 formal 完成）：
 
-- sole Normalize 当前仍是 narrow public-UInt64 工程子集（single-block init/entry/view + literal/load/checked add-sub/UInt64 六比较/bare assert/store/return；Bool 限 body 临时值；其余 CheckV1-ok 形状继续在 Normalize 门禁 fail closed）
+- sole Normalize 当前是 public primitive 工程子集：保留 generalized forward-only if 与 literal/bind
+  statement match CFG、UInt64/Bool local let、UInt64/Bool entry/view result及 exact sole UInt64 phi；
+  aggregates/effects/fn/localCall/loops 等其余 CheckV1-ok 形状仍在 Normalize 门禁 fail closed
 - formal D2 / D3 仍 pending
-- 四 target 的 retained `SemanticProgramV1` Plan lowering/cutover及 checked-sub 首次扩面与**六比较+bare assert 扩面**（Bool 限 body 临时值、state/param/result 仍 UInt64-only；四 target 均经 worker lane + 主代理审计集成，聚合 `testGuardedCounterSemanticPlans` 固定 assert(ge)→checkedSub→return 跨 target 一致性）**已完成**，但完整 Normalize lowering、SupportClaim、formal registry root codec/`registryDigest`、reachable BuildIdentity mint与 OutputSetV1 **未完成**；工程 `TargetRegistryV1` sole membership/default/profile + selection cutover 与 private BuildIdentity five-field layout **已完成**；工程 single-semantic carrier + exact requirement resolver capability cutover **已完成**；工程 S6 Plan cutover + S7a MaterializedArtifactsV1 + S7b FinalizedArtifactsV1 + **S7c exact disk closure/manifest-last** **已完成**（仍非 formal D3 / SupportClaim / OutputSetV1 / ToolchainIdentity）
+- 四 target retained `SemanticProgramV1` lowering仅闭合 one-block UInt64/Bool 与 exact terminal
+  Branch/empty join/sole UInt64 phi/one-case UInt64 Switch；general multi-case/nested CFG仍 target
+  fail closed。完整 Normalize lowering、SupportClaim、formal registry root codec/`registryDigest`、
+  reachable BuildIdentity mint与 OutputSetV1 **未完成**；工程 registry/single-semantic resolver/S6/S7
+  cutover仍为已完成 engineering fact（非 formal D3 / SupportClaim / OutputSetV1 / ToolchainIdentity）
 
 ## 完成度口径
 
@@ -125,6 +131,17 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 | Noir | retained-SemanticProgramV1 public-UInt64 add/sub Plan + source-only downstream | 迁入 formal identity/OutputSet，继续non-deployable | ACIR/witness/proof/VK/verify或D7完成 |
 
 如果任一产品 consumer仍读取旧 carrier或identity，相关删除行保持 `blocked by consumer`，不得增加公开兼容层来伪造归零。
+
+### 2026-07-30 Normalize/target CFG integration boundary
+
+- Shared Normalize/Provenance/Reference 继续以 generalized `if`（nested/omitted else/continuation）
+  和 generalized literal/bind statement `match`（multi-case/default/join）为权威；未恢复旧窄
+  terminal-only Normalize gate，Bool entry/view result 不变。
+- Shared 新增显式 UInt64/Bool local let 与 exact sole UInt64 phi（block 3 sole param
+  `ValueId 0`, UInt64；两臂 Jump args；canonical global IDs）。
+- EVM/Solana/NEAR/Noir 仅闭合 exact 3-block terminal Branch、4-block empty join、4-block sole
+  UInt64 phi join、3-block one UInt64 case+default Switch；multi-case/nested/other join 仍在各
+  target private lowering边界 fail closed，没有 shared adapter 或伪 general target support。
 
 ## 旧代码退役清单
 

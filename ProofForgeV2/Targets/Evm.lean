@@ -56,6 +56,9 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  /-- A structured Semantic CFG branch. Both arrays retain source order and
+  each arm is terminal (ends in `returnValue`). -/
+  | conditional (condition : Expr) (thenBody elseBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- Constructor carries store-only `stores` for the historical store-only path
@@ -265,6 +268,16 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
+private def findResultTypeV1 (callable : CallableV1)
+    (id : ValueIdV1) : CompileResult TypeIdV1 := do
+  for block in callable.blocks do
+    for instruction in block.instructions do
+      if let some result := instruction.result then
+        if result.valueId == id then
+          return result.typeId
+  throw <| .planInvariant .evm
+    s!"semantic expression references unknown result ValueId {id.toNat}"
+
 private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   unless bytes.size == 8 do
     throw <| .planInvariant .evm
@@ -417,24 +430,221 @@ private structure LoweredCallableV1 where
   params : Array Param
   stores : Array Store
   body : Array Statement
+  deriving Nonempty
 
-private def lowerCallableV1
+private partial def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
     (callable : CallableV1)
-    (expectedResultKind : Option ResultKind) : CompileResult LoweredCallableV1 := do
+    (expectedResultKind : Option ResultKind)
+    (nonterminal : Bool := false)
+    (switchCase : Option UInt64 := none) : CompileResult LoweredCallableV1 := do
   let uint64TypeId := types.uint64TypeId
-  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
+  if callable.blocks.size == 3 && switchCase.isNone then
+    let entry ← match callable.blocks[0]? with
+      | some block => pure block
+      | none => planError "missing switch entry block 0"
+    match entry.terminator with
+    | .switch scrutinee cases (some defaultTarget) =>
+        let case ← match cases with
+          | #[case] => pure case
+          | _ => planError "unsupported EVM switch shape: expected exactly one case"
+        unless case.typeId == uint64TypeId &&
+            case.target.blockId.toNat == 1 && case.target.args.isEmpty &&
+            defaultTarget.blockId.toNat == 2 && defaultTarget.args.isEmpty do
+          throw <| .planInvariant .evm
+            "unsupported EVM switch shape: expected UInt64 case target 1 and default target 2 with empty args"
+        unless (← findResultTypeV1 callable scrutinee) == uint64TypeId do
+          throw <| .planInvariant .evm "unsupported EVM switch shape: scrutinee must be UInt64"
+        let value ← decodeUInt64LiteralV1 case.valueBytes
+        let rewrittenEntry := { entry with terminator := .branch scrutinee case.target defaultTarget }
+        let rewritten := { callable with blocks := callable.blocks.set! 0 rewrittenEntry }
+        return ← lowerCallableV1 owner mode types layout rewritten expectedResultKind nonterminal (some value)
+    | .switch _ _ none =>
+        throw <| .planInvariant .evm "unsupported EVM switch shape: default target is required"
+    | _ => pure ()
+  if callable.blocks.size == 4 then
+    unless mode != .constructor && callable.params.isEmpty && callable.entryBlock.toNat == 0 &&
+        callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      throw <| .planInvariant .evm "unsupported EVM join shape: callable must be parameterless and acyclic"
+    let entry ← match callable.blocks[0]? with | some b => pure b | none => planError "missing join block 0"
+    let thenBlock ← match callable.blocks[1]? with | some b => pure b | none => planError "missing join block 1"
+    let elseBlock ← match callable.blocks[2]? with | some b => pure b | none => planError "missing join block 2"
+    let joinBlock ← match callable.blocks[3]? with | some b => pure b | none => planError "missing join block 3"
+    unless entry.id.toNat == 0 && thenBlock.id.toNat == 1 && elseBlock.id.toNat == 2 &&
+        joinBlock.id.toNat == 3 && entry.params.isEmpty && thenBlock.params.isEmpty &&
+        elseBlock.params.isEmpty do
+      throw <| .planInvariant .evm
+        "unsupported EVM join shape: blocks must be [0,1,2,3] with parameterless branch blocks"
+    let (cond, thenTarget, elseTarget) ← match entry.terminator with
+      | .branch c t e => pure (c, t, e)
+      | _ => throw (.planInvariant .evm "unsupported EVM join shape: block 0 must Branch")
+    unless thenTarget.blockId.toNat == 1 && elseTarget.blockId.toNat == 2 &&
+        thenTarget.args.isEmpty && elseTarget.args.isEmpty do
+      throw <| .planInvariant .evm "unsupported EVM join shape: Branch must target 1/2 with empty args"
+    unless some (← findResultTypeV1 callable cond) == types.boolTypeId do
+      throw <| .planInvariant .evm "unsupported EVM join shape: Branch condition must be Bool"
+    let valueResults (b : BlockV1) := b.instructions.foldl
+      (fun n i => if i.result.isSome then n + 1 else n) 0
+    let rebaseId (base : Nat) (id : ValueIdV1) : CompileResult ValueIdV1 :=
+      if id.toNat < base then planError "unsupported EVM join shape: branch-local/cross-arm value"
+      else pure ⟨id.toNat - base⟩
+    let rebaseBlock (base : Nat) (b : BlockV1) (term : TerminatorV1) : CompileResult BlockV1 := do
+      let mut instructions := #[]
+      let mut next := 0
+      for i in b.instructions do
+        let result ← match i.result with
+          | none => pure none
+          | some r =>
+              unless r.valueId.toNat == base + next do throw <| .planInvariant .evm "unsupported EVM join shape: noncanonical ValueId"
+              next := next + 1
+              pure (some { r with valueId := ⟨next - 1⟩ })
+        let op ← match i.op with
+          | .literal t bytes => pure (.literal t bytes)
+          | .stateLoad s => pure (.stateLoad s)
+          | .binary op l r => pure (.binary op (← rebaseId base l) (← rebaseId base r))
+          | .stateStore s v => pure (.stateStore s (← rebaseId base v))
+          | .assert_ c e args =>
+              let mut xs := #[]
+              for x in args do xs := xs.push (← rebaseId base x)
+              pure (.assert_ (← rebaseId base c) e xs)
+          | _ => throw (.planInvariant .evm "unsupported EVM join shape: unsupported instruction")
+        instructions := instructions.push { i with result, op }
+      pure { b with id := 0, instructions, terminator := term }
+    if joinBlock.params.isEmpty then
+      for arm in #[thenBlock, elseBlock] do
+        match arm.terminator with
+        | .jump target => unless target.blockId.toNat == 3 && target.args.isEmpty do
+            throw <| .planInvariant .evm "unsupported EVM join shape: arms must Jump(3,[])"
+        | _ => throw <| .planInvariant .evm "unsupported EVM join shape: arms must not return"
+      let entryLowered ← lowerCallableV1 owner mode types layout
+        { callable with blocks := #[{ entry with terminator := .return_ (some cond) }] }
+        (some (if switchCase.isSome then .uint64 else .bool))
+      let condition ← match entryLowered.body with
+        | #[.returnValue value] => pure value
+        | _ => throw (.planInvariant .evm "unsupported EVM join shape: block 0 may only compute condition")
+      let thenBase := valueResults entry
+      let elseBase := thenBase + valueResults thenBlock
+      let joinBase := elseBase + valueResults elseBlock
+      let thenLowered ← lowerCallableV1 owner mode types layout
+        { callable with blocks := #[← rebaseBlock thenBase thenBlock (.return_ none )] } expectedResultKind true
+      let elseLowered ← lowerCallableV1 owner mode types layout
+        { callable with blocks := #[← rebaseBlock elseBase elseBlock (.return_ none )] } expectedResultKind true
+      let returnId ← match joinBlock.terminator with
+        | .return_ (some id) => rebaseId joinBase id
+        | _ => throw (.planInvariant .evm "unsupported EVM join shape: block 3 must Return UInt64")
+      let originalReturnId := match joinBlock.terminator with | .return_ (some id) => id | _ => ⟨0⟩
+      let expectedTypeId ← match expectedResultKind with
+        | some .uint64 => pure uint64TypeId
+        | some .bool => match types.boolTypeId with | some t => pure t | none => planError "Bool result type missing"
+        | none => planError "join result kind missing"
+      unless (← findResultTypeV1 callable originalReturnId) == expectedTypeId do
+        throw <| .planInvariant .evm "unsupported EVM join shape: block 3 return kind mismatch"
+      let joinLowered ← lowerCallableV1 owner mode types layout
+        { callable with blocks := #[← rebaseBlock joinBase joinBlock (.return_ (some returnId) )] } expectedResultKind
+      return ({
+        params := #[]
+        stores := #[]
+        body := #[.conditional condition thenLowered.body elseLowered.body] ++ joinLowered.body
+      } : LoweredCallableV1)
+    let joinParam ← match joinBlock.params with
+      | #[param] => pure param
+      | _ => throw (.planInvariant .evm
+          "unsupported EVM join shape: block 3 parameters must be empty or sole ValueId 0 UInt64")
+    unless joinParam.valueId.toNat == 0 && joinParam.typeId == uint64TypeId do
+      throw <| .planInvariant .evm
+        "unsupported EVM join shape: block 3 parameter must be sole ValueId 0 UInt64"
+    for arm in #[thenBlock, elseBlock] do
+      match arm.terminator with
+      | .jump target => unless target.blockId.toNat == 3 && target.args.size == 1 do
+          throw <| .planInvariant .evm "unsupported EVM join shape: arms must Jump(3,[UInt64])"
+      | _ => throw <| .planInvariant .evm "unsupported EVM join shape: arms must not return"
+    -- Block parameters are assigned before every instruction result, hence the
+    -- shared normalizer's instruction IDs begin at one in this exact shape.
+    let entryLowered ← lowerCallableV1 owner mode types layout
+      { callable with blocks := #[← rebaseBlock 1 entry (.return_ (some ⟨cond.toNat - 1⟩) )] }
+      (some (if switchCase.isSome then .uint64 else .bool))
+    let condition ← match entryLowered.body with
+      | #[.returnValue value] => pure value
+      | _ => throw (.planInvariant .evm "unsupported EVM join shape: block 0 may only compute condition")
+    let thenBase := 1 + valueResults entry
+    let elseBase := thenBase + valueResults thenBlock
+    let joinBase := elseBase + valueResults elseBlock
+    let makeArm (base : Nat) (arm : BlockV1) : CompileResult (Array Statement) := do
+      let jumpArg ← match arm.terminator with
+        | .jump target => match target.args with
+          | #[arg] => pure arg
+          | _ => throw (.planInvariant .evm "unsupported EVM join shape: bad jump arity")
+        | _ => throw (.planInvariant .evm "unsupported EVM join shape: arm must jump")
+      unless (← findResultTypeV1 callable jumpArg) == uint64TypeId do
+        throw <| .planInvariant .evm "unsupported EVM join shape: jump argument must be UInt64"
+      let armCount := valueResults arm
+      unless base <= jumpArg.toNat && jumpArg.toNat < base + armCount do
+        throw <| .planInvariant .evm "unsupported EVM join shape: branch-local/cross-arm jump argument"
+      let localArg : ValueIdV1 := ⟨jumpArg.toNat - base⟩
+      let rebasedArm ← rebaseBlock base arm (.return_ none)
+      let rewrite (id : ValueIdV1) : CompileResult ValueIdV1 :=
+        if id.toNat == 0 then pure localArg
+        else if joinBase <= id.toNat then pure ⟨armCount + id.toNat - joinBase⟩
+        else planError "unsupported EVM join shape: continuation references branch-local/cross-arm value"
+      let mut joined := rebasedArm.instructions
+      for instruction in joinBlock.instructions do
+        let op ← match instruction.op with
+          | .literal t bytes => pure (.literal t bytes)
+          | .stateLoad s => pure (.stateLoad s)
+          | .binary op l r => pure (.binary op (← rewrite l) (← rewrite r))
+          | .stateStore s v => pure (.stateStore s (← rewrite v))
+          | .assert_ c e args =>
+              let mut xs := #[]
+              for x in args do xs := xs.push (← rewrite x)
+              pure (.assert_ (← rewrite c) e xs)
+          | _ => throw (.planInvariant .evm "unsupported EVM join continuation instruction")
+        let result := instruction.result.map fun r =>
+          { r with valueId := ⟨armCount + r.valueId.toNat - joinBase⟩ }
+        joined := joined.push { instruction with op, result }
+      let returnId ← match joinBlock.terminator with
+        | .return_ (some id) => rewrite id
+        | _ => throw (.planInvariant .evm "unsupported EVM join shape: block 3 must Return UInt64")
+      let finalBlock : BlockV1 := {
+        id := rebasedArm.id
+        params := rebasedArm.params
+        instructions := joined
+        terminator := .return_ (some returnId)
+      }
+      let lowered ← lowerCallableV1 owner mode types layout
+        { callable with blocks := #[finalBlock] } expectedResultKind
+      pure lowered.body
+    let originalReturnId := match joinBlock.terminator with | .return_ (some id) => id | _ => ⟨0⟩
+    let expectedTypeId ← match expectedResultKind with
+      | some .uint64 => pure uint64TypeId
+      | some .bool => match types.boolTypeId with | some t => pure t | none => planError "Bool result type missing"
+      | none => planError "join result kind missing"
+    unless originalReturnId.toNat == 0 || (← findResultTypeV1 callable originalReturnId) == expectedTypeId do
+      throw <| .planInvariant .evm "unsupported EVM join shape: block 3 return kind mismatch"
+    let thenBody ← makeArm thenBase thenBlock
+    let elseBody ← makeArm elseBase elseBlock
+    return ({
+      params := #[]
+      stores := #[]
+      body := #[.conditional condition thenBody elseBody]
+    } : LoweredCallableV1)
+  unless callable.entryBlock.toNat == 0 && (callable.blocks.size == 1 || callable.blocks.size == 3) &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: callable must be one acyclic entry block"
+      "unsupported EVM semantic shape: callable must be one block or the exact terminal-branch slice"
   let block ← match callable.blocks[0]? with
     | some value => pure value
     | none => throw (.planInvariant .evm
         "unsupported EVM semantic shape: callable entry block is missing")
-  unless block.id.toNat == 0 && block.params.isEmpty do
+  let arm1? := callable.blocks[1]?
+  let arm2? := callable.blocks[2]?
+  unless block.id.toNat == 0 && block.params.isEmpty &&
+      (callable.blocks.size == 1 ||
+        (callable.blocks.all (fun b => b.params.isEmpty) &&
+          arm1?.map (fun b => b.id.toNat == 1) == some true &&
+          arm2?.map (fun b => b.id.toNat == 2) == some true)) do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: block parameters are not supported"
   if block.instructions.size > maxBodyStatements then
@@ -563,8 +773,119 @@ private def lowerCallableV1
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
+  | .entry, .return_ none
+  | .view, .return_ none =>
+      unless nonterminal && segmentStart == values.size do
+        throw <| .planInvariant .evm "unsupported EVM semantic shape: nonterminal block has unconsumed values"
   | .constructor, .return_ (some _) =>
       throw <| .planInvariant .evm "constructor cannot return a value"
+  | .entry, .branch cond thenTarget elseTarget
+  | .view, .branch cond thenTarget elseTarget =>
+      unless callable.params.isEmpty && body.isEmpty && stores.isEmpty &&
+          callable.blocks.size == 3 && thenTarget.blockId.toNat == 1 && elseTarget.blockId.toNat == 2 &&
+          thenTarget.args.isEmpty && elseTarget.args.isEmpty do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: terminal branch must be parameterless and target blocks 1 and 2 with empty args"
+      let expectedResultTypeId ← match expectedResultKind with
+        | some .uint64 => pure uint64TypeId
+        | some .bool => match types.boolTypeId with
+            | some typeId => pure typeId
+            | none => throw (.planInvariant .evm
+                "unsupported EVM semantic shape: Bool result type is missing")
+        | none => throw (.planInvariant .evm
+            "unsupported EVM semantic shape: terminal branch missing expected result kind")
+      let conditionType := ← findResultTypeV1 callable cond
+      let conditionValue ← consumeCurrentSegmentV1 values paramCount segmentStart cond
+      let condition ← match switchCase with
+        | some caseValue =>
+            unless conditionType == uint64TypeId do
+              throw <| .planInvariant .evm "unsupported EVM switch shape: scrutinee must be UInt64"
+            pure (.compare .eq conditionValue (.literal caseValue))
+        | none =>
+            let boolTid ← match types.boolTypeId with
+              | some tid => pure tid
+              | none => throw (.planInvariant .evm "unsupported EVM semantic shape: branch condition must be Bool")
+            unless conditionType == boolTid do
+              throw <| .planInvariant .evm "unsupported EVM semantic shape: branch condition must be Bool"
+            pure conditionValue
+      segmentStart := values.size
+      let lowerArm (baseValues : Array LoweredValueV1) (arm : BlockV1) :
+          CompileResult (Array Statement × Array LoweredValueV1) := do
+        if arm.instructions.size > maxBodyStatements then
+          throw <| .planInvariant .evm s!"{owner} branch arm exceeds profile limit {maxBodyStatements}"
+        let mut armValues := baseValues
+        let mut armStart := armValues.size
+        let mut armBody : Array Statement := #[]
+        for instruction in arm.instructions do
+          match instruction.op, instruction.result with
+          | .literal typeId bytes, some result =>
+              if typeId == uint64TypeId then
+                let value ← decodeUInt64LiteralV1 bytes
+                armValues := ← appendResultValueV1 uint64TypeId armValues result {
+                  expr := .literal value, depth := 1, expandedNodes := 1,
+                  dependencies := #[], isBool := false }
+              else
+                let boolTid ← match types.boolTypeId with
+                  | some tid => pure tid
+                  | none => throw (.planInvariant .evm "branch-arm Bool literal requires Bool type")
+                unless typeId == boolTid do throw <| .planInvariant .evm "branch-arm literal has unsupported type"
+                let value ← decodeBoolLiteralV1 bytes
+                armValues := ← appendResultValueV1 boolTid armValues result {
+                  expr := .literal value, depth := 1, expandedNodes := 1,
+                  dependencies := #[], isBool := true }
+          | .stateLoad stateId, some result =>
+              let binding ← findStorageV1 layout stateId
+              armValues := ← appendResultValueV1 uint64TypeId armValues result {
+                expr := .storageLoad binding.slot, depth := 1, expandedNodes := 1,
+                dependencies := #[], isBool := false }
+          | .binary op lhsId rhsId, some result =>
+              let lhs ← currentValueV1 armValues paramCount armStart lhsId
+              let rhs ← currentValueV1 armValues paramCount armStart rhsId
+              if op == .add then
+                armValues := ← appendResultValueV1 uint64TypeId armValues result
+                  (← makeCheckedAddValueV1 lhsId rhsId lhs rhs)
+              else if op == .sub then
+                armValues := ← appendResultValueV1 uint64TypeId armValues result
+                  (← makeCheckedSubValueV1 lhsId rhsId lhs rhs)
+              else match comparisonOpOfBinaryV1 op, types.boolTypeId with
+                | some cmp, some boolTid =>
+                    armValues := ← appendResultValueV1 boolTid armValues result
+                      (← makeCompareValueV1 cmp lhsId rhsId lhs rhs)
+                | _, _ => throw <| .planInvariant .evm "branch-arm binary op is unsupported"
+          | .stateStore stateId valueId, none =>
+              if mode == .view then throw <| .planInvariant .evm "unsupported EVM semantic shape: view callable writes storage in branch arm"
+              let binding ← findStorageV1 layout stateId
+              let value ← consumeCurrentSegmentV1 armValues paramCount armStart valueId
+              armBody := armBody.push (.store { slot := binding.slot, value })
+              armStart := armValues.size
+          | .assert_ condId errorId args, none =>
+              unless errorId.isNone && args.isEmpty do throw <| .planInvariant .evm "branch-arm assert must have no error payload"
+              unless some (← findResultTypeV1 callable condId) == types.boolTypeId do
+                throw <| .planInvariant .evm "branch-arm assert condition must be Bool"
+              let c ← consumeCurrentSegmentV1 armValues paramCount armStart condId
+              armBody := armBody.push (.assert c)
+              armStart := armValues.size
+          | _, _ => throw <| .planInvariant .evm "instruction in branch arm is outside the current UInt64 pilot"
+        let returnId ← match arm.terminator with
+          | .return_ (some id) => pure id
+          | _ => throw (.planInvariant .evm "branch arms must terminate with a value return")
+        unless (← findResultTypeV1 callable returnId) == expectedResultTypeId do
+          throw <| .planInvariant .evm "branch arm return type does not match callable result type"
+        let returnValue ← consumeCurrentSegmentV1 armValues paramCount armStart returnId
+        pure (armBody.push (.returnValue returnValue), armValues)
+      let arm1 ← match arm1? with
+        | some arm => pure arm
+        | none => throw (.planInvariant .evm "branch block 1 is missing")
+      let arm2 ← match arm2? with
+        | some arm => pure arm
+        | none => throw (.planInvariant .evm "branch block 2 is missing")
+      let (thenBody, thenValues) ← lowerArm values arm1
+      values := thenValues
+      segmentStart := values.size
+      let (elseBody, elseValues) ← lowerArm values arm2
+      values := elseValues
+      body := body.push (.conditional condition thenBody elseBody)
+      segmentStart := values.size
   | _, _ =>
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: callable terminator is outside the current UInt64 pilot"
@@ -689,11 +1010,72 @@ private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
       throw <| .planInvariant .evm
         s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
+private inductive ExpectedExprKind where
+  | uint64 | bool
+  deriving BEq
+
+/-- `Plan.Expr` intentionally erases scalar types. Recover the only typing
+    relation admitted by this Plan slice, with the same bounded depth used by
+    resource validation. Literals 0/1 are the sole context-polymorphic values. -/
+private def exprHasKind? (expected : ExpectedExprKind) (depthLeft : Nat) (expr : Expr) : Bool :=
+  if depthLeft == 0 then false else match expr with
+  | .literal value => expected == .uint64 || value == 0 || value == 1
+  | .param .. | .storageLoad .. => expected == .uint64
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs =>
+      expected == .uint64 && exprHasKind? .uint64 (depthLeft - 1) lhs &&
+        exprHasKind? .uint64 (depthLeft - 1) rhs
+  | .compare _ lhs rhs =>
+      expected == .bool && exprHasKind? .uint64 (depthLeft - 1) lhs &&
+        exprHasKind? .uint64 (depthLeft - 1) rhs
+
+private def addTypedPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
+    (expected : ExpectedExprKind) (expr : Expr) : CompileResult Nat := do
+  unless exprHasKind? expected maxExprDepth expr do
+    throw <| .planInvariant .evm "plan expression has the wrong contextual scalar kind"
+  addPlanExprNodes slots paramCount total expr
+
 private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     (store : Store) : CompileResult Nat := do
   unless slots.contains store.slot do
     throw <| .planInvariant .evm "plan store references an unknown storage slot"
-  addPlanExprNodes slots paramCount total store.value
+  addTypedPlanExprNodes slots paramCount total .uint64 store.value
+
+private def statementContainsConditional : Statement → Bool
+  | .conditional .. => true
+  | _ => false
+
+private partial def validateStatements (slots : Array Nat) (paramCount : Nat)
+    (isView : Bool) (returnKind : ExpectedExprKind)
+    (owner : String) (statements : Array Statement)
+    (total : Nat) (requireReturn : Bool := true) : CompileResult Nat := do
+  if statements.isEmpty || statements.size > maxBodyStatements then
+    throw <| .planInvariant .evm s!"{owner} has an empty or oversized body"
+  let mut nodes := total
+  let mut returned := false
+  for statement in statements do
+    if returned then throw <| .planInvariant .evm s!"{owner} has a statement after return"
+    if nodes >= maxPlanNodes then throw <| .planInvariant .evm s!"plan exceeds aggregate node limit {maxPlanNodes}"
+    nodes := nodes + 1
+    match statement with
+    | .store store =>
+        if isView then throw <| .planInvariant .evm s!"{owner} writes storage"
+        nodes ← addPlanStoreNodes slots paramCount nodes store
+    | .assert condition => nodes ← addTypedPlanExprNodes slots paramCount nodes .bool condition
+    | .returnValue value =>
+        nodes ← addTypedPlanExprNodes slots paramCount nodes returnKind value
+        returned := true
+    | .conditional condition thenBody elseBody =>
+        nodes ← addTypedPlanExprNodes slots paramCount nodes .bool condition
+        let armsReturn := thenBody.any (fun s => match s with | .returnValue .. => true | _ => false)
+        unless armsReturn == elseBody.any (fun s => match s with | .returnValue .. => true | _ => false) do
+          throw <| .planInvariant .evm s!"{owner} conditional arms disagree on terminality"
+        nodes ← validateStatements slots paramCount isView returnKind
+          s!"{owner} then arm" thenBody nodes armsReturn
+        nodes ← validateStatements slots paramCount isView returnKind
+          s!"{owner} else arm" elseBody nodes armsReturn
+        returned := armsReturn
+  unless returned || !requireReturn do throw <| .planInvariant .evm s!"{owner} does not return"
+  pure nodes
 
 /-- Structural Bool-producer: comparison is always Bool. Bool literals are
     surface-encoded as `.literal 0`/`.literal 1` and are accepted only where a
@@ -747,7 +1129,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       if constructor.body.isEmpty then constructor.stores.size else constructor.body.size
     1 + constructor.params.size + stmtCount) |>.getD 0
   let entryNodes := plan.entries.foldl (fun total entry =>
-    total + entry.params.size + entry.body.size) 0
+    total + entry.params.size) 0
   let mut totalPlanNodes := plan.storageLayout.size + plan.entries.size + constructorNodes + entryNodes
   if totalPlanNodes > maxPlanNodes then
     throw <| .planInvariant .evm s!"plan exceeds aggregate node limit {maxPlanNodes}"
@@ -788,6 +1170,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
             totalPlanNodes ← addPlanExprNodes slots constructor.params.size totalPlanNodes condition
         | .returnValue _ =>
             throw <| .planInvariant .evm "constructor cannot return a value"
+        | .conditional .. =>
+            throw <| .planInvariant .evm "constructor cannot contain a conditional"
   for entry in plan.entries do
     unless isIdentifier entry.name && validSelector entry.selector do
       throw <| .planInvariant .evm s!"entry '{entry.name}' has an invalid ABI identity"
@@ -818,37 +1202,26 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm s!"entry '{entry.name}' parameter bindings must be unique"
     if entry.body.isEmpty then
       throw <| .planInvariant .evm s!"entry '{entry.name}' has no body"
-    let mut returned := false
-    for statement in entry.body do
-      if returned then
-        throw <| .planInvariant .evm s!"entry '{entry.name}' has a statement after return"
-      match statement with
-      | .store store =>
-          if entry.mutability == .view then
-            throw <| .planInvariant .evm s!"view entry '{entry.name}' writes storage"
-          unless exprIsUInt64CompatibleV1 store.value do
-            throw <| .planInvariant .evm
-              s!"entry '{entry.name}' cannot store a Bool-typed expression into a UInt64 slot"
-          totalPlanNodes ← addPlanStoreNodes slots entry.params.size totalPlanNodes store
-      | .assert condition =>
-          unless exprIsBoolCompatibleV1 condition do
-            throw <| .planInvariant .evm
-              s!"entry '{entry.name}' assert condition must be a Bool-typed expression"
-          totalPlanNodes ← addPlanExprNodes slots entry.params.size totalPlanNodes condition
-      | .returnValue value =>
-          match entry.resultKind with
-          | .uint64 =>
-              unless exprIsUInt64CompatibleV1 value do
-                throw <| .planInvariant .evm
-                  s!"entry '{entry.name}' resultKind uint64 is inconsistent with Bool return expression"
-          | .bool =>
-              unless exprIsBoolCompatibleV1 value do
-                throw <| .planInvariant .evm
-                  s!"entry '{entry.name}' resultKind bool is inconsistent with UInt64 return expression"
-          totalPlanNodes ← addPlanExprNodes slots entry.params.size totalPlanNodes value
-          returned := true
-    unless returned do
-      throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
+    if entry.body.any statementContainsConditional then
+      let validConditionalShape := match entry.body with
+        | #[.conditional _ thenBody elseBody] =>
+            !thenBody.any statementContainsConditional && !elseBody.any statementContainsConditional
+        | body => match (body[0]? : Option Statement) with
+          | some (Statement.conditional _ thenBody elseBody) =>
+              !thenBody.any statementContainsConditional && !elseBody.any statementContainsConditional &&
+                !thenBody.any (fun s => match s with | .returnValue .. => true | _ => false) &&
+                !elseBody.any (fun s => match s with | .returnValue .. => true | _ => false) &&
+                (body.drop 1).all (fun s => !statementContainsConditional s)
+          | _ => false
+      unless entry.params.isEmpty && validConditionalShape do
+        throw <| .planInvariant .evm
+          s!"conditional entry '{entry.name}' must be parameterless, contain exactly one conditional, and have no nested conditional"
+    let returnKind := match entry.resultKind with
+      | .uint64 => ExpectedExprKind.uint64
+      | .bool => ExpectedExprKind.bool
+    totalPlanNodes ← validateStatements slots entry.params.size
+      (entry.mutability == .view) returnKind s!"entry '{entry.name}'"
+      entry.body totalPlanNodes
 
 /-- EVM-private public-UInt64 SemanticProgramV1 data → target-owned Plan pilot.
     This is intentionally not shared with other targets: storage/ABI/layout and
@@ -976,7 +1349,7 @@ private def renderStores (indent paramPrefix : String) (stores : Array Store) : 
     next := rendered.next
   return output
 
-private def renderBody (indent paramPrefix : String) (body : Array Statement) : String := Id.run do
+private partial def renderBody (indent paramPrefix : String) (body : Array Statement) : String := Id.run do
   let mut output := ""
   let mut next := 0
   for statement in body do
@@ -994,6 +1367,13 @@ private def renderBody (indent paramPrefix : String) (body : Array Statement) : 
         let rendered := renderExpr indent paramPrefix next value
         output := output ++ rendered.code ++
           s!"{indent}mstore(0, {rendered.value})\n{indent}return(0, 32)\n"
+        next := rendered.next
+    | .conditional condition thenBody elseBody =>
+        let rendered := renderExpr indent paramPrefix next condition
+        output := output ++ rendered.code ++ s!"{indent}switch {rendered.value}\n" ++
+          s!"{indent}case 0 \{\n" ++ renderBody (indent ++ "  ") paramPrefix elseBody ++
+          s!"{indent}}\n{indent}default \{\n" ++
+          renderBody (indent ++ "  ") paramPrefix thenBody ++ s!"{indent}}\n"
         next := rendered.next
   return output
 

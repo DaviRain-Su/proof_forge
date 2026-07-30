@@ -44,6 +44,72 @@ private def accumulatorSourceText : String :=
   "    return total\n\n" ++
   "end ProofForgeV2.Examples\n"
 
+private def terminalIfSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program NoirIf where\n" ++
+  "  view choose() : UInt64 do\n" ++
+  "    if true then\n" ++
+  "      return 7\n" ++
+  "    else\n" ++
+  "      return 9\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def terminalSwitchSourceText : String :=
+  "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+  "program NoirMatch where\n  state n : UInt64\n  init(i : UInt64) do\n    n := i\n" ++
+  "  view choose() : UInt64 do\n    match n with\n    | 7 => do\n      return 3\n" ++
+  "    | _ => do\n      return 4\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def statefulIfSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program NoirStateIf where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry adjust() : UInt64 do\n" ++
+  "    if count >= 5 then\n" ++
+  "      count := count + 1\n" ++
+  "      return count\n" ++
+  "    else\n" ++
+  "      count := count + 2\n" ++
+  "      return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def joinIfSourceText : String :=
+  "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+  "program NoirJoinIf where\n  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n    count := initial\n" ++
+  "  entry adjust() : UInt64 do\n    if count >= 5 then\n      count := count + 1\n" ++
+  "    else\n      count := count + 2\n    count := count + 10\n    return count\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def phiJoinIfSourceText : String :=
+  "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+  "program NoirPhiJoinIf where\n  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n    count := initial\n" ++
+  "  entry adjust() : UInt64 do\n    let next : UInt64 := 0\n    if count >= 5 then\n      next := count + 1\n" ++
+  "    else\n      next := count + 2\n    count := next + 10\n    return count\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def malformedIfSourceText : String :=
+  "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+  "program NoirMalformedIf where\n" ++
+  "  entry choose() : UInt64 do\n" ++
+  "    if true then\n      return 1\n    else\n      assert true\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def nestedIfSourceText : String :=
+  "import ProofForgeV2\nnamespace ProofForgeV2.Examples\nopen ProofForgeV2.Language\n" ++
+  "program NoirNestedIf where\n" ++
+  "  entry choose() : UInt64 do\n" ++
+  "    if true then\n      if false then\n        return 1\n      else\n        return 2\n" ++
+  "    else\n      return 3\nend ProofForgeV2.Examples\n"
+
 private def privateSumSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -132,7 +198,7 @@ private def evalComparison (op : Targets.Noir.ComparisonOp)
     | .ge => left ≥ right
   if result then 1 else 0
 
-private def step (machine : Machine) :
+private partial def step (machine : Machine) :
     Targets.Noir.Operation → Except String Machine
   | .checkedAdd destination lhs rhs => do
       let left ← readValue machine lhs
@@ -166,8 +232,14 @@ private def step (machine : Machine) :
       let value ← readComparable machine condition
       if value != 0 then .ok machine
       else modelError "assert constraint failed: condition is zero"
+  | .conditional condition thenOps elseOps => do
+      let value ← readValue machine condition
+      let mut next := machine
+      for operation in (if value != 0 then thenOps else elseOps) do
+        next ← step next operation
+      pure next
 
-private def runOperations :
+private partial def runOperations :
     List Targets.Noir.Operation → Machine → Except String Machine
   | [], machine => .ok machine
   | operation :: remaining, machine => do
@@ -290,6 +362,20 @@ private def testAssertConstraintModel : IO Unit := do
 def runCompareAssertFast : IO Unit := do
   testComparisonModel
   testAssertConstraintModel
+  let relation : Targets.Noir.RelationIR := {
+    sourceRelation := {
+      index := 0, name := "branch", artifactStem := "r0-branch", mode := .view
+      params := #[], inputs := #[], body := #[]
+    }
+    tempCount := 1
+    operations := #[.conditional (.literal 1)
+      #[.checkedAdd 0 (.literal 2) (.literal 3), .assertEqual (.temp 0) (.literal 5)]
+      #[.assertConstraint (.literal 0)]]
+  }
+  expectAccept "structured conditional true arm" relation #[]
+  let mutated := { relation with operations := #[.conditional (.literal 0)
+    #[.assertConstraint (.literal 1)] #[.assertConstraint (.literal 0)]] }
+  expectReject "structured conditional condition mutation" mutated #[]
   IO.println "Tests.Materialization.NoirRelationModel.compareAssert: ok"
 
 private unsafe def compileIrFromProgramV1 (sourceText moduleName path : String) :
@@ -734,6 +820,159 @@ private unsafe def checkAllCompareOpsSource : IO Unit := do
     privateSumInputs check #[5, 3] 5
   expectReject "AllCompareOps greater operands fail eq" check greater
 
+private unsafe def checkTerminalIfProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 terminalIfSourceText
+    "Examples.NoirIf" "<noir-terminal-if>"
+  let choose ← findRelation ir "choose"
+  match choose.operations with
+  | #[.conditional (.literal 1) thenOps elseOps] =>
+      expect (!thenOps.isEmpty && !elseOps.isEmpty)
+        "Noir terminal-if must retain both structured arms"
+  | operations =>
+      throw <| IO.userError s!"unexpected Noir terminal-if IR: {repr operations}"
+  let sourceRelation := choose.sourceRelation
+  let expectConditionalMutationRejected (label : String)
+      (mutated : Targets.Noir.Relation) : IO Unit := do
+    let unsignedPlan := { ir.sourcePlan with relations := ir.sourcePlan.relations.map fun
+      (relation : Targets.Noir.Relation) =>
+      if relation.name == "choose" then mutated else relation }
+    let mutatedPlan := { unsignedPlan with
+      planHash := Targets.Noir.canonicalPlanHash unsignedPlan }
+    match Targets.Noir.validatePlan mutatedPlan with
+    | .error _ => pure ()
+    | .ok _ => throw <| IO.userError s!"Noir Plan accepted {label}"
+  let parameterizedConditional := {
+    sourceRelation with
+    params := #[({ sourceId := 0, name := "value", inputIndex := 0, visibility := .verifier } : Targets.Noir.Param)]
+  }
+  expectConditionalMutationRejected "a parameterized singleton conditional" parameterizedConditional
+  expectConditionalMutationRejected "a prefix plus conditional"
+    { sourceRelation with body := #[.assert (.literal 1), sourceRelation.body[0]!] }
+  expectConditionalMutationRejected "a nested conditional"
+    { sourceRelation with body := #[.conditional (.literal 1)
+        #[.conditional (.literal 1) #[.returnValue (.literal 1)]
+          #[.returnValue (.literal 2)]]
+        #[.returnValue (.literal 3)]] }
+  expectConditionalMutationRejected "a non-Bool conditional condition"
+    { sourceRelation with body := #[.conditional (.checkedAdd (.literal 1) (.literal 1))
+        #[.returnValue (.literal 1)] #[.returnValue (.literal 2)]] }
+  expectConditionalMutationRejected "a non-Bool conditional-arm assert"
+    { sourceRelation with body := #[.conditional (.literal 1)
+        #[.assert (.literal 7), .returnValue (.literal 1)]
+        #[.returnValue (.literal 2)]] }
+  expectConditionalMutationRejected "a Bool conditional-arm return"
+    { sourceRelation with body := #[.conditional (.literal 1)
+        #[.returnValue (.compare .eq (.literal 1) (.literal 1))]
+        #[.returnValue (.literal 2)]] }
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 terminalIfSourceText
+    "<noir-terminal-if-render>" "Examples.NoirIf" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let some mainNr := files.find? (fun file => file.path.endsWith "r0-choose/src/main.nr") |
+    throw <| IO.userError "NoirIf missing choose main.nr"
+  expect (mainNr.contents.contains "if " && mainNr.contents.contains "} else {")
+    "Noir terminal-if source must render deterministic structured control flow"
+
+private unsafe def checkTerminalSwitchProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 terminalSwitchSourceText "Examples.NoirMatch" "<noir-match>"
+  let choose ← findRelation ir "choose"
+  expect (choose.sourceRelation.body == #[.conditional (.compare .eq (.stateLoad 0) (.literal 7))
+    #[.returnValue (.literal 3)] #[.returnValue (.literal 4)]]) "Noir exact switch Plan"
+  let hit ← liftModel "Noir switch hit" <| statefulInputs choose true 7 0 7 true 3
+  expectAccept "Noir switch case" choose hit
+  let fallback ← liftModel "Noir switch default" <| statefulInputs choose true 8 0 8 true 4
+  expectAccept "Noir switch default" choose fallback
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 terminalSwitchSourceText
+    "<noir-match-render>" "Examples.NoirMatch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <| Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let main := (files.find? (fun f => f.path.endsWith "r1-choose/src/main.nr")).get!.contents
+  expect (main.contains "== 7" && main.contains "3" && main.contains "4")
+    "Noir render must retain switch equality and both arms"
+
+private unsafe def checkStatefulIfProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 statefulIfSourceText
+    "Examples.NoirStateIf" "<noir-state-if>"
+  let adjust ← findRelation ir "adjust"
+  match adjust.operations.find? (fun op => match op with | .conditional .. => true | _ => false) with
+  | some (.conditional (.temp _) thenOps elseOps) =>
+      expect (thenOps.any (fun op => match op with | .checkedAdd .. => true | _ => false) &&
+          elseOps.any (fun op => match op with | .checkedAdd .. => true | _ => false))
+        "stateful conditional arms must retain arithmetic"
+  | other => throw <| IO.userError s!"stateful conditional must use computed condition: {repr other}"
+  let thenOk ← liftModel "stateful-if then inputs" <|
+    statefulInputs adjust true 5 0 6 true 6
+  expectAccept "stateful-if selected then arm" adjust thenOk
+  let thenWrongState ← liftModel "stateful-if then wrong state" <|
+    statefulInputs adjust true 5 0 5 true 6
+  expectReject "stateful-if constrains then post-state" adjust thenWrongState
+  let elseOk ← liftModel "stateful-if else inputs" <|
+    statefulInputs adjust true 3 0 5 true 5
+  expectAccept "stateful-if selected else arm" adjust elseOk
+  let elseWrongResult ← liftModel "stateful-if else wrong result" <|
+    statefulInputs adjust true 3 0 5 true 4
+  expectReject "stateful-if constrains else result" adjust elseWrongResult
+
+private unsafe def checkJoinIfProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 joinIfSourceText
+    "Examples.NoirJoinIf" "<noir-join-if>"
+  let adjust ← findRelation ir "adjust"
+  match adjust.sourceRelation.body with
+  | #[.conditional _ thenBody elseBody] =>
+      expect (thenBody.size >= 3 && elseBody.size >= 3)
+        "state-mediated join must duplicate the complete continuation into both arms"
+      expect (match thenBody[thenBody.size - 2]?, thenBody.back? with
+        | some (.store _), some (.returnValue _) => true | _, _ => false)
+        "state-mediated then arm must end in continuation store and return"
+      expect (match elseBody[elseBody.size - 2]?, elseBody.back? with
+        | some (.store _), some (.returnValue _) => true | _, _ => false)
+        "state-mediated else arm must end in continuation store and return"
+  | body => throw <| IO.userError s!"unexpected Noir join Plan: {repr body}"
+  let thenOk ← liftModel "join-if then inputs" <|
+    statefulInputs adjust true 5 0 16 true 16
+  expectAccept "join-if true arm feeds continuation" adjust thenOk
+  let elseOk ← liftModel "join-if else inputs" <|
+    statefulInputs adjust true 3 0 15 true 15
+  expectAccept "join-if false arm feeds continuation" adjust elseOk
+  let wrong ← liftModel "join-if wrong continuation result" <|
+    statefulInputs adjust true 5 0 6 true 6
+  expectReject "join-if constrains post-state/result inside the selected arm" adjust wrong
+private unsafe def checkPhiJoinIfProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 phiJoinIfSourceText
+    "Examples.NoirPhiJoinIf" "<noir-phi-join-if>"
+  let adjust ← findRelation ir "adjust"
+  match adjust.sourceRelation.body with
+  | #[.conditional _ thenBody elseBody] =>
+      expect (match thenBody.back?, elseBody.back? with
+        | some (.returnValue _), some (.returnValue _) => true | _, _ => false)
+        "phi join must duplicate its continuation into both arms"
+  | body => throw <| IO.userError s!"unexpected Noir phi join Plan: {repr body}"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 phiJoinIfSourceText
+    "<noir-phi-join-if-render>" "Examples.NoirPhiJoinIf" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let some mainNr := files.find? (fun file => file.path.endsWith "r1-adjust/src/main.nr") |
+    throw <| IO.userError "NoirPhiJoinIf missing adjust main.nr"
+  let armMarker := " + 10;"
+  expect ((mainNr.contents.splitOn armMarker).length == 3)
+    "join .nr must render continuation arithmetic inside both lexical arms"
+  expect ((mainNr.contents.splitOn "} else {").length == 2)
+    "join .nr must render one conditional with exactly two lexical arms"
+  let afterConditional := (mainNr.contents.splitOn "    }\n").getLast!
+  expect (afterConditional == "}\n")
+    s!"join .nr must not reference a branch temp after the closing conditional: {afterConditional}"
+
 private unsafe def expectProductClosed (label sourceText moduleName path : String) :
     IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -923,6 +1162,10 @@ private unsafe def checkCompareAssertNegatives : IO Unit := do
     "Examples.U64ResultCompare" "<noir-u64-result-compare>"
   expectProductClosed "assert-else" assertElseSourceText
     "Examples.AssertElse" "<noir-assert-else>"
+  expectProductClosed "malformed terminal if" malformedIfSourceText
+    "Examples.NoirMalformedIf" "<noir-malformed-if>"
+  expectProductClosed "nested terminal if" nestedIfSourceText
+    "Examples.NoirNestedIf" "<noir-nested-if>"
 
 /-- Existing Counter planHash golden stays green and comparison-free. -/
 private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
@@ -951,6 +1194,8 @@ private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
+  checkJoinIfProduct
+  checkPhiJoinIfProduct
   checkStatefulLifecycle {
     label := "Counter"
     sourceText := counterSourceText
@@ -971,6 +1216,9 @@ unsafe def run : IO Unit := do
   checkAllCompareOpsSource
   checkBoolResultPositive
   checkBoolPredicateProduct
+  checkTerminalIfProduct
+  checkTerminalSwitchProduct
+  checkStatefulIfProduct
   checkCompareAssertNegatives
   checkCounterPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
