@@ -191,4 +191,55 @@ unsafe def run : IO Unit := do
   expect (guardedYul.contains "sub(expr")
     "Guarded Yul must still emit checked subtraction"
 
+  -- Bool-result product path via buildFromCapability.
+  let boolPredText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BoolPredicate where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    count := count + d\n" ++
+    "    return count\n" ++
+    "  view positive() : Bool do\n" ++
+    "    return count > 0\n" ++
+    "  entry equalsCount(d : UInt64) : Bool do\n" ++
+    "    return count == d\n"
+  let boolPredSource ← liftCompile "load BoolPredicate" (← session.selectProgramV1
+    boolPredText "<counter-v1-bool-pred>" "Product.BoolPred" none)
+  let boolPredCompiled ← liftCompile "compile BoolPredicate" <|
+    Compiler.compileValidatedSourceV1 boolPredSource
+  let boolPredFirst ← liftCompile "build BoolPredicate" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection boolPredCompiled
+    Targets.Evm.buildFromCapability capability)
+  let boolPredSecond ← liftCompile "build BoolPredicate again" <| (do
+    let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
+      TargetId.evm none
+    let capability ← Targets.resolveEngineeringRequirementsV1 selection boolPredCompiled
+    Targets.Evm.buildFromCapability capability)
+  expect (boolPredFirst == boolPredSecond)
+    "BoolPredicate EVM buildFromCapability must be deterministic"
+  expect (boolPredFirst.map (·.path) == #["BoolPredicate.yul", "BoolPredicate.abi.json"])
+    "BoolPredicate must emit Yul and ABI"
+  let boolPredAbi ← match boolPredFirst.find? (·.path == "BoolPredicate.abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "missing BoolPredicate.abi.json"
+  let boolPredYul ← match boolPredFirst.find? (·.path == "BoolPredicate.yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "missing BoolPredicate.yul"
+  expect (boolPredAbi.contains "\"name\":\"positive\"" &&
+      boolPredAbi.contains "\"name\":\"equalsCount\"" &&
+      boolPredAbi.contains "\"type\":\"bool\"" &&
+      boolPredAbi.contains "\"type\":\"uint64\"")
+    "BoolPredicate ABI must pin bool outputs and uint64 params/results"
+  expect (boolPredAbi.contains
+      "\"name\":\"positive\",\"stateMutability\":\"view\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}]")
+    "BoolPredicate positive ABI fragment must be exact"
+  expect (boolPredYul.contains "gt(expr" && boolPredYul.contains "eq(expr" &&
+      boolPredYul.contains "mstore(0," && boolPredYul.contains "return(0, 32)")
+    "BoolPredicate Yul must render comparisons and ABI word returns"
+
 end Tests.Product.CounterV1Evm

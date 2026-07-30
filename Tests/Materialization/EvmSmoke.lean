@@ -376,6 +376,174 @@ private def testCompareAssertPlanMutations : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "constructor returnValue must reject"
 
+private unsafe def testBoolResultPositive : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Wave-A plan-seam rejection flipped: Bool entry/view results are now accepted.
+  let isZeroText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IsZero where\n" ++
+    "  view isZero(x : UInt64) : Bool do\n" ++
+    "    return x == 0\n"
+  let isZeroSource ← liftResult "load IsZero" (← session.selectProgramV1
+    isZeroText "<evm-bool-result>" "Tests.EvmBoolResult" none)
+  let isZeroCompiled ← liftResult "compile IsZero" <|
+    Compiler.compileValidatedSourceV1 isZeroSource
+  let isZeroPlan ← liftResult "plan IsZero" <| planEvm isZeroCompiled
+  expect (isZeroPlan.entries.size == 1)
+    "IsZero must produce exactly one entry"
+  let isZeroEntry := isZeroPlan.entries[0]!
+  expect (isZeroEntry.name == "isZero" && isZeroEntry.resultKind == .bool)
+    "isZero must declare Bool resultKind"
+  expect (isZeroEntry.body == #[.returnValue (.compare .eq (.param 0) (.literal 0))])
+    "isZero body must return the comparison expression"
+  match Targets.Evm.validatePlan isZeroPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"IsZero plan must validate: {e.render}"
+  let isZeroOutput ← liftResult "materialize IsZero" <|
+    materializeSelected TargetId.evm isZeroCompiled
+  let some isZeroAbi := (MaterializedArtifactsV1.filesOf isZeroOutput).find?
+      (·.path == "IsZero.abi.json") |
+    throw <| IO.userError "IsZero: missing IsZero.abi.json"
+  expect (isZeroAbi.contents.contains "\"type\":\"bool\"" &&
+      isZeroAbi.contents.contains "\"name\":\"isZero\"")
+    "IsZero ABI must render bool outputs"
+  let some isZeroYul := (MaterializedArtifactsV1.filesOf isZeroOutput).find?
+      (·.path == "IsZero.yul") |
+    throw <| IO.userError "IsZero: missing IsZero.yul"
+  expect (isZeroYul.contents.contains "eq(expr" &&
+      isZeroYul.contents.contains "mstore(0," &&
+      isZeroYul.contents.contains "return(0, 32)")
+    "IsZero Yul must return the comparison word"
+  -- Rebuild determinism.
+  let isZeroPlan2 ← liftResult "plan IsZero again" <| planEvm isZeroCompiled
+  expect (isZeroPlan == isZeroPlan2)
+    "IsZero plan rebuild must be deterministic"
+
+private def boolPredicateSourceText : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program BoolPredicate where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    count := i\n" ++
+  "  entry bump(d : UInt64) : UInt64 do\n" ++
+  "    count := count + d\n" ++
+  "    return count\n" ++
+  "  view positive() : Bool do\n" ++
+  "    return count > 0\n" ++
+  "  entry equalsCount(d : UInt64) : Bool do\n" ++
+  "    return count == d\n"
+
+private unsafe def testBoolPredicateEndToEnd : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load BoolPredicate" (← session.selectProgramV1
+    boolPredicateSourceText "<evm-bool-predicate>" "Tests.EvmBoolPred" none)
+  let compiled ← liftResult "compile BoolPredicate" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BoolPredicate" <| planEvm compiled
+  expect (plan.objectName == "BoolPredicate")
+    "BoolPredicate object name"
+  expect (plan.storageLayout.map (·.name) == #["count"])
+    "BoolPredicate storage layout"
+  expect (plan.entries.map (·.name) == #["bump", "positive", "equalsCount"])
+    "BoolPredicate entry order"
+  expect (plan.entries.map (·.resultKind) == #[.uint64, .bool, .bool])
+    "BoolPredicate result kinds must be uint64/bool/bool"
+  expect (plan.entries[0]!.body == #[
+      .store {
+        slot := 0
+        value := .checkedAdd (.storageLoad 0) (.param 0)
+      },
+      .returnValue (.storageLoad 0)])
+    "bump must remain UInt64 store+return"
+  expect (plan.entries[1]!.body == #[
+      .returnValue (.compare .gt (.storageLoad 0) (.literal 0))])
+    "positive must return count > 0 comparison"
+  expect (plan.entries[2]!.body == #[
+      .returnValue (.compare .eq (.storageLoad 0) (.param 0))])
+    "equalsCount must return count == d comparison"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BoolPredicate plan must validate: {e.render}"
+  let plan2 ← liftResult "plan BoolPredicate again" <| planEvm compiled
+  expect (plan == plan2)
+    "BoolPredicate plan rebuild must be deterministic"
+  let output ← liftResult "materialize BoolPredicate" <|
+    materializeSelected TargetId.evm compiled
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BoolPredicate.abi.json") |
+    throw <| IO.userError "BoolPredicate: missing ABI"
+  let abi := abiFile.contents
+  expect (abi.contains "\"name\":\"bump\"" &&
+      abi.contains "\"name\":\"positive\"" &&
+      abi.contains "\"name\":\"equalsCount\"")
+    "BoolPredicate ABI must name all three entries"
+  expect (abi.contains "\"type\":\"bool\"")
+    "BoolPredicate ABI must contain bool outputs"
+  expect (abi.contains "\"type\":\"uint64\"")
+    "BoolPredicate ABI must still contain uint64 (params/bump result)"
+  -- Exact ABI pin: three functions with correct output types in source order.
+  let expectedAbi :=
+    "[\n" ++
+    "  {\"type\":\"constructor\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"i\",\"type\":\"uint64\"}]},\n" ++
+    "  {\"type\":\"function\",\"name\":\"bump\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"d\",\"type\":\"uint64\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint64\"}]},\n" ++
+    "  {\"type\":\"function\",\"name\":\"positive\",\"stateMutability\":\"view\",\"inputs\":[],\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}]},\n" ++
+    "  {\"type\":\"function\",\"name\":\"equalsCount\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"d\",\"type\":\"uint64\"}],\"outputs\":[{\"name\":\"\",\"type\":\"bool\"}]}\n" ++
+    "]\n"
+  expect (abi == expectedAbi)
+    s!"BoolPredicate ABI exact text mismatch:\n{abi}"
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BoolPredicate.yul") |
+    throw <| IO.userError "BoolPredicate: missing Yul"
+  let yul := yulFile.contents
+  expect (yul.contains "gt(expr" && yul.contains "eq(expr")
+    "BoolPredicate Yul must render gt and eq comparisons"
+  expect (yul.contains "mstore(0," && yul.contains "return(0, 32)")
+    "BoolPredicate Yul must ABI-return words for Bool results"
+  -- Mutation negatives: kind consistency.
+  let base := plan
+  let boolEntry := base.entries[1]!
+  -- Bool entry returning a UInt64-typed expression (storageLoad) rejected.
+  let boolReturnsUInt := { base with entries := base.entries.set! 1 {
+    boolEntry with body := #[.returnValue (.storageLoad 0)]
+  } }
+  match Targets.Evm.validatePlan boolReturnsUInt with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject Bool entry returning UInt64 expression"
+  -- UInt64 entry returning a comparison rejected.
+  let uintEntry := base.entries[0]!
+  let uintReturnsBool := { base with entries := base.entries.set! 0 {
+    uintEntry with body := #[.returnValue (.compare .eq (.param 0) (.literal 0))]
+  } }
+  match Targets.Evm.validatePlan uintReturnsBool with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject UInt64 entry returning comparison"
+  -- Forged resultKind (uint64 body tagged bool) rejected.
+  let forgedKind := { base with entries := base.entries.set! 0 {
+    uintEntry with resultKind := .bool
+  } }
+  match Targets.Evm.validatePlan forgedKind with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject forged resultKind"
+  -- Forged resultKind (bool body tagged uint64) rejected.
+  let forgedKind2 := { base with entries := base.entries.set! 1 {
+    boolEntry with resultKind := .uint64
+  } }
+  match Targets.Evm.validatePlan forgedKind2 with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject forged uint64 resultKind on Bool body"
+  -- Store of comparison into UInt64 slot rejected.
+  let storeBool := { base with entries := base.entries.set! 0 {
+    uintEntry with body := #[
+      .store { slot := 0, value := .compare .eq (.param 0) (.literal 0) },
+      .returnValue (.storageLoad 0)
+    ]
+  } }
+  match Targets.Evm.validatePlan storeBool with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject storing Bool comparison into slot"
+
 private unsafe def testComparisonNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Bool in state position must fail closed before EVM Plan (typed/normalize).
@@ -398,23 +566,6 @@ private unsafe def testComparisonNegatives : IO Unit := do
           | .error (.planInvariant .evm _) => pure ()
           | .error e => throw <| IO.userError s!"Bool state must fail closed, got {e.render}"
           | .ok _ => throw <| IO.userError "Bool state must not produce an EVM plan"
-  -- Bool as entry result fails closed.
-  let boolResult :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program BadBoolResult where\n" ++
-    "  view isZero(x : UInt64) : Bool do\n" ++
-    "    return x == 0\n"
-  match ← session.selectProgramV1 boolResult "<evm-bool-result>" "Tests.EvmBoolResult" none with
-  | .error _ => pure ()
-  | .ok source =>
-      match Compiler.compileValidatedSourceV1 source with
-      | .error _ => pure ()
-      | .ok compiled =>
-          match planEvm compiled with
-          | .error (.planInvariant .evm _) => pure ()
-          | .error e => throw <| IO.userError s!"Bool result must fail closed, got {e.render}"
-          | .ok _ => throw <| IO.userError "Bool result must not produce an EVM plan"
   -- Bool as param fails closed.
   let boolParam :=
     "import ProofForgeV2\n" ++
@@ -439,6 +590,8 @@ unsafe def run : IO Unit := do
   testGuardedCounterSemanticPlan
   testInitWithAssert
   testCompareAssertPlanMutations
+  testBoolResultPositive
+  testBoolPredicateEndToEnd
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
@@ -451,6 +604,8 @@ unsafe def run : IO Unit := do
     "EVM smoke must preserve the Counter identity and storage layout"
   expect (plan.entries.map (·.name) == #["increment", "get"])
     "EVM smoke must preserve both Counter entries"
+  expect (plan.entries.map (·.resultKind) == #[.uint64, .uint64])
+    "Counter entries remain UInt64 resultKind"
   -- Store-only constructor remains stores-authoritative (body empty).
   match plan.constructor with
   | none => throw <| IO.userError "Counter must retain constructor"
@@ -473,6 +628,8 @@ unsafe def run : IO Unit := do
     "EVM smoke must render canonical increment/get selectors"
   expect (abi.contains "\"name\":\"increment\"" && abi.contains "\"name\":\"get\"")
     "EVM smoke must render the Counter ABI"
+  expect (abi.contains "\"type\":\"uint64\"" && !(abi.contains "\"type\":\"bool\""))
+    "Counter ABI must remain all-uint64 (no bool outputs)"
   expect (MaterializedArtifactsV1.sourceDigestOf output == sourceDigest &&
       MaterializedArtifactsV1.semanticDigestOf output == semanticDigest)
     "EVM smoke carrier must bind canonical source and semantic digests"
