@@ -72,6 +72,7 @@
     | frontend | compilerCore | externalTool | artifactOutput
   inductive MemoryMetric where
     | darwinPhysFootprintAggregate
+    | linuxProcRssAggregate
     | linuxCgroupMemoryCurrent
     | jobObjectCommitAggregate
 
@@ -700,6 +701,8 @@ private def testResourceStageMetricWires : IO Unit := do
   expectTrue "stage render output" (renderResourceStage .artifactOutput == "artifactOutput")
   expectOk "metric darwin"
     (parseMemoryMetric "darwinPhysFootprintAggregate") .darwinPhysFootprintAggregate
+  expectOk "metric linux proc rss"
+    (parseMemoryMetric "linuxProcRssAggregate") .linuxProcRssAggregate
   expectOk "metric linux"
     (parseMemoryMetric "linuxCgroupMemoryCurrent") .linuxCgroupMemoryCurrent
   expectOk "metric job"
@@ -709,6 +712,8 @@ private def testResourceStageMetricWires : IO Unit := do
   expectErr "metric unknown" (parseMemoryMetric "rss")
   expectTrue "metric render darwin"
     (renderMemoryMetric .darwinPhysFootprintAggregate == "darwinPhysFootprintAggregate")
+  expectTrue "metric render linux proc rss"
+    (renderMemoryMetric .linuxProcRssAggregate == "linuxProcRssAggregate")
   expectTrue "metric render linux"
     (renderMemoryMetric .linuxCgroupMemoryCurrent == "linuxCgroupMemoryCurrent")
   expectTrue "metric render job"

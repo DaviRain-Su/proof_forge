@@ -724,6 +724,7 @@ inductive ResourceStage where
 
 inductive MemoryMetric where
   | darwinPhysFootprintAggregate
+  | linuxProcRssAggregate
   | linuxCgroupMemoryCurrent
   | jobObjectCommitAggregate
   deriving DecidableEq, Repr
@@ -755,6 +756,22 @@ def hardFrontendProfile : ResourceProfileV1 :=
     maxProtocolBytes := 64 * 1024 * 1024
     maxStderrBytes := 64 * 1024
     maxPublishedBytes := 0 }
+
+/-- Linux development observation uses sampled aggregate `/proc` RSS. This is
+    neither cgroup accounting nor a containment claim. -/
+def hardLinuxObservedFrontendProfile : ResourceProfileV1 :=
+  { hardFrontendProfile with
+    profileId := { value := "proof-forge.resource.frontend-linux-observed.v1" }
+    memoryMetric := .linuxProcRssAggregate }
+
+/-- Hard frontend profile matching the native development supervisor on this
+    supported host. Unsupported hosts retain the canonical profile and are
+    rejected by the supervisor boundary. -/
+def hardFrontendProfileForHost : ResourceProfileV1 :=
+  if (System.Platform.target.splitOn "-").contains "linux" then
+    hardLinuxObservedFrontendProfile
+  else
+    hardFrontendProfile
 
 def hardCoreProfile : ResourceProfileV1 :=
   { schema := resourceProfileSchema
@@ -811,12 +828,14 @@ def renderResourceStage : ResourceStage → String
 
 def parseMemoryMetric : String → Except String MemoryMetric
   | "darwinPhysFootprintAggregate" => pure .darwinPhysFootprintAggregate
+  | "linuxProcRssAggregate" => pure .linuxProcRssAggregate
   | "linuxCgroupMemoryCurrent" => pure .linuxCgroupMemoryCurrent
   | "jobObjectCommitAggregate" => pure .jobObjectCommitAggregate
   | _ => throw "unknown resource memory metric"
 
 def renderMemoryMetric : MemoryMetric → String
   | .darwinPhysFootprintAggregate => "darwinPhysFootprintAggregate"
+  | .linuxProcRssAggregate => "linuxProcRssAggregate"
   | .linuxCgroupMemoryCurrent => "linuxCgroupMemoryCurrent"
   | .jobObjectCommitAggregate => "jobObjectCommitAggregate"
 

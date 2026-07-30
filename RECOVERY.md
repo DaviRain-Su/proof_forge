@@ -87,8 +87,8 @@ Wave 1  D1 supervised frontend + CLI cutover
   `Frontend.Req/Ok/Err.v1`，与产品 Loader 共享单 parser snapshot，并由真实子进程测试固定
   deterministic bytes 与 64/65/70 abnormal exits。B11a 已新增 package-owned native safe-open
   foundation（component no-follow、regular/single-link、16 MiB pre-read gate、read probe、fd/path
-  metadata recheck 与 closed redacted faults）；B11a2 已新增 pure canonical/public-safe Darwin
-  development-observation receipt model。B11b1 已以 `posix_spawn`/独立 process group 监督**已编码**
+  metadata recheck 与 closed redacted faults）；B11a2 已新增 pure canonical/public-safe、host-tagged
+  development-observation receipt model。B11b1 已以独立 process group 监督**已编码**
   canonical request：monotonic budget 从 native allocation/pipe/spawn 前开始，使用 selective
   `LEAN_SYSROOT`/`LEAN_PATH` + fixed env，轮询 aggregate process/memory、stdout/stderr 与 deadline，
   bounded kill/cleanup 后实际 mint B11a2 receipt；malformed/cross-request/incomplete-cleanup response
@@ -99,10 +99,12 @@ Wave 1  D1 supervised frontend + CLI cutover
   canonical request digest，最终 observations 合并两阶段 peak；仅 request-bound canonical fault + complete
   cleanup mint `sourceOpenFailed`，并仅在 private supervised carrier保留 exact closed fault。B12 已令 CLI
   sole consume该完整 supervisor并以 durable deletion gate固定无 source reopen/Loader/fallback/direct
-  pathname spawn；两个 worker均从 native no-follow fd-derived private snapshot执行，suspended spawn/vnode
-  mutation与snapshot cleanup fail closed。当前非 Darwin product CLI 以 closed protocol diagnostic/零制品
-  拒绝，portable CI 不声称 Linux materialization positive。formal executable/import identity、
-  controller-backed containment 与 formal TASK-D1-08 仍缺失。
+  pathname spawn。Darwin 保留 suspended spawn/vnode 复核；Linux development path 使用 root-owned
+  sticky `/tmp` 下128-bit私有 snapshot、fork 后 `close_range` 清除 ambient fd、独立 process group、
+  `/proc` group/RSS fail-closed sampling，并实际跑通 safe-open→frontend→CLI product positive。Linux
+  receipt使用 `linux-development-observed` 与 `linuxProcRssAggregate`，不冒充 Darwin footprint、cgroup
+  或 containment。formal executable/import identity、`setsid` escape、controller-backed containment
+  与 formal TASK-D1-08 仍缺失。
 - Counter 已从真实 source 完成 ProgramV1 到目标制品的 CLI smoke；快速测试固定
   ProgramV1 identity/sourceHash/NodeId、Typed/Semantic、EVM Plan/IR 与 deterministic Yul/ABI。
 - 真实 Counter/Accumulator source 已经由当前恢复桥使用 digest-pinned `solc 0.8.34` 生成

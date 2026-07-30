@@ -20,6 +20,16 @@ D1–D4 共 27 个 formal task，当前仍为：
 | D3 | 7/7 pending | **D3/S4–Formal Spine V3 工程 registry kernel**：opaque TargetId/CodegenProfileId/NetworkProfileId + sole `TargetRegistryV1` 10-target membership/default/profile seed + closed six-axis enums + `resolveBuildSelectionV1` 已接线；旧 `StaticBuildSelectionIndexV1` 已删除；无 formal root `registryDigest`；`BuildIdentityV1` 仅 private five-field layout、无 mint；**D3/S5 工程**：private-ctor `CompiledSemanticV1` single-semantic carrier + engineering exact requirement resolver（`RequirementResolverV1` 四行静态 S2 support index + private `ResolvedEngineeringBuildV1` capability via `resolveEngineeringRequirementsV1`；`materialize`/`emit` 仅 capability；已删 `checkSupport`）；**D3/S6 工程**：capability-only Plan cutover（`EngineeringBuildV1` leaf sole mint；`DescriptorDataV1`；四 target 仅 capability-gated `planFromCapability`/`irFromCapability`/`buildFromCapability` + inspection；已删 public Common resolve/validateResolved/makePlan、`TargetDescriptor.supportedRequirements` 字段/membership acceptance、public Residual planFromAlpha/lowerPlan/filesFromIR 与 dead public ResolvedProgram；Registry 直接 capability dispatch；`s6-plan-cutover-deletion-gate` + residual type-chain reflection）；**D3/S7a 工程**：private-ctor `MaterializedArtifactsV1` sole mint；`materializeResult` 返回 pure base-file carrier；已删 public `OutputSet`/`OutputManifest`/`makeOutput`/`manifestJson`；`s7-output-envelope-deletion-gate`；**D3/S7b 工程**：`LockedToolchainV1` + private-ctor `FinalizedArtifactsV1` + Registry `finalizeMaterializedArtifactsV1` + 四 target FinalizeV1 adapters；已删 `CLI/Toolchain` 与 CLI finalize；CLI publisher-only v2alpha1；`s7b-finalize-authority-deletion-gate`；**D3/S7c 工程**：sole `validateEngineeringDiskClosureV1` + CLI evidence→manifest-last + unified Python no-follow exact closure；`s7c-disk-closure-gate`；formal pending；仍非 SupportClaim/reachable BuildIdentity/formal registry root codec/`registryDigest`/OutputSetV1/ToolchainIdentity；四 target S1 Plan body均已直连 retained SemanticProgramV1；完整 Normalize/formal lowering仍未完成 |
 | D4 | 5/5 pending | EVM Plan/Yul/ABI/solc/Anvil 算法已有真实功能；S1 `planFromCapability` 已直接消费 retained `SemanticProgramV1` 并归零 EVM 内 `alphaResidualOf`/`makePlanFromAlpha`，且 compiler/resolver/artifact identity已切到单语义 carrier；但 transitional v2alpha1 output、formal Plan/IR/Build/Output identity与 Reference↔Anvil closure仍缺，不能按 D4 完成 |
 
+### D1 Linux frontend supervisor 增量（2026-07-30）
+
+上述 D1 行中的 Darwin-only 描述由本增量补充：ordinary-development product path 现同时支持
+Linux。Linux 使用 root-owned sticky 临时根内的 private worker snapshot、ambient-fd close、独立
+process group、CLOEXEC launch-status pipe，以及 fail-closed `/proc` process-group/RSS sampling；
+receipt 明确标记 `linux-development-observed` 与 `linuxProcRssAggregate`。Darwin 继续使用 suspended
+spawn/vnode recheck。两条路径共享 absolute monotonic budget、closed event/receipt 与 cleanup 合同，
+且真实 Linux CLI positive 已覆盖；这仍不构成 signed executable identity、cgroup/`setsid`
+containment、formal host/race matrix 或 TASK-D1-08 完成。
+
 因此当前产品不是 `active/` 中的旧 v1，也不是正式 D1–D4 新设计完成态；准确 engineering 路径是：
 
 ```text

@@ -11,7 +11,7 @@
     * build-counter package source is independent of caller cwd
     * compiler symlink launch cannot redirect pinned sibling workers
     * Counter `build-counter` success: exit 0 + success stdout, no failure artifacts
-    * non-Darwin: both product build commands fail closed with the stable frontend
+    * unsupported hosts: both product build commands fail closed with the stable frontend
       protocol diagnostic and zero output (no in-process Loader fallback)
 -/
 import ProofForgeV2.Core.Common
@@ -22,6 +22,9 @@ open System
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
+
+private def supervisorHostSupported : Bool :=
+  System.Platform.isOSX || (System.Platform.target.splitOn "-").contains "linux"
 
 private def containsSubstr (s sub : String) : Bool :=
   let rec loop (cs : List Char) : Bool :=
@@ -152,7 +155,7 @@ private def testLanguageVersionSelection : IO Unit := do
     "--language-version", "1.0.0",
     "-o", explicitOut.toString
   ]
-  if System.Platform.isOSX then
+  if supervisorHostSupported then
     expect (explicitEc == 0)
       s!"explicit 1.0.0 must follow the default product path: {explicitStderr}"
     expect (containsSubstr explicitStdout "built target=solana")
@@ -161,7 +164,7 @@ private def testLanguageVersionSelection : IO Unit := do
     IO.FS.removeDirAll explicitOut
   else
     expect (explicitEc == 3 && containsSubstr explicitStderr "PF-FRONTEND-PROTOCOL")
-      "explicit 1.0.0 must reach the same unsupported-host supervisor boundary"
+      "explicit 1.0.0 must reach the unsupported-host supervisor boundary"
     expect (explicitStdout == "" && !(← explicitOut.pathExists))
       "explicit 1.0.0 must not bypass unsupported-host fail-closed behavior"
   let (unknownEc, unknownStdout, unknownStderr) ← runCli #[
@@ -323,23 +326,23 @@ private def testUnsupportedPlatformFailsClosed : IO Unit := do
     "-o", sourceOut.toString
   ]
   expect (sourceEc == 3)
-    s!"non-Darwin build must fail closed with exit 3, got {sourceEc}: {sourceStderr}"
+    s!"unsupported-host build must fail closed with exit 3, got {sourceEc}: {sourceStderr}"
   expect (containsSubstr sourceStderr
       "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
-    s!"non-Darwin build must report the closed supervisor diagnostic: {sourceStderr}"
+    s!"unsupported-host build must report the closed supervisor diagnostic: {sourceStderr}"
   expect (sourceStdout == "" && !(← sourceOut.pathExists))
-    "non-Darwin build must not print success or publish output"
+    "unsupported-host build must not print success or publish output"
 
   let (counterEc, counterStdout, counterStderr) ← runCli #[
     "build-counter", "--target", "solana", "-o", counterOut.toString
   ]
   expect (counterEc == 3)
-    s!"non-Darwin build-counter must fail closed with exit 3, got {counterEc}: {counterStderr}"
+    s!"unsupported-host build-counter must fail closed with exit 3, got {counterEc}: {counterStderr}"
   expect (containsSubstr counterStderr
       "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
-    s!"non-Darwin build-counter must report the closed supervisor diagnostic: {counterStderr}"
+    s!"unsupported-host build-counter must report the closed supervisor diagnostic: {counterStderr}"
   expect (counterStdout == "" && !(← counterOut.pathExists))
-    "non-Darwin build-counter must not print success or publish output"
+    "unsupported-host build-counter must not print success or publish output"
 
 unsafe def run : IO Unit := do
   unless ← cliBin.pathExists do
@@ -349,7 +352,7 @@ unsafe def run : IO Unit := do
   testUnknownCommandExit2
   testUnknownTargetExit2
   testLanguageVersionSelection
-  if !System.Platform.isOSX then
+  if !supervisorHostSupported then
     testUnsupportedPlatformFailsClosed
     IO.println "Tests.CLI.DiagnosticsV1: ok (unsupported host fails closed)"
   else

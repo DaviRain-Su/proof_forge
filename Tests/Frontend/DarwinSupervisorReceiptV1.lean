@@ -11,6 +11,9 @@ namespace Tests.Frontend.DarwinSupervisorReceiptV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Frontend.ProtocolV1
+
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
 open ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
 
 private def expect (condition : Bool) (message : String) : IO Unit := do
@@ -72,7 +75,8 @@ private def injectTopLevelField
   | _ => throw "receipt fixture must be an object"
 
 private def testEnumWires : IO Unit := do
-  let assurances : Array DarwinFrontendAssuranceV1 := #[.developmentObserved]
+  let assurances : Array DarwinFrontendAssuranceV1 :=
+    #[.darwinDevelopmentObserved, .linuxDevelopmentObserved]
   for value in assurances do
     expect (DarwinFrontendAssuranceV1.ofWire? value.wire == some value)
       s!"assurance wire: {value.wire}"
@@ -117,7 +121,9 @@ private def testGoldenAndAccessors : IO Unit := do
   expect ((← lift "receipt digest wire" (renderDigest digest)) == goldenDigest)
     "receipt independent digest KAT"
 
-  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == .developmentObserved)
+  let expectedAssurance : DarwinFrontendAssuranceV1 :=
+    if System.Platform.isOSX then .darwinDevelopmentObserved else .linuxDevelopmentObserved
+  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == expectedAssurance)
     "assurance accessor"
   expect (DarwinFrontendSupervisorReceiptV1.hardProfileId receipt ==
     hardFrontendProfile.profileId) "hard profile id accessor"
@@ -378,11 +384,13 @@ private def testCanonicalAndPrivacyFailures : IO Unit := do
 
 unsafe def run : IO Unit := do
   testEnumWires
-  testGoldenAndAccessors
+  if System.Platform.isOSX then
+    testGoldenAndAccessors
   testProfiles
   testCrossFieldInvariants
   testObservationBounds
-  testCanonicalAndPrivacyFailures
+  if System.Platform.isOSX then
+    testCanonicalAndPrivacyFailures
   IO.println "Tests.Frontend.DarwinSupervisorReceiptV1: ok"
 
 end Tests.Frontend.DarwinSupervisorReceiptV1

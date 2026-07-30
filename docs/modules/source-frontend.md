@@ -183,15 +183,16 @@ non-rearm/peak join；并发 truncate/grow/rebind 的完整 host-isolated/formal
 `DarwinFrontendSupervisorReceiptV1` 与唯一 smart constructor。它是 public-safe **internal** receipt，
 不是当前 CLI 顶层 `receipts` envelope；B12 只消费内部 carrier，不公开 receipt。它只保留 hard/effective frontend
 `ResourceProfileV1` identity/digest、optional canonical request digest、bounded elapsed/aggregate-memory/
-process observations、closed event/result/cleanup class，并固定唯一 assurance
-`darwin-development-observed`。PF-JCS 是 11-field closed object，4 KiB pre-parse cap，profile/request/
+process observations、closed event/result/cleanup class，并按 host 固定 assurance
+`darwin-development-observed` 或 `linux-development-observed`。Linux hard profile明确使用
+`linuxProcRssAggregate`，不是 Darwin footprint 或 cgroup metric。PF-JCS 是 11-field closed object，4 KiB pre-parse cap，profile/request/
 receipt digest 全部 domain-separated 且 parse 后 exact re-encode；unknown privacy fields（path、PID、
 signal、exit code、stderr/tail/secret/detail）无 carrier 并在 decoder 边界拒绝。
 
 `Tests/Frontend/DarwinSupervisorReceiptV1.lean` 固定 exact 929-byte golden、receipt digest KAT、
 request replay rejection、lower-only effective profile、event/result/request cross-field invariants、
 equal/first-over resource projection、closed enum/field/canonical failures和 privacy key rejection。
-本模块自身仍是纯模型：**不** open/spawn/measure/kill/reap，不输出 CLI JSON，也不代表 Linux
+本模块自身仍是纯模型：**不** open/spawn/measure/kill/reap，不输出 CLI JSON，也不代表任何 host
 `contained`。B11b1/B11b2 composer 消费其唯一 smart constructor并实际产生 worker-only/full-source
 receipt，但这不关闭 CLI cutover、controller-backed containment、formal `TST-RESOURCE-001` 或
 TASK-D1-08。
@@ -225,14 +226,14 @@ request-inconsistent response fail closed 为 no-response；incomplete cleanup �
 unsupported platform 显式返回 error；其他 native closed fault 只产生零 observation、
 `supervisorFault`/`noResponse`/`incomplete` receipt。
 
-`Tests/Frontend/DarwinWorkerSupervisorV1.lean` 在 Darwin 以真实 worker/子进程覆盖 Ok/Err、deadline、
+`Tests/Frontend/DarwinWorkerSupervisorV1.lean` 在 Darwin 与 Linux 以真实 worker/子进程覆盖 Ok/Err、deadline、
 process/memory、stdout/stderr cap 与 exact-cap acceptance、nonzero exit/signal、malformed/cross-request、
 missing worker、lower-only profile、private snapshot path/cleanup、snapshot self-mutation、inherited
-writable ACL清除、worker symlink/hardlink/non-executable/oversize rejection和 cleanup/result join；非 Darwin 仅 compile 并 skip。
+writable ACL清除（Darwin）、ambient descriptor拒绝（Linux）、worker symlink/hardlink/non-executable/oversize rejection和 cleanup/result join。Linux snapshot位于验证过的root-owned sticky `/tmp`，fork child在exec前以`close_range`清除fd 3以上能力，并通过`/proc`采样原process group与aggregate RSS；采样错误fail closed。
 
 B11b1 primitive **不** import `SafeOpenV1`、不读取 source path，也无法阻止 descendant `setsid()`
-逃离 process group；B12 虽已消费它作为 CLI source authority，assurance仍只支持
-`darwin-development-observed`。snapshot 不构成 formal executable digest/signature；在 sole native open
+逃离 process group；B12 虽已消费它作为 CLI source authority，assurance仍只是对应host的
+development-observed。snapshot 不构成 formal executable digest/signature；在 sole native open
 之前已被替换的同路径 regular executable与 selectively inherited Lean import closure仍没有 formal identity。
 
 ### B11b2 shared safe-open/frontend supervisor

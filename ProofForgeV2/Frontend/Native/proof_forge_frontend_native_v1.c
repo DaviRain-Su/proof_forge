@@ -9,6 +9,7 @@
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -20,11 +21,15 @@
 
 #if defined(__APPLE__)
 #include <libproc.h>
-#include <pthread.h>
 #include <sys/acl.h>
 #include <sys/event.h>
-#include <sys/resource.h>
+#else
+#include <dirent.h>
+#include <sys/random.h>
+#include <sys/syscall.h>
 #endif
+#include <pthread.h>
+#include <sys/resource.h>
 
 #if defined(__APPLE__)
 #define PF_STAT_MTIME_SEC(st) ((st).st_mtimespec.tv_sec)
@@ -346,7 +351,9 @@ cleanup_error:
 }
 
 /* -------------------------------------------------------------------------- */
-/* B11b1 Darwin development-only worker supervisor FFI                        */
+/* Development-observed worker supervisor FFI. Darwin retains vnode/libproc
+   observation; Linux uses private snapshots and /proc process-group sampling.
+   Neither branch contains setsid or cgroup/controller escape. */
 /* Closed frame: magic PFSUPV1\0 + event/cleanup + LE observations + payload. */
 /* -------------------------------------------------------------------------- */
 
@@ -371,7 +378,7 @@ static int pf_worker_path_invalid(b_lean_obj_arg worker_object,
   return 0;
 }
 
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(__linux__)
 
 enum {
   PF_SUP_EV_RESPONSE = 0,
@@ -514,7 +521,12 @@ static int pf_set_cloexec_nonblock(int fd) {
 }
 
 static int pf_set_nosigpipe(int fd) {
+#if defined(__APPLE__)
   return fcntl(fd, F_SETNOSIGPIPE, 1) == 0 ? 0 : -1;
+#else
+  (void)fd;
+  return 0;
+#endif
 }
 
 static void pf_close_fd(int *fd) {
@@ -563,6 +575,7 @@ static int pf_same_file_identity(const struct stat *left,
    alone therefore cannot establish a private snapshot on Darwin. Replace any
    inherited ACL with the empty ACL and require the kernel to report no ACL. */
 static int pf_clear_and_verify_extended_acl(int fd) {
+#if defined(__APPLE__)
   acl_t empty_acl = acl_init(0);
   if (empty_acl == NULL) {
     return -1;
@@ -582,9 +595,15 @@ static int pf_clear_and_verify_extended_acl(int fd) {
   int first_result = acl_get_entry(observed, ACL_FIRST_ENTRY, &first_entry);
   (void)acl_free(observed);
   return first_result == 0 ? 0 : -1;
+#else
+  (void)fd;
+  return 0;
+#endif
 }
 
-static int pf_create_snapshot_directory(pf_worker_snapshot *snapshot) {
+static int pf_create_snapshot_directory(pf_worker_snapshot *snapshot,
+                                        const char *worker_path) {
+#if defined(__APPLE__)
   static const char hex[] = "0123456789abcdef";
   const size_t prefix_len = sizeof(PF_SUP_SNAPSHOT_PREFIX) - 1;
   const size_t worker_name_len = sizeof(PF_SUP_SNAPSHOT_NAME) - 1;
@@ -662,6 +681,67 @@ static int pf_create_snapshot_directory(pf_worker_snapshot *snapshot) {
   memcpy(snapshot->worker_path + directory_len + 1, PF_SUP_SNAPSHOT_NAME,
          worker_name_len + 1);
   return 0;
+#else
+  (void)worker_path;
+  static const char hex[] = "0123456789abcdef";
+  static const char snapshot_root[] = "/tmp";
+  uint8_t random_bytes[PF_SUP_SNAPSHOT_RANDOM_BYTES];
+  struct stat root_metadata;
+  int root_fd = open(snapshot_root,
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (root_fd < 0 || fstat(root_fd, &root_metadata) != 0 ||
+      !S_ISDIR(root_metadata.st_mode) || root_metadata.st_uid != 0 ||
+      (root_metadata.st_mode & S_ISVTX) == 0) {
+    if (root_fd >= 0) close(root_fd);
+    return -1;
+  }
+  char leaf[sizeof(PF_SUP_SNAPSHOT_PREFIX) + PF_SUP_SNAPSHOT_RANDOM_HEX];
+  memcpy(leaf, PF_SUP_SNAPSHOT_PREFIX, sizeof(PF_SUP_SNAPSHOT_PREFIX) - 1);
+  int created = 0;
+  for (int attempt = 0; attempt < 16 && !created; attempt++) {
+    ssize_t random_count;
+    do {
+      random_count = getrandom(random_bytes, sizeof(random_bytes), 0);
+    } while (random_count < 0 && errno == EINTR);
+    if (random_count != (ssize_t)sizeof(random_bytes)) {
+      close(root_fd);
+      return -1;
+    }
+    size_t cursor = sizeof(PF_SUP_SNAPSHOT_PREFIX) - 1;
+    for (int i = 0; i < PF_SUP_SNAPSHOT_RANDOM_BYTES; i++) {
+      leaf[cursor + (size_t)i * 2] = hex[random_bytes[i] >> 4];
+      leaf[cursor + (size_t)i * 2 + 1] = hex[random_bytes[i] & 0x0fu];
+    }
+    leaf[cursor + PF_SUP_SNAPSHOT_RANDOM_HEX] = '\0';
+    if (mkdirat(root_fd, leaf, 0700) == 0) {
+      created = 1;
+    } else if (errno != EEXIST) {
+      close(root_fd);
+      return -1;
+    }
+  }
+  if (!created) {
+    close(root_fd);
+    return -1;
+  }
+  snapshot->directory_created = 1;
+  int written = snprintf(snapshot->directory_path,
+      sizeof(snapshot->directory_path), "%s/%s", snapshot_root, leaf);
+  if (written < 0 || (size_t)written >= sizeof(snapshot->directory_path)) {
+    (void)unlinkat(root_fd, leaf, AT_REMOVEDIR);
+    close(root_fd);
+    return -1;
+  }
+  snapshot->directory_fd = openat(root_fd, leaf,
+      O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  close(root_fd);
+  if (snapshot->directory_fd < 0 || fchmod(snapshot->directory_fd, 0700) != 0) {
+    return -1;
+  }
+  written = snprintf(snapshot->worker_path, sizeof(snapshot->worker_path),
+                     "%s/%s", snapshot->directory_path, PF_SUP_SNAPSHOT_NAME);
+  return written >= 0 && (size_t)written < sizeof(snapshot->worker_path) ? 0 : -1;
+#endif
 }
 
 static int pf_budget_status(uint64_t budget_start_ms, uint64_t max_wall_ms) {
@@ -719,6 +799,7 @@ static int pf_copy_worker_bytes(int source_fd, int destination_fd,
 }
 
 static int pf_arm_snapshot_watch(pf_worker_snapshot *snapshot) {
+#if defined(__APPLE__)
   snapshot->watch_fd = kqueue();
   if (snapshot->watch_fd < 0 || pf_set_cloexec(snapshot->watch_fd) != 0) {
     return -1;
@@ -735,9 +816,14 @@ static int pf_arm_snapshot_watch(pf_worker_snapshot *snapshot) {
   EV_SET(&changes[1], (uintptr_t)snapshot->worker_fd, EVFILT_VNODE,
          EV_ADD | EV_ENABLE | EV_CLEAR, watch_flags, 0, NULL);
   return kevent(snapshot->watch_fd, changes, 2, NULL, 0, NULL) == 0 ? 0 : -1;
+#else
+  (void)snapshot;
+  return 0;
+#endif
 }
 
 static int pf_snapshot_events_pending(pf_worker_snapshot *snapshot) {
+#if defined(__APPLE__)
   struct kevent events[2];
   struct timespec timeout;
   timeout.tv_sec = 0;
@@ -750,6 +836,10 @@ static int pf_snapshot_events_pending(pf_worker_snapshot *snapshot) {
     return -1;
   }
   return count == 0 ? 0 : 1;
+#else
+  (void)snapshot;
+  return 0;
+#endif
 }
 
 /* Check before and after metadata reads so a path swap cannot hide between the
@@ -761,15 +851,18 @@ static int pf_worker_snapshot_changed(pf_worker_snapshot *snapshot) {
     return events;
   }
   struct stat directory_metadata;
+  struct stat directory_path_metadata;
   struct stat worker_metadata;
   struct stat worker_path_metadata;
   if (fstat(snapshot->directory_fd, &directory_metadata) != 0 ||
+      lstat(snapshot->directory_path, &directory_path_metadata) != 0 ||
       fstat(snapshot->worker_fd, &worker_metadata) != 0 ||
       fstatat(snapshot->directory_fd, PF_SUP_SNAPSHOT_NAME,
               &worker_path_metadata, AT_SYMLINK_NOFOLLOW) != 0) {
     return -1;
   }
   if (!pf_same_snapshot(&snapshot->directory_expected, &directory_metadata) ||
+      !pf_same_file_identity(&directory_metadata, &directory_path_metadata) ||
       !pf_same_snapshot(&snapshot->worker_expected, &worker_metadata) ||
       !pf_same_snapshot(&snapshot->worker_expected, &worker_path_metadata)) {
     return 1;
@@ -801,7 +894,7 @@ static int pf_prepare_worker_snapshot(const char *worker_path,
   if (budget != 0) {
     return budget;
   }
-  if (pf_create_snapshot_directory(snapshot) != 0) {
+  if (pf_create_snapshot_directory(snapshot, worker_path) != 0) {
     return -1;
   }
 
@@ -895,6 +988,7 @@ static int pf_cleanup_worker_snapshot(pf_worker_snapshot *snapshot) {
 }
 
 static int pf_snapshot_pgroup(pid_t pgid, pid_t **out_pids, int *out_count) {
+#if defined(__APPLE__)
   *out_pids = NULL;
   *out_count = 0;
   errno = 0;
@@ -935,6 +1029,48 @@ static int pf_snapshot_pgroup(pid_t pgid, pid_t **out_pids, int *out_count) {
     alloc *= 2;
   }
   return -1;
+#else
+  DIR *proc = opendir("/proc");
+  if (proc == NULL) return -1;
+  size_t cap = 16;
+  size_t count = 0;
+  pid_t *pids = malloc(cap * sizeof(*pids));
+  if (pids == NULL) { closedir(proc); return -1; }
+  struct dirent *entry;
+  for (;;) {
+    errno = 0;
+    entry = readdir(proc);
+    if (entry == NULL) {
+      if (errno != 0) { free(pids); closedir(proc); return -1; }
+      break;
+    }
+    char *end = NULL;
+    long value = strtol(entry->d_name, &end, 10);
+    if (entry->d_name[0] == '\0' || *end != '\0' || value <= 0 || value > INT_MAX)
+      continue;
+    pid_t pid = (pid_t)value;
+    pid_t observed_pgid = getpgid(pid);
+    if (observed_pgid < 0) {
+      if (errno == ESRCH) continue;
+      free(pids);
+      closedir(proc);
+      return -1;
+    }
+    if (observed_pgid != pgid) continue;
+    if (count == cap) {
+      if (cap > SIZE_MAX / 2 / sizeof(*pids)) { free(pids); closedir(proc); return -1; }
+      cap *= 2;
+      pid_t *grown = realloc(pids, cap * sizeof(*pids));
+      if (grown == NULL) { free(pids); closedir(proc); return -1; }
+      pids = grown;
+    }
+    pids[count++] = pid;
+  }
+  closedir(proc);
+  *out_pids = pids;
+  *out_count = (int)count;
+  return 0;
+#endif
 }
 
 static int pf_sample_pgroup(pid_t pgid, uint32_t *out_count,
@@ -946,6 +1082,13 @@ static int pf_sample_pgroup(pid_t pgid, uint32_t *out_count,
   }
   uint32_t count = 0;
   uint64_t total = 0;
+#if defined(__linux__)
+  long page_size = sysconf(_SC_PAGESIZE);
+  if (page_size <= 0) {
+    free(pids);
+    return -1;
+  }
+#endif
   int i;
   for (i = 0; i < n; i++) {
     pid_t member = pids[i];
@@ -957,17 +1100,38 @@ static int pf_sample_pgroup(pid_t pgid, uint32_t *out_count,
       return -1;
     }
     count++;
+#if defined(__APPLE__)
     struct rusage_info_v4 info;
     memset(&info, 0, sizeof(info));
-    if (proc_pid_rusage((int)member, RUSAGE_INFO_V4, (rusage_info_t *)&info) !=
-        0) {
+    if (proc_pid_rusage((int)member, RUSAGE_INFO_V4, (rusage_info_t *)&info) != 0) {
       /* list→rusage races with exit are expected; count remains conservative. */
       continue;
     }
-    if (total > UINT64_MAX - info.ri_phys_footprint) {
+    uint64_t rss = info.ri_phys_footprint;
+#else
+    char statm_path[64];
+    int path_len = snprintf(statm_path, sizeof(statm_path), "/proc/%d/statm", member);
+    FILE *statm = path_len > 0 && (size_t)path_len < sizeof(statm_path)
+                      ? fopen(statm_path, "r") : NULL;
+    unsigned long pages_total = 0, pages_rss = 0;
+    if (statm == NULL || fscanf(statm, "%lu %lu", &pages_total, &pages_rss) != 2) {
+      if (statm != NULL) fclose(statm);
+      if (kill(member, 0) != 0 && errno == ESRCH) continue;
+      free(pids);
+      return -1;
+    }
+    fclose(statm);
+    (void)pages_total;
+    if (pages_rss > UINT64_MAX / (uint64_t)page_size) {
+      free(pids);
+      return -1;
+    }
+    uint64_t rss = (uint64_t)pages_rss * (uint64_t)page_size;
+#endif
+    if (total > UINT64_MAX - rss) {
       total = UINT64_MAX;
     } else {
-      total += info.ri_phys_footprint;
+      total += rss;
     }
   }
   free(pids);
@@ -1025,6 +1189,14 @@ static int pf_observe_child_exit(pid_t child, int *exited, int *status_valid,
     *status_valid = 0;
   }
   return 0;
+}
+
+static pid_t pf_waitpid_nohang(pid_t child) {
+  pid_t result;
+  do {
+    result = waitpid(child, NULL, WNOHANG);
+  } while (result < 0 && errno == EINTR);
+  return result;
 }
 
 static void *pf_reap_child_thread(void *arg) {
@@ -1268,7 +1440,7 @@ static int pf_controller_event(uint32_t peak_processes, uint32_t max_processes,
   return 0;
 }
 
-static lean_object *pf_supervise_worker_darwin(
+static lean_object *pf_supervise_worker_platform(
     const char *worker_path, const uint8_t *input_data, size_t input_size,
     uint64_t max_wall_ms, uint64_t max_memory_bytes, uint32_t max_processes,
     uint64_t max_protocol_bytes, uint64_t max_stderr_bytes,
@@ -1331,6 +1503,7 @@ static lean_object *pf_supervise_worker_darwin(
   int in_pipe[2] = {-1, -1};
   int out_pipe[2] = {-1, -1};
   int err_pipe[2] = {-1, -1};
+  int launch_pipe[2] = {-1, -1};
   pid_t child = -1;
   pid_t pgid = -1;
   posix_spawn_file_actions_t actions;
@@ -1339,14 +1512,26 @@ static lean_object *pf_supervise_worker_darwin(
   int attr_inited = 0;
   char *lean_sysroot_env = NULL;
   char *lean_path_env = NULL;
+  int pre_spawn_deadline = 0;
+  int pre_spawn_io_fault = 0;
 
-  if (pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0) {
+#if defined(__linux__)
+  int pipe_setup_failed =
+      pipe2(in_pipe, O_CLOEXEC) != 0 || pipe2(out_pipe, O_CLOEXEC) != 0 ||
+      pipe2(err_pipe, O_CLOEXEC) != 0 || pipe2(launch_pipe, O_CLOEXEC) != 0;
+#else
+  int pipe_setup_failed =
+      pipe(in_pipe) != 0 || pipe(out_pipe) != 0 || pipe(err_pipe) != 0;
+#endif
+  if (pipe_setup_failed) {
     pf_close_fd(&in_pipe[0]);
     pf_close_fd(&in_pipe[1]);
     pf_close_fd(&out_pipe[0]);
     pf_close_fd(&out_pipe[1]);
     pf_close_fd(&err_pipe[0]);
     pf_close_fd(&err_pipe[1]);
+    pf_close_fd(&launch_pipe[0]);
+    pf_close_fd(&launch_pipe[1]);
     int snapshot_cleanup = pf_cleanup_worker_snapshot(&worker_snapshot);
     free(stdout_buf);
     return pf_io_error(snapshot_cleanup == 0 ? "spawn-failed" : "io");
@@ -1389,10 +1574,13 @@ static lean_object *pf_supervise_worker_darwin(
       posix_spawn_file_actions_addclose(&actions, err_pipe[1]) != 0) {
     goto spawn_fail;
   }
-
-  short spawn_flags = (short)(POSIX_SPAWN_SETPGROUP |
+  short spawn_flags = (short)(POSIX_SPAWN_SETPGROUP
+#if defined(__APPLE__)
+                              |
                               POSIX_SPAWN_CLOEXEC_DEFAULT |
-                              POSIX_SPAWN_START_SUSPENDED);
+                              POSIX_SPAWN_START_SUSPENDED
+#endif
+                              );
   if (posix_spawnattr_setflags(&attr, spawn_flags) != 0 ||
       posix_spawnattr_setpgroup(&attr, 0) != 0) {
     goto spawn_fail;
@@ -1414,8 +1602,93 @@ static lean_object *pf_supervise_worker_darwin(
   char *worker_env[] = {
       lean_sysroot_env, lean_path_env, "HOME=/var/empty", "PATH=/usr/bin:/bin",
       "LC_ALL=C", "TZ=UTC", NULL};
+  int final_budget = pf_budget_status(budget_start_ms, max_wall_ms);
+  if (final_budget != 0) {
+    pre_spawn_deadline = final_budget == 1;
+    pre_spawn_io_fault = final_budget < 0;
+    goto spawn_fail;
+  }
+#if defined(__linux__)
+  struct sigaction child_action;
+  if (sigaction(SIGCHLD, NULL, &child_action) != 0 ||
+      child_action.sa_handler != SIG_DFL ||
+      (child_action.sa_flags & SA_NOCLDWAIT) != 0) {
+    goto spawn_fail;
+  }
+#endif
+#if defined(__APPLE__)
   int spawn_rc = posix_spawn(&child, worker_snapshot.worker_path, &actions,
                              &attr, argv, worker_env);
+#else
+  /* The locked Linux link profile does not expose glibc's closefrom spawn
+     action. fork is safe here because the child performs only async-signal-safe
+     syscalls before execve. close_range prevents ambient host capabilities
+     from leaking into either supervised worker. */
+  child = fork();
+  int spawn_rc = 0;
+  if (child == 0) {
+    int launch_fault[2] = {0, 0};
+    if (setpgid(0, 0) != 0) {
+      launch_fault[0] = 1; launch_fault[1] = errno;
+    } else if (dup2(in_pipe[0], STDIN_FILENO) < 0 ||
+               dup2(out_pipe[1], STDOUT_FILENO) < 0 ||
+               dup2(err_pipe[1], STDERR_FILENO) < 0) {
+      launch_fault[0] = 2; launch_fault[1] = errno;
+    } else if ((launch_pipe[1] > 3 &&
+                syscall(SYS_close_range, 3u,
+                        (unsigned int)launch_pipe[1] - 1u, 0u) != 0) ||
+               syscall(SYS_close_range,
+                       (unsigned int)launch_pipe[1] + 1u, ~0u, 0u) != 0) {
+      launch_fault[0] = 3; launch_fault[1] = errno;
+    }
+    if (launch_fault[0] != 0) {
+      (void)write(launch_pipe[1], launch_fault, sizeof(launch_fault));
+      _exit(127);
+    }
+    execve(worker_snapshot.worker_path, argv, worker_env);
+    launch_fault[0] = 4; launch_fault[1] = errno;
+    (void)write(launch_pipe[1], launch_fault, sizeof(launch_fault));
+    _exit(127);
+  }
+  if (child < 0) {
+    spawn_rc = errno == 0 ? EIO : errno;
+  } else if (setpgid(child, child) != 0 &&
+             !(errno == EACCES && getpgid(child) == child)) {
+    (void)kill(child, SIGKILL);
+    do {
+      spawn_rc = waitpid(child, NULL, 0) < 0 && errno == EINTR ? EINTR : EIO;
+    } while (spawn_rc == EINTR);
+    child = -1;
+  }
+  pf_close_fd(&launch_pipe[1]);
+  if (spawn_rc == 0) {
+    int launch_fault[2] = {0, 0};
+    size_t launch_read = 0;
+    for (;;) {
+      ssize_t n = read(launch_pipe[0],
+          (uint8_t *)launch_fault + launch_read,
+          sizeof(launch_fault) - launch_read);
+      if (n < 0 && errno == EINTR) continue;
+      if (n < 0) { spawn_rc = EIO; break; }
+      if (n == 0) break;
+      launch_read += (size_t)n;
+      if (launch_read == sizeof(launch_fault)) {
+        spawn_rc = launch_fault[1] == 0 ? EIO : launch_fault[1];
+        break;
+      }
+    }
+    if (launch_read != 0 && launch_read != sizeof(launch_fault)) {
+      spawn_rc = EIO;
+    }
+  }
+  pf_close_fd(&launch_pipe[0]);
+  if (spawn_rc != 0 && child > 0) {
+    (void)kill(child, SIGKILL);
+    pid_t wr;
+    do { wr = waitpid(child, NULL, 0); } while (wr < 0 && errno == EINTR);
+    child = -1;
+  }
+#endif
   free(lean_sysroot_env);
   lean_sysroot_env = NULL;
   free(lean_path_env);
@@ -1438,9 +1711,11 @@ static lean_object *pf_supervise_worker_darwin(
   } else if (post_spawn_budget == 1) {
     pre_run_decided = 1;
     pre_run_event = PF_SUP_EV_DEADLINE;
+#if defined(__APPLE__)
   } else if (kill(child, SIGCONT) != 0) {
     pre_run_decided = 1;
     pre_run_event = PF_SUP_EV_FAULT;
+#endif
   }
 
   posix_spawn_file_actions_destroy(&actions);
@@ -1734,7 +2009,10 @@ static lean_object *pf_supervise_worker_darwin(
     }
     if (pgid > 0 && !leader_reaped && !leader_reap_lost &&
         kill_identity_verified) {
-      (void)kill(-pgid, SIGKILL);
+      if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH) {
+        io_fault = 1;
+        event = PF_SUP_EV_FAULT;
+      }
     }
 
     if (!stdout_eof && out_pipe[0] >= 0) {
@@ -1765,7 +2043,7 @@ static lean_object *pf_supervise_worker_darwin(
     int group_sample_ok =
         pf_count_other_pgroup(pgid, child, &other_processes) == 0;
     if (group_sample_ok && other_processes == 0 && !leader_reaped) {
-      pid_t wr = waitpid(child, NULL, WNOHANG);
+      pid_t wr = pf_waitpid_nohang(child);
       if (wr == child) {
         leader_reaped = 1;
       } else if (wr < 0 && errno == ECHILD) {
@@ -1788,7 +2066,7 @@ static lean_object *pf_supervise_worker_darwin(
     }
     if (cleanup_timed_out) {
       if (!leader_reaped) {
-        pid_t wr = waitpid(child, NULL, WNOHANG);
+        pid_t wr = pf_waitpid_nohang(child);
         if (wr == child) {
           leader_reaped = 1;
         } else if (wr < 0 && errno == ECHILD) {
@@ -1864,17 +2142,28 @@ spawn_fail:
   pf_close_fd(&out_pipe[1]);
   pf_close_fd(&err_pipe[0]);
   pf_close_fd(&err_pipe[1]);
+  pf_close_fd(&launch_pipe[0]);
+  pf_close_fd(&launch_pipe[1]);
   int snapshot_cleanup = pf_cleanup_worker_snapshot(&worker_snapshot);
   free(stdout_buf);
-  return pf_io_error(snapshot_cleanup == 0 ? "spawn-failed" : "io");
+  if (snapshot_cleanup != 0 || pre_spawn_io_fault) {
+    return pf_io_error("io");
+  }
+  if (pre_spawn_deadline) {
+    lean_object *deadline = pf_build_supervisor_frame(
+        PF_SUP_EV_DEADLINE, PF_SUP_CLEAN_COMPLETE,
+        pf_saturate_u64_plus_one(max_wall_ms), 0, 0, NULL, 0);
+    return deadline == NULL ? pf_io_error("io") : deadline;
+  }
+  return pf_io_error("spawn-failed");
 }
 
-#endif /* __APPLE__ */
+#endif /* __APPLE__ || __linux__ */
 
 LEAN_EXPORT lean_obj_res proof_forge_start_frontend_budget_v1(
     lean_obj_arg world) {
   (void)world;
-#if defined(__APPLE__)
+#if defined(__APPLE__) || defined(__linux__)
   uint64_t started_at_ms = 0;
   if (pf_clock_ms(&started_at_ms) != 0 || started_at_ms == UINT64_MAX) {
     return pf_io_error("io");
@@ -1914,8 +2203,8 @@ LEAN_EXPORT lean_obj_res proof_forge_supervise_worker_v1(
     return pf_io_error("invalid-argument");
   }
 
-#if defined(__APPLE__)
-  return pf_supervise_worker_darwin(worker_path, input_data, input_size,
+#if defined(__APPLE__) || defined(__linux__)
+  return pf_supervise_worker_platform(worker_path, input_data, input_size,
                                     max_wall_millis, max_memory_bytes,
                                     max_processes, max_protocol_bytes,
                                     max_stderr_bytes, budget_start_ms);

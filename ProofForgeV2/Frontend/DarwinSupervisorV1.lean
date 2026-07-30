@@ -1,11 +1,12 @@
 /-
-  ProofForgeV2.Frontend.DarwinSupervisorV1 — B11b Darwin frontend composer.
+  ProofForgeV2.Frontend.DarwinSupervisorV1 — B11b legacy-named Darwin/Linux
+  frontend composer.
 
   B11b1: `superviseFrontendRequestV1` encodes Frontend.Req.v1 and supervises the
   B10 frontend worker under a lower-only effective profile.
 
   B11b2: `superviseFrontendSourceV1` first supervises a pinned safe-open helper
-  executable (SafeOpen.Req/Ok/Err.v1) via the same hardened Darwin process-group
+  executable (SafeOpen.Req/Ok/Err.v1) via the same host process-group
   primitive, then (on Ok) constructs Frontend.Req.v1 and supervises the frontend
   worker. A private capability minted from native CLOCK_MONOTONIC carries one
   absolute wall origin across open → parent decode/request construction → worker;
@@ -15,9 +16,10 @@
   snapshots. No parent-side fork or product test hooks.
 
   Explicit non-claims:
-  * assurance remains `darwin-development-observed`
+  * assurance remains host-specific development observation
   * not process/session containment, not formal TST-RESOURCE-001 / TASK-D1-08
-  * not Linux `contained`, formal executable identity, or locked import closure
+  * no cgroup/controller or `setsid` escape containment, formal executable
+    identity, or locked import closure
 -/
 import ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 import ProofForgeV2.Frontend.ProtocolV1
@@ -34,6 +36,9 @@ open ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open System
+
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
 
 /-- Private-ctor supervised frontend result. A successful response retains the
     sole reconstructed product input. A canonical pre-request SafeOpen.Err.v1

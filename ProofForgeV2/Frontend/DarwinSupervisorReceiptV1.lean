@@ -1,13 +1,14 @@
 /-
-  ProofForgeV2.Frontend.DarwinSupervisorReceiptV1 — B11a2 pure Darwin
-  development-observation receipt model.
+  ProofForgeV2.Frontend.DarwinSupervisorReceiptV1 — B11a2 legacy-named
+  Darwin/Linux development-observation receipt model.
 
   This module freezes a bounded, canonical, public-safe internal receipt
   projection for a future Darwin frontend supervisor. It is not the final CLI
   `receipts` envelope and is deliberately inert: it does not
   open files, spawn/measure/kill/reap processes, read stream tails, emit CLI
-  JSON, or claim process/session containment. The sole assurance value is
-  `darwin-development-observed`, which is not formal/hermetic evidence.
+  JSON, or claim process/session containment. Assurance is host-specific
+  development observation, never formal/hermetic
+  evidence or a containment claim.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Frontend.ProtocolV1
@@ -17,21 +18,33 @@ namespace ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Frontend.ProtocolV1
 
-/-- Closed assurance class for the Darwin development-only receipt. -/
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
+
+/-- Closed assurance class for supported development-only supervisor hosts. -/
 inductive DarwinFrontendAssuranceV1 where
-  | developmentObserved
+  | darwinDevelopmentObserved
+  | linuxDevelopmentObserved
   deriving DecidableEq, Repr
 
 namespace DarwinFrontendAssuranceV1
 
 def wire : DarwinFrontendAssuranceV1 → String
-  | .developmentObserved => "darwin-development-observed"
+  | .darwinDevelopmentObserved => "darwin-development-observed"
+  | .linuxDevelopmentObserved => "linux-development-observed"
 
 def ofWire? : String → Option DarwinFrontendAssuranceV1
-  | "darwin-development-observed" => some .developmentObserved
+  | "darwin-development-observed" => some .darwinDevelopmentObserved
+  | "linux-development-observed" => some .linuxDevelopmentObserved
   | _ => none
 
 end DarwinFrontendAssuranceV1
+
+private def compiledHostAssuranceV1 : Option DarwinFrontendAssuranceV1 :=
+  if System.Platform.isOSX then some .darwinDevelopmentObserved
+  else if (System.Platform.target.splitOn "-").contains "linux" then
+    some .linuxDevelopmentObserved
+  else none
 
 /-- Closed event classes observable by the future Darwin supervisor. These are
     observation labels, not claims of kernel-backed resource containment. -/
@@ -344,8 +357,11 @@ private def makeReceiptFromDigest
   validateReceiptData effectiveProfile requestDigest observations event result cleanup
   let hardProfileDigest ← resourceProfileDigest hardFrontendProfile
   let effectiveProfileDigest ← resourceProfileDigest effectiveProfile
+  let assurance ← match compiledHostAssuranceV1 with
+    | some value => pure value
+    | none => throw "unsupported-platform"
   pure {
-    assurance_ := .developmentObserved
+    assurance_ := assurance
     hardProfileId_ := hardFrontendProfile.profileId
     hardProfileDigest_ := hardProfileDigest
     effectiveProfile_ := effectiveProfile
@@ -381,8 +397,8 @@ def renderDarwinFrontendSupervisorReceiptJcsV1
     receipt.observations_ receipt.event_ receipt.result_ receipt.cleanup_
   let hardProfileDigest ← resourceProfileDigest hardFrontendProfile
   let effectiveProfileDigest ← resourceProfileDigest receipt.effectiveProfile_
-  unless receipt.assurance_ == .developmentObserved do
-    throw "Darwin receipt assurance mismatch"
+  unless some receipt.assurance_ == compiledHostAssuranceV1 do
+    throw "frontend receipt assurance mismatch"
   unless receipt.hardProfileId_ == hardFrontendProfile.profileId do
     throw "Darwin receipt hard profile id mismatch"
   unless receipt.hardProfileDigest_ == hardProfileDigest do
@@ -444,8 +460,8 @@ def parseDarwinFrontendSupervisorReceiptJcsV1
               throw "Darwin receipt schema mismatch"
             let assurance ← requireEnum "assurance"
               (DarwinFrontendAssuranceV1.ofWire? assuranceWire)
-            unless assurance == .developmentObserved do
-              throw "Darwin receipt assurance mismatch"
+            unless some assurance == compiledHostAssuranceV1 do
+              throw "frontend receipt assurance mismatch"
             unless hardProfileIdWire == hardFrontendProfile.profileId.value do
               throw "Darwin receipt hard profile id mismatch"
             let hardDigest ← parseDigest hardDigestWire

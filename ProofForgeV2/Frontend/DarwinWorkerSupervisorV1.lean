@@ -1,6 +1,6 @@
 /-
-  ProofForgeV2.Frontend.DarwinWorkerSupervisorV1 — B11b Darwin worker
-  supervisor execution primitive.
+  ProofForgeV2.Frontend.DarwinWorkerSupervisorV1 — B11b legacy-named
+  Darwin/Linux worker supervisor execution primitive.
 
   Spawns a single worker executable under a lower-only frontend ResourceProfile,
   observes wall/memory/process/output limits, and returns a closed event outcome
@@ -9,13 +9,17 @@
   private-ctor mint for that frame.
 
   B12 hardens each spawn with an fd-derived, bounded private worker snapshot:
-  source and snapshot metadata are rechecked, Darwin starts the image suspended,
-  vnode mutations fail closed, and only the verified snapshot is resumed.
+  source and snapshot metadata are rechecked. Darwin starts the image suspended
+  with vnode watches; Linux uses a private sticky-root snapshot and closes all
+  ambient descriptors before exec.
 
   Explicit non-claims:
-  * `darwin-development-observed` only — not process/session containment
+  * host-specific development observation only — not process/session containment
   * not formal TST-RESOURCE-001 / TASK-D1-08 completion
-  * not Linux `contained` assurance or formal executable identity
+  * Linux samples process-group membership and aggregate `/proc` RSS; no cgroup
+    controller or `setsid` escape containment is claimed
+  * the Linux call requires default SIGCHLD disposition and exclusive ownership
+    of child reaping for its duration
   * no stderr/path/PID retention; ambient Lean import closure remains engineering
   * B11b2 composes safe-open under one private native monotonic budget
     capability via `superviseFrontendSourceV1`; B12 consumes that composition,
@@ -29,6 +33,9 @@ namespace ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
 open System
+
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
 
 /-- Closed native/Lean fault class for the Darwin worker supervisor primitive. -/
 inductive DarwinWorkerSupervisorFaultV1 where

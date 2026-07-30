@@ -140,7 +140,8 @@ inductive ResourceStage
   | frontend | compilerCore | externalTool | artifactOutput
 
 inductive MemoryMetric
-  | darwinPhysFootprintAggregate | linuxCgroupMemoryCurrent | jobObjectCommitAggregate
+  | darwinPhysFootprintAggregate | linuxProcRssAggregate
+  | linuxCgroupMemoryCurrent | jobObjectCommitAggregate
 
 structure ResourceProfileV1 where
   schema                 : SchemaId
@@ -158,7 +159,8 @@ structure ResourceProfileV1 where
 `ResourceProfileV1` 的 exact wire object 恒为
 `schema,profileId,stage,maxWallMillis,maxAggregateMemoryBytes,memoryMetric,maxProcesses,`
 `maxProtocolBytes,maxStderrBytes,maxPublishedBytes` 这十个字段，不允许 unknown field。
-`schema` 固定为 `proof-forge.resource-profile.v1`；`ResourceStage` 与 `MemoryMetric` 按上述
+`schema` 固定为 `proof-forge.resource-profile.v1`；`linuxProcRssAggregate` 仅表示从 `/proc`
+采样的 process-group aggregate RSS，不等同 cgroup accounting/containment；`ResourceStage` 与 `MemoryMetric` 按上述
 constructor 名的 ASCII string 编码。profile digest 为
 `SHA-256("proof-forge.resource-profile.v1" || 0x00 || JCS(wireObject))`，不得将 digest
 本身放回该 object。

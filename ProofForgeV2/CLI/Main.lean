@@ -246,7 +246,7 @@ private unsafe def loadSupervisedProduct
   let supervised ←
     match ← superviseFrontendSourceV1 safeOpenWorker frontendWorker projectRoot
         languageVersion sourcePath moduleSelector programSelector
-        hardFrontendProfile with
+        hardFrontendProfileForHost with
     | .ok value => pure value
     | .error detail => failSupervisorCall sourcePath detail
   match SupervisedFrontendV1.response supervised,

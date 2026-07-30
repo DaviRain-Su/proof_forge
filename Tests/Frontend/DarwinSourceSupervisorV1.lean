@@ -3,7 +3,7 @@
 
   Architecture under test:
   * pinned safe-open helper executable (SafeOpen.Req/Ok/Err.v1) supervised by
-    the B11b1 Darwin process-group primitive
+    the B11b1 Darwin/Linux process-group primitive
   * overall monotonic wall from open construction through frontend worker
   * live sourceOpenFailed only for canonical SafeOpenFault + complete cleanup
   * hang/deadline via test-only hang helper path (no product filename hooks)
@@ -34,6 +34,9 @@ open ProofForgeV2.Frontend.SafeOpenV1
 open ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1
 open System
 
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
+
 private def expect (condition : Bool) (message : String) : IO Unit := do
   unless condition do throw <| IO.userError message
 
@@ -44,6 +47,9 @@ private def lift (label : String) (result : Except String α) : IO α :=
 
 private def fixtureRoot : FilePath :=
   FilePath.mk "build/v2/darwin-source-supervisor-tests"
+
+private def supervisorHostSupported : Bool :=
+  System.Platform.isOSX || (System.Platform.target.splitOn "-").contains "linux"
 
 private def frontendWorkerBin : FilePath :=
   FilePath.mk ".lake/build/bin/proof-forge-frontend-worker-v1"
@@ -115,8 +121,10 @@ private def expectReceipt
   expect (DarwinFrontendSupervisorReceiptV1.result receipt == result)
     s!"{label}: receipt result expected {repr result}, got {
       repr (DarwinFrontendSupervisorReceiptV1.result receipt)}"
-  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == .developmentObserved)
-    s!"{label}: assurance must remain darwin-development-observed"
+  let expectedAssurance : DarwinFrontendAssuranceV1 :=
+    if System.Platform.isOSX then .darwinDevelopmentObserved else .linuxDevelopmentObserved
+  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == expectedAssurance)
+    s!"{label}: assurance must match the development-observed host"
   expect (DarwinFrontendSupervisorReceiptV1.cleanup receipt == cleanup)
     s!"{label}: cleanup expected {repr cleanup}, got {
       repr (DarwinFrontendSupervisorReceiptV1.cleanup receipt)}"
@@ -395,12 +403,18 @@ private unsafe def testSharedBudgetNoRearm : IO Unit := do
   -- Single-process slow opener: zsh EPOCHREALTIME busy-wait stays in-process
   -- (a `/bin/sleep` child or `/usr/bin/python3` would peak at 2 pgroup members
   -- under maxProcesses=1), then `exec /bin/cat` reuses the leader image.
-  let slowOpener ← writeExecutable "slow-opener.zsh" <|
-    "#!/bin/zsh\n" ++
-    "zmodload zsh/datetime || exit 43\n" ++
-    "t=$((EPOCHREALTIME + 2.5))\n" ++
-    "while (( EPOCHREALTIME < t )); do :; done\n" ++
-    s!"exec /bin/cat '{openResponsePathS}'\n"
+  let slowOpener ← if System.Platform.isOSX then
+      writeExecutable "slow-opener.zsh" <|
+        "#!/bin/zsh\n" ++
+        "zmodload zsh/datetime || exit 43\n" ++
+        "t=$((EPOCHREALTIME + 2.5))\n" ++
+        "while (( EPOCHREALTIME < t )); do :; done\n" ++
+        s!"exec /bin/cat '{openResponsePathS}'\n"
+    else
+      writeExecutable "slow-opener.sh" <|
+        "#!/bin/sh\n" ++
+        s!"exec /usr/bin/python3 -c 'import time; time.sleep(2.5); " ++
+          s!"import sys; sys.stdout.buffer.write(open(\"{openResponsePathS}\", \"rb\").read())'\n"
   let marker := root / "budget-marker.flag"
   try IO.FS.removeFile marker catch _ => pure ()
   let markerS := marker.toString
@@ -454,13 +468,19 @@ private unsafe def testFinalReceiptRetainsOpenPeaks : IO Unit := do
   -- ~3x string size, giving ~120MiB phys_footprint — above the 64MiB
   -- assertion and below the 256MiB profile cap. Then `exec`s the pinned
   -- safe-open worker in the leader image.
-  let peakOpener ← writeExecutable "peak-opener.zsh" <|
-    "#!/bin/zsh\n" ++
-    "big=${(l[41943040][x])}\n" ++
-    "zmodload zsh/datetime || exit 43\n" ++
-    "t=$((EPOCHREALTIME + 0.25))\n" ++
-    "while (( EPOCHREALTIME < t )); do :; done\n" ++
-    s!"exec '{openerPath}'\n"
+  let peakOpener ← if System.Platform.isOSX then
+      writeExecutable "peak-opener.zsh" <|
+        "#!/bin/zsh\n" ++
+        "big=${(l[41943040][x])}\n" ++
+        "zmodload zsh/datetime || exit 43\n" ++
+        "t=$((EPOCHREALTIME + 0.25))\n" ++
+        "while (( EPOCHREALTIME < t )); do :; done\n" ++
+        s!"exec '{openerPath}'\n"
+    else
+      writeExecutable "peak-opener.sh" <|
+        "#!/bin/sh\n" ++
+        s!"exec /usr/bin/python3 -c 'import os, time; x=bytearray(67108864); " ++
+          s!"time.sleep(0.25); os.execv(\"{openerPath}\", [\"{openerPath}\"])'\n"
   let profile := lowerFrontendProfile (wall := some 5000)
     (memory := some (256 * 1024 * 1024)) (processes := some 1)
   let supervised ← expectSupervisedOk "final phase peaks"
@@ -594,9 +614,10 @@ private unsafe def testOpenPhaseTransportEvents : IO Unit := do
     .workerSignalObserved
 
   let outputCap : UInt64 := 1024
-  let outputOpener ← writeExecutable "output-opener.zsh" <|
-    "#!/bin/zsh\n" ++
-    "print -n -r -- ${(l[" ++ toString (outputCap.toNat + 1) ++ "][X])}\n"
+  let outputOpener ← writeExecutable "output-opener.sh" <|
+    "#!/bin/sh\n" ++
+    "i=0; while [ \"$i\" -lt " ++ toString (outputCap.toNat + 1) ++
+      " ]; do printf X; i=$((i + 1)); done\n"
   expectOpenTransportEvent "opener output" outputOpener
     (lowerFrontendProfile (wall := some 5000) (protocol := some outputCap))
     .outputLimitObserved
@@ -611,10 +632,15 @@ private unsafe def testOpenPhaseTransportEvents : IO Unit := do
 
   -- Single-process memory opener: in-process ~48MiB zsh string + busy loop;
   -- `/usr/bin/python3` would peak at 2 pgroup members under maxProcesses=1.
-  let memoryOpener ← writeExecutable "memory-opener.zsh" <|
-    "#!/bin/zsh\n" ++
-    "big=${(l[50331648][x])}\n" ++
-    "while true; do :; done\n"
+  let memoryOpener ← if System.Platform.isOSX then
+      writeExecutable "memory-opener.zsh" <|
+        "#!/bin/zsh\n" ++
+        "big=${(l[50331648][x])}\n" ++
+        "while true; do :; done\n"
+    else
+      writeExecutable "memory-opener.sh" <|
+        "#!/bin/sh\n" ++
+        "exec /usr/bin/python3 -c 'x=bytearray(50331648); import time; time.sleep(30)'\n"
   expectOpenTransportEvent "opener memory" memoryOpener
     (lowerFrontendProfile (wall := some 10000)
       (memory := some (8 * 1024 * 1024)) (processes := some 1))
@@ -705,7 +731,7 @@ private unsafe def runNonDarwinMatrix : IO Unit := do
   finally
     cleanupFixtureRoot
 
-private unsafe def runDarwinMatrix : IO Unit := do
+private unsafe def runSupervisorMatrix : IO Unit := do
   resetFixtureRoot
   try
     testRegularFileWorkerOk
@@ -725,10 +751,7 @@ private unsafe def runDarwinMatrix : IO Unit := do
     cleanupFixtureRoot
 
 unsafe def runFast : IO Unit := do
-  if !System.Platform.isOSX then
-    runNonDarwinMatrix
-    IO.println "Tests.Frontend.DarwinSourceSupervisorV1 (fast): ok (unsupported host)"
-  else
+  if supervisorHostSupported then
     resetFixtureRoot
     try
       testRegularFileWorkerOk
@@ -743,13 +766,16 @@ unsafe def runFast : IO Unit := do
     finally
       cleanupFixtureRoot
     IO.println "Tests.Frontend.DarwinSourceSupervisorV1 (fast): ok"
+  else
+    runNonDarwinMatrix
+    IO.println "Tests.Frontend.DarwinSourceSupervisorV1 (fast): ok (unsupported host)"
 
 unsafe def run : IO Unit := do
-  if !System.Platform.isOSX then
+  if supervisorHostSupported then
+    runSupervisorMatrix
+    IO.println "Tests.Frontend.DarwinSourceSupervisorV1: ok"
+  else
     runNonDarwinMatrix
     IO.println "Tests.Frontend.DarwinSourceSupervisorV1: ok (unsupported host)"
-  else
-    runDarwinMatrix
-    IO.println "Tests.Frontend.DarwinSourceSupervisorV1: ok"
 
 end Tests.Frontend.DarwinSourceSupervisorV1

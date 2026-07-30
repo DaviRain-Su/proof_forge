@@ -12,6 +12,14 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-30 — D1 engineering gap：Linux development-observed frontend supervisor
+
+- Context/State：远端 general CFG walker lineage保持D2唯一权威；本独立切片只补Linux ordinary-development frontend product path，不关闭formal TASK-D1-08、TST-RESOURCE-001或D1 milestone。
+- Production：native supervisor在Linux复用同一absolute `CLOCK_MONOTONIC` budget和固定`PFSUPV1\0` frame；worker bytes仍从no-follow source fd exact-copy。Linux snapshot位于root-owned sticky临时根，以`getrandom`名称和收紧权限创建；fork child建立独立process group、dup stdio并以`close_range`清除ambient fd。CLOEXEC launch-status pipe区分exec成功与setup/interpreter/exec失败；`/proc`枚举process-group成员并汇总RSS，枚举/PGID/statm/page-size错误fail closed。
+- Receipt/Profile：新增`linux-development-observed` assurance与`linuxProcRssAggregate` hard frontend profile；unsupported host不误标Linux。`observedComplete`只表示leader已reap、原process group为空且snapshot清理完成，不表示cgroup/controller或descendant `setsid()` containment。
+- Tests：Linux运行source+worker live matrix（success、shared wall、peaks、deadline/process/RSS/stdout/stderr、exit/signal、malformed/replay、snapshot/metadata negatives），并固定sticky-root snapshot、ambient fd不可见及真实CLI positives。
+- Boundary/Verification：legacy `Darwin*` module/type名称仍为兼容债；本切片不宣称hermetic import closure、signed executable identity、cgroup/`setsid` containment或formal evidence。focused receipt/live/CLI suites在Linux orb通过；完整CI仍受locked host tool profile约束。
+
 ## 2026-07-31 — S1 Normalize 扩面：let/for（不可变局部绑定 + bounded for 循环回边 CFG）贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 mul/div/mod/unary 扩面，本切片把 ProgramV1 `let x : T := e` 与 `for i in s ..< e bounded N do` 贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。执行模式：共享核心串行（主代理，先行提交 `9a8dd0808`）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理审计时发现**边界检查位置的语义分歧**并恢复三路 worker 并行修复（exact back-edge），Noir lane 由主代理串行实现并同步精确化。

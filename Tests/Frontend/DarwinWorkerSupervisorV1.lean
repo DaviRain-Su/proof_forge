@@ -29,6 +29,9 @@ open ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
 open ProofForgeV2.Frontend.ProtocolV1
 open System
 
+private def hardFrontendProfile : ResourceProfileV1 :=
+  hardFrontendProfileForHost
+
 private def expect (condition : Bool) (message : String) : IO Unit := do
   unless condition do throw <| IO.userError message
 
@@ -39,6 +42,9 @@ private def lift (label : String) (result : Except String α) : IO α :=
 
 private def fixtureRoot : FilePath :=
   FilePath.mk "build/v2/darwin-worker-supervisor-tests"
+
+private def supervisorHostSupported : Bool :=
+  System.Platform.isOSX || (System.Platform.target.splitOn "-").contains "linux"
 
 private def workerBin : FilePath :=
   FilePath.mk ".lake/build/bin/proof-forge-frontend-worker-v1"
@@ -156,8 +162,10 @@ private def expectReceipt
   expect (DarwinFrontendSupervisorReceiptV1.result receipt == result)
     s!"{label}: receipt result expected {repr result}, got {
       repr (DarwinFrontendSupervisorReceiptV1.result receipt)}"
-  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == .developmentObserved)
-    s!"{label}: assurance must remain darwin-development-observed"
+  let expectedAssurance : DarwinFrontendAssuranceV1 :=
+    if System.Platform.isOSX then .darwinDevelopmentObserved else .linuxDevelopmentObserved
+  expect (DarwinFrontendSupervisorReceiptV1.assurance receipt == expectedAssurance)
+    s!"{label}: assurance must match the development-observed host"
   expect (DarwinFrontendSupervisorReceiptV1.cleanup receipt == cleanup)
     s!"{label}: cleanup expected {repr cleanup}, got {
       repr (DarwinFrontendSupervisorReceiptV1.cleanup receipt)}"
@@ -324,9 +332,12 @@ private unsafe def testWorkerExecutesPrivateSnapshot : IO Unit := do
   expectCleanupComplete "private worker snapshot" outcome
   let executedPath ← IO.FS.readFile observedPath
   expect ((executedPath.splitOn "/.proof-forge-worker-").length == 2)
-    s!"worker must execute an adjacent fd-derived private snapshot, got {executedPath}"
+    s!"worker must execute an fd-derived private snapshot, got {executedPath}"
   expect (executedPath.endsWith "/worker")
     s!"worker snapshot leaf must be fixed, got {executedPath}"
+  if !System.Platform.isOSX then
+    expect (executedPath.startsWith "/tmp/.proof-forge-worker-")
+      s!"Linux worker snapshot must use the validated sticky root, got {executedPath}"
   expect (executedPath != script.toString)
     "supervisor must never execute the caller pathname directly"
   expect (!(← (FilePath.mk executedPath).pathExists))
@@ -413,6 +424,19 @@ private unsafe def testInvalidWorkerMetadataRejected : IO Unit := do
   expect (!(← marker.pathExists))
     "invalid worker metadata must be rejected before any worker code runs"
 
+private unsafe def testMissingInterpreterIsSpawnFailure : IO Unit := do
+  let script ← writeExecutable "missing-interpreter.sh" <|
+    "#!/proof-forge/definitely-missing-interpreter\nexit 0\n"
+  match ← superviseFrame script ByteArray.empty hardFrontendProfile with
+  | .error .spawnFailed => pure ()
+  | .error fault =>
+      throw <| IO.userError
+        s!"missing interpreter: expected spawnFailed, got {repr fault}"
+  | .ok outcome =>
+      throw <| IO.userError
+        s!"missing interpreter must not become a worker event: {
+          repr (DarwinWorkerSupervisorOutcomeV1.event outcome)}"
+
 private unsafe def testSnapshotClearsInheritedAcl : IO Unit := do
   let aclParent := fixtureRoot / "acl-parent"
   IO.FS.createDirAll aclParent
@@ -464,10 +488,14 @@ private unsafe def testPrimitiveMemoryLimit : IO Unit := do
   -- zsh parameter expansion holds ~48MiB without any external helper;
   -- `/usr/bin/python3` empirically peaks at 2 pgroup members under the
   -- supervisor on Darwin/Xcode-CLT and would trip processLimit first.
-  let script ← writeExecutable "memory-alloc.zsh" <|
-    "#!/bin/zsh\n" ++
-    "big=${(l[50331648][x])}\n" ++
-    "while true; do :; done\n"
+  let script ← if System.Platform.isOSX then
+      writeExecutable "memory-alloc.zsh" <|
+        "#!/bin/zsh\n" ++
+        "big=${(l[50331648][x])}\n" ++
+        "while true; do :; done\n"
+    else
+      writeExecutable "memory-alloc.sh" <|
+        "#!/bin/sh\nexec /usr/bin/python3 -c 'x=bytearray(50331648); import time; time.sleep(30)'\n"
   let profile := lowerFrontendProfile
     (memory := some (8 * 1024 * 1024)) (wall := some 10000) (processes := some 1)
   let outcome ← expectOutcomeOk "memory limit"
@@ -490,9 +518,10 @@ private unsafe def testPrimitiveMemoryLimit : IO Unit := do
 private unsafe def testPrimitiveStdoutCap : IO Unit := do
   -- Distinct fixture: stdout size = protocol cap + 1.
   let cap : Nat := 64
-  let script ← writeExecutable "stdout-over-cap.zsh" <|
-    "#!/bin/zsh\n" ++
-    "print -n -r -- ${(l[" ++ toString (cap + 1) ++ "][X])}\n"
+  let script ← writeExecutable "stdout-over-cap.sh" <|
+    "#!/bin/sh\n" ++
+    "i=0; while [ \"$i\" -lt " ++ toString (cap + 1) ++
+      " ]; do printf X; i=$((i + 1)); done\n"
   let profile := lowerFrontendProfile
     (protocol := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "stdout cap"
@@ -511,9 +540,10 @@ private unsafe def testPrimitiveStdoutCap : IO Unit := do
 private unsafe def testPrimitiveStderrCap : IO Unit := do
   -- Distinct fixture: stderr size = stderr cap + 1 (stdout empty).
   let cap : Nat := 32
-  let script ← writeExecutable "stderr-over-cap.zsh" <|
-    "#!/bin/zsh\n" ++
-    "print -n -r -- ${(l[" ++ toString (cap + 1) ++ "][Y])} >&2\n"
+  let script ← writeExecutable "stderr-over-cap.sh" <|
+    "#!/bin/sh\n" ++
+    "i=0; while [ \"$i\" -lt " ++ toString (cap + 1) ++
+      " ]; do printf Y >&2; i=$((i + 1)); done\n"
   let profile := lowerFrontendProfile
     (stderr := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "stderr cap"
@@ -534,9 +564,10 @@ private unsafe def testPrimitiveStderrCap : IO Unit := do
 
 private unsafe def testPrimitiveExactStderrCapRemainsCandidate : IO Unit := do
   let cap : Nat := 32
-  let script ← writeExecutable "stderr-exact-cap.zsh" <|
-    "#!/bin/zsh\n" ++
-    "print -n -r -- ${(l[" ++ toString cap ++ "][Y])} >&2\n"
+  let script ← writeExecutable "stderr-exact-cap.sh" <|
+    "#!/bin/sh\n" ++
+    "i=0; while [ \"$i\" -lt " ++ toString cap ++
+      " ]; do printf Y >&2; i=$((i + 1)); done\n"
   let profile := lowerFrontendProfile
     (stderr := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "exact stderr cap"
@@ -549,9 +580,10 @@ private unsafe def testPrimitiveExactStderrCapRemainsCandidate : IO Unit := do
 private unsafe def testPrimitiveExactStdoutCapRemainsCandidate : IO Unit := do
   -- Equal-limit acceptance: exact stdout size == maxProtocolBytes is still a candidate.
   let cap : Nat := 48
-  let script ← writeExecutable "stdout-exact-cap.zsh" <|
-    "#!/bin/zsh\n" ++
-    "print -n -r -- ${(l[" ++ toString cap ++ "][Z])}\n"
+  let script ← writeExecutable "stdout-exact-cap.sh" <|
+    "#!/bin/sh\n" ++
+    "i=0; while [ \"$i\" -lt " ++ toString cap ++
+      " ]; do printf Z; i=$((i + 1)); done\n"
   let profile := lowerFrontendProfile
     (protocol := some (UInt64.ofNat cap)) (wall := some 5000)
   let outcome ← expectOutcomeOk "exact stdout cap"
@@ -583,6 +615,18 @@ private unsafe def testPrimitiveNonzeroExit : IO Unit := do
   let request ← counterRequest
   expectComposedNoResponse "nonzero exit composer" script request
     hardFrontendProfile .workerExitObserved
+
+private unsafe def testAmbientDescriptorClosed : IO Unit := do
+  -- The focused runner can deliberately inherit writable fd 9. The supervised
+  -- worker must never receive that ambient parent capability.
+  let script ← writeExecutable "ambient-fd.sh" <|
+    "#!/bin/sh\n" ++
+    "if (printf leaked >&9) 2>/dev/null; then exit 91; fi\n" ++
+    "exit 0\n"
+  let outcome ← expectOutcomeOk "ambient descriptor"
+    (← superviseFrame script ByteArray.empty hardFrontendProfile)
+  expectEvent "ambient descriptor" .responseCandidate outcome
+  expectCleanupComplete "ambient descriptor" outcome
 
 private unsafe def testPrimitiveSignal : IO Unit := do
   let script ← writeExecutable "self-term.sh" <|
@@ -744,7 +788,7 @@ private unsafe def testRaisedProfileRejected : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "frame-level raised profile must yield a closed fault"
 
-private unsafe def runDarwinMatrix : IO Unit := do
+private unsafe def runSupervisorMatrix : IO Unit := do
   resetFixtureRoot
   try
     testClosedEventFamilyCompiles
@@ -753,10 +797,13 @@ private unsafe def runDarwinMatrix : IO Unit := do
     testPrimitiveDeadline
     testAbsoluteBudgetExpiresBeforeSpawn
     testWorkerExecutesPrivateSnapshot
-    testSnapshotMutationFailsClosed
+    if System.Platform.isOSX then
+      testSnapshotMutationFailsClosed
     testWorkerSymlinkRejectedBeforeSpawn
     testInvalidWorkerMetadataRejected
-    testSnapshotClearsInheritedAcl
+    testMissingInterpreterIsSpawnFailure
+    if System.Platform.isOSX then
+      testSnapshotClearsInheritedAcl
     testPrimitiveProcessLimit
     testPrimitiveMemoryLimit
     testPrimitiveStdoutCap
@@ -764,6 +811,7 @@ private unsafe def runDarwinMatrix : IO Unit := do
     testPrimitiveExactStderrCapRemainsCandidate
     testPrimitiveExactStdoutCapRemainsCandidate
     testPrimitiveNonzeroExit
+    testAmbientDescriptorClosed
     testPrimitiveSignal
     testMalformedExit0StdoutComposer
     testCrossRequestResponseRejected
@@ -773,10 +821,10 @@ private unsafe def runDarwinMatrix : IO Unit := do
     cleanupFixtureRoot
 
 unsafe def run : IO Unit := do
-  if !System.Platform.isOSX then
-    IO.println "Tests.Frontend.DarwinWorkerSupervisorV1: skip (non-Darwin host)"
-  else
-    runDarwinMatrix
+  if supervisorHostSupported then
+    runSupervisorMatrix
     IO.println "Tests.Frontend.DarwinWorkerSupervisorV1: ok"
+  else
+    IO.println "Tests.Frontend.DarwinWorkerSupervisorV1: skip (unsupported host)"
 
 end Tests.Frontend.DarwinWorkerSupervisorV1
