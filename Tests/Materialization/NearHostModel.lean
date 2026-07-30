@@ -130,7 +130,9 @@ private def writeTemp (machine : Machine) (index : Nat)
   else
     modelError s!"temporary {index} is outside the method frame"
 
-private def step (input : ByteArray) (deposit : Deposit)
+mutual
+
+private partial def step (input : ByteArray) (deposit : Deposit)
     (machine : Machine) : Targets.Near.Operation → Except String Machine
   | .checkInputLen expected =>
       if input.size == expected then .ok machine
@@ -218,14 +220,29 @@ private def step (input : ByteArray) (deposit : Deposit)
         modelError "return data was already set"
       let value ← readTemp machine source
       pure { machine with returned := some value }
+  | .ifRegion condition thenOps elseOps => do
+      let value ← readTemp machine condition
+      if value != 0 then
+        runOperations input deposit thenOps.toList machine
+      else
+        runOperations input deposit elseOps.toList machine
+  | .switchRegion scrutinee cases defaultOps => do
+      let scrut ← readTemp machine scrutinee
+      let selected := cases.toList.findSome? fun (caseValue, ops) =>
+        if caseValue == scrut then some ops else none
+      match selected with
+      | some ops => runOperations input deposit ops.toList machine
+      | none => runOperations input deposit defaultOps.toList machine
 
-private def runOperations (input : ByteArray) (deposit : Deposit) :
+private partial def runOperations (input : ByteArray) (deposit : Deposit) :
     List Targets.Near.Operation → Machine → Except String Machine
   | [], machine => .ok machine
   | operation :: remaining, machine =>
       match step input deposit machine operation with
       | .ok next => runOperations input deposit remaining next
       | .error reason => .error reason
+
+end
 
 /-- Pure deterministic model of the typed recipe. A trap restores the exact
 pre-call storage snapshot, modeling NEAR's receipt-local rollback contract.
@@ -365,9 +382,186 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .gt => "compare.gt"
         | .ge => "compare.ge"
     | .assert _ => "assert"
+    | .ifRegion .. => "ifRegion"
+    | .switchRegion .. => "switchRegion"
 
 private def expectContains (haystack needle label : String) : IO Unit :=
   expect (haystack.contains needle) s!"{label}: missing WAT substring {needle}"
+
+/-- If/else multi-block program for the NEAR region lanes. -/
+private def ifFlowSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program IfFlow where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count > 0 then\n" ++
+  "      count := count + delta\n" ++
+  "    else\n" ++
+  "      count := delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def testIfFlowProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source ← liftResult (← session.selectProgramV1
+    ifFlowSourceText "<near-if-flow>"
+    "Examples.IfFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let bump := plan.entries[0]!
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.literal 0))
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.param 0) }]
+        #[.store { fieldIndex := 0, value := .param 0 }],
+      .returnValue (.stateLoad 0)])
+    "IfFlow bump must lower the branch diamond then join return"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "IfFlow IR rebuild must be structure-identical"
+  let bumpIR ← findMethod ir "bump"
+  let regionOps := bumpIR.operations.filter fun op =>
+    match op with | .ifRegion .. => true | _ => false
+  expect (regionOps.size == 1)
+    s!"IfFlow IR must contain exactly one if-region, got {regionOps.size}"
+  -- Host-model execution: init(0) → bump(3) takes else (state 3), bump(2) takes then (5).
+  let initializer ← findMethod ir "init"
+  let get ← findMethod ir "get"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let (storage0, _) ← requireSuccess "if-flow init"
+    (execute initializer empty (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
+  let (storage1, ret1) ← requireSuccess "if-flow else"
+    (execute bumpIR storage0 (encodeUInt64LE 3) { lowWord := 0, highWord := 0 })
+  expect (ret1 == some 3 && storedUInt64? storage1 field.key == some 3)
+    "if-flow else branch must store delta (3)"
+  let (storage2, ret2) ← requireSuccess "if-flow then"
+    (execute bumpIR storage1 (encodeUInt64LE 2) { lowWord := 0, highWord := 0 })
+  expect (ret2 == some 5 && storedUInt64? storage2 field.key == some 5)
+    "if-flow then branch must store count+delta (5)"
+  let (_, retGet) ← requireSuccess "if-flow get"
+    (execute get storage2 ByteArray.empty { lowWord := 0, highWord := 0 })
+  expect (retGet == some 5) "if-flow view must return 5"
+  -- WAT: nested if with i64 condition.
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "if-flow: missing .wat artifact"
+  expectContains wat.contents "(if (local.get $t" "if-flow WAT if condition"
+  expectContains wat.contents "(else" "if-flow WAT else"
+  expectContains wat.contents "(i64.gt_u" "if-flow WAT gt comparison"
+  expectContains wat.contents "(i64.add" "if-flow WAT then add"
+
+/-- Match on UInt64 literals: host-model switch execution per case. -/
+private unsafe def testMatchProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MatchUint where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-match>" "Examples.MatchUint" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let applyIR ← findMethod ir "apply"
+  let switchOps := applyIR.operations.filter fun op =>
+    match op with | .switchRegion .. => true | _ => false
+  expect (switchOps.size == 1)
+    s!"MatchUint IR must contain exactly one switch-region, got {switchOps.size}"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let (storage0, _) ← requireSuccess "match init"
+    (execute initializer #[] (encodeUInt64LE 7) { lowWord := 0, highWord := 0 })
+  let (storage1, ret1) ← requireSuccess "match case0"
+    (execute applyIR storage0 (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
+  expect (ret1 == some 7 && storedUInt64? storage1 field.key == some 7)
+    "match case 0 must return count without writing"
+  let (storage2, ret2) ← requireSuccess "match case1"
+    (execute applyIR storage1 (encodeUInt64LE 1) { lowWord := 0, highWord := 0 })
+  expect (ret2 == some 8 && storedUInt64? storage2 field.key == some 8)
+    "match case 1 must increment"
+  let (storage3, ret3) ← requireSuccess "match default"
+    (execute applyIR storage2 (encodeUInt64LE 5) { lowWord := 0, highWord := 0 })
+  expect (ret3 == some 5 && storedUInt64? storage3 field.key == some 5)
+    "match default must store the scrutinee"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "match: missing .wat artifact"
+  expectContains wat.contents "(if (i64.eq" "match WAT case comparison"
+  expectContains wat.contents "(else" "match WAT else chain"
+
+/-- Assert inside a branch traps only when that branch is taken. -/
+private unsafe def testBranchAssertTrap
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BranchAssert where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry withdraw(delta : UInt64) : UInt64 do\n" ++
+    "    if delta > 0 then\n" ++
+    "      assert count >= delta\n" ++
+    "      count := count - delta\n" ++
+    "    else\n" ++
+    "      count := 0\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-branch-assert>" "Examples.BranchAssert" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let withdraw ← findMethod ir "withdraw"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let (storage0, _) ← requireSuccess "branch-assert init"
+    (execute initializer #[] (encodeUInt64LE 5) { lowWord := 0, highWord := 0 })
+  -- delta=3 → then branch, assert passes, state 2.
+  let (storage1, ret1) ← requireSuccess "branch-assert pass"
+    (execute withdraw storage0 (encodeUInt64LE 3) { lowWord := 0, highWord := 0 })
+  expect (ret1 == some 2 && storedUInt64? storage1 field.key == some 2)
+    "branch-assert: taken branch must apply the subtraction"
+  -- delta=9 → then branch, assert fails → trap, storage rolled back.
+  match execute withdraw storage0 (encodeUInt64LE 9) { lowWord := 0, highWord := 0 } with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 5)
+        s!"branch-assert: trap must roll back to pre-call storage, got {reason}"
+  | .success _ _ =>
+      throw <| IO.userError "branch-assert: underflowing branch must trap"
+  -- delta=0 → else branch, no assert fires, state 0.
+  let (storage3, ret3) ← requireSuccess "branch-assert else"
+    (execute withdraw storage0 (encodeUInt64LE 0) { lowWord := 0, highWord := 0 })
+  expect (ret3 == some 0 && storedUInt64? storage3 field.key == some 0)
+    "branch-assert: else branch must not fire the assert"
 
 private unsafe def testGuardedCounterProductPath
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -775,6 +969,9 @@ unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
   let session ← Tests.Language.ParserSession.shared
+  testIfFlowProductPath session
+  testMatchProductPath session
+  testBranchAssertTrap session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

@@ -496,9 +496,9 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 60604,
+      "bytes": 74709,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "085ae998ada3cc39d0339fe949f8984cf8376116f27e1aa51afba7cf932b9a1d"
+      "sha256": "6191f60abf6a9528aaa219845071bb59e90570922511df3b22307a5d92c6d12e"
     },
     {
       "bytes": 2931,

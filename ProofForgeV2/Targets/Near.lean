@@ -124,6 +124,9 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
+      (defaultBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
@@ -201,6 +204,9 @@ inductive Operation where
   | setReturnData (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
+  | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
+  | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
+      (defaultOps : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -496,6 +502,20 @@ private def currentValueV1
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
+/-- Match-bind arm readability: the scrutinee of an enclosing switch may be
+    referenced by its arm bodies across the (dominating) scrut-block boundary.
+    All other cross-block reads still fail at the effect boundary. -/
+private def currentValueWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart && !armReadables.contains id then
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
+
 private def makeBinaryTreeValueV1
     (mk : Expr → Expr → Expr)
     (kind : NearValueKindV1)
@@ -592,31 +612,31 @@ private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
 
-private def lowerCallableV1
+private structure LoweredBlockV1 where
+  statements : Array Statement
+  values : Array LoweredValueV1
+  segmentStart : Nat
+
+/-- Lower one block's instruction sequence (terminator handled by the region
+    walker). Each block starts a fresh effect segment; values from dominating
+    blocks stay referenceable only via params or match-arm scrutinees. -/
+private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectedReturn : Option NearValueKindV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
-    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
-  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
-    throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: callable must be one acyclic entry block"
-  let block ← match callable.blocks[0]? with
-    | some value => pure value
-    | none => throw (.planInvariant .near
-        "unsupported NEAR semantic shape: callable entry block is missing")
-  unless block.id.toNat == 0 && block.params.isEmpty do
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (block : BlockV1)
+    (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
+  unless block.params.isEmpty do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: block parameters are not supported"
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .near
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
-  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
-  let paramCount := params.size
-  let mut values := initialValues
-  let mut segmentStart := values.size
+  let mut values := values0
+  let mut segmentStart := values0.size
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
@@ -658,8 +678,8 @@ private def lowerCallableV1
           dependencies := #[]
         }
     | .binary op lhsId rhsId, some result =>
-        let lhs ← currentValueV1 values paramCount segmentStart lhsId
-        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         if op == .add then
           let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
@@ -687,7 +707,7 @@ private def lowerCallableV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: view callable writes state"
         let field ← findFieldV1 layout stateId
-        let root ← currentValueV1 values paramCount segmentStart valueId
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless root.kind == .uint64 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: state store value must be UInt64"
@@ -698,7 +718,7 @@ private def lowerCallableV1
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert must use errorId=none and empty args"
-        let root ← currentValueV1 values paramCount segmentStart condId
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
         unless root.kind == .bool do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert condition must be Bool"
@@ -708,40 +728,194 @@ private def lowerCallableV1
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
-  match mode, block.terminator with
-  | .initialize, .return_ none =>
+  pure { statements := body, values, segmentStart }
+
+/-- Decode a switch case constant against the scrutinee kind. -/
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
+    CompileResult UInt64 := do
+  if scrutIsBool then
+    let bit ← decodeBoolLiteralV1 bytes
+    pure (if bit then 1 else 0)
+  else
+    decodeUInt64LiteralV1 bytes
+
+/-- Structured emission of the forward-only multi-block CFG. Diamonds
+    (branch/switch) are recovered by following each arm to its exit jump or
+    return; convergent joins continue the region. The fuel bounds recursion
+    to the block count. Returns (statements, values, nextJoin). -/
+private partial def emitRegionV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (expectedReturn : Option NearValueKindV1)
+    (types : NearTypeClosureV1)
+    (layout : StorageLayout)
+    (blocks : Array BlockV1)
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (fuel : Nat)
+    (start : Nat)
+    (values0 : Array LoweredValueV1) :
+    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat) := do
+  if fuel == 0 then
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: CFG region exceeds block bound"
+  let block ← match blocks[start]? with
+    | some value => pure value
+    | none => throw (.planInvariant .near
+        "unsupported NEAR semantic shape: region references a missing block")
+  unless block.id.toNat == start do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: block ids are not dense"
+  let lowered ← lowerBlockInstructionsV1
+    owner mode types layout paramCount armReadables block values0
+  let instrs := lowered.statements
+  let values := lowered.values
+  let segmentStart := lowered.segmentStart
+  match block.terminator with
+  | .return_ (some valueId) =>
+      match mode with
+      | .initialize =>
+          throw <| .planInvariant .near "initializer cannot return a value"
+      | .mutate | .view =>
+          let expectedKind ← match expectedReturn with
+            | some kind => pure kind
+            | none =>
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: entry/view is missing expected return kind"
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          unless root.kind == expectedKind do
+            let expectedLabel :=
+              match expectedKind with
+              | .uint64 => "UInt64"
+              | .bool => "Bool"
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
+          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+          pure (instrs.push (.returnValue value), values, none)
+  | .return_ none =>
       unless expectedReturn.isNone do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: initializer expected-return kind is non-empty"
       unless segmentStart == values.size do
         throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: initializer has unconsumed values"
-  | .mutate, .return_ (some valueId)
-  | .view, .return_ (some valueId) =>
-      let expectedKind ← match expectedReturn with
-        | some kind => pure kind
-        | none =>
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: entry/view is missing expected return kind"
-      let root ← currentValueV1 values paramCount segmentStart valueId
-      unless root.kind == expectedKind do
-        let expectedLabel :=
-          match expectedKind with
-          | .uint64 => "UInt64"
-          | .bool => "Bool"
+          "unsupported NEAR semantic shape: block has unconsumed values"
+      pure (instrs, values, none)
+  | .jump target =>
+      unless segmentStart == values.size do
         throw <| .planInvariant .near
-          s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
-      let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-      body := body.push (.returnValue value)
-      segmentStart := values.size
-  | .initialize, .return_ (some _) =>
-      throw <| .planInvariant .near "initializer cannot return a value"
-  | _, _ =>
+          "unsupported NEAR semantic shape: block has unconsumed values"
+      pure (instrs, values, some target.blockId.toNat)
+  | .branch condId thenT elseT =>
+      let condRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      unless condRoot.kind == .bool do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: branch condition must be Bool"
+      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+      let (thenBody, values1, thenNext) ←
+        emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+          armReadables (fuel - 1) thenT.blockId.toNat values
+      match thenNext with
+      | some j =>
+          if elseT.blockId.toNat == j then
+            let (rest, values2, next) ←
+              emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                armReadables (fuel - 1) j values1
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
+          else
+            let (elseBody, values2, elseNext) ←
+              emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                armReadables (fuel - 1) elseT.blockId.toNat values1
+            match elseNext with
+            | some j2 =>
+                unless j == j2 do
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: branch arms converge on divergent joins"
+                let (rest, values3, next) ←
+                  emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+            | none =>
+                let (rest, values3, next) ←
+                  emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+      | none =>
+          let (elseBody, values2, elseNext) ←
+            emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+              armReadables (fuel - 1) elseT.blockId.toNat values1
+          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
+  | .switch scrutId cases defaultTarget =>
+      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
+      let some defaultT := defaultTarget |
+        throw (.planInvariant .near
+          "unsupported NEAR semantic shape: switch must carry a default target")
+      let scrutIsBool := scrutVal.kind == .bool
+      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+      let mut joinAcc : Option Nat := none
+      let mut valuesA := values
+      for switchCase in cases do
+        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
+        let (body, values1, armNext) ←
+          emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+            (armReadables.push scrutId) (fuel - 1)
+            switchCase.target.blockId.toNat valuesA
+        caseBodies := caseBodies.push (caseValue, body)
+        valuesA := values1
+        match armNext, joinAcc with
+        | none, _ => pure ()
+        | some j, none => joinAcc := some j
+        | some j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: switch arms converge on divergent joins"
+      let (defaultBody, values2, defaultNext) ←
+        emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+          (armReadables.push scrutId) (fuel - 1)
+          defaultT.blockId.toNat valuesA
+      match defaultNext, joinAcc with
+      | none, _ => pure ()
+      | some j, none => joinAcc := some j
+      | some j, some j0 =>
+          unless j == j0 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: switch arms converge on divergent joins"
+      match joinAcc with
+      | none =>
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
+      | some j =>
+          let (rest, values3, next) ←
+            emitRegionV1 owner mode expectedReturn types layout blocks paramCount
+              armReadables (fuel - 1) j values2
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
+  | .revert _ _ | .trap _ =>
       throw <| .planInvariant .near
-        "unsupported NEAR semantic shape: callable terminator is outside the current UInt64 pilot"
-  unless segmentStart == values.size do
+        "unsupported NEAR semantic shape: revert/trap terminators are outside the current pilot"
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (expectedReturn : Option NearValueKindV1)
+    (types : NearTypeClosureV1)
+    (layout : StorageLayout)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
+      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: callable has unconsumed values"
+      "unsupported NEAR semantic shape: callable must have an acyclic entry block"
+  unless callable.blocks.all (fun b => b.params.isEmpty) do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: block parameters are not supported"
+  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
+  let paramCount := params.size
+  let (body, _values, nextJoin) ←
+    emitRegionV1 owner mode expectedReturn types layout callable.blocks paramCount #[]
+      callable.blocks.size 0 initialValues
+  match nextJoin with
+  | some _ =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: callable does not end in return on all paths"
+  | none => pure ()
   if body.size > maxBodyStatements then
     throw <| .planInvariant .near s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
@@ -907,6 +1081,68 @@ private def validateParams (limits : ResourceLimits) (owner : String)
   if hasDuplicates (params.map (·.name)) then
     throw <| .planInvariant .near s!"parameter names in {owner} must be unique"
 
+/-- Recursive statement-tree validator for one method: view-write ban
+    (including inside branches), node/temp accounting, and per-level return
+    ordering. Returns (total, methodTemps, closed). -/
+private partial def checkMethodStatementsV1
+    (limits : ResourceLimits) (layout : StorageLayout)
+    (isInitializer : Bool) (isView : Bool)
+    (params : Array Param) (statements : Array Statement)
+    (total : Nat) (methodTemps : Nat) :
+    CompileResult (Nat × Nat × Bool) := do
+  let mut total := total
+  let mut methodTemps := methodTemps
+  let mut closed := false
+  for statement in statements do
+    if closed then
+      throw <| .planInvariant .near s!"method has a statement after return"
+    match statement with
+    | .store store =>
+        if isView then
+          throw <| .planInvariant .near s!"view method writes state"
+        unless store.fieldIndex < layout.fields.size do
+          throw <| .planInvariant .near s!"method stores to an unknown KV field"
+        total ← addPlanExprNodes limits layout params total store.value
+        methodTemps ← addMethodExprTemps limits layout params methodTemps store.value
+    | .returnValue value =>
+        if isInitializer then
+          throw <| .planInvariant .near "initializer cannot return a value"
+        total ← addPlanExprNodes limits layout params total value
+        methodTemps ← addMethodExprTemps limits layout params methodTemps value
+        closed := true
+    | .assert condition =>
+        total ← addPlanExprNodes limits layout params total condition
+        methodTemps ← addMethodExprTemps limits layout params methodTemps condition
+    | .ifThenElse condition thenBody elseBody =>
+        total ← addPlanExprNodes limits layout params total condition
+        methodTemps ← addMethodExprTemps limits layout params methodTemps condition
+        total := total + 1
+        let (t1, m1, c1) ← checkMethodStatementsV1
+          limits layout isInitializer isView params thenBody total methodTemps
+        let (t2, m2, c2) ← checkMethodStatementsV1
+          limits layout isInitializer isView params elseBody t1 m1
+        total := t2
+        methodTemps := m2
+        closed := c1 && c2 && !elseBody.isEmpty
+    | .switchOn scrutinee cases defaultBody =>
+        total ← addPlanExprNodes limits layout params total scrutinee
+        methodTemps ← addMethodExprTemps limits layout params methodTemps scrutinee
+        total := total + 1
+        let mut allClosed := !defaultBody.isEmpty
+        for (caseValue, caseBody) in cases do
+          total := total + 1
+          let (t, m, c) ← checkMethodStatementsV1
+            limits layout isInitializer isView params caseBody total methodTemps
+          total := t
+          methodTemps := m
+          allClosed := allClosed && c
+        let (td, md, cd) ← checkMethodStatementsV1
+          limits layout isInitializer isView params defaultBody total methodTemps
+        total := td
+        methodTemps := md
+        closed := allClosed && cd
+  pure (total, methodTemps, closed)
+
 private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     (isInitializer : Bool) (baseNodes : Nat) (method : Method) : CompileResult Nat := do
   unless isIdentifier method.name && method.name != "memory" do
@@ -928,33 +1164,12 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     throw <| .planInvariant .near s!"method '{method.name}' raw input length is not canonical"
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
-  let mut total := baseNodes
-  let mut methodTemps := 0
-  let mut returned := false
-  for statement in method.body do
-    if returned then
-      throw <| .planInvariant .near s!"method '{method.name}' has a statement after return"
-    match statement with
-    | .store store =>
-        if method.mode == .view then
-          throw <| .planInvariant .near s!"view method '{method.name}' writes state"
-        unless store.fieldIndex < layout.fields.size do
-          throw <| .planInvariant .near s!"method '{method.name}' stores to an unknown KV field"
-        total ← addPlanExprNodes limits layout method.params total store.value
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps store.value
-    | .returnValue value =>
-        if isInitializer then
-          throw <| .planInvariant .near "initializer cannot return a value"
-        total ← addPlanExprNodes limits layout method.params total value
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps value
-        returned := true
-    | .assert condition =>
-        total ← addPlanExprNodes limits layout method.params total condition
-        methodTemps ← addMethodExprTemps limits layout method.params methodTemps condition
+  let (total, _, closed) ← checkMethodStatementsV1
+    limits layout isInitializer (method.mode == .view) method.params method.body baseNodes 0
   if isInitializer then
-    if returned then
+    if closed then
       throw <| .planInvariant .near "initializer cannot return a value"
-  else unless returned do
+  else unless closed do
     throw <| .planInvariant .near s!"method '{method.name}' does not return a scalar value"
   return total
 
@@ -1143,20 +1358,12 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat) : Expr → L
         next := rhs.next + 1
       }
 
-private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
-    (method : Method) : MethodIR := Id.run do
-  let marker := keys[0]!
-  let mut operations : Array Operation := #[.checkInputLen method.exactInputLen]
-  if method.depositPolicy == .requireZero then
-    operations := operations.push .requireZeroAttachedDeposit
-  if method.mode == .initialize then
-    operations := operations.push (.requireLayoutAbsent marker)
-    for index in [0:plan.storage.fields.size] do
-      operations := operations.push (.zeroState (fieldRegion keys index))
-  else
-    operations := operations.push (.requireLayout marker plan.storage.markerValue)
-  let mut next := 0
-  for statement in method.body do
+private partial def lowerBodyOps
+    (keys : Array KeyRegion) (next : Nat) (statements : Array Statement) :
+    Array Operation × Nat := Id.run do
+  let mut operations : Array Operation := #[]
+  let mut next := next
+  for statement in statements do
     match statement with
     | .store store =>
         let value := lowerExpr keys next store.value
@@ -1173,6 +1380,41 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value)
         next := value.next
+    | .ifThenElse condition thenBody elseBody =>
+        let value := lowerExpr keys next condition
+        operations := operations ++ value.operations
+        let (thenOps, next1) := lowerBodyOps keys value.next thenBody
+        let (elseOps, next2) := lowerBodyOps keys next1 elseBody
+        operations := operations.push (.ifRegion value.value thenOps elseOps)
+        next := next2
+    | .switchOn scrutinee cases defaultBody =>
+        let value := lowerExpr keys next scrutinee
+        operations := operations ++ value.operations
+        let mut caseOps : Array (UInt64 × Array Operation) := #[]
+        let mut nextC := value.next
+        for (caseValue, caseBody) in cases do
+          let (ops, next1) := lowerBodyOps keys nextC caseBody
+          caseOps := caseOps.push (caseValue, ops)
+          nextC := next1
+        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody
+        operations := operations.push (.switchRegion value.value caseOps defaultOps)
+        next := nextD
+  pure (operations, next)
+
+private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
+    (method : Method) : MethodIR := Id.run do
+  let marker := keys[0]!
+  let mut operations : Array Operation := #[.checkInputLen method.exactInputLen]
+  if method.depositPolicy == .requireZero then
+    operations := operations.push .requireZeroAttachedDeposit
+  if method.mode == .initialize then
+    operations := operations.push (.requireLayoutAbsent marker)
+    for index in [0:plan.storage.fields.size] do
+      operations := operations.push (.zeroState (fieldRegion keys index))
+  else
+    operations := operations.push (.requireLayout marker plan.storage.markerValue)
+  let (bodyOps, next) := lowerBodyOps keys 0 method.body
+  operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
   return {
@@ -1254,45 +1496,45 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"attached_deposit\" (func $pf_attached_deposit (param i64)))\n"
 
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
-    (destination : Nat) (field : KeyRegion) : String :=
-  s!"    (if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
-    s!"    (if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
-    s!"    (call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
-    s!"    (local.set $t{destination} (i64.load (i32.const {memory.valueOffset})))\n"
+    (indent : String) (destination : Nat) (field : KeyRegion) : String :=
+  s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
+    s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
+    s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
+    s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.valueOffset})))\n"
 
-private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout) :
-    Operation → String
+private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
+    (indent : String) : Operation → String
   | .checkInputLen bytes =>
-      s!"    (call $pf_input (i64.const {registers.input}))\n" ++
-        s!"    (if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
+      s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
         (if bytes == 0 then "" else
-          s!"    (call $pf_read_register (i64.const {registers.input}) (i64.const {memory.inputOffset}))\n")
+          s!"{indent}(call $pf_read_register (i64.const {registers.input}) (i64.const {memory.inputOffset}))\n")
   | .requireZeroAttachedDeposit =>
-      s!"    (call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
-        s!"    (if (i64.ne (i64.load (i32.const {memory.depositOffset})) (i64.const 0)) (then unreachable))\n" ++
-        s!"    (if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n"
+      s!"{indent}(call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset})) (i64.const 0)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n"
   | .requireLayoutAbsent marker =>
-      s!"    (if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 0)) (then unreachable))\n"
+      s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 0)) (then unreachable))\n"
   | .requireLayout marker value =>
-      s!"    (if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
-        s!"    (if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
-        s!"    (call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
-        s!"    (if (i64.ne (i64.load (i32.const {memory.valueOffset})) (i64.const {value.toNat})) (then unreachable))\n"
+      s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
+        s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.valueOffset})) (i64.const {value.toNat})) (then unreachable))\n"
   | .zeroState field =>
-      s!"    (i64.store (i32.const {memory.valueOffset}) (i64.const 0))\n" ++
-        s!"    (if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
+      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const 0))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .literal destination value =>
-      s!"    (local.set $t{destination} (i64.const {value.toNat}))\n"
+      s!"{indent}(local.set $t{destination} (i64.const {value.toNat}))\n"
   | .loadParam destination inputOffset =>
-      s!"    (local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
+      s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
   | .loadState destination field =>
-      renderReadKey registers memory destination field
+      renderReadKey registers memory indent destination field
   | .checkedAdd destination lhs rhs =>
-      s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
-        s!"    (if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
+      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
   | .checkedSub destination lhs rhs =>
-      s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
-        s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .compare destination lhs rhs op =>
       let insn :=
         match op with
@@ -1302,25 +1544,61 @@ private def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
         | .le => "i64.le_u"
         | .gt => "i64.gt_u"
         | .ge => "i64.ge_u"
-      s!"    (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
   | .assert condition =>
-      s!"    (if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
+      s!"{indent}(if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
   | .storeState field value =>
-      s!"    (i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
-        s!"    (if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
-        s!"    (if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 8)) (then unreachable))\n"
+      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 8)) (then unreachable))\n"
   | .setLayout marker value =>
-      s!"    (i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
-        s!"    (if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
+      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
+        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .setReturnData value =>
-      s!"    (i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
-        s!"    (call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
+      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
+        s!"{indent}(call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
+  | .ifRegion condition thenOps elseOps =>
+      let thenText := thenOps.foldl (fun output operation =>
+        output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+      let elseText := elseOps.foldl (fun output operation =>
+        output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+      s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenText ++
+        s!"{indent}  )\n" ++
+        (if elseOps.isEmpty then "" else
+          s!"{indent}  (else\n" ++ elseText ++ s!"{indent}  )\n") ++
+        s!"{indent})\n"
+  | .switchRegion scrutinee cases defaultOps =>
+      -- Right-nested if/else chain: first matching case wins, else default.
+      let rec renderCases (indent : String) (remaining : Array (UInt64 × Array Operation)) : String :=
+        match remaining.toList with
+        | [] =>
+            let defaultText := defaultOps.foldl (fun output operation =>
+              output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+            s!"{indent}(then\n" ++ defaultText ++ s!"{indent})\n"
+        | (caseValue, caseOps) :: rest =>
+            let caseText := caseOps.foldl (fun output operation =>
+              output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+            s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
+              s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
+              s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
+              s!"{indent})\n"
+      match cases.toList with
+      | [] =>
+          defaultOps.foldl (fun output operation =>
+            output ++ renderOperation registers memory indent operation) ""
+      | (caseValue, caseOps) :: rest =>
+          let caseText := caseOps.foldl (fun output operation =>
+            output ++ renderOperation registers memory (indent ++ "  ") operation) ""
+          s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
+            s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
+            s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
+            s!"{indent})\n"
 
 private def renderMethod (ir : IR) (method : MethodIR) : String :=
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
     s!" (local $t{index} i64)"
   let operations := String.intercalate "" <| method.operations.toList.map
-    (renderOperation ir.registers ir.memory)
+    (renderOperation ir.registers ir.memory "    ")
   s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
 
 private def renderWat (ir : IR) : String :=
