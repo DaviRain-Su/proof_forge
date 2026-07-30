@@ -111,6 +111,9 @@ inductive Statement where
   | store (operation : Store)
   | returnValue (value : Expr)
   | assert (condition : Expr)
+  | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
+      (defaultBody : Array Statement)
   deriving BEq, Inhabited, Repr
 
 structure Handler where
@@ -160,6 +163,9 @@ inductive Operation where
   | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
+  | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
+  | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
+      (defaultOps : Array Operation)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -428,6 +434,20 @@ private def currentValueV1
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
+/-- Match-bind arm readability: the scrutinee of an enclosing switch may be
+    referenced by its arm bodies across the (dominating) scrut-block boundary.
+    All other cross-block reads still fail at the effect boundary. -/
+private def currentValueWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart && !armReadables.contains id then
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
+
 private def makeBinaryTreeValueV1
     (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
@@ -530,31 +550,31 @@ private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
 
-private def lowerCallableV1
+private structure LoweredBlockV1 where
+  statements : Array Statement
+  values : Array LoweredValueV1
+  segmentStart : Nat
+
+/-- Lower one block's instruction sequence (terminator handled by the region
+    walker). Each block starts a fresh effect segment; values from dominating
+    blocks stay referenceable only via params or match-arm scrutinees. -/
+private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
-    (expectsBoolReturn : Bool)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
-    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
-  unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: callable must be one acyclic entry block"
-  let block ← match callable.blocks[0]? with
-    | some value => pure value
-    | none => throw (.planInvariant .solana
-        "unsupported Solana semantic shape: callable entry block is missing")
-  unless block.id.toNat == 0 && block.params.isEmpty do
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (block : BlockV1)
+    (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
+  unless block.params.isEmpty do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: block parameters are not supported"
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .solana
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
-  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
-  let paramCount := params.size
-  let mut values := initialValues
-  let mut segmentStart := values.size
+  let mut values := values0
+  let mut segmentStart := values0.size
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
@@ -590,8 +610,8 @@ private def lowerCallableV1
           isBool := false
         }
     | .binary op lhsId rhsId, some result =>
-        let lhs ← currentValueV1 values paramCount segmentStart lhsId
-        let rhs ← currentValueV1 values paramCount segmentStart rhsId
+        let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         unless !lhs.isBool && !rhs.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: binary operands must be UInt64"
@@ -621,7 +641,7 @@ private def lowerCallableV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: view callable writes state"
         let field ← findFieldV1 account stateId
-        let stored ← currentValueV1 values paramCount segmentStart valueId
+        let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless !stored.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: state store value must be UInt64"
@@ -636,7 +656,7 @@ private def lowerCallableV1
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: assert requires errorId=none and empty args"
-        let cond ← currentValueV1 values paramCount segmentStart condId
+        let cond ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
         unless cond.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: assert condition must be Bool"
@@ -646,31 +666,184 @@ private def lowerCallableV1
     | _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"
-  match mode, block.terminator with
-  | .initialize, .return_ none =>
+  pure { statements := body, values, segmentStart }
+
+/-- Decode a switch case constant against the scrutinee kind. -/
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
+    CompileResult UInt64 := do
+  if scrutIsBool then
+    let bit ← decodeBoolLiteralV1 bytes
+    pure (if bit then 1 else 0)
+  else
+    decodeUInt64LiteralV1 bytes
+
+/-- Structured emission of the forward-only multi-block CFG. Diamonds
+    (branch/switch) are recovered by following each arm to its exit jump or
+    return; convergent joins continue the region. The fuel bounds recursion
+    to the block count. Returns (statements, values, nextJoin). -/
+private partial def emitRegionV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (expectsBoolReturn : Bool)
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (blocks : Array BlockV1)
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (fuel : Nat)
+    (start : Nat)
+    (values0 : Array LoweredValueV1) :
+    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat) := do
+  if fuel == 0 then
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: CFG region exceeds block bound"
+  let block ← match blocks[start]? with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: region references a missing block")
+  unless block.id.toNat == start do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: block ids are not dense"
+  let lowered ← lowerBlockInstructionsV1
+    owner mode types account paramCount armReadables block values0
+  let instrs := lowered.statements
+  let values := lowered.values
+  let segmentStart := lowered.segmentStart
+  match block.terminator with
+  | .return_ (some valueId) =>
+      match mode with
+      | .initialize =>
+          throw <| .planInvariant .solana "initializer cannot return a value"
+      | .mutate | .view =>
+          let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          unless returned.isBool == expectsBoolReturn do
+            throw <| .planInvariant .solana
+              (if expectsBoolReturn then
+                "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
+               else
+                "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
+          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+          pure (instrs.push (.returnValue value), values, none)
+  | .return_ none =>
       unless segmentStart == values.size do
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: initializer has unconsumed values"
-  | .mutate, .return_ (some valueId)
-  | .view, .return_ (some valueId) =>
-      let returned ← currentValueV1 values paramCount segmentStart valueId
-      unless returned.isBool == expectsBoolReturn do
+          "unsupported Solana semantic shape: block has unconsumed values"
+      pure (instrs, values, none)
+  | .jump target =>
+      unless segmentStart == values.size do
         throw <| .planInvariant .solana
-          (if expectsBoolReturn then
-            "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
-           else
-            "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
-      let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-      body := body.push (.returnValue value)
-      segmentStart := values.size
-  | .initialize, .return_ (some _) =>
-      throw <| .planInvariant .solana "initializer cannot return a value"
-  | _, _ =>
+          "unsupported Solana semantic shape: block has unconsumed values"
+      pure (instrs, values, some target.blockId.toNat)
+  | .branch condId thenT elseT =>
+      let condVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      unless condVal.isBool do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: branch condition must be Bool"
+      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+      let (thenBody, values1, thenNext) ←
+        emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+          armReadables (fuel - 1) thenT.blockId.toNat values
+      match thenNext with
+      | some j =>
+          if elseT.blockId.toNat == j then
+            let (rest, values2, next) ←
+              emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                armReadables (fuel - 1) j values1
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
+          else
+            let (elseBody, values2, elseNext) ←
+              emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                armReadables (fuel - 1) elseT.blockId.toNat values1
+            match elseNext with
+            | some j2 =>
+                unless j == j2 do
+                  throw <| .planInvariant .solana
+                    "unsupported Solana semantic shape: branch arms converge on divergent joins"
+                let (rest, values3, next) ←
+                  emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+            | none =>
+                let (rest, values3, next) ←
+                  emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+      | none =>
+          let (elseBody, values2, elseNext) ←
+            emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+              armReadables (fuel - 1) elseT.blockId.toNat values1
+          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
+  | .switch scrutId cases defaultTarget =>
+      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
+      let some defaultT := defaultTarget |
+        throw (.planInvariant .solana
+          "unsupported Solana semantic shape: switch must carry a default target")
+      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+      let mut joinAcc : Option Nat := none
+      let mut valuesA := values
+      for switchCase in cases do
+        let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
+        let (body, values1, armNext) ←
+          emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+            (armReadables.push scrutId) (fuel - 1)
+            switchCase.target.blockId.toNat valuesA
+        caseBodies := caseBodies.push (caseValue, body)
+        valuesA := values1
+        match armNext, joinAcc with
+        | none, _ => pure ()
+        | some j, none => joinAcc := some j
+        | some j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: switch arms converge on divergent joins"
+      let (defaultBody, values2, defaultNext) ←
+        emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+          (armReadables.push scrutId) (fuel - 1)
+          defaultT.blockId.toNat valuesA
+      match defaultNext, joinAcc with
+      | none, _ => pure ()
+      | some j, none => joinAcc := some j
+      | some j, some j0 =>
+          unless j == j0 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: switch arms converge on divergent joins"
+      match joinAcc with
+      | none =>
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
+      | some j =>
+          let (rest, values3, next) ←
+            emitRegionV1 owner mode expectsBoolReturn types account blocks paramCount
+              armReadables (fuel - 1) j values2
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
+  | .revert _ _ | .trap _ =>
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: callable terminator is outside the current UInt64 pilot"
-  unless segmentStart == values.size do
+        "unsupported Solana semantic shape: revert/trap terminators are outside the current pilot"
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (expectsBoolReturn : Bool)
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
+      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: callable has unconsumed values"
+      "unsupported Solana semantic shape: callable must have an acyclic entry block"
+  unless callable.blocks.all (fun b => b.params.isEmpty) do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: block parameters are not supported"
+  let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
+  let paramCount := params.size
+  let (body, _values, nextJoin) ←
+    emitRegionV1 owner mode expectsBoolReturn types account callable.blocks paramCount #[]
+      callable.blocks.size 0 initialValues
+  match nextJoin with
+  | some _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: callable does not end in return on all paths"
+  | none => pure ()
   if body.size > maxBodyStatements then
     throw <| .planInvariant .solana s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
@@ -818,6 +991,59 @@ private def validateParams (owner : String) (params : Array Param) : CompileResu
       throw <| .planInvariant .solana
         s!"parameter binding in {owner} is not canonical UInt64 little-endian"
 
+/-- Recursive statement-tree validator for one handler: view-write ban
+    (including inside branches), node accounting, and per-level return
+    ordering. Returns the updated node total and whether this level closes in
+    return on every path. -/
+private partial def checkHandlerStatementsV1
+    (account : StateAccount) (isInitializer : Bool) (isView : Bool)
+    (params : Array Param) (statements : Array Statement) (total : Nat) :
+    CompileResult (Nat × Bool) := do
+  let mut total := total
+  let mut closed := false
+  for statement in statements do
+    if closed then
+      throw <| .planInvariant .solana "handler has a statement after return"
+    match statement with
+    | .store store =>
+        if isView then
+          throw <| .planInvariant .solana "view handler writes state"
+        unless account.fields.any (fun field =>
+            field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) do
+          throw <| .planInvariant .solana "handler stores to an unknown field"
+        total ← addPlanExprNodes account params total store.value
+    | .returnValue value =>
+        if isInitializer then
+          throw <| .planInvariant .solana "initializer cannot return a value"
+        total ← addPlanExprNodes account params total value
+        closed := true
+    | .assert condition =>
+        total ← addPlanExprNodes account params total condition
+    | .ifThenElse condition thenBody elseBody =>
+        total ← addPlanExprNodes account params total condition
+        total := total + 1
+        let (t1, c1) ← checkHandlerStatementsV1
+          account isInitializer isView params thenBody total
+        let (t2, c2) ← checkHandlerStatementsV1
+          account isInitializer isView params elseBody t1
+        total := t2
+        closed := c1 && c2 && !elseBody.isEmpty
+    | .switchOn scrutinee cases defaultBody =>
+        total ← addPlanExprNodes account params total scrutinee
+        total := total + 1
+        let mut allClosed := !defaultBody.isEmpty
+        for (caseValue, caseBody) in cases do
+          total := total + 1
+          let (t, c) ← checkHandlerStatementsV1
+            account isInitializer isView params caseBody total
+          total := t
+          allClosed := allClosed && c
+        let (td, cd) ← checkHandlerStatementsV1
+          account isInitializer isView params defaultBody total
+        total := td
+        closed := allClosed && cd
+  pure (total, closed)
+
 private def expectedAccess (account : StateAccount) (mode : HandlerMode) : AccountAccess :=
   accessFor account mode
 
@@ -839,30 +1065,12 @@ private def validateHandler (account : StateAccount) (isInitializer : Bool)
     throw <| .planInvariant .solana s!"handler '{handler.name}' account access is not canonical"
   if handler.body.isEmpty || handler.body.size > maxBodyStatements then
     throw <| .planInvariant .solana s!"handler '{handler.name}' has an invalid body size"
-  let mut total := baseNodes
-  let mut returned := false
-  for statement in handler.body do
-    if returned then
-      throw <| .planInvariant .solana s!"handler '{handler.name}' has a statement after return"
-    match statement with
-    | .store store =>
-        if handler.mode == .view then
-          throw <| .planInvariant .solana s!"view handler '{handler.name}' writes state"
-        unless account.fields.any (fun field =>
-            field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) do
-          throw <| .planInvariant .solana s!"handler '{handler.name}' stores to an unknown field"
-        total ← addPlanExprNodes account handler.params total store.value
-    | .returnValue value =>
-        if isInitializer then
-          throw <| .planInvariant .solana "initializer cannot return a value"
-        total ← addPlanExprNodes account handler.params total value
-        returned := true
-    | .assert condition =>
-        total ← addPlanExprNodes account handler.params total condition
+  let (total, closed) ← checkHandlerStatementsV1
+    account isInitializer (handler.mode == .view) handler.params handler.body baseNodes
   if isInitializer then
-    if returned then
+    if closed then
       throw <| .planInvariant .solana "initializer cannot return a value"
-  else unless returned do
+  else unless closed do
     throw <| .planInvariant .solana s!"handler '{handler.name}' does not return a value"
   return total
 
@@ -1021,34 +1229,62 @@ private def checksFor (discriminatorWidth : Nat) (account : StateAccount)
   if access.writableRequired then checks := checks.push (.writable access.accountIndex)
   return checks.push (.headerEquals access.accountIndex account.headerOffset headerValue)
 
-private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
-  let account := plan.stateAccount
-  let mut operations : Array Operation :=
-    if handler.mode == .initialize then
-      account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
-    else
-      #[]
-  let mut next := 0
-  for statement in handler.body do
+private partial def lowerBodyOps
+    (overflowError : Nat) (resultKind : ResultKind) (assertErr : Nat)
+    (next : Nat) (statements : Array Statement) : Array Operation × Nat := Id.run do
+  let mut operations : Array Operation := #[]
+  let mut next := next
+  for statement in statements do
     match statement with
     | .store store =>
-        let value := lowerExpr plan.arithmeticOverflowError next store.value
+        let value := lowerExpr overflowError next store.value
         operations := operations ++ value.operations
         operations := operations.push (.storeState store.accountIndex store.byteOffset value.value)
         next := value.next
     | .returnValue value =>
-        let value := lowerExpr plan.arithmeticOverflowError next value
+        let value := lowerExpr overflowError next value
         operations := operations ++ value.operations
-        let returnOp : Operation := match handler.resultKind with
+        let returnOp : Operation := match resultKind with
           | .u64 => .setReturnData value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
         next := value.next
     | .assert condition =>
-        let value := lowerExpr plan.arithmeticOverflowError next condition
+        let value := lowerExpr overflowError next condition
         operations := operations ++ value.operations
-        operations := operations.push (.assert value.value plan.assertionFailedError)
+        operations := operations.push (.assert value.value assertErr)
         next := value.next
+    | .ifThenElse condition thenBody elseBody =>
+        let value := lowerExpr overflowError next condition
+        operations := operations ++ value.operations
+        let (thenOps, next1) := lowerBodyOps overflowError resultKind assertErr value.next thenBody
+        let (elseOps, next2) := lowerBodyOps overflowError resultKind assertErr next1 elseBody
+        operations := operations.push (.ifRegion value.value thenOps elseOps)
+        next := next2
+    | .switchOn scrutinee cases defaultBody =>
+        let value := lowerExpr overflowError next scrutinee
+        operations := operations ++ value.operations
+        let mut caseOps : Array (UInt64 × Array Operation) := #[]
+        let mut nextC := value.next
+        for (caseValue, caseBody) in cases do
+          let (ops, next1) := lowerBodyOps overflowError resultKind assertErr nextC caseBody
+          caseOps := caseOps.push (caseValue, ops)
+          nextC := next1
+        let (defaultOps, nextD) := lowerBodyOps overflowError resultKind assertErr nextC defaultBody
+        operations := operations.push (.switchRegion value.value caseOps defaultOps)
+        next := nextD
+  pure (operations, next)
+
+private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
+  let account := plan.stateAccount
+  let operations0 : Array Operation :=
+    if handler.mode == .initialize then
+      account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
+    else
+      #[]
+  let (bodyOps, _) := lowerBodyOps
+    plan.arithmeticOverflowError handler.resultKind plan.assertionFailedError 0 handler.body
+  let mut operations := operations0 ++ bodyOps
   if handler.mode == .initialize then
     operations := operations.push <|
       .setHeader account.index account.headerOffset account.initializedMarker
@@ -1069,32 +1305,19 @@ private def tempDestination? : Operation → Option Nat
       .checkedSub destination .. | .compare destination .. => some destination
   | _ => none
 
-private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
+/-- Recursive operation-sequence validator: canonical temp numbering across
+    nested regions, operand range checks, and per-level terminator ordering.
+    Returns (next, returnedOnThisLevel, initializedOnThisLevel). -/
+private partial def validateOperationSequence
+    (plan : Plan) (handler : HandlerIR)
+    (fieldOffsets paramOffsets : Array Nat)
+    (operations : Array Operation) (next : Nat) :
+    CompileResult (Nat × Bool × Bool) := do
   let account := plan.stateAccount
-  unless isIdentifier handler.name && validDiscriminator handler.discriminator do
-    throw <| .planInvariant .solana "typed Solana IR has an invalid handler identity"
-  validateParams s!"IR handler '{handler.name}'" handler.params
-  unless handler.discriminator == instructionDiscriminator handler.name handler.params do
-    throw <| .planInvariant .solana "typed Solana IR discriminator does not match its ABI signature"
-  unless handler.accountAccess == expectedAccess account handler.mode do
-    throw <| .planInvariant .solana "typed Solana IR account access is not canonical"
-  let planHandler : Handler := {
-    name := handler.name
-    discriminator := handler.discriminator
-    params := handler.params
-    mode := handler.mode
-    resultKind := handler.resultKind
-    accountAccess := handler.accountAccess
-    body := #[.returnValue (.literal 0)]
-  }
-  unless handler.checks == checksFor plan.instructionDiscriminatorBytes account planHandler do
-    throw <| .planInvariant .solana "typed Solana IR checks are incomplete or out of order"
-  let fieldOffsets := account.fields.map (·.byteOffset)
-  let paramOffsets := handler.params.map (·.dataOffset)
-  let mut next := 0
+  let mut next := next
   let mut returned := false
   let mut initialized := false
-  for operation in handler.operations do
+  for operation in operations do
     if returned || initialized then
       throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
     if let some destination := tempDestination? operation then
@@ -1144,6 +1367,51 @@ private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResul
         unless handler.mode != .initialize && handler.resultKind == .bool && value < next do
           throw <| .planInvariant .solana "typed Solana IR Bool return value is invalid"
         returned := true
+    | .ifRegion condition thenOps elseOps =>
+        unless condition < next do
+          throw <| .planInvariant .solana "typed Solana IR if-region condition is invalid"
+        let (n1, r1, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets thenOps next
+        let (n2, r2, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets elseOps n1
+        next := n2
+        returned := (r1 && r2 && !elseOps.isEmpty) || returned
+    | .switchRegion scrutinee cases defaultOps =>
+        unless scrutinee < next do
+          throw <| .planInvariant .solana "typed Solana IR switch-region scrutinee is invalid"
+        let mut nextC := next
+        let mut allClosed := !defaultOps.isEmpty
+        for (_, ops) in cases do
+          let (n, r, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets ops nextC
+          nextC := n
+          allClosed := allClosed && r
+        let (nd, rd, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets defaultOps nextC
+        next := nd
+        returned := (allClosed && rd) || returned
+  pure (next, returned, initialized)
+
+private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
+  let account := plan.stateAccount
+  unless isIdentifier handler.name && validDiscriminator handler.discriminator do
+    throw <| .planInvariant .solana "typed Solana IR has an invalid handler identity"
+  validateParams s!"IR handler '{handler.name}'" handler.params
+  unless handler.discriminator == instructionDiscriminator handler.name handler.params do
+    throw <| .planInvariant .solana "typed Solana IR discriminator does not match its ABI signature"
+  unless handler.accountAccess == expectedAccess account handler.mode do
+    throw <| .planInvariant .solana "typed Solana IR account access is not canonical"
+  let planHandler : Handler := {
+    name := handler.name
+    discriminator := handler.discriminator
+    params := handler.params
+    mode := handler.mode
+    resultKind := handler.resultKind
+    accountAccess := handler.accountAccess
+    body := #[.returnValue (.literal 0)]
+  }
+  unless handler.checks == checksFor plan.instructionDiscriminatorBytes account planHandler do
+    throw <| .planInvariant .solana "typed Solana IR checks are incomplete or out of order"
+  let fieldOffsets := account.fields.map (·.byteOffset)
+  let paramOffsets := handler.params.map (·.dataOffset)
+  let (_, returned, initialized) ← validateOperationSequence
+    plan handler fieldOffsets paramOffsets handler.operations 0
   if handler.mode == .initialize then
     unless initialized do
       throw <| .planInvariant .solana "initializer IR does not set the initialized marker"
@@ -1227,33 +1495,49 @@ private def renderComparisonOp : ComparisonOp → String
   | .gt => "gt"
   | .ge => "ge"
 
-private def renderOperation : Operation → String
-  | .literal destination value => s!"  %{destination} = const_u64 {value}\n"
+private partial def renderOperation (indent : String) : Operation → String
+  | .literal destination value => s!"{indent}%{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
-      s!"  %{destination} = load_u64_le(instruction_data + {dataOffset})\n"
+      s!"{indent}%{destination} = load_u64_le(instruction_data + {dataOffset})\n"
   | .loadState destination accountIndex byteOffset =>
-      s!"  %{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
+      s!"{indent}%{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
   | .checkedAdd destination lhs rhs errorCode =>
-      s!"  %{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}%{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .checkedSub destination lhs rhs errorCode =>
-      s!"  %{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}%{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .zeroState accountIndex byteOffset =>
-      s!"  zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
+      s!"{indent}zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
   | .storeState accountIndex byteOffset value =>
-      s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+      s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .setHeader accountIndex byteOffset value =>
-      s!"  store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
-  | .setReturnData value => s!"  set_return_data_u64_le %{value}\n"
-  | .setReturnDataBool value => s!"  set_return_data_bool %{value}\n"
+      s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
+  | .setReturnData value => s!"{indent}set_return_data_u64_le %{value}\n"
+  | .setReturnDataBool value => s!"{indent}set_return_data_bool %{value}\n"
   | .compare destination lhs rhs op =>
-      s!"  %{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
+      s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .assert condition errorCode =>
-      s!"  assert %{condition} else program_error 0x{natHex errorCode}\n"
+      s!"{indent}assert %{condition} else program_error 0x{natHex errorCode}\n"
+  | .ifRegion condition thenOps elseOps =>
+      let thenText := thenOps.foldl (fun output operation =>
+        output ++ renderOperation (indent ++ "  ") operation) ""
+      let elseText := elseOps.foldl (fun output operation =>
+        output ++ renderOperation (indent ++ "  ") operation) ""
+      s!"{indent}if %{condition} \{\n" ++ thenText ++
+        s!"{indent}} else \{\n" ++ elseText ++ s!"{indent}}\n"
+  | .switchRegion scrutinee cases defaultOps =>
+      let caseText := cases.foldl (fun output (caseValue, ops) =>
+        let body := ops.foldl (fun inner operation =>
+          inner ++ renderOperation (indent ++ "  ") operation) ""
+        output ++ s!"{indent}case {caseValue} \{\n" ++ body ++ s!"{indent}}\n") ""
+      let defaultText := defaultOps.foldl (fun output operation =>
+        output ++ renderOperation (indent ++ "  ") operation) ""
+      s!"{indent}switch %{scrutinee} \{\n" ++ caseText ++
+        s!"{indent}default \{\n" ++ defaultText ++ s!"{indent}}\n"
 
 private def renderHandlerPlan (handler : HandlerIR) : String :=
   let checks := handler.checks.foldl (fun output check => output ++ renderCheck check) ""
   let operations := handler.operations.foldl (fun output operation =>
-    output ++ renderOperation operation) ""
+    output ++ renderOperation "  " operation) ""
   s!".handler {handler.discriminator} {handler.name} mode={renderMode handler.mode}\n" ++
     checks ++ operations ++ ".end-handler\n"
 

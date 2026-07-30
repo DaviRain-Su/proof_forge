@@ -548,6 +548,304 @@ private unsafe def testValidatePlanNegatives
   expectPlanError "IR assert wrong error code" <|
     validateIR (withHandlers ir (ir.handlers.set! 1 badError))
 
+/-- If/else multi-block program for the Solana region lanes. -/
+private def ifFlowSourceText : String := wrapProgram "IfFlow" <|
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count > 0 then\n" ++
+  "      count := count + delta\n" ++
+  "    else\n" ++
+  "      count := delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Multi-block Plan/IR/emitter conformance: branch diamond + regions. -/
+private unsafe def testIfFlowRegions
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session ifFlowSourceText
+    "Examples.IfFlow" "<solana-if-flow>"
+  let plan ← liftResult <| planSolana compiled
+  let bump ← findHandler plan "bump"
+  expect (bump.mode == .mutate && bump.resultKind == .u64)
+    "bump must remain a UInt64 mutate entry"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .param 8 }],
+      .returnValue (.stateLoad 0 8)])
+    "IfFlow bump must lower the branch diamond then join return"
+  let ir ← liftResult <| irSolana compiled
+  let bumpIR ← findHandlerIR ir "bump"
+  let regionOps := bumpIR.operations.filter fun op =>
+    match op with | .ifRegion .. => true | _ => false
+  expect (regionOps.size == 1)
+    s!"IfFlow IR must contain exactly one if-region, got {regionOps.size}"
+  match bumpIR.operations[3]? with
+  | some (Operation.ifRegion cond thenOps elseOps) =>
+      expect (cond == 2 && thenOps.size == 4 && elseOps.size == 2)
+        s!"IfFlow region: cond temp 2, then 4 ops, else 2 ops; got {cond}/{thenOps.size}/{elseOps.size}"
+  | some other =>
+      throw <| IO.userError s!"IfFlow: op[3] must be the if-region, got {repr other}"
+  | none =>
+      throw <| IO.userError "IfFlow: missing if-region op"
+  liftResult <| validateIR ir
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "IfFlow IR rebuild must be structure-identical"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "IfFlow.sbpf-plan"
+  expect (planText.contains "if %2 {" &&
+      planText.contains "} else {" &&
+      planText.contains "checked_add_u64" &&
+      planText.contains "store_u64_le")
+    "sbpf-plan must render the branch if/else with stores in both arms"
+
+/-- No-else if: the absent else falls into the join without an else region. -/
+private unsafe def testIfNoElseRegion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "IfNoElse" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.IfNoElse" "<solana-if-noelse>"
+  let plan ← liftResult <| planSolana compiled
+  let bump ← findHandler plan "bump"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }]
+        #[],
+      .returnValue (.stateLoad 0 8)])
+    "IfNoElse must lower an empty else body and keep the join"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "IfNoElse.sbpf-plan"
+  expect (planText.contains "if %2 {" && planText.contains "} else {")
+    "IfNoElse must render the branch if with an empty else"
+
+/-- Both branches return: the if is the final region (no join statement). -/
+private unsafe def testIfBothReturnRegion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "IfBoth" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry pick(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      return count\n" ++
+    "    else\n" ++
+    "      return delta\n"
+  let compiled ← compileSource session text
+    "Examples.IfBoth" "<solana-if-both>"
+  let plan ← liftResult <| planSolana compiled
+  let pick ← findHandler plan "pick"
+  expect (pick.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+        #[.returnValue (.stateLoad 0 8)]
+        #[.returnValue (.param 8)]])
+    "IfBoth must lower both-returning branches without a join statement"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+
+/-- Nested if: inner diamond inside the then branch. -/
+private unsafe def testNestedIfRegions
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "NestedIf" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > 0 then\n" ++
+    "      if delta > 0 then\n" ++
+    "        count := count + delta\n" ++
+    "      else\n" ++
+    "        count := 1\n" ++
+    "    else\n" ++
+    "      count := 2\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.NestedIf" "<solana-nested-if>"
+  let plan ← liftResult <| planSolana compiled
+  let bump ← findHandler plan "bump"
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+        #[.ifThenElse (.compare .gt (.param 8) (.literal 0))
+          #[.store {
+            accountIndex := 0
+            byteOffset := 8
+            value := .checkedAdd (.stateLoad 0 8) (.param 8)
+          }]
+          #[.store { accountIndex := 0, byteOffset := 8, value := .literal 1 }]]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .literal 2 }],
+      .returnValue (.stateLoad 0 8)])
+    "NestedIf must nest the inner diamond inside the then branch"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "NestedIf.sbpf-plan"
+  expect ((planText.splitOn "if %").length == 3)
+    s!"NestedIf must render the outer and inner branch ifs, got {(planText.splitOn "if %").length}"
+
+/-- Assert inside a branch: error op inside the region body. -/
+private unsafe def testAssertInBranchRegion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "BranchAssert" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry withdraw(delta : UInt64) : UInt64 do\n" ++
+    "    if delta > 0 then\n" ++
+    "      assert count >= delta\n" ++
+    "      count := count - delta\n" ++
+    "    else\n" ++
+    "      count := 0\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.BranchAssert" "<solana-branch-assert>"
+  let plan ← liftResult <| planSolana compiled
+  let withdraw ← findHandler plan "withdraw"
+  expect (withdraw.body == #[
+      .ifThenElse (.compare .gt (.param 8) (.literal 0))
+        #[.assert (.compare .ge (.stateLoad 0 8) (.param 8)),
+          .store {
+            accountIndex := 0
+            byteOffset := 8
+            value := .checkedSub (.stateLoad 0 8) (.param 8)
+          }]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .literal 0 }],
+      .returnValue (.stateLoad 0 8)])
+    "BranchAssert must keep assert-then-store order inside the taken branch"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "BranchAssert.sbpf-plan"
+  expect (planText.contains "assert %" && planText.contains "else program_error 0x1002")
+    "sbpf-plan must render the assert error inside the branch"
+
+/-- Match on UInt64 literals: switchRegion with two cases and a wildcard. -/
+private unsafe def testMatchUIntLiteralRegions
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "MatchUint" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.MatchUint" "<solana-match-uint>"
+  let plan ← liftResult <| planSolana compiled
+  let apply ← findHandler plan "apply"
+  expect (apply.body == #[
+      .switchOn (.param 8)
+        #[(0, #[.returnValue (.stateLoad 0 8)]),
+          (1, #[.store {
+            accountIndex := 0
+            byteOffset := 8
+            value := .checkedAdd (.stateLoad 0 8) (.literal 1)
+          }])]
+        #[.store { accountIndex := 0, byteOffset := 8, value := .param 8 }],
+      .returnValue (.stateLoad 0 8)])
+    "MatchUint must lower literal cases to switchOn with a default store"
+  let ir ← liftResult <| irSolana compiled
+  let applyIR ← findHandlerIR ir "apply"
+  let switchOps := applyIR.operations.filter fun op =>
+    match op with | .switchRegion .. => true | _ => false
+  expect (switchOps.size == 1)
+    s!"MatchUint IR must contain exactly one switch-region, got {switchOps.size}"
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "MatchUint.sbpf-plan"
+  expect (planText.contains "switch %" &&
+      planText.contains "case 0 {" &&
+      planText.contains "case 1 {" &&
+      planText.contains "default {")
+    "sbpf-plan must render switch cases and the default region"
+
+/-- Match-bind arm: the binder aliases the scrutinee in the arm body. -/
+private unsafe def testMatchBindArmRegion
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "MatchBind" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    match delta with\n" ++
+    "    | rest => do\n" ++
+    "      count := count + rest\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.MatchBind" "<solana-match-bind>"
+  let plan ← liftResult <| planSolana compiled
+  let apply ← findHandler plan "apply"
+  -- Catch-all-only match is straight-line: binder aliases the scrutinee param.
+  expect (apply.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .checkedAdd (.stateLoad 0 8) (.param 8)
+      },
+      .returnValue (.stateLoad 0 8)])
+    "MatchBind must alias the binder to the scrutinee value without a switch"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+
+/-- validatePlan/validateIR negatives for the new region constructors. -/
+private unsafe def testRegionValidationNegatives
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session ifFlowSourceText
+    "Examples.IfFlow" "<solana-neg-region>"
+  let base ← liftResult <| planSolana compiled
+  match validatePlan base with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"base region plan must validate: {e.render}"
+  -- Store inside a view branch is rejected.
+  let viewStore := { base with entries := base.entries.map fun e =>
+    if e.name == "bump" then
+      { e with
+          mode := .view
+          body := #[
+            .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+              #[.store { accountIndex := 0, byteOffset := 8, value := .literal 1 }]
+              #[],
+            .returnValue (.stateLoad 0 8)] }
+    else e }
+  match validatePlan viewStore with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject a store inside a view branch"
+  -- Statement after a both-returning branch at the same level.
+  let afterReturn := { base with entries := base.entries.map fun e =>
+    if e.name == "bump" then
+      { e with body := #[
+          .ifThenElse (.compare .gt (.stateLoad 0 8) (.literal 0))
+            #[.returnValue (.stateLoad 0 8)] #[.returnValue (.literal 0)],
+          .store { accountIndex := 0, byteOffset := 8, value := .literal 1 }] }
+    else e }
+  match validatePlan afterReturn with
+  | .error (.planInvariant .solana _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject a statement after a both-returning branch"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -558,6 +856,14 @@ unsafe def run : IO Unit := do
   testBoolEnvelopeRejected session
   testBoolResultPositive session
   testBoolPredicateEndToEnd session
+  testIfFlowRegions session
+  testIfNoElseRegion session
+  testIfBothReturnRegion session
+  testNestedIfRegions session
+  testAssertInBranchRegion session
+  testMatchUIntLiteralRegions session
+  testMatchBindArmRegion session
+  testRegionValidationNegatives session
   testAssertElseRejected session
   testValidatePlanNegatives session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
