@@ -110,6 +110,17 @@ private def writeTemp (machine : Machine) (index : Nat)
   | some (some _) => modelError s!"temporary {index} was assigned more than once"
   | none => modelError s!"temporary {index} is outside the relation frame"
 
+private def evalComparison (op : Targets.Noir.ComparisonOp)
+    (left right : U64) : U64 :=
+  let result : Bool := match op with
+    | .eq => left == right
+    | .ne => left != right
+    | .lt => left < right
+    | .le => left ≤ right
+    | .gt => left > right
+    | .ge => left ≥ right
+  if result then 1 else 0
+
 private def step (machine : Machine) :
     Targets.Noir.Operation → Except String Machine
   | .checkedAdd destination lhs rhs => do
@@ -127,6 +138,10 @@ private def step (machine : Machine) :
         modelError "native checked UInt64 subtraction underflow"
       else
         writeTemp machine destination (left - right)
+  | .compare op destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (evalComparison op left right)
   | .assertEqual lhs rhs => do
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -136,6 +151,10 @@ private def step (machine : Machine) :
       let actual ← readInputBool machine inputIndex
       if actual == expected then .ok machine
       else modelError s!"Bool assertion failed at input {inputIndex}"
+  | .assertConstraint condition => do
+      let value ← readValue machine condition
+      if value != 0 then .ok machine
+      else modelError "assert constraint failed: condition is zero"
 
 private def runOperations :
     List Targets.Noir.Operation → Machine → Except String Machine
@@ -201,6 +220,66 @@ private def testCheckedSubModel : IO Unit := do
 def runCheckedSubFast : IO Unit := do
   testCheckedSubModel
   IO.println "Tests.Materialization.NoirRelationModel.checkedSub: ok"
+
+private def testComparisonModel : IO Unit := do
+  let machine : Machine := {
+    inputs := #[]
+    temps := #[some 7, some 5, none]
+  }
+  let cases : Array (Targets.Noir.ComparisonOp × U64) := #[
+    (.eq, 0), (.ne, 1), (.lt, 0), (.le, 0), (.gt, 1), (.ge, 1)
+  ]
+  for pair in cases do
+    let op := pair.1
+    let expected := pair.2
+    match step machine (.compare op 2 (.temp 0) (.temp 1)) with
+    | .ok next =>
+        expect (next.temps[2]? == some (some expected))
+          s!"comparison model {repr op}: expected {expected.toNat}, got {repr (next.temps[2]?)}"
+    | .error reason =>
+        throw <| IO.userError s!"comparison model {repr op}: {reason}"
+  -- Equality and ordering boundaries on equal operands.
+  let equalMachine : Machine := {
+    inputs := #[]
+    temps := #[some 9, some 9, none]
+  }
+  match step equalMachine (.compare .eq 2 (.temp 0) (.temp 1)) with
+  | .ok next =>
+      expect (next.temps[2]? == some (some 1)) "eq equal operands must yield 1"
+  | .error reason => throw <| IO.userError s!"eq equal: {reason}"
+  match step equalMachine (.compare .lt 2 (.temp 0) (.temp 1)) with
+  | .ok next =>
+      expect (next.temps[2]? == some (some 0)) "lt equal operands must yield 0"
+  | .error reason => throw <| IO.userError s!"lt equal: {reason}"
+  match step equalMachine (.compare .ge 2 (.temp 0) (.temp 1)) with
+  | .ok next =>
+      expect (next.temps[2]? == some (some 1)) "ge equal operands must yield 1"
+  | .error reason => throw <| IO.userError s!"ge equal: {reason}"
+
+private def testAssertConstraintModel : IO Unit := do
+  let machine : Machine := {
+    inputs := #[]
+    temps := #[some 1, some 0]
+  }
+  match step machine (.assertConstraint (.temp 0)) with
+  | .ok _ => pure ()
+  | .error reason => throw <| IO.userError s!"assert nonzero must accept: {reason}"
+  match step machine (.assertConstraint (.temp 1)) with
+  | .error reason =>
+      expect (reason.contains "zero")
+        s!"assert zero must classify failure, got {reason}"
+  | .ok _ => throw <| IO.userError "assert zero unexpectedly accepted"
+  match step machine (.assertConstraint (.literal 1)) with
+  | .ok _ => pure ()
+  | .error reason => throw <| IO.userError s!"assert literal true must accept: {reason}"
+  match step machine (.assertConstraint (.literal 0)) with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "assert literal false unexpectedly accepted"
+
+def runCompareAssertFast : IO Unit := do
+  testComparisonModel
+  testAssertConstraintModel
+  IO.println "Tests.Materialization.NoirRelationModel.compareAssert: ok"
 
 private unsafe def compileIrFromProgramV1 (sourceText moduleName path : String) :
     IO Targets.Noir.IR := do
@@ -378,8 +457,271 @@ private unsafe def checkPrivateSum4ProductClosed : IO Unit := do
               throw <| IO.userError
                 "PrivateSum4 must not mint engineering capability (privateWitness outside S2)"
 
+/-- Guarded counter: assert count >= delta before checked subtraction. -/
+private def guardedCounterSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program GuardedCounter where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(i : UInt64) do\n" ++
+  "    count := i\n\n" ++
+  "  entry decrement(delta : UInt64) : UInt64 do\n" ++
+  "    assert count >= delta\n" ++
+  "    count := count - delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Source covering all six comparison operators via assert conditions. -/
+private def allCompareOpsSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program AllCompareOps where\n" ++
+  "  entry check(a : UInt64, b : UInt64) : UInt64 do\n" ++
+  "    assert a == b\n" ++
+  "    assert a != b\n" ++
+  "    assert a < b\n" ++
+  "    assert a <= b\n" ++
+  "    assert a > b\n" ++
+  "    assert a >= b\n" ++
+  "    return a\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def boolStateSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolState where\n" ++
+  "  state flag : Bool\n\n" ++
+  "  init(v : Bool) do\n" ++
+  "    flag := v\n\n" ++
+  "  view get() : Bool do\n" ++
+  "    return flag\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def boolParamSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolParam where\n" ++
+  "  entry check(flag : Bool) : UInt64 do\n" ++
+  "    assert flag\n" ++
+  "    return 0\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def boolResultSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolResult where\n" ++
+  "  entry check(a : UInt64, b : UInt64) : Bool do\n" ++
+  "    return a >= b\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def assertElseSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program AssertElse where\n" ++
+  "  error E\n\n" ++
+  "  entry check(a : UInt64, b : UInt64) : UInt64 do\n" ++
+  "    assert a >= b else E\n" ++
+  "    return a\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def findOps (relation : Targets.Noir.RelationIR)
+    (pred : Targets.Noir.Operation → Bool) : Array Targets.Noir.Operation :=
+  relation.operations.filter pred
+
+private def isAssertConstraint : Targets.Noir.Operation → Bool
+  | .assertConstraint _ => true
+  | _ => false
+
+private unsafe def checkGuardedCounterProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 guardedCounterSourceText
+    "Examples.GuardedCounter" "<noir-guarded-counter>"
+  let initializer ← findRelation ir "init"
+  let decrement ← findRelation ir "decrement"
+  let viewRelation ← findRelation ir "get"
+
+  -- Pin comparison op kind/order and assert placement on the mutate relation.
+  let compares := findOps decrement (fun op => match op with
+    | .compare .. => true
+    | _ => false)
+  expect (compares.size == 1)
+    s!"GuardedCounter decrement must emit exactly one compare, got {compares.size}"
+  match compares[0]! with
+  | .compare .ge _ _ _ => pure ()
+  | other => throw <| IO.userError s!"GuardedCounter expected ge compare, got {repr other}"
+  let asserts := findOps decrement isAssertConstraint
+  expect (asserts.size == 1)
+    s!"GuardedCounter decrement must emit exactly one assertConstraint, got {asserts.size}"
+  -- Compare must precede its assertConstraint in the operation stream.
+  let mut sawCompare := false
+  let mut orderOk := false
+  for operation in decrement.operations do
+    match operation with
+    | .compare .ge .. => sawCompare := true
+    | .assertConstraint _ =>
+        if sawCompare then orderOk := true
+    | _ => pure ()
+  expect orderOk "GuardedCounter ge compare must precede assertConstraint"
+
+  -- Model accept: count=10, delta=3 → post=7, result=7.
+  let ok ← liftModel "GuardedCounter ok inputs" <|
+    statefulInputs decrement true 10 3 7 true 7
+  expectAccept "GuardedCounter 10-3 under assert" decrement ok
+
+  -- Model reject: count=3, delta=5 fails assert (and would underflow).
+  let failAssert ← liftModel "GuardedCounter assert-fail inputs" <|
+    statefulInputs decrement true 3 5 0 true 0
+  expectReject "GuardedCounter assert fails when count < delta" decrement failAssert
+
+  -- Init / view remain comparison-free and still satisfy the lifecycle model.
+  let initOk ← liftModel "GuardedCounter init inputs" <|
+    statefulInputs initializer false 0 10 10 true 0
+  expectAccept "GuardedCounter init" initializer initOk
+  let viewOk ← liftModel "GuardedCounter view inputs" <|
+    statefulInputs viewRelation true 7 0 7 true 7
+  expectAccept "GuardedCounter view" viewRelation viewOk
+
+  -- `.nr` source must contain the comparison and assert surface.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 guardedCounterSourceText
+      "<noir-guarded-emit>" "Examples.GuardedCounter" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some mainNr := files.find? (fun file =>
+      file.path.endsWith "r1-decrement/src/main.nr") |
+    throw <| IO.userError "GuardedCounter missing decrement main.nr"
+  expect (mainNr.contents.contains ">=")
+    "GuardedCounter .nr must render the >= comparison"
+  expect (mainNr.contents.contains "assert(")
+    "GuardedCounter .nr must render assert"
+  expect (mainNr.contents.contains "bool")
+    "GuardedCounter .nr must render bool-typed comparison temp"
+
+  -- Deterministic rebuild: two capability lowerings produce byte-identical IR ops.
+  let ir2 ← compileIrFromProgramV1 guardedCounterSourceText
+    "Examples.GuardedCounter" "<noir-guarded-counter-2>"
+  expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
+    "GuardedCounter IR operations must be byte-deterministic across rebuilds"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "GuardedCounter planHash must be deterministic"
+
+private unsafe def checkAllCompareOpsSource : IO Unit := do
+  let ir ← compileIrFromProgramV1 allCompareOpsSourceText
+    "Examples.AllCompareOps" "<noir-all-compare>"
+  let check ← findRelation ir "check"
+  let expectedOps : Array Targets.Noir.ComparisonOp :=
+    #[.eq, .ne, .lt, .le, .gt, .ge]
+  let compares := findOps check (fun op => match op with
+    | .compare .. => true
+    | _ => false)
+  expect (compares.size == 6)
+    s!"AllCompareOps must emit six compares, got {compares.size}"
+  for i in [0:expectedOps.size] do
+    match compares[i]! with
+    | .compare op _ _ _ =>
+        expect (op == expectedOps[i]!)
+          s!"AllCompareOps compare[{i}] must be {repr (expectedOps[i]!)}, got {repr op}"
+    | other => throw <| IO.userError s!"AllCompareOps[{i}] not compare: {repr other}"
+  let asserts := findOps check isAssertConstraint
+  expect (asserts.size == 6)
+    s!"AllCompareOps must emit six assertConstraints, got {asserts.size}"
+
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 allCompareOpsSourceText
+      "<noir-all-compare-emit>" "Examples.AllCompareOps" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some mainNr := files.find? (fun file =>
+      file.path.endsWith "r0-check/src/main.nr") |
+    throw <| IO.userError "AllCompareOps missing check main.nr"
+  for symbol in #["==", "!=", "<", "<=", ">", ">="] do
+    expect (mainNr.contents.contains symbol)
+      s!"AllCompareOps .nr must contain comparison symbol {symbol}"
+  expect (mainNr.contents.contains "assert(")
+    "AllCompareOps .nr must render assert"
+
+  -- Satisfying witness: a == b makes only eq/le/ge succeed; full path needs all six.
+  -- Use a=5, b=5: eq, le, ge true; ne, lt, gt false → first failing assert is ne.
+  let equal ← liftModel "AllCompareOps equal inputs" <|
+    privateSumInputs check #[5, 5] 5
+  expectReject "AllCompareOps equal operands fail ne" check equal
+  -- a=5, b=3: ne, gt, ge true; eq, lt, le false → fails on eq first.
+  let greater ← liftModel "AllCompareOps greater inputs" <|
+    privateSumInputs check #[5, 3] 5
+  expectReject "AllCompareOps greater operands fail eq" check greater
+
+private unsafe def expectProductClosed (label sourceText moduleName path : String) :
+    IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 sourceText path moduleName none with
+  | .error e =>
+      expect (e.code.startsWith "PF-")
+        s!"{label} selectProgramV1 must fail closed with PF-*, got {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.code.startsWith "PF-")
+            s!"{label} product compile must fail closed with PF-*, got {e.render}"
+      | .ok compiled =>
+          let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+          match Targets.resolveEngineeringRequirementsV1 selection compiled with
+          | .error e =>
+              expect (e.code.startsWith "PF-")
+                s!"{label} capability mint must fail closed with PF-*, got {e.render}"
+          | .ok capability =>
+              match Targets.Noir.planFromCapability capability with
+              | .error e =>
+                  expect (e.code == "PF-PLAN-INVARIANT" || e.code.startsWith "PF-")
+                    s!"{label} Noir plan must fail closed, got {e.render}"
+              | .ok _ =>
+                  throw <| IO.userError s!"{label} must not produce a Noir plan"
+
+private unsafe def checkCompareAssertNegatives : IO Unit := do
+  expectProductClosed "Bool state" boolStateSourceText
+    "Examples.BoolState" "<noir-bool-state>"
+  expectProductClosed "Bool param" boolParamSourceText
+    "Examples.BoolParam" "<noir-bool-param>"
+  expectProductClosed "Bool result" boolResultSourceText
+    "Examples.BoolResult" "<noir-bool-result>"
+  expectProductClosed "assert-else" assertElseSourceText
+    "Examples.AssertElse" "<noir-assert-else>"
+
+/-- Existing Counter planHash golden stays green and comparison-free. -/
+private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
+  let ir ← compileIrFromProgramV1 counterSourceText
+    "Examples.Counter" "<noir-counter-hash>"
+  -- Comparison-free: no compare / assertConstraint ops on any relation.
+  for relation in ir.relations do
+    expect (findOps relation (fun op => match op with
+        | .compare .. | .assertConstraint _ => true
+        | _ => false)).isEmpty
+      s!"Counter relation '{relation.sourceRelation.name}' must remain comparison-free"
+  -- Deterministic rebuild identity (existing Counter surface).
+  let ir2 ← compileIrFromProgramV1 counterSourceText
+    "Examples.Counter" "<noir-counter-hash-2>"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "Counter planHash must be stable across rebuilds"
+  expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
+    "Counter IR ops must be byte-identical across rebuilds"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
+  runCompareAssertFast
   checkStatefulLifecycle {
     label := "Counter"
     sourceText := counterSourceText
@@ -396,6 +738,10 @@ unsafe def run : IO Unit := do
     mutateName := "add"
     viewName := "current"
   }
+  checkGuardedCounterProduct
+  checkAllCompareOpsSource
+  checkCompareAssertNegatives
+  checkCounterPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
   checkPrivateSum4ProductClosed
 
