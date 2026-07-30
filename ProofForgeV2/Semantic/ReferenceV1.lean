@@ -198,7 +198,7 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .variantPayload _ _ _ => admitFail "unsupported op VariantPayload"
   | .indexGet _ _ => admitFail "unsupported IndexGet (Array/Map/Bytes index)"
   | .indexSet _ _ _ => admitFail "unsupported IndexSet (Array/Map/Bytes index)"
-  | .pureCall _ _ => admitFail "unsupported op PureCall"
+  | .pureCall _ _ => pure ()
   | .contextRead _ => admitFail "unsupported op ContextRead"
   | .commit _ => admitFail "unsupported op Commit"
 
@@ -256,6 +256,19 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
       | .pureFn, .schedule _ _ _ =>
           admitFail "pureFn unsupported Schedule"
       | _, _ => pure ()
+      -- PureCall: callee must be a declared pureFn with matching arity (the
+      -- structure gate already checks kinds/types; this is defense in depth).
+      match instr.op with
+      | .pureCall calleeId args =>
+          match data.callables[calleeId.toNat]? with
+          | none => admitFail "PureCall callee out of range after structure gate"
+          | some callee =>
+              if callee.kind != .pureFn then
+                admitFail "PureCall callee is not a pure function"
+              else if args.size != callee.params.size then
+                admitFail "PureCall argument count mismatch"
+              else pure ()
+      | _ => pure ()
       -- ExternalCall/Schedule args: only Bool/UInt8/32/64/Bytes (reject Unit)
       match instr.op with
       | .externalCall _ _ args | .schedule _ _ args =>
@@ -351,6 +364,16 @@ private def valueCanonical (data : SemanticProgramDataV1) (v : ReferenceValueV1)
 
 /-! ### Machine -/
 
+/-- Suspended caller state while a pure-fn callee runs. The callee cannot
+    touch state/effects, so only the frame-local fields need saving. -/
+private structure CallFrameV1 where
+  callable : CallableV1
+  env : Array (Option ReferenceValueV1)
+  loopCounts : Array UInt32
+  blockId : BlockIdV1
+  instrIdx : Nat
+  resultValueId : ValueIdV1
+
 private structure MachineV1 where
   data           : SemanticProgramDataV1
   pre            : LogicalStateV1
@@ -365,6 +388,7 @@ private structure MachineV1 where
   loopCounts     : Array UInt32
   blockId        : BlockIdV1
   instrIdx       : Nat
+  frames         : Array CallFrameV1
 
 private inductive CandidateV1 where
   | returned (value : Option ReferenceValueV1)
@@ -986,24 +1010,90 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
         | .internalInvariant => .internalInvariant
       .done m (.trapped fault)
 
-private def runMachine : (fuel : Nat) → MachineV1 → MachineV1 × CandidateV1
-  | 0, m => (m, .trapped .resourceExhausted)
+private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × CandidateV1
+  | 0, m => (0, m, .trapped .resourceExhausted)
   | fuel + 1, m =>
       match m.callable.blocks[m.blockId.toNat]? with
-      | none => (m, .trapped .invalidCore)
+      | none => (0, m, .trapped .invalidCore)
       | some block =>
           if m.instrIdx < block.instructions.size then
             match block.instructions[m.instrIdx]? with
-            | none => (m, .trapped .internalInvariant)
+            | none => (0, m, .trapped .internalInvariant)
             | some instr =>
-                match execInstruction m instr with
-                | .done m' cand => (m', cand)
-                | .next m1 =>
-                    runMachine fuel { m1 with instrIdx := m1.instrIdx + 1 }
+                match instr.result, instr.op with
+                | some resultDef, .pureCall calleeId argVids =>
+                    -- Push a pure-fn call frame: bind params into a fresh env
+                    -- and enter the callee. One fuel step for the call itself.
+                    match m.data.callables[calleeId.toNat]? with
+                    | none => (0, m, .trapped .invalidCore)
+                    | some callee =>
+                        if callee.kind != .pureFn then (0, m, .trapped .invalidCore) else
+                        match lookupArgs m.env argVids with
+                        | none => (0, m, .trapped .invalidCore)
+                        | some argVals =>
+                            let envSize := maxValueIdInCallable callee + 1
+                            let bound := Id.run do
+                              let mut env := emptyEnv envSize
+                              let mut i : Nat := 0
+                              for p in callee.params do
+                                match argVals[i]? with
+                                | none => return none
+                                | some arg =>
+                                    match envSet env p.valueId arg with
+                                    | none => return none
+                                    | some env' => env := env'
+                                i := i + 1
+                              pure (some env)
+                            match bound with
+                            | none => (0, m, .trapped .invalidCore)
+                            | some calleeEnv =>
+                                let frame : CallFrameV1 := {
+                                  callable := m.callable
+                                  env := m.env
+                                  loopCounts := m.loopCounts
+                                  blockId := m.blockId
+                                  instrIdx := m.instrIdx + 1
+                                  resultValueId := resultDef.valueId
+                                }
+                                runMachine fuel { m with
+                                  callable := callee
+                                  isInitializer := false
+                                  env := calleeEnv
+                                  loopCounts := Array.replicate callee.loopBounds.size (0 : UInt32)
+                                  blockId := callee.entryBlock
+                                  instrIdx := 0
+                                  frames := m.frames.push frame }
+                | _, _ =>
+                    match execInstruction m instr with
+                    | .done m' cand => (0, m', cand)
+                    | .next m1 =>
+                        runMachine fuel { m1 with instrIdx := m1.instrIdx + 1 }
           else
-            match execTerminator m block.terminator with
-            | .done m' cand => (m', cand)
-            | .next mNext => runMachine fuel mNext
+            match block.terminator, m.frames.back? with
+            | .return_ value?, some frame =>
+                -- Pop the pure-call frame: the callee result continues the
+                -- suspended caller (pureFn always returns a value).
+                match value? with
+                | none => (0, m, .trapped .invalidCore)
+                | some vid =>
+                    match envGet m.env vid with
+                    | none => (0, m, .trapped .invalidCore)
+                    | some v =>
+                        match envSet frame.env frame.resultValueId v with
+                        | none => (0, m, .trapped .invalidCore)
+                        | some env' =>
+                            runMachine fuel { m with
+                              callable := frame.callable
+                              isInitializer := m.isInitializer
+                              env := env'
+                              loopCounts := frame.loopCounts
+                              blockId := frame.blockId
+                              instrIdx := frame.instrIdx
+                              frames := m.frames.pop }
+            | _, _ =>
+                match execTerminator m block.terminator with
+                | .done m' cand => (0, m', cand)
+                | .next mNext => runMachine fuel mNext
 
 /-! ### Invocation validation -/
 
@@ -1142,8 +1232,9 @@ def stepReferenceSliceV1
             loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
             blockId := callable.entryBlock
             instrIdx := 0
+            frames := #[]
           }
-          let (mEnd, cand) := runMachine 1000000 m0
+          let (_fuelLeft, mEnd, cand) := runMachine 1000000 m0
           finalize mEnd cand
 
 end ProofForgeV2.Semantic.ReferenceV1

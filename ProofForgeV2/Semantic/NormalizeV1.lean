@@ -277,6 +277,15 @@ private def errorLookup (table : ErrorTableV1) (name : String) :
   table.rows.findSome? fun (n, eid, tids) =>
     if n == name then some (eid, tids) else none
 
+/-- Fn name → (CallableId, param TypeIds, result TypeId). -/
+structure FnTableV1 where
+  rows : Array (String × CallableIdV1 × Array TypeIdV1 × TypeIdV1)
+
+private def fnLookup (table : FnTableV1) (name : String) :
+    Option (CallableIdV1 × Array TypeIdV1 × TypeIdV1) :=
+  table.rows.findSome? fun (n, cid, ptids, rtid) =>
+    if n == name then some (cid, ptids, rtid) else none
+
 /-- Multi-block lowering accumulator for one callable body. The interner is
 live: comparison/Bool-literal lowering interns shapes on first actual use so
 existing programs keep byte-identical type tables. `blocks` holds completed
@@ -370,7 +379,7 @@ private def lowerPlace
 
 private partial def lowerExpr
     (expr : SrcExpr) (expectedTid : TypeIdV1)
-    (st : BodyStateV1) (states : StateTableV1) :
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
   match expr with
   | .place p => do
@@ -394,8 +403,8 @@ private partial def lowerExpr
         let semanticOp := if isAdd then BinaryOpV1.add else BinaryOpV1.sub
         requireExpectedUInt64 st.interner.types expectedTid "binary checked arithmetic"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
-        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states
-        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states
+        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
+        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states fns
         unless lTid == expectedTid && rTid == expectedTid do
           return ← failUnsupported
             "S1 binary checked arithmetic requires expected UInt64 operands"
@@ -416,11 +425,11 @@ private partial def lowerExpr
             let (i1, u64Tid) := internShape st.interner (.uint 64)
             let (i2, boolTid) := internShape i1 .bool
             let st0 := { st with interner := i2 }
-            let (lVid, lTid, st1) ← lowerExpr lhs u64Tid st0 states
+            let (lVid, lTid, st1) ← lowerExpr lhs u64Tid st0 states fns
             unless lTid == u64Tid do
               return ← failUnsupported
                 "S1 comparison requires UInt64 operands"
-            let (rVid, rTid, st2) ← lowerExpr rhs u64Tid st1 states
+            let (rVid, rTid, st2) ← lowerExpr rhs u64Tid st1 states fns
             unless rTid == u64Tid do
               return ← failUnsupported
                 "S1 comparison requires UInt64 operands"
@@ -472,7 +481,35 @@ private partial def lowerExpr
           failUnsupported "S1 normalizer supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
   | .unary _ _ => failUnsupported "S1 normalizer does not support unary expressions"
-  | .localCall _ _ => failUnsupported "S1 normalizer does not support localCall"
+  | .localCall callee args => do
+      let key := raw callee
+      match fnLookup fns key with
+      | none =>
+          failUnsupported s!"S1 localCall '{key}' is not a declared fn"
+      | some (callableId, paramTids, fnResultTid) => do
+          unless fnResultTid == expectedTid do
+            return ← failUnsupported
+              s!"S1 localCall '{key}' result type does not match the enclosing expected type"
+          unless args.size == paramTids.size do
+            return ← failUnsupported
+              s!"S1 localCall '{key}' expects {paramTids.size} arguments, got {args.size}"
+          let mut st' := st
+          let mut argIds : Array ValueIdV1 := #[]
+          for (arg, paramTid) in args.zip paramTids do
+            let (vid, argTid, st1) ← lowerExpr arg paramTid st' states fns
+            unless argTid == paramTid do
+              return ← failUnsupported s!"S1 localCall '{key}' argument type mismatch"
+            argIds := argIds.push vid
+            st' := st1
+          let vid := st'.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := fnResultTid }
+            op := .pureCall callableId argIds
+          }
+          pure (vid, fnResultTid, { st' with
+            instructions := st'.instructions.push instr
+            nextValueId := vid + 1
+          })
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
 
 mutual
@@ -480,12 +517,12 @@ mutual
 private partial def lowerStmts
     (stmts : Array SrcStmt) (resultTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1)
-    (events : EventTableV1) (errors : ErrorTableV1) :
+    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   let mut st := st
   let mut i : Nat := 0
   for stmt in stmts do
-    let (st', status) ← lowerStmt stmt resultTid st states events errors
+    let (st', status) ← lowerStmt stmt resultTid st states events errors fns
     st := st'
     if status == .closed then
       if i + 1 < stmts.size then
@@ -501,7 +538,7 @@ control-flow. Returns the builder and whether this path is closed. -/
 private partial def lowerStmt
     (stmt : SrcStmt) (resultTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1)
-    (events : EventTableV1) (errors : ErrorTableV1) :
+    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   match stmt with
   | .assign target value => do
@@ -521,7 +558,7 @@ private partial def lowerStmt
                   return (← failUnsupported s!"S1 assign target '{key}' must be a state place")
               | some (sid, expectedTid) =>
                   let (vid, tid, st1) ←
-                    lowerExpr value expectedTid st states
+                    lowerExpr value expectedTid st states fns
                   unless tid == expectedTid do
                     return ← failUnsupported
                       s!"S1 assign type mismatch for state '{key}'"
@@ -541,7 +578,7 @@ private partial def lowerStmt
   | .return_ none =>
       failUnsupported "S1 normalizer does not support bare return"
   | .return_ (some e) => do
-      let (vid, tid, st1) ← lowerExpr e resultTid st states
+      let (vid, tid, st1) ← lowerExpr e resultTid st states fns
       unless tid == resultTid do
         return ← failUnsupported "S1 return expression type mismatch"
       pure (sealCurrentBlock st1 (TerminatorV1.return_ (some vid)), .closed)
@@ -552,7 +589,7 @@ private partial def lowerStmt
       | none => do
           let (i1, boolTid) := internShape st.interner .bool
           let st0 := { st with interner := i1 }
-          let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states
+          let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
           unless condTid == boolTid do
             return ← failUnsupported "S1 assert condition must be Bool"
           let instr : InstructionV1 := {
@@ -565,7 +602,7 @@ private partial def lowerStmt
   | .if_ condition thenBlock elseBlock? => do
       let (i1, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := i1 }
-      let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states
+      let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
       unless condTid == boolTid do
         return ← failUnsupported "S1 if condition must be Bool"
       -- Seal the condition block with a placeholder else target; nested
@@ -575,7 +612,7 @@ private partial def lowerStmt
       let thenId := UInt32.ofNat (condIdx + 1)
       let st2 := sealCurrentBlock st1 (.branch condVid
         { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
-      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states events errors
+      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states events errors fns
       let (stT, thenJump?) := match thenStatus with
         | .closed => (stT, none)
         | .open_ =>
@@ -586,7 +623,7 @@ private partial def lowerStmt
       let elseId := UInt32.ofNat stT.blocks.size
       let (stE, elseJump?, elseClosed) ← match elseBlock? with
         | some elseBlock => do
-            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states events errors
+            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states events errors fns
             match status with
             | .closed => pure (stE0, none, true)
             | .open_ =>
@@ -622,9 +659,9 @@ private partial def lowerStmt
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
         | .literal (.bool _) =>
-            lowerExpr scrutinee boolTid st0 states
+            lowerExpr scrutinee boolTid st0 states fns
         | _ =>
-            lowerExpr scrutinee u64Tid st0 states
+            lowerExpr scrutinee u64Tid st0 states fns
       unless scrutTid == u64Tid || scrutTid == boolTid do
         return ← failUnsupported "S1 match scrutinee must be UInt64 or Bool"
       -- Split arms into literal cases and exactly-one catch-all (wildcard or
@@ -677,7 +714,7 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => st1
           | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
-        lowerStmts defaultBody.statements resultTid stD states events errors
+        lowerStmts defaultBody.statements resultTid stD states events errors fns
       else
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
@@ -689,7 +726,7 @@ private partial def lowerStmt
         let mut closedCount : Nat := 0
         for (_, _, body) in caseArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let (stB, status) ← lowerStmts body.statements resultTid stA states events errors
+          let (stB, status) ← lowerStmts body.statements resultTid stA states events errors fns
           stA := stB
           match status with
           | .closed => closedCount := closedCount + 1
@@ -701,7 +738,7 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => stA
           | some name => { stA with env := envInsert stA.env (raw name) scrutVid scrutTid }
-        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states events errors
+        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states events errors fns
         stA := stD
         match dStatus with
         | .closed => closedCount := closedCount + 1
@@ -742,7 +779,7 @@ private partial def lowerStmt
           let mut st' := st
           let mut argIds : Array ValueIdV1 := #[]
           for (arg, fieldTid) in args.zip fieldTids do
-            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states
+            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states fns
             unless argTid == fieldTid do
               return ← failUnsupported s!"S1 revert '{key}' argument type mismatch"
             argIds := argIds.push vid
@@ -760,7 +797,7 @@ private partial def lowerStmt
           let mut st' := st
           let mut argIds : Array ValueIdV1 := #[]
           for (arg, fieldTid) in args.zip fieldTids do
-            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states
+            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states fns
             unless argTid == fieldTid do
               return ← failUnsupported s!"S1 emit '{key}' argument type mismatch"
             argIds := argIds.push vid
@@ -781,7 +818,7 @@ end
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
     (interner : TypeInternerV1) (states : StateTableV1)
-    (events : EventTableV1) (errors : ErrorTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
     (allowImplicitReturnNone : Bool) :
     Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
   let mut env := emptyEnv
@@ -795,7 +832,7 @@ private def lowerBlock
     env := env
     interner := interner
   }
-  let (st', status) ← lowerStmts body.statements resultTid st states events errors
+  let (st', status) ← lowerStmts body.statements resultTid st states events errors fns
   match status with
   | .closed =>
       -- Body ended in return on every path; the trailing open block (if any
@@ -926,6 +963,35 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         errorTable := { rows := errorTable.rows.push (raw d.name, eid, fieldTids) }
     | _ => pure ()
 
+  -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
+  -- the unified source order of init/entry/view/fn items (the same order
+  -- pass 2 lowers them). Fn params/results stay public scalars.
+  let mut fnTable : FnTableV1 := ⟨#[]⟩
+  let mut fnCallableOrdinal : Nat := 0
+  for item in program.items do
+    match item with
+    | .fn d =>
+        let mut paramTids : Array TypeIdV1 := #[]
+        for p in d.params do
+          unless p.visibility == ProofForgeV2.Source.AstV1.VisibilityV1.public_ do
+            return ← failUnsupported
+              s!"S1 fn '{raw d.name}' param '{raw p.name}' must be public"
+          let (interner', tid) ← internSourceType interner p.type_
+          interner := interner'
+          requireUInt64TypeId interner.types tid
+            s!"fn '{raw d.name}' param '{raw p.name}'"
+          paramTids := paramTids.push tid
+        let (interner', resultTid) ← internSourceType interner d.result
+        interner := interner'
+        requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
+        let fnRow := (raw d.name, UInt32.ofNat fnCallableOrdinal, paramTids, resultTid)
+        fnTable := { rows := fnTable.rows.push fnRow }
+    | _ => pure ()
+    match item with
+    | .init _ | .entry _ | .view _ | .fn _ =>
+        fnCallableOrdinal := fnCallableOrdinal + 1
+    | _ => pure ()
+
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
   let mut callableId : Nat := 0
@@ -938,7 +1004,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
         let (blocks, interner''') ←
-          lowerBlock d.body params unitTid interner stateTable eventTable errorTable true
+          lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable true
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
@@ -951,7 +1017,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
         let (blocks, interner''') ←
-          lowerBlock e.body params resultTid interner stateTable eventTable errorTable false
+          lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
@@ -964,7 +1030,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
         let (blocks, interner''') ←
-          lowerBlock v.body params resultTid interner stateTable eventTable errorTable false
+          lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
@@ -978,8 +1044,22 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         return ← failUnsupported "S1 normalizer does not support const"
     | .event _ => pure ()
     | .error _ => pure ()
-    | .fn _ =>
-        return ← failUnsupported "S1 normalizer does not support fn"
+    | .fn d =>
+        let (interner', params) ← lowerParams d.params interner
+        interner := interner'
+        let (interner'', resultTid) ← internSourceType interner d.result
+        interner := interner''
+        requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
+        -- Fn purity: the body resolves bare places against an empty state
+        -- table, so any state name fails closed (fn effects are revert-only).
+        let emptyStates : StateTableV1 := ⟨#[]⟩
+        let (blocks, interner''') ←
+          lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable false
+        interner := interner'''
+        callables := callables.push (mkCallable
+          (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
+        callableId := callableId + 1
     | .invariant _ =>
         return ← failUnsupported "S1 normalizer does not support invariant"
     | .extensionReq _ =>

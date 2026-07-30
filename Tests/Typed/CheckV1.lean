@@ -2351,16 +2351,27 @@ private unsafe def testUnsupportedNestedComparison
     (fun d => d.contains "UInt64" || d.contains "comparison")
     "UInt64 comparison operands"
 
-private unsafe def testUnsupportedFn
+/-- Identity fn + direct local call: now a supported positive case (the
+    former normalize-boundary negative). -/
+private unsafe def testFnIdentitySupported
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "FnOnly" <|
     "  fn helper(x : UInt64) : UInt64 do\n" ++
     "    return x\n" ++
     "  entry run(x : UInt64) : UInt64 do\n" ++
     "    return helper(x)\n"
-  expectUnsupportedAfterCheckOk session "fn" source
-    (fun d => d.contains "fn" || d.contains "localCall" || d.contains "local")
-    "fn/localCall"
+  let validated ← loadSource session "fn-identity" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "fn-identity: CheckV1.ok"
+  match normalizeProgramV1 validated with
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .ok data =>
+          let kinds := data.callables.map (·.kind)
+          expect (data.callables.size == 2 && kinds == #[.pureFn, .entry])
+            "fn-identity: pureFn + entry must both normalize"
+      | .error e => throw <| IO.userError s!"fn-identity: validate: {repr e}"
+  | .error e => throw <| IO.userError s!"fn-identity: normalize must now succeed, got {repr e}"
 
 private unsafe def testUnsupportedPrivateState
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2535,6 +2546,189 @@ private unsafe def testEmitRevertProvenance
     throw <| IO.userError "event-prov: missing revert terminator origin"
   expect (termOrigin == revertStmtOrigin)
     "event-prov: revert terminator must bind the revert statement"
+
+/-- Fn declarations and local calls: pureFn callables with canonical ids,
+    Op.PureCall with exact args, and nested fn→fn calls. -/
+private unsafe def testFnLocalCall
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FnFlow" <|
+    "  state count : UInt64\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n" ++
+    "  fn quadruple(y : UInt64) : UInt64 do\n" ++
+    "    return double(y) + double(y)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := double(count) + quadruple(delta)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "fn-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "fn-flow: CheckV1.ok"
+  expect typed.analysisComplete "fn-flow: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"fn-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"fn-flow: validate: {repr e}"
+  -- Unified callable table: double, quadruple, init, bump, get in source order.
+  let kinds := data.callables.map (·.kind)
+  let names := data.callables.map (·.name)
+  expect (data.callables.size == 5 &&
+      kinds == #[.pureFn, .pureFn, .initializer, .entry, .view] &&
+      names == #[some "double", some "quadruple", none, some "bump", some "get"])
+    "fn-flow: callable table must keep fns in unified source order"
+  -- double: pureFn with one UInt64 param and UInt64 result, single block.
+  let some doubleC := data.callables[0]? |
+    throw <| IO.userError "fn-flow: missing double callable"
+  let some doubleParam := doubleC.params[0]? |
+    throw <| IO.userError "fn-flow: missing double param"
+  expect (doubleC.params.size == 1 && doubleC.result.typeId == doubleParam.typeId)
+    "fn-flow: double must have one param and a matching result type"
+  -- quadruple: two nested PureCall instructions targeting double (id 0).
+  let some quadC := data.callables[1]? |
+    throw <| IO.userError "fn-flow: missing quadruple callable"
+  let some quadBlk := quadC.blocks[0]? |
+    throw <| IO.userError "fn-flow: missing quadruple block"
+  let callInstrs := quadBlk.instructions.filter fun instr =>
+    match instr.op with | .pureCall .. => true | _ => false
+  expect (callInstrs.size == 2)
+    s!"fn-flow: quadruple must lower two nested pure calls, got {callInstrs.size}"
+  let some firstCall := callInstrs[0]? |
+    throw <| IO.userError "fn-flow: missing first pure call"
+  match firstCall with
+  | { result := some _, op := .pureCall calleeId args } =>
+      expect (calleeId == 0 && args.size == 1 && args[0]? == some 0)
+        "fn-flow: first pure call must target double with the fn param"
+  | _ => throw <| IO.userError "fn-flow: first pure call shape mismatch"
+  -- bump: PureCall ops target double (0) and quadruple (1).
+  let some bumpC := data.callables[3]? |
+    throw <| IO.userError "fn-flow: missing bump callable"
+  let some bumpBlk := bumpC.blocks[0]? |
+    throw <| IO.userError "fn-flow: missing bump block"
+  let bumpCalls := bumpBlk.instructions.filterMap fun instr =>
+    match instr.op with | .pureCall calleeId _ => some calleeId | _ => none
+  expect (bumpCalls == #[0, 1])
+    s!"fn-flow: bump must call double then quadruple, got {bumpCalls}"
+
+/-- Fn with a declared revert: the revert effect is allowed inside fn and
+    propagates through the calling entry. -/
+private unsafe def testFnRevertPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FnRevert" <|
+    "  error Cap(limit : UInt64)\n" ++
+    "  fn check(x : UInt64, lim : UInt64) : UInt64 do\n" ++
+    "    if x > lim then\n" ++
+    "      revert Cap(lim)\n" ++
+    "    else\n" ++
+    "      return x\n" ++
+    "  entry clamp(v : UInt64) : UInt64 do\n" ++
+    "    return check(v, 10)\n"
+  let validated ← loadSource session "fn-revert" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "fn-revert: CheckV1.ok (fn revert is the only allowed fn effect)"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"fn-revert: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"fn-revert: validate: {repr e}"
+  let some checkC := data.callables[0]? |
+    throw <| IO.userError "fn-revert: missing check callable"
+  expect (checkC.kind == .pureFn && checkC.blocks.size == 3)
+    s!"fn-revert: check must lower to cond/revert/else blocks, got {checkC.blocks.size}"
+  let some revertBlk := checkC.blocks[1]? |
+    throw <| IO.userError "fn-revert: missing revert block"
+  match revertBlk.terminator with
+  | .revert errorId args =>
+      expect (errorId == 0 && args.size == 1)
+        "fn-revert: revert must bind Cap with one arg"
+  | _ => throw <| IO.userError "fn-revert: then block must terminate in revert"
+
+/-- State reads inside fn violate the fn effect allowlist at CheckV1. -/
+private unsafe def testFnStateReadTypedNotOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FnStateRead" <|
+    "  state count : UInt64\n" ++
+    "  fn sneak(x : UInt64) : UInt64 do\n" ++
+    "    return count + x\n" ++
+    "  entry run(v : UInt64) : UInt64 do\n" ++
+    "    return sneak(v)\n"
+  let validated ← loadSource session "fn-state-read" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "fn-state-read: CheckV1 must reject state.read in fn"
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "fn-state-read: normalize must not accept typed-not-ok"
+  | .error (.typedNotOk _) => pure ()
+  | .error e =>
+      throw <| IO.userError s!"fn-state-read: expected .typedNotOk, got {repr e}"
+
+/-- A two-fn local-call cycle is rejected by the call-graph check. -/
+private unsafe def testFnCallCycleTypedNotOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FnCycle" <|
+    "  fn ping(x : UInt64) : UInt64 do\n" ++
+    "    return pong(x)\n" ++
+    "  fn pong(x : UInt64) : UInt64 do\n" ++
+    "    return ping(x)\n" ++
+    "  entry run(v : UInt64) : UInt64 do\n" ++
+    "    return ping(v)\n"
+  let validated ← loadSource session "fn-cycle" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "fn-cycle: CheckV1 must reject the ping/pong call cycle"
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "fn-cycle: normalize must not accept typed-not-ok"
+  | .error (.typedNotOk _) => pure ()
+  | .error e =>
+      throw <| IO.userError s!"fn-cycle: expected .typedNotOk, got {repr e}"
+
+/-- Provenance for fn/localCall: fn callable/param entities and the localCall
+    instruction/value entities binding the exact source nodes. -/
+private unsafe def testFnLocalCallProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FnFlow" <|
+    "  state count : UInt64\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := double(count)\n" ++
+    "    return count\n"
+  let (validated, spans) ← loadSourceWithSpans session "fn-prov" source
+  let path ← parseTestPath "fn-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"fn-prov: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"fn-prov: normalize: {repr e}"
+  match validateSemanticProgramV1 carrier with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"fn-prov: validate: {repr e}"
+  -- Fn callable entity binds the FnDecl item node.
+  let fnItemPath := childPathT #[] "Program" "items" 1
+  let fnItemOrigin ← originAtExplicitPath validated inventory fnItemPath
+  let some fnCallableOrigin := findOrigin provenance (.callable 0) |
+    throw <| IO.userError "fn-prov: missing fn callable origin"
+  expect (fnCallableOrigin == fnItemOrigin)
+    "fn-prov: fn callable must bind the FnDecl item"
+  -- The localCall instruction and result value bind the local-call expression.
+  let entryItemPath := childPathT #[] "Program" "items" 3
+  let bodyPath := directChildT entryItemPath "EntryDecl" "body"
+  let assignStmtPath := childPathT bodyPath "Block" "statements" 0
+  let callPath := directChildT assignStmtPath "Stmt.Assign" "value"
+  let callOrigin ← originAtExplicitPath validated inventory callPath
+  let some instrOrigin := findOrigin provenance (.instruction 2 0 1) |
+    throw <| IO.userError "fn-prov: missing localCall instruction origin"
+  let some valueOrigin := findOrigin provenance (.value 2 2) |
+    throw <| IO.userError "fn-prov: missing localCall value origin"
+  expect (instrOrigin == callOrigin && valueOrigin == callOrigin)
+    "fn-prov: localCall instruction/value must bind the local-call expression"
 
 /-- Literal instruction and result value both bind the source literal expression
     node, not the enclosing return statement or an arbitrary nearby origin. -/
@@ -3507,9 +3701,14 @@ unsafe def run : IO Unit := do
   testUnsupportedEventBoolField session
   testUnsupportedEventPrivateField session
   testEmitRevertProvenance session
+  testFnLocalCall session
+  testFnRevertPath session
+  testFnStateReadTypedNotOk session
+  testFnCallCycleTypedNotOk session
+  testFnLocalCallProvenance session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
-  testUnsupportedFn session
+  testFnIdentitySupported session
   testUnsupportedPrivateState session
   testUnsupportedBoolState session
   testUnsupportedBoolParam session

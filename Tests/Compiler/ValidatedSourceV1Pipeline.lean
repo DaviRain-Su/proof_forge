@@ -297,9 +297,28 @@ def run : IO Unit := do
       body := ret (var seed)
     },
     .entry (entry runN (ret (.localCall x #[var seed])) #[param seed])]
-  expectInvalid "fn/localCall normalize gate"
-    "S1 normalizer does not support fn"
-    (Compiler.compileValidatedSourceV1 fnLocalClean)
+  -- fn/localCall now compiles: the pureFn callable and the PureCall op are
+  -- retained in the single compiled SemanticProgramV1 carrier.
+  let fnLocalCompiled ← compileOk "fn/localCall product compile" fnLocalClean
+  expectNormalizeDeterministic "fn/localCall normalize" fnLocalClean
+  let fnLocalData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of fnLocalCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"fn/localCall retained carrier: {repr e}"
+  let some fnCallable := fnLocalData.callables[0]? |
+    throw <| IO.userError "fn/localCall: missing retained fn callable"
+  expect (fnCallable.kind == .pureFn)
+    "fn/localCall: retained fn callable must be pureFn"
+  let some entryCallable := fnLocalData.callables[1]? |
+    throw <| IO.userError "fn/localCall: missing retained entry callable"
+  let some entryCallInstr := entryCallable.blocks[0]?.bind (·.instructions.find? fun instr =>
+    match instr.op with | .pureCall .. => true | _ => false) |
+    throw <| IO.userError "fn/localCall: missing retained PureCall"
+  match entryCallInstr.op with
+  | .pureCall calleeId args =>
+      expect (calleeId == 0 && args.size == 1)
+        "fn/localCall: retained PureCall must target fn 0 with one arg"
+  | _ => throw <| IO.userError "fn/localCall: expected retained PureCall"
   -- UInt64 literal-only programs pass Normalize and retain exact value bytes in
   -- the single compiled SemanticProgramV1 carrier.
   let literalOnly ← validated moduleName identity demo #[

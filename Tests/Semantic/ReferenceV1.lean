@@ -530,6 +530,69 @@ private unsafe def testEmitRevertReferenceSlice
   }
   expectReturned "event-ref-emit" emitted twelveState (some (refU64 u64Tid 12)) #[movedEffect]
 
+private unsafe def testFnLocalCallReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Pure-fn calls: nested fn→fn evaluation, and a declared revert inside an
+  -- fn propagating through the calling entry.
+  let source := wrap "FnRef" <|
+    "  state count : UInt64\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n" ++
+    "  fn check(x : UInt64, lim : UInt64) : UInt64 do\n" ++
+    "    if x > lim then\n" ++
+    "      revert Cap(lim)\n" ++
+    "    else\n" ++
+    "      return double(x)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := check(delta, 10) + double(count)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "fn-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"fn-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"fn-ref: validate failed: {repr e}"
+  let admitted ← admitOk "fn-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 2
+  let bumpId : CallableIdV1 := 3
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"fn-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 3]) emptyResponses
+  let threeState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 3) }
+  expectReturned "fn-ref-init" initPost threeState none #[]
+  -- delta=4 ≤ 10 → check returns double(4)=8; double(count)=6; count=14.
+  let callOk :=
+    stepReferenceSliceV1 admitted threeState (inv bumpId #[refU64 u64Tid 4]) emptyResponses
+  let fourteenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 14) }
+  expectReturned "fn-ref-call" callOk fourteenState (some (refU64 u64Tid 14)) #[]
+  -- delta=20 > 10 → check reverts Cap(10) inside the fn; pre-state preserved.
+  let reverting :=
+    stepReferenceSliceV1 admitted fourteenState (inv bumpId #[refU64 u64Tid 20]) emptyResponses
+  match reverting with
+  | .reverted (.declared eid args) st =>
+      expect (eid == 0) s!"fn-ref-revert: declared error id, got {eid}"
+      expect (args == #[refU64 u64Tid 10])
+        "fn-ref-revert: declared args must carry lim"
+      expect (logicalStateEq st fourteenState)
+        "fn-ref-revert: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"fn-ref-revert: expected declared revert, got {repr other}"
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1117,7 +1180,8 @@ private def testAdmissionUnsupported : IO Unit := do
         l.contains "option")
     "aggregate"
 
-  -- PureCall in entry body
+  -- PureCall in entry body: now admitted (pureFn kind + arity checked at
+  -- admission; a wrong-kind or wrong-arity callee still fails closed).
   let typesP : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .unit }
   ]
@@ -1131,11 +1195,10 @@ private def testAdmissionUnsupported : IO Unit := do
     baseP with types := typesP, callables := #[pureFn, entryPC]
   }
   let cP ← encodeCarrier "adm-purecall" dataP
-  admitUnsupported "adm-purecall" cP
-    (fun d =>
-      let l := d.toLower
-      l.contains "purecall" || l.contains "pure_call" || l.contains "pure call")
-    "PureCall"
+  match admitReferenceProgramSliceV1 cP with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"adm-purecall: admission must now succeed, got {repr e}"
 
   -- ContextRead
   let ctxKey ← match parseSchemaId "proof-forge.context.example.v1" with
@@ -1454,6 +1517,7 @@ unsafe def run : IO Unit := do
   testBoolResultReferenceSlice session
   testIfMatchReferenceSlice session
   testEmitRevertReferenceSlice session
+  testFnLocalCallReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

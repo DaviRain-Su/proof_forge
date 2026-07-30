@@ -509,7 +509,27 @@ private partial def attrExpr
           failUnsupported "S2 provenance supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S2 provenance does not support constructors"
   | .unary _ _ => failUnsupported "S2 provenance does not support unary"
-  | .localCall _ _ => failUnsupported "S2 provenance does not support localCall"
+  | .localCall _ args => do
+      -- PureCall instruction and its result bind the local-call expression;
+      -- each argument attributes in call order (mirroring the normalizer).
+      let mut st' := st
+      let mut i := 0
+      for arg in args do
+        let argPath := childPath exprPath "Expr.LocalCall" "args" i
+        let (_avid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let vid := st'.nextValueId
+      let instrEntity :=
+        SemanticEntityRefV1.instruction callableId (UInt32.ofNat st'.blockId) (UInt32.ofNat st'.nextInstr)
+      let valEntity := SemanticEntityRefV1.value callableId vid
+      let acc1 ← attrPushPath st'.acc idx instrEntity exprPath
+      let acc2 ← attrPushPath acc1 idx valEntity exprPath
+      pure (vid, { st' with
+        nextValueId := vid + 1
+        nextInstr := st'.nextInstr + 1
+        acc := acc2
+      })
   | .match_ _ _ => failUnsupported "S2 provenance does not support match expr"
 
 mutual
@@ -1180,11 +1200,40 @@ private def attributeCounterEntitiesV1
         let bodyPath := directChild itemPath "ViewDecl" "body"
         acc ← attrBlock cid v.body bodyPath params states idx acc false
         callableId := callableId + 1
+    | .fn d =>
+        let some c := data.callables[callableId]? |
+          return ← failUnsupported "S2 provenance: missing fn callable"
+        unless c.kind == .pureFn do
+          return ← failUnsupported "S2 provenance: callable kind mismatch (fn)"
+        let cid : CallableIdV1 := UInt32.ofNat callableId
+        acc ← attrPushPath acc idx (.callable cid) itemPath
+        let mut params : Array (String × ValueIdV1) := #[]
+        let mut pi : Nat := 0
+        for p in d.params do
+          let paramPath := childPath itemPath "FnDecl" "params" pi
+          let some sp := c.params[pi]? |
+            return ← failUnsupported "S2 provenance: fn param count mismatch"
+          acc ← attrPushPath acc idx (.value cid sp.valueId) paramPath
+          let pTypePath := directChild paramPath "Param" "type"
+          let (accP, tbP) ← tryBindType acc idx typeBound sp.typeId pTypePath
+          acc := accP
+          typeBound := tbP
+          params := params.push (raw p.name, sp.valueId)
+          pi := pi + 1
+        let resultPath := directChild itemPath "FnDecl" "result"
+        let (accR, tbR) ← tryBindType acc idx typeBound c.result.typeId resultPath
+        acc := accR
+        typeBound := tbR
+        -- Fn purity: the body attributes against an empty state-name table,
+        -- so any state place fails closed (mirroring the normalizer).
+        let bodyPath := directChild itemPath "FnDecl" "body"
+        acc ← attrBlock cid d.body bodyPath params ⟨#[]⟩ idx acc false
+        callableId := callableId + 1
     | .event _ | .error _ => pure ()
-    | .struct _ | .enum _ | .const _ | .fn _
+    | .struct _ | .enum _ | .const _
     | .invariant _ | .extensionReq _ | .proof _ =>
         return ← failUnsupported
-          "S2 provenance attribution only supports state/event/error/init/entry/view"
+          "S2 provenance attribution only supports state/event/error/init/entry/view/fn"
     itemIdx := itemIdx + 1
   unless callableId == data.callables.size do
     return ← failUnsupported "S2 provenance: callable count mismatch"
@@ -1280,6 +1329,19 @@ private def attributeCounterEntitiesV1
         | .bool =>
             rs := reqPush rs "value.bool" (directChild itemPath "ViewDecl" "result")
         | _ => pure ()
+    | .fn d =>
+        let mut pi : Nat := 0
+        for p in d.params do
+          match p.type_ with
+          | .bool =>
+              let paramPath := childPath itemPath "FnDecl" "params" pi
+              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+          | _ => pure ()
+          pi := pi + 1
+        match d.result with
+        | .bool =>
+            rs := reqPush rs "value.bool" (directChild itemPath "FnDecl" "result")
+        | _ => pure ()
     | _ => pure ()
     itemIdx := itemIdx + 1
   itemIdx := 0
@@ -1292,6 +1354,8 @@ private def attributeCounterEntitiesV1
         rs := reqBlockSites e.body (directChild itemPath "EntryDecl" "body") rs
     | .view v =>
         rs := reqBlockSites v.body (directChild itemPath "ViewDecl" "body") rs
+    | .fn d =>
+        rs := reqBlockSites d.body (directChild itemPath "FnDecl" "body") rs
     | _ => pure ()
     itemIdx := itemIdx + 1
 
