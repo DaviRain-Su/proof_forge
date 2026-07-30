@@ -288,6 +288,8 @@ private def testCompareAssertPlanMutations : IO Unit := do
     objectName := "Mut"
     runtimeObjectName := "__proof_forge_runtime"
     storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    events := #[]
+    errors := #[]
     constructor := some {
       params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
       stores := #[{ slot := 0, value := .param 0 }]
@@ -840,6 +842,8 @@ private unsafe def testRegionValidationNegatives : IO Unit := do
     objectName := "NegRegion"
     runtimeObjectName := "NegRegion_runtime"
     storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    events := #[]
+    errors := #[]
     constructor := none
     entries := #[
       { name := "go"
@@ -969,6 +973,8 @@ private unsafe def testInitEarlyBareReturnClosed : IO Unit := do
     objectName := "InitEarly"
     runtimeObjectName := "InitEarly_runtime"
     storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+    events := #[]
+    errors := #[]
     constructor := some {
       params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
       stores := #[]
@@ -996,6 +1002,67 @@ private unsafe def testInitEarlyBareReturnClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"validatePlan must fail with planInvariant, got {e.render}"
   | .ok () => throw <| IO.userError "validatePlan must reject an in-arm bare return"
+
+/-- Declared event/error: emit lowers to log1 with the Keccak topic, revert
+    lowers to an ABI custom-error revert with the Keccak selector. -/
+private unsafe def testEmitRevertFlow : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EventFlow where\n" ++
+    "  state count : UInt64\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Moved(count, delta)\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load EventFlow" (← session.selectProgramV1
+    text "<evm-event-flow>" "Tests.EvmEventFlow" none)
+  let compiled ← liftResult "compile EventFlow" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan EventFlow" <| planEvm compiled
+  expect (plan.events.map (·.name) == #["Moved"] &&
+      plan.events[0]!.fieldCount == 2 &&
+      plan.errors.map (·.name) == #["Cap"] &&
+      plan.errors[0]!.fieldCount == 1)
+    "EventFlow must carry the declared event/error bindings"
+  expect (plan.entries[0]!.body == #[
+      .emitEvent 0 #[.storageLoad 0, .param 0],
+      .ifThenElse (.compare .gt (.storageLoad 0) (.param 0))
+        #[.revertError 0 #[.param 0]]
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }],
+      .returnValue (.storageLoad 0)])
+    "EventFlow bump must lower emit, branch revert, join return"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"EventFlow plan must validate: {e.render}"
+  let output ← liftResult "materialize EventFlow" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "EventFlow.yul") |
+    throw <| IO.userError "EventFlow: missing EventFlow.yul"
+  let yul := yulFile.contents
+  let expectedTopic := Targets.Evm.Keccak.keccak256Hex "Moved(uint64,uint64)".toUTF8
+  expect (yul.contains s!"log1(0, 64, 0x{expectedTopic})")
+    "EventFlow Yul must emit log1 with the Keccak Moved topic and two words"
+  let expectedSelector := Targets.Evm.Keccak.selector "Cap" #["uint64"]
+  expect ((yul.contains s!"revert(0, 36)") && (yul.contains expectedSelector))
+    "EventFlow Yul must revert with the ABI Cap(uint64) selector and one word"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "EventFlow.abi.json") |
+    throw <| IO.userError "EventFlow: missing EventFlow.abi.json"
+  expect (abiFile.contents.contains "\"type\":\"event\",\"name\":\"Moved\"" &&
+      abiFile.contents.contains "\"type\":\"error\",\"name\":\"Cap\"")
+    "EventFlow ABI must declare the Moved event and Cap error"
 
 private unsafe def testComparisonNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1054,6 +1121,7 @@ unsafe def run : IO Unit := do
   testMatchBindArm
   testEarlyReturnJoin
   testInitEarlyBareReturnClosed
+  testEmitRevertFlow
   testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared

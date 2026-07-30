@@ -57,6 +57,8 @@ inductive Statement where
   | returnValue (value : Expr)
   | returnNone
   | assert (condition : Expr)
+  | emitEvent (eventIndex : Nat) (args : Array Expr)
+  | revertError (errorIndex : Nat) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -95,12 +97,21 @@ structure Entry where
   resultKind : ResultKind := .uint64
   deriving BEq, Inhabited, Repr
 
+/-- One declared event/error binding: its name and UInt64 argument count,
+    from which the canonical ABI signature and Keccak topic/selector derive. -/
+structure InterfaceBinding where
+  name : String
+  fieldCount : Nat
+  deriving BEq, Inhabited, Repr
+
 /-- Complete EVM decisions for the currently supported portable fragment.
 The renderer consumes this value without consulting `SemanticProgram`. -/
 structure Plan where
   objectName : String
   runtimeObjectName : String
   storageLayout : Array StorageBinding
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
   constructor : Option Constructor
   entries : Array Entry
   deriving BEq, Inhabited, Repr
@@ -413,6 +424,45 @@ private def consumeCurrentSegmentV1
       "unsupported EVM semantic shape: dead or reordered value instructions"
   pure rootValue.expr
 
+/-- Multi-root effect-boundary consumption (event/revert argument lists):
+    every value produced in the current segment must be reachable from at
+    least one sink root, mirroring the single-root discipline. -/
+private def consumeSegmentRootsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (roots : Array ValueIdV1) : CompileResult Unit := do
+  for root in roots do
+    let _ ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  for root in roots do
+    if root.toNat >= paramCount then
+      stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: dead or reordered value instructions"
+  pure ()
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -551,6 +601,23 @@ private def lowerBlockInstructionsV1
             "unsupported EVM semantic shape: assert condition must be Bool"
         let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
         body := body.push (.assert cond)
+        hasAssert := true
+        segmentStart := values.size
+    | .emit _effectId eventId argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view callable emits an event"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !root.isBool do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: event arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Multi-root effect boundary: every value produced in the current
+        -- segment must be reachable from at least one argument tree.
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        body := body.push (.emitEvent eventId.toNat argExprs)
         hasAssert := true
         segmentStart := values.size
     | _, _ =>
@@ -726,9 +793,19 @@ private partial def emitRegionV1
               armReadables expectedResultKind (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
             values3, next, hAAcc || hA3, true)
-  | .revert _ _ | .trap _ =>
+  | .revert errorId argIds =>
+      let mut argExprs : Array Expr := #[]
+      for argId in argIds do
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        unless !root.isBool do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: revert arguments must be UInt64"
+        argExprs := argExprs.push root.expr
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none, hA, false)
+  | .trap _ =>
       throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: revert/trap terminators are outside the current pilot"
+        "unsupported EVM semantic shape: trap terminators are outside the current pilot"
 
 private def lowerCallableV1
     (owner : String)
@@ -934,7 +1011,10 @@ private def exprIsUInt64CompatibleV1 (expr : Expr) : Bool :=
 private partial def checkPlanStatementsV1
     (owner : String) (isConstructor : Bool) (isView : Bool)
     (resultKind : ResultKind) (slots : Array Nat) (paramCount : Nat)
-    (allowReturnNone : Bool) (statements : Array Statement) (total : Nat) :
+    (allowReturnNone : Bool)
+    (eventCount : Nat) (eventFieldCounts : Array Nat)
+    (errorCount : Nat) (errorFieldCounts : Array Nat)
+    (statements : Array Statement) (total : Nat) :
     CompileResult (Nat × Bool) := do
   let mut total := total
   let mut closed := false
@@ -974,6 +1054,31 @@ private partial def checkPlanStatementsV1
             s!"{owner} has an early bare return inside a branch arm"
         total := total + 1
         closed := true
+    | .emitEvent eventIndex args =>
+        if isView then
+          throw <| .planInvariant .evm s!"{owner} emits an event in a view context"
+        unless eventIndex < eventCount do
+          throw <| .planInvariant .evm s!"{owner} emits an unknown event"
+        unless args.size == eventFieldCounts[eventIndex]! do
+          throw <| .planInvariant .evm s!"{owner} event argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .evm
+              s!"{owner} event arguments must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total arg
+        total := total + 1
+    | .revertError errorIndex args =>
+        unless errorIndex < errorCount do
+          throw <| .planInvariant .evm s!"{owner} reverts with an unknown error"
+        unless args.size == errorFieldCounts[errorIndex]! do
+          throw <| .planInvariant .evm s!"{owner} error argument count mismatch"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 arg do
+            throw <| .planInvariant .evm
+              s!"{owner} error arguments must be UInt64 expressions"
+          total ← addPlanExprNodes slots paramCount total arg
+        total := total + 1
+        closed := true
     | .ifThenElse condition thenBody elseBody =>
         unless exprIsBoolCompatibleV1 condition do
           throw <| .planInvariant .evm
@@ -981,9 +1086,11 @@ private partial def checkPlanStatementsV1
         total ← addPlanExprNodes slots paramCount total condition
         total := total + 1
         let (t1, c1) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount false thenBody total
+          owner isConstructor isView resultKind slots paramCount false
+          eventCount eventFieldCounts errorCount errorFieldCounts thenBody total
         let (t2, c2) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount false elseBody t1
+          owner isConstructor isView resultKind slots paramCount false
+          eventCount eventFieldCounts errorCount errorFieldCounts elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
@@ -993,11 +1100,13 @@ private partial def checkPlanStatementsV1
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkPlanStatementsV1
-            owner isConstructor isView resultKind slots paramCount false caseBody total
+            owner isConstructor isView resultKind slots paramCount false
+            eventCount eventFieldCounts errorCount errorFieldCounts caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkPlanStatementsV1
-          owner isConstructor isView resultKind slots paramCount false defaultBody total
+          owner isConstructor isView resultKind slots paramCount false
+          eventCount eventFieldCounts errorCount errorFieldCounts defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1025,6 +1134,18 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   let slots := plan.storageLayout.map (·.slot)
   if hasDuplicates stateIds || hasDuplicates stateNames || hasDuplicates slots then
     throw <| .planInvariant .evm "storage ids, names, and slots must each be unique"
+  for binding in plan.events do
+    unless isIdentifier binding.name && binding.fieldCount <= maxParams do
+      throw <| .planInvariant .evm s!"event '{binding.name}' is not a canonical binding"
+  if hasDuplicates (plan.events.map (·.name)) then
+    throw <| .planInvariant .evm "event names must be unique"
+  for binding in plan.errors do
+    unless isIdentifier binding.name && binding.fieldCount <= maxParams do
+      throw <| .planInvariant .evm s!"error '{binding.name}' is not a canonical binding"
+  if hasDuplicates (plan.errors.map (·.name)) then
+    throw <| .planInvariant .evm "error names must be unique"
+  let eventFieldCounts := plan.events.map (·.fieldCount)
+  let errorFieldCounts := plan.errors.map (·.fieldCount)
   for index in [0:plan.storageLayout.size] do
     unless plan.storageLayout[index]!.slot == index &&
         plan.storageLayout[index]!.sourceId == index do
@@ -1062,7 +1183,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
     else
       let (t, _) ← checkPlanStatementsV1 "constructor" true false .uint64
-        slots constructor.params.size true constructor.body totalPlanNodes
+        slots constructor.params.size true
+        plan.events.size eventFieldCounts plan.errors.size errorFieldCounts
+        constructor.body totalPlanNodes
       totalPlanNodes := t
   for entry in plan.entries do
     unless isIdentifier entry.name && validSelector entry.selector do
@@ -1096,10 +1219,25 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm s!"entry '{entry.name}' has no body"
     let (t, returned) ← checkPlanStatementsV1 s!"entry '{entry.name}'" false
       (entry.mutability == .view) entry.resultKind slots entry.params.size
-      false entry.body totalPlanNodes
+      false plan.events.size eventFieldCounts plan.errors.size errorFieldCounts
+      entry.body totalPlanNodes
     totalPlanNodes := t
     unless returned do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
+
+/-- Validate one declared event/error binding: safe name and public UInt64
+    fields (the EVM pilot ABI encodes UInt64 words only). -/
+private def makeInterfaceBindingV1 (label : String) (name : String)
+    (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
+    CompileResult InterfaceBinding := do
+  unless isIdentifier name do
+    throw <| .planInvariant .evm
+      s!"unsupported EVM semantic shape: {label} name '{name}' is not a safe identifier"
+  for field in fields do
+    unless field.typeId == uint64TypeId && field.visibility == .public_ do
+      throw <| .planInvariant .evm
+        s!"unsupported EVM semantic shape: {label} '{name}' fields must be public UInt64"
+  pure { name, fieldCount := fields.size }
 
 /-- EVM-private public-UInt64 SemanticProgramV1 data → target-owned Plan pilot.
     This is intentionally not shared with other targets: storage/ABI/layout and
@@ -1107,10 +1245,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     genuinely common bounded utility. -/
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.events.isEmpty || !source.errors.isEmpty ||
-      !source.invariants.isEmpty then
+  if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: constants/events/errors/invariants are outside the current UInt64 pilot"
+      "unsupported EVM semantic shape: constants/invariants are outside the current UInt64 pilot"
   if source.callables.size > maxEntries + 1 then
     throw <| .planInvariant .evm s!"callable count exceeds EVM profile limit {maxEntries + 1}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
@@ -1118,6 +1255,10 @@ private def makePlanFromSemanticDataV1
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateEvmTypeClosureV1 source.types
   let storageLayout ← makeStorageLayoutV1 types.uint64TypeId source.logicalState
+  let events ← source.events.mapM (fun d =>
+    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
+  let errors ← source.errors.mapM (fun d =>
+    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let objectName := components.back!
   let mut constructor : Option Constructor := none
@@ -1146,6 +1287,8 @@ private def makePlanFromSemanticDataV1
     objectName
     runtimeObjectName
     storageLayout
+    events
+    errors
     constructor
     entries
   }
@@ -1233,6 +1376,7 @@ private structure RenderedBody where
   deriving Inhabited
 
 private partial def renderBody (indent paramPrefix : String) (next : Nat)
+    (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (body : Array Statement) : RenderedBody := Id.run do
   let mut output := ""
   let mut next := next
@@ -1256,15 +1400,40 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         -- Valid only as the constructor body's final statement (validated);
         -- falling off the body reaches the deployment epilogue on this path.
         pure ()
+    | .emitEvent eventIndex args =>
+        let binding := events[eventIndex]!
+        let signature := Keccak.signature binding.name
+          (Array.replicate binding.fieldCount "uint64")
+        let topic0 := Keccak.keccak256Hex signature.toUTF8
+        for index in [0:args.size] do
+          let rendered := renderExpr indent paramPrefix next args[index]!
+          output := output ++ rendered.code
+          next := rendered.next
+          output := output ++ s!"{indent}mstore({32 * index}, {rendered.value})\n"
+        output := output ++ s!"{indent}log1(0, {32 * args.size}, 0x{topic0})\n"
+    | .revertError errorIndex args =>
+        let binding := errors[errorIndex]!
+        let selector := Keccak.selector binding.name
+          (Array.replicate binding.fieldCount "uint64")
+        let padded := selector ++ String.ofList (List.replicate 56 '0')
+        for index in [0:args.size] do
+          let rendered := renderExpr indent paramPrefix next args[index]!
+          output := output ++ rendered.code
+          next := rendered.next
+          output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
+        output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
+        output := output ++ s!"{indent}revert(0, {4 + 32 * args.size})\n"
     | .ifThenElse condition thenBody elseBody =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code
-        let thenRendered := renderBody (indent ++ "  ") paramPrefix rendered.next thenBody
+        let thenRendered := renderBody (indent ++ "  ") paramPrefix rendered.next
+          events errors thenBody
         output := output ++ s!"{indent}if {rendered.value} \{\n" ++
           thenRendered.code ++ s!"{indent}}\n"
         next := thenRendered.next
         if !elseBody.isEmpty then
-          let elseRendered := renderBody (indent ++ "  ") paramPrefix next elseBody
+          let elseRendered := renderBody (indent ++ "  ") paramPrefix next
+            events errors elseBody
           output := output ++ s!"{indent}if iszero({rendered.value}) \{\n" ++
             elseRendered.code ++ s!"{indent}}\n"
           next := elseRendered.next
@@ -1276,7 +1445,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         next := rendered.next + 1
         let mut guard : String := ""
         for (caseValue, caseBody) in cases do
-          let caseRendered := renderBody (indent ++ "  ") paramPrefix next caseBody
+          let caseRendered := renderBody (indent ++ "  ") paramPrefix next
+            events errors caseBody
           output := output ++
             s!"{indent}if eq({scrutName}, {caseValue}) \{\n" ++
             caseRendered.code ++ s!"{indent}}\n"
@@ -1284,7 +1454,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           let eqExpr := s!"eq({scrutName}, {caseValue})"
           guard := if guard.isEmpty then eqExpr else s!"or({guard}, {eqExpr})"
         if !defaultBody.isEmpty then
-          let defaultRendered := renderBody (indent ++ "  ") paramPrefix next defaultBody
+          let defaultRendered := renderBody (indent ++ "  ") paramPrefix next
+            events errors defaultBody
           output := output ++ s!"{indent}if iszero({guard}) \{\n" ++
             defaultRendered.code ++ s!"{indent}}\n"
           next := defaultRendered.next
@@ -1308,12 +1479,12 @@ private def renderConstructor (plan : Plan) : String := Id.run do
     (if constructor.body.isEmpty then
       renderStores "    " "ctor_arg" constructor.stores
     else
-      (renderBody "    " "ctor_arg" 0 constructor.body).code)
+      (renderBody "    " "ctor_arg" 0 plan.events plan.errors constructor.body).code)
   return output ++
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"
 
-private def renderEntry (entry : Entry) : String := Id.run do
+private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
   let calldataBytes := 4 + entry.params.size * 32
   let mut output :=
     s!"      case 0x{entry.selector} \{\n" ++
@@ -1323,11 +1494,11 @@ private def renderEntry (entry : Entry) : String := Id.run do
     output := output ++
       s!"        let arg{param.wordIndex} := calldataload({offset})\n" ++
       s!"        if gt(arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
-  output := output ++ (renderBody "        " "arg" 0 entry.body).code
+  output := output ++ (renderBody "        " "arg" 0 plan.events plan.errors entry.body).code
   return output ++ "      }\n"
 
 private def renderYul (plan : Plan) : String :=
-  let entries := plan.entries.foldl (fun output entry => output ++ renderEntry entry) ""
+  let entries := plan.entries.foldl (fun output entry => output ++ renderEntry plan entry) ""
   s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
     renderConstructor plan ++
     s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
@@ -1363,10 +1534,18 @@ private def renderEntryAbi (entry : Entry) : String :=
     renderParamsJson entry.params ++
     "],\"outputs\":[{\"name\":\"\",\"type\":\"" ++ resultType ++ "\"}]}"
 
+private def renderInterfaceBindingAbi (kind : String) (binding : InterfaceBinding) : String :=
+  let inputs := (List.range binding.fieldCount).map fun index =>
+    "{\"name\":\"arg" ++ toString index ++ "\",\"type\":\"uint64\"}"
+  "{\"type\":\"" ++ kind ++ "\",\"name\":\"" ++ Targets.escapeJson binding.name ++
+    "\",\"inputs\":[" ++ String.intercalate "," inputs ++ "]}"
+
 private def renderAbi (plan : Plan) : String :=
   let constructor := plan.constructor.map (fun value => #[renderConstructorAbi value]) |>.getD #[]
   let entries := plan.entries.map renderEntryAbi
-  let items := constructor ++ entries
+  let events := plan.events.map (renderInterfaceBindingAbi "event")
+  let errors := plan.errors.map (renderInterfaceBindingAbi "error")
+  let items := constructor ++ entries ++ events ++ errors
   "[\n  " ++ String.intercalate ",\n  " items.toList ++ "\n]\n"
 
 private def lower (plan : Plan) : CompileResult IR := do
