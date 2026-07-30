@@ -249,7 +249,8 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
       { sourceId := 1, name := "b", inputIndex := 2, visibility := .verifier }] &&
       noir.relations[0]!.body == #[
         .store { fieldIndex := 0, value := .param 1 },
-        .store { fieldIndex := 1, value := .param 2 }])
+        .store { fieldIndex := 1, value := .param 2 },
+        .returnNone])
     "Noir initializer relation must preserve parameter and store order"
   expect (noir.relations[1]!.params == #[
       { sourceId := 0, name := "x", inputIndex := 3, visibility := .verifier },
@@ -559,9 +560,11 @@ private def noirDescriptorEngineeringReprBaseline : String :=
   "  settlementModel := ProofForgeV2.SettlementModel.externalVerifier,\n" ++
   "  codegenProfile := \"noir-source-u64-relations-v1\" }"
 
-/-- Independent single-semantic-carrier Accumulator Noir planHash golden. -/
+/-- Independent single-semantic-carrier Accumulator Noir planHash golden.
+    Wave C: init relation bodies now carry the explicit `.returnNone`
+    bare-return marker, which is part of the planHash preimage. -/
 private def accumulatorPlanHashBaseline : String :=
-  "1bd35ab0daa2cacb39e7a3aea9ae7d3be4d06c3a186a351ddf655ec19a886143"
+  "580bfbb85bf05a86954544180aa8a3c6772e27dd7af66452f413cd88ecc5f6ec"
 
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do

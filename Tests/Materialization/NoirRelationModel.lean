@@ -132,7 +132,8 @@ private def evalComparison (op : Targets.Noir.ComparisonOp)
     | .ge => left ≥ right
   if result then 1 else 0
 
-private def step (machine : Machine) :
+mutual
+private partial def step (machine : Machine) :
     Targets.Noir.Operation → Except String Machine
   | .checkedAdd destination lhs rhs => do
       let left ← readValue machine lhs
@@ -166,13 +167,22 @@ private def step (machine : Machine) :
       let value ← readComparable machine condition
       if value != 0 then .ok machine
       else modelError "assert constraint failed: condition is zero"
+  | .ifRegion condition thenOps elseOps => do
+      let value ← readComparable machine condition
+      runOperations (if value != 0 then thenOps.toList else elseOps.toList) machine
+  | .switchRegion scrutinee _ cases defaultOps => do
+      let value ← readComparable machine scrutinee
+      match cases.find? (fun (caseValue, _) => caseValue == value) with
+      | some (_, caseOps) => runOperations caseOps.toList machine
+      | none => runOperations defaultOps.toList machine
 
-private def runOperations :
+private partial def runOperations :
     List Targets.Noir.Operation → Machine → Except String Machine
   | [], machine => .ok machine
   | operation :: remaining, machine => do
       let next ← step machine operation
       runOperations remaining next
+end
 
 private def validateInputTypes (relation : Targets.Noir.RelationIR)
     (inputs : Array ModelValue) : Except String Unit := do
@@ -948,6 +958,182 @@ private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
         expect (binding.type == .u64)
           s!"Counter relation '{relation.sourceRelation.name}' result must stay u64"
 
+/-- Wave C branching: if/else diamond, both-return if, early-return with a
+    trailing join (previously fail-closed case), match with a bind catch-all,
+    and an assert inside a branch arm (constrains only that path). -/
+private def branchCounterSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BranchCounter where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count >= delta then\n" ++
+  "      count := count - delta\n" ++
+  "    else\n" ++
+  "      count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  entry clamp(limit : UInt64) : UInt64 do\n" ++
+  "    if count > limit then\n" ++
+  "      return limit\n" ++
+  "    else\n" ++
+  "      return count\n\n" ++
+  "  entry cap(limit : UInt64) : UInt64 do\n" ++
+  "    if count > limit then\n" ++
+  "      return limit\n" ++
+  "    else\n" ++
+  "      count := count + 1\n" ++
+  "    return count\n\n" ++
+  "  entry pick(choice : UInt64) : UInt64 do\n" ++
+  "    match choice with\n" ++
+  "    | 0 => do\n" ++
+  "      count := count + 10\n" ++
+  "    | 1 => do\n" ++
+  "      count := count + 20\n" ++
+  "    | other => do\n" ++
+  "      count := other\n" ++
+  "    return count\n\n" ++
+  "  entry withdraw(amount : UInt64) : UInt64 do\n" ++
+  "    if amount > 0 then\n" ++
+  "      assert count >= amount\n" ++
+  "      count := count - amount\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkBranchingProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 branchCounterSourceText
+    "Examples.BranchCounter" "<noir-branch-counter>"
+  let initializer ← findRelation ir "init"
+  let bump ← findRelation ir "bump"
+  let clamp ← findRelation ir "clamp"
+  let cap ← findRelation ir "cap"
+  let pick ← findRelation ir "pick"
+  let withdraw ← findRelation ir "withdraw"
+
+  -- Region structure: every mutating entry carries exactly one region op.
+  let regionCount : Targets.Noir.RelationIR → Nat := fun relation =>
+    relation.operations.foldl (fun total op => total + match op with
+      | .ifRegion .. | .switchRegion .. => 1
+      | _ => 0) 0
+  expect (regionCount bump == 1 && regionCount clamp == 1 &&
+      regionCount cap == 1 && regionCount pick == 1 &&
+      regionCount withdraw == 1 && regionCount initializer == 0)
+    "BranchCounter relations must each carry exactly one region op (init: none)"
+  match pick.operations.find? (fun op => match op with
+    | .switchRegion .. => true | _ => false) with
+  | some (.switchRegion _ _ cases _) =>
+      expect (cases.size == 2)
+        s!"pick switch must carry two literal cases plus the bind default, got {cases.size}"
+  | _ => throw <| IO.userError "pick relation must lower match to a switchRegion"
+  match bump.operations.find? (fun op => match op with
+    | .ifRegion .. => true | _ => false) with
+  | some (.ifRegion _ thenOps elseOps) =>
+      expect (!thenOps.isEmpty && !elseOps.isEmpty)
+        "bump if-region arms must both be non-empty complete paths"
+  | _ => throw <| IO.userError "bump relation must lower the diamond to an ifRegion"
+
+  let initOk ← liftModel "BranchCounter init inputs" <|
+    statefulInputs initializer false 0 10 10 true 0
+  expectAccept "BranchCounter init" initializer initOk
+
+  -- bump: both diamond paths, state and result per path.
+  let bumpSub ← liftModel "BranchCounter bump sub inputs" <|
+    statefulInputs bump true 10 3 7 true 7
+  expectAccept "BranchCounter bump 10>=3 subtracts" bump bumpSub
+  let bumpAdd ← liftModel "BranchCounter bump add inputs" <|
+    statefulInputs bump true 3 5 8 true 8
+  expectAccept "BranchCounter bump 3<5 adds" bump bumpAdd
+  let bumpWrongPost ← liftModel "BranchCounter bump wrong post inputs" <|
+    statefulInputs bump true 10 3 8 true 7
+  expectReject "BranchCounter bump post-state from the wrong arm" bump bumpWrongPost
+
+  -- clamp: both arms return; state untouched on both paths.
+  let clampHigh ← liftModel "BranchCounter clamp high inputs" <|
+    statefulInputs clamp true 10 5 10 true 5
+  expectAccept "BranchCounter clamp 10>5 returns limit" clamp clampHigh
+  let clampLow ← liftModel "BranchCounter clamp low inputs" <|
+    statefulInputs clamp true 3 7 3 true 3
+  expectAccept "BranchCounter clamp 3<=7 returns count" clamp clampLow
+  let clampWrongResult ← liftModel "BranchCounter clamp wrong result inputs" <|
+    statefulInputs clamp true 10 5 10 true 10
+  expectReject "BranchCounter clamp wrong result on the taken arm" clamp clampWrongResult
+
+  -- cap: early return in the then arm with a trailing join (formerly
+  -- fail-closed asymmetric shape); else path stores and falls through.
+  let capEarly ← liftModel "BranchCounter cap early inputs" <|
+    statefulInputs cap true 10 5 10 true 5
+  expectAccept "BranchCounter cap 10>5 early-returns limit" cap capEarly
+  let capThrough ← liftModel "BranchCounter cap through inputs" <|
+    statefulInputs cap true 3 7 4 true 4
+  expectAccept "BranchCounter cap 3<=7 increments through the join" cap capThrough
+  let capWrongEarly ← liftModel "BranchCounter cap wrong early inputs" <|
+    statefulInputs cap true 10 5 11 true 11
+  expectReject "BranchCounter cap early path must not run the join" cap capWrongEarly
+
+  -- pick: literal cases and the bind default arm.
+  let pickZero ← liftModel "BranchCounter pick 0 inputs" <|
+    statefulInputs pick true 5 0 15 true 15
+  expectAccept "BranchCounter pick choice=0 adds 10" pick pickZero
+  let pickOne ← liftModel "BranchCounter pick 1 inputs" <|
+    statefulInputs pick true 5 1 25 true 25
+  expectAccept "BranchCounter pick choice=1 adds 20" pick pickOne
+  let pickOther ← liftModel "BranchCounter pick other inputs" <|
+    statefulInputs pick true 5 7 7 true 7
+  expectAccept "BranchCounter pick choice=7 binds the default arm" pick pickOther
+  let pickWrongArm ← liftModel "BranchCounter pick wrong-arm inputs" <|
+    statefulInputs pick true 5 2 25 true 25
+  expectReject "BranchCounter pick default arm must not take a literal case" pick pickWrongArm
+
+  -- withdraw: the assert inside the arm constrains only that path.
+  let withdrawOk ← liftModel "BranchCounter withdraw ok inputs" <|
+    statefulInputs withdraw true 10 3 7 true 7
+  expectAccept "BranchCounter withdraw 10-3 under branch assert" withdraw withdrawOk
+  let withdrawSkip ← liftModel "BranchCounter withdraw skip inputs" <|
+    statefulInputs withdraw true 10 0 10 true 10
+  expectAccept "BranchCounter withdraw amount=0 skips the assert" withdraw withdrawSkip
+  let withdrawTrap ← liftModel "BranchCounter withdraw trap inputs" <|
+    statefulInputs withdraw true 3 5 0 true 0
+  expectReject "BranchCounter withdraw 3<5 fails the branch assert" withdraw withdrawTrap
+
+  -- `.nr` surface: if/else and else-if chains with per-path asserts.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 branchCounterSourceText
+      "<noir-branch-emit>" "Examples.BranchCounter" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some bumpNr := files.find? (fun file =>
+    file.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "BranchCounter missing bump main.nr"
+  expect (bumpNr.contents.contains "if t")
+    "BranchCounter bump .nr must render the branch condition temp"
+  expect (bumpNr.contents.contains "} else {")
+    "BranchCounter bump .nr must render the else arm"
+  expect ((bumpNr.contents.splitOn "assert(post_s0 ==").length == 3)
+    "BranchCounter bump .nr must bind post-state inside both path leaves"
+  let some pickNr := files.find? (fun file =>
+    file.path.endsWith "r4-pick/src/main.nr") |
+    throw <| IO.userError "BranchCounter missing pick main.nr"
+  expect (pickNr.contents.contains "else if")
+    "BranchCounter pick .nr must render the switch as an else-if chain"
+  expect ((pickNr.contents.contains "== 0") && (pickNr.contents.contains "== 1"))
+    "BranchCounter pick .nr must render literal case comparisons"
+
+  -- Deterministic rebuild.
+  let ir2 ← compileIrFromProgramV1 branchCounterSourceText
+    "Examples.BranchCounter" "<noir-branch-counter-2>"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "BranchCounter planHash must be deterministic"
+  expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
+    "BranchCounter IR ops must be byte-identical across rebuilds"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -975,5 +1161,6 @@ unsafe def run : IO Unit := do
   checkCounterPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
   checkPrivateSum4ProductClosed
+  checkBranchingProduct
 
 end Tests.Materialization.NoirRelationModel
