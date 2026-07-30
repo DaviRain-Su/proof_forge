@@ -45,6 +45,10 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- Pure local call: `fnIndex` indexes `Plan.fns`; args are UInt64 expressions.
+  Result kind is the callee's declared result (UInt64 or Bool). Not an effect
+  boundary — stays inside a value segment like checkedAdd. -/
+  | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -104,6 +108,15 @@ structure InterfaceBinding where
   fieldCount : Nat
   deriving BEq, Inhabited, Repr
 
+/-- Target-owned pure function binding. Bodies are lowered from pureFn callables
+    (no store/emit); params mirror ABI-word Param layout for rendering only. -/
+structure FnBinding where
+  name : String
+  params : Array Param
+  body : Array Statement
+  resultIsBool : Bool
+  deriving BEq, Inhabited, Repr
+
 /-- Complete EVM decisions for the currently supported portable fragment.
 The renderer consumes this value without consulting `SemanticProgram`. -/
 structure Plan where
@@ -114,6 +127,9 @@ structure Plan where
   errors : Array InterfaceBinding
   constructor : Option Constructor
   entries : Array Entry
+  /-- Dense pureFn table in source-order of pureFn callables. Default empty
+  keeps historical Plan literals byte-identical. -/
+  fns : Array FnBinding := #[]
   deriving BEq, Inhabited, Repr
 
 structure IR where
@@ -366,6 +382,46 @@ private def makeCompareValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
 
+/-- PureCall tree cost: one node plus each argument tree (SSA args counted per
+    use). Result kind is the callee's declared result. -/
+private def makeCallFnValueV1
+    (fnIndex : Nat)
+    (argIds : Array ValueIdV1)
+    (args : Array LoweredValueV1)
+    (isBool : Bool) : CompileResult LoweredValueV1 := do
+  for arg in args do
+    unless !arg.isBool do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: pureCall arguments must be UInt64"
+  let mut depth : Nat := 0
+  let mut expandedNodes : Nat := 0
+  for arg in args do
+    depth := max depth arg.depth
+    if expandedNodes > maxPlanNodes - arg.expandedNodes then
+      throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+    expandedNodes := expandedNodes + arg.expandedNodes
+  depth := 1 + depth
+  if expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  pure {
+    expr := .callFn fnIndex (args.map (·.expr))
+    depth
+    expandedNodes := 1 + expandedNodes
+    dependencies := argIds
+    isBool
+  }
+
+private def resolveFnIndexV1
+    (fnIndexByCallableId : Array (Option Nat))
+    (callableId : CallableIdV1) : CompileResult Nat :=
+  match fnIndexByCallableId[callableId.toNat]? with
+  | some (some fnIndex) => pure fnIndex
+  | _ =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: pureCall targets a non-pureFn callable"
+
 private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   match op with
   | .eq => some .eq
@@ -479,6 +535,8 @@ private inductive SemanticCallableModeV1 where
   | constructor
   | entry
   | view
+  /-- pureFn body: same return/value rules as entry, but storage/effects banned. -/
+  | pureFn
   deriving BEq
 
 private structure LoweredCallableV1 where
@@ -500,6 +558,8 @@ private def lowerBlockInstructionsV1
     (mode : SemanticCallableModeV1)
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
@@ -546,6 +606,9 @@ private def lowerBlockInstructionsV1
             isBool := true
           }
     | .stateLoad stateId, some result =>
+        if mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn body loads storage"
         let binding ← findStorageV1 layout stateId
         values := ← appendResultValueV1 uint64TypeId values result {
           expr := .storageLoad binding.slot
@@ -578,10 +641,42 @@ private def lowerBlockInstructionsV1
                   "unsupported EVM semantic shape: comparison result must be Bool"
               let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
               values := ← appendResultValueV1 boolTid values result value
-    | .stateStore stateId valueId, none =>
-        if mode == .view then
+    | .pureCall callableId argIds, some result =>
+        -- Not an effect boundary: callFn is a value expression inside the segment.
+        let fnIndex ← resolveFnIndexV1 fnIndexByCallableId callableId
+        let fnBinding ← match fns[fnIndex]? with
+          | some binding => pure binding
+          | none => throw (.planInvariant .evm
+              "unsupported EVM semantic shape: pureCall fnIndex is out of range")
+        unless argIds.size == fnBinding.params.size do
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: view callable writes storage"
+            s!"unsupported EVM semantic shape: pureCall arity mismatch for '{fnBinding.name}'"
+        let mut argValues : Array LoweredValueV1 := #[]
+        for argId in argIds do
+          let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless !arg.isBool do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pureCall arguments must be UInt64"
+          argValues := argValues.push arg
+        let value ← makeCallFnValueV1 fnIndex argIds argValues fnBinding.resultIsBool
+        if fnBinding.resultIsBool then
+          let boolTid ← match types.boolTypeId with
+            | some tid => pure tid
+            | none => throw (.planInvariant .evm
+                "unsupported EVM semantic shape: Bool pureCall requires anonymous Bool type")
+          unless result.typeId == boolTid do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pureCall result type must match callee Bool"
+          values := ← appendResultValueV1 boolTid values result value
+        else
+          unless result.typeId == uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pureCall result type must match callee UInt64"
+          values := ← appendResultValueV1 uint64TypeId values result value
+    | .stateStore stateId valueId, none =>
+        if mode == .view || mode == .pureFn then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: view/pureFn callable writes storage"
         let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
         unless !stored.isBool do
           throw <| .planInvariant .evm
@@ -604,9 +699,9 @@ private def lowerBlockInstructionsV1
         hasAssert := true
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
-        if mode == .view then
+        if mode == .view || mode == .pureFn then
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: view callable emits an event"
+            "unsupported EVM semantic shape: view/pureFn callable emits an event"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -643,6 +738,8 @@ private partial def emitRegionV1
     (mode : SemanticCallableModeV1)
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
     (blocks : Array BlockV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
@@ -662,7 +759,7 @@ private partial def emitRegionV1
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: block ids are not dense"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types layout paramCount armReadables block values0
+    owner mode types layout fnIndexByCallableId fns paramCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
@@ -672,11 +769,11 @@ private partial def emitRegionV1
       match mode with
       | .constructor =>
           throw <| .planInvariant .evm "constructor cannot return a value"
-      | .entry | .view =>
+      | .entry | .view | .pureFn =>
           let expected ← match expectedResultKind with
             | some kind => pure kind
             | none => throw (.planInvariant .evm
-                "unsupported EVM semantic shape: entry/view return missing expected result kind")
+                "unsupported EVM semantic shape: entry/view/pureFn return missing expected result kind")
           let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
           match expected with
           | .uint64 =>
@@ -709,19 +806,19 @@ private partial def emitRegionV1
           "unsupported EVM semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
       let (thenBody, values1, thenNext, hA1, _) ←
-        emitRegionV1 owner mode types layout blocks paramCount
+        emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
           armReadables expectedResultKind (fuel - 1) thenT.blockId.toNat values
       match thenNext with
       | some j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, next, hA2, _) ←
-              emitRegionV1 owner mode types layout blocks paramCount
+              emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
                 armReadables expectedResultKind (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest,
               values2, next, hA || hA1 || hA2, true)
           else
             let (elseBody, values2, elseNext, hA2, _) ←
-              emitRegionV1 owner mode types layout blocks paramCount
+              emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
                 armReadables expectedResultKind (fuel - 1) elseT.blockId.toNat values1
             match elseNext with
             | some j2 =>
@@ -729,19 +826,19 @@ private partial def emitRegionV1
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, next, hA3, _) ←
-                  emitRegionV1 owner mode types layout blocks paramCount
+                  emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
                     armReadables expectedResultKind (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, next, hA || hA1 || hA2 || hA3, true)
             | none =>
                 let (rest, values3, next, hA3, _) ←
-                  emitRegionV1 owner mode types layout blocks paramCount
+                  emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
                     armReadables expectedResultKind (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
                   values3, next, hA || hA1 || hA2 || hA3, true)
       | none =>
           let (elseBody, values2, elseNext, hA2, _) ←
-            emitRegionV1 owner mode types layout blocks paramCount
+            emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
               armReadables expectedResultKind (fuel - 1) elseT.blockId.toNat values1
           pure (instrs ++ #[.ifThenElse cond thenBody elseBody],
             values2, elseNext, hA || hA1 || hA2, true)
@@ -758,7 +855,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
         let (body, values1, armNext, hA1, _) ←
-          emitRegionV1 owner mode types layout blocks paramCount
+          emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
             (armReadables.push scrutId) expectedResultKind (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -772,7 +869,7 @@ private partial def emitRegionV1
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: switch arms converge on divergent joins"
       let (defaultBody, values2, defaultNext, hA2, _) ←
-        emitRegionV1 owner mode types layout blocks paramCount
+        emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
           (armReadables.push scrutId) expectedResultKind (fuel - 1)
           defaultT.blockId.toNat valuesA
       hAAcc := hAAcc || hA2
@@ -789,7 +886,7 @@ private partial def emitRegionV1
             values2, none, hAAcc, true)
       | some j =>
           let (rest, values3, next, hA3, _) ←
-            emitRegionV1 owner mode types layout blocks paramCount
+            emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
               armReadables expectedResultKind (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
             values3, next, hAAcc || hA3, true)
@@ -812,6 +909,8 @@ private def lowerCallableV1
     (mode : SemanticCallableModeV1)
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
     (callable : CallableV1)
     (expectedResultKind : Option ResultKind) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
@@ -824,7 +923,7 @@ private def lowerCallableV1
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
   let (body0, values0, nextJoin0, hA0, hasRegion0) ←
-    emitRegionV1 owner mode types layout callable.blocks paramCount #[]
+    emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks paramCount #[]
       expectedResultKind callable.blocks.size 0 initialValues
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -839,7 +938,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, next1, hA1, hasRegion1) ←
-          emitRegionV1 owner mode types layout callable.blocks paramCount #[]
+          emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks paramCount #[]
             expectedResultKind callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -872,6 +971,8 @@ private def lowerCallableV1
 private def makeConstructorV1
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
     (callable : CallableV1) : CompileResult Constructor := do
   unless callable.name.isNone && callable.result.visibility == .public_ do
     throw <| .planInvariant .evm
@@ -883,7 +984,8 @@ private def makeConstructorV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "constructor" .constructor types layout callable none
+  let lowered ← lowerCallableV1 "constructor" .constructor types layout
+    fnIndexByCallableId fns callable none
   pure {
     params := lowered.params
     stores := lowered.stores
@@ -893,6 +995,8 @@ private def makeConstructorV1
 private def makeEntryV1
     (types : EvmTypeClosureV1)
     (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
     (callable : CallableV1) : CompileResult Entry := do
   let name ← match callable.name with
     | some value => pure value
@@ -917,8 +1021,9 @@ private def makeEntryV1
   let mutability : Mutability := match mode with
     | .entry => .nonpayable
     | .view => .view
-    | .constructor => .nonpayable
-  let lowered ← lowerCallableV1 s!"entry '{name}'" mode types layout callable (some resultKind)
+    | .constructor | .pureFn => .nonpayable
+  let lowered ← lowerCallableV1 s!"entry '{name}'" mode types layout
+    fnIndexByCallableId fns callable (some resultKind)
   pure {
     name
     selector := Keccak.selector name (lowered.params.map fun _ => "uint64")
@@ -928,8 +1033,41 @@ private def makeEntryV1
     resultKind
   }
 
+/-- Lower one pureFn callable into a dense Plan fn binding. Signatures in
+    `fns` must already be populated so nested pureCall can resolve arity/kind. -/
+private def makeFnV1
+    (types : EvmTypeClosureV1)
+    (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
+    (callable : CallableV1) : CompileResult FnBinding := do
+  let name ← match callable.name with
+    | some value => pure value
+    | none => throw (.planInvariant .evm
+        "unsupported EVM semantic shape: pureFn is missing its name")
+  unless isIdentifier name do
+    throw <| .planInvariant .evm s!"fn name '{name}' is not an EVM ABI identifier"
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .evm s!"fn '{name}' does not return public UInt64 or Bool"
+  let resultIsBool : Bool ←
+    if callable.result.typeId == types.uint64TypeId then
+      pure false
+    else if types.boolTypeId == some callable.result.typeId then
+      pure true
+    else
+      throw <| .planInvariant .evm s!"fn '{name}' does not return public UInt64 or Bool"
+  let resultKind : ResultKind := if resultIsBool then .bool else .uint64
+  let lowered ← lowerCallableV1 s!"fn '{name}'" .pureFn types layout
+    fnIndexByCallableId fns callable (some resultKind)
+  pure {
+    name
+    params := lowered.params
+    body := lowered.body
+    resultIsBool
+  }
+
 private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nodeBudget : Nat)
-    (expr : Expr) : Option Nat :=
+    (fns : Array FnBinding) (expr : Expr) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
@@ -940,50 +1078,81 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .checkedAdd lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available lhs with
+        match planExprNodes? slots paramCount childDepth available fns lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) rhs with
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .checkedSub lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available lhs with
+        match planExprNodes? slots paramCount childDepth available fns lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) rhs with
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available lhs with
+        match planExprNodes? slots paramCount childDepth available fns lhs with
         | none => none
         | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) rhs with
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .callFn fnIndex args =>
+        match fns[fnIndex]? with
+        | none => none
+        | some binding =>
+            if args.size != binding.params.size then
+              none
+            else
+              -- Args must be UInt64-compatible (no compare / Bool-returning callFn).
+              let argsOk := args.all fun arg =>
+                match arg with
+                | .compare .. => false
+                | .callFn nestedIdx _ =>
+                    match fns[nestedIdx]? with
+                    | some nested => !nested.resultIsBool
+                    | none => false
+                | _ => true
+              if !argsOk then
+                none
+              else
+                let childDepth := depthLeft - 1
+                Id.run do
+                  let mut available := nodeBudget - 1
+                  let mut total : Nat := 1
+                  let mut ok := true
+                  for arg in args do
+                    match planExprNodes? slots paramCount childDepth available fns arg with
+                    | none => ok := false
+                    | some nodes =>
+                        total := total + nodes
+                        available := available - nodes
+                  if ok then some total else none
 
 private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
-    (expr : Expr) : CompileResult Nat := do
+    (fns : Array FnBinding) (expr : Expr) : CompileResult Nat := do
   if total >= maxPlanNodes then
     throw <| .planInvariant .evm s!"plan exceeds aggregate node limit {maxPlanNodes}"
-  match planExprNodes? slots paramCount maxExprDepth (maxPlanNodes - total) expr with
+  match planExprNodes? slots paramCount maxExprDepth (maxPlanNodes - total) fns expr with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .evm
         s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
 private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
-    (store : Store) : CompileResult Nat := do
+    (fns : Array FnBinding) (store : Store) : CompileResult Nat := do
   unless slots.contains store.slot do
     throw <| .planInvariant .evm "plan store references an unknown storage slot"
-  addPlanExprNodes slots paramCount total store.value
+  addPlanExprNodes slots paramCount total fns store.value
 
 /-- Structural Bool-producer: comparison is always Bool. Bool literals are
     surface-encoded as `.literal 0`/`.literal 1` and are accepted only where a
-    Bool kind is required (return/assert). -/
+    Bool kind is required (return/assert). callFn uses the callee result flag. -/
 private def exprIsCompareV1 : Expr → Bool
   | .compare .. => true
   | _ => false
@@ -992,14 +1161,27 @@ private def exprIsBoolLiteralV1 : Expr → Bool
   | .literal value => value == 0 || value == 1
   | _ => false
 
-private def exprIsBoolCompatibleV1 (expr : Expr) : Bool :=
-  exprIsCompareV1 expr || exprIsBoolLiteralV1 expr
+private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
+  match expr with
+  | .compare .. => true
+  | .literal value => value == 0 || value == 1
+  | .callFn fnIndex _ =>
+      match fns[fnIndex]? with
+      | some binding => binding.resultIsBool
+      | none => false
+  | _ => false
 
-/-- UInt64-compatible: everything except comparison (which is strictly Bool).
+/-- UInt64-compatible: everything except comparison and Bool-returning callFn.
     Literals/params/loads/arithmetic remain UInt64, including 0/1 which also
     double as Bool words when resultKind demands it. -/
-private def exprIsUInt64CompatibleV1 (expr : Expr) : Bool :=
-  !exprIsCompareV1 expr
+private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
+  match expr with
+  | .compare .. => false
+  | .callFn fnIndex _ =>
+      match fns[fnIndex]? with
+      | some binding => !binding.resultIsBool
+      | none => false
+  | _ => true
 
 /-- Recursive statement-tree validator: kind gates, view-write ban (including
     inside branches), node accounting, and per-level return ordering. Returns
@@ -1014,6 +1196,7 @@ private partial def checkPlanStatementsV1
     (allowReturnNone : Bool)
     (eventCount : Nat) (eventFieldCounts : Array Nat)
     (errorCount : Nat) (errorFieldCounts : Array Nat)
+    (fns : Array FnBinding)
     (statements : Array Statement) (total : Nat) :
     CompileResult (Nat × Bool) := do
   let mut total := total
@@ -1025,28 +1208,28 @@ private partial def checkPlanStatementsV1
     | .store store =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} writes storage in a view context"
-        unless exprIsUInt64CompatibleV1 store.value do
+        unless exprIsUInt64CompatibleV1 fns store.value do
           throw <| .planInvariant .evm
             s!"{owner} cannot store a Bool-typed expression into a UInt64 slot"
-        total ← addPlanStoreNodes slots paramCount total store
+        total ← addPlanStoreNodes slots paramCount total fns store
     | .assert condition =>
-        unless exprIsBoolCompatibleV1 condition do
+        unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .evm
             s!"{owner} assert condition must be a Bool-typed expression"
-        total ← addPlanExprNodes slots paramCount total condition
+        total ← addPlanExprNodes slots paramCount total fns condition
     | .returnValue value =>
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
         | .uint64 =>
-            unless exprIsUInt64CompatibleV1 value do
+            unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind uint64 is inconsistent with Bool return expression"
         | .bool =>
-            unless exprIsBoolCompatibleV1 value do
+            unless exprIsBoolCompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind bool is inconsistent with UInt64 return expression"
-        total ← addPlanExprNodes slots paramCount total value
+        total ← addPlanExprNodes slots paramCount total fns value
         closed := true
     | .returnNone =>
         unless allowReturnNone do
@@ -1062,10 +1245,10 @@ private partial def checkPlanStatementsV1
         unless args.size == eventFieldCounts[eventIndex]! do
           throw <| .planInvariant .evm s!"{owner} event argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .evm
               s!"{owner} event arguments must be UInt64 expressions"
-          total ← addPlanExprNodes slots paramCount total arg
+          total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
@@ -1073,40 +1256,40 @@ private partial def checkPlanStatementsV1
         unless args.size == errorFieldCounts[errorIndex]! do
           throw <| .planInvariant .evm s!"{owner} error argument count mismatch"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 arg do
+          unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .evm
               s!"{owner} error arguments must be UInt64 expressions"
-          total ← addPlanExprNodes slots paramCount total arg
+          total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
         closed := true
     | .ifThenElse condition thenBody elseBody =>
-        unless exprIsBoolCompatibleV1 condition do
+        unless exprIsBoolCompatibleV1 fns condition do
           throw <| .planInvariant .evm
             s!"{owner} if condition must be a Bool-typed expression"
-        total ← addPlanExprNodes slots paramCount total condition
+        total ← addPlanExprNodes slots paramCount total fns condition
         total := total + 1
         let (t1, c1) ← checkPlanStatementsV1
           owner isConstructor isView resultKind slots paramCount false
-          eventCount eventFieldCounts errorCount errorFieldCounts thenBody total
+          eventCount eventFieldCounts errorCount errorFieldCounts fns thenBody total
         let (t2, c2) ← checkPlanStatementsV1
           owner isConstructor isView resultKind slots paramCount false
-          eventCount eventFieldCounts errorCount errorFieldCounts elseBody t1
+          eventCount eventFieldCounts errorCount errorFieldCounts fns elseBody t1
         total := t2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
-        total ← addPlanExprNodes slots paramCount total scrutinee
+        total ← addPlanExprNodes slots paramCount total fns scrutinee
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
         for (_caseValue, caseBody) in cases do
           total := total + 1
           let (t, c) ← checkPlanStatementsV1
             owner isConstructor isView resultKind slots paramCount false
-            eventCount eventFieldCounts errorCount errorFieldCounts caseBody total
+            eventCount eventFieldCounts errorCount errorFieldCounts fns caseBody total
           total := t
           allClosed := allClosed && c
         let (td, cd) ← checkPlanStatementsV1
           owner isConstructor isView resultKind slots paramCount false
-          eventCount eventFieldCounts errorCount errorFieldCounts defaultBody total
+          eventCount eventFieldCounts errorCount errorFieldCounts fns defaultBody total
         total := td
         closed := allClosed && cd
   pure (total, closed)
@@ -1156,9 +1339,35 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     1 + constructor.params.size + stmtCount) |>.getD 0
   let entryNodes := plan.entries.foldl (fun total entry =>
     total + entry.params.size + entry.body.size) 0
-  let mut totalPlanNodes := plan.storageLayout.size + plan.entries.size + constructorNodes + entryNodes
+  let fnNodes := plan.fns.foldl (fun total fn =>
+    total + fn.params.size + fn.body.size) 0
+  let mut totalPlanNodes :=
+    plan.storageLayout.size + plan.entries.size + plan.fns.size +
+      constructorNodes + entryNodes + fnNodes
   if totalPlanNodes > maxPlanNodes then
     throw <| .planInvariant .evm s!"plan exceeds aggregate node limit {maxPlanNodes}"
+  if plan.fns.size > maxEntries then
+    throw <| .planInvariant .evm s!"fn count exceeds profile limit {maxEntries}"
+  for fn in plan.fns do
+    unless isIdentifier fn.name do
+      throw <| .planInvariant .evm s!"fn name '{fn.name}' is not a safe identifier"
+    if fn.params.size > maxParams || fn.body.size > maxBodyStatements then
+      throw <| .planInvariant .evm s!"fn '{fn.name}' exceeds the profile resource limits"
+    for index in [0:fn.params.size] do
+      unless fn.params[index]!.wordIndex == index &&
+          fn.params[index]!.sourceId == index do
+        throw <| .planInvariant .evm
+          s!"fn '{fn.name}' ABI words and semantic origins must be canonical"
+      unless isIdentifier fn.params[index]!.name do
+        throw <| .planInvariant .evm s!"fn '{fn.name}' parameter name is not a safe ABI identifier"
+    let sourceIds := fn.params.map (·.sourceId)
+    let names := fn.params.map (·.name)
+    let words := fn.params.map (·.wordIndex)
+    if hasDuplicates sourceIds || hasDuplicates names || hasDuplicates words then
+      throw <| .planInvariant .evm s!"fn '{fn.name}' parameter bindings must be unique"
+  let fnNames := plan.fns.map (·.name)
+  if hasDuplicates fnNames then
+    throw <| .planInvariant .evm "fn names must be unique"
   if let some constructor := plan.constructor then
     let ctorBodySize :=
       if constructor.body.isEmpty then constructor.stores.size else constructor.body.size
@@ -1177,15 +1386,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       throw <| .planInvariant .evm "constructor parameter bindings must be unique"
     if constructor.body.isEmpty then
       for store in constructor.stores do
-        unless exprIsUInt64CompatibleV1 store.value do
+        unless exprIsUInt64CompatibleV1 plan.fns store.value do
           throw <| .planInvariant .evm
             "constructor cannot store a Bool-typed expression into a UInt64 slot"
-        totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes store
+        totalPlanNodes ← addPlanStoreNodes slots constructor.params.size totalPlanNodes
+          plan.fns store
     else
       let (t, _) ← checkPlanStatementsV1 "constructor" true false .uint64
         slots constructor.params.size true
         plan.events.size eventFieldCounts plan.errors.size errorFieldCounts
-        constructor.body totalPlanNodes
+        plan.fns constructor.body totalPlanNodes
       totalPlanNodes := t
   for entry in plan.entries do
     unless isIdentifier entry.name && validSelector entry.selector do
@@ -1220,10 +1430,22 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     let (t, returned) ← checkPlanStatementsV1 s!"entry '{entry.name}'" false
       (entry.mutability == .view) entry.resultKind slots entry.params.size
       false plan.events.size eventFieldCounts plan.errors.size errorFieldCounts
-      entry.body totalPlanNodes
+      plan.fns entry.body totalPlanNodes
     totalPlanNodes := t
     unless returned do
       throw <| .planInvariant .evm s!"entry '{entry.name}' does not return"
+  -- pureFn bodies: no store/emit (isView=true), must return, result kind from flag.
+  for fn in plan.fns do
+    if fn.body.isEmpty then
+      throw <| .planInvariant .evm s!"fn '{fn.name}' has no body"
+    let resultKind : ResultKind := if fn.resultIsBool then .bool else .uint64
+    let (t, returned) ← checkPlanStatementsV1 s!"fn '{fn.name}'" false
+      true resultKind slots fn.params.size
+      false plan.events.size eventFieldCounts plan.errors.size errorFieldCounts
+      plan.fns fn.body totalPlanNodes
+    totalPlanNodes := t
+    unless returned do
+      throw <| .planInvariant .evm s!"fn '{fn.name}' does not return"
 
 /-- Validate one declared event/error binding: safe name and public UInt64
     fields (the EVM pilot ABI encodes UInt64 words only). -/
@@ -1248,8 +1470,10 @@ private def makePlanFromSemanticDataV1
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: constants/invariants are outside the current UInt64 pilot"
-  if source.callables.size > maxEntries + 1 then
-    throw <| .planInvariant .evm s!"callable count exceeds EVM profile limit {maxEntries + 1}"
+  -- init (0..1) + entries + pureFns; each class is capped at maxEntries.
+  if source.callables.size > 2 * maxEntries + 1 then
+    throw <| .planInvariant .evm
+      s!"callable count exceeds EVM profile limit {2 * maxEntries + 1}"
   if source.requirements.items.size > Targets.maxRequirementKinds then
     throw <| .planInvariant .evm
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
@@ -1261,6 +1485,55 @@ private def makePlanFromSemanticDataV1
     makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
   let components := source.qualifiedName.components.toArray
   let objectName := components.back!
+  -- Phase 1: dense pureFn signature table + CallableId → fnIndex map so nested
+  -- PureCall can resolve arity/result kind before any body is lowered.
+  let mut fnIndexByCallableId : Array (Option Nat) :=
+    Array.mk (List.replicate source.callables.size none)
+  let mut fns : Array FnBinding := #[]
+  let mut pureFnCallables : Array CallableV1 := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .pureFn =>
+        if fns.size >= maxEntries then
+          throw <| .planInvariant .evm s!"fn count exceeds profile limit {maxEntries}"
+        unless callable.id.toNat < source.callables.size do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pureFn CallableId out of range"
+        let name ← match callable.name with
+          | some value => pure value
+          | none => throw (.planInvariant .evm
+              "unsupported EVM semantic shape: pureFn is missing its name")
+        unless isIdentifier name do
+          throw <| .planInvariant .evm s!"fn name '{name}' is not an EVM ABI identifier"
+        unless callable.result.visibility == .public_ do
+          throw <| .planInvariant .evm
+            s!"fn '{name}' does not return public UInt64 or Bool"
+        let resultIsBool : Bool ←
+          if callable.result.typeId == types.uint64TypeId then
+            pure false
+          else if types.boolTypeId == some callable.result.typeId then
+            pure true
+          else
+            throw <| .planInvariant .evm
+              s!"fn '{name}' does not return public UInt64 or Bool"
+        let (params, _) ← makeParamsV1 s!"fn '{name}'" types.uint64TypeId callable.params
+        let fnIndex := fns.size
+        fnIndexByCallableId := fnIndexByCallableId.set! callable.id.toNat (some fnIndex)
+        fns := fns.push { name, params, body := #[], resultIsBool }
+        pureFnCallables := pureFnCallables.push callable
+    | .invariant =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: invariants are outside the current UInt64 pilot"
+    | _ => pure ()
+  -- Phase 2: lower pureFn bodies (signatures already resolve nested pureCall).
+  for i in [0:pureFnCallables.size] do
+    let callable ← match pureFnCallables[i]? with
+      | some value => pure value
+      | none => throw (.planInvariant .evm
+          "unsupported EVM semantic shape: pureFn table is incomplete")
+    let binding ← makeFnV1 types storageLayout fnIndexByCallableId fns callable
+    fns := fns.set! i binding
+  -- Phase 3: constructor + entries with the complete fn table.
   let mut constructor : Option Constructor := none
   let mut entries : Array Entry := #[]
   for callable in source.callables do
@@ -1268,14 +1541,14 @@ private def makePlanFromSemanticDataV1
     | .initializer =>
         if constructor.isSome then
           throw <| .planInvariant .evm "semantic program has multiple initializers"
-        constructor := some (← makeConstructorV1 types storageLayout callable)
+        constructor := some (← makeConstructorV1 types storageLayout
+          fnIndexByCallableId fns callable)
     | .entry | .view =>
         if entries.size >= maxEntries then
           throw <| .planInvariant .evm s!"entry count exceeds profile limit {maxEntries}"
-        entries := entries.push (← makeEntryV1 types storageLayout callable)
-    | .pureFn | .invariant =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: pure functions/invariants are outside the current UInt64 pilot"
+        entries := entries.push (← makeEntryV1 types storageLayout
+          fnIndexByCallableId fns callable)
+    | .pureFn | .invariant => pure ()
   if !storageLayout.isEmpty && constructor.isNone then
     throw <| .planInvariant .evm "stateful programs require an explicit initializer"
   let runtimeObjectName :=
@@ -1291,6 +1564,7 @@ private def makePlanFromSemanticDataV1
     errors
     constructor
     entries
+    fns
   }
   validatePlan plan
   return plan
@@ -1360,6 +1634,19 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
         | .ge => s!"iszero(lt({lhs.value}, {rhs.value}))"
       { code := lhs.code ++ rhs.code ++ s!"{indent}let {name} := {yul}\n",
         value := name, next := rhs.next + 1 }
+  | .callFn fnIndex args => Id.run do
+      let mut code := ""
+      let mut next := next
+      let mut argValues : Array String := #[]
+      for arg in args do
+        let rendered := renderExpr indent paramPrefix next arg
+        code := code ++ rendered.code
+        next := rendered.next
+        argValues := argValues.push rendered.value
+      let name := s!"expr{next}"
+      let argsJoined := String.intercalate ", " argValues.toList
+      { code := code ++ s!"{indent}let {name} := pf_fn{fnIndex}({argsJoined})\n",
+        value := name, next := next + 1 }
 
 private def renderStores (indent paramPrefix : String) (stores : Array Store) : String := Id.run do
   let mut output := ""
@@ -1375,8 +1662,11 @@ private structure RenderedBody where
   next : Nat
   deriving Inhabited
 
+/-- Render a statement list. `returnVar = none` is the contract path
+    (`mstore` + `return`); `some r` is a Yul function path that assigns `r`. -/
 private partial def renderBody (indent paramPrefix : String) (next : Nat)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
+    (returnVar : Option String)
     (body : Array Statement) : RenderedBody := Id.run do
   let mut output := ""
   let mut next := next
@@ -1393,8 +1683,13 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         next := rendered.next
     | .returnValue value =>
         let rendered := renderExpr indent paramPrefix next value
-        output := output ++ rendered.code ++
-          s!"{indent}mstore(0, {rendered.value})\n{indent}return(0, 32)\n"
+        match returnVar with
+        | none =>
+            output := output ++ rendered.code ++
+              s!"{indent}mstore(0, {rendered.value})\n{indent}return(0, 32)\n"
+        | some r =>
+            output := output ++ rendered.code ++
+              s!"{indent}{r} := {rendered.value}\n"
         next := rendered.next
     | .returnNone =>
         -- Valid only as the constructor body's final statement (validated);
@@ -1427,13 +1722,13 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code
         let thenRendered := renderBody (indent ++ "  ") paramPrefix rendered.next
-          events errors thenBody
+          events errors returnVar thenBody
         output := output ++ s!"{indent}if {rendered.value} \{\n" ++
           thenRendered.code ++ s!"{indent}}\n"
         next := thenRendered.next
         if !elseBody.isEmpty then
           let elseRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors elseBody
+            events errors returnVar elseBody
           output := output ++ s!"{indent}if iszero({rendered.value}) \{\n" ++
             elseRendered.code ++ s!"{indent}}\n"
           next := elseRendered.next
@@ -1446,7 +1741,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let mut guard : String := ""
         for (caseValue, caseBody) in cases do
           let caseRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors caseBody
+            events errors returnVar caseBody
           output := output ++
             s!"{indent}if eq({scrutName}, {caseValue}) \{\n" ++
             caseRendered.code ++ s!"{indent}}\n"
@@ -1455,11 +1750,30 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           guard := if guard.isEmpty then eqExpr else s!"or({guard}, {eqExpr})"
         if !defaultBody.isEmpty then
           let defaultRendered := renderBody (indent ++ "  ") paramPrefix next
-            events errors defaultBody
+            events errors returnVar defaultBody
           output := output ++ s!"{indent}if iszero({guard}) \{\n" ++
             defaultRendered.code ++ s!"{indent}}\n"
           next := defaultRendered.next
   return { code := output, next }
+
+/-- Emit `function pf_fn{i}(...) -> r { ... }` definitions. Duplicated into both
+    Yul objects because each object is self-contained. -/
+private def renderFnDefs (indent : String) (plan : Plan) : String := Id.run do
+  if plan.fns.isEmpty then
+    return ""
+  let mut output := ""
+  for index in [0:plan.fns.size] do
+    let fn := plan.fns[index]!
+    let mut paramList := ""
+    for i in [0:fn.params.size] do
+      if i > 0 then paramList := paramList ++ ", "
+      paramList := paramList ++ s!"arg{i}"
+    let body := renderBody (indent ++ "  ") "arg" 0 plan.events plan.errors (some "r") fn.body
+    output := output ++
+      s!"{indent}function pf_fn{index}({paramList}) -> r \{\n" ++
+      body.code ++
+      s!"{indent}}\n"
+  return output
 
 private def renderConstructor (plan : Plan) : String := Id.run do
   let constructor := plan.constructor.getD { params := #[], stores := #[] }
@@ -1479,7 +1793,7 @@ private def renderConstructor (plan : Plan) : String := Id.run do
     (if constructor.body.isEmpty then
       renderStores "    " "ctor_arg" constructor.stores
     else
-      (renderBody "    " "ctor_arg" 0 plan.events plan.errors constructor.body).code)
+      (renderBody "    " "ctor_arg" 0 plan.events plan.errors none constructor.body).code)
   return output ++
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"
@@ -1494,19 +1808,24 @@ private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
     output := output ++
       s!"        let arg{param.wordIndex} := calldataload({offset})\n" ++
       s!"        if gt(arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
-  output := output ++ (renderBody "        " "arg" 0 plan.events plan.errors entry.body).code
+  output := output ++
+    (renderBody "        " "arg" 0 plan.events plan.errors none entry.body).code
   return output ++ "      }\n"
 
 private def renderYul (plan : Plan) : String :=
   let entries := plan.entries.foldl (fun output entry => output ++ renderEntry plan entry) ""
+  let ctorFns := renderFnDefs "    " plan
+  let runtimeFns := renderFnDefs "      " plan
   s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
     renderConstructor plan ++
+    ctorFns ++
     s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
     "      if callvalue() { revert(0, 0) }\n" ++
     "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
     "      switch shr(224, calldataload(0))\n" ++
     entries ++
     "      default { revert(0, 0) }\n" ++
+    runtimeFns ++
     "    }\n  }\n}\n"
 
 private def renderParamJson (param : Param) : String :=

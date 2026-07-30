@@ -1064,6 +1064,90 @@ private unsafe def testEmitRevertFlow : IO Unit := do
       abiFile.contents.contains "\"type\":\"error\",\"name\":\"Cap\"")
     "EventFlow ABI must declare the Moved event and Cap error"
 
+/-- Wave E: pureFn + PureCall lower into Plan.fns and callFn expressions.
+    Nested localCall (quadruple → double) pins dense fn indices and Yul
+    function defs in both constructor and runtime objects. -/
+private unsafe def testFnLocalCall : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program FnCall where\n" ++
+    "  state count : UInt64\n" ++
+    "  fn double(x : UInt64) : UInt64 do\n" ++
+    "    return x + x\n" ++
+    "  fn quadruple(y : UInt64) : UInt64 do\n" ++
+    "    return double(y) + double(y)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := double(initial)\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + quadruple(delta)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load FnCall" (← session.selectProgramV1
+    text "<evm-fn-call>" "Tests.EvmFnCall" none)
+  let compiled ← liftResult "compile FnCall" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan FnCall" <| planEvm compiled
+  expect (plan.fns.size == 2)
+    "FnCall must lower two pureFn bindings"
+  expect (plan.fns.map (·.name) == #["double", "quadruple"])
+    "FnCall fn table must preserve pureFn source order"
+  expect (plan.fns[0]!.params.map (·.name) == #["x"] &&
+      !plan.fns[0]!.resultIsBool &&
+      plan.fns[0]!.body == #[.returnValue (.checkedAdd (.param 0) (.param 0))])
+    "double body must return x + x"
+  expect (plan.fns[1]!.params.map (·.name) == #["y"] &&
+      !plan.fns[1]!.resultIsBool &&
+      plan.fns[1]!.body == #[.returnValue
+        (.checkedAdd (.callFn 0 #[.param 0]) (.callFn 0 #[.param 0]))])
+    "quadruple body must call double twice and add"
+  match plan.constructor with
+  | none => throw <| IO.userError "FnCall must retain constructor"
+  | some ctor =>
+      expect (ctor.body == #[.store {
+          slot := 0
+          value := .callFn 0 #[.param 0] }] ||
+          ctor.stores == #[{ slot := 0, value := .callFn 0 #[.param 0] }])
+        "init must store double(initial)"
+  expect (plan.entries[0]!.body == #[
+      .store {
+        slot := 0
+        value := .checkedAdd (.storageLoad 0) (.callFn 1 #[.param 0])
+      },
+      .returnValue (.storageLoad 0)])
+    "bump must add quadruple(delta) into count"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"FnCall plan must validate: {e.render}"
+  let output ← liftResult "materialize FnCall" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "FnCall.yul") |
+    throw <| IO.userError "FnCall: missing FnCall.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "function pf_fn0(" && yul.contains "function pf_fn1(")
+    "FnCall Yul must define pf_fn0 and pf_fn1"
+  -- Both constructor and runtime objects carry identical defs (self-contained).
+  expect ((yul.splitOn "function pf_fn0(").length == 3)
+    "FnCall Yul must emit pf_fn0 in both objects (two defs + one split remainder)"
+  expect ((yul.splitOn "function pf_fn1(").length == 3)
+    "FnCall Yul must emit pf_fn1 in both objects"
+  expect (yul.contains "pf_fn0(" && yul.contains "pf_fn1(")
+    "FnCall Yul must contain call sites for both pure functions"
+  -- Negative: out-of-range fnIndex fails closed at validatePlan.
+  let badPlan : Targets.Evm.Plan := {
+    plan with entries := plan.entries.map fun e =>
+      if e.name == "bump" then
+        { e with body := #[
+            .returnValue (.callFn 99 #[.param 0])] }
+      else e
+  }
+  match Targets.Evm.validatePlan badPlan with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "out-of-range callFn must not validate"
+
 private unsafe def testComparisonNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- Bool in state position must fail closed before EVM Plan (typed/normalize).
@@ -1122,6 +1206,7 @@ unsafe def run : IO Unit := do
   testEarlyReturnJoin
   testInitEarlyBareReturnClosed
   testEmitRevertFlow
+  testFnLocalCall
   testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared
