@@ -270,6 +270,14 @@ private def artifactStem (index : Nat) (mode : RelationMode) (name : String) : S
 
 /-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
 
+/-- Value kinds admitted in the Noir pilot value table. Bool may be intermediate
+(comparison/literal results feeding assert) or an entry/view result binding;
+state and params stay UInt64-only. -/
+private inductive NoirValueKindV1 where
+  | uint64
+  | bool
+  deriving BEq, Inhabited, Repr
+
 private structure NoirTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
@@ -329,6 +337,7 @@ private def makeStatesV1
 
 private structure LoweredValueV1 where
   expr : Expr
+  kind : NoirValueKindV1
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
@@ -360,6 +369,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     planned := planned.push binding
     values := values.push {
       expr := .param binding.inputIndex
+      kind := .uint64
       depth := 1
       expandedNodes := 1
       dependencies := #[]
@@ -368,8 +378,10 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     throw <| .planInvariant .noir s!"parameter names in {owner} must be unique"
   pure (planned, values)
 
+/-- Build the canonical public-input envelope. `resultType` is used only for
+    non-initializer relations (entry/view) and is ignored for `.initialize`. -/
 private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
-    (params : Array Param) : Array InputBinding := Id.run do
+    (params : Array Param) (resultType : InputType) : Array InputBinding := Id.run do
   let mut inputs : Array InputBinding := #[]
   if !states.isEmpty then
     inputs := inputs.push {
@@ -416,11 +428,16 @@ private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
     inputs := inputs.push {
       name := "result"
       sourceName := "result"
-      type := .u64
+      type := resultType
       visibility := .verifier
       role := .result
     }
   pure inputs
+
+private def resultInputTypeOf (relation : Relation) : InputType :=
+  match relation.inputs.find? (fun binding => binding.role == .result) with
+  | some binding => binding.type
+  | none => .u64
 
 private def findStateV1 (states : Array StateField)
     (id : StateIdV1) : CompileResult StateField :=
@@ -476,6 +493,9 @@ private def currentValueV1
 private def makeCheckedAddValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: checked add operands must be UInt64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -486,6 +506,7 @@ private def makeCheckedAddValueV1
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := .checkedAdd lhs.expr rhs.expr
+    kind := .uint64
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -494,6 +515,9 @@ private def makeCheckedAddValueV1
 private def makeCheckedSubValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: checked sub operands must be UInt64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -504,6 +528,7 @@ private def makeCheckedSubValueV1
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := .checkedSub lhs.expr rhs.expr
+    kind := .uint64
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -522,6 +547,9 @@ private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: comparison operands must be UInt64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -532,6 +560,7 @@ private def makeCompareValueV1
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := .compare op lhs.expr rhs.expr
+    kind := .bool
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -593,12 +622,15 @@ private structure LoweredCallableV1 where
   params : Array Param
   body : Array Statement
 
+/-- `returnKind = none` for initializer (no return value). For entry/view it is
+    the admitted result kind (UInt64 or Bool) and must match the returned value. -/
 private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (inputOffset : Nat)
     (types : NoirTypeClosureV1)
     (states : Array StateField)
+    (returnKind : Option NoirValueKindV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && callable.blocks.size == 1 &&
       callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
@@ -627,6 +659,7 @@ private def lowerCallableV1
           let value ← decodeUInt64LiteralV1 bytes
           values := ← appendResultValueV1 uint64TypeId values result {
             expr := .literal value
+            kind := .uint64
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -635,6 +668,7 @@ private def lowerCallableV1
           let value ← decodeBoolLiteralV1 bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
+            kind := .bool
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -646,6 +680,7 @@ private def lowerCallableV1
         let field ← findStateV1 states stateId
         values := ← appendResultValueV1 uint64TypeId values result {
           expr := .stateLoad field.sourceId
+          kind := .uint64
           depth := 1
           expandedNodes := 1
           dependencies := #[]
@@ -679,6 +714,10 @@ private def lowerCallableV1
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: view callable writes state"
         let field ← findStateV1 states stateId
+        let root ← currentValueV1 values paramCount segmentStart valueId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: state store value must be UInt64"
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
         body := body.push (.store { fieldIndex := field.sourceId, value })
         segmentStart := values.size
@@ -686,6 +725,10 @@ private def lowerCallableV1
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: assert must use errorId=none and empty args"
+        let root ← currentValueV1 values paramCount segmentStart condId
+        unless root.kind == .bool do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: assert condition must be Bool"
         let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
         body := body.push (.assert condition)
         segmentStart := values.size
@@ -699,6 +742,15 @@ private def lowerCallableV1
           "unsupported Noir semantic shape: initializer has unconsumed values"
   | .mutate, .return_ (some valueId)
   | .view, .return_ (some valueId) =>
+      let expectedKind ← match returnKind with
+        | some kind => pure kind
+        | none =>
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: entry/view return kind is missing"
+      let root ← currentValueV1 values paramCount segmentStart valueId
+      unless root.kind == expectedKind do
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
       let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
       body := body.push (.returnValue value)
       segmentStart := values.size
@@ -714,6 +766,19 @@ private def lowerCallableV1
     throw <| .planInvariant .noir s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
 
+private def resolveEntryViewResultV1
+    (types : NoirTypeClosureV1)
+    (name : String)
+    (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .noir s!"entry '{name}' does not return a public UInt64 or Bool"
+  if callable.result.typeId == types.uint64TypeId then
+    pure (.uint64, .u64)
+  else if types.boolTypeId == some callable.result.typeId then
+    pure (.bool, .bool)
+  else
+    throw <| .planInvariant .noir s!"entry '{name}' does not return public UInt64 or Bool"
+
 private def makeRelationV1
     (index : Nat)
     (types : NoirTypeClosureV1)
@@ -723,21 +788,25 @@ private def makeRelationV1
     (callable : CallableV1) : CompileResult Relation := do
   unless isIdentifier name do
     throw <| .planInvariant .noir s!"relation name '{name}' is not a safe identifier"
-  if mode == .initialize then
-    unless callable.name.isNone && callable.result.visibility == .public_ do
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: initializer signature is invalid"
-    let unitTypeId ← match types.unitTypeId with
-      | some value => pure value
-      | none => throw (.planInvariant .noir
-          "unsupported Noir semantic shape: initializer Unit type is missing")
-    unless callable.result.typeId == unitTypeId do
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: initializer result is not Unit"
-  else
-    unless callable.result.typeId == types.uint64TypeId &&
-        callable.result.visibility == .public_ do
-      throw <| .planInvariant .noir s!"entry '{name}' does not return public UInt64"
+  let returnKind : Option NoirValueKindV1 ←
+    if mode == .initialize then
+      unless callable.name.isNone && callable.result.visibility == .public_ do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: initializer signature is invalid"
+      let unitTypeId ← match types.unitTypeId with
+        | some value => pure value
+        | none => throw (.planInvariant .noir
+            "unsupported Noir semantic shape: initializer Unit type is missing")
+      unless callable.result.typeId == unitTypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: initializer result is not Unit"
+      pure none
+    else
+      let (kind, _) ← resolveEntryViewResultV1 types name callable
+      pure (some kind)
+  let resultType : InputType := match returnKind with
+    | some .bool => .bool
+    | some .uint64 | none => .u64
   let inputOffset := if states.isEmpty then 0 else
     1 + (if mode == .initialize then 0 else states.size)
   let semanticMode : SemanticCallableModeV1 := match mode with
@@ -745,14 +814,14 @@ private def makeRelationV1
     | .mutate => .mutate
     | .view => .view
   let lowered ← lowerCallableV1 s!"relation '{name}'" semanticMode inputOffset
-    types states callable
+    types states returnKind callable
   pure {
     index
     name
     artifactStem := artifactStem index mode name
     mode
     params := lowered.params
-    inputs := makeInputsV1 states mode lowered.params
+    inputs := makeInputsV1 states mode lowered.params resultType
     body := lowered.body
   }
 
@@ -831,9 +900,15 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
   unless relation.params.all (fun param => isIdentifier param.name) &&
       !hasDuplicates (relation.params.map (·.name)) do
     throw <| .planInvariant .noir "relation parameter names are not canonical"
+  let expectedResultType := resultInputTypeOf relation
   unless relation.params == expectedParams plan.states relation &&
-      relation.inputs == makeInputsV1 plan.states relation.mode relation.params do
+      relation.inputs == makeInputsV1 plan.states relation.mode relation.params
+        expectedResultType do
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
+  if relation.mode != .initialize then
+    unless expectedResultType == .u64 || expectedResultType == .bool do
+      throw <| .planInvariant .noir
+        s!"relation '{relation.name}' result type is outside the UInt64/Bool pilot"
   let mut total := baseNodes
   let mut returned := false
   for statement in relation.body do
@@ -857,7 +932,7 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     if returned then
       throw <| .planInvariant .noir "initializer relation cannot return a value"
   else unless returned do
-    throw <| .planInvariant .noir s!"relation '{relation.name}' does not return UInt64"
+    throw <| .planInvariant .noir s!"relation '{relation.name}' does not return a value"
   return total
 
 /-- Validate the complete target-owned relation catalog before typed lowering. -/
@@ -1165,6 +1240,27 @@ private def renderAssertCondition (relation : Relation) : ValueRef → String
   | .literal 1 => "true"
   | value => renderValue relation value
 
+/-- True when an assertEqual involves a Bool-typed public input (result or
+    lifecycle flag). Bool plan literals are UInt64 0/1 and must surface as
+    native Noir `true`/`false` on the equality. -/
+private def assertEqualUsesBool (relation : Relation) (lhs rhs : ValueRef) : Bool :=
+  let isBoolInput : ValueRef → Bool
+    | .input index =>
+        match relation.inputs[index]? with
+        | some input => input.type == .bool
+        | none => false
+    | _ => false
+  isBoolInput lhs || isBoolInput rhs
+
+private def renderEqualOperand (relation : Relation) (asBool : Bool) :
+    ValueRef → String
+  | .literal value =>
+      if asBool then
+        if value == 0 then "false" else "true"
+      else
+        toString value.toNat
+  | value => renderValue relation value
+
 private def renderOperation (relation : Relation) : Operation → String
   | .checkedAdd destination lhs rhs =>
       s!"    let t{destination}: u64 = {renderValue relation lhs} + {renderValue relation rhs};\n"
@@ -1172,7 +1268,8 @@ private def renderOperation (relation : Relation) : Operation → String
       s!"    assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
         s!"    let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
   | .assertEqual lhs rhs =>
-      s!"    assert({renderValue relation lhs} == {renderValue relation rhs});\n"
+      let asBool := assertEqualUsesBool relation lhs rhs
+      s!"    assert({renderEqualOperand relation asBool lhs} == {renderEqualOperand relation asBool rhs});\n"
   | .assertBool inputIndex expected =>
       s!"    assert({relation.inputs[inputIndex]!.name} == {if expected then "true" else "false"});\n"
   | .compare op destination lhs rhs =>

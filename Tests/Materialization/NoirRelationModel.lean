@@ -103,6 +103,17 @@ private def readValue (machine : Machine) : Targets.Noir.ValueRef → Except Str
   | .literal value => .ok value
   | .temp index => readTemp machine index
 
+/-- Equality operands may be UInt64 or Bool public inputs. Bool values are
+compared as 0/1, consistent with compare-result temps. -/
+private def readComparable (machine : Machine) : Targets.Noir.ValueRef → Except String U64
+  | .input index =>
+      match machine.inputs[index]? with
+      | some (.u64 value) => .ok value
+      | some (.bool value) => .ok (if value then 1 else 0)
+      | none => modelError s!"input {index} is outside the relation frame"
+  | .literal value => .ok value
+  | .temp index => readTemp machine index
+
 private def writeTemp (machine : Machine) (index : Nat)
     (value : U64) : Except String Machine :=
   match machine.temps[index]? with
@@ -143,16 +154,16 @@ private def step (machine : Machine) :
       let right ← readValue machine rhs
       writeTemp machine destination (evalComparison op left right)
   | .assertEqual lhs rhs => do
-      let left ← readValue machine lhs
-      let right ← readValue machine rhs
+      let left ← readComparable machine lhs
+      let right ← readComparable machine rhs
       if left == right then .ok machine
-      else modelError s!"UInt64 assertion failed: {left.toNat} != {right.toNat}"
+      else modelError s!"equality assertion failed: {left.toNat} != {right.toNat}"
   | .assertBool inputIndex expected => do
       let actual ← readInputBool machine inputIndex
       if actual == expected then .ok machine
       else modelError s!"Bool assertion failed at input {inputIndex}"
   | .assertConstraint condition => do
-      let value ← readValue machine condition
+      let value ← readComparable machine condition
       if value != 0 then .ok machine
       else modelError "assert constraint failed: condition is zero"
 
@@ -324,11 +335,31 @@ private def statefulInputs (relation : Targets.Noir.RelationIR)
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
 
+/-- Stateful relation witness with a Bool entry/view result binding. -/
+private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preState parameter postState : U64)
+    (postInitialized : Bool) (result : Bool) : Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState _ => some <| .u64 preState
+    | .parameter _ => some <| .u64 parameter
+    | .postState _ => some <| .u64 postState
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .bool result
+
 private def privateSumInputs (relation : Targets.Noir.RelationIR)
     (params : Array U64) (result : U64) : Except String (Array ModelValue) :=
   bindInputs relation fun role => match role with
     | .parameter sourceId => .u64 <$> params[sourceId]?
     | .result => some <| .u64 result
+    | _ => none
+
+/-- Stateless relation witness with a Bool result binding (0/1 convention). -/
+private def privateSumInputsBoolResult (relation : Targets.Noir.RelationIR)
+    (params : Array U64) (result : Bool) : Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .parameter sourceId => .u64 <$> params[sourceId]?
+    | .result => some <| .bool result
     | _ => none
 
 private structure StatefulCase where
@@ -521,6 +552,44 @@ private def boolResultSourceText : String :=
   "    return a >= b\n\n" ++
   "end ProofForgeV2.Examples\n"
 
+/-- Stateful program with UInt64 entry plus Bool view/entry results. -/
+private def boolPredicateSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolPredicate where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry set(v : UInt64) : UInt64 do\n" ++
+  "    count := v\n" ++
+  "    return count\n\n" ++
+  "  view positive() : Bool do\n" ++
+  "    return count > 0\n\n" ++
+  "  entry equalsCount(d : UInt64) : Bool do\n" ++
+  "    return count == d\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Type-inconsistent: Bool-declared result returning a UInt64 place. -/
+private def boolResultReturnsUInt64SourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolResultU64 where\n" ++
+  "  entry check(a : UInt64) : Bool do\n" ++
+  "    return a\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Type-inconsistent: UInt64-declared result returning a comparison. -/
+private def uint64ResultReturnsCompareSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program U64ResultCompare where\n" ++
+  "  entry check(a : UInt64, b : UInt64) : UInt64 do\n" ++
+  "    return a >= b\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
 private def assertElseSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -691,13 +760,167 @@ private unsafe def expectProductClosed (label sourceText moduleName path : Strin
               | .ok _ =>
                   throw <| IO.userError s!"{label} must not produce a Noir plan"
 
+/-- Wave-A Bool-result positive: planFromCapability succeeds with a bool-typed
+    result binding, model accept/reject, and `.nr` result: pub bool surface. -/
+private unsafe def checkBoolResultPositive : IO Unit := do
+  let ir ← compileIrFromProgramV1 boolResultSourceText
+    "Examples.BoolResult" "<noir-bool-result>"
+  let check ← findRelation ir "check"
+  let resultBindings := check.sourceRelation.inputs.filter fun binding =>
+    binding.role == .result
+  expect (resultBindings.size == 1 && resultBindings[0]!.type == .bool)
+    "BoolResult check must bind a single Bool-typed result public input"
+  let compares := findOps check (fun op => match op with
+    | .compare .. => true
+    | _ => false)
+  expect (compares.size == 1)
+    s!"BoolResult check must emit exactly one compare, got {compares.size}"
+  match compares[0]! with
+  | .compare .ge _ _ _ => pure ()
+  | other => throw <| IO.userError s!"BoolResult expected ge compare, got {repr other}"
+  -- Model accept: a=5, b=3 ⇒ 5 >= 3 is true.
+  let ok ← liftModel "BoolResult ok inputs" <|
+    privateSumInputsBoolResult check #[5, 3] true
+  expectAccept "BoolResult 5 >= 3 accepts true" check ok
+  -- Model reject: wrong claimed result.
+  let wrong ← liftModel "BoolResult wrong-result inputs" <|
+    privateSumInputsBoolResult check #[5, 3] false
+  expectReject "BoolResult 5 >= 3 rejects false" check wrong
+  -- False path: a=2, b=5 ⇒ false.
+  let falseOk ← liftModel "BoolResult false-path inputs" <|
+    privateSumInputsBoolResult check #[2, 5] false
+  expectAccept "BoolResult 2 >= 5 accepts false" check falseOk
+  let falseWrong ← liftModel "BoolResult false-path wrong inputs" <|
+    privateSumInputsBoolResult check #[2, 5] true
+  expectReject "BoolResult 2 >= 5 rejects true" check falseWrong
+
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 boolResultSourceText
+      "<noir-bool-result-emit>" "Examples.BoolResult" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some mainNr := files.find? (fun file =>
+      file.path.endsWith "r0-check/src/main.nr") |
+    throw <| IO.userError "BoolResult missing check main.nr"
+  expect (mainNr.contents.contains "result: pub bool")
+    "BoolResult .nr must declare result: pub bool"
+  expect (mainNr.contents.contains "assert(result ==")
+    "BoolResult .nr must bind result with assert(result =="
+  expect (mainNr.contents.contains "let t")
+    "BoolResult .nr must render a typed comparison temp"
+  expect (mainNr.contents.contains ">=")
+    "BoolResult .nr must render the >= comparison"
+  let some interface := files.find? (fun file =>
+      file.path.endsWith ".noir-relations.json") |
+    throw <| IO.userError "BoolResult missing relations JSON"
+  expect (interface.contents.contains "\"type\":\"bool\"")
+    "BoolResult ABI metadata must carry bool result type"
+
+  let ir2 ← compileIrFromProgramV1 boolResultSourceText
+    "Examples.BoolResult" "<noir-bool-result-2>"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "BoolResult planHash must be deterministic"
+  expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
+    "BoolResult IR ops must be byte-identical across rebuilds"
+
+/-- End-to-end BoolPredicate: UInt64 entry + Bool view/entry results. -/
+private unsafe def checkBoolPredicateProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 boolPredicateSourceText
+    "Examples.BoolPredicate" "<noir-bool-predicate>"
+  let initializer ← findRelation ir "init"
+  let setEntry ← findRelation ir "set"
+  let positive ← findRelation ir "positive"
+  let equalsCount ← findRelation ir "equalsCount"
+
+  -- Relation result types.
+  let setResult := setEntry.sourceRelation.inputs.filter (·.role == .result)
+  expect (setResult.size == 1 && setResult[0]!.type == .u64)
+    "BoolPredicate set must keep UInt64 result"
+  let positiveResult := positive.sourceRelation.inputs.filter (·.role == .result)
+  expect (positiveResult.size == 1 && positiveResult[0]!.type == .bool)
+    "BoolPredicate positive must bind Bool result"
+  let equalsResult := equalsCount.sourceRelation.inputs.filter (·.role == .result)
+  expect (equalsResult.size == 1 && equalsResult[0]!.type == .bool)
+    "BoolPredicate equalsCount must bind Bool result"
+
+  -- Model: init + UInt64 set still work.
+  let initOk ← liftModel "BoolPredicate init inputs" <|
+    statefulInputs initializer false 0 10 10 true 0
+  expectAccept "BoolPredicate init" initializer initOk
+  let setOk ← liftModel "BoolPredicate set inputs" <|
+    statefulInputs setEntry true 10 7 7 true 7
+  expectAccept "BoolPredicate set 10→7" setEntry setOk
+
+  -- positive view: count > 0.
+  let posTrue ← liftModel "BoolPredicate positive true inputs" <|
+    statefulInputsBoolResult positive true 7 0 7 true true
+  expectAccept "BoolPredicate positive(count=7) true" positive posTrue
+  let posFalse ← liftModel "BoolPredicate positive false inputs" <|
+    statefulInputsBoolResult positive true 0 0 0 true false
+  expectAccept "BoolPredicate positive(count=0) false" positive posFalse
+  let posWrong ← liftModel "BoolPredicate positive wrong inputs" <|
+    statefulInputsBoolResult positive true 0 0 0 true true
+  expectReject "BoolPredicate positive(count=0) rejects true" positive posWrong
+
+  -- equalsCount: count == d.
+  let eqTrue ← liftModel "BoolPredicate equals true inputs" <|
+    statefulInputsBoolResult equalsCount true 7 7 7 true true
+  expectAccept "BoolPredicate equalsCount(7,7) true" equalsCount eqTrue
+  let eqFalse ← liftModel "BoolPredicate equals false inputs" <|
+    statefulInputsBoolResult equalsCount true 7 3 7 true false
+  expectAccept "BoolPredicate equalsCount(7,3) false" equalsCount eqFalse
+  let eqWrong ← liftModel "BoolPredicate equals wrong inputs" <|
+    statefulInputsBoolResult equalsCount true 7 3 7 true true
+  expectReject "BoolPredicate equalsCount(7,3) rejects true" equalsCount eqWrong
+
+  -- `.nr` surface for Bool relations.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 boolPredicateSourceText
+      "<noir-bool-predicate-emit>" "Examples.BoolPredicate" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some positiveNr := files.find? (fun file =>
+      file.path.endsWith "r2-positive/src/main.nr") |
+    throw <| IO.userError "BoolPredicate missing positive main.nr"
+  expect (positiveNr.contents.contains "result: pub bool")
+    "BoolPredicate positive .nr must declare result: pub bool"
+  expect (positiveNr.contents.contains "assert(result ==")
+    "BoolPredicate positive .nr must bind result with assert(result =="
+  let some equalsNr := files.find? (fun file =>
+      file.path.endsWith "r3-equalsCount/src/main.nr") |
+    throw <| IO.userError "BoolPredicate missing equalsCount main.nr"
+  expect (equalsNr.contents.contains "result: pub bool")
+    "BoolPredicate equalsCount .nr must declare result: pub bool"
+  expect (equalsNr.contents.contains "assert(result ==")
+    "BoolPredicate equalsCount .nr must bind result with assert(result =="
+  expect (equalsNr.contents.contains "==")
+    "BoolPredicate equalsCount .nr must render equality comparison"
+
+  -- Deterministic rebuild.
+  let ir2 ← compileIrFromProgramV1 boolPredicateSourceText
+    "Examples.BoolPredicate" "<noir-bool-predicate-2>"
+  expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
+    "BoolPredicate planHash must be deterministic"
+  expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
+    "BoolPredicate IR ops must be byte-identical across rebuilds"
+
 private unsafe def checkCompareAssertNegatives : IO Unit := do
   expectProductClosed "Bool state" boolStateSourceText
     "Examples.BoolState" "<noir-bool-state>"
   expectProductClosed "Bool param" boolParamSourceText
     "Examples.BoolParam" "<noir-bool-param>"
-  expectProductClosed "Bool result" boolResultSourceText
-    "Examples.BoolResult" "<noir-bool-result>"
+  expectProductClosed "Bool result returning UInt64" boolResultReturnsUInt64SourceText
+    "Examples.BoolResultU64" "<noir-bool-result-u64>"
+  expectProductClosed "UInt64 result returning comparison" uint64ResultReturnsCompareSourceText
+    "Examples.U64ResultCompare" "<noir-u64-result-compare>"
   expectProductClosed "assert-else" assertElseSourceText
     "Examples.AssertElse" "<noir-assert-else>"
 
@@ -718,6 +941,12 @@ private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
     "Counter planHash must be stable across rebuilds"
   expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
     "Counter IR ops must be byte-identical across rebuilds"
+  -- Result public inputs remain UInt64 (no accidental Bool result cutover).
+  for relation in ir.relations do
+    for binding in relation.sourceRelation.inputs do
+      if binding.role == .result then
+        expect (binding.type == .u64)
+          s!"Counter relation '{relation.sourceRelation.name}' result must stay u64"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
@@ -740,6 +969,8 @@ unsafe def run : IO Unit := do
   }
   checkGuardedCounterProduct
   checkAllCompareOpsSource
+  checkBoolResultPositive
+  checkBoolPredicateProduct
   checkCompareAssertNegatives
   checkCounterPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
