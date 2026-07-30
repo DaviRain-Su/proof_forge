@@ -8,9 +8,10 @@
 
   Static rows are exactly the four currently implemented (targetId, codegenProfile)
   pairs from the frozen TargetRegistry membership table, in canonical
-  (targetId, profile) ASCII order. Each row supports exactly the current S2 three
+  (targetId, profile) ASCII order. Each row supports exactly the current S2 five
   RequirementRequestV1 keys in wire order:
-    failure.atomic-rollback, state.persistent, value.checked-arithmetic
+    effect.event, failure.atomic-rollback, state.persistent, value.bool,
+    value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.

@@ -552,6 +552,132 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
       applyNr.contents.contains "== 0")
     "branching Noir source must render the switch as an else-if chain"
 
+/-- ProgramV1 emit/revert source text for the Wave D event/error leaf. -/
+private def eventFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program EventFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  event Moved(src : UInt64, dst : UInt64)\n" ++
+  "  error Cap(limit : UInt64)\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    emit Moved(count, delta)\n" ++
+  "    if count > delta then\n" ++
+  "      revert Cap(delta)\n" ++
+  "    else\n" ++
+  "      count := count + delta\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 emit/revert conformance: declared event/error
+    tables, emit-then-branch-revert Plan shapes, typed IR operations, and
+    each target's emitter surface for events and declared reverts. -/
+private unsafe def testEmitRevertSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    eventFlowSourceTextV1 "<targets-emit-revert>" "Tests.Targets.EventFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.events.map (·.name) == #["Moved"] &&
+      evm.errors.map (·.name) == #["Cap"] &&
+      solana.events.map (·.name) == #["Moved"] &&
+      solana.errors.map (·.name) == #["Cap"] &&
+      near.events.map (·.name) == #["Moved"] &&
+      near.errors.map (·.name) == #["Cap"] &&
+      noir.events.map (·.name) == #["Moved"] &&
+      noir.errors.map (·.name) == #["Cap"])
+    "all four targets must carry the declared Moved/Cap bindings"
+  expect (evm.entries[0]!.body == #[
+      .emitEvent 0 #[.storageLoad 0, .param 0],
+      .ifThenElse (.compare .gt (.storageLoad 0) (.param 0))
+        #[.revertError 0 #[.param 0]]
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.param 0) }],
+      .returnValue (.storageLoad 0)])
+    "EVM bump must lower emit, branch revert, join return"
+  expect (solana.entries[0]!.body == #[
+      .emitEvent 0 #[.stateLoad 0 8, .param 8],
+      .ifThenElse (.compare .gt (.stateLoad 0 8) (.param 8))
+        #[.revertError 0 #[.param 8]]
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "Solana bump must lower emit, branch revert, join return"
+  expect (near.entries[0]!.body == #[
+      .emitEvent 0 #[.stateLoad 0, .param 0],
+      .ifThenElse (.compare .gt (.stateLoad 0) (.param 0))
+        #[.revertError 0 #[.param 0]]
+        #[.store {
+          fieldIndex := 0
+          value := .checkedAdd (.stateLoad 0) (.param 0)
+        }],
+      .returnValue (.stateLoad 0)])
+    "NEAR bump must lower emit, branch revert, join return"
+  expect (noir.relations.map (·.name) == #["init", "bump", "get"])
+    "Noir relations must preserve source order"
+  let noirBump := noir.relations[1]!
+  let slotInputs := noirBump.inputs.filter fun binding =>
+    match binding.role with | .eventSlot .. => true | _ => false
+  expect (slotInputs.map (·.name) == #["ev_e0_a0", "ev_e0_a1"] &&
+      slotInputs.all (·.visibility == .verifier))
+    "Noir bump must bind the two canonical verifier event slots"
+  let noirIR ← liftResult <| irNoir compiled
+  liftResult <| Targets.Noir.validateIR noirIR
+
+  let solanaIR ← liftResult <| irSolana compiled
+  expect (solanaIR.handlers[1]!.operations.any (fun
+      | .emitEvent .. => true | _ => false) &&
+      solanaIR.handlers[1]!.operations.any (fun
+      | .ifRegion .. => true | _ => false))
+    "Solana IR must carry the emit op and the revert region"
+  let nearIR ← liftResult <| irNear compiled
+  expect (nearIR.methods[1]!.operations.any (fun
+      | .emitEvent .. => true | _ => false) &&
+      nearIR.methods[1]!.operations.any (fun
+      | .ifRegion .. => true | _ => false))
+    "NEAR recipe IR must carry the emit op and the revert region"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let expectedTopic := Targets.Evm.Keccak.keccak256Hex "Moved(uint64,uint64)".toUTF8
+  let some yulFile := evmOutput.files.find? (·.path == "EventFlow.yul") |
+    throw <| IO.userError "emit-revert: missing EventFlow.yul"
+  expect (yulFile.contents.contains s!"log1(0, 64, 0x{expectedTopic})" &&
+      yulFile.contents.contains "revert(0, 36)")
+    "emit-revert Yul must render log1 with the Moved topic and the Cap revert"
+  let some abiFile := evmOutput.files.find? (·.path == "EventFlow.abi.json") |
+    throw <| IO.userError "emit-revert: missing EventFlow.abi.json"
+  expect (abiFile.contents.contains "\"type\":\"event\",\"name\":\"Moved\"" &&
+      abiFile.contents.contains "\"type\":\"error\",\"name\":\"Cap\"")
+    "emit-revert ABI must declare the Moved event and Cap error"
+  let some sbpf := solanaOutput.files.find? (·.path == "EventFlow.sbpf-plan") |
+    throw <| IO.userError "emit-revert: missing EventFlow.sbpf-plan"
+  expect (sbpf.contents.contains "emit_event Moved" &&
+      sbpf.contents.contains "program_error 0x2000")
+    "emit-revert sbpf-plan must render the named event and declared error code"
+  let some wat := nearOutput.files.find? (·.path == "EventFlow.wat") |
+    throw <| IO.userError "emit-revert: missing EventFlow.wat"
+  expect (wat.contents.contains "pf_log_utf8" &&
+      wat.contents.contains "pf_panic_utf8")
+    "emit-revert WAT must render the log/panic host calls"
+  let some bumpNr := noirOutput.files.find?
+      (·.path == "relations/r1-bump/src/main.nr") |
+    throw <| IO.userError "emit-revert: missing Noir bump relation"
+  expect (bumpNr.contents.contains "ev_e0_a0: pub u64" &&
+      bumpNr.contents.contains "assert(false)")
+    "emit-revert Noir source must declare event slots and the inadmissible revert path"
+
 /-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
 private def guardedCounterSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
@@ -662,6 +788,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testGuardedCounterSemanticPlans
   testBoolPredicateSemanticPlans
   testBranchingSemanticPlans
+  testEmitRevertSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=

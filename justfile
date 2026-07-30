@@ -1364,7 +1364,7 @@ target-cli-positive: build
 	printf '%b' 'aleo\tresearch-only\ncosmwasm\tresearch-only\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tresearch-only\nsolana\tplan-only\nsoroban\tresearch-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next describe-target evm > build/describe-evm.stdout
-	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]\n' > build/describe-evm.expected
+	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]\n' > build/describe-evm.expected
 	cmp -s build/describe-evm.expected build/describe-evm.stdout
 	lake env .lake/build/bin/proof-forge-next describe-target aleo > build/describe-aleo.stdout
 	printf '%b' 'target=aleo\nstatus=research-only\n' > build/describe-aleo.expected
