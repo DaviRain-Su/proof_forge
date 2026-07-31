@@ -21,8 +21,9 @@
       branch/jump blocks; `match scrut with` on a legal-UInt or Bool scrutinee
       with integer/Bool literal arms plus exactly one wildcard/bind catch-all
       lowered to switch/jump blocks (constructor patterns, string patterns,
-      match expressions, and duplicate literals still fail closed; a
-      catch-all-only match materializes to a plain jump)
+      and duplicate literals still fail closed; a catch-all-only match
+      materializes inline; expression-level match is also supported — see
+      expressions below)
     * expressions: bare place (param or state name), expected-type integer
       literals (legal UInt/Int widths, LE valueBytes of width/8), Bool literal,
       checked binary add/sub/mul/div/mod and bitwise and/or/xor on same-width
@@ -49,7 +50,13 @@
       lower to a single-param header block (the induction variable), a
       branch, and a latch with the only back edge; `loopBounds` records
       exactly that (header, latch, N) edge in ascending order. Non-loop
-      edges still point forward; block params appear only on loop headers
+      edges still point forward; block params appear on loop headers and on
+      expression-match join blocks (arm value → join via jump args)
+      * expression-level `match Expr with | Pattern => Expr` (T4): same literal
+      + catch-all pattern set as statement match; each arm value lowers in its
+      own block and jumps to a join block carrying the result as a single
+      block param; catch-all-only matches inline without a switch. Constructor/
+      string patterns remain fail closed (T5)
       * statements: immutable `let` bindings lower to environment entries
       (the RHS evaluates once; reassignment via `assign` fails closed except
       field/index update of an immutable local which rebinds the name)
@@ -74,7 +81,7 @@
     * Int/Field `Op.Unary.neg`, Int arithmetic/shift, private/commitment state,
       non-UInt64 call/schedule args and for endpoints, named/aggregate state,
       nonempty Map construction, nested field/index assign chains,
-      ContextRead/Commit, match expressions / constructor patterns,
+      ContextRead/Commit, match constructor/string patterns (T5),
       true mutable locals
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
@@ -614,16 +621,18 @@ private def fnLookup (table : FnTableV1) (name : String) :
 live: comparison/Bool-literal lowering interns shapes on first actual use so
 existing programs keep byte-identical type tables. `blocks` holds completed
 blocks in id order; `instructions` accumulates the current open block.
-`currentParams` carries the open block's params (only loop headers have any
-in this envelope: exactly the induction variable). `loopBounds` accumulates
-static loop-bound entries in completion order and is sorted into canonical
-ascending (header, backEdgeFrom) order at callable assembly. `nextEffectId`
-counts emitted effect instructions (emit) in BlockId/instruction order, which
-is exactly the canonical EffectId order. Loop-header block params draw from
-`callableParamCount + nextBlockParamOrdinal` (creation order == BlockId
-order), and `nextValueId` starts past the syntactically counted header-param
-range, so the SPEC §6 canonical three-pass ValueId order (callable params →
-block params → instruction results) holds by construction with no remap. -/
+`currentParams` carries the open block's params (loop headers: induction
+variable; expression-match joins: the matched arm value). `loopBounds`
+accumulates static loop-bound entries in completion order and is sorted into
+canonical ascending (header, backEdgeFrom) order at callable assembly.
+`nextEffectId` counts emitted effect instructions (emit) in BlockId/
+instruction order, which is exactly the canonical EffectId order. Loop-header
+and expression-match join block params draw from
+`callableParamCount + nextBlockParamOrdinal` (creation order == BlockId order
+of param-bearing blocks), and `nextValueId` starts past the syntactically
+counted block-param range, so the SPEC §6 canonical three-pass ValueId order
+(callable params → block params → instruction results) holds by construction
+with no remap. -/
 structure BodyStateV1 where
   blocks : Array BlockV1
   instructions : Array InstructionV1
@@ -679,11 +688,12 @@ private def patchBranchElse (st : BodyStateV1) (blockIdx : Nat) (elseId : BlockI
     | .branch cond thenT _ => .branch cond thenT { blockId := elseId, args := #[] }
     | t => t
 
-/-- Back-patch a jump terminator's target block. -/
+/-- Back-patch a jump terminator's target block, preserving jump args (needed
+    for expression-match arm → join value-passing). -/
 private def patchJumpTarget (st : BodyStateV1) (blockIdx : Nat) (targetId : BlockIdV1) :
     BodyStateV1 :=
   patchTerminatorAt st blockIdx fun
-    | .jump _ => .jump { blockId := targetId, args := #[] }
+    | .jump t => .jump { blockId := targetId, args := t.args }
     | t => t
 
 /-- Back-patch a switch terminator's cases and default target. -/
@@ -708,6 +718,73 @@ where
         arms.foldl (fun acc arm => acc + countForLoopsStmtsV1 arm.body.statements) 0
     | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
     | _ => 0
+
+/-- Whether an expression match has at least one integer/Bool literal case
+    (and therefore allocates a join block param). Catch-all-only and
+    constructor/string-only shapes either inline or fail closed without a
+    join allocation. -/
+private def exprMatchHasLiteralCaseV1
+    (arms : Array ProofForgeV2.Source.AstSpineV1.ExprMatchArmV1) : Bool :=
+  arms.any fun arm =>
+    match arm.pattern with
+    | .literal (.integer _) | .literal (.bool _) => true
+    | _ => false
+
+/-- Count expression-match join block params reachable from expressions
+    (including nested matches and place indices). Each join-needing match
+    contributes exactly one block param. -/
+private partial def countExprMatchJoinsInExprV1 (expr : SrcExpr) : Nat :=
+  match expr with
+  | .match_ scrutinee arms =>
+      let self := if exprMatchHasLiteralCaseV1 arms then 1 else 0
+      self + countExprMatchJoinsInExprV1 scrutinee +
+        arms.foldl (fun acc arm => acc + countExprMatchJoinsInExprV1 arm.value) 0
+  | .binary _ lhs rhs =>
+      countExprMatchJoinsInExprV1 lhs + countExprMatchJoinsInExprV1 rhs
+  | .unary _ operand => countExprMatchJoinsInExprV1 operand
+  | .localCall _ args =>
+      args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+  | .constructor _ args =>
+      args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+  | .place p => countExprMatchJoinsInPlaceV1 p
+  | .literal _ => 0
+where
+  countExprMatchJoinsInPlaceV1 : SrcPlace → Nat
+    | .name _ => 0
+    | .field base _ => countExprMatchJoinsInPlaceV1 base
+    | .index base idx =>
+        countExprMatchJoinsInPlaceV1 base + countExprMatchJoinsInExprV1 idx
+
+/-- Count expression-match joins in statement lists (let/return/if/for/… values). -/
+private partial def countExprMatchJoinsInStmtsV1 (stmts : Array SrcStmt) : Nat :=
+  stmts.foldl (fun acc stmt => acc + countExprMatchJoinsInStmtV1 stmt) 0
+where
+  countExprMatchJoinsInStmtV1 : SrcStmt → Nat
+    | .let_ _ _ value => countExprMatchJoinsInExprV1 value
+    | .assign target value =>
+        countExprMatchJoinsInExprV1 (.place target) + countExprMatchJoinsInExprV1 value
+    | .if_ condition thenBlock elseBlock? =>
+        countExprMatchJoinsInExprV1 condition +
+          countExprMatchJoinsInStmtsV1 thenBlock.statements +
+          (elseBlock?.map (fun b => countExprMatchJoinsInStmtsV1 b.statements)).getD 0
+    | .match_ scrutinee arms =>
+        countExprMatchJoinsInExprV1 scrutinee +
+          arms.foldl (fun acc arm =>
+            acc + countExprMatchJoinsInStmtsV1 arm.body.statements) 0
+    | .for_ _ start endExclusive _ body =>
+        countExprMatchJoinsInExprV1 start + countExprMatchJoinsInExprV1 endExclusive +
+          countExprMatchJoinsInStmtsV1 body.statements
+    | .assert_ condition _ => countExprMatchJoinsInExprV1 condition
+    | .return_ (some e) => countExprMatchJoinsInExprV1 e
+    | .return_ none => 0
+    | .revert _ args =>
+        args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+    | .emit _ args =>
+        args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+    | .call externalCall =>
+        externalCall.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+    | .schedule externalCall =>
+        externalCall.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
 
 /-- Require an already-interned TypeId for a `let` binding: any registered
     scalar, named Struct/Enum, or anonymous aggregate (Array/Map/Option/Bytes/
@@ -804,8 +881,12 @@ private partial def synthLetExpectedV1
       match fnLookup fns key with
       | none => failUnsupported s!"S1 localCall '{key}' is not a declared fn"
       | some (_, _, fnResultTid) => pure (st.interner, fnResultTid)
-  | .match_ _ _ =>
-      failUnsupported "S1 normalizer does not support match expressions"
+  | .match_ _ arms =>
+      -- Unannotated let of a match expression: prefer an explicit annotation.
+      -- Without one, try the first arm value head (place / Bool / comparison).
+      match arms[0]? with
+      | none => failUnsupported "S1 match expression requires at least one arm"
+      | some arm => synthLetExpectedV1 arm.value st states fns
 
 /-- Infer comparison operand TypeId from the lhs place (TypeCheck order: lhs
     first, then rhs under that type). Non-place lhs heads fall back to UInt64
@@ -1252,7 +1333,170 @@ private partial def lowerExpr
             s!"S1 localCall '{key}' argument type mismatch"
           let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
           pure (vid, fnResultTid, st2)
-  | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
+  | .match_ scrutinee arms => do
+      -- T4 expression-level match: literal + unique catch-all patterns only
+      -- (constructor/string stay fail closed for T5). Arm values lower in
+      -- separate blocks and jump to a join block carrying the result as a
+      -- single block param (Wire jump-arg / block-param arity).
+      if arms.isEmpty then
+        return ← failUnsupported "S1 match expression requires at least one arm"
+      let (iB, boolTid) := internShape st.interner .bool
+      let st0 := { st with interner := iB }
+      let (scrutVid, scrutTid, st1) ←
+        match scrutinee with
+        | .literal (.bool _) =>
+            lowerExpr scrutinee boolTid st0 states fns
+        | .place p => do
+            let (vid, tid, stP) ← lowerPlace p st0 states fns
+            pure (vid, tid, stP)
+        | .unary .not _ =>
+            lowerExpr scrutinee boolTid st0 states fns
+        | .binary op _ _ => do
+            let srcOp := op
+            if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.le ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalAnd ||
+                srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalOr then
+              lowerExpr scrutinee boolTid st0 states fns
+            else
+              let (iU, u64Tid) := internShape st0.interner (.uint 64)
+              let stU := { st0 with interner := iU }
+              lowerExpr scrutinee u64Tid stU states fns
+        | _ => do
+            let (iU, u64Tid) := internShape st0.interner (.uint 64)
+            let stU := { st0 with interner := iU }
+            lowerExpr scrutinee u64Tid stU states fns
+      let scrutIsBool :=
+        match anonShapeOf? st1.interner.types scrutTid with
+        | some .bool => true
+        | _ => false
+      let scrutUintWidth? : Option Nat :=
+        match anonShapeOf? st1.interner.types scrutTid with
+        | some (.uint w) =>
+            if legalIntegerWidthV1 w.toNat then some w.toNat else none
+        | _ => none
+      unless scrutIsBool || scrutUintWidth?.isSome do
+        return ← failUnsupported
+          "S1 match expression scrutinee must be legal UInt or Bool"
+      let mut caseArms : Array (Nat × Bool × SrcExpr) := #[]
+      let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcExpr) := none
+      for arm in arms do
+        match arm.pattern with
+        | .literal lit =>
+            match lit with
+            | .integer magnitude =>
+                let some width := scrutUintWidth? |
+                  return ← failUnsupported
+                    "S1 match expression integer pattern requires a legal UInt scrutinee"
+                unless magnitude < uintExclusiveLimit width do
+                  return ← failUnsupported
+                    s!"S1 match expression UInt{width} integer pattern is out of range"
+                if caseArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
+                  return ← failUnsupported
+                    "S1 match expression has duplicate literal cases"
+                caseArms := caseArms.push (magnitude, false, arm.value)
+            | .bool value =>
+                unless scrutIsBool do
+                  return ← failUnsupported
+                    "S1 match expression Bool pattern requires a Bool scrutinee"
+                if caseArms.any (fun (v, isBool, _) =>
+                    isBool && v == (if value then 1 else 0)) then
+                  return ← failUnsupported
+                    "S1 match expression has duplicate literal cases"
+                caseArms := caseArms.push (if value then 1 else 0, true, arm.value)
+            | .string _ =>
+                return ← failUnsupported
+                  "S1 match expression does not support string literal patterns"
+        | .wildcard =>
+            if defaultArm?.isSome then
+              return ← failUnsupported
+                "S1 match expression has more than one catch-all arm"
+            defaultArm? := some (none, arm.value)
+        | .bind name =>
+            if defaultArm?.isSome then
+              return ← failUnsupported
+                "S1 match expression has more than one catch-all arm"
+            defaultArm? := some (some name, arm.value)
+        | .constructor _ _ =>
+            return ← failUnsupported
+              "S1 match expression does not support constructor patterns"
+      let (defaultBinder?, defaultValue) ← match defaultArm? with
+        | some da => pure da
+        | none =>
+            return ← failUnsupported
+              "S1 match expression on UInt/Bool requires a catch-all arm"
+      -- Catch-all-only: inline the arm value into the current open block
+      -- (structure gate forbids empty switch cases).
+      if caseArms.isEmpty then
+        let stD := match defaultBinder? with
+          | none => st1
+          | some name =>
+              { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
+        let (vid, vtid, stR) ← lowerExpr defaultValue expectedTid stD states fns
+        unless vtid == expectedTid do
+          return ← failUnsupported
+            "S1 match expression arm type does not match expected type"
+        pure (vid, expectedTid, { stR with env := st1.env })
+      else
+        -- Defer join ValueId allocation until the join block is created so
+        -- nested matches (lowered inside arms) receive lower BlockIds and
+        -- earlier block-param ValueIds — matching SPEC §6 BlockId order.
+        let scrutIdx := st1.blocks.size
+        let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
+        let savedEnv := st1.env
+        let mut stA := st2
+        let mut caseTargets : Array BlockIdV1 := #[]
+        let mut jumpSlots : Array Nat := #[]
+        for (_, _, armValue) in caseArms do
+          caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
+          let (vid, vtid, stB) ←
+            lowerExpr armValue expectedTid { stA with env := savedEnv } states fns
+          unless vtid == expectedTid do
+            return ← failUnsupported
+              "S1 match expression arm type does not match expected type"
+          jumpSlots := jumpSlots.push stB.blocks.size
+          stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
+        -- Default arm: optional binder aliases the scrutinee for the arm value.
+        let defaultId := UInt32.ofNat stA.blocks.size
+        let stD0 := match defaultBinder? with
+          | none => { stA with env := savedEnv }
+          | some name =>
+              { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
+        let (dVid, dTid, stD) ← lowerExpr defaultValue expectedTid stD0 states fns
+        unless dTid == expectedTid do
+          return ← failUnsupported
+            "S1 match expression arm type does not match expected type"
+        jumpSlots := jumpSlots.push stD.blocks.size
+        stA := sealCurrentBlock stD (.jump { blockId := 0, args := #[dVid] })
+        let switchCases : Array SwitchCaseV1 :=
+          caseArms.mapIdx fun i (value, isBool, _) =>
+            {
+              typeId := scrutTid
+              valueBytes :=
+                if isBool then encodeBool (value == 1)
+                else
+                  let width := scrutUintWidth?.getD 64
+                  encodeNatLeBytes value (width / 8)
+              target := { blockId := caseTargets[i]!, args := #[] }
+            }
+        let joinId := UInt32.ofNat stA.blocks.size
+        let stP := patchSwitch stA scrutIdx switchCases (some {
+          blockId := defaultId, args := #[] })
+        let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
+        -- Allocate join param now (creation order == BlockId order of params).
+        let joinVid :=
+          UInt32.ofNat (stP.callableParamCount + stP.nextBlockParamOrdinal)
+        let stJoin := {
+          stP with
+          nextBlockParamOrdinal := stP.nextBlockParamOrdinal + 1
+          currentParams := #[{ valueId := joinVid, typeId := expectedTid }]
+          env := savedEnv
+        }
+        pure (joinVid, expectedTid, stJoin)
 
 /-- Lower a positional argument list under expected TypeIds (arity already
     checked by the caller). Evaluation order is source order; each argument's
@@ -1788,7 +2032,9 @@ private def lowerBlock
     instructions := #[]
     currentParams := #[]
     loopBounds := #[]
-    nextValueId := UInt32.ofNat (params.size + countForLoopsStmtsV1 body.statements)
+    nextValueId := UInt32.ofNat
+      (params.size + countForLoopsStmtsV1 body.statements +
+        countExprMatchJoinsInStmtsV1 body.statements)
     nextBlockParamOrdinal := 0
     callableParamCount := params.size
     nextEffectId := 0

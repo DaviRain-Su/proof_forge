@@ -181,9 +181,9 @@
       "sha256": "7d0d4911fae19e97ec4f987c56f598584595bb7c531e96c065cbb0e6b5572552"
     },
     {
-      "bytes": 106168,
+      "bytes": 118706,
       "path": "ProofForgeV2/Semantic/NormalizeV1.lean",
-      "sha256": "4904ff20ed266a2ffde9de86f0f9512e7973853e42193f7e286b23bdf9d0774b"
+      "sha256": "6834570373f12e8d81ea3a5ef3e14e9631f37295095b9b586ca550d8481b1de2"
     },
     {
       "bytes": 75245,

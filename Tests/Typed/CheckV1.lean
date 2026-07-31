@@ -4962,6 +4962,237 @@ private unsafe def testFieldGetNonStructTypedNotOk
   let typed := checkProgramTypedResultV1 validated
   expect (!typed.ok) "field-bad: CheckV1 rejects field on UInt64"
 
+/-- T4: Bool scrutinee expression match as return value → switch + join block param. -/
+private unsafe def testExprMatchBoolReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchBool" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let flag : Bool := x > 0\n" ++
+    "    return\n" ++
+    "      match flag with\n" ++
+    "      | true => 1\n" ++
+    "      | false => 2\n" ++
+    "      | _ => 0\n"
+  let validated ← loadSource session "expr-match-bool" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "expr-match-bool: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-bool: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-bool: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-bool: missing entry"
+  -- blocks: scrut(0) + true(1) + false(2) + default(3) + join(4)
+  expect (entryC.blocks.size == 5)
+    s!"expr-match-bool: expected 5 blocks, got {entryC.blocks.size}"
+  let some scrutBlk := entryC.blocks[0]? |
+    throw <| IO.userError "expr-match-bool: missing scrut block"
+  match scrutBlk.terminator with
+  | .switch _ cases (some defaultT) =>
+      expect (cases.size == 2) s!"expr-match-bool: 2 cases, got {cases.size}"
+      expect (defaultT.blockId == 3)
+        s!"expr-match-bool: default→3, got {defaultT.blockId}"
+      let some c0 := cases[0]? |
+        throw <| IO.userError "expr-match-bool: missing case0"
+      expect (c0.valueBytes == encodeBool true && c0.target.blockId == 1)
+        "expr-match-bool: case true→block1"
+      let some c1 := cases[1]? |
+        throw <| IO.userError "expr-match-bool: missing case1"
+      expect (c1.valueBytes == encodeBool false && c1.target.blockId == 2)
+        "expr-match-bool: case false→block2"
+  | _ => throw <| IO.userError "expr-match-bool: scrut must switch"
+  -- Arm blocks jump to join with a single value arg
+  for bi in [1:4] do
+    let some armBlk := entryC.blocks[bi]? |
+      throw <| IO.userError s!"expr-match-bool: missing arm block {bi}"
+    match armBlk.terminator with
+    | .jump t =>
+        expect (t.blockId == 4 && t.args.size == 1)
+          s!"expr-match-bool: arm {bi} must jump join with 1 arg, got {t.blockId}/{t.args.size}"
+    | _ => throw <| IO.userError s!"expr-match-bool: arm {bi} must jump"
+  let some joinBlk := entryC.blocks[4]? |
+    throw <| IO.userError "expr-match-bool: missing join"
+  expect (joinBlk.params.size == 1)
+    s!"expr-match-bool: join must have 1 block param, got {joinBlk.params.size}"
+  let some jp := joinBlk.params[0]? |
+    throw <| IO.userError "expr-match-bool: missing join param"
+  -- Entry has 1 callable param (x); join param is the first (only) block param → vid 1
+  expect (jp.valueId == 1)
+    s!"expr-match-bool: join param ValueId 1, got {jp.valueId}"
+  match joinBlk.terminator with
+  | .return_ (some vid) =>
+      expect (vid == 1) s!"expr-match-bool: return join param, got {vid}"
+  | _ => throw <| IO.userError "expr-match-bool: join must return some"
+
+/-- T4: UInt multi-arm expression match with catch-all bind. -/
+private unsafe def testExprMatchUIntMultiArm
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchUInt" <|
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match delta with\n" ++
+    "      | 0 => 10\n" ++
+    "      | 1 => 20\n" ++
+    "      | rest => rest\n"
+  let validated ← loadSource session "expr-match-uint" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "expr-match-uint: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-uint: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-uint validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-uint: missing entry"
+  expect (entryC.blocks.size == 5)
+    s!"expr-match-uint: 5 blocks, got {entryC.blocks.size}"
+  let some scrutBlk := entryC.blocks[0]? |
+    throw <| IO.userError "expr-match-uint: missing scrut"
+  match scrutBlk.terminator with
+  | .switch scrut cases (some _) =>
+      expect (scrut == 0) "expr-match-uint: scrutinee is param vid0"
+      expect (cases.size == 2) s!"expr-match-uint: 2 cases, got {cases.size}"
+      let some c0 := cases[0]? |
+        throw <| IO.userError "expr-match-uint: case0"
+      expect (c0.valueBytes == encodeU64le 0) "expr-match-uint: case0 bytes"
+      let some c1 := cases[1]? |
+        throw <| IO.userError "expr-match-uint: case1"
+      expect (c1.valueBytes == encodeU64le 1) "expr-match-uint: case1 bytes"
+  | _ => throw <| IO.userError "expr-match-uint: expected switch"
+  -- Default arm binder `rest` aliases scrutinee; arm should jump join with param0
+  let some defBlk := entryC.blocks[3]? |
+    throw <| IO.userError "expr-match-uint: missing default"
+  match defBlk.terminator with
+  | .jump t =>
+      expect (t.blockId == 4 && t.args.size == 1)
+        "expr-match-uint: default jumps join with 1 arg"
+      let some arg0 := t.args[0]? |
+        throw <| IO.userError "expr-match-uint: missing jump arg"
+      expect (arg0 == 0)
+        s!"expr-match-uint: bind rest must alias scrutinee vid0, got {arg0}"
+  | _ => throw <| IO.userError "expr-match-uint: default must jump"
+
+/-- T4: expression match as annotated let RHS and as arithmetic operand. -/
+private unsafe def testExprMatchLetAndOperand
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchLet" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let v : UInt64 := match x with\n" ++
+    "                      | 0 => 1\n" ++
+    "                      | _ => 2\n" ++
+    "    return\n" ++
+    "      (match x with\n" ++
+    "       | 0 => 3\n" ++
+    "       | _ => 4) + v\n"
+  let validated ← loadSource session "expr-match-let" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "expr-match-let: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-let: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-let validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-let: missing entry"
+  -- Two join-needing matches → two join block params (ValueId 1 and 2 after param0)
+  let joinParamCount := entryC.blocks.foldl (fun acc b => acc + b.params.size) 0
+  expect (joinParamCount == 2)
+    s!"expr-match-let: expected 2 join params total, got {joinParamCount}"
+  -- Final block should binary-add using join results
+  let some lastBlk := entryC.blocks[entryC.blocks.size - 1]? |
+    throw <| IO.userError "expr-match-let: missing last block"
+  expect (lastBlk.instructions.any fun instr =>
+      match instr.op with | .binary .add _ _ => true | _ => false)
+    "expr-match-let: last block must contain add of match results"
+  match lastBlk.terminator with
+  | .return_ (some _) => pure ()
+  | _ => throw <| IO.userError "expr-match-let: last block must return"
+
+/-- T4: nested expression match (arm value is another match). -/
+private unsafe def testExprMatchNested
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchNest" <|
+    "  entry run(x : UInt64, y : UInt64) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match x with\n" ++
+    "      | 0 => match y with\n" ++
+    "             | 0 => 1\n" ++
+    "             | _ => 2\n" ++
+    "      | _ => 3\n"
+  let validated ← loadSource session "expr-match-nest" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "expr-match-nest: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-nest: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-nest validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-nest: missing entry"
+  let switchCount := entryC.blocks.foldl (fun acc b =>
+      acc + (match b.terminator with | .switch _ _ _ => 1 | _ => 0)) 0
+  expect (switchCount == 2)
+    s!"expr-match-nest: expected 2 switches, got {switchCount}"
+  let joinParamCount := entryC.blocks.foldl (fun acc b => acc + b.params.size) 0
+  expect (joinParamCount == 2)
+    s!"expr-match-nest: expected 2 join params, got {joinParamCount}"
+  match validateSemanticProgramV1 carrier with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"expr-match-nest: re-validate: {repr e}"
+
+/-- T4: catch-all-only expression match stays single-block (inline). -/
+private unsafe def testExprMatchCatchAllOnly
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchInline" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match x with\n" ++
+    "      | rest => rest\n"
+  let validated ← loadSource session "expr-match-inline" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "expr-match-inline: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-inline: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-inline validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-inline: missing entry"
+  expect (entryC.blocks.size == 1)
+    s!"expr-match-inline: catch-all-only must be single-block, got {entryC.blocks.size}"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "expr-match-inline: missing block"
+  expect (blk.params.isEmpty) "expr-match-inline: no join param"
+  match blk.terminator with
+  | .return_ (some vid) =>
+      expect (vid == 0) s!"expr-match-inline: return param vid0, got {vid}"
+  | _ => throw <| IO.userError "expr-match-inline: expected return"
+
+/-- T4: constructor patterns stay fail closed at expression match
+    (named Color param also fails; pin either gate). -/
+private unsafe def testExprMatchConstructorFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchCtor" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n" ++
+    "  entry run(c : Color) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match c with\n" ++
+    "      | Color.Red() => 1\n" ++
+    "      | _ => 0\n"
+  expectUnsupportedAfterCheckOk session "expr-match-ctor" source
+    (fun d =>
+      d.contains "constructor" || d.contains "UInt" ||
+      d.contains "parameter" || d.contains "named")
+    "named param / constructor pattern"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -5036,6 +5267,13 @@ unsafe def run : IO Unit := do
   testEnumConstruct session
   testStructConstructArityMismatch session
   testFieldGetNonStructTypedNotOk session
+  -- T4 expression-level match
+  testExprMatchBoolReturn session
+  testExprMatchUIntMultiArm session
+  testExprMatchLetAndOperand session
+  testExprMatchNested session
+  testExprMatchCatchAllOnly session
+  testExprMatchConstructorFailClosed session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1
