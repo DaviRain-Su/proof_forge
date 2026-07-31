@@ -1070,6 +1070,19 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         hasAssert := true
         segmentStart := values.size
+    -- Wave I: EVM declines external calls / workflow schedules. Product
+    -- capability resolution rejects `effect.synchronous-call` and
+    -- `effect.asynchronous-workflow` with PF-REQ-UNSUPPORTED before this
+    -- lowerer runs; the arms below are defensive for hand-built / inspection
+    -- SemanticProgramV1 carriers. No placeholder CALL/CREATE Yul: EVM
+    -- external calls require an address-bearing type that does not exist in
+    -- the current public-UInt64 envelope.
+    | .externalCall _effectId _callee _args, none =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: external calls are outside the EVM pilot envelope (no address-bearing type)"
+    | .schedule _effectId _callee _args, none =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: workflow schedules are outside the EVM pilot envelope (no address-bearing type)"
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"
