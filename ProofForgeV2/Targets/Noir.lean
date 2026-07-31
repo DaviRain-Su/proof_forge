@@ -98,6 +98,11 @@ inductive Expr where
   | stateLoad (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | checkedMul (lhs rhs : Expr)
+  | checkedDiv (lhs rhs : Expr)
+  | checkedMod (lhs rhs : Expr)
+  | bitNot (operand : Expr)
+  | boolNot (operand : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -194,6 +199,11 @@ inductive ValueRef where
 inductive Operation where
   | checkedAdd (destination : Nat) (lhs rhs : ValueRef)
   | checkedSub (destination : Nat) (lhs rhs : ValueRef)
+  | checkedMul (destination : Nat) (lhs rhs : ValueRef)
+  | checkedDiv (destination : Nat) (lhs rhs : ValueRef)
+  | checkedMod (destination : Nat) (lhs rhs : ValueRef)
+  | bitNot (destination : Nat) (source : ValueRef)
+  | boolNot (destination : Nat) (source : ValueRef)
   | assertEqual (lhs rhs : ValueRef)
   | assertBool (inputIndex : Nat) (expected : Bool)
   | compare (op : ComparisonOp) (destination : Nat) (lhs rhs : ValueRef)
@@ -634,6 +644,67 @@ private def binaryOpToComparisonV1 : BinaryOpV1 → Option ComparisonOp
   | .ge => some .ge
   | _ => none
 
+/-- Generic checked-arithmetic value constructor for mul/div/mod (add/sub
+    keep their historical constructors above). UInt64 operands, kind uint64,
+    checked depth/node accounting, both ids as dependencies. -/
+private def makeArithValueV1 (label : String) (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- bitNot value: UInt64 in/out, pure (no failure constraint). -/
+private def makeBitNotValueV1 (operandId : ValueIdV1) (operand : LoweredValueV1) :
+    CompileResult LoweredValueV1 := do
+  unless operand.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: bit-not operand must be UInt64"
+  if 1 + operand.depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .bitNot operand.expr
+    kind := .uint64
+    depth := 1 + operand.depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+  }
+
+/-- boolNot value: Bool in/out, pure (no failure constraint). -/
+private def makeBoolNotValueV1 (operandId : ValueIdV1) (operand : LoweredValueV1) :
+    CompileResult LoweredValueV1 := do
+  unless operand.kind == .bool do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: bool-not operand must be Bool"
+  if 1 + operand.depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .boolNot operand.expr
+    kind := .bool
+    depth := 1 + operand.depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+  }
+
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
@@ -823,6 +894,15 @@ private def lowerBlockInstructionsV1
         else if op == .sub then
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mul then
+          let value ← makeArithValueV1 "checked mul" Expr.checkedMul lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .div then
+          let value ← makeArithValueV1 "checked div" Expr.checkedDiv lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mod then
+          let value ← makeArithValueV1 "checked mod" Expr.checkedMod lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
         else
           match binaryOpToComparisonV1 op with
           | some comparison =>
@@ -837,7 +917,26 @@ private def lowerBlockInstructionsV1
               values := ← appendResultValueV1 boolTypeId values result value
           | none =>
               throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: only checked UInt64 add/sub and comparisons are supported"
+                "unsupported Noir semantic shape: only checked UInt64 arithmetic and comparisons are supported"
+    | .unary op operandId, some result =>
+        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        match op with
+        | .neg =>
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: unary neg is Int/Field-only at the wire"
+        | .bitNot =>
+            let value ← makeBitNotValueV1 operandId operand
+            values := ← appendResultValueV1 types.uint64TypeId values result value
+        | .not =>
+            let boolTypeId ← match types.boolTypeId with
+              | some value => pure value
+              | none => throw (.planInvariant .noir
+                  "unsupported Noir semantic shape: bool-not requires interned Bool type")
+            unless result.typeId == boolTypeId do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: bool-not result must be Bool"
+            let value ← makeBoolNotValueV1 operandId operand
+            values := ← appendResultValueV1 boolTypeId values result value
     | .stateStore stateId valueId, none =>
         if mode == .view then
           throw <| .planInvariant .noir
@@ -1206,7 +1305,8 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
         | some input => if let .parameter .. := input.role then some 1 else none
         | none => none
     | .stateLoad fieldIndex => if fieldIndex < states.size then some 1 else none
-    | .checkedAdd lhs rhs =>
+    | .checkedAdd lhs rhs | .checkedSub lhs rhs | .checkedMul lhs rhs |
+        .checkedDiv lhs rhs | .checkedMod lhs rhs =>
         let available := nodeBudget - 1
         match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none
@@ -1214,14 +1314,10 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
             match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedSub lhs rhs =>
-        let available := nodeBudget - 1
-        match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
+    | .bitNot operand | .boolNot operand =>
+        match planExprNodes? states inputs fnCount (depthLeft - 1) (nodeBudget - 1) operand with
         | none => none
-        | some lhsNodes =>
-            match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+        | some operandNodes => some (1 + operandNodes)
     | .compare _ lhs rhs =>
         let available := nodeBudget - 1
         match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
@@ -1654,6 +1750,47 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         value := .temp rhs.next
         next := rhs.next + 1
       }
+  | .checkedMul lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMul rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedDiv lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedDiv rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedMod lhs rhs => do
+      let lhs ← lowerExpr plan fuel stateValues next lhs
+      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMod rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitNot operand => do
+      let operand ← lowerExpr plan fuel stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
+  | .boolNot operand => do
+      let operand ← lowerExpr plan fuel stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.boolNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
   | .compare op lhs rhs => do
       let lhs ← lowerExpr plan fuel stateValues next lhs
       let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
@@ -1723,6 +1860,47 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
           #[.checkedSub rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
+      }
+  | .checkedMul lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMul rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedDiv lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedDiv rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedMod lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMod rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitNot operand => do
+      let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
+  | .boolNot operand => do
+      let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.boolNot operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
       }
   | .compare op lhs rhs => do
       let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
@@ -2096,11 +2274,20 @@ private partial def collectLiveTempsV1 (relationName : String)
         live ← collectLiveTempsV1 relationName defaultOps live
     | .checkedAdd destination lhs rhs
     | .checkedSub destination lhs rhs
+    | .checkedMul destination lhs rhs
+    | .checkedDiv destination lhs rhs
+    | .checkedMod destination lhs rhs
     | .compare _ destination lhs rhs =>
         unless live.contains destination do
           throw <| .planInvariant .noir
             s!"relation '{relationName}' contains dead checked arithmetic whose failure would not be constrained"
         live := addLiveTemp (addLiveTemp live lhs) rhs
+    | .bitNot destination source
+    | .boolNot destination source =>
+        unless live.contains destination do
+          throw <| .planInvariant .noir
+            s!"relation '{relationName}' contains dead unary arithmetic whose value would not be constrained"
+        live := addLiveTemp live source
   pure live
 
 private def validateCheckedArithmeticLiveness
@@ -2205,6 +2392,18 @@ private partial def renderOperation (relation : Relation) (indent : String) :
   | .checkedSub destination lhs rhs =>
       s!"{indent}assert({renderValue relation lhs} >= {renderValue relation rhs});\n" ++
         s!"{indent}let t{destination}: u64 = {renderValue relation lhs} - {renderValue relation rhs};\n"
+  | .checkedMul destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} * {renderValue relation rhs};\n"
+  | .checkedDiv destination lhs rhs =>
+      s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} / {renderValue relation rhs};\n"
+  | .checkedMod destination lhs rhs =>
+      s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
+        s!"{indent}let t{destination}: u64 = {renderValue relation lhs} % {renderValue relation rhs};\n"
+  | .bitNot destination source =>
+      s!"{indent}let t{destination}: u64 = !{renderValue relation source};\n"
+  | .boolNot destination source =>
+      s!"{indent}let t{destination}: bool = !{renderValue relation source};\n"
   | .assertEqual lhs rhs =>
       let asBool := assertEqualUsesBool relation lhs rhs
       s!"{indent}assert({renderEqualOperand relation asBool lhs} == {renderEqualOperand relation asBool rhs});\n"

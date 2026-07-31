@@ -150,6 +150,40 @@ private partial def step (machine : Machine) :
         modelError "native checked UInt64 subtraction underflow"
       else
         writeTemp machine destination (left - right)
+  | .checkedMul destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      let product := left.toNat * right.toNat
+      if product > 18446744073709551615 then
+        modelError "native checked UInt64 multiplication overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat product)
+  | .checkedDiv destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if right == 0 then
+        modelError "native checked UInt64 division by zero"
+      else
+        writeTemp machine destination (left / right)
+  | .checkedMod destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if right == 0 then
+        modelError "native checked UInt64 remainder by zero"
+      else
+        writeTemp machine destination (left % right)
+  | .bitNot destination source => do
+      let value ← readValue machine source
+      writeTemp machine destination
+        (UInt64.ofNat (18446744073709551615 - value.toNat))
+  | .boolNot destination source => do
+      let value ← readValue machine source
+      if value == 0 then
+        writeTemp machine destination 1
+      else if value == 1 then
+        writeTemp machine destination 0
+      else
+        modelError "native Bool negation received a non-Bool value"
   | .compare op destination lhs rhs => do
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -1325,6 +1359,120 @@ private unsafe def checkFnLocalCallProduct : IO Unit := do
   expect (bumpNr.contents.contains "assert(false)")
     "FnFlow .nr must render the fn revert arm as assert(false)"
 
+/-- Mul/div/mod/unary lowering: checked multiplication overflow, division and
+    remainder zero guards, bitwise NOT, and Bool NOT in a view result. -/
+private def arithFlowSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program ArithFlow where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry scale(factor : UInt64) : UInt64 do\n" ++
+  "    count := count * factor / 3 + count % 3\n" ++
+  "    return count\n\n" ++
+  "  entry clip(divisor : UInt64) : UInt64 do\n" ++
+  "    count := count / divisor + count % divisor\n" ++
+  "    return count\n\n" ++
+  "  entry mask(value : UInt64) : UInt64 do\n" ++
+  "    count := ~value\n" ++
+  "    return count\n\n" ++
+  "  view parity() : Bool do\n" ++
+  "    return !(count % 2 == 0)\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkArithOpsProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 arithFlowSourceText
+    "Examples.ArithFlow" "<noir-arith-flow>"
+  let scale ← findRelation ir "scale"
+  let clip ← findRelation ir "clip"
+  let mask ← findRelation ir "mask"
+  let parity ← findRelation ir "parity"
+
+  -- scale: mul → div → mod → add op order on `count * factor / 3 + count % 3`.
+  let arithOps := scale.operations.filter fun op =>
+    match op with
+    | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .checkedAdd .. => true
+    | _ => false
+  expect (arithOps.size == 4)
+    s!"ArithFlow scale must emit four arithmetic ops, got {arithOps.size}"
+  match arithOps[0]!, arithOps[1]!, arithOps[2]!, arithOps[3]! with
+  | .checkedMul .., .checkedDiv .., .checkedMod .., .checkedAdd .. => pure ()
+  | _, _, _, _ =>
+      throw <| IO.userError "ArithFlow scale op order must be mul/div/mod/add"
+  -- scale accept: 6*4=24, 24/3=8, 6%3=0 → post=8, result=8.
+  let scaleOk ← liftModel "ArithFlow scale ok inputs" <|
+    statefulInputs scale true 6 4 8 true 8
+  expectAccept "ArithFlow scale 6,4 accepts" scale scaleOk
+  let scaleWrong ← liftModel "ArithFlow scale wrong inputs" <|
+    statefulInputs scale true 6 4 8 true 9
+  expectReject "ArithFlow scale wrong result rejects" scale scaleWrong
+  -- scale mul overflow: 2^63 * 4 exceeds UInt64 for any witness.
+  let scaleOverflow ← liftModel "ArithFlow scale overflow inputs" <|
+    statefulInputs scale true 9223372036854775808 4 0 true 0
+  expectReject "ArithFlow scale mul overflow is inadmissible" scale scaleOverflow
+
+  -- clip accept: 17/5=3, 17%5=2 → post=5, result=5.
+  let clipOk ← liftModel "ArithFlow clip ok inputs" <|
+    statefulInputs clip true 17 5 5 true 5
+  expectAccept "ArithFlow clip 17,5 accepts" clip clipOk
+  -- clip divisor=0: division guard rejects any witness.
+  let clipZero ← liftModel "ArithFlow clip zero inputs" <|
+    statefulInputs clip true 17 0 0 true 0
+  expectReject "ArithFlow clip division by zero is inadmissible" clip clipZero
+
+  -- mask accept: ~5 = 2^64 - 6.
+  let maskOk ← liftModel "ArithFlow mask ok inputs" <|
+    statefulInputs mask true 0 5 18446744073709551610 true 18446744073709551610
+  expectAccept "ArithFlow mask ~5 accepts" mask maskOk
+  let maskWrong ← liftModel "ArithFlow mask wrong inputs" <|
+    statefulInputs mask true 0 5 18446744073709551611 true 18446744073709551611
+  expectReject "ArithFlow mask wrong complement rejects" mask maskWrong
+
+  -- parity: !(count % 2 == 0); odd state is true, even state is false.
+  let parityOdd ← liftModel "ArithFlow parity odd inputs" <|
+    statefulInputsBoolResult parity true 7 0 7 true true
+  expectAccept "ArithFlow parity(count=7) true" parity parityOdd
+  let parityEven ← liftModel "ArithFlow parity even inputs" <|
+    statefulInputsBoolResult parity true 8 0 8 true false
+  expectAccept "ArithFlow parity(count=8) false" parity parityEven
+  let parityWrong ← liftModel "ArithFlow parity wrong inputs" <|
+    statefulInputsBoolResult parity true 7 0 7 true false
+  expectReject "ArithFlow parity(count=7) rejects false" parity parityWrong
+
+  -- `.nr` surface: guards and unary forms.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 arithFlowSourceText
+      "<noir-arith-emit>" "Examples.ArithFlow" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some scaleNr := files.find? (fun file =>
+      file.path.endsWith "r1-scale/src/main.nr") |
+    throw <| IO.userError "ArithFlow missing scale main.nr"
+  expect (scaleNr.contents.contains " * " && scaleNr.contents.contains " / " &&
+      scaleNr.contents.contains " % ")
+    "ArithFlow scale .nr must render mul/div/mod operators"
+  let some clipNr := files.find? (fun file =>
+      file.path.endsWith "r2-clip/src/main.nr") |
+    throw <| IO.userError "ArithFlow missing clip main.nr"
+  expect (clipNr.contents.contains "assert(divisor != 0);")
+    "ArithFlow clip .nr must guard the divisor against zero"
+  let some maskNr := files.find? (fun file =>
+      file.path.endsWith "r3-mask/src/main.nr") |
+    throw <| IO.userError "ArithFlow missing mask main.nr"
+  expect (maskNr.contents.contains ": u64 = !")
+    "ArithFlow mask .nr must render bitwise NOT on u64"
+  let some parityNr := files.find? (fun file =>
+      file.path.endsWith "r4-parity/src/main.nr") |
+    throw <| IO.userError "ArithFlow missing parity main.nr"
+  expect (parityNr.contents.contains ": bool = !")
+    "ArithFlow parity .nr must render Bool NOT"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1355,5 +1503,6 @@ unsafe def run : IO Unit := do
   checkBranchingProduct
   checkEmitRevertProduct
   checkFnLocalCallProduct
+  checkArithOpsProduct
 
 end Tests.Materialization.NoirRelationModel
