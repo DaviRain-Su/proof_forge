@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 ReferenceV1 Commit identity runtime engineering slice
+
+- Production：`ReferenceV1` admission现开放Wire-owned Commit。runtime从当前env读取operand，并将
+  同一`ReferenceValueV1`直接绑定到result；exact TypeId与canonical `valueBytes`不变，不hash、不加盐、
+  不重编码，也不修改state overlay/pre-state/context/effects/response cursor。Wire门禁后不可能的
+  missing operand/result或TypeId mismatch统一trap `internalInvariant`。
+- Tests：所有fixture继续走encode→decode carrier并携exact disclosure requirement；覆盖Bool与Option
+  aggregate identity、repeated Commit、initializer、entry、view、ordinary/nested PureCall、ContextRead
+  value穿过Commit、program-wide requirement与selected-root runtime可达性分离，以及state/effects不变。
+- Boundary：Wire invariant root及reachable invariant PureCall closure禁止保持；S2与所有target support
+  catalog未修改，formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。本切片不声称
+  target密码学commitment realization或完整information-flow proof。
+
 ## 2026-07-31 — D2-07 Commit exact disclosure requirement binding
 
 - Contract：冻结Wire-owned `disclosure.commitment@1.0.0`、empty predicates、digest

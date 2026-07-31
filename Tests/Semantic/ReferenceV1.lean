@@ -25,7 +25,7 @@
     4. Emit-then-revert discards overlay/effects; wrong callable
        id/kind/arity/type/noncanonical args → invalidInvocation; entry before
        init / init twice; determinism.
-    5. Admission fail-closed on unsupported Int / Commit / view stateStore /
+    5. Admission fail-closed on unsupported Int / view stateStore /
        view Emit (errors separated from Outcome).
     6. Lifecycle + trailing: uninit/alreadyInit + trailing →
        invalidExternalResponse; invalidInvocation + trailing stays
@@ -42,7 +42,9 @@
    13. Struct canonical codec seam plus Construct/FieldGet/FieldSet in entry,
        nested immutable update, PureCall, and invariant-root execution.
    14. ContextRead exact selected-root/PureCall-closure invocation gate and
-       immutable shared snapshot execution; Commit remains unsupported.
+       immutable shared snapshot execution.
+   15. Commit exact requirement admission and target-neutral identity execution
+       across roots/PureCall, including aggregate bytes and repeated Commit.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -1568,7 +1570,8 @@ private unsafe def testInvalidInvocationAndInitLifecycle
   let _ := boolTid
   pure ()
 
-/-- Admission fail-closed for unsupported shapes/ops (not Outcome). -/
+/-- Admission fail-closed for unsupported shapes/ops (not Outcome), plus the
+    now-admitted Commit boundary. -/
 private def testAdmissionUnsupported : IO Unit := do
   -- Int
   let typesInt : Array TypeDeclV1 := #[
@@ -1643,18 +1646,19 @@ private def testAdmissionUnsupported : IO Unit := do
     (stepReferenceSliceV1 initAdmitted preInitPC (inv 0 #[]) #[])
     { preInitPC with initialized := true } none #[]
 
-  -- Commit
+  -- Commit is admitted and preserves the operand's exact type/bytes without
+  -- state or effects.
   let typesCm : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .unit }
   ]
-  let entryCm := mkEntry 0 "cm" #[] 1
+  let entryCm := mkEntry 0 "cm" #[] 0
     #[
       instr (some { valueId := 0, typeId := 0 })
         (.literal 0 (ByteArray.mk #[1])),
       instr (some { valueId := 1, typeId := 0 }) (.commit 0)
     ]
-    (.return_ none)
+    (.return_ (some 1))
   let baseCm ← emptyData "AdmCommit"
   let commitRequirement ← match commitmentDisclosureRequirementV1 with
     | .ok row => pure row
@@ -1666,8 +1670,13 @@ private def testAdmissionUnsupported : IO Unit := do
       requirements := { items := #[commitRequirement] }
   }
   let cCm ← encodeCarrier "adm-commit" dataCm
-  admitUnsupported "adm-commit" cCm
-    (fun d => d.toLower.contains "commit") "Commit"
+  let admittedCm ← admitOk "adm-commit" cCm
+  let preCm ← match initialLogicalStateV1 cCm with
+    | .ok initial => pure initial
+    | .error e => throw <| IO.userError s!"adm-commit initial state: {repr e}"
+  expectReturned "commit-bool-identity"
+    (stepReferenceSliceV1 admittedCm preCm (inv 0 #[]) emptyResponses)
+    preCm (some (refBool 0 1)) #[]
 
   -- Wire-structure-valid view with stateStore rejected at admission (not Outcome).
   let typesV : Array TypeDeclV1 := #[
@@ -1726,18 +1735,24 @@ private def testContextReadReferenceSlice : IO Unit := do
   let requirement ← match unixTimeSecondsContextRequirementV1 with
     | .ok row => pure row
     | .error e => throw <| IO.userError s!"context-read requirement: {e}"
+  let commitRequirement ← match commitmentDisclosureRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
   let types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .uint 64 },
     { id := 1, name := none, shape := .unit }
   ]
   let leaf := mkPureFn 0 "readClock" #[] 0
-    #[instr (some (vd 0 0)) (.contextRead key)]
-    (.return_ (some 0))
+    #[instr (some (vd 0 0)) (.contextRead key),
+      instr (some (vd 1 0)) (.commit 0),
+      instr (some (vd 2 0)) (.commit 1)]
+    (.return_ (some 2))
   let nested := mkPureFn 1 "nestedClock" #[] 0
     #[instr (some (vd 0 0)) (.pureCall 0 #[])]
     (.return_ (some 0))
   let initializer := mkInit 2 #[] 1
-    #[instr (some (vd 0 0)) (.contextRead key)]
+    #[instr (some (vd 0 0)) (.contextRead key),
+      instr (some (vd 1 0)) (.commit 0)]
     (.return_ none)
   let direct := mkEntry 3 "directClock" #[] 0
     #[instr (some (vd 0 0)) (.contextRead key)]
@@ -1755,7 +1770,7 @@ private def testContextReadReferenceSlice : IO Unit := do
     base with
       types
       callables := #[leaf, nested, initializer, direct, throughNested, noContext, repeated]
-      requirements := { items := #[requirement] }
+      requirements := { items := #[requirement, commitRequirement] }
   }
   let carrier ← encodeCarrier "context-read-runtime" data
   let admitted ← admitOk "context-read-runtime" carrier
@@ -2878,6 +2893,28 @@ private def testVariantReferenceSlice : IO Unit := do
   let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
   expectReturned "variant-ops" (stepReferenceSliceV1 admitted pre (inv 0 #[]) #[])
     pre (some { typeId := 2, valueBytes := ByteArray.mk #[9] }) #[]
+
+  -- Commit is not restricted to a primitive allowlist: aggregate canonical
+  -- bytes pass through exactly, including repeated Commit.
+  let commitRequirement ← match commitmentDisclosureRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"variant Commit requirement: {e}"
+  let optionCommit := mkEntry 0 "optionCommit" #[] 4 #[
+    instr (some (vd 0 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 1 4)) (.construct 4 1 #[0]),
+    instr (some (vd 2 4)) (.commit 1),
+    instr (some (vd 3 4)) (.commit 2)
+  ] (.return_ (some 3))
+  let optionCommitCarrier ← encodeCarrier "variant-option-commit" {
+    base with
+      types
+      callables := #[optionCommit]
+      requirements := { items := #[commitRequirement] }
+  }
+  let optionCommitAdmitted ← admitOk "variant-option-commit" optionCommitCarrier
+  expectReturned "variant-option-commit"
+    (stepReferenceSliceV1 optionCommitAdmitted pre (inv 0 #[]) #[]) pre
+    (some { typeId := 4, valueBytes := ByteArray.mk #[1, 9] }) #[]
 
   let noneTag := mkEntry 0 "noneTag" #[] 3 #[
     instr (some (vd 0 4)) (.construct 4 0 #[]),

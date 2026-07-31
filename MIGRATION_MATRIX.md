@@ -105,7 +105,7 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > requirement-to-result binding/key capability support 仍 Not yet” 已由本次 proposed/pre-acceptance
 > static-only slice supersede；Wire 现已关闭单行 exact key/anonymous UInt64/exact requirement
 > catalog。Reference ContextRead runtime与Invocation exact-context gate现也已由后续工程切片实现；
-> Commit现已闭合operand/result TypeId exact equality与exact disclosure requirement row，但runtime仍关闭；
+> Commit现已闭合operand/result TypeId exact equality、exact disclosure requirement row与Reference identity runtime；
 > 全部target support与formal evaluator/theorem也仍未完成。
 
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
@@ -122,14 +122,15 @@ closure traversal，收集并UTF-8排序exact ContextRead key/type集合；suppl
 exact set、TypeId一致且value bytes canonical，否则在lifecycle/response cursor前返回
 `.trapped(.invalidInvocation, pre)`。validated snapshot仅存于Machine、由nested PureCall frame共享；
 runtime lookup impossible missing/type mismatch返回`internalInvariant`。invariant closure仍由Wire拒绝
-ContextRead，Commit、targets和formal evaluator/theorem未开放。
+ContextRead/Commit；targets和formal evaluator/theorem未开放。
 
 Commit的独立Wire typing切片现要求operand ValueId可解析且
 `Instruction.result.typeId == type(value)`；Option等具有canonical encoding的aggregate同样允许，
 不复用Eq/Ne的窄`serializableType` allowlist。Wire-owned `disclosure.commitment@1.0.0` empty-predicate
 row现以`domainSeparatedSha256("pf.commit-requirement.v1", UTF-8(id))`冻结并在使用Commit时exact绑定；
-该row不加入S2或target support catalog。Reference identity runtime仍关闭；不得把static recognition
-写成target support或完整declassification证明。
+该row不加入S2或target support catalog。Reference runtime在initializer/entry/view及ordinary PureCall中
+执行exact TypeId/valueBytes identity，不hash、不重编码、不产生effect或state mutation；不得把该工程
+runtime写成target support或完整declassification证明。invariant root/reachable closure禁止保持。
 
 `ReferenceV1`现新增明确非formal的`evalInvariantReferenceSliceV1`：按validated InvariantDecl ordinal
 选择zero-arg public Bool invariant，以`StateConformsV1`门禁logical state，使用carried exact
@@ -144,8 +145,8 @@ row现以`domainSeparatedSha256("pf.commit-requirement.v1", UTF-8(id))`冻结并
 IndexSet；get产生exact Option<value>，set保留旧SSA。WireV1 public lookup/upsert seam复用sole
 cumulative decoder与unsigned-lex comparator，负责canonical framing、key legality、strict unique
 order及count/byte/work/nesting cap。admission以`maxMapEntriesV1`理论最大entry count作cap-safe
-保守width/work计算且不按count循环，可能拒绝实际可容纳的小Map。ContextRead、Commit与formal
-evaluator仍pending。
+保守width/work计算且不按count循环，可能拒绝实际可容纳的小Map。ContextRead/Commit Reference
+runtime已由后续切片开放；formal evaluator仍pending。
 
 ### D2-07 Array/Bytes index runtime 增量（2026-07-31）
 
@@ -156,8 +157,9 @@ element/UInt8均按exact TypeId/shape与canonical bytes防御性复核；越界�
 fuel、exact count、append前16MiB cap及full-consume/re-encode；canonical value decoder以64MiB
 program-wide cumulative work budget跨constants/literals/switch values及所有recursive siblings线程化，
 每个node计entry与canonical output work。显式栈资源分析使用相同recurrence和checked乘加，不按
-UInt32 length展开，重复与零宽元素均完整计费；递归Array图仍拒绝。Map Construct/Index、ContextRead、Commit及formal
-evalInvariant/TASK-D2-07/TST-SEM-002/003仍pending。
+UInt32 length展开，重复与零宽元素均完整计费；递归Array图仍拒绝。Map Construct/Index及
+ContextRead/Commit Reference runtime已由后续切片开放；formal evalInvariant/TASK-D2-07/
+TST-SEM-002/003仍pending。
 
 ### D2-07 Struct runtime 增量（2026-07-31）
 
@@ -172,8 +174,9 @@ canonical bytes；logical-state defaults另按slot prefix累计受64MiB byte/wor
 set、nested Struct、pureFn与invariant root，并覆盖malformed/noncanonical/trailing/wrong-shape/count
 及non-Struct Construct admission。后续独立工程切片已在同一machine加入acyclic Option/Enum canonical
 Construct、VariantTag/VariantPayload、runtime tag一致性trap及cap-saturating资源分析；Wire-legal
-recursive Struct/Option/Enum graph在有限maximum-resource Reference subset仍显式unsupported；Unit/Map
-Construct与Map index、ContextRead/Commit仍关闭（Option/Enum canonical Construct/VariantTag/VariantPayload与fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已由后续独立切片接纳）。正式`evalInvariantV1`/
+recursive Struct/Option/Enum graph在有限maximum-resource Reference subset仍显式unsupported；Unit
+Construct仍关闭，Map index、ContextRead/Commit与Option/Enum canonical Construct/VariantTag/
+VariantPayload、fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已由后续独立切片接纳。正式`evalInvariantV1`/
 `InvariantTheoremV1`及formal TASK-D2-07/TST-SEM-002/003仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet

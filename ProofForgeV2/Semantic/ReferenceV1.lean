@@ -18,7 +18,7 @@ import ProofForgeV2.Semantic.WireV1
       CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
       ExternalCall, Schedule, Array Construct, empty Map Construct,
-      Array/Bytes/Map IndexGet/IndexSet
+      Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
     * view: no StateStore / Emit / ExternalCall / Schedule
@@ -29,7 +29,7 @@ import ProofForgeV2.Semantic.WireV1
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
     Int / Field, recursive Struct/Array/Map/Option/Enum type graphs,
-    Unit/nonempty-Map Construct / ContextRead / Commit,
+    Unit/nonempty-Map Construct,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
   Semantics (SPEC-SEM-001 engineering):
@@ -205,7 +205,7 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .indexSet _ _ _ => pure ()
   | .pureCall _ _ => pure ()
   | .contextRead _ => pure ()
-  | .commit _ => admitFail "unsupported op Commit"
+  | .commit _ => pure ()
 
 /-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit). -/
 private def externalArgShapeAdmitted (shape : TypeShapeV1) :
@@ -1434,7 +1434,15 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                 .done m (.trapped .internalInvariant)
               else
                 storeResult m vd.valueId row.value
-  | .pureCall _ _ | .commit _ =>
+  | .commit valueId =>
+      match instr.result, envGet m.env valueId with
+      | some vd, some value =>
+          if vd.typeId != value.typeId then
+            .done m (.trapped .internalInvariant)
+          else
+            storeResult m vd.valueId value
+      | _, _ => .done m (.trapped .internalInvariant)
+  | .pureCall _ _ =>
       .done m (.trapped .internalInvariant)
 
 /-- Simultaneous jump-arg bind: gather all source values from the pre-write
