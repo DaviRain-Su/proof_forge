@@ -247,7 +247,9 @@ production `ByteArray.extract`输出映回logical list后等于transparent `drop
 直接委托该primitive，runtime性能路径不改；short input与越界zero-count边界均固定。后续scalar
 切片已用shared byte primitive闭合u16/u32
 transparent/production readers与universal refinement，并让production decoders直接委托。magic/tagged
-framing与完整program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
+framing原仍pending；后续magic/version切片已复用exact take并以ByteArray/List BEq bridge闭合prefix
+success、`.truncated`优先与`.badMagic` mismatch，production `consumeMagic`直接委托。tagged framing与
+完整program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

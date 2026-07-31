@@ -259,6 +259,12 @@ offset和每个partial-prefix truncation，cursor-level tests另固定remaining/
 primitive reader，而应建立magic/version与tagged framing的结构性refinement。完整carrier kernel
 validation与formal corpus仍pending。
 
+magic/version切片现复用exact-take bridge建立transparent/production prefix consumer与universal theorem；
+ByteArray/List equality经标准库`Array.beq_toList`关联，production private `consumeMagic`直接委托并保留
+cursor input/nesting。short input仍先于内容比较返回`.truncated`，足长mismatch才`.badMagic`；program
+root真实截断测试已固定。下一步进入root tagged header（tag length/bytes/field count）refinement，而不是
+新增第二套root decoder。完整carrier kernel validation与formal corpus仍pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
