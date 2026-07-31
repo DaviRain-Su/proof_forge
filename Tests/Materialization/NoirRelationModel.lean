@@ -184,6 +184,32 @@ private partial def step (machine : Machine) :
         writeTemp machine destination 0
       else
         modelError "native Bool negation received a non-Bool value"
+  | .bitAnd destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.land left.toNat right.toNat))
+  | .bitOr destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.lor left.toNat right.toNat))
+  | .bitXor destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      writeTemp machine destination (UInt64.ofNat (Nat.xor left.toNat right.toNat))
+  | .boolAnd destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if !((left == 0 || left == 1) && (right == 0 || right == 1)) then
+        modelError "native Bool and received a non-Bool value"
+      else
+        writeTemp machine destination (if left == 1 && right == 1 then 1 else 0)
+  | .boolOr destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      if !((left == 0 || left == 1) && (right == 0 || right == 1)) then
+        modelError "native Bool or received a non-Bool value"
+      else
+        writeTemp machine destination (if left == 1 || right == 1 then 1 else 0)
   | .compare op destination lhs rhs => do
       let left ← readValue machine lhs
       let right ← readValue machine rhs
@@ -1667,6 +1693,167 @@ private unsafe def checkForLoopProduct : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "FnLoop must fail closed"
 
+/-- Shift, bitwise, and strict logical binaries: shifts constant-fold into
+    the invalidShift guard plus multiply/divide by 2^k (the checked u64
+    multiply carries overflow); bitwise and strict Bool ops are native. -/
+private def bitLogicSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BitLogic where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+  "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+  "    return count\n\n" ++
+  "  entry shl2(x : UInt64) : UInt64 do\n" ++
+  "    return x << 2\n\n" ++
+  "  entry shrK(x : UInt64) : UInt64 do\n" ++
+  "    return x >> (32 + 32)\n\n" ++
+  "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+  "    return a > 0 && b > 0\n\n" ++
+  "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+  "    let one : UInt64 := 1\n" ++
+  "    return a > 0 || (one / b) == one\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def statefulInputs2 (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preState pa pb postState : U64)
+    (postInitialized : Bool) (result : U64) : Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState _ => some <| .u64 preState
+    | .parameter sourceId => some <| .u64 (if sourceId == 0 then pa else pb)
+    | .postState _ => some <| .u64 postState
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .u64 result
+    | .eventSlot _ _ => none
+
+private def statefulInputs2Bool (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preState pa pb postState : U64)
+    (postInitialized : Bool) (result : Bool) : Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState _ => some <| .u64 preState
+    | .parameter sourceId => some <| .u64 (if sourceId == 0 then pa else pb)
+    | .postState _ => some <| .u64 postState
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .bool result
+    | .eventSlot _ _ => none
+
+private unsafe def checkShiftBitwiseLogicalProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 bitLogicSourceText
+    "Examples.BitLogic" "<noir-bit-logic>"
+  let initializer ← findRelation ir "init"
+  let shiftMask ← findRelation ir "shiftMask"
+  let shl2 ← findRelation ir "shl2"
+  let shrK ← findRelation ir "shrK"
+  let both ← findRelation ir "both"
+  let strictOr ← findRelation ir "strictOr"
+
+  -- Plan pin: shiftMask lowers to the exact bitwise/shift expr tree.
+  let maskPlan := shiftMask.sourceRelation
+  expect (maskPlan.body.size == 2)
+    s!"BitLogic shiftMask body must be [store, return], got {maskPlan.body.size}"
+  match maskPlan.body[0]! with
+  | .store store =>
+      let expected : Targets.Noir.Expr :=
+        .bitOr (.bitAnd (.shl (.param 2) (.literal 2)) (.literal 15))
+          (.bitXor (.shr (.param 2) (.literal 1)) (.literal 3))
+      expect (store.value == expected)
+        "BitLogic shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
+  | _ => throw <| IO.userError "BitLogic shiftMask body must start with a store"
+
+  -- IR pins: the shifts became guard + mul/div by 2^k; bitwise ops native.
+  let maskOps := shiftMask.operations
+  let hasMulPow := maskOps.any fun op =>
+    match op with
+    | .checkedMul _ _ (.literal 4) => true
+    | _ => false
+  let hasDivPow := maskOps.any fun op =>
+    match op with
+    | .checkedDiv _ _ (.literal 2) => true
+    | _ => false
+  expect (hasMulPow && hasDivPow)
+    "BitLogic shiftMask must lower shifts to multiply/divide by 2^k"
+  let bitOpCount := (maskOps.filter fun op =>
+      match op with
+      | .bitAnd .. | .bitOr .. | .bitXor .. => true
+      | _ => false).size
+  expect (bitOpCount == 3)
+    s!"BitLogic shiftMask must emit three bitwise ops, got {bitOpCount}"
+  let shrOps := shrK.operations
+  expect (shrOps.any fun op =>
+      match op with
+      | .assertConstraint (.literal 0) => true
+      | _ => false)
+    "BitLogic shrK must render the out-of-range count as a literal-false constraint"
+
+  -- Model traces.
+  let initOk ← liftModel "BitLogic init inputs" <|
+    statefulInputs initializer false 0 0 0 true 0
+  expectAccept "BitLogic init" initializer initOk
+  -- shiftMask(20): (20<<2)&15 = 0; (20>>1)^3 = 9; 0|9 = 9.
+  let maskOk ← liftModel "BitLogic shiftMask ok inputs" <|
+    statefulInputs shiftMask true 0 20 9 true 9
+  expectAccept "BitLogic shiftMask(20) accepts" shiftMask maskOk
+  let maskWrong ← liftModel "BitLogic shiftMask wrong inputs" <|
+    statefulInputs shiftMask true 0 20 10 true 10
+  expectReject "BitLogic shiftMask wrong post rejects" shiftMask maskWrong
+  -- shl2(5) = 20 (no store: post == pre); shl2(2^63) overflows the checked mul.
+  let shlOk ← liftModel "BitLogic shl2 ok inputs" <|
+    statefulInputs shl2 true 7 5 7 true 20
+  expectAccept "BitLogic shl2(5) accepts" shl2 shlOk
+  let shlOvfl ← liftModel "BitLogic shl2 overflow inputs" <|
+    statefulInputs shl2 true 7 9223372036854775808 7 true 0
+  expectReject "BitLogic shl2(2^63) overflows" shl2 shlOvfl
+  -- shrK: computed count 32 + 32 = 64 ≥ 64 → inadmissible for any witness.
+  let shrAny ← liftModel "BitLogic shrK inputs" <|
+    statefulInputs shrK true 7 1 7 true 0
+  expectReject "BitLogic shrK count 64 is inadmissible" shrK shrAny
+  -- both(1,2) = true; both(0,2) = false.
+  let bothT ← liftModel "BitLogic both true inputs" <|
+    statefulInputs2Bool both true 7 1 2 7 true true
+  expectAccept "BitLogic both(1,2) true" both bothT
+  let bothF ← liftModel "BitLogic both false inputs" <|
+    statefulInputs2Bool both true 7 0 2 7 true false
+  expectAccept "BitLogic both(0,2) false" both bothF
+  -- strictOr(0,1) = true; strictOr(1,0) reverts even though the left side
+  -- is true (the division still evaluates).
+  let orT ← liftModel "BitLogic strictOr true inputs" <|
+    statefulInputs2Bool strictOr true 7 0 1 7 true true
+  expectAccept "BitLogic strictOr(0,1) true" strictOr orT
+  let orStrict ← liftModel "BitLogic strictOr strict inputs" <|
+    statefulInputs2Bool strictOr true 7 1 0 7 true true
+  expectReject "BitLogic strictOr(1,0) reverts on the right side" strictOr orStrict
+
+  -- `.nr` surface: multiply/divide by 2^k, native bitwise, literal guard.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 bitLogicSourceText
+      "<noir-bit-emit>" "Examples.BitLogic" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some maskNr := files.find? (fun file =>
+      file.path.endsWith "r1-shiftMask/src/main.nr") |
+    throw <| IO.userError "BitLogic missing shiftMask main.nr"
+  expect (maskNr.contents.contains " * 4;" && maskNr.contents.contains " / 2;")
+    "BitLogic shiftMask .nr must render shifts as multiply/divide by 2^k"
+  expect (maskNr.contents.contains " & 15;" && maskNr.contents.contains " | " &&
+      maskNr.contents.contains " ^ ")
+    "BitLogic shiftMask .nr must render native bitwise operators"
+  let some bothNr := files.find? (fun file =>
+      file.path.endsWith "r4-both/src/main.nr") |
+    throw <| IO.userError "BitLogic missing both main.nr"
+  expect (bothNr.contents.contains ": bool = ")
+    "BitLogic both .nr must render the Bool result"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1699,5 +1886,6 @@ unsafe def run : IO Unit := do
   checkFnLocalCallProduct
   checkArithOpsProduct
   checkForLoopProduct
+  checkShiftBitwiseLogicalProduct
 
 end Tests.Materialization.NoirRelationModel

@@ -108,6 +108,16 @@ inductive Expr where
   | checkedMod (lhs rhs : Expr)
   | bitNot (operand : Expr)
   | boolNot (operand : Expr)
+  | bitAnd (lhs rhs : Expr)
+  | bitOr (lhs rhs : Expr)
+  | bitXor (lhs rhs : Expr)
+  /-- Shift by a count that must be a compile-time constant in this pilot
+      (UInt32 values arise only from literal arithmetic); the relation layer
+      constant-folds it into the guard-and-multiply/divide form. -/
+  | shl (lhs rhs : Expr)
+  | shr (lhs rhs : Expr)
+  | boolAnd (lhs rhs : Expr)
+  | boolOr (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -218,6 +228,11 @@ inductive Operation where
   | checkedMod (destination : Nat) (lhs rhs : ValueRef)
   | bitNot (destination : Nat) (source : ValueRef)
   | boolNot (destination : Nat) (source : ValueRef)
+  | bitAnd (destination : Nat) (lhs rhs : ValueRef)
+  | bitOr (destination : Nat) (lhs rhs : ValueRef)
+  | bitXor (destination : Nat) (lhs rhs : ValueRef)
+  | boolAnd (destination : Nat) (lhs rhs : ValueRef)
+  | boolOr (destination : Nat) (lhs rhs : ValueRef)
   | assertEqual (lhs rhs : ValueRef)
   | assertBool (inputIndex : Nat) (expected : Bool)
   | compare (op : ComparisonOp) (destination : Nat) (lhs rhs : ValueRef)
@@ -355,22 +370,35 @@ private structure NoirTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
   boolTypeId : Option TypeIdV1
+  /-- Anonymous UInt32, present only when a shift expression interned a
+      count type. Shift counts decode to plain u64 literals in the Plan. -/
+  uint32TypeId : Option TypeIdV1
 
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 := do
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
   let mut boolTypeId : Option TypeIdV1 := none
+  let mut uint32TypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: named types are outside the current UInt64 pilot"
     match decl.shape with
     | .uint width =>
-        unless width.toNat == 64 && uint64TypeId.isNone do
+        if width.toNat == 64 then
+          unless uint64TypeId.isNone do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expected one anonymous UInt64 type"
+          uint64TypeId := some decl.id
+        else if width.toNat == 32 then
+          unless uint32TypeId.isNone do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expected one anonymous UInt32 type"
+          uint32TypeId := some decl.id
+        else
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: expected one anonymous UInt64 type"
-        uint64TypeId := some decl.id
     | .unit =>
         unless unitTypeId.isNone do
           throw <| .planInvariant .noir
@@ -388,7 +416,7 @@ private def validateNoirTypeClosureV1
     | some value => pure value
     | none => throw (.planInvariant .noir
         "unsupported Noir semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId }
+  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId, uint32TypeId }
 
 private def makeStatesV1
     (uint64TypeId : TypeIdV1)
@@ -832,6 +860,80 @@ private def appendResultValueV1
     throw <| .planInvariant .noir s!"Noir value table exceeds node limit {maxPlanNodes}"
   pure (values.push value)
 
+/-- Bitwise binary value: UInt64 in/out, pure (no failure constraint). -/
+private def makeBitwiseValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- Strict Bool binary value: Bool in/out, pure (no failure constraint). -/
+private def makeBoolBinaryValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .bool && rhs.kind == .bool do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be Bool"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .bool
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- Shift value: UInt64 operand; the count must already be a literal in this
+    pilot (UInt32 values arise only from literal arithmetic, which the
+    relation layer constant-folds into the guard-and-multiply/divide form). -/
+private def makeShiftValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operand must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
 private inductive SemanticCallableModeV1 where
   | initialize
   | mutate
@@ -882,6 +984,22 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if types.uint32TypeId == some typeId then
+          -- Shift counts: 4-byte UInt32 literals surface as plain u64
+          -- literals (lossless); only shift operands consume them.
+          unless bytes.size == 4 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: UInt32 literal must contain exactly 4 bytes"
+          let value : UInt64 := UInt64.ofNat
+            ((bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+              (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216)
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         else if types.boolTypeId == some typeId then
           let value ← decodeBoolLiteralV1 bytes
           values := ← appendResultValueV1 typeId values result {
@@ -908,19 +1026,48 @@ private def lowerBlockInstructionsV1
         let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         if op == .add then
           let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 types.uint64TypeId values result value
+          values := ← appendResultValueV1 result.typeId values result value
         else if op == .sub then
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 types.uint64TypeId values result value
+          values := ← appendResultValueV1 result.typeId values result value
         else if op == .mul then
           let value ← makeArithValueV1 "checked mul" Expr.checkedMul lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 types.uint64TypeId values result value
+          values := ← appendResultValueV1 result.typeId values result value
         else if op == .div then
           let value ← makeArithValueV1 "checked div" Expr.checkedDiv lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 types.uint64TypeId values result value
+          values := ← appendResultValueV1 result.typeId values result value
         else if op == .mod then
           let value ← makeArithValueV1 "checked mod" Expr.checkedMod lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitAnd then
+          let value ← makeBitwiseValueV1 "bitwise and" Expr.bitAnd lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitOr then
+          let value ← makeBitwiseValueV1 "bitwise or" Expr.bitOr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitXor then
+          let value ← makeBitwiseValueV1 "bitwise xor" Expr.bitXor lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .shl then
+          let value ← makeShiftValueV1 "shift left" Expr.shl lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .shr then
+          let value ← makeShiftValueV1 "shift right" Expr.shr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .and || op == .or then
+          let boolTypeId ← match types.boolTypeId with
+            | some value => pure value
+            | none => throw (.planInvariant .noir
+                "unsupported Noir semantic shape: logical operator requires interned Bool type")
+          unless result.typeId == boolTypeId do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: logical operator result must be Bool"
+          let value ←
+            if op == .and then
+              makeBoolBinaryValueV1 "logical and" Expr.boolAnd lhsId rhsId lhs rhs
+            else
+              makeBoolBinaryValueV1 "logical or" Expr.boolOr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 boolTypeId values result value
         else
           match binaryOpToComparisonV1 op with
           | some comparison =>
@@ -935,7 +1082,7 @@ private def lowerBlockInstructionsV1
               values := ← appendResultValueV1 boolTypeId values result value
           | none =>
               throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: only checked UInt64 arithmetic and comparisons are supported"
+                "unsupported Noir semantic shape: only checked UInt64 arithmetic, bitwise, shift, comparison, and logical operators are supported"
     | .unary op operandId, some result =>
         let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
         match op with
@@ -1486,7 +1633,9 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
         | none => none
     | .stateLoad fieldIndex => if fieldIndex < states.size then some 1 else none
     | .checkedAdd lhs rhs | .checkedSub lhs rhs | .checkedMul lhs rhs |
-        .checkedDiv lhs rhs | .checkedMod lhs rhs =>
+        .checkedDiv lhs rhs | .checkedMod lhs rhs |
+        .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs |
+        .shl lhs rhs | .shr lhs rhs | .boolAnd lhs rhs | .boolOr lhs rhs =>
         let available := nodeBudget - 1
         match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none
@@ -1915,6 +2064,37 @@ private partial def statementListClosesV1 : List Statement → Bool
 
 mutual
 
+/-- Constant-fold a shift-count expression. UInt32 values in this envelope
+    arise only from literals and literal arithmetic; a non-constant shape or
+    a failing/overflowing count expression yields none (the caller fails
+    closed — a statically known u32 overflow is outside the target pilot,
+    while counts ≥ 64 lower to the literal invalidShift guard). -/
+private partial def constShiftCount? : Expr → Option Nat
+  | .literal value => some value.toNat
+  | .checkedAdd lhs rhs => do
+      let l ← constShiftCount? lhs
+      let r ← constShiftCount? rhs
+      let n := l + r
+      if n >= 4294967296 then none else some n
+  | .checkedSub lhs rhs => do
+      let l ← constShiftCount? lhs
+      let r ← constShiftCount? rhs
+      if l < r then none else some (l - r)
+  | .checkedMul lhs rhs => do
+      let l ← constShiftCount? lhs
+      let r ← constShiftCount? rhs
+      let n := l * r
+      if n >= 4294967296 then none else some n
+  | .checkedDiv lhs rhs => do
+      let l ← constShiftCount? lhs
+      let r ← constShiftCount? rhs
+      if r == 0 then none else some (l / r)
+  | .checkedMod lhs rhs => do
+      let l ← constShiftCount? lhs
+      let r ← constShiftCount? rhs
+      if r == 0 then none else some (l % r)
+  | _ => none
+
 /-- Relation-level expression lowering. Pure calls inline the callee body at
     the call site (circuits have no call instruction); everything else maps
     to the flat temp/constraint form. -/
@@ -1989,6 +2169,82 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         operations := operand.operations ++ #[.boolNot operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
+      }
+  | .bitAnd lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitAnd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitOr lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitOr rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitXor lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitXor rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .boolAnd lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.boolAnd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .boolOr lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.boolOr rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .shl lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let some k := constShiftCount? rhs |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: shift count is not a compile-time constant"
+      -- count ≥ 64 renders the invalidShift guard as a literal-false
+      -- constraint (inadmissible); shl ≡ x * 2^k and the checked u64
+      -- multiply carries the arithmeticOverflow constraint.
+      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      pure {
+        operations := lhs.operations ++
+          #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
+            .checkedMul lhs.next lhs.value (.literal pow)]
+        value := .temp lhs.next
+        next := lhs.next + 1
+      }
+  | .shr lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let some k := constShiftCount? rhs |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: shift count is not a compile-time constant"
+      -- shr ≡ x / 2^k (truncating); the invalidShift guard is literal when
+      -- the count is out of range.
+      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      pure {
+        operations := lhs.operations ++
+          #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
+            .checkedDiv lhs.next lhs.value (.literal pow)]
+        value := .temp lhs.next
+        next := lhs.next + 1
       }
   | .compare op lhs rhs => do
       let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
@@ -2103,6 +2359,77 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
         operations := operand.operations ++ #[.boolNot operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
+      }
+  | .bitAnd lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitAnd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitOr lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitOr rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .bitXor lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.bitXor rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .boolAnd lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.boolAnd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .boolOr lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.boolOr rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .shl lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let some k := constShiftCount? rhs |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: shift count is not a compile-time constant"
+      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      pure {
+        operations := lhs.operations ++
+          #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
+            .checkedMul lhs.next lhs.value (.literal pow)]
+        value := .temp lhs.next
+        next := lhs.next + 1
+      }
+  | .shr lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let some k := constShiftCount? rhs |
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: shift count is not a compile-time constant"
+      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      pure {
+        operations := lhs.operations ++
+          #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
+            .checkedDiv lhs.next lhs.value (.literal pow)]
+        value := .temp lhs.next
+        next := lhs.next + 1
       }
   | .compare op lhs rhs => do
       let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
@@ -2577,6 +2904,11 @@ private partial def collectLiveTempsV1 (relationName : String)
     | .checkedMul destination lhs rhs
     | .checkedDiv destination lhs rhs
     | .checkedMod destination lhs rhs
+    | .bitAnd destination lhs rhs
+    | .bitOr destination lhs rhs
+    | .bitXor destination lhs rhs
+    | .boolAnd destination lhs rhs
+    | .boolOr destination lhs rhs
     | .compare _ destination lhs rhs =>
         unless live.contains destination do
           throw <| .planInvariant .noir
@@ -2704,6 +3036,16 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       s!"{indent}let t{destination}: u64 = !{renderValue relation source};\n"
   | .boolNot destination source =>
       s!"{indent}let t{destination}: bool = !{renderValue relation source};\n"
+  | .bitAnd destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} & {renderValue relation rhs};\n"
+  | .bitOr destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} | {renderValue relation rhs};\n"
+  | .bitXor destination lhs rhs =>
+      s!"{indent}let t{destination}: u64 = {renderValue relation lhs} ^ {renderValue relation rhs};\n"
+  | .boolAnd destination lhs rhs =>
+      s!"{indent}let t{destination}: bool = {renderValue relation lhs} & {renderValue relation rhs};\n"
+  | .boolOr destination lhs rhs =>
+      s!"{indent}let t{destination}: bool = {renderValue relation lhs} | {renderValue relation rhs};\n"
   | .assertEqual lhs rhs =>
       let asBool := assertEqualUsesBool relation lhs rhs
       s!"{indent}assert({renderEqualOperand relation asBool lhs} == {renderEqualOperand relation asBool rhs});\n"
