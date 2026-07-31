@@ -23,6 +23,19 @@ normative: false
 - 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testCallScheduleSemanticPlans` 接入 `runSemanticPlanLeafFast`——ExtFlow（含 sync call）仅 Noir 可 mint capability、EVM/Solana/NEAR 均 PF-REQ-UNSUPPORTED；LaterFlow（schedule-only）NEAR/Noir 支持、EVM/Solana 拒；Noir call 语句与 status/slot 包络 pin、NEAR `promiseAccount "ledger.daily" "daily"` plan pin 与 WAT promise host/账号 pin。
 - Verification：共享核心与四 lane focused build/test 各自绿（worker 在隔离 worktree 自验；主代理逐一审计 diff：文件集合精确、无 fallback/adapter/residual、形态与简报一致）；集成后 `proof_forge_next_fast_tests` 与 `proof_forge_next_tests` 全绿；`just ci` 通过；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
 - Boundary：call args 限 UInt64 且 v1 无返回值（typed return 需 schema 升级）；schedule 无 response/失败传播（与 NEAR promise 精确一致，EVM/Solana 待 address-bearing 类型后另行评估）；`call`/`schedule` 在 loop body（静态 slot 无法绑多次动态发生）与 fn/view（PF-EFFECT-001）fail closed；ContextRead、Commit、aggregates、Int/Field/Principal 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+## 2026-07-31 — D2-07 Unit Construct and dynamic canonical boundary hardening
+
+- Production：Reference machine现执行Wire唯一合法Unit constructor（constructor 0、empty args、result
+  TypeId exact，产出empty canonical bytes）。`storeResult`统一拒绝noncanonical result；CheckedCast/
+  Unary/Binary/Assert operands、Branch/Switch、jump block-param、PureCall result/arity/parameter
+  TypeId+canonical bind、callee/root return均防御性重验，防止未来formal lower seam依赖engineering
+  admission隐式保证。
+- Tests：旧Unit Construct admission-negative迁为entry runtime positive；新增selected invariant在general
+  admission因Principal unsupported时仍经lower runner执行Unit Construct与两个canonical Principal的
+  Eq并返回true。完整Reference suite保持通过。
+- Boundary：Principal general admission仍关闭且仅使用canonical Eq/Ne通路；本切片不实现Int/Field
+  arithmetic、signed shift/cast或formal ABI名称。
+
 ## 2026-07-31 — D2-07 selected-invariant lower machine runner
 
 - Production：从既有engineering invariant evaluator抽取

@@ -210,6 +210,12 @@ foundation并定义`ReferenceV1` namespace下的现有carriers/admission/machine
 StateConforms与ordinal join后委托给该seam。测试固定无关Int64 declaration会使general admission失败但
 selected Bool invariant仍执行true；这不表示Int/Field runtime或formal `evalInvariantV1`已完成。
 
+后续non-numeric hardening切片已实现Unit唯一合法constructor（index 0、empty args、canonical empty
+bytes），并在storeResult、primitive operands、Assert/Branch/Switch、jump block params、PureCall
+arity/type/canonical bind与callee/root return处防御性重验。Principal不开放general engineering
+admission，但selected invariant可经lower runner执行canonical Eq/Ne；Int/Field运算和完整CheckedCast
+矩阵仍是下一前置阶段。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

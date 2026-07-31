@@ -120,6 +120,11 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > engineering-unsupported type/callable不会污染所选invariant执行。formal ABI仍未命名/开放；完整
 > Int/Field/cast与dynamic canonical边界仍须先闭合。
 
+> 第二个formal前置切片现开放Unit `Construct 0 []`并在线程化machine value写入、primitive operand、
+> Assert/Branch/Switch、block-param、PureCall参数/结果及root return边界重验canonical TypeId/value bytes。
+> lower runner已覆盖engineering admission仍拒绝的Principal canonical Eq与invariant内Unit Construct；
+> Int/Field数值语义与跨signedness cast仍未开放。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

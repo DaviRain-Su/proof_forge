@@ -54,6 +54,8 @@ canonicalization 时重编号，避免 hash 受内部 hash-map 顺序影响。
 lower machine可提供仅消费structure-validated decoded program、selected invariant callable与canonical
 state的执行seam；该seam不得依赖whole-program engineering admission、选择invariant ordinal或冒用
 formal `evalInvariantV1`名称。public ABI负责program validation、ordinal/state/closure join后才能调用它。
+machine在value写入、primitive operand、CFG block-param/condition/scrutinee、PureCall bind/result与return
+边界必须重新验证exact TypeId/canonical bytes；Unit唯一constructor产生empty canonical bytes。
 
 ```lean
 structure ReferenceValueV1 where

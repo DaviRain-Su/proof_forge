@@ -20,7 +20,7 @@ import ProofForgeV2.Semantic.WireV1
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
       CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
-      ExternalCall, Schedule, Array Construct, empty Map Construct,
+      ExternalCall, Schedule, Unit/Array Construct, empty Map Construct,
       Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
@@ -32,7 +32,7 @@ import ProofForgeV2.Semantic.WireV1
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
     Int / Field, recursive Struct/Array/Map/Option/Enum type graphs,
-    Unit/nonempty-Map Construct,
+    nonempty-Map Construct,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
   Semantics (SPEC-SEM-001 engineering):
@@ -248,6 +248,7 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
           match data.types[tid.toNat]? with
           | some { shape := .struct _, .. }
           | some { shape := .array _ _, .. }
+          | some { shape := .unit, .. }
           | some { shape := .option _, .. }
           | some { shape := .enum _, .. } => pure ()
           | some { shape := .map _ _, .. } =>
@@ -1014,6 +1015,15 @@ private def evalMapConstruct (data : SemanticProgramDataV1)
   | .ok bytes => pure { typeId, valueBytes := bytes }
   | .error _ => throw (.trapped .invalidCore)
 
+private def evalUnitConstruct (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1) (constructorIndex : UInt32)
+    (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
+    Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == typeId && constructorIndex == 0 && args.isEmpty do
+    throw (.trapped .invalidCore)
+  unless isUnitType data typeId do throw (.trapped .invalidCore)
+  pure { typeId, valueBytes := ByteArray.empty }
+
 private def checkedIndex (data : SemanticProgramDataV1)
     (index : ReferenceValueV1) : Except CandidateV1 Nat := do
   match data.types[index.typeId.toNat]? with
@@ -1217,9 +1227,12 @@ private def evalStructFieldSet (data : SemanticProgramDataV1)
 
 private def storeResult (m : MachineV1) (vid : ValueIdV1) (v : ReferenceValueV1) :
     ExecResult :=
-  match envSet m.env vid v with
-  | none => .done m (.trapped .internalInvariant)
-  | some env' => .next { m with env := env' }
+  if !valueCanonical m.data v then
+    .done m (.trapped .invalidCore)
+  else
+    match envSet m.env vid v with
+    | none => .done m (.trapped .internalInvariant)
+    | some env' => .next { m with env := env' }
 
 private def fromEval (m : MachineV1) (vid : ValueIdV1)
     (r : Except CandidateV1 ReferenceValueV1) : ExecResult :=
@@ -1281,17 +1294,26 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
   | .checkedCast valueId toType =>
       match instr.result, envGet m.env valueId with
       | some vd, some src =>
-          fromEval m vd.valueId (evalCheckedCast m.data src toType vd.typeId)
+          if !valueCanonical m.data src then
+            .done m (.trapped .invalidCore)
+          else
+            fromEval m vd.valueId (evalCheckedCast m.data src toType vd.typeId)
       | _, _ => .done m (.trapped .invalidCore)
   | .unary op operandId =>
       match instr.result, envGet m.env operandId with
       | some vd, some operand =>
-          fromEval m vd.valueId (evalUnary m.data op operand vd.typeId)
+          if !valueCanonical m.data operand then
+            .done m (.trapped .invalidCore)
+          else
+            fromEval m vd.valueId (evalUnary m.data op operand vd.typeId)
       | _, _ => .done m (.trapped .invalidCore)
   | .binary op lhsId rhsId =>
       match instr.result, envGet m.env lhsId, envGet m.env rhsId with
       | some vd, some lhs, some rhs =>
-          fromEval m vd.valueId (evalBinary m.data op lhs rhs vd.typeId)
+          if !valueCanonical m.data lhs || !valueCanonical m.data rhs then
+            .done m (.trapped .invalidCore)
+          else
+            fromEval m vd.valueId (evalBinary m.data op lhs rhs vd.typeId)
       | _, _, _ => .done m (.trapped .invalidCore)
   | .assert_ condId errorId args =>
       match instr.result with
@@ -1300,7 +1322,7 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
           match envGet m.env condId with
           | none => .done m (.trapped .invalidCore)
           | some cond =>
-              if !isBoolType m.data cond.typeId then
+              if !isBoolType m.data cond.typeId || !valueCanonical m.data cond then
                 .done m (.trapped .invalidCore)
               else
                 match byteAt? cond.valueBytes 0 with
@@ -1389,6 +1411,8 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                 evalArrayConstruct m.data typeId constructorIndex args vd.typeId
             | some { shape := .map _ _, .. } =>
                 evalMapConstruct m.data typeId constructorIndex args vd.typeId
+            | some { shape := .unit, .. } =>
+                evalUnitConstruct m.data typeId constructorIndex args vd.typeId
             | some { shape := .option _, .. } | some { shape := .enum _, .. } =>
                 evalVariantConstruct m.data typeId constructorIndex args vd.typeId
             | _ => .error (.trapped .invalidCore)
@@ -1475,7 +1499,7 @@ private def bindJumpTarget (m : MachineV1) (target : JumpTargetV1) : ExecResult 
                       match envGet srcEnv srcId with
                       | none => fault := some .invalidCore
                       | some v =>
-                          if v.typeId != bp.typeId then
+                          if v.typeId != bp.typeId || !valueCanonical m.data v then
                             fault := some .invalidCore
                           else
                             gathered := gathered.push v
@@ -1513,7 +1537,7 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
       match envGet m.env condId with
       | none => .done m (.trapped .invalidCore)
       | some cond =>
-          if !isBoolType m.data cond.typeId then
+          if !isBoolType m.data cond.typeId || !valueCanonical m.data cond then
             .done m (.trapped .invalidCore)
           else
             match byteAt? cond.valueBytes 0 with
@@ -1524,20 +1548,23 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
       match envGet m.env scrut with
       | none => .done m (.trapped .invalidCore)
       | some sv =>
-          let matched : Option JumpTargetV1 := Id.run do
-            let mut matched : Option JumpTargetV1 := none
-            for sc in cases do
-              if matched.isNone && sc.typeId == sv.typeId &&
-                  bytesEqual sc.valueBytes sv.valueBytes then
-                matched := some sc.target
-            pure matched
-          match matched with
-          | some t => bindJumpTarget m t
-          | none =>
-              match defaultT with
-              | some t => bindJumpTarget m t
-              -- Miss without default is control-flow unreachability, not bad Core.
-              | none => .done m (.trapped .unreachable)
+          if !valueCanonical m.data sv then
+            .done m (.trapped .invalidCore)
+          else
+            let matched : Option JumpTargetV1 := Id.run do
+              let mut matched : Option JumpTargetV1 := none
+              for sc in cases do
+                if matched.isNone && sc.typeId == sv.typeId &&
+                    bytesEqual sc.valueBytes sv.valueBytes then
+                  matched := some sc.target
+              pure matched
+            match matched with
+            | some t => bindJumpTarget m t
+            | none =>
+                match defaultT with
+                | some t => bindJumpTarget m t
+                -- Miss without default is control-flow unreachability, not bad Core.
+                | none => .done m (.trapped .unreachable)
   | .return_ valueId? =>
       match valueId? with
       | none =>
@@ -1554,7 +1581,7 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
             match envGet m.env vid with
             | none => .done m (.trapped .invalidCore)
             | some v =>
-                if v.typeId != m.callable.result.typeId then
+                if v.typeId != m.callable.result.typeId || !valueCanonical m.data v then
                   .done m (.trapped .invalidCore)
                 else
                   .done m (.returned (some v))
@@ -1589,7 +1616,11 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                     match m.data.callables[calleeId.toNat]? with
                     | none => (0, m, .trapped .invalidCore)
                     | some callee =>
-                        if callee.kind != .pureFn then (0, m, .trapped .invalidCore) else
+                        if callee.kind != .pureFn ||
+                            resultDef.typeId != callee.result.typeId ||
+                            argVids.size != callee.params.size then
+                          (0, m, .trapped .invalidCore)
+                        else
                         match lookupArgs m.env argVids with
                         | none => (0, m, .trapped .invalidCore)
                         | some argVals =>
@@ -1601,9 +1632,12 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                                 match argVals[i]? with
                                 | none => return none
                                 | some arg =>
-                                    match envSet env p.valueId arg with
-                                    | none => return none
-                                    | some env' => env := env'
+                                    if arg.typeId != p.typeId || !valueCanonical m.data arg then
+                                      return none
+                                    else
+                                      match envSet env p.valueId arg with
+                                      | none => return none
+                                      | some env' => env := env'
                                 i := i + 1
                               pure (some env)
                             match bound with
@@ -1645,7 +1679,10 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                       if isUnitType m.data m.callable.result.typeId then none
                       else
                         match envGet m.env vid with
-                        | some v => if v.typeId == m.callable.result.typeId then some v else none
+                        | some v =>
+                            if v.typeId == m.callable.result.typeId && valueCanonical m.data v then
+                              some v
+                            else none
                         | none => none
                 match result? with
                 | none => (0, m, .trapped .invalidCore)

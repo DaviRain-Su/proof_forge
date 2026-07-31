@@ -47,6 +47,8 @@
        across roots/PureCall, including aggregate bytes and repeated Commit.
    16. Lower invariant runner bypasses narrower whole-program engineering
        admission while preserving exact carried fuel and result mapping.
+   17. Unit Construct and canonical/type revalidation at machine value,
+       PureCall, CFG, and return boundaries; Principal canonical equality.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -2231,16 +2233,17 @@ private def testStructReferenceSlice : IO Unit := do
   expect (evalInvariantReferenceSliceV1 invAdmitted 0 pre == .returnedTrue)
     "struct-invariant: returned true"
 
-  -- Wire permits Unit construction, but this Struct-only engineering slice
-  -- must reject it at admission rather than trap during otherwise valid run.
+  -- Unit constructor 0 with no args produces canonical empty bytes; the
+  -- callable still returns Unit through `return none`.
   let unitConstruct := mkEntry 0 "unitConstruct" #[] 4
     #[instr (some (vd 0 4)) (.construct 4 0 #[])] (.return_ none)
   let unitBase ← emptyData "UnitConstruct"
   let unitCarrier ← encodeCarrier "unit-construct" {
     unitBase with types, callables := #[unitConstruct]
   }
-  admitUnsupported "unit-construct" unitCarrier
-    (fun detail => detail.contains "non-Struct") "non-Struct Construct"
+  let unitAdmitted ← admitOk "unit-construct" unitCarrier
+  expectReturned "unit-construct"
+    (stepReferenceSliceV1 unitAdmitted pre (inv 0 #[]) #[]) pre none #[]
 
   -- Admission computes widths/depths/work without materializing defaults. A
   -- compact doubling Struct DAG exceeds the work cap; a deep chain exceeds
@@ -3189,6 +3192,43 @@ private def testInvariantReferenceSlice : IO Unit := do
   expect (runInvariantCallableV1 broadData 1
       { initialized := true, canonicalValues := ByteArray.mk #[255] } == .trapped)
     "invariant-lower-runner: malformed state must trap"
+
+  -- Principal equality is canonical typed-byte equality. This also executes
+  -- Unit Construct inside an invariant through the formal-compatible seam;
+  -- whole-program engineering admission remains intentionally narrower.
+  let principalTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let principalBytes := (encodeU32le 1).append (ByteArray.mk #[7])
+  let principalRoot : CallableV1 := {
+    id := 1, kind := .invariant, name := some "principalTruth", params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 #[
+      instr (some (vd 0 2)) (.construct 2 0 #[]),
+      instr (some (vd 1 1)) (.literal 1 principalBytes),
+      instr (some (vd 2 1)) (.literal 1 principalBytes),
+      instr (some (vd 3 0)) (.binary .eq 1 2)
+    ] (.return_ (some 3))]
+    loopBounds := #[]
+    invariantSteps := some 6
+  }
+  let principalBase ← emptyData "InvariantPrincipalEquality"
+  let principalCarrier ← encodeCarrier "invariant-principal-equality" {
+    principalBase with
+      types := principalTypes
+      callables := #[mkEntry 0 "principalGate" #[] 2 #[] (.return_ none), principalRoot]
+      invariants := #[{ id := 0, name := "principalTruth", callableId := 1 }]
+  }
+  admitUnsupported "invariant-principal-admission" principalCarrier
+    (fun detail => detail.contains "Principal") "unrelated Principal"
+  let principalData ← match validateSemanticProgramV1 principalCarrier with
+    | .ok data => pure data
+    | .error e => throw <| IO.userError s!"invariant-principal validate: {repr e}"
+  expect (runInvariantCallableV1 principalData 1 pre == .returnedTrue)
+    "invariant-principal: canonical equality and Unit Construct must execute"
 
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
