@@ -302,20 +302,15 @@ unsafe def run : IO Unit := do
       (mkProgramSource "ReservedEnumIdentifier" "  enum A where\n    | «enum»\n")
       "<reserved-enum-identifier>" "Root")
 
-  -- Named Struct/Enum register in Normalize Pass0. AggregateSurface still fails
-  -- closed on Field (and other non-scalar field types) during field interning.
+  -- T3: AggregateSurface with Field/UInt64/Bool field types interns and compiles
+  -- (registration only; no constructor values required for this surface pin).
   match Compiler.compileValidatedSourceV1 decoded with
-  | .error (.invalidProgram detail) =>
-      expect (detail.contains "Field" || detail.contains "Map" || detail.contains "Array" ||
-          detail.contains "Option" || detail.contains "Bytes")
-        s!"aggregate surface: expected unsupported field/aggregate type detail, got {detail}"
+  | .ok _ => pure ()
   | .error other =>
-      throw <| IO.userError s!"aggregate surface reached the wrong failure: {other.render}"
-  | .ok _ =>
       throw <| IO.userError
-        "Compiler.compileValidatedSourceV1 must still reject Field/aggregate field types"
+        s!"aggregate surface with Field/scalar fields must compile after T3: {other.render}"
 
-  -- Nullary enum-only + entry is now a valid named-type registration path.
+  -- Nullary enum-only + entry is a valid named-type registration path.
   let enumOnly ← select session
     (mkProgramSource "EnumOnly" "  enum Status where\n    | Ready\n") "<enum-only>"
   match Compiler.compileValidatedSourceV1 enumOnly with

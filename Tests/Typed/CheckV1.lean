@@ -4773,6 +4773,195 @@ private unsafe def testNamedStructStateUnsupported
     -- Typed rejected named state: Normalize boundary not reached (acceptable).
     pure ()
 
+/-- T3: aggregate type interning via struct field types (Array/Map/Option/Bytes/Field/Principal). -/
+private unsafe def testAggregateTypeInterning
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AggIntern" <|
+    "  struct Bundle where\n" ++
+    "    arr : Array UInt64 2\n" ++
+    "    opt : Option Bool\n" ++
+    "    mp : Map UInt64 UInt8\n" ++
+    "    bs : Bytes 4\n" ++
+    "    f : Field bn254_fr\n" ++
+    "    who : Principal\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "agg-intern" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "agg-intern: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"agg-intern: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"agg-intern: validate: {repr e}"
+  let some t0 := data.types[0]? |
+    throw <| IO.userError "agg-intern: missing Bundle"
+  expect (t0.name == some "Bundle") "agg-intern: Bundle named prefix"
+  match t0.shape with
+  | .struct fields =>
+      expect (fields.size == 6) s!"agg-intern: 6 fields, got {fields.size}"
+      let shapes := fields.map fun f =>
+        match data.types[f.typeId.toNat]? with
+        | some d => d.shape
+        | none => .unit
+      let hasArray := shapes.any fun s => match s with | .array _ 2 => true | _ => false
+      let hasOpt := shapes.any fun s => match s with | .option _ => true | _ => false
+      let hasMap := shapes.any fun s => match s with | .map _ _ => true | _ => false
+      let hasBytes := shapes.any fun s => match s with | .bytes 4 => true | _ => false
+      let hasField := shapes.any fun s => match s with | .field _ => true | _ => false
+      let hasPrin := shapes.any fun s => match s with | .principal => true | _ => false
+      expect (hasArray && hasOpt && hasMap && hasBytes && hasField && hasPrin)
+        "agg-intern: all aggregate field shapes present"
+  | _ => throw <| IO.userError "agg-intern: Bundle must be struct"
+
+/-- T3: illegal Map key (Option) fails closed at intern. -/
+private unsafe def testAggregateIllegalMapKey
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AggMapKey" <|
+    "  struct Bad where\n" ++
+    "    m : Map Option Bool Bool\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "agg-map-key" source
+  let typed := checkProgramTypedResultV1 validated
+  if typed.ok then
+    match normalizeProgramV1 validated with
+    | .ok _ => throw <| IO.userError "agg-map-key: expected unsupported"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "Map key" || detail.contains "legal map key")
+          s!"agg-map-key: detail={detail}"
+    | .error e => throw <| IO.userError s!"agg-map-key: {repr e}"
+  else
+    pure ()
+
+/-- T3: unknown Field catalog id fails at source parse boundary. -/
+private unsafe def testAggregateFieldCatalogReject
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "AggFieldBad" <|
+    "  struct Bad where\n" ++
+    "    f : Field bls12_381\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  match ← session.selectProgramV1 source (testSourcePath "agg-field-bad")
+      moduleName none with
+  | .ok _ =>
+      throw <| IO.userError "agg-field-bad: parse must reject non-catalog Field id"
+  | .error _ => pure ()
+
+/-- T3: struct construct + fieldGet + fieldSet rebind. -/
+private unsafe def testStructConstructFieldGetSet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StructVal" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let p : Point := Point.new(1, 2)\n" ++
+    "    let a : UInt64 := p.x\n" ++
+    "    p.x := 9\n" ++
+    "    return p.x\n"
+  let validated ← loadSource session "struct-val" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"struct-val: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"struct-val: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"struct-val: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "struct-val: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "struct-val: missing block"
+  let isConstruct (instr : InstructionV1) : Bool :=
+    match instr.op with | .construct _ _ _ => true | _ => false
+  let isFieldGet (instr : InstructionV1) : Bool :=
+    match instr.op with | .fieldGet _ _ => true | _ => false
+  let isFieldSet (instr : InstructionV1) : Bool :=
+    match instr.op with | .fieldSet _ _ _ => true | _ => false
+  expect (blk.instructions.any isConstruct) "struct-val: Op.Construct present"
+  expect (blk.instructions.any isFieldGet) "struct-val: Op.FieldGet present"
+  expect (blk.instructions.any isFieldSet) "struct-val: Op.FieldSet present"
+  -- construct typeId is Point (named type 0)
+  let some ctorInstr := blk.instructions.find? isConstruct |
+    throw <| IO.userError "struct-val: missing construct instr"
+  match ctorInstr.op with
+  | .construct tid idx args =>
+      expect (tid == 0 && idx == 0 && args.size == 2)
+        s!"struct-val: construct Point tid0 idx0 2args, got {tid}/{idx}/{args.size}"
+  | _ => throw <| IO.userError "struct-val: expected construct"
+
+/-- T3: enum construct with payload. -/
+private unsafe def testEnumConstruct
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EnumVal" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue(UInt64)\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let c : Color := Color.Blue(7)\n" ++
+    "    let d : Color := Color.Red()\n" ++
+    "    return 1\n"
+  let validated ← loadSource session "enum-val" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"enum-val: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"enum-val: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"enum-val: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "enum-val: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "enum-val: missing block"
+  let constructs := blk.instructions.filterMap fun instr =>
+    match instr.op with
+    | .construct tid idx args => some (tid, idx, args.size)
+    | _ => none
+  expect (constructs.size == 2) s!"enum-val: 2 constructs, got {constructs.size}"
+  -- Blue is variant index 1 with 1 payload; Red is index 0 with 0 payload.
+  expect (constructs.any fun (_, idx, n) => idx == 1 && n == 1)
+    "enum-val: Blue construct idx1 arity1"
+  expect (constructs.any fun (_, idx, n) => idx == 0 && n == 0)
+    "enum-val: Red construct idx0 arity0"
+
+/-- T3: constructor arity mismatch fails (TypeCheck or Normalize). -/
+private unsafe def testStructConstructArityMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StructArity" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let p : Point := Point.new(1)\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "struct-arity" source
+  let typed := checkProgramTypedResultV1 validated
+  if typed.ok then
+    match normalizeProgramV1 validated with
+    | .ok _ => throw <| IO.userError "struct-arity: expected failure"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "argument" || detail.contains "constructor")
+          s!"struct-arity: detail={detail}"
+    | .error e => throw <| IO.userError s!"struct-arity: {repr e}"
+  else
+    expect (typed.diagnostics.any fun d =>
+        d.message.contains "constructor" || d.message.contains "argument")
+      "struct-arity: TypeCheck arity diagnostic"
+
+/-- T3: fieldGet on non-struct fails closed at Normalize (when Check passes via cast).
+    Practical pin: nested field on UInt64 place is TypeCheck-rejected. -/
+private unsafe def testFieldGetNonStructTypedNotOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FieldBad" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return x.y\n"
+  let validated ← loadSource session "field-bad" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "field-bad: CheckV1 rejects field on UInt64"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -4839,6 +5028,14 @@ unsafe def run : IO Unit := do
   testNamedForwardFieldReference session
   testNamedEnumPayloadTypes session
   testNamedStructStateUnsupported session
+  -- T3 aggregate values
+  testAggregateTypeInterning session
+  testAggregateIllegalMapKey session
+  testAggregateFieldCatalogReject session
+  testStructConstructFieldGetSet session
+  testEnumConstruct session
+  testStructConstructArityMismatch session
+  testFieldGetNonStructTypedNotOk session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

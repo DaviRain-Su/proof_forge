@@ -350,8 +350,11 @@ def constructorRelatedPaths (tables : TypedDeclTablesV1)
           match itemPathForNamed? tables .struct n with
           | some p => #[p]
           | none => optRelatedPath (itemPathForNamed? tables .enum n)
-      | #[enumName, _] =>
-          optRelatedPath (itemPathForNamed? tables .enum enumName)
+      | #[typeName, methodOrVariant] =>
+          if methodOrVariant.raw == "new" then
+            optRelatedPath (itemPathForNamed? tables .struct typeName)
+          else
+            optRelatedPath (itemPathForNamed? tables .enum typeName)
       | _ => optRelatedPath (itemPathForNamed? tables .struct n) ++
           optRelatedPath (itemPathForNamed? tables .enum n)
   | _ => #[]
@@ -379,8 +382,16 @@ def constructorArgRelatedPaths (tables : TypedDeclTablesV1)
               | none =>
                   -- variant name lookup across enums already resolved
                   optRelatedPath (itemPathForNamed? tables .enum n)
-      | #[enumName, variantName] =>
-          optRelatedPath (enumVariantPath? tables enumName variantName)
+      | #[typeName, methodOrVariant] =>
+          if methodOrVariant.raw == "new" then
+            match tables.struct.find? typeName with
+            | some (_, sd) =>
+                match sd.fields[argIndex]? with
+                | some f => optRelatedPath (structFieldPath? tables typeName f.name)
+                | none => optRelatedPath (itemPathForNamed? tables .struct typeName)
+            | none => optRelatedPath (itemPathForNamed? tables .struct typeName)
+          else
+            optRelatedPath (enumVariantPath? tables typeName methodOrVariant)
       | _ => #[]
   | _ => #[]
 
@@ -415,16 +426,32 @@ def resolveConstructorType (tables : TypedDeclTablesV1)
             match findFirstMatchingKind tables name with
             | some (kind, _) => .error (wrongCategoryDiagnostic name kind "constructor")
             | none => .error (unknownNameDiagnostic name "constructor")
-  | #[enumName, variantName] =>
-      match tables.enum.find? enumName with
-      | some (_, enumDecl) =>
-          match enumDecl.variants.find? (·.name == variantName) with
-          | some variant => pure (.named enumDecl.name, variant.payloadTypes)
-          | none => .error (unknownNameDiagnostic variantName "constructor variant")
-      | none =>
-          match findFirstMatchingKind tables enumName with
-          | some (kind, _) => .error (wrongCategoryDiagnostic enumName kind "constructor")
-          | none => .error (unknownNameDiagnostic enumName "constructor enum")
+  | #[typeName, methodOrVariant] =>
+      -- Phase-1 constructor identity: StructName.new | EnumName.Variant.
+      -- (Option.some/none need expected context and are handled at the call site
+      -- only when TypeCheck later threads expected; bare multi-component Option
+      -- paths fail as unknown enum until that extension.)
+      if methodOrVariant.raw == "new" then
+        match tables.struct.find? typeName with
+        | some (_, structDecl) =>
+            pure (.named structDecl.name, structDecl.fields.map (·.type_))
+        | none =>
+            match findFirstMatchingKind tables typeName with
+            | some (kind, _) =>
+                .error (wrongCategoryDiagnostic typeName kind "constructor")
+            | none => .error (unknownNameDiagnostic typeName "constructor struct")
+      else
+        match tables.enum.find? typeName with
+        | some (_, enumDecl) =>
+            match enumDecl.variants.find? (·.name == methodOrVariant) with
+            | some variant => pure (.named enumDecl.name, variant.payloadTypes)
+            | none =>
+                .error (unknownNameDiagnostic methodOrVariant "constructor variant")
+        | none =>
+            match findFirstMatchingKind tables typeName with
+            | some (kind, _) =>
+                .error (wrongCategoryDiagnostic typeName kind "constructor")
+            | none => .error (unknownNameDiagnostic typeName "constructor enum")
   | _ =>
       .error (unknownQualifiedNameDiagnostic ctor "constructor")
 

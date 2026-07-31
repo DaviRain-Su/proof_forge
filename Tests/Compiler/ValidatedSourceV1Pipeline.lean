@@ -529,19 +529,21 @@ def run : IO Unit := do
   -- Well-typed constructors fail at Normalize S1 unsupported detail.
   let hostile := .literal (.string "HOSTILE")
   let digest0 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-  -- Struct/Enum declarations are registered in Normalize Pass0; unsupported
-  -- *field/payload* types (e.g. Map) still fail closed at internSourceType.
+  -- Struct/Enum declarations are registered in Normalize Pass0. Legal Map
+  -- fields now intern (T3); illegal map keys and non-UInt event/error fields
+  -- still fail closed.
+  let illegalMapKey : TypeV1 := .map (.option .bool) .bool
   let topCases : Array (String × Array ProgramItemV1 × String) := #[
-    ("StructDecl", #[.struct { name := x, fields := #[{ name := y, type_ := .map .bool .bool }] }],
-      "S1 normalizer does not support Map"),
-    ("EnumDecl", #[.enum { name := x, variants := #[{ name := y, payloadTypes := #[.map .bool .bool] }] }],
-      "S1 normalizer does not support Map"),
+    ("StructDecl", #[.struct { name := x, fields := #[{ name := y, type_ := illegalMapKey }] }],
+      "S1 Map key type is not a legal map key"),
+    ("EnumDecl", #[.enum { name := x, variants := #[{ name := y, payloadTypes := #[illegalMapKey] }] }],
+      "S1 Map key type is not a legal map key"),
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got string literal"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 normalizer does not support Map"),
+      "S1 event 'x' field 'y' requires anonymous UInt type"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 normalizer does not support Map"),
+      "S1 error 'x' field 'y' requires anonymous UInt type"),
     ("FnDecl",
       #[ProgramItemV1.fn {
           name := x
@@ -564,13 +566,15 @@ def run : IO Unit := do
       (itemPrefix.push (.entry (entry runN (ret (var seed)) #[param seed])))
     expectInvalid s!"top {tag}" want (Compiler.compileValidatedSourceV1 bad)
 
-  -- Named types fail CheckV1 resolution; Map-shaped types reach Normalize S1.
+  -- Named types fail CheckV1 resolution; aggregate state still fails UInt-only gate.
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Map", .map .bool .bool, "S1 normalizer does not support Map"),
+    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt type"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
-    ("Type.Map nested", .array (.option (.map .bool .bool)) 1, "S1 normalizer does not support Array")]
+    ("Type.Map nested", .array (.option (.map .bool .bool)) 1,
+      "S1 state 'x' requires anonymous UInt type"),
+    ("Type.illegalMapKey", illegalMapKey, "S1 Map key type is not a legal map key")]
   for (tag, type_, want) in typeCases do
     let bad ← validated moduleName identity demo
       #[.state (state x type_), .entry (entry runN (ret (var seed)) #[param seed])]

@@ -155,23 +155,36 @@ def resolveConstructorName (tables : TypedDeclTablesV1)
                 sitePath (relatedPathForKindOrdinal tables kind ord)
           | none =>
               emitLocated (unknownNameDiagnosticDraft name "constructor") sitePath #[]
-  | #[enumName, variantName] =>
-      match tables.enum.find? enumName with
-      | some p =>
-          let enumDecl := p.2
-          if enumDecl.variants.any (·.name == variantName) then
-            pure ()
-          else
-            emitLocated (unknownNameDiagnosticDraft variantName "constructor variant")
-              sitePath (relatedPathForKindOrdinal tables .enum p.1)
-      | none =>
-          match findFirstMatchingKind tables enumName with
-          | some (kind, ord) =>
-              emitLocated (wrongCategoryDiagnosticDraft enumName kind "constructor")
-                sitePath (relatedPathForKindOrdinal tables kind ord)
-          | none =>
-              emitLocated (unknownNameDiagnosticDraft enumName "constructor enum")
-                sitePath #[]
+  | #[typeName, methodOrVariant] =>
+      -- Phase-1: StructName.new | EnumName.Variant
+      if methodOrVariant.raw == "new" then
+        match tables.struct.find? typeName with
+        | some _ => pure ()
+        | none =>
+            match findFirstMatchingKind tables typeName with
+            | some (kind, ord) =>
+                emitLocated (wrongCategoryDiagnosticDraft typeName kind "constructor")
+                  sitePath (relatedPathForKindOrdinal tables kind ord)
+            | none =>
+                emitLocated (unknownNameDiagnosticDraft typeName "constructor struct")
+                  sitePath #[]
+      else
+        match tables.enum.find? typeName with
+        | some p =>
+            let enumDecl := p.2
+            if enumDecl.variants.any (·.name == methodOrVariant) then
+              pure ()
+            else
+              emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")
+                sitePath (relatedPathForKindOrdinal tables .enum p.1)
+        | none =>
+            match findFirstMatchingKind tables typeName with
+            | some (kind, ord) =>
+                emitLocated (wrongCategoryDiagnosticDraft typeName kind "constructor")
+                  sitePath (relatedPathForKindOrdinal tables kind ord)
+            | none =>
+                emitLocated (unknownNameDiagnosticDraft typeName "constructor enum")
+                  sitePath #[]
   | _ =>
       emitLocated (unknownQualifiedNameDiagnosticDraft ctor "constructor") sitePath #[]
 

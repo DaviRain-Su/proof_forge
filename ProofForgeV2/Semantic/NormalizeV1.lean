@@ -33,11 +33,17 @@
       `Op.Unary.neg` remains fail closed. call/schedule args and for endpoints
       stay UInt64 in this slice
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
-      anonymous legal UInt/Int widths + Unit (init result) + Bool; one TypeId
-      per distinct anonymous shape, interned on first actual use after named
-      registration. State/parameter positions are public legal-UInt only
-      (named/aggregate state still fail closed); entry/view/fn results may be
-      legal UInt/Int, Unit, or Bool. Constructor/field-place lowering deferred
+      anonymous legal UInt/Int, Unit, Bool, Principal, Bytes, Array, Map,
+      Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
+      interned on first actual use after named registration. State/parameter
+      positions stay public legal-UInt only (named/aggregate state fail closed);
+      entry/view/fn results stay legal UInt/Int/Unit/Bool. Local `let` may
+      hold named/aggregate values
+    * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
+      `Option.some` / `Option.none` constructors → `Op.Construct`; field places
+      → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
+      and index assign on bare local names → `Op.FieldSet`/`Op.IndexSet`
+      (result rebinds the local). Nested field/index assign targets fail closed
     * callables: multi-block CFG (entryBlock=0, dense block ids,
       invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
       lower to a single-param header block (the induction variable), a
@@ -45,7 +51,8 @@
       exactly that (header, latch, N) edge in ascending order. Non-loop
       edges still point forward; block params appear only on loop headers
       * statements: immutable `let` bindings lower to environment entries
-      (the RHS evaluates once; reassignment via `assign` fails closed)
+      (the RHS evaluates once; reassignment via `assign` fails closed except
+      field/index update of an immutable local which rebinds the name)
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
       before encode/hash; companion provenance only via
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
@@ -65,10 +72,10 @@
 
   Out of scope for this module:
     * Int/Field `Op.Unary.neg`, Int arithmetic/shift, private/commitment state,
-      non-UInt64 call/schedule args and for endpoints, Array/Map/Option/Bytes
-      aggregate *values* (named Struct/Enum *type registration* is in scope),
-      constructor/field-place lowering, ContextRead/Commit, match expressions,
-      mutable locals
+      non-UInt64 call/schedule args and for endpoints, named/aggregate state,
+      nonempty Map construction, nested field/index assign chains,
+      ContextRead/Commit, match expressions / constructor patterns,
+      true mutable locals
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -158,7 +165,7 @@ private def mapVisibility : SrcVis → VisibilityV1
   | .commitment => .commitment
 
 /-- S1 type interning: named Struct/Enum (contiguous prefix, Pass0) then
-    anonymous legal UInt/Int widths, Unit, Bool; first-seen. -/
+    anonymous legal scalars/aggregates; first-seen. -/
 structure TypeInternerV1 where
   types : Array TypeDeclV1
 
@@ -196,12 +203,21 @@ private def enumVariantsEq (a b : Array WireEnumVariantV1) : Bool :=
       i := i + 1
     pure true
 
+private def fieldSpecEq (a b : FieldSpecV1) : Bool :=
+  a.id.value == b.id.value && a.modulusBE == b.modulusBE
+
 private def shapeEq (a b : TypeShapeV1) : Bool :=
   match a, b with
   | .uint wa, .uint wb => wa == wb
   | .int wa, .int wb => wa == wb
   | .unit, .unit => true
   | .bool, .bool => true
+  | .principal, .principal => true
+  | .bytes la, .bytes lb => la == lb
+  | .array ea la, .array eb lb => ea == eb && la == lb
+  | .map ka va, .map kb vb => ka == kb && va == vb
+  | .option ea, .option eb => ea == eb
+  | .field sa, .field sb => fieldSpecEq sa sb
   | .struct fa, .struct fb => structFieldsEq fa fb
   | .enum va, .enum vb => enumVariantsEq va vb
   | _, _ => false
@@ -247,7 +263,7 @@ private def setTypeShapeAt (interner : TypeInternerV1) (idx : Nat)
       { types := interner.types.set! idx { decl with shape := shape } }
   | none => interner
 
-private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
+private partial def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match ty with
   | .uint w =>
@@ -262,7 +278,7 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
         failUnsupported s!"S1 normalizer supports only legal Int widths, got Int{w}"
   | .unit => pure (internShape interner .unit)
   | .bool => pure (internShape interner .bool)
-  | .principal => failUnsupported "S1 normalizer does not support Principal"
+  | .principal => pure (internShape interner .principal)
   | .named n =>
       -- Named types are registered only in Pass0; body/declaration sites only
       -- look up. Never push a named TypeDecl here (would break named prefix).
@@ -270,11 +286,36 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
       | some tid => pure (interner, tid)
       | none =>
           failUnsupported s!"S1 named type '{raw n}' is not declared"
-  | .array _ _ => failUnsupported "S1 normalizer does not support Array"
-  | .map _ _ => failUnsupported "S1 normalizer does not support Map"
-  | .option _ => failUnsupported "S1 normalizer does not support Option"
-  | .bytes _ => failUnsupported "S1 normalizer does not support Bytes"
-  | .field _ => failUnsupported "S1 normalizer does not support Field"
+  | .bytes len =>
+      if len.toNat ≤ maxTypeLengthV1 then
+        pure (internShape interner (.bytes len))
+      else
+        failUnsupported
+          s!"S1 Bytes length {len} exceeds maxTypeLengthV1 ({maxTypeLengthV1})"
+  | .array el len => do
+      if len.toNat > maxTypeLengthV1 then
+        return ← failUnsupported
+          s!"S1 Array length {len} exceeds maxTypeLengthV1 ({maxTypeLengthV1})"
+      let (interner, elTid) ← internSourceType interner el
+      pure (internShape interner (.array elTid len))
+  | .option el => do
+      let (interner, elTid) ← internSourceType interner el
+      pure (internShape interner (.option elTid))
+  | .map k v => do
+      let (interner, kTid) ← internSourceType interner k
+      let (interner, vTid) ← internSourceType interner v
+      -- Wire map-key legality (Bool|UInt|Int|Principal|Bytes|Struct-of-legal-keys).
+      match checkLegalMapKeyTypeV1 interner.types kTid interner.types.size with
+      | .ok () => pure (internShape interner (.map kTid vTid))
+      | .error _ =>
+          failUnsupported "S1 Map key type is not a legal map key"
+  | .field id =>
+      -- Sole catalog FieldSpec: source token bn254_fr → wire SchemaId.
+      if raw id == "bn254_fr" then
+        pure (internShape interner (.field bn254FrFieldSpecV1))
+      else
+        failUnsupported
+          s!"S1 Field catalog only supports bn254_fr, got '{raw id}'"
 
 /-- Kind of source-order named declaration collected in Pass0. -/
 private inductive NamedDeclKindV1 where
@@ -387,12 +428,39 @@ private def encodeNatLeBytes (n : Nat) (byteLen : Nat) : ByteArray := Id.run do
     v := v / 256
   pure out
 
+/-- Look up any TypeDecl shape by TypeId (named or anonymous). -/
+private def shapeOf? (types : Array TypeDeclV1) (typeId : TypeIdV1) :
+    Option TypeShapeV1 :=
+  match types[typeId.toNat]? with
+  | some decl => some decl.shape
+  | none => none
+
 /-- Look up an anonymous type shape by TypeId. -/
 private def anonShapeOf? (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     Option TypeShapeV1 :=
   match types[typeId.toNat]? with
   | some decl => if decl.name.isNone then some decl.shape else none
   | none => none
+
+/-- Find struct field index by exact name. -/
+private def findStructFieldIndex (fields : Array WireStructFieldV1) (name : String) :
+    Option (Nat × TypeIdV1) := Id.run do
+  let mut i : Nat := 0
+  for f in fields do
+    if f.name == name then
+      return some (i, f.typeId)
+    i := i + 1
+  pure none
+
+/-- Find enum variant index by exact name. -/
+private def findEnumVariantIndex (variants : Array WireEnumVariantV1) (name : String) :
+    Option (Nat × Array TypeIdV1) := Id.run do
+  let mut i : Nat := 0
+  for v in variants do
+    if v.name == name then
+      return some (i, v.payloadTypes)
+    i := i + 1
+  pure none
 
 /-- Require anonymous legal UInt width (state/param/event/error/fn params). -/
 private def requireAnonymousUIntTypeId
@@ -491,6 +559,20 @@ private def envLookup (env : LocalEnvV1) (name : String) :
 private def envInsert (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
     (tid : TypeIdV1) : LocalEnvV1 :=
   ⟨env.bindings.push (name, vid, tid)⟩
+
+/-- Rebind the most-recent binding of `name` (field/index local update).
+    If the name is absent, inserts a fresh binding (should not happen for
+    field/index assign which first requires an env hit). -/
+private def envRebind (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
+    (tid : TypeIdV1) : LocalEnvV1 := Id.run do
+  let mut lastIdx? : Option Nat := none
+  let mut i : Nat := 0
+  for (n, _, _) in env.bindings do
+    if n == name then lastIdx? := some i
+    i := i + 1
+  match lastIdx? with
+  | some idx => ⟨env.bindings.set! idx (name, vid, tid)⟩
+  | none => ⟨env.bindings.push (name, vid, tid)⟩
 
 /-- State name → (StateId, TypeId). -/
 structure StateTableV1 where
@@ -627,18 +709,14 @@ where
     | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
     | _ => 0
 
-/-- Require an already-interned TypeId to resolve to anonymous legal UInt/Int or
-    Bool: the only types an immutable `let` binding can carry in this envelope. -/
+/-- Require an already-interned TypeId for a `let` binding: any registered
+    scalar, named Struct/Enum, or anonymous aggregate (Array/Map/Option/Bytes/
+    Principal/Field) is allowed. Missing TypeId fails closed. -/
 private def requireLetTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
-  match anonShapeOf? types typeId with
-  | some (.uint w) | some (.int w) =>
-      if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Bool type"
-  | some .bool => pure ()
-  | some _ =>
-      failUnsupported s!"S1 {context} requires UInt/Int/Bool type"
+  match types[typeId.toNat]? with
+  | some _ => pure ()
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
@@ -718,7 +796,9 @@ private partial def synthLetExpectedV1
               | none => pure (internShape st.interner (.uint 64))
       | _ => pure (internShape st.interner (.uint 64))
   | .constructor _ _ =>
-      failUnsupported "S1 normalizer does not support constructors"
+      -- Constructor result type is supplied by the let annotation (or enclosing
+      -- expected context); unannotated constructor lets fail closed here.
+      failUnsupported "S1 let constructor requires a type annotation"
   | .localCall callee _ =>
       let key := raw callee
       match fnLookup fns key with
@@ -797,8 +877,94 @@ private def emitVoid (st : BodyStateV1) (op : SemanticOpV1) : BodyStateV1 :=
     instructions := st.instructions.push { result := none, op := op }
   }
 
-private def lowerPlace
-    (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
+/-- Resolve a Phase-1 constructor path to (result TypeId, ctorIndex, arg TypeIds).
+    Identities: `StructName.new`, `EnumName.Variant`, bare struct name (compat),
+    bare unique enum variant, `Option.some`/`Option.none` (need expected Option). -/
+private def resolveConstructorLoweringV1
+    (interner : TypeInternerV1) (ctor : SourceQualifiedNameV1)
+    (expectedTid : TypeIdV1) :
+    Except NormalizeErrorV1 (TypeIdV1 × UInt32 × Array TypeIdV1) := do
+  let comps := (NonEmptyArray.toArray ctor.components).map (·.raw)
+  match comps with
+  | #[structName, "new"] =>
+      match lookupNamedTypeId interner structName with
+      | none =>
+          failUnsupported s!"S1 constructor '{structName}.new' is not a declared struct"
+      | some tid =>
+          match shapeOf? interner.types tid with
+          | some (.struct fields) =>
+              pure (tid, 0, fields.map (·.typeId))
+          | _ =>
+              failUnsupported s!"S1 '{structName}.new' requires a struct type"
+  | #[typeName, variantName] =>
+      -- EnumName.Variant, or Option.some / Option.none
+      if typeName == "Option" then
+        match shapeOf? interner.types expectedTid with
+        | some (.option elTid) =>
+            if variantName == "none" then
+              pure (expectedTid, 0, #[])
+            else if variantName == "some" then
+              pure (expectedTid, 1, #[elTid])
+            else
+              failUnsupported
+                s!"S1 Option constructor must be Option.some or Option.none, got '{variantName}'"
+        | _ =>
+            failUnsupported
+              "S1 Option constructor requires an enclosing Option expected type"
+      else
+        match lookupNamedTypeId interner typeName with
+        | none =>
+            failUnsupported s!"S1 constructor type '{typeName}' is not declared"
+        | some tid =>
+            match shapeOf? interner.types tid with
+            | some (.enum variants) =>
+                match findEnumVariantIndex variants variantName with
+                | none =>
+                    failUnsupported
+                      s!"S1 enum '{typeName}' has no variant '{variantName}'"
+                | some (idx, payloads) =>
+                    pure (tid, UInt32.ofNat idx, payloads)
+            | some (.struct _) =>
+                failUnsupported
+                  s!"S1 struct '{typeName}' constructor must use '{typeName}.new'"
+            | _ =>
+                failUnsupported s!"S1 '{typeName}.{variantName}' is not a constructible type"
+  | #[name] =>
+      match lookupNamedTypeId interner name with
+      | some tid =>
+          match shapeOf? interner.types tid with
+          | some (.struct fields) =>
+              pure (tid, 0, fields.map (·.typeId))
+          | _ =>
+              failUnsupported s!"S1 bare constructor '{name}' is not a struct"
+      | none =>
+          let mut hits : Array (TypeIdV1 × Nat × Array TypeIdV1) := #[]
+          let mut i : Nat := 0
+          for d in interner.types do
+            match d.name, d.shape with
+            | some _, .enum variants =>
+                match findEnumVariantIndex variants name with
+                | some (vIdx, payloads) =>
+                    hits := hits.push (UInt32.ofNat i, vIdx, payloads)
+                | none => pure ()
+            | _, _ => pure ()
+            i := i + 1
+          match hits.toList with
+          | [(tid, vIdx, payloads)] =>
+              pure (tid, UInt32.ofNat vIdx, payloads)
+          | _ :: _ :: _ =>
+              failUnsupported s!"S1 bare constructor '{name}' is ambiguous"
+          | _ =>
+              failUnsupported s!"S1 constructor '{name}' is not declared"
+  | _ =>
+      failUnsupported "S1 constructor path must be Struct.new, Enum.Variant, or Option.some/none"
+
+mutual
+
+/-- Lower a place to a value: bare name (env/stateLoad), fieldGet, indexGet. -/
+private partial def lowerPlace
+    (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1)
+    (fns : FnTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
   match place with
   | .name n =>
@@ -812,17 +978,59 @@ private def lowerPlace
           | some (sid, tid) =>
               let (st1, vid) := emitValue st tid (.stateLoad sid)
               pure (vid, tid, st1)
-  | .field _ _ => failUnsupported "S1 normalizer does not support field places"
-  | .index _ _ => failUnsupported "S1 normalizer does not support index places"
+  | .field base fieldName => do
+      let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+      match shapeOf? st1.interner.types baseTid with
+      | some (.struct fields) =>
+          match findStructFieldIndex fields (raw fieldName) with
+          | none =>
+              failUnsupported
+                s!"S1 field '{raw fieldName}' not found on struct"
+          | some (idx, fieldTid) =>
+              let (st2, vid) :=
+                emitValue st1 fieldTid
+                  (.fieldGet baseVid (UInt32.ofNat idx))
+              pure (vid, fieldTid, st2)
+      | _ =>
+          failUnsupported "S1 field place requires a struct base"
+  | .index base idxExpr => do
+      let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+      match shapeOf? st1.interner.types baseTid with
+      | some (.array elTid _) => do
+          let (iU32, u32Tid) := internShape st1.interner (.uint 32)
+          let st0 := { st1 with interner := iU32 }
+          let (idxVid, idxTid, st2) ← lowerExpr idxExpr u32Tid st0 states fns
+          unless idxTid == u32Tid do
+            return ← failUnsupported "S1 Array index must be UInt32"
+          let (st3, vid) := emitValue st2 elTid (.indexGet baseVid idxVid)
+          pure (vid, elTid, st3)
+      | some (.bytes _) => do
+          let (iU32, u32Tid) := internShape st1.interner (.uint 32)
+          let (iU8, u8Tid) := internShape iU32 (.uint 8)
+          let st0 := { st1 with interner := iU8 }
+          let (idxVid, idxTid, st2) ← lowerExpr idxExpr u32Tid st0 states fns
+          unless idxTid == u32Tid do
+            return ← failUnsupported "S1 Bytes index must be UInt32"
+          let (st3, vid) := emitValue st2 u8Tid (.indexGet baseVid idxVid)
+          pure (vid, u8Tid, st3)
+      | some (.map keyTid valTid) => do
+          let (iOpt, optTid) := internShape st1.interner (.option valTid)
+          let st0 := { st1 with interner := iOpt }
+          let (idxVid, idxTid, st2) ← lowerExpr idxExpr keyTid st0 states fns
+          unless idxTid == keyTid do
+            return ← failUnsupported "S1 Map index type mismatch"
+          let (st3, vid) := emitValue st2 optTid (.indexGet baseVid idxVid)
+          pure (vid, optTid, st3)
+      | _ =>
+          failUnsupported "S1 index place requires Array, Bytes, or Map base"
 
-mutual
 private partial def lowerExpr
     (expr : SrcExpr) (expectedTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
   match expr with
   | .place p => do
-      let (vid, tid, st1) ← lowerPlace p st states
+      let (vid, tid, st1) ← lowerPlace p st states fns
       unless tid == expectedTid do
         return ← failUnsupported "S1 place type does not match enclosing expected type"
       pure (vid, tid, st1)
@@ -968,7 +1176,20 @@ private partial def lowerExpr
           pure (vid, boolTid, st1)
       | .string _ =>
           failUnsupported "S1 normalizer supports only UInt/Int/Bool literals"
-  | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
+  | .constructor ctor args => do
+      let (resultTid, ctorIdx, argTids) ←
+        resolveConstructorLoweringV1 st.interner ctor expectedTid
+      unless resultTid == expectedTid do
+        return ← failUnsupported
+          "S1 constructor result type does not match enclosing expected type"
+      unless args.size == argTids.size do
+        return ← failUnsupported
+          s!"S1 constructor expects {argTids.size} arguments, got {args.size}"
+      let (argIds, st') ← lowerArgs args argTids st states fns
+        "S1 constructor argument type mismatch"
+      let (st2, vid) :=
+        emitValue st' resultTid (.construct resultTid ctorIdx argIds)
+      pure (vid, resultTid, st2)
   | .unary op operand => do
       match op with
       | .neg => do
@@ -1128,8 +1349,102 @@ private partial def lowerStmt
                     return ← failUnsupported
                       s!"S1 assign type mismatch for state '{key}'"
                   pure (emitVoid st1 (.stateStore sid vid), .open_)
-      | .field _ _ => failUnsupported "S1 assign does not support field targets"
-      | .index _ _ => failUnsupported "S1 assign does not support index targets"
+      | .field base fieldName => do
+          -- Only single-level field assign on a bare local name:
+          -- `p.x := v` → FieldSet + rebind `p`. Nested/state bases fail closed.
+          match base with
+          | .name n =>
+              let key := raw n
+              match envLookup st.env key with
+              | none =>
+                  failUnsupported
+                    s!"S1 field assign '{key}.{raw fieldName}' requires a local binding"
+              | some (baseVid, baseTid) =>
+                  match shapeOf? st.interner.types baseTid with
+                  | some (.struct fields) =>
+                      match findStructFieldIndex fields (raw fieldName) with
+                      | none =>
+                          failUnsupported
+                            s!"S1 field '{raw fieldName}' not found on struct"
+                      | some (idx, fieldTid) => do
+                          let (vVid, vTid, st1) ←
+                            lowerExpr value fieldTid st states fns
+                          unless vTid == fieldTid do
+                            return ← failUnsupported
+                              "S1 field assign value type mismatch"
+                          let (st2, newVid) :=
+                            emitValue st1 baseTid
+                              (.fieldSet baseVid (UInt32.ofNat idx) vVid)
+                          pure ({ st2 with
+                            env := envRebind st2.env key newVid baseTid }, .open_)
+                  | _ =>
+                      failUnsupported "S1 field assign requires a struct local"
+          | _ =>
+              failUnsupported
+                "S1 field assign only supports a bare local base (no nested place)"
+      | .index base idxExpr => do
+          match base with
+          | .name n =>
+              let key := raw n
+              match envLookup st.env key with
+              | none =>
+                  failUnsupported
+                    s!"S1 index assign '{key}[...]' requires a local binding"
+              | some (baseVid, baseTid) =>
+                  match shapeOf? st.interner.types baseTid with
+                  | some (.array elTid _) => do
+                      let (iU32, u32Tid) := internShape st.interner (.uint 32)
+                      let st0 := { st with interner := iU32 }
+                      let (idxVid, idxTid, st1) ←
+                        lowerExpr idxExpr u32Tid st0 states fns
+                      unless idxTid == u32Tid do
+                        return ← failUnsupported "S1 Array index must be UInt32"
+                      let (vVid, vTid, st2) ←
+                        lowerExpr value elTid st1 states fns
+                      unless vTid == elTid do
+                        return ← failUnsupported
+                          "S1 Array index-assign value type mismatch"
+                      let (st3, newVid) :=
+                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+                      pure ({ st3 with
+                        env := envRebind st3.env key newVid baseTid }, .open_)
+                  | some (.bytes _) => do
+                      let (iU32, u32Tid) := internShape st.interner (.uint 32)
+                      let (iU8, u8Tid) := internShape iU32 (.uint 8)
+                      let st0 := { st with interner := iU8 }
+                      let (idxVid, idxTid, st1) ←
+                        lowerExpr idxExpr u32Tid st0 states fns
+                      unless idxTid == u32Tid do
+                        return ← failUnsupported "S1 Bytes index must be UInt32"
+                      let (vVid, vTid, st2) ←
+                        lowerExpr value u8Tid st1 states fns
+                      unless vTid == u8Tid do
+                        return ← failUnsupported
+                          "S1 Bytes index-assign value must be UInt8"
+                      let (st3, newVid) :=
+                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+                      pure ({ st3 with
+                        env := envRebind st3.env key newVid baseTid }, .open_)
+                  | some (.map keyTid valTid) => do
+                      let (idxVid, idxTid, st1) ←
+                        lowerExpr idxExpr keyTid st states fns
+                      unless idxTid == keyTid do
+                        return ← failUnsupported "S1 Map index type mismatch"
+                      let (vVid, vTid, st2) ←
+                        lowerExpr value valTid st1 states fns
+                      unless vTid == valTid do
+                        return ← failUnsupported
+                          "S1 Map index-assign value type mismatch"
+                      let (st3, newVid) :=
+                        emitValue st2 baseTid (.indexSet baseVid idxVid vVid)
+                      pure ({ st3 with
+                        env := envRebind st3.env key newVid baseTid }, .open_)
+                  | _ =>
+                      failUnsupported
+                        "S1 index assign requires Array, Bytes, or Map local"
+          | _ =>
+              failUnsupported
+                "S1 index assign only supports a bare local base (no nested place)"
   -- Explicit bare `return` is rejected at the S1 gate so product compile never
   -- succeeds Normalize and then fails residual alpha `validateBlockShapeV1`
   -- (`Stmt.Return`). Init may still end with implicit terminator-none when the
@@ -1218,7 +1533,7 @@ private partial def lowerStmt
         | .literal (.bool _) =>
             lowerExpr scrutinee boolTid st0 states fns
         | .place p => do
-            let (vid, tid, stP) ← lowerPlace p st0 states
+            let (vid, tid, stP) ← lowerPlace p st0 states fns
             pure (vid, tid, stP)
         | _ => do
             let (iU, u64Tid) := internShape st0.interner (.uint 64)
