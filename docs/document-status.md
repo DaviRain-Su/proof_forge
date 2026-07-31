@@ -74,8 +74,7 @@ review，但全部可执行、kernel、production签名、C→D与gate验收保�
   `reviewCommit`、`https://` `reviewLink` 与 `openFindings: none`。这些字段是批准记录的机器入口；
   `approvers` 是一个 scalar，wire grammar 固定为 exact `, ` 分隔的 ASCII `safe-id` 列表：每项
   1–256 字符，首尾为字母或数字，中间只允许字母、数字、`.`、`_`、`:`、`+`、`-`；列表非空、
-  唯一并按 ASCII byte 升序，禁止 email、trim 后修复、隐式重排或其他分隔符。角色数量与权限仍按
-  [`governance/authority.md`](governance/authority.md) 人工/评审校验。
+  唯一并按 ASCII byte 升序，禁止 email、trim 后修复、隐式重排或其他分隔符。
 - `superseded` 必须额外包含精确 primary document ID 的 `successor`；successor 必须存在且
   supersession graph 无环。若旧文档曾为 `accepted`，五个 approval 字段必须完整保留并继续
   通过格式校验；从未 accepted 的文档不得伪造部分 approval metadata。除 `superseded` 的该历史

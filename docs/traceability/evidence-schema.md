@@ -9,8 +9,8 @@ normative: true
 
 # Gate Evidence Schema
 
-本页描述当前 [`scripts/evidence_v1_core.py`](../../scripts/evidence_v1_core.py) 纯验证核心与
-[`scripts/gate_evidence.py`](../../scripts/gate_evidence.py) CLI 接受的
+本页描述当前 `scripts/evidence_v1_core.py` 纯验证核心与
+`scripts/gate_evidence.py` CLI 接受的
 `proof-forge.evidence.v1`。bootstrap pure consumer 复用同一 exact sibling core，不维护缩减版 raw EV
 validator。本页把“结构有效”“文件在某一时点完整”和“gate 事实已获正式
 认可”分成三个不同判断。当前只有前两层工具；development gate-catalog finalizer 与 formal

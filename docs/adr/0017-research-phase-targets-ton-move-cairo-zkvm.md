@@ -87,7 +87,7 @@ Phase 1 DoD 闭合后驱动。
   若未来要把任一研究期 target 推进到 specified 或实现，必须先：
   (a) 新增独立 ADR 决定其 `TargetDescriptor`、capability/extension、Plan/TargetIR schema；
   (b) 把构造子加入 `TargetId` 枚举与 `Registry.lean` 的 `researched`/`descriptor?`/`materialize`；
-  (c) 按 [GOV-TASK-FREEZE-001](../governance/task-freeze.md) 立项冻结任务后才能 in_progress。
+  (c) 按 `GOV-TASK-FREEZE-001` 立项冻结任务后才能 in_progress。
 - family 归类是阅读视图，不进入用户源码（统一 `program ... where` 入口不变，无用户可写
   顶层类别标记，遵守 [ADR-0002](0002-unified-program-dsl.md) 与
   [ADR-0003](0003-target-selects-materialization.md)）。

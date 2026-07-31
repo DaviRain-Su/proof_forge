@@ -6449,7 +6449,7 @@ normative: false
 - Context：D0-04 真实 activation 关闭（`EV-20260719-0108`）后，`TASK-D0-07` 的全部
   完成依赖闭合。按 GOV-TASK-FREEZE-001 §3.2 在同一变更集写入冻结完成包并置
   `in_progress`（当前无其他 in_progress 任务）。
-- Changed：新增 [`governance/task-freeze-packages/TASK-D0-07.json`](governance/task-freeze-packages/TASK-D0-07.json)
+- Changed：新增 `governance/task-freeze-packages/TASK-D0-07.json`
   （output 与任务表逐字一致、Tests 恰为 `TST-EVIDENCE-002, TST-ISO-002`、
   Dependencies 恰为 `TASK-D0-04`、doneWhen 含 genesis §5 信任升级重放与
   GOV-PRECUTOVER-001 §4.1 的 `TST-HOST-002`/`TST-SBOM-002` 重放、darwin live

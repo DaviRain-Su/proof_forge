@@ -21,7 +21,7 @@ openFindings: none
 
 `TASK-D0-04` 的真实 six-item activation（`EV-20260719-0075`，cutover）使 `TASK-D0-07`
 进入 `in_progress`（冻结包
-[`task-freeze-packages/TASK-D0-07.json`](../governance/task-freeze-packages/TASK-D0-07.json)）。
+`task-freeze-packages/TASK-D0-07.json`）。
 冻结后的实现缺口分析发现四处规格级冲突/歧义，不先裁决就无法定义
 `TST-EVIDENCE-002`/`TST-ISO-002` 的 RED 正例：
 

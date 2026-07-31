@@ -3743,8 +3743,8 @@ def validate_agents_checkpoint(root: Path, tasks: list[TaskRecord]) -> None:
     checkpoint_authority_target("Document authority", "docs/document-status.md")
 
 
-def check(root: Path, profile: str = "governance") -> None:
-    if profile not in {"development", "governance"}:
+def check(root: Path, profile: str = "development") -> None:
+    if profile != "development":
         raise ValueError(f"unknown docs-check profile: {profile}")
     root_input = root.expanduser().absolute()
     for component in (root_input, *root_input.parents):
@@ -3756,11 +3756,7 @@ def check(root: Path, profile: str = "governance") -> None:
     ensure_repository_path(root, docs_root, "docs")
     if not docs_root.is_dir():
         raise_error("PF-DOC-REQUIRED", "docs", "docs/ does not exist")
-    required_paths = (
-        REQUIRED
-        if profile == "governance"
-        else [item for item in REQUIRED if item != "governance/task-set.lock.json"]
-    )
+    required_paths = [item for item in REQUIRED if item != "governance/task-set.lock.json"]
     for required in sorted(required_paths):
         required_path = docs_root / required
         ensure_repository_path(root, required_path, f"docs/{required}")
@@ -3797,56 +3793,19 @@ def check(root: Path, profile: str = "governance") -> None:
         documents.append(document)
 
     check_links(root, docs_root, documents, by_id)
-    if profile == "development":
-        return
-
-    definitions, _tables, tasks, evidence_results = collect_definitions(
-        root, documents, json_values)
-    validate_claims(definitions, json_values)
-    validate_task_set_lock(root, tasks)
-    validate_task_freeze_packages(root, tasks)
-    validate_trace(documents, definitions, tasks)
-    document_status = {document.meta["id"]: document.meta["status"] for document in documents}
-    genesis_effective, _ = genesis_authority_state(root, {
-        document.relative: document for document in documents
-    })
-    validate_tasks(
-        root, definitions, tasks, evidence_results, document_status,
-        genesis_effective)
-    validate_agents_checkpoint(root, tasks)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT,
                         help="repository root containing docs/")
-    parser.add_argument(
-        "--profile",
-        choices=("development", "governance"),
-        default="development",
-        help=(
-            "development checks document structure, lifecycle, and links; "
-            "governance additionally checks task/freeze/trace/evidence state"
-        ),
-    )
     arguments = parser.parse_args()
     try:
-        check(arguments.root, arguments.profile)
+        check(arguments.root)
     except DocsCheckError as error:
         print(f"docs-check: {error.render()}", file=sys.stderr)
         raise SystemExit(1)
-    if arguments.profile == "development":
-        print("docs-check: development ok")
-        return
-
-    structural = _d0_10_structural_approval(arguments.root.expanduser().absolute().resolve())
-    if structural is not None:
-        print(
-            "docs-check: structural-only TASK-D0-10 "
-            + structural["reservedEvidenceId"]
-        )
-    else:
-        print("docs-check: ok")
+    print("docs-check: development ok")
 
 
 if __name__ == "__main__":

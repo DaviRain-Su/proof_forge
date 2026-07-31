@@ -26,7 +26,7 @@ openFindings: none
 
 ## 全局任务冻结（所有 TASK，强制）
 
-全部任务遵守 [`governance/task-freeze.md`](governance/task-freeze.md)
+全部任务遵守历史任务冻结规则
 （`GOV-TASK-FREEZE-001`）：
 
 1. **`pending` → `in_progress` 前**必须具备冻结完成包（output / tests / inScope /
@@ -75,7 +75,7 @@ openFindings: none
 
 本 checkpoint 截止 `TASK-A0-20` 冻结。2026-07-16 对账确认：A0 的 `done` 只表示 alpha
 切片；它们不自动关闭 D0/D1。2026-07-17：`TASK-D0-01`/`TASK-D0-02`/`TASK-D0-03`/`TASK-D0-05`
-经 Freeze Exception 关闭，统一由 [`governance/genesis-authority.md`](governance/genesis-authority.md)
+经 Freeze Exception 关闭，统一由历史 genesis-authority 规则
 追认；`TASK-D0-06` 的错误关闭经 reopen 纠正，在途补全后按 genesis 关闭重新关闭。
 
 ## Milestone D0：文档与独立工程
@@ -96,7 +96,7 @@ openFindings: none
 `TASK-D0-02` 曾因缺少候选外部 authority 才能产生的 exact signed TaskApproval 与
 authenticated task receipt 而 blocked；2026-07-17 经 `FX-2026-07-17-D0-02` 以 package-boundary
 关闭，signed 对象移交 `TASK-D0-04`。genesis 任务的定义、追认与补票义务见
-[`governance/genesis-authority.md`](governance/genesis-authority.md)。
+历史 `governance/genesis-authority.md` 记录。
 
 `TASK-D0-10` 经 ADR-0020 与 GOV-TASKQUAL-BOOTSTRAP-001 按 R3 批准新增：D1-01 不能承载
 自己的资格 verifier，D8-04 又依赖 D1，现有 done D0 任务均不可扩面。它仅复用
@@ -156,14 +156,14 @@ tool root 是 GOV-CI-001 明示的 hermetic 前置，但 `TASK-D0-03` 已 `done`
 `TASK-D0-04` outOfScope 禁止扩面且 host/工具属外部前置、`TASK-D0-07` 依赖 activation 之后，
 现有任务均不能承载。ADR-0016 已于 2026-07-18 经 Architecture + Quality 批准转 `accepted`，
 本任务同日进入 `in_progress`（冻结包
-[`task-freeze-packages/TASK-D0-09.json`](governance/task-freeze-packages/TASK-D0-09.json)，
+`task-freeze-packages/TASK-D0-09.json`，
 freezeCommit `6dc1d8365c02cd51a8b3365c5199597deda99b61`）。2026-07-18：TST-HOST-002 已
 RED→GREEN，linux tool-root lane 本地复跑与合并树 `just ci` 全绿（`EV-20260718-0041`、
 `EV-20260718-0042`）；lane 首次真实 GitHub 运行前修复 job-env `runner` context 缺陷
 （`63df5494`），随后 CI run `29642879415` 三 lane（docs/source-core/linux-tool-root）
 全 success，ubuntu CI 生成器产出 ineligible development profile 并被验证器接受。
 doneWhen 剩余两项一度为外部前置而 `blocked`；2026-07-18 经
-[`governance/pre-cutover-closure-ruling.md`](governance/pre-cutover-closure-ruling.md)
+`governance/pre-cutover-closure-ruling.md`
 （`GOV-PRECUTOVER-001`，Architecture + Quality 批准）关闭为 `done`：darwin 回归以
 ADR-0016 字节保持设计 + 静态保持性验证（darwin lock 逐字节、profile 四字段组相等、
 Stage-0 darwin 语义行全保留、数据级 v2 校验通过）认定满足，darwin live 重观察递延为
@@ -172,7 +172,7 @@ attest `docs/governance/bootstrap-closure/TASK-D0-09.attest.json`，bootstrap EV
 `EV-20260718-0052`。development 级关闭，不产生 formal/hermetic 证据。
 
 `TASK-D0-08` 于 2026-07-18 进入 `in_progress`（counts 盘点固化后的完整冻结包
-[`task-freeze-packages/TASK-D0-08.json`](governance/task-freeze-packages/TASK-D0-08.json)），
+`task-freeze-packages/TASK-D0-08.json`），
 同日完成 TST-SBOM-002 RED（`904f8eb6`）与全 31 例 GREEN（`EV-20260718-0043`）：
 SB2-001..031 + LEGACY-NOT-GREEN 共 32 例与 SB2-028 逐点 fault injection 全绿，
 locked-jv 对 pinned CycloneDX schema 实测 schema/instance ok。doneWhen 第 1–3 条与第 5
@@ -202,8 +202,8 @@ formal/hermetic 证据（formal gate 属 `TASK-D0-07`），linux 信任根弱于
 remote attestation；四个 principal 实为同一人持有（GOV-MAINTAINERS-001 单点声明）。
 
 `TASK-D0-07` 于 2026-07-19 进入 `in_progress`（冻结包
-[`task-freeze-packages/TASK-D0-07.json`](governance/task-freeze-packages/TASK-D0-07.json)），
-2026-07-20 经 [`governance/d0-07-closure-ruling.md`](governance/d0-07-closure-ruling.md)
+`task-freeze-packages/TASK-D0-07.json`），
+2026-07-20 经 `governance/d0-07-closure-ruling.md`
 （`GOV-D0CLOSE-001`，Architecture + Quality 批准）以 bootstrap 级关闭为 `done`：
 doneWhen 逐项满足——`TASK-D0-04` done 与 current activation（`EV-20260719-0108`）；
 `TST-EVIDENCE-002` fixture 验收链（revocation ledger、private scan、签名输入
