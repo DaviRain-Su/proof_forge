@@ -27,6 +27,13 @@ normative: false
 - canonical Bool 1/0分别映射`returnedTrue`/`returnedFalse`，checked failure映射`reverted`，trap、bad ordinal、uninitialized或malformed state统一映射`trapped`；transitive PureCall复用远端canonical frame machine。
 - 聚焦suite覆盖true/false、normal invocation拒绝、PureCall closure、assert revert、explicit trap、bad ordinal/state及carried fuel metadata。正式`evalInvariantV1`/`InvariantTheoremV1`仍须由`InvariantABI`唯一拥有，formal D2-07仍pending。
 
+## 2026-07-31 — D2-07 Struct reference execution engineering slice
+
+- `WireV1`新增`splitCanonicalStructValueV1`/`encodeCanonicalStructValueV1`窄public codec seam；复用sole recursive decoder，split为outer Struct预扣nesting，encode在append前执行16MiB cap并以相同child fuel验证。
+- `ReferenceV1` admission新增Struct type与Struct`Construct`/`FieldGet`/`FieldSet`；非Struct Construct及Enum/Option/Array/Map/Variant/Index仍关闭。explicit-stack postorder width/depth/construction-work分析拒绝compact DAG与宽值深层包装 amplification，logical-state defaults累计受64MiB byte/work caps。
+- runtime复核constructor、field count/order/index、operand/result TypeId与canonical bytes；FieldSet创建新bytes并保留旧SSA base。实现接入远端general-CFG Reference machine，不引入第二PureCall或control-flow执行器。
+- suite覆盖canonical codec 256/257 nesting和malformed negatives、多字段first/later get、immutable/nested set、PureCall、invariant root、non-Struct Construct及width/depth/work/state aggregate admission边界。formal D2-07仍pending。
+
 ## 2026-07-31 — S1 Normalize 扩面：let/for（不可变局部绑定 + bounded for 循环回边 CFG）贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 mul/div/mod/unary 扩面，本切片把 ProgramV1 `let x : T := e` 与 `for i in s ..< e bounded N do` 贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。执行模式：共享核心串行（主代理，先行提交 `9a8dd0808`）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理审计时发现**边界检查位置的语义分歧**并恢复三路 worker 并行修复（exact back-edge），Noir lane 由主代理串行实现并同步精确化。

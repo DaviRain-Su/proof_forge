@@ -3938,18 +3938,85 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
                 c := c'
               pure (out, c)
 
-/-- Validate a complete valueBytes slice for `typeId` (full consume + re-encode). -/
-def validateValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1)
-    (valueBytes : ByteArray) : Except SemanticWireErrorV1 Unit := do
+/-- Validate a complete valueBytes slice with an explicit recursive-shape fuel
+    budget. Kept private so public callers cannot select a weaker policy; the
+    Struct assembler uses it only after reserving the outer Struct level. -/
+private def validateValueBytesWithFuelV1 (types : Array TypeDeclV1)
+    (typeId : TypeIdV1) (valueBytes : ByteArray) (fuel : Nat) :
+    Except SemanticWireErrorV1 Unit := do
   unless valueBytes.size ≤ maxCanonicalValueBytes do
     return ← err .limitExceeded
   let (reencoded, c) ←
-    decodeAndReencodeValueBytesV1 types typeId maxNesting (start valueBytes)
+    decodeAndReencodeValueBytesV1 types typeId fuel (start valueBytes)
   unless remaining c == 0 do
     return ← err .nonCanonical
   unless reencoded == valueBytes do
     return ← err .nonCanonical
   pure ()
+
+/-- Validate a complete valueBytes slice for `typeId` (full consume + re-encode). -/
+def validateValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1)
+    (valueBytes : ByteArray) : Except SemanticWireErrorV1 Unit :=
+  validateValueBytesWithFuelV1 types typeId valueBytes maxNesting
+
+/-- Split one complete canonical Struct value into its canonical field byte
+    slices. This is the narrow public aggregate-codec seam used by the
+    reference machine: the outer Struct consumes one nesting level and every
+    field is decoded by the sole type-driven canonical decoder above.
+    Non-Struct types, malformed fields, trailing bytes, and oversized values
+    fail closed. -/
+def splitCanonicalStructValueV1 (types : Array TypeDeclV1)
+    (structTypeId : TypeIdV1) (valueBytes : ByteArray) :
+    Except SemanticWireErrorV1 (Array ByteArray) := do
+  unless valueBytes.size ≤ maxCanonicalValueBytes do
+    return ← err .limitExceeded
+  let fields ←
+    match types[structTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .struct fields, .. } => pure fields
+    | some _ => err .badType
+  let mut chunks : Array ByteArray := #[]
+  let mut c := start valueBytes
+  for field in fields do
+    let beginOffset := c.offset
+    let (reencoded, c') ←
+      decodeAndReencodeValueBytesV1 types field.typeId (maxNesting - 1) c
+    let source := valueBytes.extract beginOffset c'.offset
+    unless reencoded == source do
+      return ← err .nonCanonical
+    chunks := chunks.push source
+    c := c'
+  unless remaining c == 0 do
+    return ← err .nonCanonical
+  pure chunks
+
+/-- Assemble one canonical Struct value from exact source-order canonical
+    field byte slices. Each field is validated against its declared TypeId;
+    the aggregate cap is checked before allocation growth, and the completed
+    Struct is revalidated through the sole canonical value decoder. -/
+def encodeCanonicalStructValueV1 (types : Array TypeDeclV1)
+    (structTypeId : TypeIdV1) (fieldBytes : Array ByteArray) :
+    Except SemanticWireErrorV1 ByteArray := do
+  let fields ←
+    match types[structTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .struct fields, .. } => pure fields
+    | some _ => err .badType
+  unless fieldBytes.size == fields.size do
+    return ← err .nonCanonical
+  let mut out := ByteArray.empty
+  let mut i := 0
+  while i < fields.size do
+    match fields[i]?, fieldBytes[i]? with
+    | some field, some bytes =>
+        unless bytes.size ≤ maxCanonicalValueBytes - out.size do
+          return ← err .limitExceeded
+        validateValueBytesWithFuelV1 types field.typeId bytes (maxNesting - 1)
+        out := out.append bytes
+    | _, _ => return ← err .nonCanonical
+    i := i + 1
+  validateValueBytesV1 types structTypeId out
+  pure out
 
 private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1) :
     Except SemanticWireErrorV1 Unit := do

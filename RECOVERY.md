@@ -197,3 +197,15 @@ if/match、emit/revert、mul/div/mod/unary与let/for能力均保留。本地增�
 fuel上限，映射true/false/revert/trap且不发布state/effects。正式`evalInvariantV1`与
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现，formal TASK-D2-07/TST-SEM-002/003
 仍pending。
+
+## D2-07 reference Struct engineering status（2026-07-31）
+
+同一general-CFG Reference machine现支持Struct-only`Construct`/`FieldGet`/`FieldSet`。canonical
+Struct拆分与重组由`WireV1`的窄public seam拥有并复用sole type-driven decoder；outer nesting fuel、
+16MiB aggregate cap、field count/type/order、full consume与re-encode identity均fail closed。
+Reference admission只开放Struct形态Construct，并以explicit-stack postorder、cap-saturating width/depth
+及construction-work分析拒绝compact Struct DAG与宽值深层包装的allocation amplification；
+logical-state defaults含slot prefix累计受64MiB byte/work caps。
+runtime再次检查shape/index/TypeId/canonical bytes，FieldSet为immutable SSA update。entry、nested
+Struct、PureCall及nonformal invariant evaluator均复用远端canonical machine。Enum/Option、
+Array/Bytes/Map index、ContextRead/Commit及formal evaluator仍pending。

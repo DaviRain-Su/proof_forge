@@ -40,6 +40,8 @@
    11. Invariant reference slice: carried metadata fuel, canonical Bool true/false,
        transitive PureCall, revert/trap mapping, and fail-closed state/ordinal;
        normal Invocation remains invalid.
+   13. Struct canonical codec seam plus Construct/FieldGet/FieldSet in entry,
+       nested immutable update, PureCall, and invariant-root execution.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -67,6 +69,19 @@ open ProofForgeV2.Source.ValidatedSourceV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
+
+private def exceptIsError (result : Except ε α) : Bool :=
+  match result with
+  | .error _ => true
+  | .ok _ => false
+
+private def expectSemanticError (label : String) (expected : SemanticWireErrorV1)
+    (result : Except SemanticWireErrorV1 α) : IO Unit := do
+  match result with
+  | .error actual =>
+      expect (actual == expected)
+        s!"{label}: expected {repr expected}, got {repr actual}"
+  | .ok _ => throw <| IO.userError s!"{label}: expected error, got ok"
 
 private def bytesEqual (a b : ByteArray) : Bool := a == b
 
@@ -1703,6 +1718,353 @@ private def testUIntStandardReverts : IO Unit := do
   runBin "UintBadShift" "uint-badshift" .shl
     1 (ByteArray.mk #[1]) 2 (leBytesFromNat 8 4) .invalidShift
 
+/-- Struct canonical bytes and reference execution, including nested immutable
+    update, PureCall reuse, and invariant-root reuse of the same machine. -/
+private def testStructReferenceSlice : IO Unit := do
+  let pairFields : Array StructFieldV1 := #[
+    { name := "flag", typeId := 2 },
+    { name := "number", typeId := 3 }
+  ]
+  let outerFields : Array StructFieldV1 := #[
+    { name := "inner", typeId := 0 },
+    { name := "tail", typeId := 3 }
+  ]
+  -- Named Struct declarations occupy the required contiguous prefix.
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := some "Pair", shape := .struct pairFields },
+    { id := 1, name := some "Outer", shape := .struct outerFields },
+    { id := 2, name := none, shape := .bool },
+    { id := 3, name := none, shape := .uint 8 },
+    { id := 4, name := none, shape := .unit }
+  ]
+
+  -- The public Wire seam uses the sole canonical recursive decoder.
+  let pairBytes := ByteArray.mk #[1, 7]
+  match splitCanonicalStructValueV1 types 0 pairBytes with
+  | .ok chunks =>
+      expect (chunks.size == 2) "struct codec: exact field count"
+      expect (bytesEqual chunks[0]! (ByteArray.mk #[1]))
+        "struct codec: first field"
+      expect (bytesEqual chunks[1]! (ByteArray.mk #[7]))
+        "struct codec: later field"
+  | .error e => throw <| IO.userError s!"struct codec split failed: {repr e}"
+  match encodeCanonicalStructValueV1 types 0
+      #[ByteArray.mk #[1], ByteArray.mk #[7]] with
+  | .ok bytes => expect (bytesEqual bytes pairBytes) "struct codec: re-encode"
+  | .error e => throw <| IO.userError s!"struct codec encode failed: {repr e}"
+  expect (exceptIsError
+    (splitCanonicalStructValueV1 types 0 (ByteArray.mk #[1])))
+    "struct codec: truncated value fails closed"
+  expect (exceptIsError
+    (splitCanonicalStructValueV1 types 0 (ByteArray.mk #[2, 7])))
+    "struct codec: noncanonical field fails closed"
+  expect (exceptIsError
+    (splitCanonicalStructValueV1 types 0 (ByteArray.mk #[1, 7, 0])))
+    "struct codec: trailing bytes fail closed"
+  expect (exceptIsError
+    (encodeCanonicalStructValueV1 types 0 #[ByteArray.mk #[1]]))
+    "struct codec: wrong field count fails closed"
+  expect (exceptIsError (encodeCanonicalStructValueV1 types 0
+    #[ByteArray.mk #[2], ByteArray.mk #[7]]))
+    "struct codec: wrong field value fails closed"
+  expect (exceptIsError
+    (splitCanonicalStructValueV1 types 3 (ByteArray.mk #[7])))
+    "struct codec: non-Struct type fails closed"
+
+  -- Exact nesting parity: 255 outer Struct levels plus a Bool leaf consume
+  -- maxNesting=256; one additional Struct must fail in both split and encode.
+  let nestedTypes (structCount : Nat) : Array TypeDeclV1 := Id.run do
+    let mut out : Array TypeDeclV1 := #[]
+    for i in [:structCount] do
+      out := out.push {
+        id := UInt32.ofNat i
+        name := some s!"Nest{i}"
+        shape := .struct #[{ name := "next", typeId := UInt32.ofNat (i + 1) }]
+      }
+    out := out.push {
+      id := UInt32.ofNat structCount, name := none, shape := .bool
+    }
+    pure out
+  let depth256 := nestedTypes 255
+  match encodeCanonicalStructValueV1 depth256 0 #[ByteArray.mk #[1]] with
+  | .ok bytes => do
+      expect (bytesEqual bytes (ByteArray.mk #[1]))
+        "struct codec: exact max nesting encodes"
+  | .error e => throw <| IO.userError s!"struct max nesting: {repr e}"
+  let depth257 := nestedTypes 256
+  expectSemanticError "struct codec nesting encode" .limitExceeded
+    (encodeCanonicalStructValueV1 depth257 0 #[ByteArray.mk #[1]])
+  expectSemanticError "struct codec nesting split" .limitExceeded
+    (splitCanonicalStructValueV1 depth257 0 (ByteArray.mk #[1]))
+
+  -- Entry path pins first/later get, old-value preservation after FieldSet,
+  -- and nested Struct get/set. Assertions make all intermediate observations
+  -- semantically observable rather than only checking the final return.
+  let structEntry := mkEntry 0 "structOps" #[] 3 #[
+    instr (some (vd 0 2)) (.literal 2 (ByteArray.mk #[1])),
+    instr (some (vd 1 3)) (.literal 3 (ByteArray.mk #[7])),
+    instr (some (vd 2 0)) (.construct 0 0 #[0, 1]),
+    instr (some (vd 3 2)) (.fieldGet 2 0),
+    instr none (.assert_ 3 none #[]),
+    instr (some (vd 4 3)) (.fieldGet 2 1),
+    instr (some (vd 5 2)) (.binary .eq 4 1),
+    instr none (.assert_ 5 none #[]),
+    instr (some (vd 6 3)) (.literal 3 (ByteArray.mk #[9])),
+    instr (some (vd 7 0)) (.fieldSet 2 1 6),
+    instr (some (vd 8 3)) (.fieldGet 2 1),
+    instr (some (vd 9 2)) (.binary .eq 8 1),
+    instr none (.assert_ 9 none #[]),
+    instr (some (vd 10 3)) (.fieldGet 7 1),
+    instr (some (vd 11 2)) (.binary .eq 10 6),
+    instr none (.assert_ 11 none #[]),
+    instr (some (vd 12 1)) (.construct 1 0 #[2, 6]),
+    instr (some (vd 13 0)) (.fieldGet 12 0),
+    instr (some (vd 14 0)) (.fieldSet 13 1 6),
+    instr (some (vd 15 1)) (.fieldSet 12 0 14),
+    instr (some (vd 16 0)) (.fieldGet 15 0),
+    instr (some (vd 17 3)) (.fieldGet 16 1)
+  ] (.return_ (some 17))
+  let base ← emptyData "StructOps"
+  let carrier ← encodeCarrier "struct-ops" {
+    base with types, callables := #[structEntry]
+  }
+  let admitted ← admitOk "struct-ops" carrier
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "struct-ops"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) #[])
+    pre (some { typeId := 3, valueBytes := ByteArray.mk #[9] }) #[]
+
+  -- Struct construction inside a pureFn, consumed by an entry caller.
+  let flagParam : ParameterV1 :=
+    { valueId := 0, name := "flag", typeId := 2, visibility := .public_ }
+  let numberParam : ParameterV1 :=
+    { valueId := 1, name := "number", typeId := 3, visibility := .public_ }
+  let makePair := mkPureFn 0 "makePair" #[flagParam, numberParam] 0
+    #[instr (some (vd 2 0)) (.construct 0 0 #[0, 1])]
+    (.return_ (some 2))
+  let pureCaller := mkEntry 1 "pureStruct" #[] 3 #[
+    instr (some (vd 0 2)) (.literal 2 (ByteArray.mk #[1])),
+    instr (some (vd 1 3)) (.literal 3 (ByteArray.mk #[11])),
+    instr (some (vd 2 0)) (.pureCall 0 #[0, 1]),
+    instr (some (vd 3 3)) (.fieldGet 2 1)
+  ] (.return_ (some 3))
+  let pureBase ← emptyData "PureStruct"
+  let pureCarrier ← encodeCarrier "pure-struct" {
+    pureBase with types, callables := #[makePair, pureCaller]
+  }
+  let pureAdmitted ← admitOk "pure-struct" pureCarrier
+  expectReturned "pure-struct"
+    (stepReferenceSliceV1 pureAdmitted pre (inv 1 #[]) #[])
+    pre (some { typeId := 3, valueBytes := ByteArray.mk #[11] }) #[]
+
+  -- The same Struct operations execute in an invariant root. Exact fuel is
+  -- frame entry + four instructions + return terminator = 6.
+  let gate := mkEntry 0 "gate" #[] 4 #[] (.return_ none)
+  let structInvariant : CallableV1 := {
+    id := 1, kind := .invariant, name := some "structInvariant", params := #[]
+    result := { typeId := 2, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 #[
+      instr (some (vd 0 2)) (.literal 2 (ByteArray.mk #[1])),
+      instr (some (vd 1 3)) (.literal 3 (ByteArray.mk #[5])),
+      instr (some (vd 2 0)) (.construct 0 0 #[0, 1]),
+      instr (some (vd 3 2)) (.fieldGet 2 0)
+    ] (.return_ (some 3))]
+    loopBounds := #[]
+    invariantSteps := some 6
+  }
+  let invBase ← emptyData "StructInvariant"
+  let invCarrier ← encodeCarrier "struct-invariant" {
+    invBase with
+    types
+    callables := #[gate, structInvariant]
+    invariants := #[{ id := 0, name := "structInvariant", callableId := 1 }]
+  }
+  let invAdmitted ← admitOk "struct-invariant" invCarrier
+  expect (evalInvariantReferenceSliceV1 invAdmitted 0 pre == .returnedTrue)
+    "struct-invariant: returned true"
+
+  -- Wire permits Unit construction, but this Struct-only engineering slice
+  -- must reject it at admission rather than trap during otherwise valid run.
+  let unitConstruct := mkEntry 0 "unitConstruct" #[] 4
+    #[instr (some (vd 0 4)) (.construct 4 0 #[])] (.return_ none)
+  let unitBase ← emptyData "UnitConstruct"
+  let unitCarrier ← encodeCarrier "unit-construct" {
+    unitBase with types, callables := #[unitConstruct]
+  }
+  admitUnsupported "unit-construct" unitCarrier
+    (fun detail => detail.contains "non-Struct") "non-Struct Construct"
+
+  -- Admission computes widths/depths/work without materializing defaults. A
+  -- compact doubling Struct DAG exceeds the work cap; a deep chain exceeds
+  -- maxNesting. The oversized type is also a state row, pinning rejection
+  -- before state init.
+  let doublingTypes (structCount : Nat) : Array TypeDeclV1 := Id.run do
+    let mut out : Array TypeDeclV1 := #[]
+    for i in [:structCount] do
+      let child := UInt32.ofNat (i + 1)
+      out := out.push {
+        id := UInt32.ofNat i
+        name := some s!"Wide{i}"
+        shape := .struct #[
+          { name := "left", typeId := child },
+          { name := "right", typeId := child }
+        ]
+      }
+    out := out.push {
+      id := UInt32.ofNat structCount, name := none, shape := .bytes 4096
+    }
+    pure out
+  let wideTypes := doublingTypes 13
+  let wideGate := mkEntry 0 "wideGate" #[] 13 #[] (.return_ none)
+  let wideBase ← emptyData "WideStruct"
+  let wideCarrier ← encodeCarrier "wide-struct" {
+    wideBase with
+    types := wideTypes
+    logicalState := #[
+      { id := 0, name := "wide", typeId := 0, visibility := .public_ }
+    ]
+    callables := #[wideGate]
+  }
+  admitUnsupported "wide-struct" wideCarrier
+    (fun detail => detail.contains "construction work") "Struct construction work"
+
+  -- Zero-width leaves still cost recursive visits. The compact doubling DAG
+  -- must not bypass the work cap merely because its canonical bytes are empty.
+  let zeroDoublingTypes (structCount : Nat) : Array TypeDeclV1 := Id.run do
+    let mut out : Array TypeDeclV1 := #[]
+    for i in [:structCount] do
+      let child := UInt32.ofNat (i + 1)
+      out := out.push {
+        id := UInt32.ofNat i
+        name := some s!"Zero{i}"
+        shape := .struct #[
+          { name := "left", typeId := child },
+          { name := "right", typeId := child }
+        ]
+      }
+    out := out.push {
+      id := UInt32.ofNat structCount, name := none, shape := .unit
+    }
+    pure out
+  let zeroWorkBase ← emptyData "ZeroWorkStruct"
+  let zeroWorkGate := mkEntry 0 "zeroWorkGate" #[] 26 #[] (.return_ none)
+  let zeroWorkCarrier ← encodeCarrier "zero-work-struct" {
+    zeroWorkBase with types := zeroDoublingTypes 26, callables := #[zeroWorkGate]
+  }
+  admitUnsupported "zero-work-struct" zeroWorkCarrier
+    (fun detail => detail.contains "construction work")
+    "zero-width Struct construction work"
+  let boundedZeroWorkGate := mkEntry 0 "boundedZeroWorkGate" #[] 25 #[] (.return_ none)
+  let boundedZeroWorkCarrier ← encodeCarrier "bounded-zero-work-struct" {
+    zeroWorkBase with
+    types := zeroDoublingTypes 25
+    callables := #[boundedZeroWorkGate]
+  }
+  let _ ← admitOk "bounded-zero-work-struct" boundedZeroWorkCarrier
+
+  let overwideFields : Array StructFieldV1 := Id.run do
+    let mut fields : Array StructFieldV1 := #[]
+    for i in [:4097] do
+      fields := fields.push { name := s!"f{i}", typeId := 1 }
+    pure fields
+  let overwideTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Overwide", shape := .struct overwideFields },
+    { id := 1, name := none, shape := .bytes 4096 }
+  ]
+  let overwideGate := mkEntry 0 "overwideGate" #[] 1 #[] (.return_ none)
+  let overwideBase ← emptyData "OverwideStruct"
+  let overwideCarrier ← encodeCarrier "overwide-struct" {
+    overwideBase with types := overwideTypes, callables := #[overwideGate]
+  }
+  admitUnsupported "overwide-struct" overwideCarrier
+    (fun detail => detail.contains "byte limit") "Struct byte limit"
+
+  -- Individually legal flat Struct defaults must also be bounded by aggregate
+  -- construction work across state rows before materialization.
+  let flatFields : Array StructFieldV1 := Id.run do
+    let mut fields : Array StructFieldV1 := #[]
+    for i in [:1024] do
+      fields := fields.push { name := s!"f{i}", typeId := 1 }
+    pure fields
+  let flatTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "FlatWide", shape := .struct flatFields },
+    { id := 1, name := none, shape := .bytes 4096 }
+  ]
+  let aggregateGate := mkEntry 0 "aggregateGate" #[] 1 #[] (.return_ none)
+  let aggregateBase ← emptyData "AggregateStateStruct"
+  let aggregateCarrier ← encodeCarrier "aggregate-state-struct" {
+    aggregateBase with
+    types := flatTypes
+    logicalState := #[
+      { id := 0, name := "wide0", typeId := 0, visibility := .public_ },
+      { id := 1, name := "wide1", typeId := 0, visibility := .public_ },
+      { id := 2, name := "wide2", typeId := 0, visibility := .public_ }
+    ]
+    callables := #[aggregateGate]
+  }
+  admitUnsupported "aggregate-state-struct" aggregateCarrier
+    (fun detail => detail.contains "aggregate work limit")
+    "logical-state aggregate work limit"
+
+  let boundedAggregateCarrier ← encodeCarrier "bounded-aggregate-state-struct" {
+    aggregateBase with
+    types := flatTypes
+    logicalState := #[
+      { id := 0, name := "wide0", typeId := 0, visibility := .public_ },
+      { id := 1, name := "wide1", typeId := 0, visibility := .public_ }
+    ]
+    callables := #[aggregateGate]
+  }
+  let _ ← admitOk "bounded-aggregate-state-struct" boundedAggregateCarrier
+
+  -- A wide value hidden behind many one-field wrappers stays under final
+  -- width/depth limits but exceeds cumulative recursive construction work.
+  let workTypes (wrappers : Nat) : Array TypeDeclV1 := Id.run do
+    let mut out : Array TypeDeclV1 := #[]
+    for i in [:wrappers] do
+      out := out.push {
+        id := UInt32.ofNat i
+        name := some s!"Work{i}"
+        shape := .struct #[{ name := "next", typeId := UInt32.ofNat (i + 1) }]
+      }
+    let mut wideFields : Array StructFieldV1 := #[]
+    for i in [:1024] do
+      wideFields := wideFields.push {
+        name := s!"f{i}", typeId := UInt32.ofNat (wrappers + 1)
+      }
+    out := out.push {
+      id := UInt32.ofNat wrappers
+      name := some "WorkWide"
+      shape := .struct wideFields
+    }
+    out := out.push {
+      id := UInt32.ofNat (wrappers + 1), name := none, shape := .bytes 4096
+    }
+    pure out
+  let workGate := mkEntry 0 "workGate" #[] 16 #[] (.return_ none)
+  let workBase ← emptyData "WorkStruct"
+  let workCarrier ← encodeCarrier "work-struct" {
+    workBase with types := workTypes 15, callables := #[workGate]
+  }
+  admitUnsupported "work-struct" workCarrier
+    (fun detail => detail.contains "construction work")
+    "Struct construction work"
+
+  let boundedWorkGate := mkEntry 0 "boundedWorkGate" #[] 15 #[] (.return_ none)
+  let boundedWorkCarrier ← encodeCarrier "bounded-work-struct" {
+    workBase with types := workTypes 14, callables := #[boundedWorkGate]
+  }
+  let _ ← admitOk "bounded-work-struct" boundedWorkCarrier
+
+  let deepGate := mkEntry 0 "deepGate" #[] 256 #[] (.return_ none)
+  let deepBase ← emptyData "DeepStruct"
+  let deepCarrier ← encodeCarrier "deep-struct" {
+    deepBase with types := depth257, callables := #[deepGate]
+  }
+  admitUnsupported "deep-struct" deepCarrier
+    (fun detail => detail.contains "nesting limit") "Struct nesting limit"
+
 /-- Structure-gated invariant roots execute only through the dedicated slice. -/
 private def testInvariantReferenceSlice : IO Unit := do
   let types : Array TypeDeclV1 := #[
@@ -1813,6 +2175,7 @@ unsafe def run : IO Unit := do
   testSwitchTrapAndTrailing
   testBoundedLoopEmitOccurrences
   testUIntStandardReverts
+  testStructReferenceSlice
   testInvariantReferenceSlice
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 

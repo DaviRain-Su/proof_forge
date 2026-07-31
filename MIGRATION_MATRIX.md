@@ -110,6 +110,20 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现；formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+### D2-07 Struct runtime 增量（2026-07-31）
+
+`ReferenceV1`现进一步执行Struct-only aggregate family：admission允许递归字段均落在既有admitted
+type集合内的Struct，以及Struct形态的`Construct`/`FieldGet`/`FieldSet`；Wire-valid Unit Construct
+仍由per-instruction admission明确拒绝，Enum/Option/Array/Map及Variant/Index保持关闭。`WireV1`
+新增窄canonical Struct split/encode seam，复用sole recursive value decoder、正确扣除outer nesting、
+在append前执行16MiB cap，并对field count/type/canonical bytes/trailing bytes fail closed；Reference
+不复制aggregate codec。admission以explicit-stack postorder、cap-saturating width/depth计算拒绝compact
+Struct DAG的默认值allocation amplification，并以64MiB construction-work cap拒绝宽值的深层包装。runtime defensively重查shape、constructor/index、operand/result TypeId与
+canonical bytes；logical-state defaults另按slot prefix累计受64MiB byte/work caps约束。FieldSet生成新bytes，不改变旧SSA值。聚焦suite覆盖nesting/width/construction-work/state-aggregate资源边界、多字段first/later get、immutable
+set、nested Struct、pureFn与invariant root，并覆盖malformed/noncanonical/trailing/wrong-shape/count
+及non-Struct Construct admission。正式`evalInvariantV1`/`InvariantTheoremV1`、Enum/Option、
+Array/Bytes/Map index、ContextRead/Commit及formal TASK-D2-07/TST-SEM-002/003仍pending。
+
 ## D3：Registry、resolver、materializer与OutputSet
 
 | Task | Formal | 新设计要求 | 实际代码与产品接线 | 现有测试事实 | Engineering | 迁移与旧代码处理 |

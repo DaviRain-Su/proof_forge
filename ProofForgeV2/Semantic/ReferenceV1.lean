@@ -12,9 +12,11 @@ import ProofForgeV2.Semantic.WireV1
   machine `stepReferenceSliceV1`.
 
   Admitted surface:
-    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes
+    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / Struct over
+      recursively admitted field types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
-      CheckedCast (UInt↔UInt), Assert, Emit, ExternalCall, Schedule
+      CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet, PureCall,
+      Assert, Emit, ExternalCall, Schedule
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
     * view: no StateStore / Emit / ExternalCall / Schedule
@@ -24,8 +26,8 @@ import ProofForgeV2.Semantic.WireV1
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Int / Field / Array / Map / Option / Struct / Enum,
-    Construct / Field* / Variant* / Index* / PureCall / ContextRead / Commit,
+    Int / Field / Array / Map / Option / Enum,
+    non-Struct Construct / Variant* / Index* / ContextRead / Commit,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
   Semantics (SPEC-SEM-001 engineering):
@@ -173,7 +175,7 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .array _ _ => admitFail "unsupported aggregate Array"
   | .map _ _ => admitFail "unsupported aggregate Map"
   | .option _ => admitFail "unsupported aggregate Option"
-  | .struct _ => admitFail "unsupported aggregate Struct"
+  | .struct _ => pure ()
   | .enum _ => admitFail "unsupported aggregate Enum"
   | .principal => admitFail "unsupported Principal"
 
@@ -192,9 +194,9 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .emit _ _ _ => pure ()
   | .externalCall _ _ _ => pure ()
   | .schedule _ _ _ => pure ()
-  | .construct _ _ _ => admitFail "unsupported op Construct"
-  | .fieldGet _ _ => admitFail "unsupported op FieldGet"
-  | .fieldSet _ _ _ => admitFail "unsupported op FieldSet"
+  | .construct _ _ _ => pure ()
+  | .fieldGet _ _ => pure ()
+  | .fieldSet _ _ _ => pure ()
   | .variantTag _ => admitFail "unsupported op VariantTag"
   | .variantPayload _ _ _ => admitFail "unsupported op VariantPayload"
   | .indexGet _ _ => admitFail "unsupported IndexGet (Array/Map/Bytes index)"
@@ -235,6 +237,16 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
   for block in c.blocks do
     for instr in block.instructions do
       opAdmitted instr.op
+      -- Construct is a multi-shape wire family. This slice admits only its
+      -- Struct form; in particular, admitted Unit must not implicitly enable
+      -- Unit construction.
+      match instr.op with
+      | .construct tid _ _ =>
+          match data.types[tid.toNat]? with
+          | some { shape := .struct _, .. } => pure ()
+          | some _ => admitFail "unsupported non-Struct Construct"
+          | none => admitFail "Construct typeId out of range"
+      | _ => pure ()
       -- view: no state write / effects (runtime has no view-snapshot model)
       match c.kind, instr.op with
       | .view, .stateStore _ _ =>
@@ -245,7 +257,7 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
           admitFail "view unsupported ExternalCall"
       | .view, .schedule _ _ _ =>
           admitFail "view unsupported Schedule"
-      -- pureFn: no state / effects (PureCall itself already rejected)
+      -- pureFn: no state / effects; pureFn-to-pureFn PureCall is admitted.
       | .pureFn, .stateLoad _ =>
           admitFail "pureFn unsupported StateLoad"
       | .pureFn, .stateStore _ _ =>
@@ -290,6 +302,98 @@ private def admitTypes (types : Array TypeDeclV1) :
   for t in types do
     typeShapeAdmitted t.shape
 
+/-- Prove that every admitted fixed-width value can be materialized within
+    the canonical byte, recursive-shape, and cumulative construction-work
+    limits. This explicit-stack
+    postorder walk avoids host recursion and allocation amplification from compact
+    Struct DAG declarations. Wire has already rejected Struct-only cycles;
+    unresolved rows still fail closed rather than relying on that premise. -/
+private def admitTypeResourceBounds (types : Array TypeDeclV1) :
+    Except ReferenceAdmissionErrorV1 (Array Nat × Array Nat) := do
+  let n := types.size
+  let mut color : Array Nat := Array.replicate n 0
+  let mut widths : Array Nat := Array.replicate n 0
+  let mut depths : Array Nat := Array.replicate n 0
+  let mut works : Array Nat := Array.replicate n 0
+  let mut stack : Array (Nat × Nat) := #[]
+  let mut root := 0
+  while root < n do
+    if color[root]! == 0 then
+      stack := stack.push (0, root)
+      while !stack.isEmpty do
+        let (kind, tid) := stack.back!
+        stack := stack.pop
+        if kind == 1 then
+          match types[tid]? with
+          | some { shape := .struct fields, .. } =>
+              let mut total := 0
+              let mut childDepth := 0
+              let mut childWork := 0
+              for field in fields do
+                let child := field.typeId.toNat
+                unless child < n && color[child]! == 2 do
+                  return ← admitFail "Struct resource bounds could not be resolved"
+                let width := widths[child]!
+                unless width ≤ maxCanonicalValueBytes - total do
+                  return ← admitFail "Struct canonical value exceeds byte limit"
+                total := total + width
+                childDepth := max childDepth depths[child]!
+                let work := works[child]!
+                unless work ≤ maxCanonicalProgramBytes - childWork do
+                  return ← admitFail "Struct canonical construction work exceeds limit"
+                childWork := childWork + work
+              let depth := childDepth + 1
+              unless depth ≤ maxNesting do
+                return ← admitFail "Struct canonical value exceeds nesting limit"
+              let ownWork := max 1 total
+              unless ownWork ≤ maxCanonicalProgramBytes - childWork do
+                return ← admitFail "Struct canonical construction work exceeds limit"
+              widths := widths.set! tid total
+              depths := depths.set! tid depth
+              works := works.set! tid (childWork + ownWork)
+              color := color.set! tid 2
+          | _ => return ← admitFail "Struct resource bounds could not be resolved"
+        else
+          match color[tid]! with
+          | 2 => pure ()
+          | 1 => return ← admitFail "Struct resource bounds contain a cycle"
+          | _ =>
+              match types[tid]? with
+              | some { shape := .bool, .. } =>
+                  widths := widths.set! tid 1
+                  depths := depths.set! tid 1
+                  works := works.set! tid 1
+                  color := color.set! tid 2
+              | some { shape := .uint width, .. } =>
+                  let bytes := width.toNat / 8
+                  widths := widths.set! tid bytes
+                  depths := depths.set! tid 1
+                  works := works.set! tid bytes
+                  color := color.set! tid 2
+              | some { shape := .unit, .. } =>
+                  depths := depths.set! tid 1
+                  works := works.set! tid 1
+                  color := color.set! tid 2
+              | some { shape := .bytes length, .. } =>
+                  widths := widths.set! tid length.toNat
+                  depths := depths.set! tid 1
+                  works := works.set! tid (max 1 length.toNat)
+                  color := color.set! tid 2
+              | some { shape := .struct fields, .. } =>
+                  color := color.set! tid 1
+                  stack := stack.push (1, tid)
+                  let mut i := fields.size
+                  while i > 0 do
+                    i := i - 1
+                    match fields[i]? with
+                    | some field => stack := stack.push (0, field.typeId.toNat)
+                    | none =>
+                        return ← admitFail
+                          "Struct resource bounds could not be resolved"
+              | _ => return ← admitFail "Struct resource bounds unsupported type"
+    root := root + 1
+  pure (widths, works)
+
 /-- Whole-program admission: structure gate then admitted-type/op/kind scan. -/
 def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
     Except ReferenceAdmissionErrorV1 AdmittedReferenceSliceV1 := do
@@ -298,6 +402,35 @@ def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
     | .ok d => pure d
     | .error e => .error (.wire e)
   admitTypes data.types
+  let (typeWidths, typeWorks) ← admitTypeResourceBounds data.types
+  -- `initialLogicalStateV1` materializes every default plus its u32 length
+  -- prefix. Bound that aggregate before any invocation can allocate it.
+  let mut stateBytes := 0
+  let mut stateWork := 0
+  for state in data.logicalState do
+    match typeWidths[state.typeId.toNat]?, typeWorks[state.typeId.toNat]? with
+    | some width, some typeWork =>
+        let slotWidth := width + 4
+        unless slotWidth ≤ maxCanonicalProgramBytes - stateBytes do
+          return ← admitFail "logical state defaults exceed aggregate byte limit"
+        -- Default construction, recursive canonical validation, slot-prefix
+        -- append, and append into the growing aggregate all contribute to
+        -- host work.
+        let appendWork := stateBytes + slotWidth
+        unless typeWork ≤ maxCanonicalProgramBytes - stateWork do
+          return ← admitFail "logical state defaults exceed aggregate work limit"
+        stateWork := stateWork + typeWork
+        unless typeWork ≤ maxCanonicalProgramBytes - stateWork do
+          return ← admitFail "logical state defaults exceed aggregate work limit"
+        stateWork := stateWork + typeWork
+        unless slotWidth ≤ maxCanonicalProgramBytes - stateWork do
+          return ← admitFail "logical state defaults exceed aggregate work limit"
+        stateWork := stateWork + slotWidth
+        unless appendWork ≤ maxCanonicalProgramBytes - stateWork do
+          return ← admitFail "logical state defaults exceed aggregate work limit"
+        stateWork := stateWork + appendWork
+        stateBytes := stateBytes + slotWidth
+    | _, _ => admitFail "state typeId out of range after structure gate"
   for c in data.constants do
     match data.types[c.typeId.toNat]? with
     | none => admitFail "constant typeId out of range after structure gate"
@@ -719,6 +852,77 @@ private def evalCheckedCast (data : SemanticProgramDataV1) (src : ReferenceValue
           }
     | _, _ => .error (.trapped .invalidCore)
 
+private def evalStructConstruct (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1) (constructorIndex : UInt32)
+    (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
+    Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == typeId && constructorIndex == 0 do
+    throw (.trapped .invalidCore)
+  let fields ←
+    match data.types[typeId.toNat]? with
+    | some { shape := .struct fields, .. } => pure fields
+    | _ => .error (.trapped .invalidCore)
+  unless args.size == fields.size do
+    throw (.trapped .invalidCore)
+  let mut chunks : Array ByteArray := #[]
+  let mut i := 0
+  while i < fields.size do
+    match fields[i]?, args[i]? with
+    | some field, some arg =>
+        unless arg.typeId == field.typeId && valueCanonical data arg do
+          throw (.trapped .invalidCore)
+        chunks := chunks.push arg.valueBytes
+    | _, _ => throw (.trapped .invalidCore)
+    i := i + 1
+  match encodeCanonicalStructValueV1 data.types typeId chunks with
+  | .ok bytes => pure { typeId, valueBytes := bytes }
+  | .error _ => .error (.trapped .invalidCore)
+
+private def evalStructFieldGet (data : SemanticProgramDataV1)
+    (base : ReferenceValueV1) (fieldIndex : UInt32)
+    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+  let fields ←
+    match data.types[base.typeId.toNat]? with
+    | some { shape := .struct fields, .. } => pure fields
+    | _ => .error (.trapped .invalidCore)
+  match fields[fieldIndex.toNat]? with
+  | none => .error (.trapped .invalidCore)
+  | some field =>
+      unless resultTypeId == field.typeId do
+        throw (.trapped .invalidCore)
+      match splitCanonicalStructValueV1 data.types base.typeId base.valueBytes with
+      | .error _ => .error (.trapped .invalidCore)
+      | .ok chunks =>
+          match chunks[fieldIndex.toNat]? with
+          | some bytes => pure { typeId := field.typeId, valueBytes := bytes }
+          | none => .error (.trapped .invalidCore)
+
+private def evalStructFieldSet (data : SemanticProgramDataV1)
+    (base : ReferenceValueV1) (fieldIndex : UInt32)
+    (value : ReferenceValueV1) (resultTypeId : TypeIdV1) :
+    Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == base.typeId do
+    throw (.trapped .invalidCore)
+  let fields ←
+    match data.types[base.typeId.toNat]? with
+    | some { shape := .struct fields, .. } => pure fields
+    | _ => .error (.trapped .invalidCore)
+  match fields[fieldIndex.toNat]? with
+  | none => .error (.trapped .invalidCore)
+  | some field =>
+      unless value.typeId == field.typeId && valueCanonical data value do
+        throw (.trapped .invalidCore)
+      match splitCanonicalStructValueV1 data.types base.typeId base.valueBytes with
+      | .error _ => .error (.trapped .invalidCore)
+      | .ok chunks =>
+          if h : fieldIndex.toNat < chunks.size then
+            let updated := chunks.set fieldIndex.toNat value.valueBytes
+            match encodeCanonicalStructValueV1 data.types base.typeId updated with
+            | .ok bytes => pure { typeId := base.typeId, valueBytes := bytes }
+            | .error _ => .error (.trapped .invalidCore)
+          else
+            .error (.trapped .invalidCore)
+
 private def storeResult (m : MachineV1) (vid : ValueIdV1) (v : ReferenceValueV1) :
     ExecResult :=
   match envSet m.env vid v with
@@ -882,7 +1086,25 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                     payload := .schedule callee argVals
                   }
                   .next { m1 with effects := m1.effects.push eff }
-  | .construct _ _ _ | .fieldGet _ _ | .fieldSet _ _ _ | .variantTag _
+  | .construct typeId constructorIndex argIds =>
+      match instr.result, lookupArgs m.env argIds with
+      | some vd, some args =>
+          fromEval m vd.valueId
+            (evalStructConstruct m.data typeId constructorIndex args vd.typeId)
+      | _, _ => .done m (.trapped .invalidCore)
+  | .fieldGet baseId fieldIndex =>
+      match instr.result, envGet m.env baseId with
+      | some vd, some base =>
+          fromEval m vd.valueId
+            (evalStructFieldGet m.data base fieldIndex vd.typeId)
+      | _, _ => .done m (.trapped .invalidCore)
+  | .fieldSet baseId fieldIndex valueId =>
+      match instr.result, envGet m.env baseId, envGet m.env valueId with
+      | some vd, some base, some value =>
+          fromEval m vd.valueId
+            (evalStructFieldSet m.data base fieldIndex value vd.typeId)
+      | _, _, _ => .done m (.trapped .invalidCore)
+  | .variantTag _
   | .variantPayload _ _ _ | .indexGet _ _ | .indexSet _ _ _
   | .pureCall _ _ | .contextRead _ | .commit _ =>
       .done m (.trapped .internalInvariant)
