@@ -2,6 +2,8 @@ import ProofForgeV2.Targets.Evm
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
 import ProofForgeV2.Targets.Noir
+import ProofForgeV2.Targets.Aleo
+import ProofForgeV2.Targets.Aleo.FinalizeV1
 import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
@@ -76,6 +78,9 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .noir =>
       let files ← Noir.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Noir.descriptor files
+  | .aleo =>
+      let files ← Aleo.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability Aleo.descriptor files
   | other => .error <| .targetNotImplemented other
 
 def materialize (capability : ResolvedEngineeringBuildV1) :
@@ -119,6 +124,8 @@ def finalizeMaterializedArtifactsV1
         Solana.FinalizeV1.finalize capability artifacts stagingDir
     | .noir =>
         Noir.FinalizeV1.finalize capability artifacts stagingDir
+    | .aleo =>
+        Aleo.FinalizeV1.finalize capability artifacts stagingDir
     | other =>
         pure ({
           deployable := false

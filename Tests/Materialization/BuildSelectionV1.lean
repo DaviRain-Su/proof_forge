@@ -208,23 +208,23 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 10) "initial registry must contain 4 implemented + 6 design-only"
+  expect (regs.size == 10) "initial registry must contain 5 implemented + 5 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
       expect (rebuilt.toArray.size == 10) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 4) "exactly four implemented targets"
-  expect (design.size == 6) "exactly six design-only targets"
+  expect (impl.size == 5) "exactly five implemented targets"
+  expect (design.size == 5) "exactly five design-only targets"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "solana", "soroban"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["evm", "near", "noir", "solana"]
+  let expectedImpl := #["aleo", "evm", "near", "noir", "solana"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
-  let expectedDesign := #["aleo", "cosmwasm", "icp", "openvm", "psy", "soroban"]
+  let expectedDesign := #["cosmwasm", "icp", "openvm", "psy", "soroban"]
   expect (design.map (·.targetId.toString) == expectedDesign)
     s!"exact design-only set, got {design.map (·.targetId.toString)}"
   for reg in impl do
@@ -460,13 +460,13 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 4) "default list-targets is implemented-only"
-  expect (defaultList == #["evm\truntime-validated-alpha", "near\twasm-validated-alpha",
-      "noir\tsource-only", "solana\tplan-only"])
+  expect (defaultList.size == 5) "default list-targets is implemented-only"
+  expect (defaultList == #["aleo\tsource-only", "evm\truntime-validated-alpha",
+      "near\twasm-validated-alpha", "noir\tsource-only", "solana\tplan-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
-      "aleo\tresearch-only",
+      "aleo\tsource-only",
       "cosmwasm\tresearch-only",
       "evm\truntime-validated-alpha",
       "icp\tresearch-only",
@@ -596,7 +596,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error e => throw <| IO.userError s!"describe evm: {e.render}"
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
-      expect (text == "target=aleo\nstatus=research-only")
+      expect (text ==
+          "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"describe design-only, got {text}"
   | .error e => throw <| IO.userError s!"describe aleo: {e.render}"
   expectErrorCode (ProofForgeV2.CLI.describeTargetText "ghost-target")

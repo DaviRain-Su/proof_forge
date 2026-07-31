@@ -61,12 +61,25 @@ def noir : TargetDescriptor := {
   codegenProfile := CodegenProfileId.noirSourceU64RelationsV1
 }
 
+def aleo : TargetDescriptor := {
+  targetId := TargetId.aleo
+  artifactEncoding := .leoSource
+  executionHost := .zkApplicationChain
+  commitModel := .transactionAtomic
+  stateBinding := .recordsAndMappings
+  callModel := .none
+  proofModel := .applicationProof
+  settlementModel := .aleo
+  codegenProfile := CodegenProfileId.aleoLeoU64V1
+}
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
   | .solana => some solana
   | .near => some near
   | .noir => some noir
+  | .aleo => some aleo
   | _ => none
 
 end ProofForgeV2.Targets.DescriptorDataV1

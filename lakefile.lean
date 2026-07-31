@@ -162,6 +162,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.EngineeringDiskClosureV1,
     `Tests.Materialization.TargetIrFixtures,
     `Tests.Materialization.Targets,
+    `Tests.Materialization.Aleo,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,

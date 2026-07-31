@@ -339,15 +339,16 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 4) "exactly four support rows"
+  expect (rows.size == 5) "exactly five support rows"
   let expectedKeys := #[
+    ("aleo", "aleo-leo-4.0.2-u64-v1"),
     ("evm", "evm-yul-solc-0.8.34-v1"),
     ("near", "near-wasm-raw-u64-v1"),
     ("noir", "noir-source-u64-relations-v1"),
     ("solana", "solana-sbpf-plan-v1")
   ]
   let mut i : Nat := 0
-  while i < 4 do
+  while i < 5 do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
@@ -375,7 +376,8 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio
+    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 dupRows)
     "PF-REGISTRY-DUPLICATE" "duplicate support row"
@@ -452,6 +454,7 @@ private def testIndexValidationNegatives : IO Unit := do
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
   let revRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 reversed,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
@@ -462,6 +465,7 @@ private def testIndexValidationNegatives : IO Unit := do
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
   let dupReqRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 dupReq,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
@@ -473,6 +477,7 @@ private def testIndexValidationNegatives : IO Unit := do
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
   let badVerRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 badVerTrio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
@@ -484,6 +489,7 @@ private def testIndexValidationNegatives : IO Unit := do
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
   let badDigRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 badDigTrio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,

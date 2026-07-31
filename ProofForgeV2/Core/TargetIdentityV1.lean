@@ -179,6 +179,7 @@ def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
 def solanaSbpfPlanV1 : CodegenProfileId := ⟨"solana-sbpf-plan-v1"⟩
 def nearWasmRawU64V1 : CodegenProfileId := ⟨"near-wasm-raw-u64-v1"⟩
 def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations-v1"⟩
+def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
 
 end CodegenProfileId
 

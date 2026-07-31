@@ -216,10 +216,17 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped four-row seed body (canonical targetId order: evm, near, noir, solana). -/
+/-- Shipped five-row seed body (canonical targetId order: aleo, evm, near, noir, solana).
+    The engineering support index requires every row to declare exactly the
+    current S2 catalog (frozen shared validator), so Aleo claims the full
+    catalog like the other four targets; `emit` still fails closed at the
+    Aleo materializer (Leo 4.0.2 has no on-chain event log) — the materializer
+    is the exact per-target authority, mirroring the Noir non-constant-shift
+    precedent. -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   pure #[
+    mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 catalogRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 catalogRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,

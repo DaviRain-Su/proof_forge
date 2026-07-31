@@ -8,6 +8,7 @@ inductive ArtifactEncoding where
   | sbpfAssembly
   | wasmText
   | noirSource
+  | leoSource
   | researchOnly
   deriving BEq, Inhabited, Repr
 

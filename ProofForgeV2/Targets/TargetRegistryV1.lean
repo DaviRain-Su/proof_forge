@@ -257,8 +257,8 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
-  | .evm | .solana | .near | .noir => true
-  | .cosmwasm | .soroban | .icp | .openvm | .aleo | .psy => false
+  | .evm | .solana | .near | .noir | .aleo => true
+  | .cosmwasm | .soroban | .icp | .openvm | .psy => false
 
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
@@ -266,7 +266,8 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .solana => "plan-only"
   | .near => "wasm-validated-alpha"
   | .noir => "source-only"
-  | .cosmwasm | .soroban | .icp | .openvm | .aleo | .psy => "research-only"
+  | .aleo => "source-only"
+  | .cosmwasm | .soroban | .icp | .openvm | .psy => "research-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -274,11 +275,11 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .solana => "phase1.solana-u64.v1"
   | .near => "phase1.near-u64.v1"
   | .noir => "phase1.noir-u64-private-sum.v1"
+  | .aleo => "phase1.aleo-u64.v1"
   | .cosmwasm => "research.cosmwasm.v1"
   | .soroban => "research.soroban.v1"
   | .icp => "research.icp.v1"
   | .openvm => "research.openvm.v1"
-  | .aleo => "research.aleo.v1"
   | .psy => "research.psy.v1"
 
 /-- Closed kind → exact displayName. -/
@@ -514,7 +515,8 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .aleo
       (axes TargetId.aleo .aleoVm .proofFinalDual .recordsMappings
         .programProofFinal .applicationChainProof .aleoChain)
-      #[] none,
+      #[CodegenProfileId.aleoLeoU64V1]
+      (some CodegenProfileId.aleoLeoU64V1),
     row .psy
       (axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
         .recursiveProofPipeline .recursiveAggregation .psyNetwork)
