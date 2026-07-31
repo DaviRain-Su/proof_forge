@@ -2402,6 +2402,151 @@ def boolTypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
     | .bool => true
     | _ => false
 
+/-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
+    Bounded, non-recursive. Defense-in-depth relative to the earlier
+    primitive anonymous TypeKey gate (duplicates fail there as
+    `.nonCanonical` before step j). This helper still fails closed for direct
+    internal use; recursive/full TypeKey closure and ranking remain pending. -/
+def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .uint 32 => true
+    | _ => false
+
+/-- The unique TypeId whose shape is `.uint 8`, if exactly one exists.
+    Bounded and non-recursive. Bytes IndexGet/IndexSet require the unique
+    structurally interned UInt8 TypeId. The earlier primitive anonymous
+    TypeKey gate rejects duplicates as `.nonCanonical`; this defensive helper
+    still returns `none` for zero or duplicate matches. -/
+def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .uint 8 => true
+    | _ => false
+
+/-! ### Shared per-callable op/terminator typing environment
+
+    Built once after `collectValueTypeDefs` inside `validateCallableCfgShape`
+    and shared by step i (terminator typing) and step j (per-op typing).
+    Uniqueness-gated Bool/UInt32/UInt8 resolvers are materialised once;
+    ValueId→TypeId and TypeId→shape lookups reuse the same defTypes/types. -/
+
+/-- Per-callable typing environment for CFG steps i–j. -/
+structure OpTypingEnv where
+  /-- ValueId→TypeId def-site table (exactly-once by step f). -/
+  defTypes : Array (ValueIdV1 × TypeIdV1)
+  /-- Program type table (shared with `data.types`). -/
+  types : Array TypeDeclV1
+  /-- Full program data for declaration-table joins (constant/state/…). -/
+  data : SemanticProgramDataV1
+  /-- Unique Bool TypeId, if exactly one exists. -/
+  boolT : Option TypeIdV1
+  /-- Unique UInt32 TypeId, if exactly one exists. -/
+  u32T : Option TypeIdV1
+  /-- Unique UInt8 TypeId, if exactly one exists. -/
+  u8T : Option TypeIdV1
+
+/-- Mint the per-callable typing environment once after step h's defTypes. -/
+private def mkOpTypingEnv (defTypes : Array (ValueIdV1 × TypeIdV1))
+    (data : SemanticProgramDataV1) : OpTypingEnv :=
+  let types := data.types
+  {
+    defTypes := defTypes
+    types := types
+    data := data
+    boolT := boolTypeId types
+    u32T := uint32TypeId types
+    u8T := uint8TypeId types
+  }
+
+/-- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f). -/
+private def OpTypingEnv.typeOf (env : OpTypingEnv) (vid : ValueIdV1) :
+    Option TypeIdV1 := Id.run do
+  let mut r : Option TypeIdV1 := none
+  for (v, t) in env.defTypes do
+    if v == vid then
+      r := some t
+      break
+  pure r
+
+/-- Shape of a TypeId, if in range. -/
+private def OpTypingEnv.shapeOf (env : OpTypingEnv) (tid : TypeIdV1) :
+    Option TypeShapeV1 := Id.run do
+  let mut r : Option TypeShapeV1 := none
+  let n := tid.toNat
+  if n < env.types.size then
+    match env.types[n]? with
+    | some d => r := some d.shape
+    | none => pure ()
+  pure r
+
+/-- Resolve a ValueId operand's TypeId (missing def → `.badCfg`). -/
+private def requireOperand (env : OpTypingEnv) (vid : ValueIdV1) :
+    Except SemanticWireErrorV1 TypeIdV1 :=
+  match env.typeOf vid with
+  | none => err .badCfg
+  | some t => pure t
+
+/-- Require result present and equal to `tid` (SPEC §4.3/§5.1). -/
+private def requireResultEq (result? : Option ValueDefV1) (tid : TypeIdV1) :
+    Except SemanticWireErrorV1 Unit :=
+  match result? with
+  | some vdef => unless vdef.typeId == tid do err .badCfg
+  | none => err .badCfg
+
+/-- Require result present (presence-only value-producing ops). -/
+private def requireResultPresent (result? : Option ValueDefV1) :
+    Except SemanticWireErrorV1 Unit :=
+  match result? with
+  | some _ => pure ()
+  | none => err .badCfg
+
+/-- Require void op carries `result := none`. -/
+private def requireVoid (result? : Option ValueDefV1) :
+    Except SemanticWireErrorV1 Unit :=
+  match result? with
+  | some _ => err .badCfg
+  | none => pure ()
+
+/-- Resolve shape of `tid` and project via `pred` (any miss → `.badCfg`). -/
+private def requireShape {α : Type} (env : OpTypingEnv) (tid : TypeIdV1)
+    (pred : TypeShapeV1 → Option α) : Except SemanticWireErrorV1 α :=
+  match env.shapeOf tid with
+  | none => err .badCfg
+  | some shape =>
+      match pred shape with
+      | none => err .badCfg
+      | some a => pure a
+
+/-- Exact-size positional arg type check against expected TypeIds. -/
+private def checkArgsPositional (env : OpTypingEnv)
+    (args : Array ValueIdV1) (expected : Array TypeIdV1) :
+    Except SemanticWireErrorV1 Unit := do
+  unless args.size == expected.size do
+    return ← err .badCfg
+  let mut i : Nat := 0
+  while i < args.size do
+    let argT ← requireOperand env args[i]!
+    match expected[i]? with
+    | none => return ← err .badCfg
+    | some expT => unless argT == expT do return ← err .badCfg
+    i := i + 1
+  pure ()
+
+/-- Exact-size positional arg type check against interface fields
+    (Term.Revert / Op.Assert(some) / Op.Emit). Identical modulo table lookup. -/
+private def checkInterfaceArgs (env : OpTypingEnv)
+    (fields : Array InterfaceFieldV1) (args : Array ValueIdV1) :
+    Except SemanticWireErrorV1 Unit := do
+  unless args.size == fields.size do
+    return ← err .badCfg
+  let mut i : Nat := 0
+  while i < args.size do
+    let argT ← requireOperand env args[i]!
+    match fields[i]? with
+    | none => return ← err .badCfg
+    | some field => unless argT == field.typeId do return ← err .badCfg
+    i := i + 1
+  pure ()
+
 /-- Step h: every def-site TypeId (block params + instruction results) is in
     `[0, typeCount)`. Callable param/result TypeIds are already checked at
     step 2; do NOT duplicate. Failure → `.badReference`. -/
@@ -2410,22 +2555,12 @@ def checkDefSiteTypeIdsInRange (defTypes : Array (ValueIdV1 × TypeIdV1))
   for (_, tid) in defTypes do
     checkTypeIdInRange tid typeCount
 
-/-- Step i: terminator typing against a ValueId→TypeId table built from def
-    sites plus the ErrorDecl table for Term.Revert. Bounded lookup of
-    `typeOf vid`; missing def → `.badCfg` (step f owns existence, but we stay
-    total). All failures → `.badCfg`. -/
-def checkTerminatorTyping (c : CallableV1)
-    (defTypes : Array (ValueIdV1 × TypeIdV1)) (types : Array TypeDeclV1)
-    (errors : Array ErrorDeclV1) : Except SemanticWireErrorV1 Unit := do
-  let boolT := boolTypeId types
-  -- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f).
-  let typeOf (vid : ValueIdV1) : Option TypeIdV1 := Id.run do
-    let mut r : Option TypeIdV1 := none
-    for (v, t) in defTypes do
-      if v == vid then
-        r := some t
-        break
-    pure r
+/-- Step i: terminator typing against a shared `OpTypingEnv` plus the
+    ErrorDecl table for Term.Revert. Bounded lookup of `typeOf vid`; missing
+    def → `.badCfg` (step f owns existence, but we stay total). All failures
+    → `.badCfg`. -/
+def checkTerminatorTyping (c : CallableV1) (env : OpTypingEnv) :
+    Except SemanticWireErrorV1 Unit := do
   -- Block params of block id `bid`, if in range (step c owns OOR).
   let blockParams (bid : BlockIdV1) : Array BlockParameterV1 := Id.run do
     let mut r : Array BlockParameterV1 := #[]
@@ -2436,74 +2571,54 @@ def checkTerminatorTyping (c : CallableV1)
       | none => pure ()
     pure r
   -- Positional arg-type check against target block params (min-length guard
-  -- to stay total; arity is owned by step c.5).
+  -- to stay total; arity is owned by step c.5). Distinct from the exact-size
+  -- `checkArgsPositional` used by op contracts.
   let checkTargetArgs (target : JumpTargetV1) :
       Except SemanticWireErrorV1 Unit := do
     let params := blockParams target.blockId
     let n := min target.args.size params.size
     let mut i : Nat := 0
     while i < n do
-      match typeOf target.args[i]! with
+      let argT ← requireOperand env target.args[i]!
+      match params[i]? with
       | none => return ← err .badCfg
-      | some argT =>
-          match params[i]? with
-          | none => return ← err .badCfg
-          | some bp =>
-              unless argT == bp.typeId do
-                return ← err .badCfg
+      | some bp =>
+          unless argT == bp.typeId do
+            return ← err .badCfg
       i := i + 1
     pure ()
-  -- Exact declared-error join for Term.Revert: errorId must resolve and args
-  -- must match ErrorDecl fields positionally by TypeId.
-  let checkErrorArgs (errorId : ErrorIdV1) (args : Array ValueIdV1) :
-      Except SemanticWireErrorV1 Unit := do
-    match errors[errorId.toNat]? with
-    | none => err .badCfg
-    | some errorDecl =>
-        unless args.size == errorDecl.fields.size do
-          return ← err .badCfg
-        let mut i : Nat := 0
-        while i < args.size do
-          match typeOf args[i]! with
-          | none => return ← err .badCfg
-          | some argT =>
-              match errorDecl.fields[i]? with
-              | none => return ← err .badCfg
-              | some field =>
-                  unless argT == field.typeId do return ← err .badCfg
-          i := i + 1
-        pure ()
   for b in c.blocks do
     match b.terminator with
     | .jump target => checkTargetArgs target
     | .branch cond thenT elseT => do
         -- condition must be the Bool TypeId
-        match boolT with
+        match env.boolT with
         | none => return ← err .badCfg
         | some boolId =>
-            match typeOf cond with
-            | none => return ← err .badCfg
-            | some condT => unless condT == boolId do return ← err .badCfg
+            let condT ← requireOperand env cond
+            unless condT == boolId do return ← err .badCfg
         checkTargetArgs thenT
         checkTargetArgs elseT
     | .switch scrut cases default => do
         -- scrutinee type
-        match typeOf scrut with
-        | none => return ← err .badCfg
-        | some scrutT =>
-            -- every case typeId == scrutinee type
-            for cs in cases do
-              unless cs.typeId == scrutT do
-                return ← err .badCfg
-              checkTargetArgs cs.target
-            match default with
-            | some dt => checkTargetArgs dt
-            | none => pure ()
+        let scrutT ← requireOperand env scrut
+        -- every case typeId == scrutinee type
+        for cs in cases do
+          unless cs.typeId == scrutT do
+            return ← err .badCfg
+          checkTargetArgs cs.target
+        match default with
+        | some dt => checkTargetArgs dt
+        | none => pure ()
     | .return_ (some v) =>
-        match typeOf v with
+        let vt ← requireOperand env v
+        unless vt == c.result.typeId do return ← err .badCfg
+    | .revert errorId args =>
+        -- Exact declared-error join: errorId must resolve and args must
+        -- match ErrorDecl fields positionally by TypeId.
+        match env.data.errors[errorId.toNat]? with
         | none => return ← err .badCfg
-        | some vt => unless vt == c.result.typeId do return ← err .badCfg
-    | .revert errorId args => checkErrorArgs errorId args
+        | some errorDecl => checkInterfaceArgs env errorDecl.fields args
     | .return_ none | .trap _ => pure ()
   pure ()
 
@@ -2540,26 +2655,6 @@ def checkTerminatorTyping (c : CallableV1)
     ExternalCall/Schedule argument serializability, recursive/full TypeKey
     closure/ranking/reachability,
     provenance join, normalizer, product wire. -/
-
-/-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
-    Bounded, non-recursive. Defense-in-depth relative to the earlier
-    primitive anonymous TypeKey gate (duplicates fail there as
-    `.nonCanonical` before step j). This helper still fails closed for direct
-    internal use; recursive/full TypeKey closure and ranking remain pending. -/
-def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
-  uniqueShapeTypeId types fun
-    | .uint 32 => true
-    | _ => false
-
-/-- The unique TypeId whose shape is `.uint 8`, if exactly one exists.
-    Bounded and non-recursive. Bytes IndexGet/IndexSet require the unique
-    structurally interned UInt8 TypeId. The earlier primitive anonymous
-    TypeKey gate rejects duplicates as `.nonCanonical`; this defensive helper
-    still returns `none` for zero or duplicate matches. -/
-def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
-  uniqueShapeTypeId types fun
-    | .uint 8 => true
-    | _ => false
 
 /-- First TypeId whose shape is `.option element` with the given element
     TypeId, if any. Bounded, non-recursive. Used by `indexGet` on Map to
@@ -2598,13 +2693,13 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
             v.payloadTypes.all (fun t => serializableType types t fuel))
       | .array _ _ | .map _ _ | .option _ | .unit => false
 
-/-- Step j: per-op type/result contract for one instruction. `defTypes` is the
-    ValueId→TypeId def-site table (exactly-once by step f). `data` provides
-    declaration tables for constant/stateLoad/construct/pureCall resolution.
-    Value-producing ops (`Literal`/`Constant`/`StateLoad`/`Construct`/`FieldGet`/
-    `IndexGet`/`Unary`/`Binary`/`PureCall`) MUST carry `result := some _` and
-    the result TypeId must equal the op's exact result type; a missing result
-    or mismatched TypeId is `.badCfg` (SPEC-SEM-WIRE-001 §4.3/§5.1).
+/-- Step j: per-op type/result contract for one instruction. Consumes a
+    shared per-callable `OpTypingEnv` (defTypes/types/data + uniqueness-gated
+    Bool/UInt32/UInt8). Value-producing ops (`Literal`/`Constant`/`StateLoad`/
+    `Construct`/`FieldGet`/`IndexGet`/`Unary`/`Binary`/`PureCall`) MUST carry
+    `result := some _` and the result TypeId must equal the op's exact result
+    type; a missing result or mismatched TypeId is `.badCfg`
+    (SPEC-SEM-WIRE-001 §4.3/§5.1).
     `Op.StateStore` resolves stateId, requires type(value) == state.typeId, and
     MUST carry `result := none`. `Op.Assert` requires a Bool condition,
     `errorId = none` with empty args or an exact ErrorDecl/args join, and no
@@ -2631,92 +2726,31 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     `result.typeId == type(value)`; its exact disclosure requirement binding
     remains deferred to later slices.
     All failures → `.badCfg`. Bounded, non-recursive (serializableType is
-    fuel-bounded). -/
-def checkOpTyping (instr : InstructionV1)
-    (defTypes : Array (ValueIdV1 × TypeIdV1)) (data : SemanticProgramDataV1) :
+    fuel-bounded). Each op family keeps its own contract; shared combinators
+    only eliminate typeOf/shapeOf/result/operand/args boilerplate. -/
+def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
     Except SemanticWireErrorV1 Unit := do
-  let types := data.types
+  let types := env.types
   let typeCount := types.size
-  -- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f).
-  let typeOf (vid : ValueIdV1) : Option TypeIdV1 := Id.run do
-    let mut r : Option TypeIdV1 := none
-    for (v, t) in defTypes do
-      if v == vid then
-        r := some t
-        break
-    pure r
-  -- Shape of a TypeId, if in range.
-  let shapeOf (tid : TypeIdV1) : Option TypeShapeV1 := Id.run do
-    let mut r : Option TypeShapeV1 := none
-    let n := tid.toNat
-    if n < typeCount then
-      match types[n]? with
-      | some d => r := some d.shape
-      | none => pure ()
-    pure r
-  -- The declared result TypeId of this instruction (only when result=some).
-  let resultTypeId : Option TypeIdV1 :=
-    match instr.result with
-    | some vdef => some vdef.typeId
-    | none => none
-  -- Helper: require result present and equal to `tid`. SPEC-SEM-WIRE-001
-  --   §4.3/§5.1: every value-producing op carries exactly one result
-  --   (`Instruction.result = some ValueDefV1`); a missing result on a
-  --   value-producing op is an invalid Core trap → `.badCfg`. When present,
-  --   the result TypeId must equal the op's exact result type `tid`.
-  let requireResult (tid : TypeIdV1) : Except SemanticWireErrorV1 Unit :=
-    match resultTypeId with
-    | some rT => unless rT == tid do err .badCfg
-    | none => err .badCfg
-  -- Helper: require result present for the value-producing families whose
-  --   local op branch here is presence-only (ContextRead). SPEC
-  --   §4.3/§5.1 mandates a result; a missing result is `.badCfg`.
-  --   `Op.ContextRead` additionally carries the §5.1 same-key result-TypeId
-  --   global closed-catalog pass (a separate post-CFG gate), including exact
-  --   key/result shape and later requirement binding. FieldSet, VariantTag,
-  --   VariantPayload, IndexSet, and CheckedCast have their own exact static
-  --   contracts below.
-  let requireResultPresent : Except SemanticWireErrorV1 Unit :=
-    match instr.result with
-    | some _ => pure ()
-    | none => err .badCfg
-  -- Helper: resolve a ValueId operand's TypeId (missing def → .badCfg).
-  let requireOperandType (vid : ValueIdV1) :
-      Except SemanticWireErrorV1 TypeIdV1 :=
-    match typeOf vid with
-    | none => err .badCfg
-    | some t => pure t
-  -- Helper: positional arg type check against an expected TypeId list.
-  let checkArgTypes (args : Array ValueIdV1) (expected : Array TypeIdV1) :
-      Except SemanticWireErrorV1 Unit := do
-    unless args.size == expected.size do
-      return ← err .badCfg
-    let mut i : Nat := 0
-    while i < args.size do
-      let argT ← requireOperandType args[i]!
-      match expected[i]? with
-      | none => return ← err .badCfg
-      | some expT => unless argT == expT do return ← err .badCfg
-      i := i + 1
-    pure ()
+  let data := env.data
   match instr.op with
   | .literal tid _ =>
       -- result.typeId == op.typeId; no ValueId uses.
-      requireResult tid
+      requireResultEq instr.result tid
   | .constant cid =>
       -- constantId in range → result.typeId == constants[cid].typeId.
       match data.constants[cid.toNat]? with
       | none => err .badCfg
-      | some c => requireResult c.typeId
+      | some c => requireResultEq instr.result c.typeId
   | .stateLoad sid =>
       -- stateId in range → result.typeId == logicalState[sid].typeId.
       match data.logicalState[sid.toNat]? with
       | none => err .badCfg
-      | some s => requireResult s.typeId
+      | some s => requireResultEq instr.result s.typeId
   | .construct tid ctorIdx args =>
       -- op.typeId in range; resolve type shape; reject primitives that
       -- cannot be Constructed.
-      match shapeOf tid with
+      match env.shapeOf tid with
       | none => err .badCfg
       | some shape =>
         match shape with
@@ -2724,33 +2758,33 @@ def checkOpTyping (instr : InstructionV1)
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == fields.size do return ← err .badCfg
             let expected := fields.map (·.typeId)
-            checkArgTypes args expected
-            requireResult tid
+            checkArgsPositional env args expected
+            requireResultEq instr.result tid
         | .enum variants =>
             unless ctorIdx.toNat < variants.size do return ← err .badCfg
             match variants[ctorIdx.toNat]? with
             | none => err .badCfg
             | some v =>
                 unless args.size == v.payloadTypes.size do return ← err .badCfg
-                checkArgTypes args v.payloadTypes
-                requireResult tid
+                checkArgsPositional env args v.payloadTypes
+                requireResultEq instr.result tid
         | .array element length =>
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == length.toNat do return ← err .badCfg
             let expected := Array.mk (List.replicate args.size element)
-            checkArgTypes args expected
-            requireResult tid
+            checkArgsPositional env args expected
+            requireResultEq instr.result tid
         | .option element =>
             match ctorIdx.toNat with
             | 0 =>
                 -- none: args == #[]
                 unless args.size == 0 do return ← err .badCfg
-                requireResult tid
+                requireResultEq instr.result tid
             | 1 =>
                 -- some: args.count == 1, arg type == element
                 unless args.size == 1 do return ← err .badCfg
-                checkArgTypes args #[element]
-                requireResult tid
+                checkArgsPositional env args #[element]
+                requireResultEq instr.result tid
             | _ => err .badCfg
         | .unit =>
             -- Unit/empty Map shape: constructorIndex==0, args==#[].
@@ -2758,85 +2792,82 @@ def checkOpTyping (instr : InstructionV1)
             -- constructorIndex 0, args #[] — handled under .map below.)
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == 0 do return ← err .badCfg
-            requireResult tid
+            requireResultEq instr.result tid
         | .map _ _ =>
             -- Only the empty Map (constructorIndex 0, args #[]) can be
             -- Constructed this slice; nonempty Map construction is out of
             -- scope. constructorIndex != 0 → .badCfg.
             unless ctorIdx == 0 do return ← err .badCfg
             unless args.size == 0 do return ← err .badCfg
-            requireResult tid
+            requireResultEq instr.result tid
         | .bool | .uint _ | .int _ | .principal | .bytes _ | .field _ =>
             -- primitives/Bytes/Principal/Field/uint/int/bool cannot be Constructed
             err .badCfg
   | .fieldGet base fieldIdx =>
       -- base ValueId type resolves to Struct via defTypes; fieldIndex < fields.size;
       -- result.typeId == fields[fieldIdx].typeId.
-    match requireOperandType base with
-    | .error e => err e
-    | .ok baseT =>
-        match shapeOf baseT with
-        | none => err .badCfg
-        | some (.struct fields) =>
-            unless fieldIdx.toNat < fields.size do return ← err .badCfg
-            match fields[fieldIdx.toNat]? with
-            | none => err .badCfg
-            | some f => requireResult f.typeId
-        | some _ => err .badCfg
+      let baseT ← requireOperand env base
+      let fields ← requireShape (α := Array StructFieldV1) env baseT fun
+        | .struct fs => some fs
+        | _ => none
+      unless fieldIdx.toNat < fields.size do return ← err .badCfg
+      match fields[fieldIdx.toNat]? with
+      | none => err .badCfg
+      | some f => requireResultEq instr.result f.typeId
   | .indexGet base index =>
       -- base ValueId type resolves to Array/Bytes/Map; index type and result
       --   depend on base kind.
-    let baseT ← requireOperandType base
-    let idxT ← requireOperandType index
-    match shapeOf baseT with
+    let baseT ← requireOperand env base
+    let idxT ← requireOperand env index
+    match env.shapeOf baseT with
     | none => err .badCfg
     | some (.array element _length) =>
         -- index must be the unique UInt32 TypeId; result == element.
-        match uint32TypeId types with
+        match env.u32T with
         | none => err .badCfg
         | some u32 =>
             unless idxT == u32 do return ← err .badCfg
-            requireResult element
+            requireResultEq instr.result element
     | some (.bytes _length) =>
         -- index UInt32; result == unique UInt8 TypeId.
-        match uint32TypeId types, uint8TypeId types with
+        match env.u32T, env.u8T with
         | some u32, some u8 =>
             unless idxT == u32 do return ← err .badCfg
-            requireResult u8
+            requireResultEq instr.result u8
         | _, _ => err .badCfg
     | some (.map key value) =>
         -- index type == map.key TypeId; result == unique Option(map.value).
         unless idxT == key do return ← err .badCfg
         match optionTypeId types value with
         | none => err .badCfg
-        | some optT => requireResult optT
+        | some optT => requireResultEq instr.result optT
     | some _ => err .badCfg
   | .unary op operand =>
-      let opT ← requireOperandType operand
+      let opT ← requireOperand env operand
       match op with
       | .neg =>
           -- operand type Int or Field; result == operand type.
-          match shapeOf opT with
-          | some (.int _) | some (.field _) => requireResult opT
+          match env.shapeOf opT with
+          | some (.int _) | some (.field _) => requireResultEq instr.result opT
           | _ => err .badCfg
       | .not =>
           -- operand type Bool; result == Bool.
-          match shapeOf opT with
-          | some .bool => requireResult opT
+          match env.shapeOf opT with
+          | some .bool => requireResultEq instr.result opT
           | _ => err .badCfg
       | .bitNot =>
           -- operand type UInt or Int; result == operand type.
-          match shapeOf opT with
-          | some (.uint _) | some (.int _) => requireResult opT
+          match env.shapeOf opT with
+          | some (.uint _) | some (.int _) => requireResultEq instr.result opT
           | _ => err .badCfg
   | .binary op lhs rhs =>
-      let lhsT ← requireOperandType lhs
-      let rhsT ← requireOperandType rhs
+      let lhsT ← requireOperand env lhs
+      let rhsT ← requireOperand env rhs
       match op with
       | .add | .sub | .mul | .div | .mod =>
           -- arithmetic: lhs==rhs same UInt/Int (Field only add/sub/mul/div);
           --   result == lhs type.
-          let lhsShape := shapeOf lhsT
+          let lhsShape := env.shapeOf lhsT
           let okArith : Bool :=
             lhsT == rhsT &&
             (match lhsShape with
@@ -2846,52 +2877,52 @@ def checkOpTyping (instr : InstructionV1)
                  match op with | .mod => false | _ => true
              | _ => false)
           unless okArith do return ← err .badCfg
-          requireResult lhsT
+          requireResultEq instr.result lhsT
       | .eq | .ne =>
           -- lhs==rhs same serializable type; result == Bool.
           unless lhsT == rhsT do return ← err .badCfg
           unless serializableType types lhsT typeCount do return ← err .badCfg
-          match boolTypeId types with
+          match env.boolT with
           | none => err .badCfg
-          | some boolT => requireResult boolT
+          | some boolT => requireResultEq instr.result boolT
       | .lt | .le | .gt | .ge =>
           -- lhs==rhs same UInt/Int; result == Bool.
           let sameInt : Bool := lhsT == rhsT &&
-            (match shapeOf lhsT with
+            (match env.shapeOf lhsT with
              | some (.uint _) | some (.int _) => true
              | _ => false)
           unless sameInt do return ← err .badCfg
-          match boolTypeId types with
+          match env.boolT with
           | none => err .badCfg
-          | some boolT => requireResult boolT
+          | some boolT => requireResultEq instr.result boolT
       | .and | .or =>
           -- lhs==rhs Bool; result == Bool.
           let bothBool : Bool := lhsT == rhsT &&
-            (match shapeOf lhsT with | some .bool => true | _ => false)
+            (match env.shapeOf lhsT with | some .bool => true | _ => false)
           unless bothBool do return ← err .badCfg
-          match boolTypeId types with
+          match env.boolT with
           | none => err .badCfg
-          | some boolT => requireResult boolT
+          | some boolT => requireResultEq instr.result boolT
       | .bitAnd | .bitOr | .bitXor =>
           -- lhs==rhs same UInt/Int; result == lhs type.
           let sameInt : Bool := lhsT == rhsT &&
-            (match shapeOf lhsT with
+            (match env.shapeOf lhsT with
              | some (.uint _) | some (.int _) => true
              | _ => false)
           unless sameInt do return ← err .badCfg
-          requireResult lhsT
+          requireResultEq instr.result lhsT
       | .shl | .shr =>
           -- lhs UInt/Int, rhs UInt32; result == lhs type.
           let lhsInt : Bool :=
-            match shapeOf lhsT with
+            match env.shapeOf lhsT with
             | some (.uint _) | some (.int _) => true
             | _ => false
           unless lhsInt do return ← err .badCfg
-          match uint32TypeId types with
+          match env.u32T with
           | none => err .badCfg
           | some u32 =>
               unless rhsT == u32 do return ← err .badCfg
-              requireResult lhsT
+              requireResultEq instr.result lhsT
   | .pureCall calleeId args =>
       -- calleeId in range, callee.kind == .pureFn, args count == params size,
       --   each arg type == params[i].typeId; result == callee.result.typeId.
@@ -2901,98 +2932,89 @@ def checkOpTyping (instr : InstructionV1)
         unless callee.kind == .pureFn do return ← err .badCfg
         unless args.size == callee.params.size do return ← err .badCfg
         let expected := callee.params.map (·.typeId)
-        checkArgTypes args expected
-        requireResult callee.result.typeId
+        checkArgsPositional env args expected
+        requireResultEq instr.result callee.result.typeId
   -- Op.StateStore (SPEC-SEM-WIRE-001 §5.1): stateId MUST resolve, the value
   --   operand TypeId MUST exactly equal the selected state.typeId, and this
   --   op is void (`Instruction.result = none`). Any mismatch → `.badCfg`.
-  | .stateStore stateId value =>
-      match instr.result with
-      | some _ => err .badCfg
-      | none =>
-          match data.logicalState[stateId.toNat]? with
-          | none => err .badCfg
-          | some state =>
-              let valueT ← requireOperandType value
-              unless valueT == state.typeId do return ← err .badCfg
-              pure ()
+  | .stateStore stateId value => do
+      requireVoid instr.result
+      match data.logicalState[stateId.toNat]? with
+      | none => err .badCfg
+      | some state =>
+          let valueT ← requireOperand env value
+          unless valueT == state.typeId do return ← err .badCfg
+          pure ()
   -- Op.Assert (SPEC-SEM-WIRE-001 §5.1/§6): result MUST be none; condition
   --   MUST be Bool. `errorId = none` requires no args; `some errorId` MUST
   --   resolve and args MUST match ErrorDecl fields positionally and exactly.
-  | .assert_ condition errorId args =>
-      match instr.result with
-      | some _ => err .badCfg
-      | none =>
-          let conditionT ← requireOperandType condition
-          match shapeOf conditionT with
-          | some .bool =>
-              match errorId with
-              | none =>
-                  unless args.isEmpty do return ← err .badCfg
-                  pure ()
-              | some eid =>
-                  match data.errors[eid.toNat]? with
-                  | none => err .badCfg
-                  | some errorDecl =>
-                      checkArgTypes args (errorDecl.fields.map (·.typeId))
-          | _ => err .badCfg
+  | .assert_ condition errorId args => do
+      requireVoid instr.result
+      let conditionT ← requireOperand env condition
+      match env.shapeOf conditionT with
+      | some .bool =>
+          match errorId with
+          | none =>
+              unless args.isEmpty do return ← err .badCfg
+              pure ()
+          | some eid =>
+              match data.errors[eid.toNat]? with
+              | none => err .badCfg
+              | some errorDecl =>
+                  checkInterfaceArgs env errorDecl.fields args
+      | _ => err .badCfg
   -- Op.Emit (SPEC-SEM-WIRE-001 §5.1): result MUST be none; eventId MUST
   --   resolve; args MUST match EventDecl fields positionally and exactly.
   --   EffectId canonical numbering/uniqueness is owned by CFG step e.5.
-  | .emit _effectId eventId args =>
-      match instr.result with
-      | some _ => err .badCfg
-      | none =>
-          match data.events[eventId.toNat]? with
-          | none => err .badCfg
-          | some eventDecl =>
-              checkArgTypes args (eventDecl.fields.map (·.typeId))
+  | .emit _effectId eventId args => do
+      requireVoid instr.result
+      match data.events[eventId.toNat]? with
+      | none => err .badCfg
+      | some eventDecl =>
+          checkInterfaceArgs env eventDecl.fields args
   -- Remaining void ops (SPEC §5.1/§6): ExternalCall/Schedule are genuinely
   --   void, and their callee MUST contain at least two qualified-name
   --   components. Result presence is checked before callee shape to preserve
   --   the existing fail-closed order. Arg serializability is a later slice;
   --   EffectId canonical assignment is owned by CFG step e.5.
-  | .externalCall _effectId callee _args | .schedule _effectId callee _args =>
-      match instr.result with
-      | some _ => err .badCfg
-      | none =>
-          unless 2 ≤ callee.components.toArray.size do return ← err .badCfg
-          pure ()
+  | .externalCall _effectId callee _args | .schedule _effectId callee _args => do
+      requireVoid instr.result
+      unless 2 ≤ callee.components.toArray.size do return ← err .badCfg
+      pure ()
   -- Op.FieldSet (SPEC-SEM-WIRE-001 §5.1): base ValueId type MUST resolve to
   --   a Struct; fieldIndex MUST be in range; type(value) MUST exactly equal
   --   the selected field.typeId; `Instruction.result` MUST be present and
   --   its typeId MUST exactly equal type(base) (the whole struct). Any
-  --   failure → `.badCfg`. (Presence is enforced by `requireResult baseT`,
+  --   failure → `.badCfg`. (Presence is enforced by `requireResultEq … baseT`,
   --   which fails `.badCfg` on a missing result, preserving the prior
   --   missing-result gate.)
   | .fieldSet base fieldIndex value =>
-      let baseT ← requireOperandType base
-      match shapeOf baseT with
+      let baseT ← requireOperand env base
+      let fields ← requireShape (α := Array StructFieldV1) env baseT fun
+        | .struct fs => some fs
+        | _ => none
+      unless fieldIndex.toNat < fields.size do return ← err .badCfg
+      match fields[fieldIndex.toNat]? with
       | none => err .badCfg
-      | some (.struct fields) =>
-          unless fieldIndex.toNat < fields.size do return ← err .badCfg
-          match fields[fieldIndex.toNat]? with
-          | none => err .badCfg
-          | some f =>
-              let valueT ← requireOperandType value
-              unless valueT == f.typeId do return ← err .badCfg
-              requireResult baseT
-      | some _ => err .badCfg
+      | some f =>
+          let valueT ← requireOperand env value
+          unless valueT == f.typeId do return ← err .badCfg
+          requireResultEq instr.result baseT
   -- Op.VariantTag (SPEC-SEM-WIRE-001 §5.1): base ValueId type MUST resolve
   --   to a Type.Enum or Type.Option; the unique UInt32 TypeId (resolved via
   --   the `uint32TypeId` helper, which returns `some` only when exactly one
   --   `.uint 32` declaration exists) MUST exist; `Instruction.result` MUST
   --   be present and its typeId MUST exactly equal that UInt32 TypeId. Any
-  --   failure → `.badCfg`. (Presence is enforced by `requireResult u32`,
+  --   failure → `.badCfg`. (Presence is enforced by `requireResultEq … u32`,
   --   which fails `.badCfg` on a missing result, preserving the prior
   --   missing-result gate.)
   | .variantTag base =>
-      let baseT ← requireOperandType base
-      match shapeOf baseT with
+      let baseT ← requireOperand env base
+      match env.shapeOf baseT with
       | some (.enum _) | some (.option _) =>
-          match uint32TypeId types with
+          match env.u32T with
           | none => err .badCfg
-          | some u32 => requireResult u32
+          | some u32 => requireResultEq instr.result u32
       | _ => err .badCfg
   -- Op.VariantPayload (SPEC-SEM-WIRE-001 §5.1): Enum bases require an
   --   in-range variantIndex and payloadIndex and return the selected payload
@@ -3000,10 +3022,10 @@ def checkOpTyping (instr : InstructionV1)
   --   return the element TypeId. Agreement between an Enum value's runtime
   --   tag and `variantIndex` is not checked here; D2-07 must implement it as
   --   an interpreter trap. This gate validates the static contract. Failure →
-  --   `.badCfg`; `requireResult` preserves the exact result-presence gate.
+  --   `.badCfg`; `requireResultEq` preserves the exact result-presence gate.
   | .variantPayload base variantIndex payloadIndex =>
-      let baseT ← requireOperandType base
-      match shapeOf baseT with
+      let baseT ← requireOperand env base
+      match env.shapeOf baseT with
       | some (.enum variants) =>
           unless variantIndex.toNat < variants.size do return ← err .badCfg
           match variants[variantIndex.toNat]? with
@@ -3013,11 +3035,11 @@ def checkOpTyping (instr : InstructionV1)
                 return ← err .badCfg
               match variant.payloadTypes[payloadIndex.toNat]? with
               | none => err .badCfg
-              | some payloadT => requireResult payloadT
+              | some payloadT => requireResultEq instr.result payloadT
       | some (.option element) =>
           unless variantIndex.toNat == 1 && payloadIndex.toNat == 0 do
             return ← err .badCfg
-          requireResult element
+          requireResultEq instr.result element
       | _ => err .badCfg
   -- Op.IndexSet (SPEC-SEM-WIRE-001 §5.1): Array/Bytes indices must be the
   --   unique UInt32 TypeId; Array values match element, Bytes values match
@@ -3025,57 +3047,57 @@ def checkOpTyping (instr : InstructionV1)
   --   Every valid IndexSet returns type(base). Runtime bounds are not checked
   --   here and must be handled by D2-07. Any static mismatch → `.badCfg`.
   | .indexSet base index value =>
-      let baseT ← requireOperandType base
-      let indexT ← requireOperandType index
-      let valueT ← requireOperandType value
-      match shapeOf baseT with
+      let baseT ← requireOperand env base
+      let indexT ← requireOperand env index
+      let valueT ← requireOperand env value
+      match env.shapeOf baseT with
       | some (.array element _) =>
-          match uint32TypeId types with
+          match env.u32T with
           | none => err .badCfg
           | some u32 =>
               unless indexT == u32 && valueT == element do
                 return ← err .badCfg
-              requireResult baseT
+              requireResultEq instr.result baseT
       | some (.bytes _) =>
-          match uint32TypeId types, uint8TypeId types with
+          match env.u32T, env.u8T with
           | some u32, some u8 =>
               unless indexT == u32 && valueT == u8 do
                 return ← err .badCfg
-              requireResult baseT
+              requireResultEq instr.result baseT
           | _, _ => err .badCfg
       | some (.map key mapValue) =>
           unless indexT == key && valueT == mapValue do
             return ← err .badCfg
-          requireResult baseT
+          requireResultEq instr.result baseT
       | _ => err .badCfg
   -- Op.CheckedCast (SPEC-SEM-WIRE-001 §5.1): both the source ValueId type
   --   and `toType` MUST resolve to UInt/Int shapes, and the instruction
   --   result TypeId MUST exactly equal `toType`. Runtime representability is
   --   not a static property and remains a D2-07 checked-revert concern.
   | .checkedCast value toType =>
-      let valueT ← requireOperandType value
+      let valueT ← requireOperand env value
       let sourceIsInteger : Bool :=
-        match shapeOf valueT with
+        match env.shapeOf valueT with
         | some (.uint _) | some (.int _) => true
         | _ => false
       let destinationIsInteger : Bool :=
-        match shapeOf toType with
+        match env.shapeOf toType with
         | some (.uint _) | some (.int _) => true
         | _ => false
       unless sourceIsInteger && destinationIsInteger do
         return ← err .badCfg
-      requireResult toType
+      requireResultEq instr.result toType
   -- Op.Commit (SPEC-SEM-WIRE-001 §5.1): the operand ValueId MUST resolve and
   --   the result TypeId MUST exactly equal type(value). Every structure-valid
   --   TypeShape has canonical value bytes, so this branch deliberately does
   --   not reuse the narrower Eq/Ne `serializableType` predicate. The exact
   --   disclosure requirement row is enforced after generic requirements.
   | .commit value =>
-      let valueT ← requireOperandType value
-      requireResult valueT
+      let valueT ← requireOperand env value
+      requireResultEq instr.result valueT
   -- ContextRead carries presence-only local typing; its exact key/type and
   --   requirement binding are enforced by the later closed-catalog passes.
-  | .contextRead _ => requireResultPresent
+  | .contextRead _ => requireResultPresent instr.result
 
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
     + ValueId SSA def-table + dominance-of-use + def-site TypeId range +
@@ -3091,7 +3113,7 @@ def checkOpTyping (instr : InstructionV1)
     array computed in step d is shared with step g; the `defTypes` table
     built in step h is shared with steps i and j. -/
 private def validateCallableCfgShape (c : CallableV1)
-    (typeCount : Nat) (types : Array TypeDeclV1)
+    (typeCount : Nat) (_types : Array TypeDeclV1)
     (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
@@ -3155,11 +3177,14 @@ private def validateCallableCfgShape (c : CallableV1)
   --   TypeIds are already checked at step 2. Failure → `.badReference`.
   let defTypes := collectValueTypeDefs c
   checkDefSiteTypeIdsInRange defTypes typeCount
+  -- Shared per-callable typing environment for steps i–j (typeOf/shapeOf +
+  -- uniqueness-gated Bool/UInt32/UInt8 built once).
+  let env := mkOpTypingEnv defTypes data
   -- i) terminator typing (SPEC §6.2): branch cond Bool, switch case type ==
   --   scrutinee type, jump/branch/switch target arg types == target block
   --   param types positionally, return (some v) type == result type, and
   --   Term.Revert errorId/args == selected ErrorDecl fields. All `.badCfg`.
-  checkTerminatorTyping c defTypes types data.errors
+  checkTerminatorTyping c env
   -- j) per-op type/result contract (SPEC-SEM-WIRE-001 §4.3/§5.1): every
   --   value-producing op (literal/constant/stateLoad/construct/fieldGet/
   --   indexGet/unary/binary/pureCall/fieldSet/variantTag) must carry
@@ -3180,11 +3205,11 @@ private def validateCallableCfgShape (c : CallableV1)
   --   post-CFG gate; its exact requirement row is checked after generic
   --   requirement structure. `Op.Commit` resolves its operand and requires
   --   result.typeId == type(value); exact disclosure requirement binding is
-  --   deferred. All failures → `.badCfg`. Reuses `defTypes`
+  --   deferred. All failures → `.badCfg`. Reuses shared `OpTypingEnv`
   --   from step h.
   for b in c.blocks do
     for instr in b.instructions do
-      checkOpTyping instr defTypes data
+      checkOpTyping instr env
 
 private def checkCallableIdInRange (callableId : CallableIdV1) (callableCount : Nat) :
     Except SemanticWireErrorV1 Unit := do

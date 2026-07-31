@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets.Noir
@@ -9,6 +10,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
 
 def codegenProfileString : String := "noir-source-u64-relations-v1"
 def codegenProfile : CodegenProfileId := CodegenProfileId.noirSourceU64RelationsV1
@@ -306,26 +308,10 @@ private def canonicalLimits : ResourceLimits := {
   maxIrOperations
 }
 
+/-- Thin adapter: binds Noir's `maxIdentifierBytes` (120 — documented divergence
+    from EVM/Solana/NEAR's 240) to the shared ASCII grammar. -/
 private def isIdentifier (value : String) : Bool :=
-  value.toUTF8.size <= maxIdentifierBytes && match value.toList with
-  | [] => false
-  | first :: rest =>
-      let isAsciiLetter (character : Char) : Bool :=
-        let code := character.toNat
-        (65 <= code && code <= 90) || (97 <= code && code <= 122)
-      let isAsciiDigit (character : Char) : Bool :=
-        let code := character.toNat
-        48 <= code && code <= 57
-      (isAsciiLetter first || first == '_') &&
-        rest.all (fun character =>
-          isAsciiLetter character || isAsciiDigit character || character == '_')
-
-private def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
-  let mut seen : Array α := #[]
-  for value in values do
-    if seen.contains value then return true
-    seen := seen.push value
-  return false
+  isAsciiIdentifier maxIdentifierBytes value
 
 private def validDigest (value : String) : Bool :=
   value.length == 64 && value.toList.all (fun character =>
@@ -381,57 +367,24 @@ private inductive NoirValueKindV1 where
   | bool
   deriving BEq, Inhabited, Repr
 
-private structure NoirTypeClosureV1 where
-  uint64TypeId : TypeIdV1
-  unitTypeId : Option TypeIdV1
-  boolTypeId : Option TypeIdV1
-  /-- Anonymous UInt32, present only when a shift expression interned a
-      count type. Shift counts decode to plain u64 literals in the Plan. -/
-  uint32TypeId : Option TypeIdV1
+/-- Noir pilot type-closure carrier (shared `PilotTypeClosureV1`).
+    Bool/UInt32 optional; state/params remain UInt64-only. Shift counts decode
+    to plain u64 literals in the Plan. -/
+private abbrev NoirTypeClosureV1 := PilotTypeClosureV1
 
+private def noirPlanErr (m : String) : CompileError :=
+  .planInvariant .noir m
+
+/-- Noir pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
+    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
+    SemanticProgramV1 programs fail at the target Plan seam rather than being
+    silently erased. Bool is optional (at most one): admitted as body intermediate
+    values and as entry/view results. UInt32 is optional (at most one): admitted
+    only as shift-count literals/intermediates. State/params remain UInt64-only.
+    Diagnostics use frozen `noirTypeClosureWording` (historical drift preserved). -/
 private def validateNoirTypeClosureV1
-    (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 := do
-  let mut uint64TypeId : Option TypeIdV1 := none
-  let mut unitTypeId : Option TypeIdV1 := none
-  let mut boolTypeId : Option TypeIdV1 := none
-  let mut uint32TypeId : Option TypeIdV1 := none
-  for decl in types do
-    unless decl.name.isNone do
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: named types are outside the current UInt64 pilot"
-    match decl.shape with
-    | .uint width =>
-        if width.toNat == 64 then
-          unless uint64TypeId.isNone do
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: expected one anonymous UInt64 type"
-          uint64TypeId := some decl.id
-        else if width.toNat == 32 then
-          unless uint32TypeId.isNone do
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: expected one anonymous UInt32 type"
-          uint32TypeId := some decl.id
-        else
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: expected one anonymous UInt64 type"
-    | .unit =>
-        unless unitTypeId.isNone do
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: duplicate Unit type"
-        unitTypeId := some decl.id
-    | .bool =>
-        unless boolTypeId.isNone do
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: duplicate Bool type"
-        boolTypeId := some decl.id
-    | _ =>
-        throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: only UInt64, Unit, and Bool are supported"
-  let resolvedUInt64TypeId ← match uint64TypeId with
-    | some value => pure value
-    | none => throw (.planInvariant .noir
-        "unsupported Noir semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId, uint32TypeId }
+    (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
+  validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
 
 private def makeStatesV1
     (uint64TypeId : TypeIdV1)
@@ -442,8 +395,7 @@ private def makeStatesV1
   for state in states do
     unless state.id.toNat == planned.size do
       throw <| .planInvariant .noir "semantic state ids must match declaration order"
-    unless state.typeId == uint64TypeId && state.visibility == .public_ do
-      throw <| .planInvariant .noir s!"state '{state.name}' is not public UInt64"
+    requirePublicUInt64State noirPlanErr uint64TypeId state
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
     planned := planned.push { sourceId := state.id.toNat, name := state.name }
@@ -470,9 +422,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .noir
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    unless param.typeId == uint64TypeId && param.visibility == .public_ do
-      throw <| .planInvariant .noir
-        s!"parameter '{param.name}' in {owner} is not public UInt64"
+    requirePublicUInt64Param noirPlanErr uint64TypeId owner param
     unless isIdentifier param.name do
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
@@ -657,32 +607,16 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 8 do
-    throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: UInt64 literal must contain exactly 8 bytes"
-  match decodeU64le (start bytes) with
-  | .error _ =>
-      throw <| .planInvariant .noir "unsupported Noir semantic shape: invalid UInt64 literal"
-  | .ok (value, cursor) =>
-      match finish cursor with
-      | .ok () => pure value
-      | .error _ =>
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: trailing UInt64 literal bytes"
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
+  decodeUInt64LiteralLe noirPlanErr "Noir" bytes
 
 /-- Decode a SemanticProgramV1 Bool literal (exactly one byte `0x00`/`0x01`).
-    Represented as UInt64 0/1 inside the plan Expr surface. -/
+    Represented as UInt64 0/1 inside the plan Expr surface.
+    Invalid-byte wording is Noir's historical divergence (extra "byte "). -/
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 1 do
-    throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: Bool literal must contain exactly 1 byte"
-  match bytes.get! 0 with
-  | 0 => pure 0
-  | 1 => pure 1
-  | _ =>
-      throw <| .planInvariant .noir
-        "unsupported Noir semantic shape: Bool literal byte must be 0x00 or 0x01"
+  let bit ← decodeBoolLiteralBit noirPlanErr "Noir" bytes
+    (invalidDetail := "Bool literal byte must be 0x00 or 0x01")
+  pure (if bit then 1 else 0)
 
 private def currentValueV1
     (values : Array LoweredValueV1)

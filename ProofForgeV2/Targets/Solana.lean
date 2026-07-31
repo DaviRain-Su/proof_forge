@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.Targets.Solana
@@ -9,6 +10,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.solana
@@ -320,26 +322,9 @@ private def maxBodyStatements : Nat := 4096
 private def maxExprDepth : Nat := 256
 private def maxPlanNodes : Nat := 100000
 
+/-- Thin adapter: binds Solana's `maxIdentifierBytes` (240) to the shared grammar. -/
 private def isIdentifier (value : String) : Bool :=
-  value.toUTF8.size <= maxIdentifierBytes && match value.toList with
-  | [] => false
-  | first :: rest =>
-      let isAsciiLetter (character : Char) : Bool :=
-        let code := character.toNat
-        (65 <= code && code <= 90) || (97 <= code && code <= 122)
-      let isAsciiDigit (character : Char) : Bool :=
-        let code := character.toNat
-        48 <= code && code <= 57
-      (isAsciiLetter first || first == '_') &&
-        rest.all (fun character =>
-          isAsciiLetter character || isAsciiDigit character || character == '_')
-
-private def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
-  let mut seen : Array α := #[]
-  for value in values do
-    if seen.contains value then return true
-    seen := seen.push value
-  return false
+  isAsciiIdentifier maxIdentifierBytes value
 
 private def validDiscriminator (value : String) : Bool :=
   value.length == 2 * discriminatorBytes && value.toList.all (fun character =>
@@ -390,63 +375,20 @@ path rejects those S2 requirements at `resolveEngineeringRequirementsV1`
 before any Solana lowering; hand-built/inspection Semantic programs that
 still carry the ops fail closed here with an explicit planInvariant. -/
 
-private structure SolanaTypeClosureV1 where
-  uint64TypeId : TypeIdV1
-  unitTypeId : Option TypeIdV1
-  boolTypeId : Option TypeIdV1
-  /-- Optional anonymous UInt32, interned only when a shift-count literal or
-      other UInt32 value appears (Normalize interns at most one). -/
-  uint32TypeId : Option TypeIdV1
+/-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
+    Bool/UInt32 optional; state/params remain UInt64-only. -/
+private abbrev SolanaTypeClosureV1 := PilotTypeClosureV1
 
+private def solanaPlanErr (message : String) : CompileError :=
+  .planInvariant .solana message
+
+/-- Solana pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
+    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
+    SemanticProgramV1 programs fail at the target Plan seam rather than being
+    silently erased. -/
 private def validateSolanaTypeClosureV1
-    (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 := do
-  let mut uint64TypeId : Option TypeIdV1 := none
-  let mut unitTypeId : Option TypeIdV1 := none
-  let mut boolTypeId : Option TypeIdV1 := none
-  let mut uint32TypeId : Option TypeIdV1 := none
-  for decl in types do
-    unless decl.name.isNone do
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: named types are outside the current UInt64 pilot"
-    match decl.shape with
-    | .uint width =>
-        match width.toNat with
-        | 64 =>
-            unless uint64TypeId.isNone do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: expected one anonymous UInt64 type"
-            uint64TypeId := some decl.id
-        | 32 =>
-            unless uint32TypeId.isNone do
-              throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: expected at most one anonymous UInt32 type"
-            uint32TypeId := some decl.id
-        | _ =>
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: only anonymous UInt64/UInt32 widths are supported"
-    | .unit =>
-        unless unitTypeId.isNone do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: duplicate Unit type"
-        unitTypeId := some decl.id
-    | .bool =>
-        unless boolTypeId.isNone do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: duplicate Bool type"
-        boolTypeId := some decl.id
-    | _ =>
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: only UInt64, UInt32, Unit, and Bool are supported"
-  let resolvedUInt64TypeId ← match uint64TypeId with
-    | some value => pure value
-    | none => throw (.planInvariant .solana
-        "unsupported Solana semantic shape: UInt64 type is missing")
-  pure {
-    uint64TypeId := resolvedUInt64TypeId
-    unitTypeId
-    boolTypeId
-    uint32TypeId
-  }
+    (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
+  validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
 
 private def makeStateAccountV1
     (uint64TypeId : TypeIdV1)
@@ -457,8 +399,7 @@ private def makeStateAccountV1
   for state in states do
     unless state.id.toNat == fields.size do
       throw <| .planInvariant .solana "semantic state ids must match declaration order"
-    unless state.typeId == uint64TypeId && state.visibility == .public_ do
-      throw <| .planInvariant .solana s!"state '{state.name}' is not public UInt64"
+    requirePublicUInt64State solanaPlanErr uint64TypeId state
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
     fields := fields.push {
@@ -506,9 +447,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    unless param.typeId == uint64TypeId && param.visibility == .public_ do
-      throw <| .planInvariant .solana
-        s!"parameter '{param.name}' in {owner} is not public UInt64"
+    requirePublicUInt64Param solanaPlanErr uint64TypeId owner param
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
@@ -543,34 +482,16 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 8 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: UInt64 literal must contain exactly 8 bytes"
-  match decodeU64le (start bytes) with
-  | .error _ =>
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: invalid UInt64 literal"
-  | .ok (value, cursor) =>
-      match finish cursor with
-      | .ok () => pure value
-      | .error _ =>
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: trailing UInt64 literal bytes"
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
+  decodeUInt64LiteralLe solanaPlanErr "Solana" bytes
 
-private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
-  unless bytes.size == 1 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: Bool literal must contain exactly 1 byte"
-  match bytes[0]!.toNat with
-  | 0 => pure false
-  | 1 => pure true
-  | _ =>
-      throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: Bool literal must be 0x00 or 0x01"
+private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool :=
+  decodeBoolLiteralBit solanaPlanErr "Solana" bytes
 
 /-- Decode a 4-byte little-endian UInt32 shift-count literal into a UInt64
-    carrier (plan temps remain 64-bit words; the type flag carries the width). -/
+    carrier (plan temps remain 64-bit words; the type flag carries the width).
+    Hand-rolled LE without trailing-byte finish check — intentionally not the
+    shared `decodeUInt32LiteralLe` (EVM/NEAR path). -/
 private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
   unless bytes.size == 4 do
     throw <| .planInvariant .solana
