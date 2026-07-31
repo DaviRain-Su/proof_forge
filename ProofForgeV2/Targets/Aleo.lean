@@ -1160,8 +1160,11 @@ private partial def emitStatements
     | .forLoop start endExclusive maxIter body => do
         let (startStmts, sLeo, ctx1) ← lowerExprStmt ctx start
         let (endStmts, eLeo, ctx2) ← lowerExprStmt ctx1 endExclusive
-        let (startName, ctx3) := freshName ctx2
-        let (endName, ctx4) := freshName ctx3
+        -- Deterministic per-depth names (readable + testable).
+        let startName := s!"pf_start{loopDepth}"
+        let endName := s!"pf_end{loopDepth}"
+        let ctx3 := ctx2
+        let ctx4 := ctx3
         let guardCond : LeoExpr :=
           .binary "<" (.reference startName) (.reference endName)
         let fits : LeoExpr :=

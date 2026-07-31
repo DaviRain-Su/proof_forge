@@ -597,7 +597,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
       expect (text ==
-          "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
+          "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"describe design-only, got {text}"
   | .error e => throw <| IO.userError s!"describe aleo: {e.render}"
   expectErrorCode (ProofForgeV2.CLI.describeTargetText "ghost-target")

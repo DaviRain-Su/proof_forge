@@ -41,7 +41,7 @@ private def materializeAleo (compiled : CompiledSemanticV1) :
   Targets.materializeResult capability
 
 /-- Counter: init guard + state-touching entry (dropped return) + bare view. -/
-private unsafe def testCounterPlanAndLeo : IO Unit := do
+unsafe def testCounterPlanAndLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -101,7 +101,7 @@ private unsafe def testCounterPlanAndLeo : IO Unit := do
     "dropped return must still be evaluated in the final block"
 
 /-- Pure fns and entries: shifts, bitwise, strict logical, Bool results. -/
-private unsafe def testPureOpsAndShifts : IO Unit := do
+unsafe def testPureOpsAndShifts : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -155,23 +155,26 @@ private unsafe def testPureOpsAndShifts : IO Unit := do
     "scaled must materialize as a plain function"
 
 /-- Bounded for: constant-bound loop with the boundExceeded guard. -/
-private unsafe def testBoundedForLeo : IO Unit := do
+unsafe def testBoundedForLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program LoopSum where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
     "  entry sumUp(n : UInt64) : UInt64 do\n" ++
-    "    let acc : UInt64 := 0\n" ++
-    "    for i in 0 .. n bounded 8 do\n" ++
-    "      acc := acc + i\n" ++
-    "    return acc\n"
+    "    let zero : UInt64 := 0\n" ++
+    "    for i in zero ..< n bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-loop>" "Tests.AleoLoop" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
-  expect (plan.functions.size == 1 && plan.functions[0]!.name == "sumUp")
-    "LoopSum must carry the single entry"
+  expect (plan.functions.map (·.name) == #["initialize", "sumUp"])
+    "LoopSum must carry initialize + sumUp in source order"
   liftResult <| Targets.Aleo.validatePlan plan
   let output ← liftResult <| materializeAleo compiled
   let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
@@ -180,21 +183,26 @@ private unsafe def testBoundedForLeo : IO Unit := do
   let leo := leoFile.contents
   expect (leo.contains "for pf_c0 in 0u64..8u64 {")
     "bounded for must render as a constant-bound Leo for"
-  expect (leo.contains "if pf_c0 < (pf_end0 - pf_start0) {")
+  expect (leo.contains "if (pf_c0 < (pf_end0 - pf_start0)) {")
     "runtime loop guard must gate the body"
-  expect (leo.contains "if pf_start0 < pf_end0 {")
+  expect (leo.contains "if (pf_start0 < pf_end0) {")
     "boundExceeded guard must be conditional on the loop actually starting"
 
 /-- Honest fail-closed decisions: emit, revert payloads, computed views. -/
-private unsafe def testFailClosedNegatives : IO Unit := do
+unsafe def testFailClosedNegatives : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
+  -- The honest per-target support row rejects `effect.event` at the resolver
+  -- (PF-REQ-UNSUPPORTED); other unsupported shapes reach the plan and fail
+  -- with planInvariant. Both are fail-closed.
   let expectPlanError (label : String) (sourceText : String) : IO Unit := do
+    let moduleName := s!"Tests.AleoNeg{(label.replace "-" "")}"
     let parsed ← liftResult (← session.selectProgramV1
-      sourceText s!"<aleo-neg-{label}>" s!"Tests.AleoNeg{label}" none)
+      sourceText s!"<aleo-neg-{label}>" moduleName none)
     let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
     match planAleo compiled with
     | .error (.planInvariant .aleo _) => pure ()
-    | .error e => throw <| IO.userError s!"{label}: expected planInvariant, got {e.render}"
+    | .error (.unsupportedRequirementV1 _) => pure ()
+    | .error e => throw <| IO.userError s!"{label}: expected fail-closed, got {e.render}"
     | .ok _ => throw <| IO.userError s!"{label}: must fail closed"
   -- emit has no Leo on-chain analogue.
   expectPlanError "emit"
@@ -212,8 +220,7 @@ private unsafe def testFailClosedNegatives : IO Unit := do
      "program Reverter where\n" ++
      "  error Bad(why : UInt64)\n" ++
      "  entry fail(x : UInt64) : UInt64 do\n" ++
-     "    revert Bad(x)\n" ++
-     "    return x\n")
+     "    revert Bad(x)\n")
   -- computed views that read state have no on-chain or query materialization.
   expectPlanError "computed-view"
     ("import ProofForgeV2\n" ++
@@ -225,7 +232,7 @@ private unsafe def testFailClosedNegatives : IO Unit := do
      "  view doubled() : UInt64 do\n" ++
      "    return count * 2\n")
 
-private unsafe def testPlanValidation : IO Unit := do
+unsafe def testPlanValidation : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++

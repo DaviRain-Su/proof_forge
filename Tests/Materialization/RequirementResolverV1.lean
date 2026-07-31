@@ -573,7 +573,7 @@ private def testRequestInspectionErrors : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
   -- Full S2 catalog succeeds only against the all-capable Noir row...
-  let noirSupported ← match rows[2]? with
+  let noirSupported ← match rows[3]? with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing noir support row"
   match inspectResolveRequestsV1 noirSupported { items := trio } with
