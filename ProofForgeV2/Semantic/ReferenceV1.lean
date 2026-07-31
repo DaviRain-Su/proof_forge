@@ -1280,7 +1280,6 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                                 }
                                 runMachine fuel { m with
                                   callable := callee
-                                  isInitializer := false
                                   env := calleeEnv
                                   loopCounts := Array.replicate callee.loopBounds.size (0 : UInt32)
                                   blockId := callee.entryBlock
@@ -1295,24 +1294,33 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
             match block.terminator, m.frames.back? with
             | .return_ value?, some frame =>
                 -- Pop the pure-call frame: the callee result continues the
-                -- suspended caller (pureFn always returns a value).
-                match value? with
+                -- suspended caller. Unit is represented by canonical empty
+                -- bytes in the caller's required PureCall result slot.
+                let result? : Option ReferenceValueV1 :=
+                  match value? with
+                  | none =>
+                      if isUnitType m.data m.callable.result.typeId then
+                        some { typeId := m.callable.result.typeId, valueBytes := ByteArray.empty }
+                      else none
+                  | some vid =>
+                      if isUnitType m.data m.callable.result.typeId then none
+                      else
+                        match envGet m.env vid with
+                        | some v => if v.typeId == m.callable.result.typeId then some v else none
+                        | none => none
+                match result? with
                 | none => (0, m, .trapped .invalidCore)
-                | some vid =>
-                    match envGet m.env vid with
+                | some result =>
+                    match envSet frame.env frame.resultValueId result with
                     | none => (0, m, .trapped .invalidCore)
-                    | some v =>
-                        match envSet frame.env frame.resultValueId v with
-                        | none => (0, m, .trapped .invalidCore)
-                        | some env' =>
-                            runMachine fuel { m with
-                              callable := frame.callable
-                              isInitializer := m.isInitializer
-                              env := env'
-                              loopCounts := frame.loopCounts
-                              blockId := frame.blockId
-                              instrIdx := frame.instrIdx
-                              frames := m.frames.pop }
+                    | some env' =>
+                        runMachine fuel { m with
+                          callable := frame.callable
+                          env := env'
+                          loopCounts := frame.loopCounts
+                          blockId := frame.blockId
+                          instrIdx := frame.instrIdx
+                          frames := m.frames.pop }
             | _, _ =>
                 match execTerminator m block.terminator with
                 | .done m' cand => (0, m', cand)

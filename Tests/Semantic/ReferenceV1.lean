@@ -1506,16 +1506,40 @@ private def testAdmissionUnsupported : IO Unit := do
     #[] (.return_ none)
   let entryPC := mkEntry 1 "caller" #[] 0
     #[instr (some { valueId := 0, typeId := 0 }) (.pureCall 0 #[])]
-    (.return_ (some 0))
+    (.return_ none)
   let baseP ← emptyData "AdmPureCall"
   let dataP : SemanticProgramDataV1 := {
     baseP with types := typesP, callables := #[pureFn, entryPC]
   }
   let cP ← encodeCarrier "adm-purecall" dataP
-  match admitReferenceProgramSliceV1 cP with
-  | .ok _ => pure ()
-  | .error e =>
+  let admittedP ← match admitReferenceProgramSliceV1 cP with
+    | .ok admitted => pure admitted
+    | .error e =>
       throw <| IO.userError s!"adm-purecall: admission must now succeed, got {repr e}"
+  let preP ← match initialLogicalStateV1 cP with
+    | .ok initial => pure initial
+    | .error e => throw <| IO.userError s!"adm-purecall initial state: {repr e}"
+  expectReturned "unit-purecall-execution"
+    (stepReferenceSliceV1 admittedP preP (inv 1 #[]) #[]) preP none #[]
+
+  -- The root initializer flag survives a PureCall frame and is published on
+  -- successful return.
+  let initPC := mkInit 0 #[] 0
+    #[instr (some { valueId := 0, typeId := 0 }) (.pureCall 1 #[])]
+    (.return_ none)
+  let initPureFn := mkPureFn 1 "initHelper" #[] 0 #[] (.return_ none)
+  let postInitEntry := mkEntry 2 "postInit" #[] 0 #[] (.return_ none)
+  let initBase ← emptyData "InitPureCall"
+  let initCarrier ← encodeCarrier "init-purecall" {
+    initBase with types := typesP, callables := #[initPC, initPureFn, postInitEntry]
+  }
+  let initAdmitted ← admitOk "init-purecall" initCarrier
+  let preInitPC ← match initialLogicalStateV1 initCarrier with
+    | .ok initial => pure initial
+    | .error e => throw <| IO.userError s!"init-purecall initial state: {repr e}"
+  expectReturned "init-purecall"
+    (stepReferenceSliceV1 initAdmitted preInitPC (inv 0 #[]) #[])
+    { preInitPC with initialized := true } none #[]
 
   -- ContextRead
   let ctxKey ← match parseSchemaId "proof-forge.context.example.v1" with

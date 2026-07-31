@@ -10963,3 +10963,11 @@ normative: false
 - Docs：`AGENTS.md` Engineering slice；`MIGRATION_MATRIX.md` D1-07/D2-04 事实行；本日志。formal 状态不变。
 - Verification：focused `lake build` Disclosure/DiagnosticLocations/CheckV1/fast_tests + `proof-forge-next-fast-tests`；zero-pattern rg；`just sbom-package-files-refresh` / `git diff --check` / `just docs-check` / `just dev-check` / `just ci`。
 - Boundary：无 B7b3d CheckV1 locate composition、无 B8 CLI bundle、无 formal/release 路径；HEAD baseline 保持，变更未提交。
+## 2026-07-31 — D2-07 ReferenceV1 PureCall root-lifecycle/Unit return repair
+
+- Production：`MachineV1.isInitializer`保持root invocation属性，不再在进入PureCall frame时清零；
+  frame return对Unit pureFn的`return none`向caller required result slot绑定canonical empty Unit。
+  Unit返回some、non-Unit返回none、missing/wrong-TypeId仍trap `invalidCore`，nested frame continuation不变。
+- Tests：新增entry→Unit PureCall真实执行与initializer→Unit PureCall回归；后者断言成功返回发布
+  `initialized=true`。既有nested valued PureCall/general-CFG suite保持通过。
+- Boundary：engineering Reference修复，不改变formal evaluator/theorem、wire schema或其他op family。

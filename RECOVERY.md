@@ -198,6 +198,10 @@ fuel上限，映射true/false/revert/trap且不发布state/effects。正式`eval
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现，formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
+slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
+经过任意PureCall frame成功返回后仍发布`initialized=true`。
+
 ## D2-07 reference Struct engineering status（2026-07-31）
 
 同一general-CFG Reference machine现支持Struct-only`Construct`/`FieldGet`/`FieldSet`。canonical
