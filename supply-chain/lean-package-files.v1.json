@@ -131,9 +131,9 @@
       "sha256": "d0405ea18a67b12d3d7b55e2e099aee39460575174ace704011ef065831cd81f"
     },
     {
-      "bytes": 68031,
+      "bytes": 68468,
       "path": "ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c",
-      "sha256": "f8f133a9792936cac3c5ab7a675303253d4c02079695274293e625661e5f440e"
+      "sha256": "8e779a252719d0ba54decc0944e32d071c09d1950a88bea7e64c90b3def4cba6"
     },
     {
       "bytes": 32817,

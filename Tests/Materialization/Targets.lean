@@ -1154,6 +1154,163 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
   expect (addUpNr.contents.contains "if " && addUpNr.contents.contains "assert(false)")
     "for-loop Noir source must render unrolled predicated ifs with the bound guard"
 
+/-- ProgramV1 BitLogic source text for the Wave H shift/bitwise/logical leaf. -/
+private def bitLogicSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program BitLogic where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+  "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+  "    return count\n" ++
+  "  entry bigShift(x : UInt64) : UInt64 do\n" ++
+  "    return x >> (32 + 32)\n" ++
+  "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+  "    return a > 0 && b > 0\n" ++
+  "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+  "    let one : UInt64 := 1\n" ++
+  "    return a > 0 || (one / b) == one\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 shift/bitwise/logical conformance: the same
+    BitLogic program lowers through all four capability Plans with exact
+    shift/bitwise trees, strict logical forms, and each emitter's guarded
+    shift and policy surfaces. -/
+private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    bitLogicSourceTextV1 "<targets-shift-bit>" "Tests.Targets.BitLogic" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["shiftMask", "bigShift", "both", "strictOr", "get"] &&
+      solana.entries.map (·.name) == #["shiftMask", "bigShift", "both", "strictOr", "get"] &&
+      near.entries.map (·.name) == #["shiftMask", "bigShift", "both", "strictOr", "get"])
+    "all three account-model targets must carry the five callables in source order"
+  expect (noir.relations.map (·.name) ==
+      #["init", "shiftMask", "bigShift", "both", "strictOr", "get"])
+    "Noir relations must be init/shiftMask/bigShift/both/strictOr/get in source order"
+
+  expect (evm.entries[0]!.body == #[
+      .store {
+        slot := 0
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 0) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 0) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.storageLoad 0)])
+    "EVM shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
+  expect (evm.entries[3]!.body == #[
+      .returnValue (.logicalOr (.compare .gt (.param 0) (.literal 0))
+        (.compare .eq (.checkedDiv (.literal 1) (.param 1)) (.literal 1)))])
+    "EVM strictOr must evaluate both sides (gt/div/eq under logicalOr)"
+  expect (solana.entries[0]!.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 8) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 8) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.stateLoad 0 8)])
+    "Solana shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
+  expect (near.entries[0]!.body == #[
+      .store {
+        fieldIndex := 0
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 0) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 0) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.stateLoad 0)])
+    "NEAR shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
+  expect (noir.relations[1]!.body == #[
+      .store {
+        fieldIndex := 0
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 2) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 2) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.stateLoad 0)])
+    "Noir shiftMask must lower (x << 2) & 15 | (x >> 1) ^ 3 into the exact tree"
+  -- Computed counts reach the shift everywhere (invalidShift is runtime-live).
+  match evm.entries[1]!.body[0]? with
+  | some (stmt : Targets.Evm.Statement) =>
+      match stmt with
+      | .returnValue (.shr _ (.checkedAdd ..)) => pure ()
+      | _ => throw <| IO.userError "EVM bigShift must keep a computed count"
+  | none => throw <| IO.userError "EVM bigShift body is empty"
+  match near.entries[1]!.body[0]? with
+  | some (stmt : Targets.Near.Statement) =>
+      match stmt with
+      | .returnValue (.shr _ (.checkedAdd ..)) => pure ()
+      | _ => throw <| IO.userError "NEAR bigShift must keep a computed count"
+  | none => throw <| IO.userError "NEAR bigShift body is empty"
+
+  liftResult <| Targets.Evm.validatePlan evm
+  liftResult <| Targets.Solana.validatePlan solana
+  liftResult <| Targets.Near.validatePlan near
+  let noirIR ← liftResult <| irNoir compiled
+  liftResult <| Targets.Noir.validateIR noirIR
+  let maskOps := noirIR.relations[1]!.operations
+  expect (maskOps.any fun op => match op with
+      | .checkedMul _ _ (.literal 4) => true | _ => false &&
+    maskOps.any fun op => match op with
+      | .checkedDiv _ _ (.literal 2) => true | _ => false)
+    "Noir shiftMask must lower shifts to multiply/divide by 2^k"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some yulFile := evmOutput.files.find? (·.path == "BitLogic.yul") |
+    throw <| IO.userError "shift-bit: missing BitLogic.yul"
+  expect (yulFile.contents.contains "shl(" && yulFile.contents.contains "shr(" &&
+      yulFile.contents.contains "and(" && yulFile.contents.contains "xor(" &&
+      yulFile.contents.contains "or(" && yulFile.contents.contains "revert(0, 0)")
+    "shift-bit Yul must render shl/shr/and/xor/or with revert guards"
+  let some sbpf := solanaOutput.files.find? (·.path == "BitLogic.sbpf-plan") |
+    throw <| IO.userError "shift-bit: missing BitLogic.sbpf-plan"
+  expect (sbpf.contents.contains "bitand_u64" && sbpf.contents.contains "bitor_u64" &&
+      sbpf.contents.contains "bitxor_u64" && sbpf.contents.contains "shl_u64" &&
+      sbpf.contents.contains "shr_u64" && sbpf.contents.contains "bool_and" &&
+      sbpf.contents.contains "bool_or" && sbpf.contents.contains "0x1004")
+    "shift-bit sbpf-plan must render the five op families with the invalidShift code"
+  let some wat := nearOutput.files.find? (·.path == "BitLogic.wat") |
+    throw <| IO.userError "shift-bit: missing BitLogic.wat"
+  expect (wat.contents.contains "i64.shl" && wat.contents.contains "i64.shr_u" &&
+      wat.contents.contains "i64.and" && wat.contents.contains "i64.xor" &&
+      wat.contents.contains "i64.or" && wat.contents.contains "unreachable")
+    "shift-bit WAT must render i64 ops with trap guards"
+  let some maskNr := noirOutput.files.find?
+      (·.path == "relations/r1-shiftMask/src/main.nr") |
+    throw <| IO.userError "shift-bit: missing Noir shiftMask relation"
+  expect (maskNr.contents.contains " * 4;" && maskNr.contents.contains " / 2;" &&
+      maskNr.contents.contains " & " && maskNr.contents.contains " | " &&
+      maskNr.contents.contains " ^ ")
+    "shift-bit Noir source must render multiply/divide by 2^k and native bitwise ops"
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
@@ -1166,6 +1323,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testFnLocalCallSemanticPlans
   testArithOpsSemanticPlans
   testForLoopSemanticPlans
+  testShiftBitwiseLogicalSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=

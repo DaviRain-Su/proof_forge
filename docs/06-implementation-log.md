@@ -12,6 +12,24 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — S1 Normalize 扩面：shift/bitwise/logical 二元（`<<`/`>>`/`&`/`^`/`|`/`&&`/`||`）贯穿四 target
+
+- Context/State：formal D1–D4 仍为 0/27 done。承接 let/for 扩面，本切片把 ProgramV1 移位、位运算与严格逻辑二元贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理审计时发现 **UInt32 计算计数**缺口并恢复两路 worker 补齐（EVM/Solana），Noir lane 由主代理串行实现。
+- Shared core（主代理）：wire `BinaryOpV1` 已有全部七 op 且 ReferenceV1 已定义精确语义（`.and`/`.or` 严格 Bool；bitwise 同宽 UInt；**shift rhs 必须 UInt32**、count ≥ width → `.invalidShift`、shl 结果越界 → `.arithmeticOverflow`）；Normalize 扩 `.binary`：bitwise 与算术共享同宽路径（requireExpectedUIntWidth：UInt64/UInt32）、shift lhs UInt64 + **rhs UInt32（包络内唯一 UInt32 上下文，首次使用 intern）**、logical 严格 Bool（无短路）；整数字面量泛化为宽度感知（UInt64/UInt32，encodeU32le 四字节）；ProvenanceV1 同步七 op；CheckV1 静态拒绝字面量 count ≥ 64（运行时 invalidShift 只能经**计算 count** 如 `(32 + 32)` 到达）；测试固定 op/type pins（唯一匿名 UInt32 decl、四字节 count literal、strictOr 双侧求值 op 序）、typed-not-ok 负例（UInt64 逻辑操作数、UInt64 shift count）与 Reference traces（shiftMask=9、shl overflow、invalidShift、strict truth table、`true || (one/0==one)` div-by-zero revert 证明严格求值）。
+- EVM lane（worker + 计算计数补齐，主代理审计集成）：Yul `and/or/xor`（无需 guard）、shl `if iszero(lt(k, 64)) { revert(0,0) }` + `if gt(t, 0xffffffffffffffff) { revert(0,0) }`、shr 仅 count guard、逻辑 `and/or`（0/1 字）；`admitUIntWidthResultTypeV1` 让 UInt32 算术按 wire 宽度接入（u64 opcode 保守超集：u32 溢出值只能流向 count guard，invalidShift 与 arithmeticOverflow 同归于 revert）。
+- Solana lane（worker + 补齐）：`bitand_u64`/`bitor_u64`/`bitxor_u64`、`shl_u64 … else 0x1004 else 0x1001`（新增 `invalidShiftError = 0x1004` policy code，与算术/assert/loop-bound 域不相交）、`shr_u64 … else 0x1004`、`bool_and`/`bool_or`；IR `.checkedShl/.checkedShr` 双错误码验证。
+- NEAR lane（worker）：WAT count guard 先行（Wasm shift 静默 mask mod 64）+ shl overflow round-trip guard + shr_u；`i64.and/xor/or` 位运算与 0/1 逻辑；UInt32 算术以 u64 opcode 保守超集接入；host model invalid shift/overflow trap 与 strict 语义。
+- Noir lane（主代理）：**移位按常数折叠**（UInt32 值在包络内只来自字面量算术）——count < 64 渲染字面 assert 后 `shl ≡ x * 2^k`（checked u64 mul 承载 overflow）与 `shr ≡ x / 2^k`；count ≥ 64 渲染字面 false 约束（不可满足，精确镜像 invalidShift）；静态已知的 u32 溢出 count 表达式 fail closed；bitwise/strict Bool 为原生 u64/bool op；relation model 精确步进；shiftMask/both/strictOr 产品路径与 `.nr` 表面固定。
+- 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testShiftBitwiseLogicalSemanticPlans` 接入 `runSemanticPlanLeafFast`——四 target 同一 BitLogic 精确 expr 树（shiftMask 与 strictOr）、computed count（`(32+32)`）四处可达、Noir guard+2^k pin、四 emitter 文本（Yul `shl(/shr(/and(/xor(/or(`+revert guard、sbpf 五族+`0x1004`、WAT `i64.shl/i64.shr_u/i64.and/i64.xor/i64.or/unreachable`、`.nr` ` * 4;`/` / 2;`+原生位运算）。
+- Verification：共享核心与四 lane focused build/test 各自绿（worker 在隔离 worktree 自验；主代理逐一审计 diff：文件集合精确、无 fallback/adapter/residual、渲染形态与简报一致）；集成后 `proof_forge_next_fast_tests` 与 `proof_forge_next_tests` 全绿；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。**2026-07-31 复核修正**：主代理全量审计复跑 `just ci` 时发现 NEAR lane 的 `makeBinaryTreeValueKindsV1` 共享树重构（kinds 参数化，支撑 UInt32 shift-count）使 `s1-target-semantic-plan-deletion-gate` 的 helper 名模式失配——expandedNodes 有界成本公式仍保留在共享 helper 内、不变量未变，仅 gate 模式未随重构更新；已把该 helper 纳入 gate 模式并重跑 `just ci` 与 `just dev-check` 全绿。这些结果不是 formal/hermetic evidence。
+- Boundary：shift count 限 UInt32（param/state/let 仍 UInt64-only，u32 值仅存在于 shift-count 表达式）；逻辑 op 严格无短路（要短路用嵌套 if）；静态已知 u32 溢出 count 在 Noir fail closed（其余 target 经 count guard 运行时可判）；`call`/`schedule`、assert-else、aggregates、Int/Field/Principal 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+
+## 2026-07-31 — 环境修复：macOS 26.4（Darwin 25.4）zombie 进程组 EPERM 导致 supervisor 全线误报
+
+- 现象：本机升级 macOS 26.4.1 后，B11b1/B11b2 worker supervisor 的 RESPONSE 路径在 cleanup 阶段被稳定改写为 `supervisorFault`（counter transport、产品 CLI `build-counter` 全部 PF-FRONTEND-PROTOCOL fail closed）。逐层 fprintf 定位链：worker 正常响应退出（exit 0、pipes drained、决策=RESPONSE）→ cleanup 组杀 `kill(-pgid, SIGKILL)` 对**仅剩 zombie 的进程组**在新内核上返回 `EPERM`（旧内核 0/ESRCH）→ 既有 `errno != ESRCH` 容忍表未覆盖 → 事件改写 FAULT。已用独立 C 复现该内核行为。
+- 修复：cleanup 组杀容忍表扩为 `errno != ESRCH && errno != EPERM`——完整性仍由后续 `pf_count_other_pgroup` 采样把关（EPERM 若真意味着有杀不掉的活成员，other>0 照样 INCOMPLETE fail closed），容忍不可能产出假 COMPLETE。另把 ambient-fd 探针脚本去括号子shell（dash fork 出的瞬时第二进程会被 10ms group sampler 计入 maxProcesses=1），断言语义不变。
+- 性质：宿主环境兼容修复（非产品语义变化）；supervisor suite 与产品 CLI 在新内核恢复全绿；`just sbom-package-files-refresh` 已随 native `.c` 变更刷新 package pin。
+
 ## 2026-07-30 — D1 engineering gap：Linux development-observed frontend supervisor
 
 - Context/State：远端 general CFG walker lineage保持D2唯一权威；本独立切片只补Linux ordinary-development frontend product path，不关闭formal TASK-D1-08、TST-RESOURCE-001或D1 milestone。

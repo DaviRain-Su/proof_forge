@@ -727,9 +727,11 @@ s1-target-semantic-plan-deletion-gate:
       rg -q 'expandedNodes' "$source"
       rg -q 'consumeCurrentSegmentV1' "$source"
       # checked-arithmetic bounded expanded-tree cost must survive either inline
-      # (Noir) or behind a shared binary-tree helper (Solana/Near refactor).
-      rg -Uq '(?s)(makeCheckedAddValueV1|makeBinaryTreeValueV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
-      rg -Uq '(?s)(makeCheckedSubValueV1|makeBinaryTreeValueV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
+      # (Noir) or behind a shared binary-tree helper (Solana/Near refactor;
+      # Near's Wave H lane generalizes the shared helper to
+      # makeBinaryTreeValueKindsV1 for UInt32 shift-count operand kinds).
+      rg -Uq '(?s)(makeCheckedAddValueV1|makeBinaryTreeValueV1|makeBinaryTreeValueKindsV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
+      rg -Uq '(?s)(makeCheckedSubValueV1|makeBinaryTreeValueV1|makeBinaryTreeValueKindsV1).*?expandedNodes := 1 \+ lhs\.expandedNodes \+ rhs\.expandedNodes' "$source"
       rg -q 'makeCheckedAddValueV1' "$source"
       rg -q 'makeCheckedSubValueV1' "$source"
       # Wave C: per-block lowering (reached from lowerCallableV1 via

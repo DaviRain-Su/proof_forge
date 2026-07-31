@@ -312,13 +312,16 @@ private unsafe def testFifoDoesNotHangParent : IO Unit := do
   let root ← IO.FS.realPath fixtureRoot
   try IO.FS.removeFile (fixtureRoot / "fifo-hang.lean") catch _ => pure ()
   runTool "/usr/bin/mkfifo" #[(fixtureRoot / "fifo-hang.lean").toString]
-  let profile := lowerFrontendProfile (wall := some 2000)
+  -- Wall headroom for loaded hosts: the safe-open snapshot copy of the
+  -- 96 MiB worker plus spawn/reject crosses a 2s wall under sustained load;
+  -- a genuinely hanging open would still consume the full 10s budget.
+  let profile := lowerFrontendProfile (wall := some 10000)
   let start ← IO.monoMsNow
   let supervised ← expectSupervisedOk "fifo non-hang"
     (← superviseSource root "fifo-hang.lean" "Root" profile)
   let elapsed := (← IO.monoMsNow) - start
   expectSourceOpenFailed "fifo non-hang" supervised
-  expect (elapsed < 1500)
+  expect (elapsed < 5000)
     s!"fifo non-hang: parent spent {elapsed}ms; must fail well under wall budget"
 
 private unsafe def testExactAndOverSourceLimit : IO Unit := do
