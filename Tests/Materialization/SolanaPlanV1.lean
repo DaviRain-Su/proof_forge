@@ -1448,6 +1448,60 @@ private unsafe def testShiftBitwiseLogical
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
 
+/-- Wave I: Solana declines external call and workflow schedule at the S2
+    requirement resolver (no address-bearing type for CPI program ids in the
+    UInt64 envelope). Compile succeeds; build selection succeeds; capability
+    resolve fails closed with PF-REQ-UNSUPPORTED before any Solana lowering.
+    Defensive planInvariant arms in `lowerBlockInstructionsV1` cover hand-built
+    Semantic carriers, but the product path never reaches them for these ops. -/
+private unsafe def testExternalCallGate
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let callText := wrapProgram "CallGate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let callCompiled ← compileSource session callText
+    "Examples.CallGate" "<solana-call-gate>"
+  let callSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"call gate: expected PF-REQ-UNSUPPORTED, got {e.render}"
+      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
+        s!"call gate: PF-REQ-UNSUPPORTED rendering must be code-prefixed, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "call gate: Solana must reject effect.synchronous-call at resolveEngineeringRequirementsV1"
+
+  let scheduleText := wrapProgram "ScheduleGate" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let scheduleCompiled ← compileSource session scheduleText
+    "Examples.ScheduleGate" "<solana-schedule-gate>"
+  let scheduleSelection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
+  match Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"schedule gate: expected PF-REQ-UNSUPPORTED, got {e.render}"
+      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
+        s!"schedule gate: PF-REQ-UNSUPPORTED rendering must be code-prefixed, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "schedule gate: Solana must reject effect.asynchronous-workflow at resolveEngineeringRequirementsV1"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1475,6 +1529,7 @@ unsafe def run : IO Unit := do
   testArithOps session
   testForLoop session
   testShiftBitwiseLogical session
+  testExternalCallGate session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1
