@@ -143,7 +143,14 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > 不再让`blocks=[]`经reachability/fuel检查vacuously通过；lower invariant machine按冻结公式实际扣除
 > root frame entry与每次PureCall callee frame entry，并继续与instruction/terminator共享唯一fuel。
 > tests固定empty entry/view/invariant CFG拒绝、单empty-instruction block正向，以及exact 3/6 fuel成功、
-> 防御性降为2/5后trap。正式`evalInvariantV1`仍未定义。
+> 防御性降为2/5后trap。
+
+> public `InvariantABI` façade现直接拥有SPEC exact `evalInvariantV1`与`InvariantTheoremV1`声明。
+> evaluator按carrier validation→ordinal→initialized canonical state→selected callable执行，复用
+> `runInvariantCallableV1`且不调用engineering admission/general step/外部输入；invalid program/ordinal/
+> state/closure与machine fault均total映射trap，checked failure映射reverted。suite固定two-ordinal
+> true/false、PureCall、revert/trap、malformed program/state、无关Principal与definitional theorem shape。
+> formal TASK-D2-07/TST-SEM-002/003仍需独立canonical corpus/evidence，不能仅凭API实现标done。
 
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 

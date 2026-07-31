@@ -54,6 +54,20 @@ normative: false
   防御性降为2/5均trap，后者可区分漏扣callee entry。数值/Field/op surface不变；正式public
   `evalInvariantV1`与theorem仍未在本切片定义。
 
+## 2026-07-31 — D2-07 public invariant ABI implementation
+
+- Ownership/API：public `ProofForgeV2.Semantic.InvariantABI` façade直接定义SPEC exact
+  `evalInvariantV1(program, invariantOrdinal, state)`与`InvariantTheoremV1` proposition；foundation继续
+  只拥有state carrier/codec/StateConforms，依赖保持foundation→lower machine→public façade无环。
+- Evaluation：依次validate canonical carrier、ordinal、initialized canonical state，再按exact
+  InvariantDecl callableId委托`runInvariantCallableV1`。不调用engineering admission、ordinary step、
+  external responses或effect buffer；true/false/revert/trap保持closed total mapping。
+- Tests：固定two-ordinal true/false、PureCall closure、checked revert、explicit trap、OOR、uninitialized/
+  malformed/trailing/noncanonical state、malformed/noncanonical carrier、无关Principal declaration与
+  deterministic repeat；`Iff.rfl`固定theorem exact definitional proposition shape。
+- Boundary：本切片实现ABI，不把engineering suite冒充formal TST-SEM-002/003 corpus/evidence，
+  TASK-D2-07仍待canonical trace/property corpus与正式资格条件完成。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

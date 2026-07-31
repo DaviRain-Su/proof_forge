@@ -5,8 +5,8 @@ import ProofForgeV2.Semantic.WireV1
 
   Defines the foundation declarations in their public
   `ProofForgeV2.Semantic.InvariantABI` namespace so the `InvariantABI` façade
-  can later own `evalInvariantV1` without creating an import cycle through the
-  reference machine.
+  owns `evalInvariantV1` without creating an import cycle through the reference
+  machine.
 
   Engineering subset only:
     * carrier validation via `validateSemanticProgramV1`
@@ -17,7 +17,8 @@ import ProofForgeV2.Semantic.WireV1
     * additive decode/encode helpers for ReferenceV1
 
   Internal implementation module; consumers import `InvariantABI`.
-  Does not implement `evalInvariantV1` / `InvariantTheoremV1` (later slice).
+  Does not itself implement `evalInvariantV1` / `InvariantTheoremV1`; the
+  public InvariantABI façade owns those declarations.
   No partial / unsafe / IO.
 -/
 

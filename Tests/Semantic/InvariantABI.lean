@@ -1,6 +1,6 @@
 /-
-  Tests.Semantic.InvariantABI — engineering suite for D2-07 LogicalState /
-  StateConforms foundation (`ProofForgeV2.Semantic.InvariantABI`).
+  Tests.Semantic.InvariantABI — engineering suite for the D2-07 public
+  invariant ABI (`ProofForgeV2.Semantic.InvariantABI`).
 
   Engineering only (not formal TST-SEM / TASK-D2-07). Pins:
     * `defaultValueV1` for every TypeShapeV1
@@ -9,6 +9,8 @@
     * `decodeLogicalStateValuesV1` / `encodeLogicalStateValuesV1` roundtrip
     * representative decode/encode negatives (missing slot, short length,
       trailing, noncanonical Bool/Option/Field)
+    * public evalInvariantV1 ordinal/state/closure/result/fail-closed behavior
+    * exact definitional InvariantTheoremV1 proposition shape
     * deterministic repeat
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
@@ -24,7 +26,16 @@ set_option maxRecDepth 4096
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
+
+/-! The public theorem ABI is deliberately pinned as a definitional alias,
+not merely as a logically equivalent proposition assembled by this suite. -/
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1) :
+    InvariantTheoremV1 program ordinal ↔
+      (ordinal.toNat < program.invariants.size ∧
+        ∀ state : LogicalStateV1, StateConformsV1 program state →
+          evalInvariantV1 program ordinal state = .returnedTrue) := Iff.rfl
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -107,6 +118,33 @@ private def mkInit
     loopBounds := #[]
     invariantSteps := none
   }
+
+private def valueDef (id : Nat) (typeId : TypeIdV1) : ValueDefV1 :=
+  { valueId := UInt32.ofNat id, typeId }
+
+private def instruction (result : Option ValueDefV1) (op : SemanticOpV1) : InstructionV1 :=
+  { result, op }
+
+private def invariantCallable (id : CallableIdV1) (name : String)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (steps : Nat) : CallableV1 := {
+  id
+  kind := .invariant
+  name := some name
+  params := #[]
+  result := { typeId := 0, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[{ id := 0, params := #[], instructions, terminator }]
+  loopBounds := #[]
+  invariantSteps := some (UInt64.ofNat steps)
+}
+
+private def boolLiteral (id : Nat) (value : Bool) : InstructionV1 :=
+  instruction (some (valueDef id 0))
+    (.literal 0 (ByteArray.mk #[if value then 1 else 0]))
+
+private def evalState : LogicalStateV1 :=
+  { initialized := true, canonicalValues := ByteArray.empty }
 
 /--
   Named Struct/Enum occupy types[0..1); anonymous leaves/containers follow
@@ -482,6 +520,112 @@ private def testDecodeEncodeNegatives : IO Unit := do
   expect (stateConformsBoolV1 carrier badBoolFramed == false)
     "conforms: noncanonical → false"
 
+/-! ### public evalInvariantV1 ABI -/
+
+private def testEvalInvariantABI : IO Unit := do
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    -- Deliberately unrelated to either selected invariant. Whole-program
+    -- engineering admission rejects Principal, whereas the public evaluator
+    -- is selected-root/closure scoped.
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let gate := entryGate 0 2
+  let trueInstruction := boolLiteral 0 true
+  let leafBlock : BlockV1 := {
+    id := 0
+    params := #[]
+    instructions := #[trueInstruction]
+    terminator := .return_ (some 0)
+  }
+  let leaf : CallableV1 := {
+    id := 1, kind := .pureFn, name := some "truthLeaf", params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[leafBlock]
+    loopBounds := #[]
+    invariantSteps := some 3
+  }
+  -- root cost 1 + PureCall + return + leaf(3) = 6.
+  let truth := invariantCallable 2 "truth"
+    #[instruction (some (valueDef 0 0)) (.pureCall 1 #[])]
+    (.return_ (some 0)) 6
+  let falsehood := invariantCallable 3 "falsehood" #[boolLiteral 0 false]
+    (.return_ (some 0)) 3
+  let base ← emptyData "PublicInvariantABI"
+  let carrier ← encodeCarrier "public-invariant-abi" {
+    base with
+    types
+    logicalState := #[{ id := 0, name := "flag", typeId := 0, visibility := .public_ }]
+    callables := #[gate, leaf, truth, falsehood]
+    invariants := #[
+      { id := 0, name := "truth", callableId := 2 },
+      { id := 1, name := "falsehood", callableId := 3 }
+    ]
+  }
+  let selectedState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[0]) }
+  expect (evalInvariantV1 carrier 0 selectedState == .returnedTrue)
+    "ordinal 0: selected invariant returns true through PureCall closure"
+  expect (evalInvariantV1 carrier 1 selectedState == .returnedFalse)
+    "ordinal 1: selected invariant returns false"
+  expect (evalInvariantV1 carrier 2 selectedState == .trapped)
+    "out-of-range invariant ordinal maps to trapped"
+  match admitReferenceProgramSliceV1 carrier with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError (
+      "unrelated Principal declaration must remain outside whole-program engineering admission")
+
+  let runTerminal (label name : String) (root : CallableV1)
+      (want : InvariantEvalResultV1) : IO Unit := do
+    let terminalBase ← emptyData name
+    let terminalCarrier ← encodeCarrier label {
+      terminalBase with
+      types := #[{ id := 0, name := none, shape := .bool },
+                 { id := 1, name := none, shape := .unit }]
+      callables := #[entryGate 0 1, root]
+      invariants := #[{ id := 0, name, callableId := 1 }]
+    }
+    expect (evalInvariantV1 terminalCarrier 0 evalState == want)
+      s!"{label}: terminal result mapping"
+  runTerminal "checked-failure" "checkedFailure"
+    (invariantCallable 1 "checkedFailure"
+      #[boolLiteral 0 false, instruction none (.assert_ 0 none #[])]
+      (.return_ (some 0)) 4) .reverted
+  runTerminal "explicit-trap" "explicitTrap"
+    (invariantCallable 1 "explicitTrap" #[] (.trap .unreachable) 2) .trapped
+
+  let uninitialized : LogicalStateV1 := { selectedState with initialized := false }
+  let malformed : LogicalStateV1 :=
+    { initialized := true, canonicalValues := ByteArray.mk #[0] }
+  let trailingBytes := selectedState.canonicalValues.append (ByteArray.mk #[0xff])
+  let trailing : LogicalStateV1 :=
+    { initialized := true, canonicalValues := trailingBytes }
+  let noncanonicalBytes := (u32le 1).append (ByteArray.mk #[2])
+  let noncanonical : LogicalStateV1 :=
+    { initialized := true, canonicalValues := noncanonicalBytes }
+  let badStates : Array (String × LogicalStateV1) := #[
+    ("uninitialized", uninitialized), ("malformed", malformed),
+    ("trailing", trailing), ("noncanonical", noncanonical)]
+  for pair in badStates do
+    expect (evalInvariantV1 carrier 0 pair.2 == .trapped)
+      s!"{pair.1} state maps to trapped"
+
+  -- The carrier representation is public, but validation remains fail closed.
+  let malformedProgram : SemanticProgramV1 := ⟨ByteArray.empty⟩
+  let noncanonicalProgram : SemanticProgramV1 :=
+    ⟨carrier.canonicalBytes.append (ByteArray.mk #[0])⟩
+  expect (evalInvariantV1 malformedProgram 0 selectedState == .trapped)
+    "malformed program carrier maps to trapped"
+  expect (evalInvariantV1 noncanonicalProgram 0 selectedState == .trapped)
+    "trailing/noncanonical program carrier maps to trapped"
+
+  let first := evalInvariantV1 carrier 0 selectedState
+  for _ in [:8] do
+    expect (evalInvariantV1 carrier 0 selectedState == first)
+      "public invariant evaluator deterministic repeat"
+
 /-! ### deterministic repeat -/
 
 private def testDeterministicRepeat : IO Unit := do
@@ -514,6 +658,7 @@ def run : IO Unit := do
   testStateConforms
   testDecodeEncodeRoundtrip
   testDecodeEncodeNegatives
+  testEvalInvariantABI
   testDeterministicRepeat
   IO.println "Tests.Semantic.InvariantABI: engineering suite finished"
 

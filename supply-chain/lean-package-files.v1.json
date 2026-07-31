@@ -211,14 +211,14 @@
       "sha256": "23c3b3881a6b2c9395c58f3ba116125df55243876bc226283a9526b2d149d4e3"
     },
     {
-      "bytes": 447,
+      "bytes": 1924,
       "path": "ProofForgeV2/Semantic/InvariantABI.lean",
-      "sha256": "fbdd1ce48ca2d5cd6f191195126827e52a801168fbe15773decf149f3e91be2d"
+      "sha256": "893d72ba1e958420f331f99ca30eb7fbca5acfd50f85f4b3f331bba7c6ef0f03"
     },
     {
-      "bytes": 9019,
+      "bytes": 9062,
       "path": "ProofForgeV2/Semantic/InvariantFoundationV1.lean",
-      "sha256": "7aa0dbdb4c3685e136dacb2c565b89309a13e270a7586d2c071faaf751909c3c"
+      "sha256": "7d0d4911fae19e97ec4f987c56f598584595bb7c531e96c065cbb0e6b5572552"
     },
     {
       "bytes": 75779,

@@ -236,6 +236,14 @@ fuel先扣root frame-entry，PureCall instruction扣除后再单独扣callee fra
 同一Nat fuel，不引入per-frame额度。测试以Wire-valid exact fuel 3/6成功和绕过Wire后仅将metadata降为
 2/5必trap固定防御行为。下一步可进入public `InvariantABI.evalInvariantV1`实现。
 
+public ABI切片已完成：`InvariantABI.lean`直接import lower machine并在唯一public namespace中定义exact
+`evalInvariantV1`与`InvariantTheoremV1`。evaluator只validate carrier一次，随后按ordinal选
+InvariantDecl、检查initialized canonical state并委托selected lower runner；不经过
+`admitReferenceProgramSliceV1`、ordinary `stepReferenceSliceV1`或external input。测试覆盖two ordinal
+true/false、PureCall、checked revert、explicit trap、OOR、malformed state/program、无关Principal及
+theorem proposition definitional shape。下一步是`InvariantTheoremV1`/TST-SEM-002/003 canonical corpus，
+formal TASK状态暂不提前关闭。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
