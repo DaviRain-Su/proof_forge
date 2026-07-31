@@ -24,71 +24,18 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .param wordIndex => if wordIndex < paramCount then some 1 else none
     | .temp _ => some 1
     | .storageLoad slot => if slots.contains slot then some 1 else none
-    | .checkedAdd lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .add lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedSub lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .compare _ lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedMul lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedDiv lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedMod lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
-    | .shl lhs rhs | .shr lhs rhs
+    | .checkedAdd lhs rhs | .narrowCheckedAdd _ lhs rhs
+    | .add lhs rhs
+    | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs
+    | .compare _ lhs rhs
+    | .checkedMul lhs rhs | .narrowCheckedMul _ lhs rhs
+    | .checkedDiv lhs rhs | .narrowCheckedDiv _ lhs rhs
+    | .checkedMod lhs rhs | .narrowCheckedMod _ lhs rhs
+    | .bitAnd lhs rhs | .narrowBitAnd _ lhs rhs
+    | .bitOr lhs rhs | .narrowBitOr _ lhs rhs
+    | .bitXor lhs rhs | .narrowBitXor _ lhs rhs
+    | .shl lhs rhs | .narrowShl _ lhs rhs
+    | .shr lhs rhs | .narrowShr _ lhs rhs
     | .logicalAnd lhs rhs | .logicalOr lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
@@ -98,13 +45,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? slots paramCount childDepth available fns operand with
-        | none => none
-        | some nodes => some (1 + nodes)
-    | .boolNot operand =>
+    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns operand with

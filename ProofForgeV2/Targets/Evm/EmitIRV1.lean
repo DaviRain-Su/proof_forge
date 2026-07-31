@@ -19,6 +19,16 @@ structure IR where
   yul : String
   abi : String
   deriving BEq, Inhabited, Repr
+
+/-- Yul mask for an admitted body UInt width (`2^w - 1` as hex literal). -/
+private def yulUintMask (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "0xff"
+  | 16 => "0xffff"
+  | 32 => "0xffffffff"
+  | 64 => "0xffffffffffffffff"
+  | _ => "0xffffffffffffffff"
+
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
     and checked overflow guards are not nested here — callers pre-render
@@ -28,11 +38,9 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .param wordIndex => s!"{paramPrefix}{wordIndex}"
   | .temp tempIndex => s!"t{tempIndex}"
   | .storageLoad slot => s!"sload({slot})"
-  | .checkedAdd lhs rhs =>
+  | .checkedAdd lhs rhs | .narrowCheckedAdd _ lhs rhs | .add lhs rhs =>
       s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .add lhs rhs =>
-      s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .checkedSub lhs rhs =>
+  | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs =>
       s!"sub({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .compare op lhs rhs =>
       let l := renderExprNested paramPrefix lhs
@@ -44,24 +52,26 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       | .le => s!"iszero(gt({l}, {r}))"
       | .gt => s!"gt({l}, {r})"
       | .ge => s!"iszero(lt({l}, {r}))"
-  | .checkedMul lhs rhs =>
+  | .checkedMul lhs rhs | .narrowCheckedMul _ lhs rhs =>
       s!"mul({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .checkedDiv lhs rhs =>
+  | .checkedDiv lhs rhs | .narrowCheckedDiv _ lhs rhs =>
       s!"div({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .checkedMod lhs rhs =>
+  | .checkedMod lhs rhs | .narrowCheckedMod _ lhs rhs =>
       s!"mod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .bitNot operand => s!"and(not({renderExprNested paramPrefix operand}), 0xffffffffffffffff)"
+  | .bitNot operand =>
+      s!"and(not({renderExprNested paramPrefix operand}), 0xffffffffffffffff)"
+  | .narrowBitNot bitWidth operand =>
+      s!"and(not({renderExprNested paramPrefix operand}), {yulUintMask bitWidth})"
   | .boolNot operand => s!"iszero({renderExprNested paramPrefix operand})"
-  | .bitAnd lhs rhs =>
+  | .bitAnd lhs rhs | .narrowBitAnd _ lhs rhs =>
       s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .bitOr lhs rhs =>
+  | .bitOr lhs rhs | .narrowBitOr _ lhs rhs =>
       s!"or({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .bitXor lhs rhs =>
+  | .bitXor lhs rhs | .narrowBitXor _ lhs rhs =>
       s!"xor({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  -- Nested form omits count/overflow guards (same discipline as checkedAdd).
-  | .shl lhs rhs =>
+  | .shl lhs rhs | .narrowShl _ lhs rhs =>
       s!"shl({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
-  | .shr lhs rhs =>
+  | .shr lhs rhs | .narrowShr _ lhs rhs =>
       s!"shr({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
   | .logicalAnd lhs rhs =>
       s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
@@ -71,6 +81,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       let argsJoined := String.intercalate ", "
         (args.toList.map (renderExprNested paramPrefix))
       s!"pf_fn{fnIndex}({argsJoined})"
+
 private structure RenderedExpr where
   code : String
   value : String
@@ -100,6 +111,15 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}if gt({lhs.value}, sub(0xffffffffffffffff, {rhs.value})) \{ revert(0, 0) }\n" ++
           s!"{indent}let {name} := add({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .narrowCheckedAdd bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if gt({lhs.value}, sub({mask}, {rhs.value})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := add({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
   | .add lhs rhs =>
       -- Unchecked add: only for bounded-for induction `i + 1` (cannot overflow).
       let lhs := renderExpr indent paramPrefix next lhs
@@ -109,6 +129,14 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}let {name} := add({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
   | .checkedSub lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if lt({lhs.value}, {rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := sub({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowCheckedSub _bitWidth lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
@@ -133,16 +161,28 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
-      -- Overflow guard: the mathematical product of two UInt64 words is
-      -- below 2^128, so a 256-bit Yul `mul` cannot wrap; checking the
-      -- result against the UInt64 ceiling is exact. (A round-trip
-      -- `div(product, lhs) == rhs` guard could never fire and silently
-      -- admitted e.g. 2^32 * 2^32 = 2^64.)
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := mul({lhs.value}, {rhs.value})\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := rhs.next + 1 }
+  | .narrowCheckedMul bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := mul({lhs.value}, {rhs.value})\n" ++
+          s!"{indent}if gt({name}, {mask}) \{ revert(0, 0) }\n",
+        value := name, next := rhs.next + 1 }
   | .checkedDiv lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := div({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowCheckedDiv _bitWidth lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
@@ -158,13 +198,26 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
           s!"{indent}let {name} := mod({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .narrowCheckedMod _bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := mod({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
   | .bitNot operand =>
       let operand := renderExpr indent paramPrefix next operand
       let name := s!"expr{operand.next}"
-      -- Yul `not` flips all 256 bits; mask back to the UInt64 word so
-      -- `~x = (2^64 - 1) - x` matches the reference semantics.
       { code := operand.code ++
           s!"{indent}let {name} := and(not({operand.value}), 0xffffffffffffffff)\n",
+        value := name, next := operand.next + 1 }
+  | .narrowBitNot bitWidth operand =>
+      let mask := yulUintMask bitWidth
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      { code := operand.code ++
+          s!"{indent}let {name} := and(not({operand.value}), {mask})\n",
         value := name, next := operand.next + 1 }
   | .boolNot operand =>
       let operand := renderExpr indent paramPrefix next operand
@@ -179,12 +232,28 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := and({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .narrowBitAnd bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := and(and({lhs.value}, {rhs.value}), {mask})\n",
+        value := name, next := rhs.next + 1 }
   | .bitOr lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := or({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowBitOr bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := and(or({lhs.value}, {rhs.value}), {mask})\n",
         value := name, next := rhs.next + 1 }
   | .bitXor lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
@@ -193,9 +262,15 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := xor({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .narrowBitXor bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := and(xor({lhs.value}, {rhs.value}), {mask})\n",
+        value := name, next := rhs.next + 1 }
   | .shl lhs rhs =>
-      -- Yul `shl(k, x)`: count first. Count ≥ 64 → invalidShift; result ≥ 2^64
-      -- → arithmeticOverflow. Inputs are already UInt64/UInt32-bounded words.
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
@@ -203,6 +278,16 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}if iszero(lt({rhs.value}, 64)) \{ revert(0, 0) }\n" ++
           s!"{indent}let {name} := shl({rhs.value}, {lhs.value})\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowShl bitWidth lhs rhs =>
+      let mask := yulUintMask bitWidth
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, {bitWidth})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := shl({rhs.value}, {lhs.value})\n" ++
+          s!"{indent}if gt({name}, {mask}) \{ revert(0, 0) }\n",
         value := name, next := rhs.next + 1 }
   | .shr lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
@@ -212,8 +297,15 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}if iszero(lt({rhs.value}, 64)) \{ revert(0, 0) }\n" ++
           s!"{indent}let {name} := shr({rhs.value}, {lhs.value})\n",
         value := name, next := rhs.next + 1 }
+  | .narrowShr bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, {bitWidth})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := shr({rhs.value}, {lhs.value})\n",
+        value := name, next := rhs.next + 1 }
   | .logicalAnd lhs rhs =>
-      -- Strict: both sides already materialised; 0/1 bitwise and == logical and.
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"

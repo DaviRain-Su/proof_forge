@@ -1352,11 +1352,12 @@ private unsafe def testShiftBitwiseLogical : IO Unit := do
     "strictOr must lower a > 0 || (one / b) == one to logicalOr(gt, eq(div))"
   let bigShift := plan.entries[3]!
   -- Computed UInt32 count: only way to reach invalidShift at runtime (CheckV1
-  -- rejects a literal count ≥ 64). Count is checkedAdd of two UInt32 lits.
+  -- rejects a literal count ≥ 64). UInt32 body arith uses narrowCheckedAdd 32
+  -- (T7 multi-width); UInt64 shr constructor is unchanged.
   expect (bigShift.body == #[
       .returnValue
-        (.shr (.param 0) (.checkedAdd (.literal 32) (.literal 32)))])
-    "bigShift must lower x >> (32 + 32) to shr(param, checkedAdd(32, 32))"
+        (.shr (.param 0) (.narrowCheckedAdd 32 (.literal 32) (.literal 32)))])
+    "bigShift must lower x >> (32 + 32) to shr(param, narrowCheckedAdd 32 (32, 32))"
   match Targets.Evm.validatePlan plan with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"BitLogic plan must validate: {e.render}"
@@ -1567,6 +1568,190 @@ private unsafe def testExternalCallGate : IO Unit := do
         "EVM resolveEngineeringRequirementsV1 must reject a program with schedule Ledger.daily"
   pure ()
 
+/-- Walk Plan Expr trees for a narrow UInt8 checked-add. -/
+private partial def exprHasNarrowCheckedAdd8 : Targets.Evm.Expr → Bool
+  | .narrowCheckedAdd 8 _ _ => true
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .compare _ l r | .bitAnd l r | .bitOr l r | .bitXor l r
+  | .shl l r | .shr l r | .logicalAnd l r | .logicalOr l r | .add l r =>
+      exprHasNarrowCheckedAdd8 l || exprHasNarrowCheckedAdd8 r
+  | .bitNot o | .boolNot o | .narrowBitNot _ o => exprHasNarrowCheckedAdd8 o
+  | .callFn _ args => args.any exprHasNarrowCheckedAdd8
+  | _ => false
+
+private partial def stmtHasNarrowCheckedAdd8 : Targets.Evm.Statement → Bool
+  | .store s => exprHasNarrowCheckedAdd8 s.value
+  | .returnValue e | .assert e => exprHasNarrowCheckedAdd8 e
+  | .ifThenElse c t e =>
+      exprHasNarrowCheckedAdd8 c || t.any stmtHasNarrowCheckedAdd8 ||
+        e.any stmtHasNarrowCheckedAdd8
+  | .switchOn s cs d =>
+      exprHasNarrowCheckedAdd8 s ||
+        cs.any (fun (_, b) => b.any stmtHasNarrowCheckedAdd8) ||
+        d.any stmtHasNarrowCheckedAdd8
+  | .forLoop _ _ _ i c u b =>
+      exprHasNarrowCheckedAdd8 i || exprHasNarrowCheckedAdd8 c ||
+        exprHasNarrowCheckedAdd8 u || b.any stmtHasNarrowCheckedAdd8
+  | .emitEvent _ args | .revertError _ args => args.any exprHasNarrowCheckedAdd8
+  | _ => false
+
+private partial def exprHasNarrowShl8 : Targets.Evm.Expr → Bool
+  | .narrowShl 8 _ _ => true
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
+  | .checkedAdd l r | .checkedSub l r | .compare _ l r | .shl l r | .shr l r
+  | .bitAnd l r | .bitOr l r | .bitXor l r | .logicalAnd l r | .logicalOr l r
+  | .add l r =>
+      exprHasNarrowShl8 l || exprHasNarrowShl8 r
+  | .bitNot o | .boolNot o | .narrowBitNot _ o => exprHasNarrowShl8 o
+  | .callFn _ args => args.any exprHasNarrowShl8
+  | _ => false
+
+private partial def stmtHasNarrowShl8 : Targets.Evm.Statement → Bool
+  | .store s => exprHasNarrowShl8 s.value
+  | .returnValue e | .assert e => exprHasNarrowShl8 e
+  | .ifThenElse c t e =>
+      exprHasNarrowShl8 c || t.any stmtHasNarrowShl8 || e.any stmtHasNarrowShl8
+  | _ => false
+
+/-- T7-EVM: body multi-width UInt8/16/32 lets + arith + compare; entry ABI stays UInt64. -/
+private unsafe def testBodyMultiWidthUInt : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BodyMw where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let a : UInt8 := 10\n" ++
+    "    let b : UInt8 := 20\n" ++
+    "    let c : UInt8 := a + b\n" ++
+    "    assert c > 5\n" ++
+    "    let d : UInt16 := 300\n" ++
+    "    let e : UInt16 := d - 1\n" ++
+    "    assert e > 0\n" ++
+    "    let f : UInt32 := 1000\n" ++
+    "    let g : UInt32 := f * 2\n" ++
+    "    assert g > 0\n" ++
+    "    return x\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load BodyMw" (← session.selectProgramV1
+    sourceText "<evm-body-mw>" "Tests.EvmBodyMw" none)
+  let compiled ← liftResult "compile BodyMw" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BodyMw" <| planEvm compiled
+  expect (plan.storageLayout.map (·.name) == #["count"])
+    "BodyMw state remains single UInt64 count"
+  let run := plan.entries[0]!
+  expect (run.resultKind == .uint64)
+    "BodyMw entry ABI result stays UInt64"
+  expect (run.body.any stmtHasNarrowCheckedAdd8)
+    "BodyMw plan must lower UInt8 add to narrowCheckedAdd 8"
+  let output ← liftResult "materialize BodyMw" <| materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "BodyMw missing yul"
+  expect (yul.contains "0xff")
+    "BodyMw Yul must emit UInt8 mask 0xff for narrow overflow/guards"
+  expect (yul.contains "0xffff")
+    "BodyMw Yul must emit UInt16 mask 0xffff"
+  expect (yul.contains "0xffffffff")
+    "BodyMw Yul must emit UInt32 mask 0xffffffff"
+  let abi ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "BodyMw missing abi"
+  expect (abi.contains "\"type\":\"uint64\"")
+    "BodyMw ABI must still use uint64 for state/entry surface"
+  expect (!(abi.contains "\"type\":\"uint8\""))
+    "BodyMw ABI must not expose body UInt8 types"
+
+/-- T7-EVM: UInt8 overflow lowers to narrowCheckedAdd and Yul reverts when sum > 0xff. -/
+private unsafe def testBodyUInt8OverflowPlan : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8Overflow where\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let a : UInt8 := 200\n" ++
+    "    let b : UInt8 := 100\n" ++
+    "    let c : UInt8 := a + b\n" ++
+    "    assert c > 0\n" ++
+    "    return x\n"
+  let source ← liftResult "load U8Overflow" (← session.selectProgramV1
+    sourceText "<evm-u8-ovf>" "Tests.EvmU8Ovf" none)
+  let compiled ← liftResult "compile U8Overflow" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan U8Overflow" <| planEvm compiled
+  let run := plan.entries[0]!
+  expect (run.body.any stmtHasNarrowCheckedAdd8)
+    "U8Overflow plan must contain narrowCheckedAdd 8"
+  let output ← liftResult "materialize U8Overflow" <| materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "U8Overflow missing yul"
+  expect (yul.contains "0xff" && yul.contains "revert(0, 0)")
+    "UInt8 overflow path must emit mask 0xff and revert"
+
+/-- T7-EVM: multi-width shift on UInt8 body value (count UInt32). -/
+private unsafe def testBodyMultiWidthShift : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BodyShift where\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let a : UInt8 := 3\n" ++
+    "    let b : UInt8 := a << 1\n" ++
+    "    assert b > 0\n" ++
+    "    return x\n"
+  let source ← liftResult "load BodyShift" (← session.selectProgramV1
+    sourceText "<evm-body-shift>" "Tests.EvmBodyShift" none)
+  let compiled ← liftResult "compile BodyShift" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BodyShift" <| planEvm compiled
+  let run := plan.entries[0]!
+  expect (run.body.any stmtHasNarrowShl8)
+    "BodyShift plan must contain narrowShl 8"
+  let output ← liftResult "materialize BodyShift" <| materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "BodyShift missing yul"
+  expect (yul.contains "lt(" && yul.contains "8")
+    "BodyShift Yul must guard shift count against width 8"
+
+/-- T7-EVM: UInt8 state is still rejected (ABI/storage remain UInt64-only). -/
+private unsafe def testUInt8StateRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8State where\n" ++
+    "  state flag : UInt8\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  let source ← liftResult "load U8State" (← session.selectProgramV1
+    sourceText "<evm-u8-state>" "Tests.EvmU8State" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "UInt64" || e.render.contains "public" ||
+              e.render.contains "state")
+            s!"UInt8 state must fail at EVM plan with UInt64/state detail, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "EVM plan must reject UInt8 state (ABI/storage UInt64-only)"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -1592,6 +1777,10 @@ unsafe def run : IO Unit := do
   testRegionValidationNegatives
   testComparisonNegatives
   testExternalCallGate
+  testBodyMultiWidthUInt
+  testBodyUInt8OverflowPlan
+  testBodyMultiWidthShift
+  testUInt8StateRejected
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

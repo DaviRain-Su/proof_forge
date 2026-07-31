@@ -42,8 +42,13 @@ inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
 
-/-- EVM scalar expression for the Phase-1 UInt64 fragment. Storage slots and
-ABI word positions have already been selected by the plan builder. -/
+/-- EVM scalar expression for the Phase-1 UInt fragment. Storage slots and
+ABI word positions have already been selected by the plan builder.
+
+Historical constructors (`checkedAdd`, `bitNot`, `shl`, …) are **UInt64-width**
+and keep hand-built Plan goldens byte-identical. Narrow body widths
+(`bitWidth ∈ {8,16,32}`) use the parallel `narrow*` constructors so Yul can
+emit width-correct overflow/shift/mask guards without rewriting UInt64 paths. -/
 inductive Expr where
   | literal (value : UInt64)
   | param (wordIndex : Nat)
@@ -63,7 +68,7 @@ inductive Expr where
   /-- Unchecked UInt64 add. Only admitted for the bounded-for induction step
   `i + 1`, which cannot overflow: the body runs only while `i < end ≤ UInt64.max`. -/
   | add (lhs rhs : Expr)
-  /-- Bitwise not on a UInt64 operand (`Yul not`). -/
+  /-- Bitwise not on a UInt64 operand (`Yul not` + 64-bit mask). -/
   | bitNot (operand : Expr)
   /-- Logical not on a Bool operand (`Yul iszero`). -/
   | boolNot (operand : Expr)
@@ -86,6 +91,20 @@ inductive Expr where
   Result kind is the callee's declared result (UInt64 or Bool). Not an effect
   boundary — stays inside a value segment like checkedAdd. -/
   | callFn (fnIndex : Nat) (args : Array Expr)
+  /-- Checked add at `bitWidth ∈ {8,16,32}` (body multi-width). -/
+  | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitAnd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitOr (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitXor (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitNot (bitWidth : Nat) (operand : Expr)
+  /-- Left shift of a narrow UInt value; count is UInt32; reverts when
+  `count ≥ bitWidth` or the shifted result exceeds the width mask. -/
+  | narrowShl (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowShr (bitWidth : Nat) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -199,21 +218,20 @@ def validSelector (selector : String) : Bool :=
     "0123456789abcdef".contains character)
 
 /-- EVM pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool/UInt32 optional; state/params remain UInt64-only. -/
+    Bool + UInt8/16/32 optional; state/params remain UInt64-only. -/
 private abbrev EvmTypeClosureV1 := PilotTypeClosureV1
 
 private def evmPlanErr (message : String) : CompileError :=
   .planInvariant .evm message
 
-/-- EVM pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
-    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
-    SemanticProgramV1 programs fail at the target Plan seam rather than being
-    silently erased. Bool is optional (at most one): admitted as body intermediate
-    values and as entry/view results. UInt32 is optional (at most one): admitted
-    only as shift-count literals/intermediates. State/params remain UInt64-only. -/
+/-- EVM pilot admits anonymous UInt{8,16,32,64} + Unit + Bool under
+    `pilotUintWidthPolicyEvmBody`. Body multi-width values (lets, arith,
+    comparisons, shifts) are allowed; **state and ABI parameters stay
+    public UInt64** via `requirePublicUInt64*`. UInt128/256/Int fail closed. -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
+    pilotUintWidthPolicyEvmBody
 
 private def makeStorageLayoutV1
     (uint64TypeId : TypeIdV1)
@@ -240,9 +258,10 @@ private structure LoweredValueV1 where
   expandedNodes : Nat
   dependencies : Array ValueIdV1
   /-- Defensive kind bit: true for comparison/logical results and Bool
-  literals only. State loads, params, UInt32 shift counts, arithmetic,
-  bitwise, and shifts are always false. -/
+  literals only. State loads, params, UInt arithmetic/bitwise/shift are false. -/
   isBool : Bool
+  /-- Bit width of non-Bool values: 8/16/32/64. Bool uses 1. -/
+  bitWidth : Nat := 64
   deriving Inhabited
 
 private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
@@ -272,6 +291,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
       expandedNodes := 1
       dependencies := #[]
       isBool := false
+      bitWidth := 64
     }
   return (planned, values)
 
@@ -321,20 +341,27 @@ private def currentValueWithArmsV1
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-/-- Shared bounded SSA-tree cost for binary Expr constructors. `isBool` tags
-    comparison results; arithmetic/bitwise are UInt64 or (shift-count only)
-    UInt32; shifts are UInt64. Operands must be non-Bool. UInt32 arithmetic
-    reuses the UInt64 Yul forms: a true u32 wrap (≥ 2^32) can only flow into a
-    shift count in this envelope, where `lt(k, 64)` reverts as invalidShift
-    (not arithmeticOverflow) — both paths fail closed. -/
+/-- Admitted body UInt widths for EVM Yul (state/ABI remain 64-only). -/
+private def isEvmBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+/-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
+    be non-Bool and share `bitWidth`. Comparison results are Bool (`bitWidth=1`). -/
 private def makeBinaryTreeValueV1
     (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1)
-    (isBool : Bool) : CompileResult LoweredValueV1 := do
+    (isBool : Bool)
+    (resultBitWidth : Nat) : CompileResult LoweredValueV1 := do
   unless !lhs.isBool && !rhs.isBool do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: binary operands must be UInt64"
+      "unsupported EVM semantic shape: binary operands must be UInt"
+  unless isBool || (lhs.bitWidth == rhs.bitWidth && lhs.bitWidth == resultBitWidth) do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: binary operands must share UInt width"
+  unless isBool || isEvmBodyUintWidth resultBitWidth do
+    throw <| .planInvariant .evm
+      s!"unsupported EVM semantic shape: UInt{resultBitWidth} is not an admitted body width"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
@@ -349,10 +376,11 @@ private def makeBinaryTreeValueV1
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
     isBool
+    bitWidth := resultBitWidth
   }
 
 /-- Strict Bool binary: both operands must already be Bool-tagged; result is
-    Bool. Same expanded-tree cost accounting as UInt64 binaries. -/
+    Bool. Same expanded-tree cost accounting as UInt binaries. -/
 private def makeLogicalTreeValueV1
     (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
@@ -374,98 +402,159 @@ private def makeLogicalTreeValueV1
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
     isBool := true
+    bitWidth := 1
   }
 
-/-- Admit a wire result TypeId for UInt-width arithmetic/bitwise: anonymous
-    UInt64 (ordinary path) or the optional anonymous UInt32 (shift-count
-    intermediates only). Returns the TypeId for `appendResultValueV1`. -/
+/-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
+    `(typeId, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
 private def admitUIntWidthResultTypeV1
-    (types : EvmTypeClosureV1) (resultTypeId : TypeIdV1) : CompileResult TypeIdV1 := do
-  if resultTypeId == types.uint64TypeId then
-    pure resultTypeId
-  else if types.uint32TypeId == some resultTypeId then
-    pure resultTypeId
-  else
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: arithmetic/bitwise result must be UInt64 or UInt32"
+    (types : EvmTypeClosureV1) (resultTypeId : TypeIdV1) :
+    CompileResult (TypeIdV1 × Nat) := do
+  match types.uintWidthOf resultTypeId with
+  | some w =>
+      unless isEvmBodyUintWidth w do
+        throw <| .planInvariant .evm
+          s!"unsupported EVM semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
+      pure (resultTypeId, w)
+  | none =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: arithmetic/bitwise result must be admitted UInt width"
 
-/-- Compute expanded tree cost before constructing an EVM Expr node. A shared
-    SSA operand counts once per use, so `add(v,v)` doubles the expanded cost.
-    Also admits UInt32-typed shift-count arithmetic (same Plan/Yul forms). -/
+/-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
+    `narrow*` so Emit can attach mask/overflow guards without touching goldens. -/
+private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedAdd l r else .narrowCheckedAdd w l r
+private def mkCheckedSub (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedSub l r else .narrowCheckedSub w l r
+private def mkCheckedMul (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMul l r else .narrowCheckedMul w l r
+private def mkCheckedDiv (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedDiv l r else .narrowCheckedDiv w l r
+private def mkCheckedMod (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMod l r else .narrowCheckedMod w l r
+private def mkBitAnd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitAnd l r else .narrowBitAnd w l r
+private def mkBitOr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitOr l r else .narrowBitOr w l r
+private def mkBitXor (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitXor l r else .narrowBitXor w l r
+private def mkBitNot (w : Nat) (o : Expr) : Expr :=
+  if w == 64 then .bitNot o else .narrowBitNot w o
+private def mkShl (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shl l r else .narrowShl w l r
+private def mkShr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shr l r else .narrowShr w l r
+
 private def makeCheckedAddValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .checkedAdd lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Subtraction has the same bounded SSA-tree cost as addition; its distinct
-    constructor preserves the source operator through Plan validation/Yul. -/
 private def makeCheckedSubValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .checkedSub lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Comparison has the same bounded SSA-tree cost as checked arithmetic. -/
+/-- Comparison: same-width UInt operands → Bool. -/
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless !lhs.isBool && !rhs.isBool do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: comparison operands must be UInt"
+  unless lhs.bitWidth == rhs.bitWidth && isEvmBodyUintWidth lhs.bitWidth do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: comparison operands must share admitted UInt width"
+  makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
-/-- Multiply has the same bounded SSA-tree cost as addition. -/
 private def makeCheckedMulValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .checkedMul lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkCheckedMul bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Division has the same bounded SSA-tree cost as addition. -/
 private def makeCheckedDivValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .checkedDiv lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkCheckedDiv bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Modulo has the same bounded SSA-tree cost as addition. -/
 private def makeCheckedModValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .checkedMod lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkCheckedMod bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Bitwise and: UInt64/UInt32 operands → same-width result; no failure mode. -/
 private def makeBitAndValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitAnd lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkBitAnd bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Bitwise or: UInt64/UInt32 operands → same-width result; no failure mode. -/
 private def makeBitOrValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitOr lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkBitOr bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Bitwise xor: UInt64/UInt32 operands → same-width result; no failure mode. -/
 private def makeBitXorValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .bitXor lhsId rhsId lhs rhs false
+  makeBinaryTreeValueV1 (mkBitXor bitWidth) lhsId rhsId lhs rhs false bitWidth
 
-/-- Left shift: UInt64 value + UInt32 count → UInt64 (guards in Yul). -/
+/-- Shift tree cost: lhs carries `bitWidth`, count is UInt32 (distinct width). -/
+private def makeShiftTreeValueV1
+    (mk : Expr → Expr → Expr)
+    (bitWidth : Nat)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless !lhs.isBool && !rhs.isBool do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: shift operands must be UInt"
+  unless lhs.bitWidth == bitWidth && isEvmBodyUintWidth bitWidth do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: shift lhs width mismatch"
+  unless rhs.bitWidth == 32 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: shift count must be UInt32"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+    isBool := false
+    bitWidth
+  }
+
 private def makeShlValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .shl lhsId rhsId lhs rhs false
+  makeShiftTreeValueV1 (mkShl bitWidth) bitWidth lhsId rhsId lhs rhs
 
-/-- Right shift: UInt64 value + UInt32 count → UInt64 (count guard in Yul). -/
 private def makeShrValueV1
+    (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 .shr lhsId rhsId lhs rhs false
+  makeShiftTreeValueV1 (mkShr bitWidth) bitWidth lhsId rhsId lhs rhs
 
-/-- Strict Bool and: Bool operands → Bool result. -/
 private def makeLogicalAndValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeLogicalTreeValueV1 .logicalAnd lhsId rhsId lhs rhs
 
-/-- Strict Bool or: Bool operands → Bool result. -/
 private def makeLogicalOrValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
@@ -476,13 +565,17 @@ private def makeUnaryTreeValueV1
     (mk : Expr → Expr)
     (operandId : ValueIdV1)
     (operand : LoweredValueV1)
-    (expectBoolOperand isBoolResult : Bool) : CompileResult LoweredValueV1 := do
+    (expectBoolOperand isBoolResult : Bool)
+    (resultBitWidth : Nat) : CompileResult LoweredValueV1 := do
   unless operand.isBool == expectBoolOperand do
     throw <| .planInvariant .evm
       (if expectBoolOperand then
         "unsupported EVM semantic shape: unary not operand must be Bool"
        else
-        "unsupported EVM semantic shape: unary bitNot operand must be UInt64")
+        "unsupported EVM semantic shape: unary bitNot operand must be UInt")
+  unless isBoolResult || operand.bitWidth == resultBitWidth do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: unary bitNot width mismatch"
   let depth := 1 + operand.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
@@ -494,29 +587,29 @@ private def makeUnaryTreeValueV1
     expandedNodes := 1 + operand.expandedNodes
     dependencies := #[operandId]
     isBool := isBoolResult
+    bitWidth := resultBitWidth
   }
 
-/-- Bitwise not: UInt64 operand → UInt64 result. -/
 private def makeBitNotValueV1
+    (bitWidth : Nat)
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeUnaryTreeValueV1 .bitNot operandId operand false false
+  makeUnaryTreeValueV1 (mkBitNot bitWidth) operandId operand false false bitWidth
 
-/-- Logical not: Bool operand → Bool result. -/
 private def makeBoolNotValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeUnaryTreeValueV1 .boolNot operandId operand true true
+  makeUnaryTreeValueV1 .boolNot operandId operand true true 1
 
 /-- PureCall tree cost: one node plus each argument tree (SSA args counted per
-    use). Result kind is the callee's declared result. -/
+    use). Args remain ABI UInt64; result kind is the callee's declared result. -/
 private def makeCallFnValueV1
     (fnIndex : Nat)
     (argIds : Array ValueIdV1)
     (args : Array LoweredValueV1)
     (isBool : Bool) : CompileResult LoweredValueV1 := do
   for arg in args do
-    unless !arg.isBool do
+    unless !arg.isBool && arg.bitWidth == 64 do
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: pureCall arguments must be UInt64"
   let mut depth : Nat := 0
@@ -537,6 +630,7 @@ private def makeCallFnValueV1
     expandedNodes := 1 + expandedNodes
     dependencies := argIds
     isBool
+    bitWidth := if isBool then 1 else 64
   }
 
 private def resolveFnIndexV1
@@ -751,43 +845,36 @@ private def lowerBlockInstructionsV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        if typeId == uint64TypeId then
-          let value ← decodeUInt64LiteralV1 bytes
-          values := ← appendResultValueV1 uint64TypeId values result {
-            expr := .literal value
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-            isBool := false
-          }
-        else if types.uint32TypeId == some typeId then
-          -- Shift-count intermediates only; stored as non-Bool UInt64 words.
-          let value ← decodeUInt32LiteralV1 bytes
-          values := ← appendResultValueV1 typeId values result {
-            expr := .literal value
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-            isBool := false
-          }
-        else
-          let boolTid ← match types.boolTypeId with
-            | some tid => pure tid
-            | none => throw (.planInvariant .evm
-                "unsupported EVM semantic shape: Bool literal requires anonymous Bool type")
-          unless typeId == boolTid do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: literal is not UInt64, UInt32, or Bool"
-          let value ← decodeBoolLiteralV1 bytes
-          -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
-          -- tagged isBool so return/assert/store kind gates remain defensive.
-          values := ← appendResultValueV1 boolTid values result {
-            expr := .literal value
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-            isBool := true
-          }
+        match types.uintWidthOf typeId with
+        | some bitWidth => do
+            let value ← decodeUIntWidthLiteralLe evmPlanErr "EVM" bitWidth bytes
+            values := ← appendResultValueV1 typeId values result {
+              expr := .literal value
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              bitWidth
+            }
+        | none => do
+            let boolTid ← match types.boolTypeId with
+              | some tid => pure tid
+              | none => throw (.planInvariant .evm
+                  "unsupported EVM semantic shape: Bool literal requires anonymous Bool type")
+            unless typeId == boolTid do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: literal is not admitted UInt or Bool"
+            let value ← decodeBoolLiteralV1 bytes
+            -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
+            -- tagged isBool so return/assert/store kind gates remain defensive.
+            values := ← appendResultValueV1 boolTid values result {
+              expr := .literal value
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := true
+              bitWidth := 1
+            }
     | .stateLoad stateId, some result =>
         if mode == .pureFn then
           throw <| .planInvariant .evm
@@ -799,50 +886,52 @@ private def lowerBlockInstructionsV1
           expandedNodes := 1
           dependencies := #[]
           isBool := false
+          bitWidth := 64
         }
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         if op == .add then
-          -- UInt64 ordinary path, or UInt32 shift-count arithmetic (e.g. 32+32).
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeCheckedAddValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .sub then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeCheckedSubValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .mul then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeCheckedMulValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .div then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeCheckedDivValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .mod then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeCheckedModValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .bitAnd then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeBitAndValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitAndValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .bitOr then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeBitOrValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitOrValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .bitXor then
-          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
-          let value ← makeBitXorValueV1 lhsId rhsId lhs rhs
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitXorValueV1 bitWidth lhsId rhsId lhs rhs
           values := ← appendResultValueV1 widthTid values result value
         else if op == .shl then
-          -- Shift result is always UInt64 (value width); count may be UInt32.
-          let value ← makeShlValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          -- Shift result width = lhs width (result TypeId); count is UInt32.
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeShlValueV1 bitWidth lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .shr then
-          let value ← makeShrValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeShrValueV1 bitWidth lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .and then
           let boolTid ← match types.boolTypeId with
             | some tid => pure tid
@@ -882,8 +971,9 @@ private def lowerBlockInstructionsV1
         let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
         match op with
         | .bitNot =>
-            let value ← makeBitNotValueV1 operandId operand
-            values := ← appendResultValueV1 uint64TypeId values result value
+            let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+            let value ← makeBitNotValueV1 bitWidth operandId operand
+            values := ← appendResultValueV1 widthTid values result value
         | .not =>
             let boolTid ← match types.boolTypeId with
               | some tid => pure tid
@@ -936,7 +1026,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: view/pureFn callable writes storage"
         let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
-        unless !stored.isBool do
+        unless !stored.isBool && stored.bitWidth == 64 do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: state store value must be UInt64"
         let binding ← findStorageV1 layout stateId
@@ -965,7 +1055,7 @@ private def lowerBlockInstructionsV1
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless !root.isBool do
+          unless !root.isBool && root.bitWidth == 64 do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: event arguments must be UInt64"
           argExprs := argExprs.push root.expr
@@ -993,13 +1083,14 @@ private def lowerBlockInstructionsV1
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"
   pure { statements := body, values, segmentStart, hasAssert }
 
-/-- Decode a switch case constant against the scrutinee kind. -/
-private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
+/-- Decode a switch case constant against the scrutinee kind/width. -/
+private def decodeSwitchCaseValueV1
+    (scrutIsBool : Bool) (scrutBitWidth : Nat) (bytes : ByteArray) :
     CompileResult UInt64 := do
   if scrutIsBool then
     decodeBoolLiteralV1 bytes
   else
-    decodeUInt64LiteralV1 bytes
+    decodeUIntWidthLiteralLe evmPlanErr "EVM" scrutBitWidth bytes
 
 private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
     Option LoopBoundV1 :=
@@ -1213,7 +1304,7 @@ private partial def emitJobV1
               let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
               match expected with
               | .uint64 =>
-                  unless !returned.isBool do
+                  unless !returned.isBool && returned.bitWidth == 64 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be UInt64"
               | .bool =>
@@ -1330,7 +1421,8 @@ private partial def emitJobV1
           let mut valuesA := values
           let mut hAAcc := hA
           for switchCase in cases do
-            let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
+            let caseValue ←
+              decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
             let (body, values1, armCont, hA1, _) ←
               emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                 paramCount expectedResultKind (fuel - 1)

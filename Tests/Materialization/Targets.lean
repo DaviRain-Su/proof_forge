@@ -1259,6 +1259,7 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
   | some (stmt : Targets.Evm.Statement) =>
       match stmt with
       | .returnValue (.shr _ (.checkedAdd ..)) => pure ()
+      | .returnValue (.shr _ (.narrowCheckedAdd 32 ..)) => pure ()
       | _ => throw <| IO.userError "EVM bigShift must keep a computed count"
   | none => throw <| IO.userError "EVM bigShift body is empty"
   match near.entries[1]!.body[0]? with

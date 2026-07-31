@@ -75,16 +75,56 @@ def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
 
 /-! ### Pilot type closure -/
 
-/-- Anonymous type ids admitted by the public-UInt64 pilot envelope.
-    UInt64 is required; Unit / Bool / UInt32 are optional (at most one each). -/
+/-- Per-target admission set for anonymous UInt widths.
+
+    UInt64 is always required (exactly one). Other listed widths may appear
+    at most once each. Historical Phase-1 targets admit `{64, 32}` only;
+    EVM body multi-width extends with `{8, 16}` (UInt128/256 stay fail-closed
+    at the EVM Plan seam even if listed elsewhere). -/
+structure PilotUintWidthPolicy where
+  /-- Allowed anonymous UInt bit-widths. Must contain 64. -/
+  admittedWidths : Array Nat
+  deriving BEq, Repr
+
+/-- Historical shared policy: UInt64 + optional UInt32 (shift-count). -/
+def pilotUintWidthPolicyU64U32 : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32]
+
+/-- EVM body multi-width policy: UInt64 + UInt32 + UInt8 + UInt16.
+    UInt128/256 and Int remain fail-closed (Yul overflow/sign not yet owned). -/
+def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
+/-- Anonymous type ids admitted by a pilot type-closure policy.
+    UInt64 is required; Unit / Bool are optional (at most one each).
+    Additional anonymous UInt widths appear in `otherUintByWidth`
+    (includes UInt32 when present). -/
 structure PilotTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
   boolTypeId : Option TypeIdV1
   /-- Optional anonymous UInt32, interned only when a shift-count literal or
-      other UInt32 value appears (Normalize interns at most one). -/
+      other UInt32 value appears (Normalize interns at most one).
+      Retained for call-site compatibility; also present in `otherUintByWidth`. -/
   uint32TypeId : Option TypeIdV1
+  /-- All non-64 admitted anonymous UInt widths as `(width, typeId)` pairs
+      in first-seen order. Empty for UInt64-only programs. -/
+  otherUintByWidth : Array (Nat × TypeIdV1) := #[]
   deriving BEq, Repr
+
+/-- Look up an admitted non-64 UInt TypeId by bit width. -/
+def PilotTypeClosureV1.uintTypeIdAt
+    (c : PilotTypeClosureV1) (width : Nat) : Option TypeIdV1 :=
+  if width == 64 then some c.uint64TypeId
+  else c.otherUintByWidth.findSome? fun (w, tid) =>
+    if w == width then some tid else none
+
+/-- Resolve an admitted anonymous UInt TypeId to its bit width. -/
+def PilotTypeClosureV1.uintWidthOf
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Option Nat :=
+  if typeId == c.uint64TypeId then some 64
+  else c.otherUintByWidth.findSome? fun (w, tid) =>
+    if tid == typeId then some w else none
 
 /-- Per-target detail strings that already diverged before EnvelopeV1.
     Common details (named types, one UInt64, duplicate Unit/Bool, missing
@@ -94,18 +134,20 @@ structure PilotTypeClosureWording where
   targetLabel : String
   /-- UInt32 duplicate detail (EVM/Solana: "at most one…"; NEAR/Noir: "one…"). -/
   uint32DuplicateDetail : String
-  /-- Non-64/non-32 integer width detail (four historical strings). -/
+  /-- Non-admitted integer width detail (four historical strings). -/
   badIntegerWidthDetail : String
   /-- Shapes other than uint/unit/bool (Noir historically omits UInt32). -/
   unsupportedShapeDetail : String
   deriving BEq, Repr
 
-/-- Byte-identical EVM type-closure diagnostic wording. -/
+/-- Byte-identical EVM type-closure diagnostic wording (updated for body multi-width). -/
 def evmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "EVM"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
-  badIntegerWidthDetail := "only anonymous UInt64/UInt32 integer widths are supported"
-  unsupportedShapeDetail := "only UInt64, UInt32, Unit, and Bool are supported"
+  badIntegerWidthDetail :=
+    "only anonymous UInt8/UInt16/UInt32/UInt64 integer widths are supported"
+  unsupportedShapeDetail :=
+    "only UInt8, UInt16, UInt32, UInt64, Unit, and Bool are supported"
 
 /-- Byte-identical Solana type-closure diagnostic wording. -/
 def solanaTypeClosureWording : PilotTypeClosureWording where
@@ -134,39 +176,53 @@ def noirTypeClosureWording : PilotTypeClosureWording where
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 
-/-- Admit the public-UInt64 pilot type closure.
+private def widthAdmitted (policy : PilotUintWidthPolicy) (width : Nat) : Bool :=
+  policy.admittedWidths.contains width
 
-    Rules (shared): reject named types; require exactly one anonymous UInt64;
-    accept at most one anonymous UInt32 / Unit / Bool; reject all other shapes.
-    Diagnostics use `mkErr` (target owns `.planInvariant .evm`/…) and
-    `wording` for the few historically divergent detail strings. -/
+private def duplicateUintDetail
+    (wording : PilotTypeClosureWording) (width : Nat) : String :=
+  if width == 32 then wording.uint32DuplicateDetail
+  else s!"expected at most one anonymous UInt{width} type"
+
+/-- Admit a pilot type closure under an explicit UInt-width policy.
+
+    Rules: reject named types; require exactly one anonymous UInt64; accept at
+    most one of each other admitted UInt width / Unit / Bool; reject Int and
+    all other shapes. Diagnostics use `mkErr` and `wording`.
+
+    Default policy is historical `{64, 32}` so Solana/NEAR/Noir call sites that
+    omit the policy argument stay byte-identical. -/
 def validatePilotTypeClosure
     (mkErr : String → CompileError)
     (wording : PilotTypeClosureWording)
-    (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 := do
+    (types : Array TypeDeclV1)
+    (policy : PilotUintWidthPolicy := pilotUintWidthPolicyU64U32) :
+    CompileResult PilotTypeClosureV1 := do
   let label := wording.targetLabel
+  unless policy.admittedWidths.contains 64 do
+    throw <| mkErr (shapeMsg label "UInt64 type is missing")
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
   let mut boolTypeId : Option TypeIdV1 := none
-  let mut uint32TypeId : Option TypeIdV1 := none
+  let mut otherUintByWidth : Array (Nat × TypeIdV1) := #[]
   for decl in types do
     unless decl.name.isNone do
       throw <| mkErr (shapeMsg label
         "named types are outside the current UInt64 pilot")
     match decl.shape with
     | .uint width =>
-        match width.toNat with
-        | 64 =>
-            unless uint64TypeId.isNone do
-              throw <| mkErr (shapeMsg label
-                "expected one anonymous UInt64 type")
-            uint64TypeId := some decl.id
-        | 32 =>
-            unless uint32TypeId.isNone do
-              throw <| mkErr (shapeMsg label wording.uint32DuplicateDetail)
-            uint32TypeId := some decl.id
-        | _ =>
-            throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
+        let w := width.toNat
+        unless widthAdmitted policy w do
+          throw <| mkErr (shapeMsg label wording.badIntegerWidthDetail)
+        if w == 64 then
+          unless uint64TypeId.isNone do
+            throw <| mkErr (shapeMsg label
+              "expected one anonymous UInt64 type")
+          uint64TypeId := some decl.id
+        else
+          if otherUintByWidth.any (fun (ew, _) => ew == w) then
+            throw <| mkErr (shapeMsg label (duplicateUintDetail wording w))
+          otherUintByWidth := otherUintByWidth.push (w, decl.id)
     | .unit =>
         unless unitTypeId.isNone do
           throw <| mkErr (shapeMsg label "duplicate Unit type")
@@ -180,11 +236,14 @@ def validatePilotTypeClosure
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (mkErr (shapeMsg label "UInt64 type is missing"))
+  let uint32TypeId :=
+    otherUintByWidth.findSome? fun (w, tid) => if w == 32 then some tid else none
   pure {
     uint64TypeId := resolvedUInt64TypeId
     unitTypeId
     boolTypeId
     uint32TypeId
+    otherUintByWidth
   }
 
 /-! ### Public-UInt64 state / parameter predicates
@@ -282,5 +341,33 @@ def decodeBoolLiteralBit
   unless b == 0 || b == 1 do
     throw <| mkErr (shapeMsg targetLabel invalidDetail)
   pure (b != 0)
+
+/-- Decode a little-endian anonymous UInt literal of `bitWidth` bits
+    (`bitWidth ∈ {8,16,32,64}`) into a UInt64 Plan word (zero-extended).
+    Full-consume: exact `bitWidth/8` bytes. -/
+def decodeUIntWidthLiteralLe
+    (mkErr : String → CompileError)
+    (targetLabel : String)
+    (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 64 do
+    throw <| mkErr (shapeMsg targetLabel
+      s!"UInt{bitWidth} literal width is not supported")
+  let byteLen := bitWidth / 8
+  unless bytes.size == byteLen do
+    throw <| mkErr (shapeMsg targetLabel
+      s!"UInt{bitWidth} literal must contain exactly {byteLen} bytes")
+  if bitWidth == 64 then
+    decodeUInt64LiteralLe mkErr targetLabel bytes
+  else if bitWidth == 32 then
+    decodeUInt32LiteralLe mkErr targetLabel bytes
+  else
+    -- 8 / 16: hand LE fold (Wire has no decodeU16/U8 public path).
+    let mut n : Nat := 0
+    let mut place : Nat := 1
+    for i in [:byteLen] do
+      n := n + (bytes.get! i).toNat * place
+      place := place * 256
+    pure (UInt64.ofNat n)
 
 end ProofForgeV2.Targets.EnvelopeV1
