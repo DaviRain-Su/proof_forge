@@ -749,7 +749,7 @@ s1-target-semantic-plan-deletion-gate:
     lake build ProofForgeV2.Targets.Solana ProofForgeV2.Targets.Near ProofForgeV2.Targets.Noir Tests.Materialization.Targets Tests.Materialization.NearHostModel Tests.Materialization.NoirRelationModel
     echo "s1-target-semantic-plan-deletion-gate: ok"
 
-dev-check: docs-check build test-fast b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+dev-check: docs-check sbom-package-files-check build test-fast b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -795,6 +795,11 @@ sbom:
 # change (the manifest is a committed TST-SBOM-002 input).
 sbom-package-files-refresh:
     /usr/bin/python3 -I -S scripts/sbom_package_files_refresh.py
+
+# Fail closed when the committed lean-package-files pin is stale relative to
+# the working tree (same discovery/hash as sbom-package-files-refresh).
+sbom-package-files-check:
+    /usr/bin/python3 -I -S scripts/sbom_package_files_refresh.py --check
 
 # TASK-D0-08 pre-freeze primitives only. This protects PF-JCS,
 # ToolLockV2Digest, direct leaf ownership, logical component identities, and
@@ -1477,7 +1482,7 @@ v2-isolation:
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
-ci: docs-check build test product-negative source-bounds target-cli-positive target-negative b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Backward-compatible product check. Use `release-check` explicitly for host,
 # SBOM, clean-room, and qualification preflight.
