@@ -133,6 +133,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > 接纳全部整数宽度，selected lower runner另以无关Field declaration固定不受全程序admission污染。
 > Field arithmetic与正式`evalInvariantV1`/theorem仍pending。
 
+> 后续Field前置切片现对sole v1 `bn254_fr`开放canonical modular add/sub/mul/neg/div；division以
+> 固定256轮square-and-multiply计算`x^(p-2)`且zero divisor精确`divisionByZero` revert。Field仍不接受
+> mod/order/bit/shift，Wire static contract保持权威。engineering admission将Field作为固定32-byte leaf
+> 计入资源界限；带无关Principal declaration的selected invariant固定lower runner不依赖general admission。
+> numeric前置至此闭合，正式ABI前还需最终closure/defensive gap复核。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

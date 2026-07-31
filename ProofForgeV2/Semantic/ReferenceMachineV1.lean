@@ -15,10 +15,10 @@ import ProofForgeV2.Semantic.WireV1
   not depend on whole-program engineering admission.
 
   Admitted surface:
-    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / fixed Array /
+    * types: Bool / all Wire UInt/Int widths / BN254 Field / Unit / Bytes / fixed Array /
       Map / Struct / Option / Enum over acyclic recursively admitted payload types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
-      CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
+      CheckedCast (UInt/Int combinations), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
       ExternalCall, Schedule, Unit/Array Construct, empty Map Construct,
       Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
@@ -31,7 +31,7 @@ import ProofForgeV2.Semantic.WireV1
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Int / Field, recursive Struct/Array/Map/Option/Enum type graphs,
+    Principal, recursive Struct/Array/Map/Option/Enum type graphs,
     nonempty-Map Construct,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
@@ -173,7 +173,7 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .uint _ | .int _ => pure ()
   | .unit => pure ()
   | .bytes _ => pure ()
-  | .field _ => admitFail "unsupported Field"
+  | .field _ => pure ()
   | .array _ _ => pure ()
   | .map _ _ => pure ()
   | .option _ => pure ()
@@ -446,6 +446,12 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                   depths := depths.set! tid 1
                   works := works.set! tid (1 + max 1 bytes)
                   color := color.set! tid 2
+              | some { shape := .field spec, .. } =>
+                  let bytes := spec.modulusBE.size
+                  widths := widths.set! tid bytes
+                  depths := depths.set! tid 1
+                  works := works.set! tid (1 + max 1 bytes)
+                  color := color.set! tid 2
               | some { shape := .unit, .. } =>
                   depths := depths.set! tid 1
                   works := works.set! tid 2
@@ -596,6 +602,17 @@ private def intWidth (data : SemanticProgramDataV1) (tid : TypeIdV1) : Option Na
   | some (.int w) => some w.toNat
   | _ => none
 
+private def beBytesToNat (bytes : ByteArray) : Nat := Id.run do
+  let mut value := 0
+  for byte in bytes do
+    value := value * 256 + byte.toNat
+  pure value
+
+private def fieldModulus (data : SemanticProgramDataV1) (tid : TypeIdV1) : Option Nat :=
+  match shapeOf data tid with
+  | some (.field spec) => some (beBytesToNat spec.modulusBE)
+  | _ => none
+
 private def uintByteLen (width : Nat) : Nat := width / 8
 
 private def uintMax (width : Nat) : Nat := Nat.pow 2 width
@@ -624,6 +641,19 @@ private def intToLeBytes (value : Int) (width : Nat) : ByteArray :=
     else
       value.toNat
   natToLeBytes bits (uintByteLen width)
+
+private def fieldPow (base exponent modulus : Nat) : Nat := Id.run do
+  let mut result := 1
+  let mut factor := base % modulus
+  let mut remaining := exponent
+  -- The sole v1 field is 254-bit; use a fixed bound rather than host bigint
+  -- inversion so execution remains deterministic and total.
+  for _ in [:256] do
+    if remaining % 2 == 1 then
+      result := (result * factor) % modulus
+    factor := (factor * factor) % modulus
+    remaining := remaining / 2
+  pure result
 
 private def valueCanonical (data : SemanticProgramDataV1) (v : ReferenceValueV1) : Bool :=
   match validateValueBytesV1 data.types v.typeId v.valueBytes with
@@ -820,7 +850,16 @@ private def evalUnary (data : SemanticProgramDataV1) (op : UnaryOpV1)
                 typeId := resultTypeId
                 valueBytes := intToLeBytes (-value) w
               }
-        | none => .error (.trapped .invalidCore)
+        | none =>
+            match fieldModulus data operand.typeId with
+            | some modulus =>
+                let value := leBytesToNat operand.valueBytes
+                .ok {
+                  typeId := resultTypeId
+                  valueBytes := natToLeBytes ((modulus - value) % modulus)
+                    operand.valueBytes.size
+                }
+            | none => .error (.trapped .invalidCore)
 
 private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
     (lhs rhs : ReferenceValueV1) (resultTypeId : TypeIdV1) :
@@ -888,7 +927,29 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
                 .error (.reverted (.standard .arithmeticOverflow))
               else
                 .ok { typeId := resultTypeId, valueBytes := intToLeBytes value w }
-        | _, _ => .error (.trapped .invalidCore)
+        | _, _ =>
+            match fieldModulus data lhs.typeId with
+            | some modulus =>
+                if op == .mod then
+                  .error (.trapped .invalidCore)
+                else
+                  let a := leBytesToNat lhs.valueBytes
+                  let b := leBytesToNat rhs.valueBytes
+                  if op == .div && b == 0 then
+                    .error (.reverted (.standard .divisionByZero))
+                  else
+                    let value :=
+                      match op with
+                      | .add => (a + b) % modulus
+                      | .sub => (a + modulus - b) % modulus
+                      | .mul => (a * b) % modulus
+                      | .div => (a * fieldPow b (modulus - 2) modulus) % modulus
+                      | _ => 0
+                    .ok {
+                      typeId := resultTypeId
+                      valueBytes := natToLeBytes value lhs.valueBytes.size
+                    }
+            | none => .error (.trapped .invalidCore)
   | .eq | .ne =>
       if !(lhs.typeId == rhs.typeId && isBoolType data resultTypeId) then
         .error (.trapped .invalidCore)

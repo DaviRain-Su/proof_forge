@@ -222,7 +222,13 @@ little-endian two's-complement编码。UInt/Int算术、signed div/rem、order�
 zero-fill/sign-extending right shift及跨signedness cast均由同一machine执行；`minInt / -1`、negation、
 zero divisor、bad shift和out-of-range cast保留exact standard revert类别。whole-program engineering
 admission现接纳所有Wire合法整数宽度，Field与Principal仍关闭。正式ABI仍不得调用engineering
-admission；下一独立切片是Field modular arithmetic。
+admission；后续Field切片已接纳sole BN254 Field，Principal仍关闭。
+
+Field runtime仅接受Wire catalog固定的`proof-forge.field.bn254-fr.v1`与exact modulus。add/sub/mul/neg
+全部modulo p；nonzero division通过固定256轮binary exponentiation计算唯一inverse，zero精确走
+`divisionByZero`。Field mod/order/bit/shift仍由Wire拒绝，runtime保留invalidCore防御。Field admission
+按32-byte leaf计资源；selected lower runner以无关Principal声明固定不扫描whole-program engineering
+admission。下一步应先做formal-compatible closure/defensive gap复核，再定义public evaluator。
 
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer

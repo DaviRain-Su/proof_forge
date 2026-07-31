@@ -52,6 +52,9 @@
    18. Complete fixed-width UInt/Int lower runner: all legal widths and
        canonical boundaries, arithmetic/bitwise/shift semantics, and all four
        CheckedCast families (including UInt256/Int256), with exact reverts.
+   19. BN254 Field lower runner: canonical boundaries, modular arithmetic,
+       inverse/division, Eq/Ne, exact division-by-zero, whole-program admission,
+       and selected-invariant independence from unrelated Principal support.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -118,6 +121,12 @@ private def leBytesFromNat (n : Nat) (len : Nat) : ByteArray := Id.run do
   for _ in [:len] do
     out := out.push (UInt8.ofNat (v % 256))
     v := v / 256
+  pure out
+
+private def beBytesToNat (bytes : ByteArray) : Nat := Id.run do
+  let mut out := 0
+  for byte in bytes do
+    out := out * 256 + byte.toNat
   pure out
 
 private def u64Bytes (n : Nat) : ByteArray := leBytesFromNat n 8
@@ -3440,6 +3449,105 @@ private def testFixedWidthIntegerLowerRunner : IO Unit := do
   wholeCast "cast-int-uint-exact" i256 u8 (signedBytes (-1) 256)
   wholeCast "cast-int-int-exact" i256 i8 (signedBytes 128 256)
 
+/-- Focused BN254 scalar-field semantics, separate from fixed-width integers. -/
+private def testBn254FieldLowerRunner : IO Unit := do
+  let fieldTid : TypeIdV1 := 2
+  let p := beBytesToNat bn254FrFieldSpecV1.modulusBE
+  let fieldBytes (n : Nat) := leBytesFromNat n bn254FrFieldSpecV1.modulusBE.size
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  let baseTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .unit },
+    { id := fieldTid, name := none, shape := .field bn254FrFieldSpecV1 }
+  ]
+  let gate := mkEntry 0 "fieldGate" #[] 1 #[] (.return_ none)
+  let runLower (label : String) (is : Array InstructionV1)
+      (expected : InvariantEvalResultV1 := .returnedTrue) : IO Unit := do
+    let root : CallableV1 := {
+      id := 1, kind := .invariant, name := some "fieldInvariant", params := #[]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[blk 0 is (.return_ (some (UInt32.ofNat (is.size - 1))))]
+      loopBounds := #[], invariantSteps := some (UInt64.ofNat (is.size + 2))
+    }
+    let base ← emptyData "Bn254FieldRuntime"
+    -- Principal is deliberately unrelated to the selected invariant. Wire
+    -- validates it, while the lower runner must not require broad admission.
+    let types := baseTypes.push { id := 3, name := none, shape := .principal }
+    let carrier ← encodeCarrier label {
+      base with
+      types := types
+      callables := #[gate, root]
+      invariants := #[{ id := 0, name := "fieldInvariant", callableId := 1 }]
+    }
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    expect (runInvariantCallableV1 data 1 pre == expected)
+      s!"{label}: expected {repr expected}"
+  let binaryTrue (label : String) (op : BinaryOpV1) (a b expected : Nat) :=
+    runLower label #[
+      instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes a)),
+      instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes b)),
+      instr (some (vd 2 fieldTid)) (.binary op 0 1),
+      instr (some (vd 3 fieldTid)) (.literal fieldTid (fieldBytes expected)),
+      instr (some (vd 4 0)) (.binary .eq 2 3)]
+  let unaryTrue (label : String) (a expected : Nat) :=
+    runLower label #[
+      instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes a)),
+      instr (some (vd 1 fieldTid)) (.unary .neg 0),
+      instr (some (vd 2 fieldTid)) (.literal fieldTid (fieldBytes expected)),
+      instr (some (vd 3 0)) (.binary .eq 1 2)]
+
+  -- The modulus comes only from Wire's catalog object. Observe all three
+  -- canonical boundary values in one conjunction-producing fixture.
+  runLower "field-canonical-0-1-pminus1" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 2 0)) (.binary .eq 0 1),
+    instr (some (vd 3 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 4 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 5 0)) (.binary .eq 3 4),
+    instr (some (vd 6 0)) (.binary .and 2 5),
+    instr (some (vd 7 fieldTid)) (.literal fieldTid (fieldBytes (p - 1))),
+    instr (some (vd 8 fieldTid)) (.literal fieldTid (fieldBytes (p - 1))),
+    instr (some (vd 9 0)) (.binary .eq 7 8),
+    instr (some (vd 10 0)) (.binary .and 6 9)]
+  binaryTrue "field-add-wrap" .add (p - 1) 1 0
+  binaryTrue "field-sub-wrap" .sub 0 1 (p - 1)
+  binaryTrue "field-mul-reduction" .mul (p - 1) (p - 1) 1
+  unaryTrue "field-neg-zero" 0 0
+  unaryTrue "field-neg-one" 1 (p - 1)
+  -- Representative inverse identity: (a / b) * b = a.
+  runLower "field-division-inverse-identity" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 7)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 5)),
+    instr (some (vd 2 fieldTid)) (.binary .div 0 1),
+    instr (some (vd 3 fieldTid)) (.binary .mul 2 1),
+    instr (some (vd 4 0)) (.binary .eq 3 0)]
+  binaryTrue "field-division-by-one" .div (p - 1) 1 (p - 1)
+  runLower "field-ne" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 2 0)) (.binary .ne 0 1)]
+
+  -- Whole-program engineering admission accepts the supported Field-only
+  -- fixture and preserves the exact standard division-by-zero reason.
+  let base ← emptyData "Bn254FieldWholeProgram"
+  let entryCallable := mkEntry 0 "fieldRuntime" #[] 1 #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 7)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 2 fieldTid)) (.binary .div 0 1)] (.return_ none)
+  let carrier ← encodeCarrier "field-division-zero-whole" {
+    base with types := baseTypes, callables := #[entryCallable]
+  }
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok a => pure a
+    | .error e => throw <| IO.userError s!"field whole admission failed: {repr e}"
+  expectRevertedStandard "field-division-zero-exact"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    .divisionByZero pre
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -3468,6 +3576,7 @@ unsafe def run : IO Unit := do
   testVariantReferenceSlice
   testInvariantReferenceSlice
   testFixedWidthIntegerLowerRunner
+  testBn254FieldLowerRunner
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1

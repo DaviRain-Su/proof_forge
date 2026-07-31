@@ -30,6 +30,18 @@ normative: false
 - Boundary：不包含Field arithmetic、正式`InvariantABI.evalInvariantV1`/`InvariantTheoremV1`或formal
   TST-SEM-002/003；下一独立切片为Field modular arithmetic。
 
+## 2026-07-31 — D2-07 BN254 Field runtime engineering slice
+
+- Production：Reference machine对sole Wire catalog `bn254_fr`开放add/sub/mul/neg/div modulo p。modulus
+  从catalog big-endian bytes解码，value保持32-byte little-endian canonical encoding；nonzero division
+  以固定256轮square-and-multiply计算`b^(p-2)`，zero divisor保留`divisionByZero` standard revert。
+- Admission/Boundary：Field作为固定32-byte leaf进入whole-program resource analysis；Field mod/order/bit/
+  shift仍由Wire static typing拒绝并在runtime防御性trap。Principal general admission仍关闭；lower runner
+  不依赖engineering admission。未定义formal evaluator/theorem或提高formal TASK/TST状态。
+- Tests：覆盖0/1/p-1 canonical边界、add/sub wrap、mul reduction、neg 0/1、inverse identity、division by
+  one、Eq/Ne，以及whole-program admission与exact division-zero类别；无关Principal声明固定selected
+  Field invariant仍可执行。下一切片为formal-compatible closure/defensive gap复核。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。
