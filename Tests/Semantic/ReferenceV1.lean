@@ -2197,6 +2197,200 @@ private def testStructReferenceSlice : IO Unit := do
   admitUnsupported "deep-struct" deepCarrier
     (fun detail => detail.contains "nesting limit") "Struct nesting limit"
 
+/-- Option/Enum canonical seam and runtime Construct/tag/payload behavior. -/
+private def testVariantReferenceSlice : IO Unit := do
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := some "Choice", shape := .enum #[
+      { name := "Empty", payloadTypes := #[] },
+      { name := "Pair", payloadTypes := #[1, 2] },
+      { name := "Other", payloadTypes := #[5] }] },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .uint 8 },
+    { id := 3, name := none, shape := .uint 32 },
+    { id := 4, name := none, shape := .option 2 },
+    { id := 5, name := none, shape := .unit }
+  ]
+  let enumBytes := ByteArray.mk #[1, 0, 0, 0, 1, 9]
+  match splitCanonicalVariantValueV1 types 0 enumBytes with
+  | .ok (tag, chunks) =>
+      expect (tag == 1 && chunks.size == 2) "variant codec: enum tag/payload count"
+  | .error e => throw <| IO.userError s!"variant codec split: {repr e}"
+  match encodeCanonicalVariantValueV1 types 4 1 #[ByteArray.mk #[9]] with
+  | .ok bytes => expect (bytesEqual bytes (ByteArray.mk #[1, 9])) "variant codec: some"
+  | .error e => throw <| IO.userError s!"variant codec encode: {repr e}"
+  match encodeCanonicalVariantValueV1 types 4 0 #[] with
+  | .ok bytes =>
+      expect (bytesEqual bytes (ByteArray.mk #[0])) "variant codec: none"
+      match splitCanonicalVariantValueV1 types 4 bytes with
+      | .ok (tag, chunks) =>
+          expect (tag == 0 && chunks.isEmpty) "variant codec: split none"
+      | .error e => throw <| IO.userError s!"variant codec split none: {repr e}"
+  | .error e => throw <| IO.userError s!"variant codec encode none: {repr e}"
+  expect (exceptIsError (splitCanonicalVariantValueV1 types 4 (ByteArray.mk #[2])))
+    "variant codec: bad Option tag fails closed"
+  expect (exceptIsError (splitCanonicalVariantValueV1 types 0
+    (enumBytes.append (ByteArray.mk #[0])))) "variant codec: trailing fails closed"
+  expect (exceptIsError (encodeCanonicalVariantValueV1 types 0 1
+    #[ByteArray.mk #[2], ByteArray.mk #[9]])) "variant codec: noncanonical payload"
+  expect (exceptIsError (encodeCanonicalVariantValueV1 types 2 0 #[]))
+    "variant codec: wrong type"
+
+  let variantEntry := mkEntry 0 "variantOps" #[] 2 #[
+    instr (some (vd 0 1)) (.literal 1 (ByteArray.mk #[1])),
+    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 2 0)) (.construct 0 1 #[0, 1]),
+    instr (some (vd 3 3)) (.variantTag 2),
+    instr (some (vd 4 2)) (.variantPayload 2 1 1),
+    instr (some (vd 5 4)) (.construct 4 1 #[4]),
+    instr (some (vd 6 2)) (.variantPayload 5 1 0)
+  ] (.return_ (some 6))
+  let base ← emptyData "VariantOps"
+  let carrier ← encodeCarrier "variant-ops" { base with types, callables := #[variantEntry] }
+  let admitted ← admitOk "variant-ops" carrier
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "variant-ops" (stepReferenceSliceV1 admitted pre (inv 0 #[]) #[])
+    pre (some { typeId := 2, valueBytes := ByteArray.mk #[9] }) #[]
+
+  let noneTag := mkEntry 0 "noneTag" #[] 3 #[
+    instr (some (vd 0 4)) (.construct 4 0 #[]),
+    instr (some (vd 1 3)) (.variantTag 0)
+  ] (.return_ (some 1))
+  let noneTagCarrier ← encodeCarrier "variant-none-tag"
+    { base with types, callables := #[noneTag] }
+  let noneTagAdmitted ← admitOk "variant-none-tag" noneTagCarrier
+  expectReturned "variant-none-tag"
+    (stepReferenceSliceV1 noneTagAdmitted pre (inv 0 #[]) #[]) pre
+    (some { typeId := 3, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
+
+  let nonePayload := mkEntry 0 "nonePayload" #[] 2 #[
+    instr (some (vd 0 4)) (.construct 4 0 #[]),
+    instr (some (vd 1 2)) (.variantPayload 0 1 0)
+  ] (.return_ (some 1))
+  let nonePayloadCarrier ← encodeCarrier "variant-none-payload"
+    { base with types, callables := #[nonePayload] }
+  let nonePayloadAdmitted ← admitOk "variant-none-payload" nonePayloadCarrier
+  expectTrapped "variant-none-payload"
+    (stepReferenceSliceV1 nonePayloadAdmitted pre (inv 0 #[]) #[]) .invalidCore pre
+
+  let emptyTag := mkEntry 0 "emptyTag" #[] 3 #[
+    instr (some (vd 0 0)) (.construct 0 0 #[]),
+    instr (some (vd 1 3)) (.variantTag 0)
+  ] (.return_ (some 1))
+  let emptyTagCarrier ← encodeCarrier "variant-empty-tag"
+    { base with types, callables := #[emptyTag] }
+  let emptyTagAdmitted ← admitOk "variant-empty-tag" emptyTagCarrier
+  expectReturned "variant-empty-tag"
+    (stepReferenceSliceV1 emptyTagAdmitted pre (inv 0 #[]) #[]) pre
+    (some { typeId := 3, valueBytes := ByteArray.mk #[0, 0, 0, 0] }) #[]
+
+  let optionPure := mkPureFn 1 "optionPure"
+    #[{ valueId := 0, name := "x", typeId := 2, visibility := .public_ }] 2 #[
+      instr (some (vd 1 4)) (.construct 4 1 #[0]),
+      instr (some (vd 2 2)) (.variantPayload 1 1 0)
+    ] (.return_ (some 2))
+  let pureEntry := mkEntry 0 "variantPureCall" #[] 2 #[
+    instr (some (vd 0 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 1 2)) (.pureCall 1 #[0])
+  ] (.return_ (some 1))
+  let pureCarrier ← encodeCarrier "variant-pure-call"
+    { base with types, callables := #[pureEntry, optionPure] }
+  let pureAdmitted ← admitOk "variant-pure-call" pureCarrier
+  expectReturned "variant-pure-call"
+    (stepReferenceSliceV1 pureAdmitted pre (inv 0 #[]) #[]) pre
+    (some { typeId := 2, valueBytes := ByteArray.mk #[9] }) #[]
+
+  let variantInvariant : CallableV1 := {
+    id := 1
+    kind := .invariant
+    name := some "variantInvariant"
+    params := #[]
+    result := { typeId := 1, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 #[
+      instr (some (vd 0 0)) (.construct 0 0 #[]),
+      instr (some (vd 1 3)) (.variantTag 0),
+      instr (some (vd 2 3)) (.literal 3 (ByteArray.mk #[0, 0, 0, 0])),
+      instr (some (vd 3 1)) (.binary .eq 1 2)
+    ] (.return_ (some 3))]
+    loopBounds := #[]
+    invariantSteps := some 6
+  }
+  let invariantGate := mkEntry 0 "invariantGate" #[] 5 #[] (.return_ none)
+  let invariantCarrier ← encodeCarrier "variant-invariant" {
+    base with
+    types
+    callables := #[invariantGate, variantInvariant]
+    invariants := #[{ id := 0, name := "variantInvariant", callableId := 1 }]
+  }
+  let invariantAdmitted ← admitOk "variant-invariant" invariantCarrier
+  expect (evalInvariantReferenceSliceV1 invariantAdmitted 0 pre == .returnedTrue)
+    "variant-invariant: returned true"
+
+  -- Static indices are valid, but disagree with the runtime constructor tag.
+  let mismatch := mkEntry 0 "tagMismatch" #[] 5 #[
+    instr (some (vd 0 1)) (.literal 1 (ByteArray.mk #[1])),
+    instr (some (vd 1 2)) (.literal 2 (ByteArray.mk #[9])),
+    instr (some (vd 2 0)) (.construct 0 1 #[0, 1]),
+    instr (some (vd 3 5)) (.variantPayload 2 2 0)
+  ] (.return_ (some 3))
+  let mismatchCarrier ← encodeCarrier "variant-mismatch"
+    { base with types, callables := #[mismatch] }
+  let mismatchAdmitted ← admitOk "variant-mismatch" mismatchCarrier
+  expectTrapped "variant-mismatch"
+    (stepReferenceSliceV1 mismatchAdmitted pre (inv 0 #[]) #[]) .invalidCore pre
+
+  -- Wire permits recursion through a named Enum and an anonymous Option, but
+  -- this finite maximum-resource engineering subset rejects that graph.
+  let recursiveTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Loop", shape := .enum #[
+      { name := "Stop", payloadTypes := #[] },
+      { name := "More", payloadTypes := #[1] }] },
+    { id := 1, name := none, shape := .option 0 },
+    { id := 2, name := none, shape := .bool }
+  ]
+  let recursiveGate := mkEntry 0 "recursiveGate" #[] 2 #[] (.return_ none)
+  let recursiveBase ← emptyData "RecursiveVariant"
+  let recursiveCarrier ← encodeCarrier "recursive-variant" {
+    recursiveBase with types := recursiveTypes, callables := #[recursiveGate]
+  }
+  admitUnsupported "recursive-variant" recursiveCarrier
+    (fun detail => detail.contains "recursive Struct/Option/Enum")
+    "recursive aggregate boundary"
+
+  -- Enum alternatives use a maximum (only one constructor exists at runtime),
+  -- while repeated payload occurrences within one constructor are all charged.
+  let enumWorkTypes (duplicatePayload : Bool) : Array TypeDeclV1 := Id.run do
+    let payloads : Array TypeIdV1 := if duplicatePayload then #[1, 1] else #[1]
+    let mut out : Array TypeDeclV1 := #[{
+      id := 0, name := some "WorkChoice"
+      shape := .enum #[{ name := "Payload", payloadTypes := payloads }]
+    }]
+    for i in [:24] do
+      let tid := i + 1
+      let child := UInt32.ofNat (tid + 1)
+      out := out.push {
+        id := UInt32.ofNat tid
+        name := some s!"WorkNode{i}"
+        shape := .struct #[
+          { name := "left", typeId := child },
+          { name := "right", typeId := child }
+        ]
+      }
+    out := out.push { id := 25, name := none, shape := .unit }
+    pure out
+  let enumWorkGate := mkEntry 0 "enumWorkGate" #[] 25 #[] (.return_ none)
+  let enumWorkBase ← emptyData "EnumWork"
+  let boundedEnumWorkCarrier ← encodeCarrier "bounded-enum-work" {
+    enumWorkBase with types := enumWorkTypes false, callables := #[enumWorkGate]
+  }
+  let _ ← admitOk "bounded-enum-work" boundedEnumWorkCarrier
+  let repeatedEnumWorkCarrier ← encodeCarrier "repeated-enum-work" {
+    enumWorkBase with types := enumWorkTypes true, callables := #[enumWorkGate]
+  }
+  admitUnsupported "repeated-enum-work" repeatedEnumWorkCarrier
+    (fun detail => detail.contains "construction work")
+    "repeated Enum payload work"
+
 /-- Structure-gated invariant roots execute only through the dedicated slice. -/
 private def testInvariantReferenceSlice : IO Unit := do
   let types : Array TypeDeclV1 := #[
@@ -2309,6 +2503,7 @@ unsafe def run : IO Unit := do
   testBoundedLoopEmitOccurrences
   testUIntStandardReverts
   testStructReferenceSlice
+  testVariantReferenceSlice
   testInvariantReferenceSlice
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 

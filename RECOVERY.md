@@ -213,3 +213,15 @@ logical-state defaults含slot prefix累计受64MiB byte/work caps。
 runtime再次检查shape/index/TypeId/canonical bytes，FieldSet为immutable SSA update。entry、nested
 Struct、PureCall及nonformal invariant evaluator均复用远端canonical machine。Enum/Option、
 Array/Bytes/Map index、ContextRead/Commit及formal evaluator仍pending。
+
+## D2-07 reference Option/Enum engineering status（2026-07-31）
+
+同一general-CFG/PureCall Reference machine现进一步开放`TypeShapeV1.Option`/`Enum`、对应
+`Construct`以及`VariantTag`/`VariantPayload`。`WireV1`拥有唯一窄canonical variant split/encode
+seam，保留outer nesting fuel、16MiB append前cap、full-consume/re-encode及错误shape/tag/count/
+payload/trailing fail-closed。admission的显式栈width/depth/work分析按constructor取最大值，并按
+payload occurrence（包括共享TypeId）计费；runtime防御性复核shape、TypeId、tag及payload index，
+Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Unit/Array/Map Construct、
+Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式unsupported；
+Index、ContextRead、Commit仍关闭；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
+TASK-D2-07/TST-SEM-002/003仍pending。

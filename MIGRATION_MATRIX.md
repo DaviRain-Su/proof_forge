@@ -121,8 +121,11 @@ type集合内的Struct，以及Struct形态的`Construct`/`FieldGet`/`FieldSet`�
 Struct DAG的默认值allocation amplification，并以64MiB construction-work cap拒绝宽值的深层包装。runtime defensively重查shape、constructor/index、operand/result TypeId与
 canonical bytes；logical-state defaults另按slot prefix累计受64MiB byte/work caps约束。FieldSet生成新bytes，不改变旧SSA值。聚焦suite覆盖nesting/width/construction-work/state-aggregate资源边界、多字段first/later get、immutable
 set、nested Struct、pureFn与invariant root，并覆盖malformed/noncanonical/trailing/wrong-shape/count
-及non-Struct Construct admission。正式`evalInvariantV1`/`InvariantTheoremV1`、Enum/Option、
-Array/Bytes/Map index、ContextRead/Commit及formal TASK-D2-07/TST-SEM-002/003仍pending。
+及non-Struct Construct admission。后续独立工程切片已在同一machine加入acyclic Option/Enum canonical
+Construct、VariantTag/VariantPayload、runtime tag一致性trap及cap-saturating资源分析；Wire-legal
+recursive Struct/Option/Enum graph在有限maximum-resource Reference subset仍显式unsupported；Unit/Array/Map
+Construct与Array/Bytes/Map index、ContextRead/Commit仍关闭。正式`evalInvariantV1`/
+`InvariantTheoremV1`及formal TASK-D2-07/TST-SEM-002/003仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

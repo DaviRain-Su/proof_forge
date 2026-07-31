@@ -10971,3 +10971,18 @@ normative: false
 - Tests：新增entry→Unit PureCall真实执行与initializer→Unit PureCall回归；后者断言成功返回发布
   `initialized=true`。既有nested valued PureCall/general-CFG suite保持通过。
 - Boundary：engineering Reference修复，不改变formal evaluator/theorem、wire schema或其他op family。
+
+## 2026-07-31 — D2-07 ReferenceV1 Option/Enum variant-family engineering slice
+
+- Production：在既有general-CFG/PureCall machine上开放Option/Enum shape、Construct、VariantTag与
+  VariantPayload；未新增第二执行器。WireV1新增窄public canonical variant split/encode seam，复用sole
+  type-driven decoder，保留outer fuel、16MiB cap-before-append、full consume/re-encode与wrong
+  shape/tag/count/payload/trailing fail-closed。Reference admission显式栈分析扩展到Option/Enum，按最大
+  constructor width/work及每个payload occurrence计费；runtime复核shape/result TypeId/canonical bytes，
+  Enum runtime-tag mismatch及Option-none payload access trap invalidCore。
+- Tests：Reference suite覆盖Enum空/多payload、Option none/some、tag/payload extraction、none access与
+  runtime mismatch trap、PureCall/nonformal invariant复用，以及public Wire helper malformed/noncanonical/
+  trailing/wrong-type failures；既有Struct/general-CFG suites保持权威。
+- Boundary：仍属engineering/nonformal。Unit/Array/Map Construct、Index、ContextRead、Commit与正式
+  `evalInvariantV1`/`InvariantTheoremV1`均未开放；Wire-legal recursive Struct/Option/Enum graph
+  在该有限maximum-resource subset仍显式unsupported；formal TASK-D2-07/TST-SEM-002/003仍pending。

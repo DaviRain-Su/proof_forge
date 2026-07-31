@@ -4018,6 +4018,76 @@ def encodeCanonicalStructValueV1 (types : Array TypeDeclV1)
   validateValueBytesV1 types structTypeId out
   pure out
 
+/-- Split one complete canonical Option/Enum value into its constructor tag and
+    canonical payload slices. The outer variant reserves one nesting level;
+    payloads are decoded by the sole canonical decoder. -/
+def splitCanonicalVariantValueV1 (types : Array TypeDeclV1)
+    (variantTypeId : TypeIdV1) (valueBytes : ByteArray) :
+    Except SemanticWireErrorV1 (UInt32 × Array ByteArray) := do
+  unless valueBytes.size ≤ maxCanonicalValueBytes do
+    return ← err .limitExceeded
+  let (tag, payloadTypes, payloadOffset) ←
+    match types[variantTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .option element, .. } =>
+        if valueBytes.size == 0 then err .nonCanonical
+        else
+          match valueBytes.get! 0 with
+          | 0 => pure ((0 : UInt32), #[], 1)
+          | 1 => pure ((1 : UInt32), #[element], 1)
+          | _ => err .nonCanonical
+    | some { shape := .enum variants, .. } => do
+        let (tag, c) ← takeU32leNC (start valueBytes)
+        match variants[tag.toNat]? with
+        | some variant => pure (tag, variant.payloadTypes, c.offset)
+        | none => err .nonCanonical
+    | some _ => err .badType
+  let mut chunks : Array ByteArray := #[]
+  let mut c := { start valueBytes with offset := payloadOffset }
+  for payloadType in payloadTypes do
+    let beginOffset := c.offset
+    let (reencoded, c') ←
+      decodeAndReencodeValueBytesV1 types payloadType (maxNesting - 1) c
+    let source := valueBytes.extract beginOffset c'.offset
+    unless reencoded == source do return ← err .nonCanonical
+    chunks := chunks.push source
+    c := c'
+  unless remaining c == 0 do return ← err .nonCanonical
+  pure (tag, chunks)
+
+/-- Assemble one canonical Option/Enum from an exact constructor tag and exact
+    canonical payload slices, checking the cap before every append and finally
+    full-consuming/re-encoding the result through the sole value decoder. -/
+def encodeCanonicalVariantValueV1 (types : Array TypeDeclV1)
+    (variantTypeId : TypeIdV1) (tag : UInt32) (payloadBytes : Array ByteArray) :
+    Except SemanticWireErrorV1 ByteArray := do
+  let (headerBytes, payloadTypes) ←
+    match types[variantTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .option element, .. } =>
+        if tag == 0 then pure (encodeU8 0, #[])
+        else if tag == 1 then pure (encodeU8 1, #[element])
+        else err .nonCanonical
+    | some { shape := .enum variants, .. } =>
+        match variants[tag.toNat]? with
+        | some variant => pure (encodeU32le tag, variant.payloadTypes)
+        | none => err .nonCanonical
+    | some _ => err .badType
+  unless payloadBytes.size == payloadTypes.size do return ← err .nonCanonical
+  let mut out := headerBytes
+  let mut i := 0
+  while i < payloadTypes.size do
+    match payloadTypes[i]?, payloadBytes[i]? with
+    | some payloadType, some bytes =>
+        unless bytes.size ≤ maxCanonicalValueBytes - out.size do
+          return ← err .limitExceeded
+        validateValueBytesWithFuelV1 types payloadType bytes (maxNesting - 1)
+        out := out.append bytes
+    | _, _ => return ← err .nonCanonical
+    i := i + 1
+  validateValueBytesV1 types variantTypeId out
+  pure out
+
 private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1) :
     Except SemanticWireErrorV1 Unit := do
   match op with

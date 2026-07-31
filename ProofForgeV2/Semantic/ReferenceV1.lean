@@ -12,22 +12,23 @@ import ProofForgeV2.Semantic.WireV1
   machine `stepReferenceSliceV1`.
 
   Admitted surface:
-    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / Struct over
-      recursively admitted field types
+    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / Struct / Option /
+      Enum over acyclic recursively admitted payload types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
-      CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet, PureCall,
-      Assert, Emit, ExternalCall, Schedule
+      CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
+      Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
+      ExternalCall, Schedule
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
     * view: no StateStore / Emit / ExternalCall / Schedule
-    * pureFn body: no StateLoad/Store / Emit / ExternalCall / Schedule
-      (PureCall itself rejected); pureFn may still be declared
+    * pureFn body: no StateLoad/Store / Emit / ExternalCall / Schedule;
+      pureFn-to-pureFn PureCall is admitted
     * root invocation of pureFn/invariant is `.invalidInvocation`
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Int / Field / Array / Map / Option / Enum,
-    non-Struct Construct / Variant* / Index* / ContextRead / Commit,
+    Int / Field / Array / Map, recursive Struct/Option/Enum type graphs,
+    non-Struct/Option/Enum Construct / Index* / ContextRead / Commit,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
   Semantics (SPEC-SEM-001 engineering):
@@ -174,9 +175,9 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .field _ => admitFail "unsupported Field"
   | .array _ _ => admitFail "unsupported aggregate Array"
   | .map _ _ => admitFail "unsupported aggregate Map"
-  | .option _ => admitFail "unsupported aggregate Option"
+  | .option _ => pure ()
   | .struct _ => pure ()
-  | .enum _ => admitFail "unsupported aggregate Enum"
+  | .enum _ => pure ()
   | .principal => admitFail "unsupported Principal"
 
 /-- Family-level op admission. Unsupported ops never reach runtime (only
@@ -197,8 +198,8 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .construct _ _ _ => pure ()
   | .fieldGet _ _ => pure ()
   | .fieldSet _ _ _ => pure ()
-  | .variantTag _ => admitFail "unsupported op VariantTag"
-  | .variantPayload _ _ _ => admitFail "unsupported op VariantPayload"
+  | .variantTag _ => pure ()
+  | .variantPayload _ _ _ => pure ()
   | .indexGet _ _ => admitFail "unsupported IndexGet (Array/Map/Bytes index)"
   | .indexSet _ _ _ => admitFail "unsupported IndexSet (Array/Map/Bytes index)"
   | .pureCall _ _ => pure ()
@@ -237,14 +238,14 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
   for block in c.blocks do
     for instr in block.instructions do
       opAdmitted instr.op
-      -- Construct is a multi-shape wire family. This slice admits only its
-      -- Struct form; in particular, admitted Unit must not implicitly enable
-      -- Unit construction.
+      -- Construct remains closed except for Struct and the variant family.
       match instr.op with
       | .construct tid _ _ =>
           match data.types[tid.toNat]? with
-          | some { shape := .struct _, .. } => pure ()
-          | some _ => admitFail "unsupported non-Struct Construct"
+          | some { shape := .struct _, .. }
+          | some { shape := .option _, .. }
+          | some { shape := .enum _, .. } => pure ()
+          | some _ => admitFail "unsupported non-Struct/Option/Enum Construct shape"
           | none => admitFail "Construct typeId out of range"
       | _ => pure ()
       -- view: no state write / effects (runtime has no view-snapshot model)
@@ -325,38 +326,55 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
         stack := stack.pop
         if kind == 1 then
           match types[tid]? with
-          | some { shape := .struct fields, .. } =>
+          | some decl =>
+              let alternatives : Array (Array TypeIdV1) :=
+                match decl.shape with
+                | .struct fields => #[fields.map (·.typeId)]
+                | .option element => #[#[], #[element]]
+                | .enum variants => variants.map (·.payloadTypes)
+                | _ => #[]
+              unless !alternatives.isEmpty do
+                return ← admitFail "aggregate resource bounds could not be resolved"
               let mut total := 0
               let mut childDepth := 0
-              let mut childWork := 0
-              for field in fields do
-                let child := field.typeId.toNat
-                unless child < n && color[child]! == 2 do
-                  return ← admitFail "Struct resource bounds could not be resolved"
-                let width := widths[child]!
-                unless width ≤ maxCanonicalValueBytes - total do
-                  return ← admitFail "Struct canonical value exceeds byte limit"
-                total := total + width
-                childDepth := max childDepth depths[child]!
-                let work := works[child]!
-                unless work ≤ maxCanonicalProgramBytes - childWork do
-                  return ← admitFail "Struct canonical construction work exceeds limit"
-                childWork := childWork + work
+              let mut totalWork := 0
+              let headerWidth := match decl.shape with | .struct _ => 0 | .option _ => 1 | _ => 4
+              for children in alternatives do
+                let mut altWidth := headerWidth
+                let mut altWork := 0
+                for childId in children do
+                  let child := childId.toNat
+                  unless child < n && color[child]! == 2 do
+                    return ← admitFail "aggregate resource bounds could not be resolved"
+                  let width := widths[child]!
+                  unless width ≤ maxCanonicalValueBytes - altWidth do
+                    return ← admitFail "aggregate canonical value exceeds byte limit"
+                  altWidth := altWidth + width
+                  childDepth := max childDepth depths[child]!
+                  let work := works[child]!
+                  unless work ≤ maxCanonicalProgramBytes - altWork do
+                    return ← admitFail "aggregate canonical construction work exceeds limit"
+                  altWork := altWork + work
+                let ownWork := max 1 altWidth
+                unless ownWork ≤ maxCanonicalProgramBytes - altWork do
+                  return ← admitFail "aggregate canonical construction work exceeds limit"
+                altWork := altWork + ownWork
+                total := max total altWidth
+                totalWork := max totalWork altWork
               let depth := childDepth + 1
               unless depth ≤ maxNesting do
-                return ← admitFail "Struct canonical value exceeds nesting limit"
-              let ownWork := max 1 total
-              unless ownWork ≤ maxCanonicalProgramBytes - childWork do
-                return ← admitFail "Struct canonical construction work exceeds limit"
+                return ← admitFail "aggregate canonical value exceeds nesting limit"
               widths := widths.set! tid total
               depths := depths.set! tid depth
-              works := works.set! tid (childWork + ownWork)
+              works := works.set! tid totalWork
               color := color.set! tid 2
-          | _ => return ← admitFail "Struct resource bounds could not be resolved"
+          | _ => return ← admitFail "aggregate resource bounds could not be resolved"
         else
           match color[tid]! with
           | 2 => pure ()
-          | 1 => return ← admitFail "Struct resource bounds contain a cycle"
+          | 1 =>
+              return ← admitFail
+                "recursive Struct/Option/Enum resource bounds unsupported"
           | _ =>
               match types[tid]? with
               | some { shape := .bool, .. } =>
@@ -390,6 +408,25 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                     | none =>
                         return ← admitFail
                           "Struct resource bounds could not be resolved"
+              | some { shape := .option element, .. } =>
+                  color := color.set! tid 1
+                  stack := stack.push (1, tid)
+                  stack := stack.push (0, element.toNat)
+              | some { shape := .enum variants, .. } =>
+                  color := color.set! tid 1
+                  stack := stack.push (1, tid)
+                  let mut vi := variants.size
+                  while vi > 0 do
+                    vi := vi - 1
+                    match variants[vi]? with
+                    | none => return ← admitFail "Enum resource bounds could not be resolved"
+                    | some variant =>
+                        let mut pi := variant.payloadTypes.size
+                        while pi > 0 do
+                          pi := pi - 1
+                          match variant.payloadTypes[pi]? with
+                          | some child => stack := stack.push (0, child.toNat)
+                          | none => return ← admitFail "Enum resource bounds could not be resolved"
               | _ => return ← admitFail "Struct resource bounds unsupported type"
     root := root + 1
   pure (widths, works)
@@ -878,6 +915,69 @@ private def evalStructConstruct (data : SemanticProgramDataV1)
   | .ok bytes => pure { typeId, valueBytes := bytes }
   | .error _ => .error (.trapped .invalidCore)
 
+private def evalVariantConstruct (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1) (constructorIndex : UInt32)
+    (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
+    Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == typeId do throw (.trapped .invalidCore)
+  let payloadTypes ←
+    match data.types[typeId.toNat]? with
+    | some { shape := .option element, .. } =>
+        if constructorIndex == 0 then pure #[]
+        else if constructorIndex == 1 then pure #[element]
+        else throw (.trapped .invalidCore)
+    | some { shape := .enum variants, .. } =>
+        match variants[constructorIndex.toNat]? with
+        | some variant => pure variant.payloadTypes
+        | none => throw (.trapped .invalidCore)
+    | _ => throw (.trapped .invalidCore)
+  unless args.size == payloadTypes.size do throw (.trapped .invalidCore)
+  let mut chunks := #[]
+  for i in [:payloadTypes.size] do
+    match args[i]?, payloadTypes[i]? with
+    | some arg, some payloadType =>
+        unless arg.typeId == payloadType && valueCanonical data arg do
+          throw (.trapped .invalidCore)
+        chunks := chunks.push arg.valueBytes
+    | _, _ => throw (.trapped .invalidCore)
+  match encodeCanonicalVariantValueV1 data.types typeId constructorIndex chunks with
+  | .ok bytes => pure { typeId, valueBytes := bytes }
+  | .error _ => throw (.trapped .invalidCore)
+
+private def evalVariantTag (data : SemanticProgramDataV1) (base : ReferenceValueV1)
+    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+  match data.types[resultTypeId.toNat]? with
+  | some { shape := .uint 32, .. } => pure ()
+  | _ => throw (.trapped .invalidCore)
+  match splitCanonicalVariantValueV1 data.types base.typeId base.valueBytes with
+  | .ok (tag, _) => pure { typeId := resultTypeId, valueBytes := natToLeBytes tag.toNat 4 }
+  | .error _ => throw (.trapped .invalidCore)
+
+private def evalVariantPayload (data : SemanticProgramDataV1)
+    (base : ReferenceValueV1) (variantIndex payloadIndex : UInt32)
+    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+  let expectedType ←
+    match data.types[base.typeId.toNat]? with
+    | some { shape := .option element, .. } =>
+        if variantIndex == 1 && payloadIndex == 0 then pure element
+        else throw (.trapped .invalidCore)
+    | some { shape := .enum variants, .. } =>
+        match variants[variantIndex.toNat]? with
+        | some variant =>
+            match variant.payloadTypes[payloadIndex.toNat]? with
+            | some tid => pure tid
+            | none => throw (.trapped .invalidCore)
+        | none => throw (.trapped .invalidCore)
+    | _ => throw (.trapped .invalidCore)
+  unless resultTypeId == expectedType do throw (.trapped .invalidCore)
+  match splitCanonicalVariantValueV1 data.types base.typeId base.valueBytes with
+  | .ok (runtimeTag, chunks) =>
+      unless runtimeTag == variantIndex do throw (.trapped .invalidCore)
+      match chunks[payloadIndex.toNat]? with
+      | some bytes => pure { typeId := expectedType, valueBytes := bytes }
+      | none => throw (.trapped .invalidCore)
+  | .error _ => throw (.trapped .invalidCore)
+
 private def evalStructFieldGet (data : SemanticProgramDataV1)
     (base : ReferenceValueV1) (fieldIndex : UInt32)
     (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
@@ -1089,8 +1189,14 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
   | .construct typeId constructorIndex argIds =>
       match instr.result, lookupArgs m.env argIds with
       | some vd, some args =>
-          fromEval m vd.valueId
-            (evalStructConstruct m.data typeId constructorIndex args vd.typeId)
+          let evaluated :=
+            match m.data.types[typeId.toNat]? with
+            | some { shape := .struct _, .. } =>
+                evalStructConstruct m.data typeId constructorIndex args vd.typeId
+            | some { shape := .option _, .. } | some { shape := .enum _, .. } =>
+                evalVariantConstruct m.data typeId constructorIndex args vd.typeId
+            | _ => .error (.trapped .invalidCore)
+          fromEval m vd.valueId evaluated
       | _, _ => .done m (.trapped .invalidCore)
   | .fieldGet baseId fieldIndex =>
       match instr.result, envGet m.env baseId with
@@ -1104,8 +1210,17 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
           fromEval m vd.valueId
             (evalStructFieldSet m.data base fieldIndex value vd.typeId)
       | _, _, _ => .done m (.trapped .invalidCore)
-  | .variantTag _
-  | .variantPayload _ _ _ | .indexGet _ _ | .indexSet _ _ _
+  | .variantTag baseId =>
+      match instr.result, envGet m.env baseId with
+      | some vd, some base => fromEval m vd.valueId (evalVariantTag m.data base vd.typeId)
+      | _, _ => .done m (.trapped .invalidCore)
+  | .variantPayload baseId variantIndex payloadIndex =>
+      match instr.result, envGet m.env baseId with
+      | some vd, some base =>
+          fromEval m vd.valueId
+            (evalVariantPayload m.data base variantIndex payloadIndex vd.typeId)
+      | _, _ => .done m (.trapped .invalidCore)
+  | .indexGet _ _ | .indexSet _ _ _
   | .pureCall _ _ | .contextRead _ | .commit _ =>
       .done m (.trapped .internalInvariant)
 
