@@ -441,6 +441,16 @@ private def isNearAccountId (value : String) : Bool :=
           (48 ≤ code && code ≤ 57) ||
           character == '_' || character == '-' || character == '.'
 
+/-- Sole schedule-receiver account-id error text (lowering + validatePlan). -/
+private def nearAccountIdError (receiver : String) : String :=
+  s!"schedule receiver '{receiver}' is not a valid NEAR account id (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
+
+/-- Sole view/pureFn schedule-disallow error text (lowering + validatePlan).
+    `kind` is the richer lowering form, e.g. `"view callable schedules a workflow"`
+    or `"pureFn cannot schedule workflows"`. -/
+private def nearScheduleDisallowedError (kind : String) : String :=
+  s!"unsupported NEAR semantic shape: {kind}"
+
 private def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
   let mut seen : Array α := #[]
   for value in values do
@@ -1288,18 +1298,17 @@ private def lowerBlockInstructionsV1
     | .schedule _effectId callee argIds, none =>
         if mode == .view then
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: view callable schedules a workflow"
+            (nearScheduleDisallowedError "view callable schedules a workflow")
         if mode == .pureFn then
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: pureFn cannot schedule workflows"
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
         let components := callee.components.toArray
         unless components.size ≥ 2 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: schedule callee must have at least two components"
         let receiver := String.intercalate "." components.toList
         unless isNearAccountId receiver do
-          throw <| .planInvariant .near
-            s!"schedule receiver '{receiver}' is not a valid NEAR account id (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
+          throw <| .planInvariant .near (nearAccountIdError receiver)
         let method := components[components.size - 1]!
         unless isIdentifier method do
           throw <| .planInvariant .near
@@ -2074,12 +2083,13 @@ private partial def checkMethodStatementsV1
         total := total + 1
     | .promiseAccount receiver method args =>
         if isView then
-          throw <| .planInvariant .near "view method schedules a workflow"
-        if isPureFn then
-          throw <| .planInvariant .near "pureFn body schedules a workflow"
-        unless isNearAccountId receiver do
           throw <| .planInvariant .near
-            s!"schedule receiver '{receiver}' is not a valid NEAR account id"
+            (nearScheduleDisallowedError "view callable schedules a workflow")
+        if isPureFn then
+          throw <| .planInvariant .near
+            (nearScheduleDisallowedError "pureFn cannot schedule workflows")
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .near (nearAccountIdError receiver)
         unless isIdentifier method do
           throw <| .planInvariant .near
             s!"schedule method '{method}' is not a safe identifier"

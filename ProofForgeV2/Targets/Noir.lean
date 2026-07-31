@@ -2240,7 +2240,12 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
       | none =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: loop parameter reference outside its loop"
-  | .stateLoad fieldIndex => pure { operations := #[], value := stateValues[fieldIndex]!, next }
+  | .stateLoad fieldIndex =>
+      match stateValues[fieldIndex]? with
+      | some value => pure { operations := #[], value, next }
+      | none =>
+          throw <| .planInvariant .noir
+            s!"noir stateLoad fieldIndex {fieldIndex} out of range"
   | .checkedAdd lhs rhs => do
       let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
       let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
@@ -2715,43 +2720,63 @@ private structure RelationSlotsV1 where
   call : Array (Nat × Nat)
   schedule : Array (Nat × Nat)
 
+/-- Resolve a path-recorded effect-arg value, or zero when the path never
+    executed that effect. Fail closed if the recorded arity is shorter than
+    the static slot table (plan-internal invariant). -/
+private def pathEffectArgValueV1 (pathEmits : Array (Nat × Array ValueRef))
+    (effectId argIndex : Nat) (slotKind : String) : CompileResult ValueRef := do
+  match pathEmits.findSome? (fun (slotId, values) =>
+      if slotId == effectId then some values else none) with
+  | none => pure (.literal 0)
+  | some values =>
+      match values[argIndex]? with
+      | some v => pure v
+      | none =>
+          throw <| .planInvariant .noir
+            s!"noir path {slotKind} arg index {argIndex} out of range for effect {effectId}"
+
 /-- Final path assertions: post-state equality per field, post-initialized
     flag, (non-initializer) the public result binding, and event-slot
     bindings. Each static emit in `emitSlots` binds its argument slots to the
     values recorded on this path, or to zero on paths that did not execute it
-    (and on reverted paths, whose effects are discarded). -/
+    (and on reverted paths, whose effects are discarded). Fail-closed on
+    missing post-state/result/path-arg plan-internal invariants (no bang). -/
 private def leafAssertions (plan : Plan) (relation : Relation)
     (emitSlots : Array (Nat × Nat × Nat))
     (callSlots : Array (Nat × Nat)) (scheduleSlots : Array (Nat × Nat))
     (stateValues : Array ValueRef) (returned : Option ValueRef)
-    (pathEmits : Array (Nat × Array ValueRef)) : Array Operation := Id.run do
+    (pathEmits : Array (Nat × Array ValueRef)) : CompileResult (Array Operation) := do
   let mut operations : Array Operation := #[]
   for field in plan.states do
-    operations := operations.push <| .assertEqual
-      (.input (inputIndexFor relation (.postState field.sourceId)))
-      stateValues[field.sourceId]!
+    match stateValues[field.sourceId]? with
+    | none =>
+        throw <| .planInvariant .noir
+          s!"noir post-state value missing for field sourceId {field.sourceId}"
+    | some stateValue =>
+        operations := operations.push <| .assertEqual
+          (.input (inputIndexFor relation (.postState field.sourceId)))
+          stateValue
   if !plan.states.isEmpty then
     operations := operations.push <| .assertBool
       (inputIndexFor relation .postInitialized) true
   if relation.mode != .initialize then
-    operations := operations.push <| .assertEqual
-      (.input (inputIndexFor relation .result)) returned.get!
+    match returned with
+    | some v =>
+        operations := operations.push <| .assertEqual
+          (.input (inputIndexFor relation .result)) v
+    | none =>
+        throw <| .planInvariant .noir
+          "noir relation result missing outside initialize"
   for (effectId, _, argCount) in emitSlots do
-    let pathValues? := pathEmits.findSome? fun (slotId, values) =>
-      if slotId == effectId then some values else none
     for argIndex in [0:argCount] do
-      let value := match pathValues? with
-        | some values => values[argIndex]!
-        | none => .literal 0
+      let value ← pathEffectArgValueV1 pathEmits effectId argIndex "emit"
       operations := operations.push <| .assertEqual
         (.input (inputIndexFor relation (.eventSlot effectId argIndex))) value
   for (effectId, argCount) in callSlots do
     let pathValues? := pathEmits.findSome? fun (slotId, values) =>
       if slotId == effectId then some values else none
     for argIndex in [0:argCount] do
-      let value := match pathValues? with
-        | some values => values[argIndex]!
-        | none => .literal 0
+      let value ← pathEffectArgValueV1 pathEmits effectId argIndex "call"
       operations := operations.push <| .assertEqual
         (.input (inputIndexFor relation (.callArgSlot effectId argIndex))) value
     -- Status witness: true when this path executed the call (a returned
@@ -2759,12 +2784,8 @@ private def leafAssertions (plan : Plan) (relation : Relation)
     operations := operations.push <| .assertBool
       (inputIndexFor relation (.callStatus effectId)) pathValues?.isSome
   for (effectId, argCount) in scheduleSlots do
-    let pathValues? := pathEmits.findSome? fun (slotId, values) =>
-      if slotId == effectId then some values else none
     for argIndex in [0:argCount] do
-      let value := match pathValues? with
-        | some values => values[argIndex]!
-        | none => .literal 0
+      let value ← pathEffectArgValueV1 pathEmits effectId argIndex "schedule"
       operations := operations.push <| .assertEqual
         (.input (inputIndexFor relation (.scheduleArgSlot effectId argIndex))) value
   pure operations
@@ -2809,8 +2830,9 @@ private def defaultOpenLeafV1 (plan : Plan) (relation : Relation)
     unless relation.mode == .initialize do
       throw <| .planInvariant .noir
         s!"relation '{relation.name}' path does not end in a return"
-    pure (acc ++ leafAssertions plan relation slots.emit slots.call slots.schedule
-      stateValues none pathEmits, next)
+    let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
+      stateValues none pathEmits
+    pure (acc ++ assertions, next)
 
 mutual
 
@@ -2899,17 +2921,16 @@ private partial def lowerPathStatementsV1
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
           let value ← lowerExpr plan fuel loopEnv stateValues next valueExpr
-          pure (acc ++ value.operations ++
-            leafAssertions plan relation slots.emit slots.call slots.schedule
-              stateValues (some value.value) pathEmits,
-            value.next)
+          let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
+            stateValues (some value.value) pathEmits
+          pure (acc ++ value.operations ++ assertions, value.next)
       | .returnNone =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
-          pure (acc ++ leafAssertions plan relation slots.emit slots.call slots.schedule
-              stateValues none pathEmits,
-            next)
+          let assertions ← leafAssertions plan relation slots.emit slots.call slots.schedule
+            stateValues none pathEmits
+          pure (acc ++ assertions, next)
       | .revertError _ args =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
