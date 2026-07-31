@@ -893,6 +893,141 @@ private unsafe def testGuardedCounterSemanticPlans : IO Unit := do
   expect (noirSource.contents.contains ">=" && noirSource.contents.contains "assert(")
     "Noir source must constrain the ge comparison and assert"
 
+/-- ProgramV1 ArithFlow source text for the Wave F arithmetic/unary leaf. -/
+private def arithFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ArithFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry scale(factor : UInt64) : UInt64 do\n" ++
+  "    count := count * factor / 3 + count % 3\n" ++
+  "    return count\n" ++
+  "  entry mask(value : UInt64) : UInt64 do\n" ++
+  "    count := ~value\n" ++
+  "    return count\n" ++
+  "  view parity() : Bool do\n" ++
+  "    return !(count % 2 == 0)\n"
+
+/-- Four-target retained-V1 arithmetic conformance: mul/div/mod and unary
+    bitNot/boolNot Plan trees, typed IR operations, and each target's
+    emitter surface for the new operators. -/
+private unsafe def testArithOpsSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    arithFlowSourceTextV1 "<targets-arith-ops>" "Tests.Targets.ArithFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["scale", "mask", "parity"] &&
+      solana.entries.map (·.name) == #["scale", "mask", "parity"] &&
+      near.entries.map (·.name) == #["scale", "mask", "parity"])
+    "all three account-model targets must carry scale/mask/parity in source order"
+  expect (noir.relations.map (·.name) == #["init", "scale", "mask", "parity"])
+    "Noir relations must be init/scale/mask/parity in source order"
+
+  expect (evm.entries[0]!.body == #[
+      .store { slot := 0, value :=
+        .checkedAdd (.checkedDiv (.checkedMul (.storageLoad 0) (.param 0)) (.literal 3)) (.checkedMod (.storageLoad 0) (.literal 3)) },
+      .returnValue (.storageLoad 0)])
+    "EVM scale must lower count * factor / 3 + count % 3 left-assoc into checked ops"
+  expect (evm.entries[1]!.body == #[
+      .store { slot := 0, value := .bitNot (.param 0) },
+      .returnValue (.storageLoad 0)])
+    "EVM mask must lower ~value into bitNot"
+  expect (evm.entries[2]!.resultKind == .bool &&
+      evm.entries[2]!.body == #[
+        .returnValue (.boolNot
+          (.compare .eq (.checkedMod (.storageLoad 0) (.literal 2)) (.literal 0)))])
+    "EVM parity must return boolNot over a mod-by-2 equality"
+
+  expect (solana.entries[0]!.body == #[
+      .store { accountIndex := 0, byteOffset := 8, value :=
+        .checkedAdd (.checkedDiv (.checkedMul (.stateLoad 0 8) (.param 8)) (.literal 3)) (.checkedMod (.stateLoad 0 8) (.literal 3)) },
+      .returnValue (.stateLoad 0 8)])
+    "Solana scale must lower count * factor / 3 + count % 3 into checked ops"
+  expect (solana.entries[1]!.body == #[
+      .store { accountIndex := 0, byteOffset := 8, value := .bitNot (.param 8) },
+      .returnValue (.stateLoad 0 8)])
+    "Solana mask must lower ~value into bitNot"
+
+  expect (near.entries[0]!.body == #[
+      .store { fieldIndex := 0, value :=
+        .checkedAdd (.checkedDiv (.checkedMul (.stateLoad 0) (.param 0)) (.literal 3)) (.checkedMod (.stateLoad 0) (.literal 3)) },
+      .returnValue (.stateLoad 0)])
+    "NEAR scale must lower count * factor / 3 + count % 3 into checked ops"
+  expect (near.entries[1]!.body == #[
+      .store { fieldIndex := 0, value := .bitNot (.param 0) },
+      .returnValue (.stateLoad 0)])
+    "NEAR mask must lower ~value into bitNot"
+
+  let noirIR ← liftResult <| irNoir compiled
+  liftResult <| Targets.Noir.validateIR noirIR
+  let noirScaleOps := noirIR.relations[1]!.operations
+  let arithOnly := noirScaleOps.filter fun op =>
+    match op with
+    | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .checkedAdd .. => true
+    | _ => false
+  expect (arithOnly.size == 4)
+    "Noir scale must emit exactly four checked arithmetic ops"
+  match arithOnly[0]!, arithOnly[1]!, arithOnly[2]!, arithOnly[3]! with
+  | .checkedMul .., .checkedDiv .., .checkedMod .., .checkedAdd .. => pure ()
+  | _, _, _, _ =>
+      throw <| IO.userError "Noir scale op order must be mul/div/mod/add"
+  expect (noirIR.relations[2]!.operations.any (fun
+      | .bitNot .. => true | _ => false))
+    "Noir mask must emit a bitNot op"
+  let noirParityOps := noirIR.relations[3]!.operations
+  expect (noirParityOps.any (fun | .checkedMod .. => true | _ => false) &&
+      noirParityOps.any (fun | .compare .eq .. => true | _ => false) &&
+      noirParityOps.any (fun | .boolNot .. => true | _ => false))
+    "Noir parity must emit mod, eq compare, and boolNot"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some yulFile := evmOutput.files.find? (·.path == "ArithFlow.yul") |
+    throw <| IO.userError "arith-ops: missing ArithFlow.yul"
+  expect (yulFile.contents.contains "mul(" && yulFile.contents.contains "div(" &&
+      yulFile.contents.contains "mod(" && yulFile.contents.contains "not(" &&
+      yulFile.contents.contains "iszero(")
+    "arith-ops Yul must render mul/div/mod/not/iszero"
+  let some sbpf := solanaOutput.files.find? (·.path == "ArithFlow.sbpf-plan") |
+    throw <| IO.userError "arith-ops: missing ArithFlow.sbpf-plan"
+  expect (sbpf.contents.contains "checked_mul_u64" &&
+      sbpf.contents.contains "checked_div_u64" &&
+      sbpf.contents.contains "checked_rem_u64" &&
+      sbpf.contents.contains "bitnot_u64" &&
+      sbpf.contents.contains "bool_not")
+    "arith-ops sbpf-plan must render checked mul/div/rem and unary ops"
+  let some wat := nearOutput.files.find? (·.path == "ArithFlow.wat") |
+    throw <| IO.userError "arith-ops: missing ArithFlow.wat"
+  expect (wat.contents.contains "i64.mul" && wat.contents.contains "i64.div_u" &&
+      wat.contents.contains "i64.rem_u" && wat.contents.contains "i64.xor" &&
+      wat.contents.contains "i64.eqz")
+    "arith-ops WAT must render i64 mul/div_u/rem_u/xor/eqz"
+  let some scaleNr := noirOutput.files.find?
+      (·.path == "relations/r1-scale/src/main.nr") |
+    throw <| IO.userError "arith-ops: missing Noir scale relation"
+  expect (scaleNr.contents.contains " * " && scaleNr.contents.contains " / " &&
+      scaleNr.contents.contains " % " && scaleNr.contents.contains " != 0")
+    "arith-ops Noir scale must render mul/div/mod with a divisor guard"
+  let some maskNr := noirOutput.files.find?
+      (·.path == "relations/r2-mask/src/main.nr") |
+    throw <| IO.userError "arith-ops: missing Noir mask relation"
+  expect (maskNr.contents.contains ": u64 = !")
+    "arith-ops Noir mask must render bitwise NOT on u64"
+  let some parityNr := noirOutput.files.find?
+      (·.path == "relations/r3-parity/src/main.nr") |
+    throw <| IO.userError "arith-ops: missing Noir parity relation"
+  expect (parityNr.contents.contains ": bool = !")
+    "arith-ops Noir parity must render Bool NOT"
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
@@ -903,6 +1038,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testBranchingSemanticPlans
   testEmitRevertSemanticPlans
   testFnLocalCallSemanticPlans
+  testArithOpsSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=

@@ -1460,7 +1460,7 @@ private unsafe def checkArithOpsProduct : IO Unit := do
   let some clipNr := files.find? (fun file =>
       file.path.endsWith "r2-clip/src/main.nr") |
     throw <| IO.userError "ArithFlow missing clip main.nr"
-  expect (clipNr.contents.contains "assert(divisor != 0);")
+  expect (clipNr.contents.contains "assert(arg_p0 != 0);")
     "ArithFlow clip .nr must guard the divisor against zero"
   let some maskNr := files.find? (fun file =>
       file.path.endsWith "r3-mask/src/main.nr") |
