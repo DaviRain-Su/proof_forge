@@ -12,6 +12,24 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 complete fixed-width UInt/Int runtime engineering slice
+
+- Production：Reference machine现覆盖Wire合法`8/16/32/64/128/256`全部UInt/Int宽度。计算使用
+  arbitrary-precision Nat/Int，结果按目标范围checked后编码为canonical little-endian bytes；Int解码/
+  编码为fixed-width two's-complement。闭合checked add/sub/mul/neg、UInt Euclidean div/mod、Int
+  toward-zero div与dividend-sign remainder（`minInt / -1` overflow、`minInt % -1=0`）、signed order、
+  fixed-width bitwise/BitNot、checked left shift、UInt zero-fill与Int sign-extending right shift。
+- Cast/Admission：CheckedCast现覆盖UInt→UInt、UInt→Int、Int→UInt、Int→Int，以数学值做精确范围
+  检查，禁止truncation/wrap/sign reinterpretation；失败保留`castOutOfRange`。whole-program engineering
+  admission与resource analysis同步接纳全部整数宽度；Field/Principal general admission仍关闭，formal
+  lower runner不以该admission为前置。
+- Tests：lower-runner suite覆盖六宽度canonical max/min/-1/0/1边界、signed div/rem符号、bit/shift与
+  四类cast（含256-bit），并以无关Field declaration固定selected-callable scope。独立无Field的
+  engineering fixture经`admitReferenceProgramSliceV1`+`stepReferenceSliceV1`固定signed上下溢出、
+  min neg/div、invalid shift及全部cast failure的exact standard revert类别。
+- Boundary：不包含Field arithmetic、正式`InvariantABI.evalInvariantV1`/`InvariantTheoremV1`或formal
+  TST-SEM-002/003；下一独立切片为Field modular arithmetic。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

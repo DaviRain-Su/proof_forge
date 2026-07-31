@@ -123,7 +123,15 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > 第二个formal前置切片现开放Unit `Construct 0 []`并在线程化machine value写入、primitive operand、
 > Assert/Branch/Switch、block-param、PureCall参数/结果及root return边界重验canonical TypeId/value bytes。
 > lower runner已覆盖engineering admission仍拒绝的Principal canonical Eq与invariant内Unit Construct；
-> Int/Field数值语义与跨signedness cast仍未开放。
+> Principal/Field general admission仍关闭。
+
+> fixed-width integer前置切片现闭合Wire全部`8/16/32/64/128/256`宽度的UInt/Int：checked
+> add/sub/mul/neg、UInt Euclidean div/mod、Int toward-zero div与dividend-sign remainder、signed order、
+> fixed-width bit operations、checked left shift、UInt zero-fill/Int sign-extending right shift，以及
+> UInt/Int四类CheckedCast的数学范围检查。`minInt / -1`与`neg minInt`精确overflow，`minInt % -1=0`；
+> runtime failure保留standard revert分类，malformed canonical operand仍trap。engineering admission同步
+> 接纳全部整数宽度，selected lower runner另以无关Field declaration固定不受全程序admission污染。
+> Field arithmetic与正式`evalInvariantV1`/theorem仍pending。
 
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
