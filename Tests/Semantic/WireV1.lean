@@ -187,6 +187,22 @@ example (input : TransparentByteSpineV1) (offset maxLen : Nat) :
       readSizedSpineBytesV1 input offset maxLen :=
   readSizedBytesAtV1_refinesSpine input offset maxLen
 
+example : readArrayCountSpineV1 [0xff, 3, 0, 0, 0, 0xee] 1 3 = .ok (3, 5) := by rfl
+
+example : readArrayCountSpineV1 [0, 0, 0, 0] 0 0 = .ok (0, 4) := by rfl
+
+example : readArrayCountSpineV1 [4, 0, 0, 0] 0 3 = .error .limitExceeded := by rfl
+
+example : readArrayCountSpineV1 [1, 0, 0] 0 3 = .error .truncated := by rfl
+
+example : readArrayCountSpineV1 [0xff, 0xff, 0xff, 0xff] 0 UInt32.size =
+    .ok (UInt32.size - 1, 4) := by rfl
+
+example (input : TransparentByteSpineV1) (offset maxCount : Nat) :
+    readArrayCountAtV1 (ByteArray.mk input.toArray) offset maxCount =
+      readArrayCountSpineV1 input offset maxCount :=
+  readArrayCountAtV1_refinesSpine input offset maxCount
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

@@ -377,6 +377,40 @@ theorem readSizedBytesAtV1_refinesSpine (input : TransparentByteSpineV1)
       · simp only [if_neg ht]
         rfl
 
+/-- Decode and limit-check an array count on the transparent spine. Element
+    decoding is deliberately outside this primitive. -/
+def readArrayCountSpineV1 (input : TransparentByteSpineV1) (offset maxCount : Nat) :
+    Except SemanticWireErrorV1 (Nat × Nat) :=
+  match readSpineU32leV1 input offset with
+  | .error e => .error e
+  | .ok (countU, afterCount) =>
+      let count := countU.toNat
+      if count > maxCount then
+        .error .limitExceeded
+      else
+        .ok (count, afterCount)
+
+/-- Production array-count header primitive. -/
+def readArrayCountAtV1 (input : ByteArray) (offset maxCount : Nat) :
+    Except SemanticWireErrorV1 (Nat × Nat) :=
+  match readU32leAtV1 input offset with
+  | .error e => .error e
+  | .ok (countU, afterCount) =>
+      let count := countU.toNat
+      if count > maxCount then
+        .error .limitExceeded
+      else
+        .ok (count, afterCount)
+
+/-- Array-count header refinement, including truncated prefix and limit
+    precedence. -/
+theorem readArrayCountAtV1_refinesSpine (input : TransparentByteSpineV1)
+    (offset maxCount : Nat) :
+    readArrayCountAtV1 (ByteArray.mk input.toArray) offset maxCount =
+      readArrayCountSpineV1 input offset maxCount := by
+  unfold readArrayCountAtV1 readArrayCountSpineV1
+  rw [readU32leAtV1_refinesSpine]
+
 /-- ASCII predicate used by the transparent tagged-header spine. -/
 def isAsciiTagSpineBytesV1 (bytes : List UInt8) : Bool :=
   bytes.all fun byte => byte.toNat ≤ 127
@@ -649,12 +683,9 @@ def decodeOption (decode : Decoder α) : Decoder (Option α) := fun c => do
   | _ => err .badScalar
 
 def decodeArray (maxCount : Nat) (decode : Decoder α) : Decoder (Array α) := fun c => do
-  let (countU, c) ← decodeU32le c
-  let count := countU.toNat
-  if count > maxCount then
-    return ← err .limitExceeded
+  let (count, offset) ← readArrayCountAtV1 c.input c.offset maxCount
+  let mut c : Cursor := ⟨c.input, offset, c.nesting⟩
   let mut acc : Array α := Array.empty
-  let mut c := c
   for _ in [:count] do
     let (v, c') ← decode c
     acc := acc.push v

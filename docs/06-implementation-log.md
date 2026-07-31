@@ -11328,3 +11328,13 @@ normative: false
   wrong shape 为 `.badCfg`，requirement binding 错误为 `.badRequirement`。
 - 语义冻结为 invocation 开始时 immutable Unix epoch seconds snapshot。Reference admission/runtime
   与 target support 保持关闭；caller、authorizers、randomness deferred，formal TASK-D2-07 pending。
+
+## 2026-07-31 — D2-07 array count/header proof-validation refinement
+
+- Production：在sole `Wire/CodecV1`新增transparent/ByteArray array-count header primitive，组合既有
+  u32 refinement并证明任意input/offset/maxCount的完整`Except`结果相等；`decodeArray`仅共享该
+  header，原input/nesting、唯一element iteration loop及元素错误传播保持不变。
+- Tests：kernel examples固定nonzero offset、zero/equal limit、over-limit、partial prefix truncation、
+  高于u32可表示最大值的limit及universal theorem复用；目标Wire模块与suite构建通过。
+- Boundary：本切片不证明或复制array element iteration，不处理QualifiedName/root九字段，也不关闭
+  `InvariantTheoremV1`、TASK-D2-07、TST-SEM-002/003或TST-PROOF-001。

@@ -254,7 +254,9 @@ expected tag及u16 field count，`decodeTag`/`expectTag`直接委托shared produ
 universal theorem保持全部错误相位。root payload/完整program refinement仍pending，因此closed
 invariant theorem与formal TASK/TST状态不变。后续payload framing切片已在sole `Wire/CodecV1`闭合
 u32-length-prefixed bytes的prefix/limit/exact payload refinement，并让`decodeByteArray`/`decodeString`
-直接委托；array count/QualifiedName与九张root table仍pending。
+直接委托。后续array-header切片再闭合u32 count与`maxCount` gate，production `decodeArray`仅将
+header委托给shared primitive并保留唯一既有element loop；universal theorem固定truncation优先、
+count等于上限及超限边界。array element iteration、QualifiedName与九张root table仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

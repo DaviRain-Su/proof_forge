@@ -276,6 +276,12 @@ production primitive保持prefix truncation→limit→payload truncation顺序�
 `decodeByteArray`/`decodeString`直接委托；String继续只走既有UTF-8/NFC权威。下一步建立array count
 header/iteration refinement，再进入QualifiedName；不要在proof侧重写String validator。formal状态不变。
 
+array count/header切片现已闭合：transparent与production primitive均先读取完整u32 prefix，再执行
+`count > maxCount` gate，因此partial prefix保持`.truncated`、等于上限成功、超限才
+`.limitExceeded`。production `decodeArray`只委托该header并以原input/nesting重建post-header cursor；
+唯一既有element loop及其错误传播未改，没有第二套generic decoder。下一步单独建立element iteration
+refinement，再进入QualifiedName；完整carrier kernel validation与formal TASK/TST仍pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
