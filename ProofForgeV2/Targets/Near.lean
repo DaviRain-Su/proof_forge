@@ -114,6 +114,11 @@ inductive Expr where
   | stateLoad (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | checkedMul (lhs rhs : Expr)
+  | checkedDiv (lhs rhs : Expr)
+  | checkedMod (lhs rhs : Expr)
+  | bitNot (operand : Expr)
+  | boolNot (operand : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -236,6 +241,11 @@ inductive Operation where
       (defaultOps : Array Operation)
   | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
   | returnValue (value : Nat)
+  | checkedMul (destination lhs rhs : Nat)
+  | checkedDiv (destination lhs rhs : Nat)
+  | checkedMod (destination lhs rhs : Nat)
+  | bitNot (destination source : Nat)
+  | boolNot (destination source : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -590,6 +600,52 @@ private def makeCheckedSubValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 (fun l r => .checkedSub l r) .uint64 lhsId rhsId lhs rhs
 
+private def makeCheckedMulValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .checkedMul l r) .uint64 lhsId rhsId lhs rhs
+
+private def makeCheckedDivValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .checkedDiv l r) .uint64 lhsId rhsId lhs rhs
+
+private def makeCheckedModValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 (fun l r => .checkedMod l r) .uint64 lhsId rhsId lhs rhs
+
+private def makeUnaryTreeValueV1
+    (mk : Expr → Expr)
+    (operandKind resultKind : NearValueKindV1)
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless operand.kind == operandKind do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: unary operand kind mismatch"
+  let depth := 1 + operand.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .near s!"NEAR plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk operand.expr
+    kind := resultKind
+    depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+  }
+
+private def makeBitNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 (fun o => .bitNot o) .uint64 .uint64 operandId operand
+
+private def makeBoolNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 (fun o => .boolNot o) .bool .bool operandId operand
+
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
@@ -809,6 +865,15 @@ private def lowerBlockInstructionsV1
         else if op == .sub then
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mul then
+          let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .div then
+          let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mod then
+          let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
         else
           match comparisonOpOfBinaryV1 op with
           | some cmpOp =>
@@ -824,7 +889,27 @@ private def lowerBlockInstructionsV1
               values := ← appendResultValueV1 boolTypeId values result value
           | none =>
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: only checked UInt64 add/sub and comparisons are supported"
+                "unsupported NEAR semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
+    | .unary op operandId, some result =>
+        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        match op with
+        | .bitNot =>
+            let value ← makeBitNotValueV1 operandId operand
+            values := ← appendResultValueV1 types.uint64TypeId values result value
+        | .not =>
+            let boolTypeId ← match types.boolTypeId with
+              | some tid => pure tid
+              | none =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: Bool type is missing for bool not"
+            unless result.typeId == boolTypeId do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: bool not result must be Bool"
+            let value ← makeBoolNotValueV1 operandId operand
+            values := ← appendResultValueV1 boolTypeId values result value
+        | .neg =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Op.Unary.neg is not supported (checked negation desugars to 0 - x)"
     | .pureCall callableId argIds, some result =>
         let fnIndex ← match fnEnv.byCallable[callableId.toNat]? with
           | some (some idx) => pure idx
@@ -1231,9 +1316,10 @@ private def makePureFnV1
     body := lowered.body
   }
 
-/-- UInt64-compatible plan expression (comparison / Bool callFn results are not). -/
+/-- UInt64-compatible plan expression (comparison / boolNot / Bool callFn results are not). -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .compare .. => false
+  | .boolNot _ => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => !fn.resultIsBool
@@ -1245,37 +1331,33 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
+    let binaryNodes (lhs rhs : Expr) : Option Nat :=
+      let childDepth := depthLeft - 1
+      let available := nodeBudget - 1
+      match planExprNodes? layout params fns childDepth available lhs with
+      | none => none
+      | some lhsNodes =>
+          match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
+          | none => none
+          | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    let unaryNodes (operand : Expr) : Option Nat :=
+      let childDepth := depthLeft - 1
+      let available := nodeBudget - 1
+      match planExprNodes? layout params fns childDepth available operand with
+      | none => none
+      | some nodes => some (1 + nodes)
     match expr with
     | .literal .. => some 1
     | .param inputOffset => if params.any (·.inputOffset == inputOffset) then some 1 else none
     | .stateLoad fieldIndex => if fieldIndex < layout.fields.size then some 1 else none
-    | .checkedAdd lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? layout params fns childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .checkedSub lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? layout params fns childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .compare _ lhs rhs =>
-        let childDepth := depthLeft - 1
-        let available := nodeBudget - 1
-        match planExprNodes? layout params fns childDepth available lhs with
-        | none => none
-        | some lhsNodes =>
-            match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
-            | none => none
-            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedAdd lhs rhs => binaryNodes lhs rhs
+    | .checkedSub lhs rhs => binaryNodes lhs rhs
+    | .checkedMul lhs rhs => binaryNodes lhs rhs
+    | .checkedDiv lhs rhs => binaryNodes lhs rhs
+    | .checkedMod lhs rhs => binaryNodes lhs rhs
+    | .bitNot operand => unaryNodes operand
+    | .boolNot operand => unaryNodes operand
+    | .compare _ lhs rhs => binaryNodes lhs rhs
     | .callFn fnIndex args => Id.run do
         match fns[fnIndex]? with
         | none => pure none
@@ -1770,6 +1852,47 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         value := rhs.next
         next := rhs.next + 1
       }
+  | .checkedMul lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMul rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedDiv lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedDiv rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedMod lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMod rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .bitNot operand =>
+      let operand := lowerExpr keys next paramAsTemp operand
+      {
+        operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .boolNot operand =>
+      let operand := lowerExpr keys next paramAsTemp operand
+      {
+        operations := operand.operations ++ #[.boolNot operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
   | .compare op lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp rhs
@@ -2148,6 +2271,19 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .checkedSub destination lhs rhs =>
       s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .checkedMul destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (local.get $t{lhs}) (i64.const 0)) (then (if (i64.ne (i64.div_u (local.get $t{destination}) (local.get $t{lhs})) (local.get $t{rhs})) (then unreachable))))\n"
+  | .checkedDiv destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .checkedMod destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .bitNot destination source =>
+      s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{source}) (i64.const -1)))\n"
+  | .boolNot destination source =>
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i64.eqz (local.get $t{source}))))\n"
   | .compare destination lhs rhs op =>
       let insn :=
         match op with

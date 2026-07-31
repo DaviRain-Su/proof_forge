@@ -200,6 +200,34 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         modelError "UInt64 subtraction underflow"
       else
         writeTemp machine destination (left - right)
+  | .checkedMul destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let product := left.toNat * right.toNat
+      if product > 18446744073709551615 then
+        modelError "native checked UInt64 multiplication overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat product)
+  | .checkedDiv destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if right == 0 then
+        modelError "division by zero"
+      else
+        writeTemp machine destination (left / right)
+  | .checkedMod destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if right == 0 then
+        modelError "division by zero"
+      else
+        writeTemp machine destination (left % right)
+  | .bitNot destination source => do
+      let value ← readTemp machine source
+      writeTemp machine destination (value ^^^ UInt64.ofNat 18446744073709551615)
+  | .boolNot destination source => do
+      let value ← readTemp machine source
+      writeTemp machine destination (if value == 0 then 1 else 0)
   | .compare destination lhs rhs op => do
       let left ← readTemp machine lhs
       let right ← readTemp machine rhs
@@ -452,6 +480,11 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .loadState _ _ => "loadState"
     | .checkedAdd _ _ _ => "checkedAdd"
     | .checkedSub _ _ _ => "checkedSub"
+    | .checkedMul _ _ _ => "checkedMul"
+    | .checkedDiv _ _ _ => "checkedDiv"
+    | .checkedMod _ _ _ => "checkedMod"
+    | .bitNot _ _ => "bitNot"
+    | .boolNot _ _ => "boolNot"
     | .storeState _ _ => "storeState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ => "setReturnData"
@@ -1371,6 +1404,114 @@ private unsafe def testEmitRevertProductPath
   expectContains wat.contents "log_utf8" "event-flow WAT log import"
   expectContains wat.contents "panic_utf8" "event-flow WAT panic import"
 
+/-- Wave F: mul/div/mod + unary bitNot product path. scale uses * / % +;
+    bits returns ~x. Host-model: init(6)→scale(7,3)=14; scale(/0) traps;
+    maxU64*2 traps; bits(0)=maxU64. WAT pins i64.mul/div_u/rem_u/xor. -/
+private unsafe def testArithOpsProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArithOps where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry scale(factor : UInt64, divisor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / divisor + count % divisor\n" ++
+    "    return count\n\n" ++
+    "  entry bits(x : UInt64) : UInt64 do\n" ++
+    "    return ~x\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-host-arith-ops>" "Examples.ArithOps" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some scale := plan.entries.find? (·.name == "scale") |
+    throw <| IO.userError s!"arith-ops: missing scale entry, got {plan.entries.map (·.name)}"
+  let some bits := plan.entries.find? (·.name == "bits") |
+    throw <| IO.userError s!"arith-ops: missing bits entry, got {plan.entries.map (·.name)}"
+  -- count := ((count * factor) / divisor) + (count % divisor); return count
+  expect (scale.body == #[
+      .store {
+        fieldIndex := 0
+        value := .checkedAdd
+          (.checkedDiv
+            (.checkedMul (.stateLoad 0) (.param 0))
+            (.param 8))
+          (.checkedMod (.stateLoad 0) (.param 8))
+      },
+      .returnValue (.stateLoad 0)])
+    "arith-ops: scale must lower mul/div/mod/add store then return"
+  expect (bits.body == #[.returnValue (.bitNot (.param 0))])
+    "arith-ops: bits must return bitNot of param"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "arith-ops: IR rebuild must be structure-identical"
+  let scaleIR ← findMethod ir "scale"
+  let bitsIR ← findMethod ir "bits"
+  let scaleKinds := operationKinds scaleIR.operations
+  expect (scaleKinds.contains "checkedMul" && scaleKinds.contains "checkedDiv" &&
+      scaleKinds.contains "checkedMod" && scaleKinds.contains "checkedAdd")
+    s!"arith-ops: scale IR must lower mul/div/mod/add, got {scaleKinds}"
+  let bitsKinds := operationKinds bitsIR.operations
+  expect (bitsKinds.contains "bitNot")
+    s!"arith-ops: bits IR must lower bitNot, got {bitsKinds}"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encodePair (a b : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b
+  -- init(6) → scale(7,3) = 6*7/3 + 6%3 = 14 + 0 = 14
+  let (storage0, _, _) ← requireSuccess "arith-ops init"
+    (execute initializer empty (encodeUInt64LE 6) zero)
+  expect (storedUInt64? storage0 field.key == some 6)
+    "arith-ops init must store seed 6"
+  let (storage1, ret1, _) ← requireSuccess "arith-ops scale"
+    (execute scaleIR storage0 (encodePair 7 3) zero)
+  expect (ret1 == some 14 && storedUInt64? storage1 field.key == some 14)
+    "arith-ops: init(6)+scale(7,3) must yield 14"
+  -- scale with divisor 0 traps division-by-zero and rolls back.
+  match execute scaleIR storage1 (encodePair 1 0) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 14)
+        "arith-ops: div-by-zero must roll back storage"
+      expect (reason.contains "division by zero")
+        s!"arith-ops: expected division by zero trap, got {reason}"
+  | .success .. => throw <| IO.userError "arith-ops: scale(/0) must trap"
+  -- maxU64 * 2 overflows.
+  let maximum := UInt64.ofNat 18446744073709551615
+  let (storageMax, _, _) ← requireSuccess "arith-ops max init"
+    (execute initializer empty (encodeUInt64LE maximum) zero)
+  match execute scaleIR storageMax (encodePair 2 1) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some maximum)
+        "arith-ops: mul overflow must roll back storage"
+      expect (reason.contains "multiplication overflow")
+        s!"arith-ops: expected mul overflow trap, got {reason}"
+  | .success .. => throw <| IO.userError "arith-ops: maxU64*2 must trap"
+  -- bits(0) = maxU64 (all ones)
+  let (_, bitsRet, _) ← requireSuccess "arith-ops bits"
+    (execute bitsIR storage1 (encodeUInt64LE 0) zero)
+  expect (bitsRet == some maximum)
+    s!"arith-ops: bits(0) must return maxU64, got {bitsRet}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "arith-ops: missing .wat artifact"
+  expectContains wat.contents "i64.mul" "arith-ops WAT mul"
+  expectContains wat.contents "i64.div_u" "arith-ops WAT div_u"
+  expectContains wat.contents "i64.rem_u" "arith-ops WAT rem_u"
+  expectContains wat.contents "i64.xor" "arith-ops WAT xor"
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "arith-ops: buildFromCapability must be byte-identical on rebuild"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1382,6 +1523,7 @@ unsafe def run : IO Unit := do
   testInitEarlyBareReturnClosed session
   testFnLocalCallProductPath session
   testEmitRevertProductPath session
+  testArithOpsProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
