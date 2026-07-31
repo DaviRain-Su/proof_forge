@@ -508,7 +508,22 @@ private partial def attrExpr
       | .string _ =>
           failUnsupported "S2 provenance supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S2 provenance does not support constructors"
-  | .unary _ _ => failUnsupported "S2 provenance does not support unary"
+  | .unary _ operand => do
+      -- Op.Unary and its result bind the unary expression itself (operand
+      -- attributes first, mirroring the normalizer's evaluation order).
+      let operandPath := directChild exprPath "Expr.Unary" "operand"
+      let (_vid, st1) ← attrExpr callableId operand operandPath st states idx
+      let vid := st1.nextValueId
+      let instrEntity :=
+        SemanticEntityRefV1.instruction callableId (UInt32.ofNat st1.blockId) (UInt32.ofNat st1.nextInstr)
+      let valEntity := SemanticEntityRefV1.value callableId vid
+      let acc1 ← attrPushPath st1.acc idx instrEntity exprPath
+      let acc2 ← attrPushPath acc1 idx valEntity exprPath
+      pure (vid, { st1 with
+        nextValueId := vid + 1
+        nextInstr := st1.nextInstr + 1
+        acc := acc2
+      })
   | .localCall _ args => do
       -- PureCall instruction and its result bind the local-call expression;
       -- each argument attributes in call order (mirroring the normalizer).

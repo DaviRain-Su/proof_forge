@@ -389,8 +389,13 @@ private partial def lowerExpr
       pure (vid, tid, st1)
   | .binary op lhs rhs => do
       let srcOp := op
-      let isAdd := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add
-      let isSub := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub
+      let arithOp? : Option BinaryOpV1 :=
+        if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add then some BinaryOpV1.add
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then some BinaryOpV1.sub
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mul then some BinaryOpV1.mul
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.div then some BinaryOpV1.div
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mod then some BinaryOpV1.mod
+        else none
       let cmpOp? : Option BinaryOpV1 :=
         if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq then some BinaryOpV1.eq
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne then some BinaryOpV1.ne
@@ -399,8 +404,8 @@ private partial def lowerExpr
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt then some BinaryOpV1.gt
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge then some BinaryOpV1.ge
         else none
-      if isAdd || isSub then do
-        let semanticOp := if isAdd then BinaryOpV1.add else BinaryOpV1.sub
+      match arithOp? with
+      | some semanticOp => do
         requireExpectedUInt64 st.interner.types expectedTid "binary checked arithmetic"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
         let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
@@ -417,7 +422,7 @@ private partial def lowerExpr
           instructions := st2.instructions.push instr
           nextValueId := vid + 1
         })
-      else
+      | none =>
         match cmpOp? with
         | some semanticOp => do
             -- Comparison operands are UInt64; the result is Bool. Both shapes
@@ -443,7 +448,7 @@ private partial def lowerExpr
               nextValueId := vid + 1
             })
         | none =>
-            failUnsupported "S1 normalizer supports only binary add/sub/comparisons"
+            failUnsupported "S1 normalizer supports only binary arithmetic and comparisons"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
@@ -480,7 +485,64 @@ private partial def lowerExpr
       | .string _ =>
           failUnsupported "S1 normalizer supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
-  | .unary _ _ => failUnsupported "S1 normalizer does not support unary expressions"
+  | .unary op operand => do
+      match op with
+      | .neg => do
+          requireExpectedUInt64 st.interner.types expectedTid "unary checked negation"
+          -- Checked unsigned negation desugars to `0 - x` (the wire reserves
+          -- Op.Unary.neg for Int/Field; checked sub underflows on any nonzero).
+          let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
+          unless oTid == expectedTid do
+            return ← failUnsupported
+              "S1 unary checked negation requires a UInt64 operand"
+          let zeroVid := st1.nextValueId
+          let zeroInstr : InstructionV1 := {
+            result := some { valueId := zeroVid, typeId := expectedTid }
+            op := .literal expectedTid (encodeU64le 0)
+          }
+          let vid := zeroVid + 1
+          let subInstr : InstructionV1 := {
+            result := some { valueId := vid, typeId := expectedTid }
+            op := .binary .sub zeroVid oVid
+          }
+          pure (vid, expectedTid, { st1 with
+            instructions := st1.instructions.push zeroInstr |>.push subInstr
+            nextValueId := vid + 1
+          })
+      | .bitNot => do
+          requireExpectedUInt64 st.interner.types expectedTid "unary bit-not"
+          let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
+          unless oTid == expectedTid do
+            return ← failUnsupported
+              "S1 unary bit-not requires a UInt64 operand"
+          let vid := st1.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := expectedTid }
+            op := .unary .bitNot oVid
+          }
+          pure (vid, expectedTid, { st1 with
+            instructions := st1.instructions.push instr
+            nextValueId := vid + 1
+          })
+      | .not => do
+          let (i1, boolTid) := internShape st.interner .bool
+          unless boolTid == expectedTid do
+            return ← failUnsupported
+              "S1 unary not requires an enclosing Bool expected type"
+          let st0 := { st with interner := i1 }
+          let (oVid, oTid, st1) ← lowerExpr operand boolTid st0 states fns
+          unless oTid == boolTid do
+            return ← failUnsupported
+              "S1 unary not requires a Bool operand"
+          let vid := st1.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := boolTid }
+            op := .unary .not oVid
+          }
+          pure (vid, boolTid, { st1 with
+            instructions := st1.instructions.push instr
+            nextValueId := vid + 1
+          })
   | .localCall callee args => do
       let key := raw callee
       match fnLookup fns key with

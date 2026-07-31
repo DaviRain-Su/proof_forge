@@ -2730,6 +2730,111 @@ private unsafe def testFnLocalCallProvenance
   expect (instrOrigin == callOrigin && valueOrigin == callOrigin)
     "fn-prov: localCall instruction/value must bind the local-call expression"
 
+/-- Mul/div/mod arithmetic: exact Op.Binary op sequence with source-order
+    operand ValueIds; unary neg/bitNot/not with result types. -/
+private unsafe def testMulDivModUnary
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ArithFlow" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry scale(factor : UInt64, divisor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / divisor + count % divisor\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "arith-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "arith-flow: CheckV1.ok"
+  expect typed.analysisComplete "arith-flow: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"arith-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"arith-flow: validate: {repr e}"
+  let some entryC := data.callables[1]? |
+    throw <| IO.userError "arith-flow: missing scale callable"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "arith-flow: missing block0"
+  -- v0=factor, v1=divisor, v2=load count, v3=mul, v4=div, v5=load count,
+  -- v6=mod, v7=add, store, v8=load count, return v8.
+  let expectedOps : Array ProofForgeV2.Semantic.WireV1.BinaryOpV1 := #[.mul, .div, .mod, .add]
+  let mut found : Array ProofForgeV2.Semantic.WireV1.BinaryOpV1 := #[]
+  for instr in blk0.instructions do
+    match instr.op with
+    | .binary op _ _ => found := found.push op
+    | _ => pure ()
+  expect (found == expectedOps)
+    s!"arith-flow: expected mul/div/mod/add op sequence, got {found.size} ops"
+  let some mulInstr := blk0.instructions[1]? |
+    throw <| IO.userError "arith-flow: missing mul instruction"
+  match mulInstr with
+  | { result := some r, op := .binary .mul l rv } =>
+      expect (l == 2 && rv == 0 && r.valueId == 3)
+        s!"arith-flow: mul must bind load(factor), got l={l} r={rv}"
+  | _ => throw <| IO.userError "arith-flow: mul shape mismatch"
+  let some divInstr := blk0.instructions[2]? |
+    throw <| IO.userError "arith-flow: missing div instruction"
+  match divInstr with
+  | { result := some r, op := .binary .div l rv } =>
+      expect (l == 3 && rv == 1 && r.valueId == 4)
+        "arith-flow: div must apply to the mul result and divisor"
+  | _ => throw <| IO.userError "arith-flow: div shape mismatch"
+
+/-- Unary neg/bitNot/not: op kinds and result types; `!` feeding a branch. -/
+private unsafe def testUnaryOps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "UnaryFlow" <|
+    "  entry ops(x : UInt64) : UInt64 do\n" ++
+    "    if !(x > 5) then\n" ++
+    "      return ~x + -0\n" ++
+    "    else\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "unary-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "unary-flow: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"unary-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"unary-flow: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "unary-flow: missing ops callable"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "unary-flow: missing cond block"
+  -- block0: literal 5(v1), gt(x,v1)(v2 bool), not(v2)(v3 bool), branch v3.
+  let some notInstr := blk0.instructions[2]? |
+    throw <| IO.userError "unary-flow: missing not instruction"
+  match notInstr with
+  | { result := some r, op := .unary .not o } =>
+      expect (o == 2 && r.valueId == 3)
+        "unary-flow: not must negate the gt comparison"
+  | _ => throw <| IO.userError "unary-flow: not shape mismatch"
+  match blk0.terminator with
+  | .branch cond _ _ =>
+      expect (cond == 3) "unary-flow: branch must use the not result"
+  | _ => throw <| IO.userError "unary-flow: cond block must branch"
+  let some thenBlk := entryC.blocks[1]? |
+    throw <| IO.userError "unary-flow: missing then block"
+  -- then: bitNot(x)(v4), literal 0(v5), literal 0(v6), sub(v6,v5)(v7),
+  -- add(v4,v7)(v8), return v8. Checked negation desugars to `0 - x`.
+  let some bitNotInstr := thenBlk.instructions[0]? |
+    throw <| IO.userError "unary-flow: missing bitNot instruction"
+  match bitNotInstr with
+  | { result := some r, op := .unary .bitNot o } =>
+      expect (o == 0 && r.valueId == 4)
+        "unary-flow: bitNot must apply to the param"
+  | _ => throw <| IO.userError "unary-flow: bitNot shape mismatch"
+  let some subInstr := thenBlk.instructions[3]? |
+    throw <| IO.userError "unary-flow: missing desugared sub instruction"
+  match subInstr with
+  | { result := some r, op := .binary .sub l rv } =>
+      expect (l == 6 && rv == 5 && r.valueId == 7)
+        "unary-flow: checked negation must desugar to `0 - x`"
+  | _ => throw <| IO.userError "unary-flow: desugared sub shape mismatch"
+
 /-- Literal instruction and result value both bind the source literal expression
     node, not the enclosing return statement or an arbitrary nearby origin. -/
 private unsafe def testUInt64LiteralProvenance
@@ -3706,6 +3811,8 @@ unsafe def run : IO Unit := do
   testFnStateReadTypedNotOk session
   testFnCallCycleTypedNotOk session
   testFnLocalCallProvenance session
+  testMulDivModUnary session
+  testUnaryOps session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testFnIdentitySupported session

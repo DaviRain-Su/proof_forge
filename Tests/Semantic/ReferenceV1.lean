@@ -593,6 +593,92 @@ private unsafe def testFnLocalCallReferenceSlice
   | other =>
       throw <| IO.userError s!"fn-ref-revert: expected declared revert, got {repr other}"
 
+/-- Reference trace: mul ok/overflow, div ok/zero, mod ok/zero, neg 0/nonzero,
+    bitNot, not. -/
+private unsafe def testArithUnaryReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ArithRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry scale(factor : UInt64, divisor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / divisor + count % divisor\n" ++
+    "    return count\n" ++
+    "  entry neg(x : UInt64) : UInt64 do\n" ++
+    "    return -x\n" ++
+    "  entry bits(x : UInt64) : UInt64 do\n" ++
+    "    return ~x\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "arith-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"arith-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"arith-ref: validate failed: {repr e}"
+  let admitted ← admitOk "arith-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let scaleId : CallableIdV1 := 1
+  let negId : CallableIdV1 := 2
+  let bitsId : CallableIdV1 := 3
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"arith-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 6]) emptyResponses
+  let sixState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 6) }
+  expectReturned "arith-ref-init" initPost sixState none #[]
+  -- 6*7/3 + 6%3 = 14 + 0 = 14.
+  let scaled :=
+    stepReferenceSliceV1 admitted sixState (inv scaleId #[refU64 u64Tid 7, refU64 u64Tid 3]) emptyResponses
+  let fourteenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 14) }
+  expectReturned "arith-ref-scale" scaled fourteenState (some (refU64 u64Tid 14)) #[]
+  -- Div by zero: standard divisionByZero, pre-state preserved.
+  let divZero :=
+    stepReferenceSliceV1 admitted fourteenState (inv scaleId #[refU64 u64Tid 1, refU64 u64Tid 0]) emptyResponses
+  match divZero with
+  | .reverted (.standard code) st =>
+      expect (code == .divisionByZero) s!"arith-ref-div0: code, got {repr code}"
+      expect (logicalStateEq st fourteenState) "arith-ref-div0: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"arith-ref-div0: expected standard revert, got {repr other}"
+  -- Mul overflow: standard arithmeticOverflow.
+  let maxPost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 18446744073709551615) }
+  let mulOverflow :=
+    stepReferenceSliceV1 admitted maxPost (inv scaleId #[refU64 u64Tid 2, refU64 u64Tid 1]) emptyResponses
+  match mulOverflow with
+  | .reverted (.standard code) st =>
+      expect (code == .arithmeticOverflow) s!"arith-ref-mulovf: code, got {repr code}"
+      expect (logicalStateEq st maxPost) "arith-ref-mulovf: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"arith-ref-mulovf: expected standard revert, got {repr other}"
+  -- Checked negation: -0 = 0; -3 underflows.
+  let negZero :=
+    stepReferenceSliceV1 admitted fourteenState (inv negId #[refU64 u64Tid 0]) emptyResponses
+  expectReturned "arith-ref-neg0" negZero fourteenState (some (refU64 u64Tid 0)) #[]
+  let negThree :=
+    stepReferenceSliceV1 admitted fourteenState (inv negId #[refU64 u64Tid 3]) emptyResponses
+  match negThree with
+  | .reverted (.standard code) st =>
+      expect (code == .arithmeticUnderflow) s!"arith-ref-neg3: code, got {repr code}"
+      expect (logicalStateEq st fourteenState) "arith-ref-neg3: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"arith-ref-neg3: expected standard revert, got {repr other}"
+  -- Bit-not: ~0 = maxU64.
+  let bits :=
+    stepReferenceSliceV1 admitted fourteenState (inv bitsId #[refU64 u64Tid 0]) emptyResponses
+  expectReturned "arith-ref-bitnot" bits fourteenState
+    (some (refU64 u64Tid 18446744073709551615)) #[]
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1518,6 +1604,7 @@ unsafe def run : IO Unit := do
   testIfMatchReferenceSlice session
   testEmitRevertReferenceSlice session
   testFnLocalCallReferenceSlice session
+  testArithUnaryReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects
