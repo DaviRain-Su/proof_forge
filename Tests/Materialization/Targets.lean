@@ -1343,6 +1343,112 @@ private unsafe def testNoirHugeFoldedShiftCount : IO Unit := do
     "Noir huge count must render a dead wrapped 2^k literal (0)"
   liftResult <| Targets.Noir.validateIR ir
 
+/-- ProgramV1 ExtFlow/LaterFlow source text for the Wave I call/schedule leaf. -/
+private def extFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program ExtFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  event Ping(x : UInt64)\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    emit Ping(count)\n" ++
+  "    call Oracle.feed(count)\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n" ++
+  "  entry later(delta : UInt64) : UInt64 do\n" ++
+  "    schedule ledger.daily(count)\n" ++
+  "    schedule ledger.weekly(delta)\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+private def laterFlowSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program LaterFlow where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry later(delta : UInt64) : UInt64 do\n" ++
+  "    schedule ledger.daily(count)\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Wave I capability matrix: the sync call key is Noir-only (address-bearing
+    types are absent everywhere else), the async workflow key is Noir+NEAR,
+    and each supported surface keeps its exact form (Noir status/arg slots,
+    NEAR promise account). -/
+private unsafe def testCallScheduleSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    extFlowSourceTextV1 "<targets-ext-flow>" "Tests.Targets.ExtFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  -- ExtFlow contains a sync call: only Noir may mint a capability.
+  for tid in #[TargetId.evm, TargetId.solana, TargetId.near] do
+    let selection ← liftResult <| resolveBuildSelectionV1 tid none
+    match Targets.resolveEngineeringRequirementsV1 selection compiled with
+    | .error e =>
+        expect (e.code == "PF-REQ-UNSUPPORTED")
+          s!"{tid} must reject the sync-call key, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"{tid} unexpectedly supports the sync-call key"
+  let noirSelection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let noirCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 noirSelection compiled
+  let noirPlan ← liftResult <| Targets.Noir.planFromCapability noirCapability
+  match noirPlan.relations[1]!.body[1]? with
+  | some (stmt : Targets.Noir.Statement) =>
+      match stmt with
+      | .externalCall 1 #["Oracle", "feed"] #[.stateLoad 0] => pure ()
+      | _ => throw <| IO.userError "Noir bump must keep the verbatim call statement"
+  | none => throw <| IO.userError "Noir bump body is too short"
+  let noirInputs := noirPlan.relations[1]!.inputs
+  expect (noirInputs.size == 9 && noirInputs[7]!.name == "call_e1_status" &&
+      noirInputs[8]!.name == "call_e1_a0")
+    "Noir bump envelope must bind the status witness and call arg slot"
+
+  -- LaterFlow is schedule-only: NEAR and Noir support it; EVM/Solana decline.
+  let laterSource ← liftResult (← session.selectProgramV1
+    laterFlowSourceTextV1 "<targets-later-flow>" "Tests.Targets.LaterFlow" none)
+  let laterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 laterSource
+  for tid in #[TargetId.evm, TargetId.solana] do
+    let selection ← liftResult <| resolveBuildSelectionV1 tid none
+    match Targets.resolveEngineeringRequirementsV1 selection laterCompiled with
+    | .error e =>
+        expect (e.code == "PF-REQ-UNSUPPORTED")
+          s!"{tid} must reject the async-workflow key, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"{tid} unexpectedly supports the async-workflow key"
+  let nearSelection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let nearCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 nearSelection laterCompiled
+  let nearPlan ← liftResult <| Targets.Near.planFromCapability nearCapability
+  match nearPlan.entries[0]!.body[0]? with
+  | some (stmt : Targets.Near.Statement) =>
+      match stmt with
+      | .promiseAccount "ledger.daily" "daily" #[.stateLoad 0] => pure ()
+      | _ => throw <| IO.userError "NEAR later must lower the promise account form"
+  | none => throw <| IO.userError "NEAR later body is too short"
+  let nearOutput ← liftResult <| materializeSelected TargetId.near laterCompiled
+  let some wat := nearOutput.files.find? (·.path == "LaterFlow.wat") |
+    throw <| IO.userError "call-schedule: missing LaterFlow.wat"
+  expect (wat.contents.contains "promise_batch_create" &&
+      wat.contents.contains "ledger.daily")
+    "NEAR WAT must render the promise host and the verbatim account id"
+  let noirLaterSelection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let noirLaterCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 noirLaterSelection laterCompiled
+  let noirLaterPlan ← liftResult <| Targets.Noir.planFromCapability noirLaterCapability
+  match noirLaterPlan.relations[1]!.body[0]? with
+  | some (stmt : Targets.Noir.Statement) =>
+      match stmt with
+      | .schedule 0 #["ledger", "daily"] #[.stateLoad 0] => pure ()
+      | _ => throw <| IO.userError "Noir later must keep the schedule statement"
+  | none => throw <| IO.userError "Noir later body is too short"
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
@@ -1356,6 +1462,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testArithOpsSemanticPlans
   testForLoopSemanticPlans
   testShiftBitwiseLogicalSemanticPlans
+  testCallScheduleSemanticPlans
   testNoirHugeFoldedShiftCount
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/

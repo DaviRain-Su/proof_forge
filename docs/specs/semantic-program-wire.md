@@ -41,9 +41,15 @@ origin 一样只进入 `SemanticProvenanceV1`，由 requirement index exact join
 `SemanticProgramV1`、`SemanticProgramDataV1`、provenance、所有 table/wire type、strict codec 与
 validator 的 owning module 固定为 `ProofForgeV2.Semantic.WireV1`。`InvariantOrdinalV1`、
 `LogicalStateV1`、`InvariantEvalResultV1`、`StateConformsV1`、`evalInvariantV1` 和
-`InvariantTheoremV1` 的唯一 owning module 固定为 `ProofForgeV2.Semantic.InvariantABI`；它 import
-`WireV1` 并直接定义这些 constants，不在 `WireV1` 建立第二份 alias/definition。ProofBundle manifest
-的 module/theorem identity 和 ABI `.olean` digest 仍绑定 `InvariantABI`。
+`InvariantTheoremV1` 的唯一 public owning module/namespace固定为
+`ProofForgeV2.Semantic.InvariantABI`。为保持formal evaluator到reference machine的acyclic依赖，
+`InvariantOrdinalV1`、`LogicalStateV1`、`InvariantEvalResultV1`与StateConforms所需codec/defaults可由
+lower `ProofForgeV2.Semantic.InvariantFoundationV1`在exact
+`ProofForgeV2.Semantic.InvariantABI` namespace下物理定义；public `InvariantABI` façade必须import该
+foundation并直接定义后续`evalInvariantV1`/`InvariantTheoremV1`，不得建立alias/wrapper或第二份
+definition。ProofBundle manifest的module/theorem identity与public ABI `.olean` digest仍绑定
+`InvariantABI`；trusted `.olean` closure必须exact包含其全部transitive依赖——当前含
+`InvariantFoundationV1`，在formal evaluator引入后也必须含`ReferenceMachineV1`。
 
 下列定义中的 `Digest`、`SemVer`、`SchemaId`、
 `QualifiedName`、`ProjectRelativePath`、`NodeId` 和 `SourceOrigin` 精确使用
@@ -744,8 +750,14 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 `proof-forge.context.unix-time-seconds.v1`，其结果语义形状必须是程序中唯一匿名
 `TypeShapeV1.uint 64`。使用该 key 时 requirements 必须包含且只能包含一个 id 为
 `context.unix-time-seconds` 的 exact row：SemVer `1.0.0`、空 predicates、digest 为
-`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。此规则仅为静态门禁；
-Reference runtime 与 target support catalog 均未接纳 ContextRead。
+`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。Reference runtime按
+SPEC-SEM-CORE-001 exact invocation context执行；target support catalog仍未接纳ContextRead。
+`Op.Commit` 是 target-neutral 的 label-only disclosure boundary：其逻辑结果保持 operand 的
+exact TypeId 与 canonical value bytes，不在 Semantic 层执行hash、加盐或改变值表示。每个含
+Commit 的program必须包含且只能包含一个id为`disclosure.commitment`的exact row：SemVer
+`1.0.0`、空predicates、digest为
+`domainSeparatedSha256("pf.commit-requirement.v1", UTF-8(id))`。识别该row不表示任何target
+支持commitment；target必须另行发布并解析同一exact capability claim。
 任何 result presence/type、input arity/type 或 referenced declaration不符都是 invalid Core trap，而
 Array/Bytes runtime index越界、checked arithmetic/cast/assert failure 才是 `.reverted`。
 

@@ -198,6 +198,12 @@ fuel上限，映射true/false/revert/trap且不发布state/effects。正式`eval
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现，formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+模块依赖已为formal evaluator机械拆分且不改变public FQName：`InvariantFoundationV1`定义
+`InvariantABI` namespace下的state carrier/codec/StateConforms，`ReferenceMachineV1`只依赖该
+foundation并定义`ReferenceV1` namespace下的现有carriers/admission/machine；`InvariantABI.lean`与
+`ReferenceV1.lean`保留public façade。lower machine不得重新import upper `InvariantABI`，否则会阻断
+下一切片所需的`InvariantABI → ReferenceMachineV1`无环依赖。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
@@ -209,8 +215,8 @@ slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `i
 `indexOutOfBounds`标准revert。Array资源通过explicit-stack postorder与cap-safe乘加分析，巨大length
 不迭代，零宽元素仍按count计work，recursive Array aggregate graph fail closed。Wire sole value decoder
 另以64MiB program-wide cumulative work budget跨declarations与recursive siblings线程化，并在进入
-raw Array helper循环前防御性执行length cap。Map Construct/Index、
-Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
+raw Array helper循环前防御性执行length cap。Map Construct/Index与Commit runtime已由后续切片
+开放；formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
 
 D2-07 首个 ContextRead static-only 提议切片已冻结单行 wire catalog：仅
 `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64，并 exact 绑定
@@ -218,8 +224,16 @@ D2-07 首个 ContextRead static-only 提议切片已冻结单行 wire catalog：
 snapshot。Reference runtime现按selected initializer/entry/view root及其statically reachable
 PureCall closure收集exact key/type集合，在lifecycle/response cursor前拒绝missing/extra/duplicate/
 nonascending/wrong-TypeId/noncanonical value，并由所有PureCall frame共享同一immutable snapshot；
-执行时不可能的missing/mismatch映射`internalInvariant`。invariant root/closure、Commit、targets、
+执行时不可能的missing/mismatch映射`internalInvariant`。invariant root/closure、targets、
 caller/authorizers/randomness与formal evaluator仍未开放。
+
+Commit当前Wire contract要求operand可解析、result TypeId精确等于operand TypeId，canonical
+aggregate同样可通过；并exact绑定Wire-owned `disclosure.commitment@1.0.0` empty-predicate row，
+digest domain为`pf.commit-requirement.v1`。Reference runtime现将operand的同一
+`ReferenceValueV1`（exact TypeId/valueBytes）绑定到result，不hash、不重编码、不修改state/context/
+effects/response cursor；initializer/entry/view与ordinary PureCall均可执行，invariant root/reachable
+closure仍由Wire拒绝。该row不加入S2或target support catalog，不能把Reference执行解释为target
+commitment support。
 
 ## D2-07 reference Struct engineering status（2026-07-31）
 
@@ -231,15 +245,15 @@ Reference admission只开放Struct形态Construct，并以explicit-stack postord
 logical-state defaults含slot prefix累计受64MiB byte/work caps。
 runtime再次检查shape/index/TypeId/canonical bytes，FieldSet为immutable SSA update。entry、nested
 Struct、PureCall及nonformal invariant evaluator均复用远端canonical machine。Enum/Option、
-Array/Bytes/Map index、Commit及formal evaluator仍pending。
+Array/Bytes/Map index与Commit runtime已由后续切片开放；formal evaluator仍pending。
 
 ## D2-07 reference Option/Enum engineering status（2026-07-31）
 
 Map增量：Reference现接纳Wire-legal Map、empty `Construct 0 []`与immutable
 IndexGet/IndexSet；Wire sole canonical decoder及新增lookup/upsert seam独占framing、unsigned
 lex order、key legality和共享byte/work/nesting caps。资源 admission 使用`maxMapEntriesV1`
-理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。Commit、formal
-evaluator与TASK-D2-07/TST-SEM-002/003仍pending。
+理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。Commit runtime已由后续切片开放；
+formal evaluator与TASK-D2-07/TST-SEM-002/003仍pending。
 
 同一general-CFG/PureCall Reference machine现进一步开放`TypeShapeV1.Option`/`Enum`、对应
 `Construct`以及`VariantTag`/`VariantPayload`。`WireV1`拥有唯一窄canonical variant split/encode
@@ -248,5 +262,5 @@ payload/trailing fail-closed。admission的显式栈width/depth/work分析按con
 payload occurrence（包括共享TypeId）计费；runtime防御性复核shape、TypeId、tag及payload index，
 Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Unit/Array/Map Construct、
 Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式unsupported；
-Index、Commit仍关闭；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
+Index与Commit runtime已由后续切片开放；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
 TASK-D2-07/TST-SEM-002/003仍pending。

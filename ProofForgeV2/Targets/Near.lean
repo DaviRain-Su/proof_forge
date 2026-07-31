@@ -1299,7 +1299,7 @@ private def lowerBlockInstructionsV1
         let receiver := String.intercalate "." components.toList
         unless isNearAccountId receiver do
           throw <| .planInvariant .near
-            s!"schedule receiver '{receiver}' is not a valid NEAR account id (lowercase letters/digits/_/-/., length 2..64, no leading/trailing dot)"
+            s!"schedule receiver '{receiver}' is not a valid NEAR account id (lowercase letters, digits, underscore, hyphen or dot, length 2..64, no leading/trailing dot)"
         let method := components[components.size - 1]!
         unless isIdentifier method do
           throw <| .planInvariant .near

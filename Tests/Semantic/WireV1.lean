@@ -32,8 +32,8 @@
   Instruction.result TypeId across the whole program, `.badCfg`, `.cfg` phase
   after generic CFG/op typing and before invariant closure/fuel/requirements),
   the ContextRead static-only catalog binds its sole Unix-time-seconds key to
-  anonymous UInt64 and one exact requirement row; the exact Commit disclosure
-  contract remains deferred. Formal TST-SEM-001 corpus
+  anonymous UInt64 and one exact requirement row; Commit binds exact
+  operand/result TypeIds and one exact disclosure.commitment row. Formal TST-SEM-001 corpus
   remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -1013,22 +1013,28 @@ private def programWithTypes (name : String) (types : Array TypeDeclV1)
   -- injection here; the catalog test explicitly overrides `requirements` for
   -- every binding negative, so no requirement assertion is hidden by it.
   let mut usesContext := false
+  let mut usesCommit := false
   for callable in callables do
     for block in callable.blocks do
       for instr in block.instructions do
         match instr.op with
         | .contextRead _ => usesContext := true
+        | .commit _ => usesCommit := true
         | _ => pure ()
-  let contextReqs ← if usesContext then
-      match unixTimeSecondsContextRequirementV1 with
-      | .ok row => pure { items := #[row] }
-      | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
-    else pure { items := #[] }
+  let mut requirementItems : Array RequirementRequestV1 := #[]
+  if usesContext then
+    match unixTimeSecondsContextRequirementV1 with
+    | .ok row => requirementItems := requirementItems.push row
+    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+  if usesCommit then
+    match commitmentDisclosureRequirementV1 with
+    | .ok row => requirementItems := requirementItems.push row
+    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
   pure { data0 with
     types := types
     constants := constants
     callables := callables.push (entryGateCallable entryId)
-    requirements := contextReqs }
+    requirements := { items := requirementItems } }
 
 private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CallableV1 :=
@@ -5755,9 +5761,8 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
 
 /-- SPEC-SEM-WIRE-001 §8 bounded invariant-root direct-op closure slice:
     Commit is forbidden directly in an invariant root but remains allowed in an
-    entry under its current presence-only generic contract. Exact disclosure/
-    requirement validation and the transitive pureFn closure op allowlist remain
-    separate. -/
+    entry when operand/result TypeIds match. Exact disclosure requirement
+    validation and the transitive pureFn closure op allowlist remain separate. -/
 private def testInvariantRootCommitProhibited : IO Unit := do
   let forbiddenCommitRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
@@ -6795,8 +6800,8 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
 
 /-- SPEC §8 forbids commitment creation in pureFn callables that belong to an
     invariant closure. An unreachable pureFn remains outside this closure-only
-    restriction. Generic Commit result-presence validation runs before the
-    post-CFG closure gate. -/
+    restriction. Generic Commit operand/result typing runs before the post-CFG
+    closure gate. -/
 private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
   let committer : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
@@ -7782,8 +7787,8 @@ private def testCfgVoidOpResultPresence : IO Unit := do
     validation; later focused suites now enforce exact contracts for the first
     five. `Op.ContextRead` retains a presence-only local op branch but now
     carries the §5.1 same-key result-TypeId global consistency pass (a
-    separate post-CFG suite); `Op.Commit` remains presence-only with its
-    exact disclosure contract deferred. The fixtures here use
+    separate post-CFG suite); `Op.Commit` now requires operand/result TypeId
+    equality plus its exact later requirement row. The fixtures here use
     operands/results valid under the current contracts so they continue to
     isolate missing-result behavior. The void rule remains unchanged. -/
 
@@ -7793,7 +7798,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
   --   structure+encode dual path). Families with later exact contracts use
   --   operands and result TypeIds valid under those contracts; ContextRead
   --   has a presence-only local op branch plus the §5.1 same-key result-TypeId
-  --   global consistency pass, and Commit remains presence-only. Operands are
+  --   global consistency pass, and Commit uses an exact matching result. Operands are
   --   otherwise defined so that
   --   steps a–i (use-existence, def-site range, dominance, terminator
   --   typing) all pass and this suite isolates result presence.
@@ -7976,7 +7981,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 0]
   expectCfgOk "P15 contextRead result present" p15
-  -- P16: Commit (deferred family) with result present.
+  -- P16: Commit with an operand-matching result present.
   let p16 ← programWithTypes "PresP16Commit" cfgOpTypes #[]
     #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
@@ -8791,6 +8796,90 @@ private def testCfgCheckedCastTyping : IO Unit := do
           (.return_ none)] 2]
   expectCfgErr "N6 checkedCast missing destination type" n6
 
+/-- SPEC-SEM-WIRE-001 §5.1 `Op.Commit` local static contract: the operand
+    ValueId must resolve and the result TypeId must exactly equal type(value).
+    Aggregate values with canonical encodings remain admissible; this gate
+    deliberately does not reuse the narrower Eq/Ne serializability predicate.
+    Exact disclosure.commitment requirement binding and Reference execution
+    remain deferred. -/
+private def testCfgCommitTyping : IO Unit := do
+  -- P1: primitive UInt8 operand/result exact match.
+  let p1 ← programWithTypes "CommitP1UInt8" cfgOpTypes #[]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpU8Def 1)) (.commit 0)]
+          (.return_ (some 1))] 3]
+  expectCfgOk "P1 Commit UInt8 exact result" p1
+  -- P2: Option<UInt8> proves Commit does not inherit Eq/Ne's aggregate
+  -- exclusion; result remains the exact aggregate TypeId.
+  let p2 ← programWithTypes "CommitP2Option" cfgOpTypes #[]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
+            cfgInstr (some { valueId := 1, typeId := 5 }) (.construct 5 1 #[0]),
+            cfgInstr (some { valueId := 2, typeId := 5 }) (.commit 1)]
+          (.return_ (some 2))] 5]
+  expectCfgOk "P2 Commit canonical Option exact result" p2
+  -- N1: wrong but in-range result TypeId.
+  let n1 ← programWithTypes "CommitN1WrongResult" cfgOpTypes #[]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
+            cfgInstr (some (cfgOpBoolDef 1)) (.commit 0)]
+          (.return_ none)] 2]
+  expectCfgErr "N1 Commit wrong result TypeId" n1
+  -- N2: undefined operand remains a generic CFG failure.
+  let n2 ← programWithTypes "CommitN2UndefinedOperand" cfgOpTypes #[]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0
+          #[cfgInstr (some (cfgOpU8Def 0)) (.commit 99)]
+          (.return_ none)] 2]
+  expectCfgErr "N2 Commit undefined operand" n2
+  expectCfgInvariantPhase "N2 Commit undefined operand cfg phase" .cfg .badCfg n2
+  -- N3: local type failure precedes the later requirement structure phase.
+  let n3 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-commit-type"] }
+  }
+  expectCfgErrCode "N3 Commit typing before requirements" .badCfg n3
+  expectCfgInvariantPhase "N3 Commit typing is cfg phase" .cfg .badCfg n3
+  -- N4: malformed Commit in an invariant root fails generic typing before
+  -- the otherwise-authoritative invariant closure prohibition.
+  let badInvariant : CallableV1 := {
+    (cfgCallableKindName .invariant (some "safe")) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
+          cfgInstr (some (cfgOpBoolDef 1)) (.commit 0)]
+        (.return_ (some 1))]
+      invariantSteps := some 4
+  }
+  let n4Base ← programWithTypes "CommitN4InvariantTyping" cfgOpTypes #[] #[badInvariant]
+  let n4 : SemanticProgramDataV1 := {
+    n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErrCode "N4 Commit typing before invariant prohibition" .badCfg n4
+  expectCfgInvariantPhase "N4 malformed Commit cfg phase" .cfg .badCfg n4
+  -- N5: operand ValueId 1 exists and has the exact result TypeId, but its
+  -- definition is confined to the sibling branch and does not dominate the
+  -- Commit use in block 2. This isolates generic dominance before step j.
+  let condParam : ParameterV1 := {
+    valueId := 0, name := "cond", typeId := 2, visibility := .public_
+  }
+  let siblingCommit : CallableV1 := {
+    (cfgOpCallableResult
+      #[cfgBlock 0 (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
+        cfgBlockInstrs 1
+          #[cfgInstr (some (cfgOpU8Def 1)) (cfgOpU8Lit 7)]
+          (.return_ none),
+        cfgBlockInstrs 2
+          #[cfgInstr (some (cfgOpU8Def 2)) (.commit 1)]
+          (.return_ none)] 2) with
+      params := #[condParam]
+  }
+  let n5 ← programWithTypes "CommitN5SiblingDominance" cfgOpTypes #[] #[siblingCommit]
+  expectCfgErr "N5 Commit operand does not dominate sibling use" n5
+  expectCfgInvariantPhase "N5 Commit dominance cfg phase" .cfg .badCfg n5
+
 /-- SPEC-SEM-WIRE-001 §5.1 `Op.StateStore` exact declaration/type contract.
     stateId must resolve, type(value) must equal the selected state.typeId, and
     the instruction remains void (`result := none`). These fixtures drive the
@@ -9498,6 +9587,72 @@ private def testCfgContextReadCatalogRequirements : IO Unit := do
     base with requirements := { items := #[exact, unrelated] } }
   expectCfgOk "unrelated generic requirement accepted" extra
 
+/-- Exact Commit disclosure requirement binding variants. Recognition of this
+    Wire-owned row does not add it to any target support catalog. -/
+private def testCfgCommitCatalogRequirements : IO Unit := do
+  let exact ← match commitmentDisclosureRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
+  let commitEntry : CallableV1 := {
+    (cfgCallableKindName .entry (some "run") (resultTypeId := 3)) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
+          cfgInstr (some (cfgOpU8Def 1)) (.commit 0),
+          cfgInstr (some (cfgOpU8Def 2)) (.commit 1)]
+        (.return_ (some 2))] }
+  let base ← programWithTypes "CommitCatalog" cfgOpTypes #[] #[commitEntry]
+  expectCfgOk "exact Commit requirement row" base
+  let missing : SemanticProgramDataV1 := { base with requirements := { items := #[] } }
+  expectCfgErrCode "missing Commit requirement" .badRequirement missing
+  let wrongVersion : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with
+      version := { major := 1, minor := 0, patch := 1 } }] } }
+  expectCfgErrCode "wrong Commit requirement version" .badRequirement wrongVersion
+  let wrongDigest : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with digest := zeroDigest }] } }
+  expectCfgErrCode "wrong Commit requirement digest" .badRequirement wrongDigest
+  let wrongPredicates : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with
+      predicates := #[.boolEquals "x" true] }] } }
+  expectCfgErrCode "wrong Commit requirement predicates" .badRequirement wrongPredicates
+  let wrongId : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with id := "disclosure.commitments" }] } }
+  expectCfgErrCode "wrong Commit requirement id is missing" .badRequirement wrongId
+  let alternateSameId : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ req commitmentDisclosureRequirementIdV1 with
+      version := exact.version }] } }
+  expectCfgErrCode "alternate same-id Commit row" .badRequirement alternateSameId
+  let malformedFirst : SemanticProgramDataV1 := {
+    base with requirements := { items := #[req "notadomain", exact] } }
+  expectCfgErrCode "generic requirement structure precedes Commit binding"
+    .badRequirement malformedFirst
+  let unrelated := req "value.extra"
+  let extra : SemanticProgramDataV1 := {
+    base with requirements := { items := #[exact, unrelated] } }
+  expectCfgOk "unrelated generic row accepted with Commit" extra
+  let noCommit ← programWithTypes "CommitCatalogUnused" cfgOpTypes #[] #[]
+  expectCfgOk "Commit requirement not required without Commit"
+    { noCommit with requirements := { items := #[exact] } }
+  -- Combined ContextRead + Commit rows remain in canonical UTF-8 order:
+  -- context.unix-time-seconds precedes disclosure.commitment.
+  let contextExact ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+  let combinedTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
+  let combinedEntry : CallableV1 := {
+    (cfgCallableKindName .entry (some "run") (resultTypeId := 1)) with
+      blocks := #[cfgBlockInstrs 0
+        #[cfgInstr (some { valueId := 0, typeId := 1 })
+            (.contextRead unixTimeSecondsContextKeyV1),
+          cfgInstr (some { valueId := 1, typeId := 1 }) (.commit 0)]
+        (.return_ (some 1))] }
+  let combined ← programWithTypes "CommitContextCatalog" combinedTypes #[] #[combinedEntry]
+  expect (combined.requirements.items == #[contextExact, exact])
+    "combined Commit/Context requirements must be canonical"
+  expectCfgOk "combined Commit/Context exact rows" combined
+
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
     Emit/ExternalCall/Schedule instruction must carry the next contiguous
     EffectId in BlockId/instruction order, starting at zero. -/
@@ -9894,6 +10049,7 @@ def run : IO Unit := do
   testCfgVariantPayloadTyping
   testCfgIndexSetTyping
   testCfgCheckedCastTyping
+  testCfgCommitTyping
   testCfgStateStoreTyping
   testCfgAssertTyping
   testCfgRevertTyping
@@ -9901,6 +10057,7 @@ def run : IO Unit := do
   testCfgExternalCalleeShape
   testCfgContextReadResultTypeConsistency
   testCfgContextReadCatalogRequirements
+  testCfgCommitCatalogRequirements
   testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 
