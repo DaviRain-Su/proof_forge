@@ -1,0 +1,1780 @@
+import ProofForgeV2.Targets.Common
+import ProofForgeV2.Targets.DescriptorDataV1
+import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
+import ProofForgeV2.Compiler.Pipeline
+
+/-!
+# Noir LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
+
+Owns the Noir-owned relation Plan surface and Semantic→Plan body.
+-/
+
+namespace ProofForgeV2.Targets.Noir
+
+open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
+
+def codegenProfileString : String := "noir-source-u64-relations-v1"
+def codegenProfile : CodegenProfileId := CodegenProfileId.noirSourceU64RelationsV1
+def sourceDialect : String := "noir-native-u64-relations-v1"
+
+/-- Shared descriptor data (single source: DescriptorDataV1). -/
+def descriptor : TargetDescriptor := DescriptorDataV1.noir
+
+inductive StateContinuity where
+  | none
+  | externalPublicPrePost
+  deriving BEq, Inhabited, Repr
+
+inductive ConstraintFailurePolicy where
+  | unsatisfied
+  deriving BEq, Inhabited, Repr
+
+inductive ProofStatus where
+  | notProduced
+  deriving BEq, Inhabited, Repr
+
+inductive RelationMode where
+  | initialize
+  | mutate
+  | view
+  deriving BEq, Inhabited, Repr
+
+inductive InputVisibility where
+  | verifier
+  | witness
+  deriving BEq, Inhabited, Repr
+
+inductive InputType where
+  | u64
+  | bool
+  deriving BEq, Inhabited, Repr
+
+inductive InputRole where
+  | preInitialized
+  | preState (sourceId : Nat)
+  | parameter (sourceId : Nat)
+  | postState (sourceId : Nat)
+  | postInitialized
+  | result
+  | eventSlot (emitIndex argIndex : Nat)
+  /-- Verifier witness of one static external call's outcome: true when the
+      executing path's response disposition is returned (a reverted claim is
+      inadmissible, mirroring externalCallReverted). -/
+  | callStatus (callIndex : Nat)
+  | callArgSlot (callIndex argIndex : Nat)
+  | scheduleArgSlot (scheduleIndex argIndex : Nat)
+  deriving BEq, Inhabited, Repr
+
+structure ResourceLimits where
+  maxArtifactStemBytes : Nat
+  maxStateFields : Nat
+  maxRelations : Nat
+  maxParams : Nat
+  maxBodyStatements : Nat
+  maxExprDepth : Nat
+  maxPlanNodes : Nat
+  maxIrOperations : Nat
+  deriving BEq, Inhabited, Repr
+
+structure StateField where
+  sourceId : Nat
+  name : String
+  deriving BEq, Inhabited, Repr
+
+structure Param where
+  sourceId : Nat
+  name : String
+  inputIndex : Nat
+  visibility : InputVisibility
+  deriving BEq, Inhabited, Repr
+
+structure InputBinding where
+  name : String
+  sourceName : String
+  type : InputType
+  visibility : InputVisibility
+  role : InputRole
+  deriving BEq, Inhabited, Repr
+
+/-- Native UInt64 comparison operators for Noir relation expressions. -/
+inductive ComparisonOp where
+  | eq | ne | lt | le | gt | ge
+  deriving BEq, Inhabited, Repr
+
+inductive Expr where
+  | literal (value : UInt64)
+  | param (inputIndex : Nat)
+  | stateLoad (fieldIndex : Nat)
+  /-- Reference to a loop header's induction-variable block param. The slot
+  is the param's index in the callable's seeded block-param order; the
+  relation walker resolves it through the current unrolling's substitution
+  environment (it never reaches rendering). -/
+  | loopParam (slot : Nat)
+  | checkedAdd (lhs rhs : Expr)
+  | checkedSub (lhs rhs : Expr)
+  | checkedMul (lhs rhs : Expr)
+  | checkedDiv (lhs rhs : Expr)
+  | checkedMod (lhs rhs : Expr)
+  | bitNot (operand : Expr)
+  | boolNot (operand : Expr)
+  | bitAnd (lhs rhs : Expr)
+  | bitOr (lhs rhs : Expr)
+  | bitXor (lhs rhs : Expr)
+  /-- Shift by a count that must be a compile-time constant in this pilot
+      (UInt32 values arise only from literal arithmetic); the relation layer
+      constant-folds it into the guard-and-multiply/divide form. -/
+  | shl (lhs rhs : Expr)
+  | shr (lhs rhs : Expr)
+  | boolAnd (lhs rhs : Expr)
+  | boolOr (lhs rhs : Expr)
+  | compare (op : ComparisonOp) (lhs rhs : Expr)
+  | callFn (fnIndex : Nat) (args : Array Expr)
+  deriving BEq, Inhabited, Repr
+
+structure Store where
+  fieldIndex : Nat
+  value : Expr
+  deriving BEq, Inhabited, Repr
+
+inductive Statement where
+  | store (operation : Store)
+  | returnValue (value : Expr)
+  | returnNone
+  | assert (condition : Expr)
+  | emitEvent (effectId : Nat) (eventIndex : Nat) (args : Array Expr)
+  | revertError (errorIndex : Nat) (args : Array Expr)
+  /-- Sync external call (v1: statement effect, no result value). Each static
+      site binds one status witness and one public arg slot per argument;
+      the executing path asserts the status returned and binds the computed
+      arg values, other paths zero everything. -/
+  | externalCall (effectId : Nat) (callee : Array String) (args : Array Expr)
+  /-- Async workflow schedule (fire-and-forget, no response channel): each
+      static site binds one public arg slot per argument, bound on the
+      executing path and zeroed elsewhere. -/
+  | schedule (effectId : Nat) (callee : Array String) (args : Array Expr)
+  | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
+  | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
+      (defaultBody : Array Statement)
+  /-- Bounded counting loop: the induction variable (a `.loopParam slot`
+  block param) starts at `initial`, the body runs while `cond` holds, and
+  `update` computes the next value. The static `bound` caps unrolling at the
+  relation layer; the (bound+1)-th iteration is inadmissible, mirroring the
+  reference machine's boundExceeded revert. Bodies may contain nested
+  regions and loops, returns, and reverts, but no emits (one static event
+  slot cannot bind multiple dynamic occurrences). -/
+  | forLoop (slot : Nat) (bound : UInt32) (initial cond update : Expr)
+      (body : Array Statement)
+  deriving BEq, Inhabited, Repr
+
+/-- One independently provable relation. Initializer, mutate, and view methods
+are never folded into an inactive-selector circuit. -/
+structure Relation where
+  index : Nat
+  name : String
+  artifactStem : String
+  mode : RelationMode
+  params : Array Param
+  inputs : Array InputBinding
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
+/-- One declared event/error binding: its name and UInt64 argument count. -/
+structure InterfaceBinding where
+  name : String
+  fieldCount : Nat
+  deriving BEq, Inhabited, Repr
+
+/-- One validated pure-fn signature keyed by GLOBAL callable id (the id
+    Op.PureCall references). Bodies lower against this complete table; the
+    IR inline walker consumes the full FnBinding bodies from the Plan. -/
+private structure FnSigV1 where
+  callableId : Nat
+  name : String
+  paramCount : Nat
+  resultIsBool : Bool
+  deriving Inhabited
+
+/-- One lowered pure function: its global callable id, name, lowered params,
+    result kind, and the path-tree statement body (region-last form, same as
+    relations). Pure fn bodies contain no state/effect statements by
+    construction. -/
+structure FnBinding where
+  callableId : Nat
+  name : String
+  params : Array Param
+  resultIsBool : Bool
+  body : Array Statement
+  deriving BEq, Inhabited, Repr
+
+/-- Target-owned source-relation plan. It deliberately retains no
+SemanticProgram and records that proof production/settlement are external. -/
+structure Plan where
+  targetDescriptor : TargetDescriptor
+  semanticSchemaVersion : Nat
+  codegenProfile : String
+  sourceDialect : String
+  continuity : StateContinuity
+  failurePolicy : ConstraintFailurePolicy
+  proofStatus : ProofStatus
+  resourceLimits : ResourceLimits
+  programName : String
+  sourceHash : String
+  semanticHash : String
+  /-- Deterministic digest of the complete canonical Plan. This detects
+  unchecked in-process mutation; it is not an authenticity certificate for an
+  untrusted serialized Plan. -/
+  planHash : String
+  states : Array StateField
+  events : Array InterfaceBinding
+  errors : Array InterfaceBinding
+  fns : Array FnBinding
+  relations : Array Relation
+  -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
+  deriving BEq, Repr
+
+private def planError (message : String) : CompileResult α :=
+  .error <| .planInvariant .noir message
+
+private def maxIdentifierBytes : Nat := 120
+def maxArtifactStemBytes : Nat := 220
+def maxStateFields : Nat := 256
+def maxRelations : Nat := 256
+def maxParams : Nat := 64
+def maxBodyStatements : Nat := 4096
+def maxExprDepth : Nat := 256
+def maxPlanNodes : Nat := 100000
+def maxIrOperations : Nat := 110000
+
+def canonicalLimits : ResourceLimits := {
+  maxArtifactStemBytes
+  maxStateFields
+  maxRelations
+  maxParams
+  maxBodyStatements
+  maxExprDepth
+  maxPlanNodes
+  maxIrOperations
+}
+
+/-- Thin adapter: binds Noir's `maxIdentifierBytes` (120 — documented divergence
+    from EVM/Solana/NEAR's 240) to the shared ASCII grammar. -/
+def isIdentifier (value : String) : Bool :=
+  isAsciiIdentifier maxIdentifierBytes value
+
+def validDigest (value : String) : Bool :=
+  value.length == 64 && value.toList.all (fun character =>
+    "0123456789abcdef".contains character)
+
+/-- Transitional deterministic descriptor preimage for the engineering Noir
+plan hash. It serializes only target/profile/axis identity and deliberately
+excludes requirement support; the exact resolver index is the sole current
+support authority. This is not the formal D3 TargetSemantics/Profile digest. -/
+def targetDescriptorEngineeringReprV1 (d : TargetDescriptor) : String :=
+  let targetIdWire (id : TargetId) : String :=
+    s!"ProofForgeV2.TargetId.{id.toString}"
+  let codegenProfileWire (profile : CodegenProfileId) : String :=
+    -- Profile grammar forbids escapes, so quoted UTF-8 is unambiguous here.
+    s!"\"{profile.toString}\""
+  "{ targetId := " ++ targetIdWire d.targetId ++ ",\n" ++
+  "  artifactEncoding := " ++ reprStr d.artifactEncoding ++ ",\n" ++
+  "  executionHost := " ++ reprStr d.executionHost ++ ",\n" ++
+  "  commitModel := " ++ reprStr d.commitModel ++ ",\n" ++
+  "  stateBinding := " ++ reprStr d.stateBinding ++ ",\n" ++
+  "  callModel := " ++ reprStr d.callModel ++ ",\n" ++
+  "  proofModel := " ++ reprStr d.proofModel ++ ",\n" ++
+  "  settlementModel := " ++ reprStr d.settlementModel ++ ",\n" ++
+  "  codegenProfile := " ++ codegenProfileWire d.codegenProfile ++ " }"
+
+def canonicalPlanHash (plan : Plan) : String :=
+  Crypto.sha256Hex <| ("pf.noir.plan.v1\u0000" ++
+    targetDescriptorEngineeringReprV1 plan.targetDescriptor ++ "\u0000" ++
+    reprStr plan.semanticSchemaVersion ++ "\u0000" ++
+    reprStr plan.codegenProfile ++ "\u0000" ++
+    reprStr plan.sourceDialect ++ "\u0000" ++
+    reprStr plan.continuity ++ "\u0000" ++
+    reprStr plan.failurePolicy ++ "\u0000" ++
+    reprStr plan.proofStatus ++ "\u0000" ++
+    reprStr plan.resourceLimits ++ "\u0000" ++
+    reprStr plan.programName ++ "\u0000" ++
+    reprStr plan.sourceHash ++ "\u0000" ++
+    reprStr plan.semanticHash ++ "\u0000" ++
+    reprStr plan.states ++ "\u0000" ++
+    reprStr plan.relations).toUTF8
+
+def artifactStem (index : Nat) (mode : RelationMode) (name : String) : String :=
+  let suffix := if mode == .initialize then "init" else name
+  s!"r{index}-{suffix}"
+
+/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
+
+/-- Value kinds admitted in the Noir pilot value table. Bool may be intermediate
+(comparison/literal results feeding assert) or an entry/view result binding;
+state and params stay UInt64-only. -/
+private inductive NoirValueKindV1 where
+  | uint64
+  | bool
+  deriving BEq, Inhabited, Repr
+
+/-- Noir pilot type-closure carrier (shared `PilotTypeClosureV1`).
+    Bool/UInt32 optional; state/params remain UInt64-only. Shift counts decode
+    to plain u64 literals in the Plan. -/
+private abbrev NoirTypeClosureV1 := PilotTypeClosureV1
+
+private def noirPlanErr (m : String) : CompileError :=
+  .planInvariant .noir m
+
+/-- Noir pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
+    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
+    SemanticProgramV1 programs fail at the target Plan seam rather than being
+    silently erased. Bool is optional (at most one): admitted as body intermediate
+    values and as entry/view results. UInt32 is optional (at most one): admitted
+    only as shift-count literals/intermediates. State/params remain UInt64-only.
+    Diagnostics use frozen `noirTypeClosureWording` (historical drift preserved). -/
+private def validateNoirTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
+  validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
+
+private def makeStatesV1
+    (uint64TypeId : TypeIdV1)
+    (states : Array StateDeclV1) : CompileResult (Array StateField) := do
+  if states.size > maxStateFields then
+    throw <| .planInvariant .noir s!"state count exceeds profile limit {maxStateFields}"
+  let mut planned : Array StateField := #[]
+  for state in states do
+    unless state.id.toNat == planned.size do
+      throw <| .planInvariant .noir "semantic state ids must match declaration order"
+    requirePublicUInt64State noirPlanErr uint64TypeId state
+    unless isIdentifier state.name do
+      throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
+    planned := planned.push { sourceId := state.id.toNat, name := state.name }
+  if hasDuplicates (planned.map (·.name)) then
+    throw <| .planInvariant .noir "state names must be unique"
+  pure planned
+
+private structure LoweredValueV1 where
+  expr : Expr
+  kind : NoirValueKindV1
+  depth : Nat
+  expandedNodes : Nat
+  dependencies : Array ValueIdV1
+  deriving Inhabited
+
+private def makeParamsV1 (owner : String) (inputOffset : Nat)
+    (uint64TypeId : TypeIdV1) (params : Array ParameterV1) :
+    CompileResult (Array Param × Array LoweredValueV1) := do
+  if params.size > maxParams then
+    throw <| .planInvariant .noir s!"parameter count in {owner} exceeds profile limit {maxParams}"
+  let mut planned : Array Param := #[]
+  let mut values : Array LoweredValueV1 := #[]
+  for param in params do
+    unless param.valueId.toNat == planned.size do
+      throw <| .planInvariant .noir
+        s!"semantic parameter ValueIds in {owner} must match declaration order"
+    requirePublicUInt64Param noirPlanErr uint64TypeId owner param
+    unless isIdentifier param.name do
+      throw <| .planInvariant .noir
+        s!"parameter name '{param.name}' in {owner} is not a safe identifier"
+    let binding : Param := {
+      sourceId := param.valueId.toNat
+      name := param.name
+      inputIndex := inputOffset + planned.size
+      visibility := .verifier
+    }
+    planned := planned.push binding
+    values := values.push {
+      expr := .param binding.inputIndex
+      kind := .uint64
+      depth := 1
+      expandedNodes := 1
+      dependencies := #[]
+    }
+  if hasDuplicates (planned.map (·.name)) then
+    throw <| .planInvariant .noir s!"parameter names in {owner} must be unique"
+  pure (planned, values)
+
+/-- Pre-order emit scan of a relation body: (eventIndex, argCount) keyed by
+    the canonical EffectId each static emit statement carries. Event slots
+    are keyed by that EffectId. -/
+partial def collectEmitSlots (statements : Array Statement) :
+    Array (Nat × Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .emitEvent effectId eventIndex args => slots.push (effectId, eventIndex, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectEmitSlots thenBody ++ collectEmitSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectEmitSlots body) #[]
+        slots ++ caseSlots ++ collectEmitSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectEmitSlots body
+    | _ => slots) #[]
+
+/-- Pre-order external-call scan of a relation body: (argCount) keyed by the
+    canonical EffectId each static call statement carries. Call arg slots
+    and the status witness are keyed by that EffectId. -/
+partial def collectCallSlots (statements : Array Statement) :
+    Array (Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .externalCall effectId _ args => slots.push (effectId, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectCallSlots thenBody ++ collectCallSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectCallSlots body) #[]
+        slots ++ caseSlots ++ collectCallSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectCallSlots body
+    | _ => slots) #[]
+
+/-- Pre-order schedule scan of a relation body: (argCount) keyed by the
+    canonical EffectId each static schedule statement carries. -/
+partial def collectScheduleSlots (statements : Array Statement) :
+    Array (Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .schedule effectId _ args => slots.push (effectId, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectScheduleSlots thenBody ++ collectScheduleSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectScheduleSlots body) #[]
+        slots ++ caseSlots ++ collectScheduleSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectScheduleSlots body
+    | _ => slots) #[]
+
+/-- Build the canonical public-input envelope. `resultType` is used only for
+    non-initializer relations (entry/view) and is ignored for `.initialize`.
+    Event slots trail the result input: one verifier-visible u64 per argument
+    of each static emit statement in pre-order. -/
+def makeInputsV1 (states : Array StateField) (mode : RelationMode)
+    (params : Array Param) (resultType : InputType)
+    (emitSlots : Array (Nat × Nat × Nat)) (callSlots : Array (Nat × Nat))
+    (scheduleSlots : Array (Nat × Nat)) : Array InputBinding := Id.run do
+  let mut inputs : Array InputBinding := #[]
+  if !states.isEmpty then
+    inputs := inputs.push {
+      name := "pre_initialized"
+      sourceName := "initialized"
+      type := .bool
+      visibility := .verifier
+      role := .preInitialized
+    }
+  if mode != .initialize then
+    for field in states do
+      inputs := inputs.push {
+        name := s!"pre_s{field.sourceId}"
+        sourceName := field.name
+        type := .u64
+        visibility := .verifier
+        role := .preState field.sourceId
+      }
+  for param in params do
+    inputs := inputs.push {
+      name := s!"arg_p{param.sourceId}"
+      sourceName := param.name
+      type := .u64
+      visibility := param.visibility
+      role := .parameter param.sourceId
+    }
+  for field in states do
+    inputs := inputs.push {
+      name := s!"post_s{field.sourceId}"
+      sourceName := field.name
+      type := .u64
+      visibility := .verifier
+      role := .postState field.sourceId
+    }
+  if !states.isEmpty then
+    inputs := inputs.push {
+      name := "post_initialized"
+      sourceName := "initialized"
+      type := .bool
+      visibility := .verifier
+      role := .postInitialized
+    }
+  if mode != .initialize then
+    inputs := inputs.push {
+      name := "result"
+      sourceName := "result"
+      type := resultType
+      visibility := .verifier
+      role := .result
+    }
+  for (effectId, _, argCount) in emitSlots do
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"ev_e{effectId}_a{argIndex}"
+        sourceName := s!"event_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .eventSlot effectId argIndex
+      }
+  for (effectId, argCount) in callSlots do
+    inputs := inputs.push {
+      name := s!"call_e{effectId}_status"
+      sourceName := s!"call_status_{effectId}"
+      type := .bool
+      visibility := .verifier
+      role := .callStatus effectId
+    }
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"call_e{effectId}_a{argIndex}"
+        sourceName := s!"call_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .callArgSlot effectId argIndex
+      }
+  for (effectId, argCount) in scheduleSlots do
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"sched_e{effectId}_a{argIndex}"
+        sourceName := s!"schedule_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .scheduleArgSlot effectId argIndex
+      }
+  pure inputs
+
+def resultInputTypeOf (relation : Relation) : InputType :=
+  match relation.inputs.find? (fun binding => binding.role == .result) with
+  | some binding => binding.type
+  | none => .u64
+
+private def findStateV1 (states : Array StateField)
+    (id : StateIdV1) : CompileResult StateField :=
+  match states[id.toNat]? with
+  | some field =>
+      if field.sourceId == id.toNat then .ok field
+      else planError s!"semantic expression references noncanonical state id {id.toNat}"
+  | none => planError s!"semantic expression references unknown state id {id.toNat}"
+
+private def findValueV1 (values : Array LoweredValueV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 :=
+  match values[id.toNat]? with
+  | some value => .ok value
+  | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
+
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
+  decodeUInt64LiteralLe noirPlanErr "Noir" bytes
+
+/-- Decode a SemanticProgramV1 Bool literal (exactly one byte `0x00`/`0x01`).
+    Represented as UInt64 0/1 inside the plan Expr surface.
+    Invalid-byte wording is Noir's historical divergence (extra "byte "). -/
+private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  let bit ← decodeBoolLiteralBit noirPlanErr "Noir" bytes
+    (invalidDetail := "Bool literal byte must be 0x00 or 0x01")
+  pure (if bit then 1 else 0)
+
+private def currentValueV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart then
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
+
+/-- Match-bind arm readability: the scrutinee of an enclosing switch may be
+    referenced by its arm bodies across the (dominating) scrut-block boundary.
+    All other cross-block reads still fail at the effect boundary. -/
+private def currentValueWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (id : ValueIdV1) : CompileResult LoweredValueV1 := do
+  let index := id.toNat
+  if index >= paramCount && index < segmentStart && !armReadables.contains id then
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: computed ValueId crosses an effect boundary"
+  findValueV1 values id
+
+private def makeCheckedAddValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: checked add operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedAdd lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private def makeCheckedSubValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: checked sub operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .checkedSub lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private def binaryOpToComparisonV1 : BinaryOpV1 → Option ComparisonOp
+  | .eq => some .eq
+  | .ne => some .ne
+  | .lt => some .lt
+  | .le => some .le
+  | .gt => some .gt
+  | .ge => some .ge
+  | _ => none
+
+/-- Generic checked-arithmetic value constructor for mul/div/mod (add/sub
+    keep their historical constructors above). UInt64 operands, kind uint64,
+    checked depth/node accounting, both ids as dependencies. -/
+private def makeArithValueV1 (label : String) (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- bitNot value: UInt64 in/out, pure (no failure constraint). -/
+private def makeBitNotValueV1 (operandId : ValueIdV1) (operand : LoweredValueV1) :
+    CompileResult LoweredValueV1 := do
+  unless operand.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: bit-not operand must be UInt64"
+  if 1 + operand.depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .bitNot operand.expr
+    kind := .uint64
+    depth := 1 + operand.depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+  }
+
+/-- boolNot value: Bool in/out, pure (no failure constraint). -/
+private def makeBoolNotValueV1 (operandId : ValueIdV1) (operand : LoweredValueV1) :
+    CompileResult LoweredValueV1 := do
+  unless operand.kind == .bool do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: bool-not operand must be Bool"
+  if 1 + operand.depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .boolNot operand.expr
+    kind := .bool
+    depth := 1 + operand.depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+  }
+
+private def makeCompareValueV1
+    (op : ComparisonOp)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: comparison operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := .compare op lhs.expr rhs.expr
+    kind := .bool
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private def consumeCurrentSegmentV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        -- Block params and arm/loop-whitelisted values are external roots
+        -- (like callable params), not segment-local instructions.
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: dead or reordered value instructions"
+  pure rootValue.expr
+
+/-- Multi-root effect-boundary consumption (event/revert argument lists):
+    every value produced in the current segment must be reachable from at
+    least one sink root, mirroring the single-root discipline. -/
+private def consumeSegmentRootsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (roots : Array ValueIdV1) : CompileResult Unit := do
+  for root in roots do
+    let _ ← currentValueV1 values paramCount segmentStart root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  for root in roots do
+    if root.toNat >= paramCount then
+      stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: dead or reordered value instructions"
+  pure ()
+
+private def appendResultValueV1
+    (expectedTypeId : TypeIdV1)
+    (values : Array LoweredValueV1)
+    (result : ValueDefV1)
+    (value : LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
+  unless result.valueId.toNat == values.size && result.typeId == expectedTypeId do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: result ValueId/type is not canonical for the instruction"
+  if values.size >= maxPlanNodes then
+    throw <| .planInvariant .noir s!"Noir value table exceeds node limit {maxPlanNodes}"
+  pure (values.push value)
+
+/-- Bitwise binary value: UInt64 in/out, pure (no failure constraint). -/
+private def makeBitwiseValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- Strict Bool binary value: Bool in/out, pure (no failure constraint). -/
+private def makeBoolBinaryValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .bool && rhs.kind == .bool do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operands must be Bool"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .bool
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+/-- Shift value: UInt64 operand; the count must already be a literal in this
+    pilot (UInt32 values arise only from literal arithmetic, which the
+    relation layer constant-folds into the guard-and-multiply/divide form). -/
+private def makeShiftValueV1 (label : String)
+    (mkExpr : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == .uint64 do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} operand must be UInt64"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mkExpr lhs.expr rhs.expr
+    kind := .uint64
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+  }
+
+private inductive SemanticCallableModeV1 where
+  | initialize
+  | mutate
+  | view
+  deriving BEq
+
+private structure LoweredCallableV1 where
+  params : Array Param
+  body : Array Statement
+
+/-- `returnKind = none` for initializer (no return value). For entry/view it is
+    the admitted result kind (UInt64 or Bool) and must match the returned value. -/
+private structure LoweredBlockV1 where
+  statements : Array Statement
+  values : Array LoweredValueV1
+  segmentStart : Nat
+
+/-- Lower one block's instruction sequence (terminator handled by the region
+    walker). Each block starts a fresh effect segment; values from dominating
+    blocks stay referenceable only via params or match-arm scrutinees. -/
+private def lowerBlockInstructionsV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (fnSigs : Array FnSigV1)
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (block : BlockV1)
+    (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
+  -- Block params (loop induction variables) are pre-seeded by lowerCallableV1
+  -- and read through the values array like callable params.
+  if block.instructions.size > maxBodyStatements then
+    throw <| .planInvariant .noir
+      s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
+  let mut values := values0
+  let mut segmentStart := values0.size
+  let mut body : Array Statement := #[]
+  for instruction in block.instructions do
+    match instruction.op, instruction.result with
+    | .literal typeId bytes, some result =>
+        if typeId == types.uint64TypeId then
+          let value ← decodeUInt64LiteralV1 bytes
+          values := ← appendResultValueV1 types.uint64TypeId values result {
+            expr := .literal value
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else if types.uint32TypeId == some typeId then
+          -- Shift counts: 4-byte UInt32 literals surface as plain u64
+          -- literals (lossless); only shift operands consume them.
+          unless bytes.size == 4 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: UInt32 literal must contain exactly 4 bytes"
+          let value : UInt64 := UInt64.ofNat
+            ((bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
+              (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216)
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else if types.boolTypeId == some typeId then
+          let value ← decodeBoolLiteralV1 bytes
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            kind := .bool
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: literal is not UInt64 or Bool"
+    | .stateLoad stateId, some result =>
+        let field ← findStateV1 states stateId
+        values := ← appendResultValueV1 types.uint64TypeId values result {
+          expr := .stateLoad field.sourceId
+          kind := .uint64
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+    | .binary op lhsId rhsId, some result =>
+        let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
+        if op == .add then
+          let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .sub then
+          let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .mul then
+          let value ← makeArithValueV1 "checked mul" Expr.checkedMul lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .div then
+          let value ← makeArithValueV1 "checked div" Expr.checkedDiv lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .mod then
+          let value ← makeArithValueV1 "checked mod" Expr.checkedMod lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitAnd then
+          let value ← makeBitwiseValueV1 "bitwise and" Expr.bitAnd lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitOr then
+          let value ← makeBitwiseValueV1 "bitwise or" Expr.bitOr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .bitXor then
+          let value ← makeBitwiseValueV1 "bitwise xor" Expr.bitXor lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 result.typeId values result value
+        else if op == .shl then
+          let value ← makeShiftValueV1 "shift left" Expr.shl lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .shr then
+          let value ← makeShiftValueV1 "shift right" Expr.shr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .and || op == .or then
+          let boolTypeId ← match types.boolTypeId with
+            | some value => pure value
+            | none => throw (.planInvariant .noir
+                "unsupported Noir semantic shape: logical operator requires interned Bool type")
+          unless result.typeId == boolTypeId do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: logical operator result must be Bool"
+          let value ←
+            if op == .and then
+              makeBoolBinaryValueV1 "logical and" Expr.boolAnd lhsId rhsId lhs rhs
+            else
+              makeBoolBinaryValueV1 "logical or" Expr.boolOr lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 boolTypeId values result value
+        else
+          match binaryOpToComparisonV1 op with
+          | some comparison =>
+              let boolTypeId ← match types.boolTypeId with
+                | some value => pure value
+                | none => throw (.planInvariant .noir
+                    "unsupported Noir semantic shape: comparison requires interned Bool type")
+              unless result.typeId == boolTypeId do
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: comparison result must be Bool"
+              let value ← makeCompareValueV1 comparison lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 boolTypeId values result value
+          | none =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: only checked UInt64 arithmetic, bitwise, shift, comparison, and logical operators are supported"
+    | .unary op operandId, some result =>
+        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        match op with
+        | .neg =>
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: unary neg is Int/Field-only at the wire"
+        | .bitNot =>
+            let value ← makeBitNotValueV1 operandId operand
+            values := ← appendResultValueV1 types.uint64TypeId values result value
+        | .not =>
+            let boolTypeId ← match types.boolTypeId with
+              | some value => pure value
+              | none => throw (.planInvariant .noir
+                  "unsupported Noir semantic shape: bool-not requires interned Bool type")
+            unless result.typeId == boolTypeId do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: bool-not result must be Bool"
+            let value ← makeBoolNotValueV1 operandId operand
+            values := ← appendResultValueV1 boolTypeId values result value
+    | .stateStore stateId valueId, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable writes state"
+        let field ← findStateV1 states stateId
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: state store value must be UInt64"
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
+        body := body.push (.store { fieldIndex := field.sourceId, value })
+        segmentStart := values.size
+    | .assert_ condId errorId args, none =>
+        unless errorId.isNone && args.isEmpty do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: assert must use errorId=none and empty args"
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+        unless root.kind == .bool do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: assert condition must be Bool"
+        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
+        body := body.push (.assert condition)
+        segmentStart := values.size
+    | .emit effectId eventId argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable emits an event"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: event arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        -- Multi-root effect boundary: every value produced in the current
+        -- segment must be reachable from at least one argument tree.
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+        body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
+        segmentStart := values.size
+    | .externalCall effectId qname argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable makes an external call"
+        unless qname.components.toArray.size ≥ 2 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: external call callee must have at least two components"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+        body := body.push (.externalCall effectId.toNat qname.components.toArray argExprs)
+        segmentStart := values.size
+    | .schedule effectId qname argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable schedules a workflow"
+        unless qname.components.toArray.size ≥ 2 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: schedule callee must have at least two components"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+        body := body.push (.schedule effectId.toNat qname.components.toArray argExprs)
+        segmentStart := values.size
+    | .pureCall callableId argIds, some result =>
+        let some fnSig := fnSigs.find? (fun sig => sig.callableId == callableId.toNat) |
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: pure call target is not a declared fn"
+        unless argIds.size == fnSig.paramCount do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: pure call argument count mismatch"
+        let mut argExprs : Array Expr := #[]
+        let mut maxDepth := 0
+        let mut expanded := 1
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: pure call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+          maxDepth := max maxDepth root.depth
+          if expanded > maxPlanNodes - 1 - root.expandedNodes then
+            throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+          expanded := expanded + root.expandedNodes
+        -- Pure expression: the segment continues (no effect boundary).
+        let resultKind : NoirValueKindV1 := if fnSig.resultIsBool then .bool else .uint64
+        let resultTypeId ← match resultKind, types.boolTypeId with
+          | .uint64, _ => pure types.uint64TypeId
+          | .bool, some boolTid => pure boolTid
+          | .bool, none =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Bool fn result requires interned Bool type"
+        values := ← appendResultValueV1 resultTypeId values result {
+          expr := .callFn callableId.toNat argExprs
+          kind := resultKind
+          depth := 1 + maxDepth
+          expandedNodes := expanded
+          dependencies := argIds
+        }
+    | _, _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
+  pure { statements := body, values, segmentStart }
+
+/-- Decode a switch case constant against the scrutinee kind. -/
+private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
+    CompileResult UInt64 := do
+  if scrutIsBool then
+    decodeBoolLiteralV1 bytes
+  else
+    decodeUInt64LiteralV1 bytes
+
+/-- Structured emission of the forward-only multi-block CFG. Diamonds
+    (branch/switch) are recovered by following each arm to its exit jump or
+    return; convergent joins continue the region. The fuel bounds recursion
+    to the block count. Returns (statements, values, nextJoin). -/
+private partial def emitRegionV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (fnSigs : Array FnSigV1)
+    (returnKind : Option NoirValueKindV1)
+    (blocks : Array BlockV1)
+    (loops : Array LoopBoundV1)
+    (paramCount : Nat)
+    (armReadables : Array ValueIdV1)
+    (fuel : Nat)
+    (start : Nat)
+    (values0 : Array LoweredValueV1) :
+    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat × Option (Array Expr)) := do
+  if fuel == 0 then
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: CFG region exceeds block bound"
+  let block ← match blocks[start]? with
+    | some value => pure value
+    | none => throw (.planInvariant .noir
+        "unsupported Noir semantic shape: region references a missing block")
+  unless block.id.toNat == start do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: block ids are not dense"
+  let lowered ← lowerBlockInstructionsV1
+    owner mode types states fnSigs paramCount armReadables block values0
+  let instrs := lowered.statements
+  let values := lowered.values
+  let segmentStart := lowered.segmentStart
+  match block.terminator with
+  | .return_ (some valueId) =>
+      match mode with
+      | .initialize =>
+          throw <| .planInvariant .noir "initializer relation cannot return a value"
+      | .mutate | .view =>
+          let expectedKind ← match returnKind with
+            | some kind => pure kind
+            | none =>
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: entry/view return kind is missing"
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          unless root.kind == expectedKind do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
+          let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
+          pure (instrs.push (.returnValue value), values, none, none)
+  | .return_ none =>
+      unless segmentStart == values.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: block has unconsumed values"
+      -- Explicit marker: an early bare `return` inside a branch arm is
+      -- otherwise indistinguishable from a fallthrough arm once the join
+      -- continuation is emitted after the region.
+      pure (instrs.push .returnNone, values, none, none)
+  | .jump target =>
+      match loops.find? (fun lb => lb.header == target.blockId) with
+      | none =>
+          unless segmentStart == values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: block has unconsumed values"
+          pure (instrs, values, some target.blockId.toNat, none)
+      | some lb =>
+          if target.blockId.toNat == start then
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: loop header cannot be its own latch"
+          else if target.blockId.toNat < start then
+            -- Back edge: the latch jumps back to the header. The update
+            -- expression travels on the back-edge channel to the enclosing
+            -- loop-entry; it never fires inside a region arm.
+            unless target.args.size == 1 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop latch must carry exactly one argument"
+            let updateId := target.args[0]!
+            let updateRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables updateId
+            unless updateRoot.kind == .uint64 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop update must be UInt64"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables target.args
+            pure (instrs, values, none, some #[updateRoot.expr])
+          else do
+            -- Loop entry: the forward jump into the header carries the
+            -- initial induction value. Everything the loop reads from the
+            -- pre-header (initial value, end expression, enclosing lets)
+            -- stays readable through the loop whitelist.
+            let some header := blocks[target.blockId.toNat]? |
+              throw (.planInvariant .noir
+                "unsupported Noir semantic shape: loop header block is missing")
+            unless header.params.size == 1 && target.args.size == 1 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop header must carry exactly one parameter"
+            let some headerParam := header.params[0]? |
+              throw (.planInvariant .noir
+                "unsupported Noir semantic shape: loop header parameter is missing")
+            unless headerParam.typeId == types.uint64TypeId do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop induction variable must be UInt64"
+            let initId := target.args[0]!
+            let initRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables initId
+            unless initRoot.kind == .uint64 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop initial value must be UInt64"
+            let segmentIds : Array ValueIdV1 :=
+              (List.range (values.size - segmentStart)).toArray.map
+                (fun i => UInt32.ofNat (segmentStart + i))
+            let loopReadables := armReadables ++ segmentIds
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables segmentIds
+            -- The induction placeholder's slot is this header's ordinal
+            -- among all loop headers (BlockId order).
+            let mut slot := 0
+            for blk in blocks do
+              if blk.id < header.id then
+                slot := slot + blk.params.size
+            let headerLowered ← lowerBlockInstructionsV1
+              owner mode types states fnSigs paramCount loopReadables header values
+            unless headerLowered.statements.isEmpty do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop header has side effects"
+            let valuesH := headerLowered.values
+            let hSegment := headerLowered.segmentStart
+            match header.terminator with
+            | .branch condId thenT elseT => do
+                let condRoot ← currentValueWithArmsV1 valuesH paramCount hSegment loopReadables condId
+                unless condRoot.kind == .bool do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop condition must be Bool"
+                let cond ← consumeCurrentSegmentV1 valuesH paramCount hSegment loopReadables condId
+                let (bodyStmts, valuesB, bodyNext, backEdge) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    loopReadables (fuel - 1) thenT.blockId.toNat valuesH
+                unless bodyNext.isNone do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop body escapes past its latch"
+                let some updateExprs := backEdge |
+                  throw (.planInvariant .noir
+                    "unsupported Noir semantic shape: loop body does not reach its latch")
+                unless updateExprs.size == 1 do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop latch must carry exactly one update"
+                let loopStmt := Statement.forLoop slot lb.maxIterations
+                  initRoot.expr cond updateExprs[0]! bodyStmts
+                -- Continue the enclosing walk at the loop exit; the loop
+                -- whitelist stays in scope for post-loop reads of pre-loop
+                -- values, and an enclosing latch may still follow (nesting).
+                let (rest, valuesX, nextX, backX) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    loopReadables (fuel - 1) elseT.blockId.toNat valuesB
+                pure (instrs ++ #[loopStmt] ++ rest, valuesX, nextX, backX)
+            | _ =>
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: loop header must end in a branch"
+  | .branch condId thenT elseT =>
+      let condRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      unless condRoot.kind == .bool do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: branch condition must be Bool"
+      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
+      let (thenBody, values1, thenNext, thenBack) ←
+        emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+          armReadables (fuel - 1) thenT.blockId.toNat values
+      unless thenBack.isNone do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop back edge escapes a branch arm"
+      match thenNext with
+      | some j =>
+          if elseT.blockId.toNat == j then
+            let (rest, values2, next, back2) ←
+              emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                armReadables (fuel - 1) j values1
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next, back2)
+          else
+            let (elseBody, values2, elseNext, elseBack) ←
+              emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                armReadables (fuel - 1) elseT.blockId.toNat values1
+            unless elseBack.isNone do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop back edge escapes a branch arm"
+            match elseNext with
+            | some j2 =>
+                unless j == j2 do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: branch arms converge on divergent joins"
+                let (rest, values3, next, back3) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
+            | none =>
+                let (rest, values3, next, back3) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
+      | none =>
+          let (elseBody, values2, elseNext, elseBack) ←
+            emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+              armReadables (fuel - 1) elseT.blockId.toNat values1
+          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext, elseBack)
+  | .switch scrutId cases defaultTarget =>
+      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables scrutId
+      let some defaultT := defaultTarget |
+        throw (.planInvariant .noir
+          "unsupported Noir semantic shape: switch must carry a default target")
+      let scrutIsBool := scrutVal.kind == .bool
+      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+      let mut joinAcc : Option Nat := none
+      let mut valuesA := values
+      for switchCase in cases do
+        let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
+        let (body, values1, armNext, armBack) ←
+          emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+            (armReadables.push scrutId) (fuel - 1)
+            switchCase.target.blockId.toNat valuesA
+        unless armBack.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop back edge escapes a switch arm"
+        caseBodies := caseBodies.push (caseValue, body)
+        valuesA := values1
+        match armNext, joinAcc with
+        | none, _ => pure ()
+        | some j, none => joinAcc := some j
+        | some j, some j0 =>
+            unless j == j0 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: switch arms converge on divergent joins"
+      let (defaultBody, values2, defaultNext, defaultBack) ←
+        emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+          (armReadables.push scrutId) (fuel - 1)
+          defaultT.blockId.toNat valuesA
+      unless defaultBack.isNone do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop back edge escapes a switch arm"
+      match defaultNext, joinAcc with
+      | none, _ => pure ()
+      | some j, none => joinAcc := some j
+      | some j, some j0 =>
+          unless j == j0 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: switch arms converge on divergent joins"
+      match joinAcc with
+      | none =>
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none, none)
+      | some j =>
+          let (rest, values3, next, back3) ←
+            emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+              armReadables (fuel - 1) j values2
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next, back3)
+  | .revert errorId argIds =>
+      let mut argExprs : Array Expr := #[]
+      for argId in argIds do
+        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        unless root.kind == .uint64 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: revert arguments must be UInt64"
+        argExprs := argExprs.push root.expr
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none, none)
+  | .trap _ =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: trap terminators are outside the current pilot"
+
+private def lowerCallableV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (inputOffset : Nat)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (fnSigs : Array FnSigV1)
+    (returnKind : Option NoirValueKindV1)
+    (callable : CallableV1) : CompileResult LoweredCallableV1 := do
+  unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
+      callable.invariantSteps.isNone do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: callable must have an entry block 0"
+  -- Loop pattern: every loopBounds entry must pair a single-param UInt64
+  -- header ending in a branch with a latch jumping back with one argument;
+  -- block parameters may appear only on such headers.
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop header block is missing")
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop latch block is missing")
+    unless header.params.size == 1 do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: loop header must carry one UInt64 parameter"
+    let some headerParam := header.params[0]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop header parameter is missing")
+    unless headerParam.typeId == types.uint64TypeId do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: loop header must carry one UInt64 parameter"
+    match header.terminator with
+    | .branch .. => pure ()
+    | _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop header must end in a branch"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop latch must jump back with one argument"
+    | _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop latch must jump back to the header"
+  for blk in callable.blocks do
+    unless blk.params.isEmpty ||
+        callable.loopBounds.any (fun lb => lb.header == blk.id) do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: block parameters are only supported on loop headers"
+  let (params, paramValues) ← makeParamsV1 owner inputOffset types.uint64TypeId callable.params
+  -- Pre-seed the loop-induction placeholder slots in canonical ValueId
+  -- order (callable params, then every block param in BlockId order), so
+  -- instruction results keep appending at their canonical positions.
+  let mut seedValues : Array LoweredValueV1 := #[]
+  for blk in callable.blocks do
+    for paramDef in blk.params do
+      unless paramDef.valueId.toNat == paramValues.size + seedValues.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: block parameter ValueIds are not canonical"
+      seedValues := seedValues.push {
+        expr := .loopParam seedValues.size
+        kind := .uint64
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+      }
+  let initialValues := paramValues ++ seedValues
+  let paramCount := initialValues.size
+  let (body0, values0, nextJoin0, back0) ←
+    emitRegionV1 owner mode types states fnSigs returnKind callable.blocks
+      callable.loopBounds paramCount #[] callable.blocks.size 0 initialValues
+  unless back0.isNone do
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: loop back edge escapes the callable entry"
+  -- Fold trailing join continuations (an arm that returned early leaves the
+  -- remaining open path's join to the caller). Join targets strictly
+  -- increase outside loop bodies, so this terminates within blocks.size folds.
+  let mut body := body0
+  let mut values := values0
+  let mut nextJoin := nextJoin0
+  for _ in [0:callable.blocks.size] do
+    match nextJoin with
+    | none => break
+    | some j =>
+        let (rest, values1, next1, back1) ←
+          emitRegionV1 owner mode types states fnSigs returnKind callable.blocks
+            callable.loopBounds paramCount #[] callable.blocks.size j values
+        unless back1.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop back edge escapes the callable entry"
+        body := body ++ rest
+        values := values1
+        nextJoin := next1
+  match nextJoin with
+  | some _ =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: callable does not end in return on all paths"
+  | none => pure ()
+  if body.size > maxBodyStatements then
+    throw <| .planInvariant .noir s!"{owner} body exceeds profile limit {maxBodyStatements}"
+  pure { params, body }
+
+private def resolveEntryViewResultV1
+    (types : NoirTypeClosureV1)
+    (name : String)
+    (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
+  unless callable.result.visibility == .public_ do
+    throw <| .planInvariant .noir s!"entry '{name}' does not return a public UInt64 or Bool"
+  if callable.result.typeId == types.uint64TypeId then
+    pure (.uint64, .u64)
+  else if types.boolTypeId == some callable.result.typeId then
+    pure (.bool, .bool)
+  else
+    throw <| .planInvariant .noir s!"entry '{name}' does not return public UInt64 or Bool"
+
+private def makeRelationV1
+    (index : Nat)
+    (types : NoirTypeClosureV1)
+    (states : Array StateField)
+    (fnSigs : Array FnSigV1)
+    (name : String)
+    (mode : RelationMode)
+    (callable : CallableV1) : CompileResult Relation := do
+  unless isIdentifier name do
+    throw <| .planInvariant .noir s!"relation name '{name}' is not a safe identifier"
+  let returnKind : Option NoirValueKindV1 ←
+    if mode == .initialize then
+      unless callable.name.isNone && callable.result.visibility == .public_ do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: initializer signature is invalid"
+      let unitTypeId ← match types.unitTypeId with
+        | some value => pure value
+        | none => throw (.planInvariant .noir
+            "unsupported Noir semantic shape: initializer Unit type is missing")
+      unless callable.result.typeId == unitTypeId do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: initializer result is not Unit"
+      pure none
+    else
+      let (kind, _) ← resolveEntryViewResultV1 types name callable
+      pure (some kind)
+  let resultType : InputType := match returnKind with
+    | some .bool => .bool
+    | some .uint64 | none => .u64
+  let inputOffset := if states.isEmpty then 0 else
+    1 + (if mode == .initialize then 0 else states.size)
+  let semanticMode : SemanticCallableModeV1 := match mode with
+    | .initialize => .initialize
+    | .mutate => .mutate
+    | .view => .view
+  let lowered ← lowerCallableV1 s!"relation '{name}'" semanticMode inputOffset
+    types states fnSigs returnKind callable
+  pure {
+    index
+    name
+    artifactStem := artifactStem index mode name
+    mode
+    params := lowered.params
+    inputs := makeInputsV1 states mode lowered.params resultType
+      (collectEmitSlots lowered.body) (collectCallSlots lowered.body)
+      (collectScheduleSlots lowered.body)
+    body := lowered.body
+  }
+private def makeInterfaceBindingV1 (label : String) (name : String)
+    (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :
+    CompileResult InterfaceBinding := do
+  unless isIdentifier name do
+    throw <| .planInvariant .noir
+      s!"unsupported Noir semantic shape: {label} name '{name}' is not a safe identifier"
+  for field in fields do
+    unless field.typeId == uint64TypeId && field.visibility == .public_ do
+      throw <| .planInvariant .noir
+        s!"unsupported Noir semantic shape: {label} '{name}' fields must be public UInt64"
+  pure { name, fieldCount := fields.size }
+
+/-- Noir-private retained SemanticProgramV1 data → target-owned Plan pilot.
+    Name/source/semantic identity comes from the same non-alpha compiled carrier;
+    hash strings are derived from sourceHashV1/semanticHashV1 digests. -/
+
+private def makePlanFromSemanticDataV1
+    (artifactProgramName sourceHash semanticHash : String)
+    (source : SemanticProgramDataV1) : CompileResult Plan := do
+  if !source.constants.isEmpty || !source.invariants.isEmpty then
+    throw <| .planInvariant .noir
+      "unsupported Noir semantic shape: constants/invariants are outside the current UInt64 pilot"
+  if source.callables.size > maxRelations then
+    throw <| .planInvariant .noir s!"callable count exceeds Noir profile limit {maxRelations}"
+  if source.requirements.items.size > Targets.maxRequirementKinds then
+    throw <| .planInvariant .noir
+      s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
+  let types ← validateNoirTypeClosureV1 source.types
+  let states ← makeStatesV1 types.uint64TypeId source.logicalState
+  let events ← source.events.mapM (fun d =>
+    makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
+  let errors ← source.errors.mapM (fun d =>
+    makeInterfaceBindingV1 "error" d.name d.fields types.uint64TypeId)
+  let components := source.qualifiedName.components.toArray
+  let programName := components.back!
+  unless programName == artifactProgramName do
+    throw <| .planInvariant .noir
+      "retained SemanticProgramV1 name diverges from compiled artifact identity"
+  let mut initializer : Option CallableV1 := none
+  let mut entries : Array CallableV1 := #[]
+  -- Pass 1: collect validated fn signatures keyed by GLOBAL callable id, so
+  -- bodies lowered in pass 2 can resolve pure calls to any declared fn
+  -- (including later-declared ones) with exact arity/result kinds.
+  let mut fnSigs : Array FnSigV1 := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .initializer =>
+        if initializer.isSome then
+          throw <| .planInvariant .noir "semantic program has multiple initializers"
+        initializer := some callable
+    | .entry | .view => entries := entries.push callable
+    | .pureFn =>
+        let fnName ← match callable.name with
+          | some value => pure value
+          | none => throw (.planInvariant .noir
+              "unsupported Noir semantic shape: pure fn is missing its name")
+        unless isIdentifier fnName do
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: fn name '{fnName}' is not a safe identifier"
+        let resultIsBool ←
+          if callable.result.typeId == types.uint64TypeId then
+            pure false
+          else if types.boolTypeId == some callable.result.typeId then
+            pure true
+          else
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: fn '{fnName}' result is not UInt64 or Bool"
+        unless callable.result.visibility == .public_ do
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: fn '{fnName}' result is not public"
+        fnSigs := fnSigs.push {
+          callableId := callable.id.toNat
+          name := fnName
+          paramCount := callable.params.size
+          resultIsBool
+        }
+    | .invariant =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: invariants are outside the current UInt64 pilot"
+  -- Pass 2: lower fn bodies against the complete signature table and an
+  -- empty state table (fn purity).
+  let mut fns : Array FnBinding := #[]
+  for callable in source.callables do
+    match callable.kind with
+    | .pureFn =>
+        let some fnSig := fnSigs.find? (fun sig => sig.callableId == callable.id.toNat) |
+          throw (.planInvariant .noir
+            "unsupported Noir semantic shape: pure fn signature is missing")
+        let resultKind : NoirValueKindV1 := if fnSig.resultIsBool then .bool else .uint64
+        let lowered ← lowerCallableV1 s!"fn '{fnSig.name}'" .mutate 0
+          types #[] fnSigs (some resultKind) callable
+        fns := fns.push {
+          callableId := callable.id.toNat
+          name := fnSig.name
+          params := lowered.params
+          resultIsBool := fnSig.resultIsBool
+          body := lowered.body
+        }
+    | _ => pure ()
+  if states.isEmpty && initializer.isSome then
+    throw <| .planInvariant .noir "stateless circuit programs cannot declare an initializer"
+  if !states.isEmpty && initializer.isNone then
+    throw <| .planInvariant .noir "stateful circuit programs require an initializer relation"
+  let mut relations : Array Relation := #[]
+  if let some initCallable := initializer then
+    relations := relations.push (← makeRelationV1 0 types states fnSigs "init" .initialize initCallable)
+  for callable in entries do
+    let name ← match callable.name with
+      | some value => pure value
+      | none => throw (.planInvariant .noir
+          "unsupported Noir semantic shape: named entry is missing its name")
+    let mode : RelationMode := match callable.kind with
+      | .entry => .mutate
+      | .view => .view
+      | _ => .mutate
+    relations := relations.push (← makeRelationV1 relations.size types states fnSigs name mode callable)
+  let unsignedPlan : Plan := {
+    targetDescriptor := descriptor
+    semanticSchemaVersion := semanticProgramSchemaVersionV1
+    codegenProfile := codegenProfileString
+    sourceDialect
+    continuity := if states.isEmpty then .none else .externalPublicPrePost
+    failurePolicy := .unsatisfied
+    proofStatus := .notProduced
+    resourceLimits := canonicalLimits
+    programName
+    sourceHash
+    semanticHash
+    planHash := String.ofList (List.replicate 64 '0')
+    states
+    events
+    errors
+    fns
+    relations
+  }
+  let plan := { unsignedPlan with planHash := canonicalPlanHash unsignedPlan }
+  pure plan
+
+private def makePlanFromSemanticV1
+    (artifactProgramName sourceHash semanticHash : String)
+    (source : SemanticProgramV1) : CompileResult Plan := do
+  -- Semantic structure was validated once at the capability mint
+  -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
+  -- carrier is private-ctor so re-validation here is redundant. Transport
+  -- decode still yields SemanticProgramDataV1 for the Plan body.
+  let data ← match decodeSemanticProgramDataV1 source.canonicalBytes with
+    | .ok value => pure value
+    | .error _ =>
+        throw <| .invalidProgram "Noir received an invalid SemanticProgramV1 carrier"
+  makePlanFromSemanticDataV1 artifactProgramName sourceHash semanticHash data
+
+/-- Internal Noir family phase entry: capability → Plan (pre-canonicity). -/
+def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
+  unless ResolvedEngineeringBuildV1.kindOf capability == .noir do
+    throw <| .planInvariant .noir "engineering capability kind is not Noir"
+  let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+  let source := CompiledSemanticV1.semanticV1Of compiled
+  let sourceHash ← CompiledSemanticV1.artifactSourceHashHexOf compiled
+  let semanticHash ← CompiledSemanticV1.artifactSemanticHashHexOf compiled
+  makePlanFromSemanticV1
+    (CompiledSemanticV1.artifactProgramNameOf compiled)
+    sourceHash
+    semanticHash
+    source
+
+end ProofForgeV2.Targets.Noir
