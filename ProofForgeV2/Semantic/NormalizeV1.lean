@@ -1166,8 +1166,64 @@ private partial def lowerStmt
             instructions := st'.instructions.push instr
             nextEffectId := st'.nextEffectId + 1
           }, .open_)
-  | .call _ => failUnsupported "S1 normalizer does not support call"
-  | .schedule _ => failUnsupported "S1 normalizer does not support schedule"
+  | .call externalCall => do
+      -- Sync external call: a statement effect with no result value (v1).
+      -- The callee is an opaque qualified name (at least two components per
+      -- the wire shape gate), resolved at deployment, never by the compiler.
+      let callee := externalCall.callee
+      let calleeComponents := (NonEmptyArray.toArray callee.components).map (·.raw)
+      unless calleeComponents.size ≥ 2 do
+        return ← failUnsupported
+          s!"S1 call callee must have at least two components"
+      let qn ← match parseQualifiedName calleeComponents with
+        | .ok qn => pure qn
+        | .error e => failUnsupported s!"S1 call callee: {e}"
+      let (iU, u64Tid) := internShape st.interner (.uint 64)
+      let st0 := { st with interner := iU }
+      let mut st' := st0
+      let mut argIds : Array ValueIdV1 := #[]
+      for arg in externalCall.args do
+        let (vid, tid, st1) ← lowerExpr arg u64Tid st' states fns
+        unless tid == u64Tid do
+          return ← failUnsupported s!"S1 call argument must be UInt64"
+        argIds := argIds.push vid
+        st' := st1
+      let instr : InstructionV1 := {
+        result := none
+        op := .externalCall st'.nextEffectId qn argIds
+      }
+      pure ({ st' with
+        instructions := st'.instructions.push instr
+        nextEffectId := st'.nextEffectId + 1
+      }, .open_)
+  | .schedule externalCall => do
+      -- Async workflow schedule: same statement-effect shape as call.
+      let callee := externalCall.callee
+      let calleeComponents := (NonEmptyArray.toArray callee.components).map (·.raw)
+      unless calleeComponents.size ≥ 2 do
+        return ← failUnsupported
+          s!"S1 schedule callee must have at least two components"
+      let qn ← match parseQualifiedName calleeComponents with
+        | .ok qn => pure qn
+        | .error e => failUnsupported s!"S1 schedule callee: {e}"
+      let (iU, u64Tid) := internShape st.interner (.uint 64)
+      let st0 := { st with interner := iU }
+      let mut st' := st0
+      let mut argIds : Array ValueIdV1 := #[]
+      for arg in externalCall.args do
+        let (vid, tid, st1) ← lowerExpr arg u64Tid st' states fns
+        unless tid == u64Tid do
+          return ← failUnsupported s!"S1 schedule argument must be UInt64"
+        argIds := argIds.push vid
+        st' := st1
+      let instr : InstructionV1 := {
+        result := none
+        op := .schedule st'.nextEffectId qn argIds
+      }
+      pure ({ st' with
+        instructions := st'.instructions.push instr
+        nextEffectId := st'.nextEffectId + 1
+      }, .open_)
 
 end
 

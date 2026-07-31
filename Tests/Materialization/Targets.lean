@@ -995,8 +995,8 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
     throw <| IO.userError "arith-ops: missing ArithFlow.yul"
   expect (yulFile.contents.contains "mul(" && yulFile.contents.contains "div(" &&
       yulFile.contents.contains "mod(" && yulFile.contents.contains "not(" &&
-      yulFile.contents.contains "iszero(")
-    "arith-ops Yul must render mul/div/mod/not/iszero"
+      yulFile.contents.contains "and(not(" && yulFile.contents.contains "iszero(")
+    "arith-ops Yul must render mul/div/mod/masked-not/iszero"
   let some sbpf := solanaOutput.files.find? (·.path == "ArithFlow.sbpf-plan") |
     throw <| IO.userError "arith-ops: missing ArithFlow.sbpf-plan"
   expect (sbpf.contents.contains "checked_mul_u64" &&
@@ -1311,6 +1311,38 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
       maskNr.contents.contains " ^ ")
     "shift-bit Noir source must render multiply/divide by 2^k and native bitwise ops"
 
+/-- Noir constant folding must not evaluate 2^k for huge folded counts: a
+    count expression like `0xFFFFFFFF - 1` folds to k ≥ 64 and lowers to the
+    literal-false invalidShift guard with a dead wrapped literal. Previously
+    the emitter eagerly computed `2 ^ k` as a Nat (~512 MiB allocation / long
+    stall) before the guard branch; the wrapped result is byte-identical for
+    every k ≥ 64 (2^k mod 2^64 = 0), so the fold must stay cheap. -/
+private unsafe def testNoirHugeFoldedShiftCount : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program HugeCount where\n" ++
+    "  entry big(a : UInt64) : UInt64 do\n" ++
+    "    return a >> (0xFFFFFFFF - 1)\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<targets-huge-count>" "Tests.Targets.HugeCount" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let noir ← liftResult <| planNoir compiled
+  expect (noir.relations.map (·.name) == #["big"])
+    "Noir huge-count relations must carry the single entry"
+  let ir ← liftResult <| irNoir compiled
+  let some bigRelation := ir.relations.find? (fun r => r.sourceRelation.name == "big") |
+    throw <| IO.userError "huge-count: missing big relation"
+  let bigOps := bigRelation.operations
+  expect (bigOps.any fun op => match op with
+      | .assertConstraint (.literal 0) => true | _ => false)
+    "Noir huge count must render the literal-false invalidShift guard"
+  expect (bigOps.any fun op => match op with
+      | .checkedDiv _ _ (.literal 0) => true | _ => false)
+    "Noir huge count must render a dead wrapped 2^k literal (0)"
+  liftResult <| Targets.Noir.validateIR ir
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
@@ -1324,6 +1356,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testArithOpsSemanticPlans
   testForLoopSemanticPlans
   testShiftBitwiseLogicalSemanticPlans
+  testNoirHugeFoldedShiftCount
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=

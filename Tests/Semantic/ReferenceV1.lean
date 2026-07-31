@@ -915,6 +915,107 @@ private unsafe def testShiftBitwiseLogicalReferenceSlice
   | other =>
       throw <| IO.userError s!"bit-ref-strict: expected standard revert, got {repr other}"
 
+/-- External call/schedule through the source pipeline into the admitted
+    machine: shared EffectId occurrences, returned responses continue,
+    reverted responses revert with the exact occurrence, and trailing or
+    missing responses trap invalidExternalResponse. -/
+private unsafe def testCallScheduleReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExtRef" <|
+    "  state count : UInt64\n" ++
+    "  event Ping(x : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Ping(count)\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "ext-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ext-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ext-ref: validate failed: {repr e}"
+  let admitted ← admitOk "ext-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let bumpId : CallableIdV1 := 1
+  let laterId : CallableIdV1 := 2
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ext-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0]) emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "ext-ref-init" initPost zeroState none #[]
+  let occEmit : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let occCall : EffectOccurrenceV1 := { effectId := 1, occurrence := 0 }
+  let occSched : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  -- Returned response: emit + call effects commit in order, count = 5.
+  let okResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned }
+  ]
+  let okOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) okResponses
+  let fiveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  let okEffects : Array OrderedEffectV1 := #[
+    { occurrence := occEmit, payload := .event 0 #[refU64 u64Tid 0] },
+    { occurrence := occCall,
+      payload := .externalCall
+        (← qn2 "Oracle" "feed")
+        #[refU64 u64Tid 0] }
+  ]
+  expectReturned "ext-ref-returned" okOut fiveState (some (refU64 u64Tid 5)) okEffects
+  -- Reverted response: externalCallReverted with the exact occurrence, pre kept.
+  let revResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .reverted }
+  ]
+  let revOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) revResponses
+  match revOut with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occCall) s!"ext-ref-reverted: occurrence"
+      expect (logicalStateEq st zeroState) "ext-ref-reverted: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"ext-ref-reverted: expected external revert, got {repr other}"
+  -- Missing response for the call: invalidExternalResponse.
+  let missingOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) emptyResponses
+  expectTrapped "ext-ref-missing" missingOut .invalidExternalResponse zeroState
+  -- Trailing unconsumed response after a matched call: same trap.
+  let extraResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned },
+    { occurrence := { effectId := 9, occurrence := 0 }, disposition := .returned }
+  ]
+  let extraOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) extraResponses
+  expectTrapped "ext-ref-extra" extraOut .invalidExternalResponse zeroState
+  -- Schedule consumes no response at all (fire-and-forget): it commits its
+  -- effect occurrence and the caller continues. Any provided response would
+  -- trail unconsumed into the exhaustion trap.
+  let schedOut :=
+    stepReferenceSliceV1 admitted fiveState (inv laterId #[refU64 u64Tid 2]) emptyResponses
+  let schedEffects : Array OrderedEffectV1 := #[
+    { occurrence := occSched,
+      payload := .schedule
+        (← qn2 "Ledger" "daily")
+        #[refU64 u64Tid 5] }
+  ]
+  expectReturned "ext-ref-schedule" schedOut fiveState (some (refU64 u64Tid 5)) schedEffects
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -3014,6 +3115,7 @@ unsafe def run : IO Unit := do
   testArithUnaryReferenceSlice session
   testLetForReferenceSlice session
   testShiftBitwiseLogicalReferenceSlice session
+  testCallScheduleReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

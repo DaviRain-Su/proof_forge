@@ -347,17 +347,43 @@ def run : IO Unit := do
     .entry (entry runN (block #[
       .call { callee := peer, args := #[] },
       .return_ (some (var seed))]) #[param seed])]
-  expectInvalid "call normalize gate"
-    "S1 normalizer does not support call"
-    (Compiler.compileValidatedSourceV1 callOnly)
-  -- schedule is the alpha-shape sibling of call: CheckV1-ok, Normalize reject.
+  -- Wave I: sync external call lowers to a void Op.ExternalCall with the
+  -- canonical first EffectId and the verbatim qualified callee.
+  let callCompiled ← compileOk "call product compile" callOnly
+  expectNormalizeDeterministic "call normalize" callOnly
+  let callData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of callCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"call retained carrier: {repr e}"
+  let some callInstr := callData.callables[0]?.bind (·.blocks[0]?) |>.bind
+      (·.instructions[0]?) |
+    throw <| IO.userError "call: missing retained instruction"
+  match callInstr with
+  | { result := none, op := .externalCall effectId callee args } =>
+      expect (effectId == 0 && args.isEmpty &&
+          callee.components.toArray == #["Peer", "go"])
+        "call: retained Op.ExternalCall must bind effectId 0, empty args, and the verbatim callee"
+  | _ => throw <| IO.userError "call: expected retained Op.ExternalCall"
+  -- schedule is the async sibling: void Op.Schedule with the next EffectId.
   let scheduleOnly ← validated moduleName identity demo #[
     .entry (entry runN (block #[
       .schedule { callee := peer, args := #[] },
       .return_ (some (var seed))]) #[param seed])]
-  expectInvalid "schedule normalize gate"
-    "S1 normalizer does not support schedule"
-    (Compiler.compileValidatedSourceV1 scheduleOnly)
+  let scheduleCompiled ← compileOk "schedule product compile" scheduleOnly
+  expectNormalizeDeterministic "schedule normalize" scheduleOnly
+  let scheduleData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of scheduleCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"schedule retained carrier: {repr e}"
+  let some scheduleInstr := scheduleData.callables[0]?.bind (·.blocks[0]?) |>.bind
+      (·.instructions[0]?) |
+    throw <| IO.userError "schedule: missing retained instruction"
+  match scheduleInstr with
+  | { result := none, op := .schedule effectId callee args } =>
+      expect (effectId == 0 && args.isEmpty &&
+          callee.components.toArray == #["Peer", "go"])
+        "schedule: retained Op.Schedule must bind effectId 0, empty args, and the verbatim callee"
+  | _ => throw <| IO.userError "schedule: expected retained Op.Schedule"
   -- Unit bare `return` (return_ none): CheckV1 allows empty return when result
   -- is Unit; S1 rejects at Normalize so product never hits residual Stmt.Return.
   let bareReturn ← validated moduleName identity demo #[

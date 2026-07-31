@@ -331,8 +331,9 @@ def runAst : IO Unit := do
     "PF-SRC-INVALID: S1 normalizer does not support bare return"
     (Compiler.compileValidatedSourceV1 bareRet)
 
-  -- schedule-only: multipass CheckV1 succeeds, then the sole S1 Normalize
-  -- producer rejects the unsupported statement (sibling of call gate).
+  -- schedule-only: multipass CheckV1 succeeds, and the sole S1 Normalize
+  -- producer now lowers the async workflow schedule into a void Op.Schedule
+  -- carrying the canonical first EffectId and the verbatim qualified callee.
   let sched ← validated moduleQ identity demo #[
     .entry (mkEntry runN (block #[
       .schedule { callee := peer, args := #[] },
@@ -340,9 +341,21 @@ def runAst : IO Unit := do
   let schedMp := checkProgramTypedResultV1 sched
   expect (schedMp.ok && schedMp.analysisComplete)
     "schedule-only multipass CheckV1 must be ok"
-  expectRender "schedule-only-normalize-gate"
-    "PF-SRC-INVALID: S1 normalizer does not support schedule"
+  let schedCompiled ← expectOk "schedule-only product compile"
     (Compiler.compileValidatedSourceV1 sched)
+  let schedData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of schedCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"schedule-only retained carrier: {repr e}"
+  let some schedInstr := schedData.callables[0]?.bind (·.blocks[0]?) |>.bind
+      (·.instructions[0]?) |
+    throw <| IO.userError "schedule-only: missing retained instruction"
+  match schedInstr with
+  | { result := none, op := .schedule effectId callee args } =>
+      expect (effectId == 0 && args.isEmpty &&
+          callee.components.toArray == #["Peer", "go"])
+        "schedule-only: retained Op.Schedule must bind effectId 0, empty args, and the verbatim callee"
+  | _ => throw <| IO.userError "schedule-only: expected retained Op.Schedule"
 
 private unsafe def runSource
     (session : Language.Loader.ParserSession) : IO Unit := do

@@ -108,14 +108,6 @@ private unsafe def testForeignContributions
       "  entry run(commitment secret : UInt64) : UInt64 do\n    return 0\n",
       #["disclosure.commitment"],
       "disclosure.commitment"),
-    ("call",
-      "  entry run() : UInt64 do\n    call External.Use()\n    return 0\n",
-      #["effect.synchronous-call", "failure.atomic-rollback"],
-      "effect.synchronous-call"),
-    ("schedule",
-      "  entry run() : UInt64 do\n    schedule External.Later()\n    return 0\n",
-      #["effect.asynchronous-workflow"],
-      "effect.asynchronous-workflow"),
     ("field",
       "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n",
       #["value.field.bn254-fr"],
@@ -130,6 +122,25 @@ private unsafe def testForeignContributions
     expectFreezeReject label
       s!"S2 semantic requirements freeze rejects non-catalog key '{firstForeign}'"
       validated
+
+  -- Wave I: call/schedule contributions are catalog members and freeze.
+  let callCases : Array (String × String × Array String × Array String) := #[
+    ("call",
+      "  entry run() : UInt64 do\n    call External.Use()\n    return 0\n",
+      #["effect.synchronous-call", "failure.atomic-rollback"],
+      #["effect.synchronous-call", "failure.atomic-rollback"]),
+    ("schedule",
+      "  entry run() : UInt64 do\n    schedule External.Later()\n    return 0\n",
+      #["effect.asynchronous-workflow"],
+      #["effect.asynchronous-workflow"])]
+  for testCase in callCases do
+    let label := testCase.1
+    let body := testCase.2.1
+    let expectedIds := testCase.2.2.1
+    let expectedFrozen := testCase.2.2.2
+    let (validated, ids) ← inferSource session label (wrap (fixtureProgramName label) body)
+    expect (ids == expectedIds) s!"{label}: contribution ids {ids}"
+    expectFreezeIds label validated expectedFrozen
 
 private unsafe def testCatalogAndDedup
     (session : Language.Loader.ParserSession) : IO Unit := do

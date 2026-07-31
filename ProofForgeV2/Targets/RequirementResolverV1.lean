@@ -8,11 +8,14 @@
 
   Static rows are exactly the four currently implemented (targetId, codegenProfile)
   pairs from the frozen TargetRegistry membership table, in canonical
-  (targetId, profile) ASCII order. Each row supports exactly the current S2 five
-  RequirementRequestV1 keys in wire order:
-    effect.event, failure.atomic-rollback, state.persistent, value.bool,
-    value.checked-arithmetic
+  (targetId, profile) ASCII order. Each row supports a per-target subset of the
+  S2 seven RequirementRequestV1 keys in wire order:
+    effect.asynchronous-workflow, effect.event, effect.synchronous-call,
+    failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic
   with SemVer 1.0.0, engineeringRequirementDigestV1, and empty predicates only.
+  Capability gates: EVM/Solana decline both call keys (no address-bearing type
+  in the envelope), NEAR declines only `effect.synchronous-call` (async
+  workflow promises are native), Noir supports all seven.
 
   Product seed is `CompileResult` — no panic / Inhabited / empty success fallback.
   Dependency-injected seams return index rows or
@@ -95,8 +98,9 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
     | .error e => throw <| .registryInvalid s!"engineering S2 request seed failed: {e}"
   pure items
 
-/-- Validate one supported-requirements array: unique ids, exact S2 catalog
-    membership, exact version/digest, empty predicates, and SPEC wire order. -/
+/-- Validate one supported-requirements array: unique ids, S2 catalog
+    membership (any subset — per-target capability gates), exact
+    version/digest, empty predicates, and SPEC wire order. -/
 private def validateSupportedRequests
     (label : String) (supported : Array RequirementRequestV1) : CompileResult Unit := do
   let ids := supported.map (·.id)
@@ -106,16 +110,10 @@ private def validateSupportedRequests
   unless isStrictlyAscendingAscii ids do
     throw <| .registryInvalid
       s!"support requirements for '{label}' must be in SPEC wire order"
-  unless supported.size == s2CatalogIdsWireOrderV1.size do
-    throw <| .registryInvalid
-      s!"support row '{label}' must declare exactly the current S2 catalog"
   let mut i : Nat := 0
   while i < supported.size do
-    match supported[i]?, s2CatalogIdsWireOrderV1[i]? with
-    | some item, some expectedId =>
-        unless item.id == expectedId do
-          throw <| .registryInvalid
-            s!"support row '{label}' requirement order/id mismatch at {i}"
+    match supported[i]? with
+    | some item =>
         unless isS2CatalogIdV1 item.id do
           throw <| .registryInvalid
             s!"support row '{label}' unknown requirement id '{item.id}'"
@@ -133,7 +131,7 @@ private def validateSupportedRequests
         unless item.predicates.isEmpty do
           throw <| .registryInvalid
             s!"support row '{label}' requirement '{item.id}' must have empty predicates"
-    | _, _ =>
+    | none =>
         throw <| .registryInvalid
           s!"support row '{label}' requirement index out of range"
     i := i + 1
@@ -216,14 +214,24 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped four-row seed body (canonical targetId order: evm, near, noir, solana). -/
+/-- Shipped four-row seed body (canonical targetId order: evm, near, noir, solana).
+    Capability gates are per target: external sync calls need an address-bearing
+    type (absent from the UInt64 envelope) so EVM/Solana decline
+    `effect.synchronous-call`; NEAR has no synchronous external calls but owns
+    async workflow promises, so it declines sync and supports
+    `effect.asynchronous-workflow`; Noir's verifier-witness response model
+    supports both. -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
+  let withoutCalls := catalogRequests.filter fun r =>
+    r.id != "effect.asynchronous-workflow" && r.id != "effect.synchronous-call"
+  let withoutSync := catalogRequests.filter fun r =>
+    r.id != "effect.synchronous-call"
   pure #[
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 catalogRequests,
-    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 catalogRequests,
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 withoutCalls,
+    mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
-    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 catalogRequests
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCalls
   ]
 
 /-- Frozen product seed as `CompileResult`. Binders surface seed errors first —

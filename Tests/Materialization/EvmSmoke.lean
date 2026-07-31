@@ -1250,10 +1250,19 @@ private unsafe def testArithOps : IO Unit := do
     "ArithOps Yul must render mod("
   expect (yul.contains "not(")
     "ArithOps Yul must render bitwise not("
+  expect (yul.contains "and(not(")
+    "ArithOps Yul must mask bitwise not() to the UInt64 word (2^64-1 - x)"
   expect (yul.contains "iszero(")
     "ArithOps Yul must render iszero( for boolNot and/or zero-divisor guards"
   expect (yul.contains "revert(0, 0)")
     "ArithOps Yul must contain overflow/zero-divisor revert(0, 0) guards"
+  -- The UInt64 ceiling appears once per guarded op: sload, checkedMul,
+  -- checkedAdd (sub(max, rhs)), and the bitNot mask. Fewer occurrences
+  -- means a guard regressed (e.g. checkedMul previously used a round-trip
+  -- div check that could never fire on 256-bit Yul arithmetic).
+  let maskCount := (yul.splitOn "0xffffffffffffffff").length - 1
+  expect (maskCount >= 4)
+    s!"ArithOps Yul must carry four UInt64-ceiling guard uses, got {maskCount}"
   -- Hand-crafted negative: store a boolNot into a UInt64 slot fails closed.
   let base := plan
   let scaleEntry := base.entries[0]!
