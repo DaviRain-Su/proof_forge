@@ -152,6 +152,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > true/false、PureCall、revert/trap、malformed program/state、无关Principal与definitional theorem shape。
 > formal TASK-D2-07/TST-SEM-002/003仍需独立canonical corpus/evidence，不能仅凭API实现标done。
 
+> outcome corpus增量现补齐此前未命中的`SemanticFaultV1.resourceExhausted`与
+> `.internalInvariant` explicit Trap映射，并固定两者遇trailing external response时由
+> `.invalidExternalResponse`优先；`expectTrapped`同时断言pre-state byte exact不变。至此所有10个
+> standard revert code与6个fault constructor均有engineering Outcome-level命中，但完整
+> TST-SEM-002/003 corpus、target structural differential与retained evidence仍pending。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

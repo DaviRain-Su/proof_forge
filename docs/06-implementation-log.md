@@ -68,6 +68,16 @@ normative: false
 - Boundary：本切片实现ABI，不把engineering suite冒充formal TST-SEM-002/003 corpus/evidence，
   TASK-D2-07仍待canonical trace/property corpus与正式资格条件完成。
 
+## 2026-07-31 — D2-07 Outcome fault-constructor corpus increment
+
+- Tests：Reference outcome suite新增Wire-valid explicit `Term.Trap.resourceExhausted`与
+  `.internalInvariant`，精确映射对应`SemanticFaultV1`并由shared `expectTrapped`固定pre-state byte exact
+  rollback。两类trap各自带unconsumed response时精确由`.invalidExternalResponse`覆盖。
+- Coverage/Boundary：现有engineering suite已命中全部10个standard revert code与6个fault
+  constructor；这仍不是完整TST-SEM-002/003、target adapter structural differential或retained outcome
+  evidence。closed kernel theorem尝试因`validateSemanticProgramV1`无法在kernel中归约而未使用
+  native_decide/axiom弱化，也未提交伪formal证明。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

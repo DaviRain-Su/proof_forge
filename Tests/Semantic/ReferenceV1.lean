@@ -52,7 +52,9 @@
    18. Complete fixed-width UInt/Int lower runner: all legal widths and
        canonical boundaries, arithmetic/bitwise/shift semantics, and all four
        CheckedCast families (including UInt256/Int256), with exact reverts.
-   19. BN254 Field lower runner: canonical boundaries, modular arithmetic,
+   19. Every SemanticFaultV1 constructor, including explicit resource/internal
+       traps and their trailing-response precedence, with exact pre rollback.
+   20. BN254 Field lower runner: canonical boundaries, modular arithmetic,
        inverse/division, Eq/Ne, exact division-by-zero, whole-program admission,
        and selected-invariant independence from unrelated Principal support.
 
@@ -1880,7 +1882,7 @@ private def testUnitReturnShape : IO Unit := do
     (stepReferenceSliceV1 admittedBad preBad (inv 0 #[]) emptyResponses)
     .invalidCore preBad
 
-/-- Switch miss / Term.Trap + trailing-response override. -/
+/-- Switch miss / every explicit Term.Trap fault + trailing-response override. -/
 private def testSwitchTrapAndTrailing : IO Unit := do
   let types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .unit },
@@ -1926,6 +1928,30 @@ private def testSwitchTrapAndTrailing : IO Unit := do
   expectTrapped "trap-clean"
     (stepReferenceSliceV1 admittedT preT (inv 0 #[]) emptyResponses)
     .unreachable preT
+
+  let runExplicitTrap (name label : String) (code : SemanticTrapCodeV1)
+      (fault : SemanticFaultV1) : IO Unit := do
+    let callable := mkEntry 0 name #[] 0 #[] (.trap code)
+    let base ← emptyData name
+    let carrier ← encodeCarrier label {
+      base with
+      types := #[{ id := 0, name := none, shape := .unit }]
+      callables := #[callable]
+    }
+    let admitted ← admitOk label carrier
+    let pre ← match initialLogicalStateV1 carrier with
+      | .ok preState => pure preState
+      | .error e => throw <| IO.userError s!"{label} initial: {repr e}"
+    expectTrapped label
+      (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+      fault pre
+    expectTrapped (label ++ "+trailing")
+      (stepReferenceSliceV1 admitted pre (inv 0 #[]) trailingResp)
+      .invalidExternalResponse pre
+  runExplicitTrap "TrapResource" "trap-resource-exhausted"
+    .resourceExhausted .resourceExhausted
+  runExplicitTrap "TrapInternal" "trap-internal-invariant"
+    .internalInvariant .internalInvariant
 
   -- Term.Trap + trailing response → invalidExternalResponse overrides
   expectTrapped "trap+trail"
