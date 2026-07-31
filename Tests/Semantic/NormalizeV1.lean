@@ -16,6 +16,8 @@
       WireV1 validate / decodeSemanticProgramV1 byte identity / semanticHashV1
     * Counter-like public legal-UInt state + init/entry/view with exact CFG ops
       (UInt64 golden bytes unchanged; multi-width UInt/Int covered in suite)
+    * T2 named Struct/Enum Pass0 registration (contiguous named prefix; nested
+      /forward named fields; Field/Map field types still fail closed)
     * S2 exact ProgramRequirementsV1 freeze (SPEC wire order; engineering
       digests; empty predicates) before encode/hash
     * S2 complete SemanticProvenanceV1 companion: authority is

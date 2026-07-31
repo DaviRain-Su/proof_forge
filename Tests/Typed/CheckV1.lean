@@ -2142,9 +2142,9 @@ private unsafe def testUnsupportedMatchDuplicateLiteral
 
 private unsafe def testUnsupportedMatchConstructorPattern
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Constructor patterns need struct/enum declarations, which the S1
-  -- normalizer still rejects at the item boundary (the pattern-level gate is
-  -- defense-in-depth behind it).
+  -- Enum types register in Pass0, but entry params remain legal-UInt only and
+  -- constructor patterns stay fail closed. The first gate is usually the
+  -- named Color parameter (before match arms are lowered).
   let source := wrap "CtorPat" <|
     "  enum Color where\n" ++
     "    | Red\n" ++
@@ -2156,8 +2156,10 @@ private unsafe def testUnsupportedMatchConstructorPattern
     "    | _ => do\n" ++
     "      return 0\n"
   expectUnsupportedAfterCheckOk session "ctor-pat" source
-    (fun d => d.contains "enum")
-    "enum"
+    (fun d =>
+      d.contains "named" || d.contains "parameter" || d.contains "UInt" ||
+      d.contains "constructor")
+    "named param / constructor pattern"
 
 /-- Event/error declaration tables plus emit/revert lowering: exact table
     shapes, canonical EffectId order, revert terminator closing the path. -/
@@ -4553,6 +4555,224 @@ private unsafe def testUInt64LiteralBytesUnchanged
       expect (bytes == expectedBytes) "u64-compat: golden LE bytes unchanged"
   | _ => throw <| IO.userError "u64-compat: expected literal"
 
+/-- T2: named Struct/Enum register as contiguous types prefix; field UInt64
+    lands after named; program still has a UInt64 entry so CheckV1/Normalize
+    succeed without constructor lowering. -/
+private unsafe def testNamedStructEnumRegistration
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NamedTypesReg" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Green\n" ++
+    "    | Blue\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 1\n"
+  let validated ← loadSource session "named-reg" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "named-reg: CheckV1.ok"
+  expect typed.analysisComplete "named-reg: analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"named-reg: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"named-reg: validate: {repr e}"
+  -- Named prefix: Point then Color, then anonymous UInt64 (field + result).
+  expect (data.types.size ≥ 3)
+    s!"named-reg: expected ≥3 types, got {data.types.size}"
+  let some t0 := data.types[0]? |
+    throw <| IO.userError "named-reg: missing type[0]"
+  let some t1 := data.types[1]? |
+    throw <| IO.userError "named-reg: missing type[1]"
+  expect (t0.name == some "Point" && t0.id == 0)
+    s!"named-reg: type[0] must be named Point, got {repr t0.name}"
+  expect (t1.name == some "Color" && t1.id == 1)
+    s!"named-reg: type[1] must be named Color, got {repr t1.name}"
+  match t0.shape with
+  | .struct fields =>
+      expect (fields.size == 2) s!"named-reg: Point 2 fields, got {fields.size}"
+      let some fx := fields[0]? |
+        throw <| IO.userError "named-reg: missing Point.x"
+      let some fy := fields[1]? |
+        throw <| IO.userError "named-reg: missing Point.y"
+      expect (fx.name == "x" && fy.name == "y") "named-reg: Point field names"
+      -- Field types must be the same anonymous UInt64 after the named prefix.
+      expect (fx.typeId == fy.typeId)
+        s!"named-reg: Point fields share UInt64 TypeId, got {fx.typeId}/{fy.typeId}"
+      expect (fx.typeId.toNat ≥ 2)
+        s!"named-reg: anonymous UInt64 must follow named prefix, tid={fx.typeId}"
+      let some u64 := data.types[fx.typeId.toNat]? |
+        throw <| IO.userError "named-reg: missing field TypeId"
+      expect (u64.name.isNone && match u64.shape with | .uint 64 => true | _ => false)
+        "named-reg: field type is anonymous UInt64"
+  | _ => throw <| IO.userError "named-reg: type[0] must be .struct"
+  match t1.shape with
+  | .enum variants =>
+      expect (variants.size == 3)
+        s!"named-reg: Color 3 variants, got {variants.size}"
+      let names := variants.map (·.name)
+      expect (names == #["Red", "Green", "Blue"])
+        s!"named-reg: Color variant order, got {names}"
+      expect (variants.all (·.payloadTypes.isEmpty))
+        "named-reg: Color variants have empty payloads"
+  | _ => throw <| IO.userError "named-reg: type[1] must be .enum"
+  -- No named type may appear after the first anonymous.
+  let mut seenAnon := false
+  for t in data.types do
+    match t.name with
+    | some n =>
+        expect (!seenAnon)
+          s!"named-reg: named '{n}' after anonymous violates prefix rank"
+    | none => seenAnon := true
+
+/-- T2: nested named field references resolve to earlier Pass0 TypeIds. -/
+private unsafe def testNamedNestedStructFieldOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NamedNested" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  struct Line where\n" ++
+    "    a : Point\n" ++
+    "    b : Point\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "named-nested" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "named-nested: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"named-nested: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"named-nested: validate: {repr e}"
+  let some t0 := data.types[0]? |
+    throw <| IO.userError "named-nested: missing type[0]"
+  let some t1 := data.types[1]? |
+    throw <| IO.userError "named-nested: missing type[1]"
+  expect (t0.name == some "Point" && t1.name == some "Line")
+    "named-nested: Point then Line named prefix"
+  match t1.shape with
+  | .struct fields =>
+      expect (fields.size == 2) s!"named-nested: Line 2 fields, got {fields.size}"
+      let some fa := fields[0]? |
+        throw <| IO.userError "named-nested: missing Line.a"
+      let some fb := fields[1]? |
+        throw <| IO.userError "named-nested: missing Line.b"
+      expect (fa.name == "a" && fb.name == "b") "named-nested: Line field names"
+      expect (fa.typeId == 0 && fb.typeId == 0)
+        s!"named-nested: Line fields must be Point TypeId 0, got {fa.typeId}/{fb.typeId}"
+  | _ => throw <| IO.userError "named-nested: Line must be .struct"
+
+/-- T2: later-declared named used as earlier field still resolves (phase-1 slots). -/
+private unsafe def testNamedForwardFieldReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Source order: Wrapper first (field Inner), then Inner. Pass0 phase-1
+  -- allocates both before field fill so Wrapper.inner → TypeId of Inner.
+  let source := wrap "NamedForward" <|
+    "  struct Wrapper where\n" ++
+    "    inner : Inner\n" ++
+    "  struct Inner where\n" ++
+    "    v : UInt64\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "named-forward" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "named-forward: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"named-forward: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"named-forward: validate: {repr e}"
+  let some tw := data.types[0]? |
+    throw <| IO.userError "named-forward: missing Wrapper"
+  let some ti := data.types[1]? |
+    throw <| IO.userError "named-forward: missing Inner"
+  expect (tw.name == some "Wrapper" && ti.name == some "Inner")
+    "named-forward: Wrapper then Inner source order"
+  match tw.shape with
+  | .struct fields =>
+      let some f0 := fields[0]? |
+        throw <| IO.userError "named-forward: missing Wrapper.inner"
+      expect (f0.name == "inner" && f0.typeId == 1)
+        s!"named-forward: Wrapper.inner must be Inner TypeId 1, got {f0.typeId}"
+  | _ => throw <| IO.userError "named-forward: Wrapper must be .struct"
+
+/-- T2: enum with UInt64 payload interns anonymous payload after named prefix. -/
+private unsafe def testNamedEnumPayloadTypes
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NamedEnumPay" <|
+    "  enum Shape where\n" ++
+    "    | Circle(UInt64)\n" ++
+    "    | Rect(UInt64, UInt64)\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "named-enum-pay" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "named-enum-pay: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"named-enum-pay: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"named-enum-pay: validate: {repr e}"
+  let some t0 := data.types[0]? |
+    throw <| IO.userError "named-enum-pay: missing Shape"
+  expect (t0.name == some "Shape") "named-enum-pay: Shape at type[0]"
+  match t0.shape with
+  | .enum variants =>
+      expect (variants.size == 2) s!"named-enum-pay: 2 variants, got {variants.size}"
+      let some c := variants[0]? |
+        throw <| IO.userError "named-enum-pay: missing Circle"
+      let some r := variants[1]? |
+        throw <| IO.userError "named-enum-pay: missing Rect"
+      expect (c.name == "Circle" && c.payloadTypes.size == 1)
+        "named-enum-pay: Circle one payload"
+      expect (r.name == "Rect" && r.payloadTypes.size == 2)
+        "named-enum-pay: Rect two payloads"
+      let some p0 := c.payloadTypes[0]? |
+        throw <| IO.userError "named-enum-pay: Circle payload"
+      expect (p0.toNat ≥ 1)
+        s!"named-enum-pay: payload UInt64 after named, tid={p0}"
+      let some r0 := r.payloadTypes[0]? |
+        throw <| IO.userError "named-enum-pay: Rect p0"
+      let some r1 := r.payloadTypes[1]? |
+        throw <| IO.userError "named-enum-pay: Rect p1"
+      expect (r0 == p0 && r1 == p0)
+        "named-enum-pay: all UInt64 payloads share TypeId"
+  | _ => throw <| IO.userError "named-enum-pay: Shape must be .enum"
+
+/-- T2: named struct as state type still fails closed (declaration sites stay
+    public legal-UInt only; aggregate state values are T3). -/
+private unsafe def testNamedStructStateUnsupported
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NamedState" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  state p : Point\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "named-state" source
+  let typed := checkProgramTypedResultV1 validated
+  if typed.ok then
+    match normalizeProgramV1 validated with
+    | .ok _ =>
+        throw <| IO.userError
+          "named-state: expected unsupported named struct state, got carrier"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "UInt" || detail.contains "state" ||
+            detail.contains "anonymous" || detail.contains "named")
+          s!"named-state: expected UInt/state detail, got {detail}"
+    | .error e =>
+        throw <| IO.userError s!"named-state: expected .unsupported, got {repr e}"
+  else
+    -- Typed rejected named state: Normalize boundary not reached (acceptable).
+    pure ()
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -4613,6 +4833,12 @@ unsafe def run : IO Unit := do
   testMixedWidthOperandsTypedNotOk session
   testMultiWidthShiftUInt32Shared session
   testUInt64LiteralBytesUnchanged session
+  -- T2 named Struct/Enum registration
+  testNamedStructEnumRegistration session
+  testNamedNestedStructFieldOrder session
+  testNamedForwardFieldReference session
+  testNamedEnumPayloadTypes session
+  testNamedStructStateUnsupported session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

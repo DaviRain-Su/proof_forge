@@ -529,11 +529,13 @@ def run : IO Unit := do
   -- Well-typed constructors fail at Normalize S1 unsupported detail.
   let hostile := .literal (.string "HOSTILE")
   let digest0 := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  -- Struct/Enum declarations are registered in Normalize Pass0; unsupported
+  -- *field/payload* types (e.g. Map) still fail closed at internSourceType.
   let topCases : Array (String × Array ProgramItemV1 × String) := #[
     ("StructDecl", #[.struct { name := x, fields := #[{ name := y, type_ := .map .bool .bool }] }],
-      "S1 normalizer does not support struct"),
+      "S1 normalizer does not support Map"),
     ("EnumDecl", #[.enum { name := x, variants := #[{ name := y, payloadTypes := #[.map .bool .bool] }] }],
-      "S1 normalizer does not support enum"),
+      "S1 normalizer does not support Map"),
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got string literal"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],

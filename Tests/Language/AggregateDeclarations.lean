@@ -302,17 +302,26 @@ unsafe def run : IO Unit := do
       (mkProgramSource "ReservedEnumIdentifier" "  enum A where\n    | «enum»\n")
       "<reserved-enum-identifier>" "Root")
 
-  -- Product compile fails closed at Normalize S1 (gate precedes residual alpha).
+  -- Named Struct/Enum register in Normalize Pass0. AggregateSurface still fails
+  -- closed on Field (and other non-scalar field types) during field interning.
   match Compiler.compileValidatedSourceV1 decoded with
-  | .error (.invalidProgram "S1 normalizer does not support struct") => pure ()
-  | .error other => throw <| IO.userError s!"struct declarations reached the wrong failure: {other.render}"
-  | .ok _ => throw <| IO.userError "Compiler.compileValidatedSourceV1 must not silently erase struct declarations"
+  | .error (.invalidProgram detail) =>
+      expect (detail.contains "Field" || detail.contains "Map" || detail.contains "Array" ||
+          detail.contains "Option" || detail.contains "Bytes")
+        s!"aggregate surface: expected unsupported field/aggregate type detail, got {detail}"
+  | .error other =>
+      throw <| IO.userError s!"aggregate surface reached the wrong failure: {other.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "Compiler.compileValidatedSourceV1 must still reject Field/aggregate field types"
 
+  -- Nullary enum-only + entry is now a valid named-type registration path.
   let enumOnly ← select session
     (mkProgramSource "EnumOnly" "  enum Status where\n    | Ready\n") "<enum-only>"
   match Compiler.compileValidatedSourceV1 enumOnly with
-  | .error (.invalidProgram "S1 normalizer does not support enum") => pure ()
-  | .error other => throw <| IO.userError s!"enum declarations reached the wrong failure: {other.render}"
-  | .ok _ => throw <| IO.userError "Compiler.compileValidatedSourceV1 must not silently erase enum declarations"
+  | .ok _ => pure ()
+  | .error other =>
+      throw <| IO.userError
+        s!"enum-only registration must compile after Pass0 named types: {other.render}"
 
 end Tests.Language.AggregateDeclarations

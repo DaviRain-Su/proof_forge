@@ -32,11 +32,12 @@
       for comparisons). Unary `-` on UInt desugars to `0 - x`; Int/Field
       `Op.Unary.neg` remains fail closed. call/schedule args and for endpoints
       stay UInt64 in this slice
-    * types: anonymous legal UInt/Int widths + Unit (init result) + Bool
-      (comparison results, Bool literals); one TypeId per distinct shape,
-      interned on first actual use in source traversal order. State/parameter
-      positions are public legal-UInt only; entry/view/fn results may be
-      legal UInt/Int, Unit, or Bool
+    * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
+      anonymous legal UInt/Int widths + Unit (init result) + Bool; one TypeId
+      per distinct anonymous shape, interned on first actual use after named
+      registration. State/parameter positions are public legal-UInt only
+      (named/aggregate state still fail closed); entry/view/fn results may be
+      legal UInt/Int, Unit, or Bool. Constructor/field-place lowering deferred
     * callables: multi-block CFG (entryBlock=0, dense block ids,
       invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
       lower to a single-param header block (the induction variable), a
@@ -64,8 +65,10 @@
 
   Out of scope for this module:
     * Int/Field `Op.Unary.neg`, Int arithmetic/shift, private/commitment state,
-      non-UInt64 call/schedule args and for endpoints, aggregates,
-      ContextRead/Commit, match expressions, mutable locals
+      non-UInt64 call/schedule args and for endpoints, Array/Map/Option/Bytes
+      aggregate *values* (named Struct/Enum *type registration* is in scope),
+      constructor/field-place lowering, ContextRead/Commit, match expressions,
+      mutable locals
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -154,7 +157,8 @@ private def mapVisibility : SrcVis → VisibilityV1
   | .private_ => .private_
   | .commitment => .commitment
 
-/-- S1 type interning: anonymous legal UInt/Int widths, Unit, Bool; first-seen. -/
+/-- S1 type interning: named Struct/Enum (contiguous prefix, Pass0) then
+    anonymous legal UInt/Int widths, Unit, Bool; first-seen. -/
 structure TypeInternerV1 where
   types : Array TypeDeclV1
 
@@ -165,19 +169,50 @@ private def legalIntegerWidthV1 (width : Nat) : Bool :=
   width == 8 || width == 16 || width == 32 || width == 64 ||
   width == 128 || width == 256
 
+private abbrev WireStructFieldV1 := ProofForgeV2.Semantic.WireV1.StructFieldV1
+private abbrev WireEnumVariantV1 := ProofForgeV2.Semantic.WireV1.EnumVariantV1
+
+private def structFieldsEq (a b : Array WireStructFieldV1) : Bool :=
+  a.size == b.size && Id.run do
+    let mut i : Nat := 0
+    for _ in a do
+      match a[i]?, b[i]? with
+      | some fa, some fb =>
+          unless fa.name == fb.name && fa.typeId == fb.typeId do
+            return false
+      | _, _ => return false
+      i := i + 1
+    pure true
+
+private def enumVariantsEq (a b : Array WireEnumVariantV1) : Bool :=
+  a.size == b.size && Id.run do
+    let mut i : Nat := 0
+    for _ in a do
+      match a[i]?, b[i]? with
+      | some va, some vb =>
+          unless va.name == vb.name && va.payloadTypes == vb.payloadTypes do
+            return false
+      | _, _ => return false
+      i := i + 1
+    pure true
+
 private def shapeEq (a b : TypeShapeV1) : Bool :=
   match a, b with
   | .uint wa, .uint wb => wa == wb
   | .int wa, .int wb => wa == wb
   | .unit, .unit => true
   | .bool, .bool => true
+  | .struct fa, .struct fb => structFieldsEq fa fb
+  | .enum va, .enum vb => enumVariantsEq va vb
   | _, _ => false
 
 private def findTypeId (interner : TypeInternerV1) (shape : TypeShapeV1) :
     Option TypeIdV1 := Id.run do
   let mut i : Nat := 0
   for d in interner.types do
-    if shapeEq d.shape shape then
+    -- Anonymous interning only: named Struct/Enum are Pass0-owned and must not
+    -- be re-discovered by shape (they are never name=none).
+    if d.name.isNone && shapeEq d.shape shape then
       return some (UInt32.ofNat i)
     i := i + 1
   pure none
@@ -190,6 +225,27 @@ private def internShape (interner : TypeInternerV1) (shape : TypeShapeV1) :
       let tid := UInt32.ofNat interner.types.size
       let decl : TypeDeclV1 := { id := tid, name := none, shape := shape }
       ({ types := interner.types.push decl }, tid)
+
+/-- Lookup a Pass0-registered named Struct/Enum by exact raw name. -/
+private def lookupNamedTypeId (interner : TypeInternerV1) (name : String) :
+    Option TypeIdV1 := Id.run do
+  let mut i : Nat := 0
+  for d in interner.types do
+    match d.name with
+    | some n =>
+        if n == name then
+          return some (UInt32.ofNat i)
+    | none => pure ()
+    i := i + 1
+  pure none
+
+/-- Replace the shape of an already-allocated TypeDecl (Pass0 field fill). -/
+private def setTypeShapeAt (interner : TypeInternerV1) (idx : Nat)
+    (shape : TypeShapeV1) : TypeInternerV1 :=
+  match interner.types[idx]? with
+  | some decl =>
+      { types := interner.types.set! idx { decl with shape := shape } }
+  | none => interner
 
 private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
@@ -207,12 +263,119 @@ private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
   | .unit => pure (internShape interner .unit)
   | .bool => pure (internShape interner .bool)
   | .principal => failUnsupported "S1 normalizer does not support Principal"
-  | .named n => failUnsupported s!"S1 normalizer does not support named type '{raw n}'"
+  | .named n =>
+      -- Named types are registered only in Pass0; body/declaration sites only
+      -- look up. Never push a named TypeDecl here (would break named prefix).
+      match lookupNamedTypeId interner (raw n) with
+      | some tid => pure (interner, tid)
+      | none =>
+          failUnsupported s!"S1 named type '{raw n}' is not declared"
   | .array _ _ => failUnsupported "S1 normalizer does not support Array"
   | .map _ _ => failUnsupported "S1 normalizer does not support Map"
   | .option _ => failUnsupported "S1 normalizer does not support Option"
   | .bytes _ => failUnsupported "S1 normalizer does not support Bytes"
   | .field _ => failUnsupported "S1 normalizer does not support Field"
+
+/-- Kind of source-order named declaration collected in Pass0. -/
+private inductive NamedDeclKindV1 where
+  | struct_ (fields : Array ProofForgeV2.Source.AstSupportV1.FieldDeclV1)
+  | enum_ (variants : Array ProofForgeV2.Source.AstSupportV1.EnumVariantV1)
+
+/-- Pass0: register every source-order `.struct`/`.enum` as a named TypeDecl
+    occupying a contiguous prefix of `types`.
+
+    Two phases:
+      1. Allocate one named slot per declaration (placeholder empty shape) so
+         later-declared names already have TypeIds for mutual field references.
+      2. Fill fields/variants via `internSourceType` (named → lookup only;
+         anonymous scalars push *after* the named prefix).
+
+    Empty field/variant tables fail closed (Wire requires nonempty). Duplicate
+    names fail closed (defense in depth; Loader already rejects them). -/
+private def registerNamedTypesV1
+    (items : Array ProofForgeV2.Source.AstProgramItemV1.ProgramItemV1)
+    (interner : TypeInternerV1) :
+    Except NormalizeErrorV1 TypeInternerV1 := do
+  -- Collect (rawName, kind) in source order; reject empty / duplicate names.
+  let mut collected : Array (String × NamedDeclKindV1) := #[]
+  let mut seenNames : Array String := #[]
+  for item in items do
+    match item with
+    | .struct s =>
+        let name := raw s.name
+        if seenNames.any (· == name) then
+          return ← failUnsupported s!"S1 duplicate named type '{name}'"
+        if s.fields.isEmpty then
+          return ← failUnsupported
+            s!"S1 struct '{name}' requires at least one field"
+        seenNames := seenNames.push name
+        collected := collected.push (name, .struct_ s.fields)
+    | .enum e =>
+        let name := raw e.name
+        if seenNames.any (· == name) then
+          return ← failUnsupported s!"S1 duplicate named type '{name}'"
+        if e.variants.isEmpty then
+          return ← failUnsupported
+            s!"S1 enum '{name}' requires at least one variant"
+        seenNames := seenNames.push name
+        collected := collected.push (name, .enum_ e.variants)
+    | _ => pure ()
+
+  -- Phase 1: allocate named slots (placeholders; filled below).
+  let mut interner := interner
+  let mut slotIdxs : Array Nat := #[]
+  for (name, kind) in collected do
+    let tid := UInt32.ofNat interner.types.size
+    let placeholder : TypeShapeV1 :=
+      match kind with
+      | .struct_ _ => .struct #[]
+      | .enum_ _ => .enum #[]
+    interner := {
+      types := interner.types.push {
+        id := tid
+        name := some name
+        shape := placeholder
+      }
+    }
+    slotIdxs := slotIdxs.push tid.toNat
+
+  -- Phase 2: fill fields/variants. Anonymous field types land after named
+  -- prefix; named field types resolve via Pass0 slots (any order).
+  let mut i : Nat := 0
+  for (name, kind) in collected do
+    let idx := slotIdxs[i]!
+    match kind with
+    | .struct_ fields => do
+        let mut outFields : Array WireStructFieldV1 := #[]
+        let mut fieldNames : Array String := #[]
+        for f in fields do
+          let fname := raw f.name
+          if fieldNames.any (· == fname) then
+            return ← failUnsupported
+              s!"S1 struct '{name}' has duplicate field '{fname}'"
+          fieldNames := fieldNames.push fname
+          let (interner', tid) ← internSourceType interner f.type_
+          interner := interner'
+          outFields := outFields.push { name := fname, typeId := tid }
+        interner := setTypeShapeAt interner idx (.struct outFields)
+    | .enum_ variants => do
+        let mut outVars : Array WireEnumVariantV1 := #[]
+        let mut varNames : Array String := #[]
+        for v in variants do
+          let vname := raw v.name
+          if varNames.any (· == vname) then
+            return ← failUnsupported
+              s!"S1 enum '{name}' has duplicate variant '{vname}'"
+          varNames := varNames.push vname
+          let mut payloads : Array TypeIdV1 := #[]
+          for pty in v.payloadTypes do
+            let (interner', tid) ← internSourceType interner pty
+            interner := interner'
+            payloads := payloads.push tid
+          outVars := outVars.push { name := vname, payloadTypes := payloads }
+        interner := setTypeShapeAt interner idx (.enum outVars)
+    i := i + 1
+  pure interner
 
 /-- Little-endian fixed-width encoding of a natural (private; no Reference import).
     Matches Wire `encodeU64le`/`encodeU32le` for lengths 8 and 4. -/
@@ -1374,7 +1537,8 @@ private def mkCallable
 
 /-- Core lowering after Typed CheckV1 has succeeded.
 
-  Two-pass over ProgramV1 items (not NameResolution tables):
+  Passes over ProgramV1 items (not NameResolution tables):
+  0. Register source-order named Struct/Enum TypeDecls (contiguous prefix).
   1. Collect/validate all public legal-UInt states into a complete logicalState
      table (IDs are source-order among state decls, independent of callable
      position).
@@ -1384,7 +1548,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     Except NormalizeErrorV1 SemanticProgramDataV1 := do
   let qn ← programIdentityToQualifiedNameV1 source.programIdentity
   let program := source.program
-  let mut interner := emptyInterner
+  -- Pass 0: named Struct/Enum occupy types[0..namedCount) before any anonymous.
+  let mut interner ← registerNamedTypesV1 program.items emptyInterner
   let mut stateRows : Array StateDeclV1 := #[]
   let mut stateTable : StateTableV1 := ⟨#[]⟩
   let mut eventRows : Array EventDeclV1 := #[]
@@ -1529,10 +1694,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
-    | .struct _ =>
-        return ← failUnsupported "S1 normalizer does not support struct"
-    | .enum _ =>
-        return ← failUnsupported "S1 normalizer does not support enum"
+    | .struct _ => pure ()  -- registered in Pass0; no callable body
+    | .enum _ => pure ()    -- registered in Pass0; no callable body
     | .const _ =>
         return ← failUnsupported "S1 normalizer does not support const"
     | .event _ => pure ()
