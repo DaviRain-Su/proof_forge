@@ -2284,7 +2284,11 @@ private def makePlanFromSemanticDataV1
 
 private def makePlanFromSemanticV1
     (source : SemanticProgramV1) : CompileResult Plan := do
-  let data ← match validateSemanticProgramV1 source with
+  -- Semantic structure was validated once at the capability mint
+  -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
+  -- carrier is private-ctor so re-validation here is redundant. Transport
+  -- decode still yields SemanticProgramDataV1 for the Plan body.
+  let data ← match decodeSemanticProgramDataV1 source.canonicalBytes with
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "EVM received an invalid SemanticProgramV1 carrier"
