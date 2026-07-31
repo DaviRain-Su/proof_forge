@@ -135,8 +135,8 @@ canonical bytes；logical-state defaults另按slot prefix累计受64MiB byte/wor
 set、nested Struct、pureFn与invariant root，并覆盖malformed/noncanonical/trailing/wrong-shape/count
 及non-Struct Construct admission。后续独立工程切片已在同一machine加入acyclic Option/Enum canonical
 Construct、VariantTag/VariantPayload、runtime tag一致性trap及cap-saturating资源分析；Wire-legal
-recursive Struct/Option/Enum graph在有限maximum-resource Reference subset仍显式unsupported；Unit/Array/Map
-Construct与Array/Bytes/Map index、ContextRead/Commit仍关闭。正式`evalInvariantV1`/
+recursive Struct/Option/Enum graph在有限maximum-resource Reference subset仍显式unsupported；Unit/Map
+Construct与Map index、ContextRead/Commit仍关闭（Option/Enum canonical Construct/VariantTag/VariantPayload与fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已由后续独立切片接纳）。正式`evalInvariantV1`/
 `InvariantTheoremV1`及formal TASK-D2-07/TST-SEM-002/003仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
