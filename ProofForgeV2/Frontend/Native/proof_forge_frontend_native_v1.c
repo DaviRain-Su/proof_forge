@@ -2009,7 +2009,13 @@ static lean_object *pf_supervise_worker_platform(
     }
     if (pgid > 0 && !leader_reaped && !leader_reap_lost &&
         kill_identity_verified) {
-      if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH) {
+      /* Darwin 25.4 (macOS 26.4) returns EPERM for killpg on a zombie-led
+         group; older kernels returned 0/ESRCH. Both mean "no killable member
+         remains": cleanup completeness is still gated by the group sampling
+         below, so tolerating EPERM cannot mint a false COMPLETE — if EPERM
+         ever meant live unkillable members, other_processes > 0 still fails
+         closed to INCOMPLETE. */
+      if (kill(-pgid, SIGKILL) != 0 && errno != ESRCH && errno != EPERM) {
         io_fault = 1;
         event = PF_SUP_EV_FAULT;
       }

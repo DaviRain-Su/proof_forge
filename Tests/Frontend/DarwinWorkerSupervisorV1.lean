@@ -621,7 +621,10 @@ private unsafe def testAmbientDescriptorClosed : IO Unit := do
   -- worker must never receive that ambient parent capability.
   let script ← writeExecutable "ambient-fd.sh" <|
     "#!/bin/sh\n" ++
-    "if (printf leaked >&9) 2>/dev/null; then exit 91; fi\n" ++
+    -- Fork-free probe: a parenthesized subshell spawns a transient second
+    -- process that the 10ms group sampler can count against maxProcesses=1;
+    -- the builtin form keeps the same fd-9 assertion in one process.
+    "if printf leaked >&9 2>/dev/null; then exit 91; fi\n" ++
     "exit 0\n"
   let outcome ← expectOutcomeOk "ambient descriptor"
     (← superviseFrame script ByteArray.empty hardFrontendProfile)
