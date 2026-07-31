@@ -481,9 +481,9 @@
       "sha256": "0504816a1131d89c347ba397c6e1dfb882b41bd53b4505c03f7a885dab705624"
     },
     {
-      "bytes": 135343,
+      "bytes": 136246,
       "path": "ProofForgeV2/Targets/Evm.lean",
-      "sha256": "92cc3444e922b39bd8f8686d5b451a7b84eba2cba2764e765c88d62e5517f080"
+      "sha256": "25cb68e556613688404584f63723615233d804e71234e61f0f62651b26c96423"
     },
     {
       "bytes": 2267,
@@ -496,9 +496,9 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 145781,
+      "bytes": 158208,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "89e5538e43f70d0252fa989341a56db542c7ff3a882ade7c1ec5965afc7618d7"
+      "sha256": "d23a908cda3da045f99988ac59f3862b974bacaa9a96cd957c165f39aaa60a4e"
     },
     {
       "bytes": 2931,
@@ -526,9 +526,9 @@
       "sha256": "2dfda062b2ebb8d0790dd8cdbfcd8dfd151d598fc71aebd3922fde1c0ca4db11"
     },
     {
-      "bytes": 153604,
+      "bytes": 154981,
       "path": "ProofForgeV2/Targets/Solana.lean",
-      "sha256": "1a8c82c6d9587dc8937b458fdb0603055034181633a7b45d2a07aeafb612bc96"
+      "sha256": "9a73ffa69025b20b33dea6ab331d731e35669b3e43b9adb7465e7edec0a0ec70"
     },
     {
       "bytes": 970,

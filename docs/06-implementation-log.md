@@ -12,6 +12,18 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
+
+- Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。
+- Shared core（主代理）：S2 catalog 由五键扩为七键（UTF-8 wire 序：`effect.asynchronous-workflow`、`effect.synchronous-call` 按位插入）；Normalize 把 call/schedule 降为 void `Op.ExternalCall/Op.Schedule`（与 emit 共享 canonical EffectId 序列；args 限 UInt64；callee 为 verbatim qualified name，source 已在 parser 边界要求 ≥2 components，Normalize 侧为手工 AST 防御）；**resolver 静态支持索引从"全表"改为 wire 序子集**（首个非均匀 capability 矩阵：EVM/Solana 拒绝两键（包络内无 address-bearing 类型），NEAR 仅拒 sync（async workflow promise 原生），Noir 七键全持）；Reference 语义由既有机器直接消费并新固定 trace——call 按序消费 environment responses（returned 继续、reverted 以精确 occurrence revert、missing/trailing → `invalidExternalResponse`），**schedule 无 response 通道**（fire-and-forget 提交 occurrence 后继续，与 NEAR promise 语义精确一致）；旧 fail-closed pin 全部迁移为正向 lowering pin。
+- EVM lane（worker，主代理审计集成）：resolver PF-REQ-UNSUPPORTED 为唯一产品门；lowering 双臂防御性 fail closed（无 placeholder Yul/adapter/伪造地址）。
+- Solana lane（worker）：同上（CPI 需 32 字节 program id，包络不可表达）。
+- NEAR lane（worker）：**schedule → 原生 fire-and-forget promise**（receiver=verbatim dot-joined qualified callee 经 NEAR account-id 语法门禁（不做大小写归一）；method=callee 末段；args=确定性 u64-LE payload；deposit/gas 为制品内显式零占位并注明非经济学）；promise host 仅 schedule 程序入 allowlist（无 schedule 程序 WAT 含 Accumulator golden 字节不变）；host model 记 promise 日志后继续（无 response 通道，与 Reference schedule 语义精确一致）；sync call 防御性 fail closed。
+- Noir lane（主代理）：每个静态 call site 绑定 `call_e{id}_status: pub bool`（executing path 断言 returned，reverted claim 不可满足，精确镜像 `externalCallReverted`）+ 每参数一个 `call_e{id}_a{i}: pub u64`（executing path 绑计算值、其余路径与 revert 清零）；schedule 仅绑 `sched_e{id}_a{i}` arg slots（无 status，fire-and-forget）；统一 `RelationSlotsV1` slot 收集器接入 input 包络（无 call/schedule 程序包络字节不变）；effect-in-loop fail closed。
+- 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testCallScheduleSemanticPlans` 接入 `runSemanticPlanLeafFast`——ExtFlow（含 sync call）仅 Noir 可 mint capability、EVM/Solana/NEAR 均 PF-REQ-UNSUPPORTED；LaterFlow（schedule-only）NEAR/Noir 支持、EVM/Solana 拒；Noir call 语句与 status/slot 包络 pin、NEAR `promiseAccount "ledger.daily" "daily"` plan pin 与 WAT promise host/账号 pin。
+- Verification：共享核心与四 lane focused build/test 各自绿（worker 在隔离 worktree 自验；主代理逐一审计 diff：文件集合精确、无 fallback/adapter/residual、形态与简报一致）；集成后 `proof_forge_next_fast_tests` 与 `proof_forge_next_tests` 全绿；`just ci` 通过；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
+- Boundary：call args 限 UInt64 且 v1 无返回值（typed return 需 schema 升级）；schedule 无 response/失败传播（与 NEAR promise 精确一致，EVM/Solana 待 address-bearing 类型后另行评估）；`call`/`schedule` 在 loop body（静态 slot 无法绑多次动态发生）与 fn/view（PF-EFFECT-001）fail closed；ContextRead、Commit、aggregates、Int/Field/Principal 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+
 ## 2026-07-31 — D2-07 ReferenceV1 Commit identity runtime engineering slice
 
 - Production：`ReferenceV1` admission现开放Wire-owned Commit。runtime从当前env读取operand，并将
@@ -50,6 +62,7 @@ normative: false
 - Boundary：`disclosure.commitment`尚无冻结的exact SemVer/digest/predicates row，因此Wire requirement
   binding、Reference identity runtime与target support继续关闭；本切片不声称完整declassification、
   formal TASK-D2-07或TST-SEM完成。
+
 
 ## 2026-07-31 — D2-07 ReferenceV1 ContextRead runtime engineering slice
 
