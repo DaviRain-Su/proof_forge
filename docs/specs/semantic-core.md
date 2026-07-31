@@ -45,8 +45,10 @@ canonicalization 时重编号，避免 hash 受内部 hash-map 顺序影响。
 
 ## Reference Semantics
 
-以下 target-neutral runtime carriers 与 `step` 的唯一 owning module 是
-`ProofForgeV2.Semantic.ReferenceV1`。它 import `WireV1` 与 `InvariantABI`；target adapter 只能转换到/
+以下 target-neutral runtime carriers 与 `step` 的唯一 public owning namespace/façade 是
+`ProofForgeV2.Semantic.ReferenceV1`。实现位于lower `ReferenceMachineV1`，只import
+`Core.Common`、`WireV1`与`InvariantFoundationV1`；public `ReferenceV1` façade再组合`InvariantABI`，为后续
+`InvariantABI → ReferenceMachineV1` formal evaluator依赖保持无环。target adapter 只能转换到/
 从这些 closed values，不能声明另一套 normalized outcome：
 
 ```lean
@@ -205,10 +207,14 @@ carrier。Normalization 必须 total on TypedProgram；
 proof validation 的输入只能是已经通过 normalize、全部 Core invariants validation 与 canonical
 serialization 的同一个 closed `program : SemanticProgramV1`；bundle 不得提供、替换或重新
 normalization 另一份 program。ABI 的唯一 owning module 是
-`ProofForgeV2.Semantic.InvariantABI`；`InvariantOrdinalV1`、`InvariantEvalResultV1`、
-`StateConformsV1`、`evalInvariantV1` 和 `InvariantTheoremV1` 的 exact declarations/proposition 只由
-SPEC-SEM-WIRE-001 第 7–9 节定义。本文件只说明它们在通用 reference semantics 中的含义，不建立
-第二份 field/proposition authority。
+public façade/namespace `ProofForgeV2.Semantic.InvariantABI`；其state carrier/codec/StateConforms
+foundation可按SPEC-SEM-WIRE-001规定由lower `InvariantFoundationV1`在同一exact namespace下定义，
+formal `evalInvariantV1`和`InvariantTheoremV1`仍必须直接由public `InvariantABI` façade定义。
+`InvariantOrdinalV1`、`InvariantEvalResultV1`、`StateConformsV1`、`evalInvariantV1` 和
+`InvariantTheoremV1` 的 exact declarations/proposition 只由SPEC-SEM-WIRE-001 第 7–9 节定义。
+本文件只说明它们在通用 reference semantics 中的含义，不建立第二份field/proposition authority；
+ABI `.olean` identity的trusted closure必须exact包含全部transitive dependencies（当前lower
+foundation，formal evaluator引入后还包括reference machine）。
 
 `StateConformsV1 program state` 精确表示 `state.initialized=true`，且 state 对 program logical
 state schema 的每个 path 恰有一个 exact-typed canonical value、没有额外 path；Bytes/Array length、
