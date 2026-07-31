@@ -4,7 +4,8 @@ import ProofForgeV2.Semantic.WireV1
 
 /-
   ProofForgeV2.Semantic.ReferenceV1 — D2-07 admitted primitive/effect reference
-  execution engine (engineering subset; not formal `step` / TST-SEM-002/003).
+  execution engine and invariant reference slice (engineering subset; not
+  formal `step`, `evalInvariantV1`, or TST-SEM-002/003).
 
   Owns closed runtime carriers (`ReferenceValueV1` … `OutcomeV1`), independent
   whole-program admission (`admitReferenceProgramSliceV1`), and the pure total
@@ -1236,5 +1237,63 @@ def stepReferenceSliceV1
           }
           let (_fuelLeft, mEnd, cand) := runMachine 1000000 m0
           finalize mEnd cand
+
+/-! ### Invariant reference slice -/
+
+/-- Evaluate one admitted invariant using its structure-validated exact fuel.
+    This deliberately bypasses `InvocationV1`: normal root invocation of an
+    invariant remains invalid, and invariant execution never publishes an
+    overlay or effects. This is an engineering reference API, not the formal
+    InvariantABI-owned `evalInvariantV1`. -/
+def evalInvariantReferenceSliceV1
+    (admitted : AdmittedReferenceSliceV1)
+    (ordinal : InvariantOrdinalV1)
+    (state : LogicalStateV1) : InvariantEvalResultV1 :=
+  let data := admitted.data
+  if !stateConformsBoolV1 admitted.program state then
+    .trapped
+  else
+    match data.invariants[ordinal.toNat]? with
+    | none => .trapped
+    | some decl =>
+      match data.callables[decl.callableId.toNat]? with
+      | none => .trapped
+      | some callable =>
+        match callable.invariantSteps with
+        | none => .trapped
+        | some steps =>
+          if callable.kind != .invariant || !callable.params.isEmpty ||
+              !callable.loopBounds.isEmpty || !isBoolType data callable.result.typeId then
+            .trapped
+          else
+            match decodeLogicalStateValuesV1 data state with
+            | .error _ => .trapped
+            | .ok overlay =>
+              let m0 : MachineV1 := {
+                data
+                pre := state
+                callable
+                isInitializer := false
+                overlay
+                env := emptyEnv (maxValueIdInCallable callable + 1)
+                effects := #[]
+                occCounts := Array.replicate (maxEffectIdInCallable callable + 1) (0 : UInt32)
+                responseCursor := 0
+                responses := #[]
+                loopCounts := #[]
+                blockId := callable.entryBlock
+                instrIdx := 0
+                frames := #[]
+              }
+              let (_, _, cand) := runMachine steps.toNat m0
+              match cand with
+              | .reverted _ => .reverted
+              | .trapped _ => .trapped
+              | .returned (some value) =>
+                  if value.typeId != callable.result.typeId then .trapped
+                  else if value.valueBytes == encodeU8 1 then .returnedTrue
+                  else if value.valueBytes == encodeU8 0 then .returnedFalse
+                  else .trapped
+              | .returned none => .trapped
 
 end ProofForgeV2.Semantic.ReferenceV1

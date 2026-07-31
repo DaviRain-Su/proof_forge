@@ -187,3 +187,13 @@ no-follow bounded walk；limits 1024/64MiB/256MiB）；CLI publisher evidence→
 仍**不是** SupportClaim/formal resolver/BuildIdentity/`OutputSetV1`/
 ToolchainIdentity/formal exact closure/hermetic publisher/完整 SemanticProgramV1 lowering
 完成态。formal task状态与 release qualification仍按各自真实条件变化，不由本恢复文档代签。
+
+## D2-07 invariant reference evaluator status（2026-07-31）
+
+远端general CFG walker lineage中的Reference machine继续作为唯一工程执行权威；其PureCall frame、
+if/match、emit/revert、mul/div/mod/unary与let/for能力均保留。本地增量只新增明确非formal的
+`evalInvariantReferenceSliceV1`：按InvariantDecl ordinal执行zero-arg public Bool invariant，先以
+`StateConformsV1`拒绝uninitialized/malformed state，再以carried exact`invariantSteps`作为machine
+fuel上限，映射true/false/revert/trap且不发布state/effects。正式`evalInvariantV1`与
+`InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现，formal TASK-D2-07/TST-SEM-002/003
+仍pending。

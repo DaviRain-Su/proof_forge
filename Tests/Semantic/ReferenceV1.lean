@@ -37,6 +37,9 @@
     9. Bounded loop same EffectId twice → occurrences (0,0)/(0,1); over-bound
        → boundExceeded + pre rollback.
    10. Compact UInt underflow / div-zero / invalidShift standard reverts.
+   11. Invariant reference slice: carried metadata fuel, canonical Bool true/false,
+       transitive PureCall, revert/trap mapping, and fail-closed state/ordinal;
+       normal Invocation remains invalid.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -1700,6 +1703,96 @@ private def testUIntStandardReverts : IO Unit := do
   runBin "UintBadShift" "uint-badshift" .shl
     1 (ByteArray.mk #[1]) 2 (leBytesFromNat 8 4) .invalidShift
 
+/-- Structure-gated invariant roots execute only through the dedicated slice. -/
+private def testInvariantReferenceSlice : IO Unit := do
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .unit }
+  ]
+  let gate := mkEntry 0 "gate" #[] 1 #[] (.return_ none)
+  let mkInv (id : CallableIdV1) (name : String)
+      (instructions : Array InstructionV1) (term : TerminatorV1)
+      (steps : UInt64) : CallableV1 := {
+    id, kind := .invariant, name := some name, params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 instructions term]
+    loopBounds := #[]
+    invariantSteps := some steps
+  }
+  let runCase (label name : String) (invCallable : CallableV1)
+      (expected : InvariantEvalResultV1) : IO Unit := do
+    let base ← emptyData name
+    let data : SemanticProgramDataV1 := {
+      base with
+      types
+      callables := #[gate, invCallable]
+      invariants := #[{ id := 0, name, callableId := 1 }]
+    }
+    let carrier ← encodeCarrier label data
+    let admitted ← admitOk label carrier
+    let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+    expect (evalInvariantReferenceSliceV1 admitted 0 pre == expected)
+      s!"{label}: invariant result mismatch"
+    expectTrapped (label ++ "-normal-invocation")
+      (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+      .invalidInvocation pre
+    expect (evalInvariantReferenceSliceV1 admitted 1 pre == .trapped)
+      s!"{label}: bad ordinal must trap"
+    expect (evalInvariantReferenceSliceV1 admitted 0
+      { initialized := false, canonicalValues := ByteArray.empty } == .trapped)
+      s!"{label}: uninitialized state must trap"
+    expect (evalInvariantReferenceSliceV1 admitted 0
+      { initialized := true, canonicalValues := ByteArray.mk #[255] } == .trapped)
+      s!"{label}: malformed state must trap"
+
+  runCase "invariant-true" "truth"
+    (mkInv 1 "truth"
+      #[instr (some (vd 0 0)) (.literal 0 (ByteArray.mk #[1]))]
+      (.return_ (some 0)) 3)
+    .returnedTrue
+  runCase "invariant-false" "falsehood"
+    (mkInv 1 "falsehood"
+      #[instr (some (vd 0 0)) (.literal 0 (ByteArray.mk #[0]))]
+      (.return_ (some 0)) 3)
+    .returnedFalse
+  runCase "invariant-checked-revert" "checkedRevert"
+    (mkInv 1 "checkedRevert"
+      #[instr (some (vd 0 0)) (.literal 0 (ByteArray.mk #[0])),
+        instr none (.assert_ 0 none #[])]
+      (.return_ (some 0)) 4)
+    .reverted
+  runCase "invariant-trap" "traps"
+    (mkInv 1 "traps" #[] (.trap .unreachable) 2)
+    .trapped
+
+  -- Shared fuel includes both root and callee frame-entry charges: leaf=3,
+  -- root=1 + (PureCall instruction + Return terminator) + leaf=6.
+  let leaf : CallableV1 := {
+    id := 1, kind := .pureFn, name := some "leaf", params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0
+      #[instr (some (vd 0 0)) (.literal 0 (ByteArray.mk #[1]))]
+      (.return_ (some 0))]
+    loopBounds := #[]
+    invariantSteps := some 3
+  }
+  let root := mkInv 2 "throughLeaf"
+    #[instr (some (vd 0 0)) (.pureCall 1 #[])] (.return_ (some 0)) 6
+  let base ← emptyData "InvariantPureCall"
+  let typedBase : SemanticProgramDataV1 := { base with types }
+  let data : SemanticProgramDataV1 := {
+    typedBase with
+    callables := #[gate, leaf, root]
+    invariants := #[{ id := 0, name := "throughLeaf", callableId := 2 }]
+  }
+  let carrier ← encodeCarrier "invariant-pure-call" data
+  let admitted ← admitOk "invariant-pure-call" carrier
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expect (evalInvariantReferenceSliceV1 admitted 0 pre == .returnedTrue)
+    "invariant-pure-call: exact carried shared fuel succeeds"
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1720,6 +1813,7 @@ unsafe def run : IO Unit := do
   testSwitchTrapAndTrailing
   testBoundedLoopEmitOccurrences
   testUIntStandardReverts
+  testInvariantReferenceSlice
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1
