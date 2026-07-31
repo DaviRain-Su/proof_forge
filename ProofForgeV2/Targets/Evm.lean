@@ -1160,7 +1160,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"div({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .checkedMod lhs rhs =>
       s!"mod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
-  | .bitNot operand => s!"not({renderExprNested paramPrefix operand})"
+  | .bitNot operand => s!"and(not({renderExprNested paramPrefix operand}), 0xffffffffffffffff)"
   | .boolNot operand => s!"iszero({renderExprNested paramPrefix operand})"
   | .bitAnd lhs rhs =>
       s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
@@ -2441,12 +2441,14 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let lhs := renderExpr indent paramPrefix next lhs
       let rhs := renderExpr indent paramPrefix lhs.next rhs
       let name := s!"expr{rhs.next}"
-      -- Overflow guard: if lhs ≠ 0 and div(product, lhs) ≠ rhs then wrap.
-      -- Yul `if l` treats nonzero as true; div-by-zero yields 0 when l=0,
-      -- which is skipped by the outer guard.
+      -- Overflow guard: the mathematical product of two UInt64 words is
+      -- below 2^128, so a 256-bit Yul `mul` cannot wrap; checking the
+      -- result against the UInt64 ceiling is exact. (A round-trip
+      -- `div(product, lhs) == rhs` guard could never fire and silently
+      -- admitted e.g. 2^32 * 2^32 = 2^64.)
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := mul({lhs.value}, {rhs.value})\n" ++
-          s!"{indent}if {lhs.value} \{ if iszero(eq(div({name}, {lhs.value}), {rhs.value})) \{ revert(0, 0) } }\n",
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := rhs.next + 1 }
   | .checkedDiv lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
@@ -2467,8 +2469,10 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
   | .bitNot operand =>
       let operand := renderExpr indent paramPrefix next operand
       let name := s!"expr{operand.next}"
+      -- Yul `not` flips all 256 bits; mask back to the UInt64 word so
+      -- `~x = (2^64 - 1) - x` matches the reference semantics.
       { code := operand.code ++
-          s!"{indent}let {name} := not({operand.value})\n",
+          s!"{indent}let {name} := and(not({operand.value}), 0xffffffffffffffff)\n",
         value := name, next := operand.next + 1 }
   | .boolNot operand =>
       let operand := renderExpr indent paramPrefix next operand

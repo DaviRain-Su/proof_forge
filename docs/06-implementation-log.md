@@ -28,6 +28,15 @@ normative: false
   既有terminal exhaustion规则处理。Wire invariant root/reachable closure禁止保持，Commit仍unsupported。
 - Boundary：工程/nonformal；target support catalog、caller/authorizers/randomness、正式
   `evalInvariantV1`/`InvariantTheoremV1`与formal TASK-D2-07/TST-SEM-002/003仍pending。
+## 2026-07-31 — 功能缺陷审计修复：EVM checkedMul 溢出 guard / EVM bitNot 64 位掩码 / Noir 2^k 急切计算
+
+- Context/State：全量功能缺陷审计（4 个只读扫描 lane + 主代理逐条亲验）发现三个真实缺陷并修复；另发现两个解析面/访问器问题（见 Boundary）。
+- **EVM `checkedMul` 溢出检测失效（P0）**：`renderExpr` 的 `.checkedMul` 用 `div(product, lhs) == rhs` 回环 guard——两个 UInt64 乘积 < 2^128，在 Yul 256 位算术下 `mul` 永不回绕、`div` 恒精确，guard 永不触发；`2^32 * 2^32 = 2^64` 被静默接受（参考机要求 `arithmeticOverflow` revert）。修复为与 `shl` 同构的结果上界检查 `if gt(name, 0xffffffffffffffff) { revert(0, 0) }`。Solana（checked_mul_u64）、NEAR（i64 回绕+除法校验）、Noir（原生 checked u64）对照均正确，仅 EVM 发散。
+- **EVM `bitNot` 256 位翻转（P1）**：Yul `not(x)` 翻转全 256 位（`~0 = 2^256-1`），参考机语义为 `(2^64-1) - x`。statement 形与 nested 形均修复为 `and(not(x), 0xffffffffffffffff)`。错误值此前会流入 sstore/sload 回环（sload 的 `gt` guard 反而 revert——写后读自毁）、后续算术与比较。
+- **Noir shl/shr 常数折叠 2^k 急切计算（P1，编译期资源）**：`pow := UInt64.ofNat (2 ^ k)` 在 k≥64 分支判断前无条件计算；折叠计数有界 `< 2^32`，k 接近 2^32 时编译器大数分配 ~512 MiB 并停顿数分钟（如 `x >> (0xFFFFFFFF - 1)`，CheckV1 只静态拒绝直接字面量 count≥64）。修复为 `if k < 64 then UInt64.ofNat (2 ^ k) else 0`——对 k≥64 字节恒等（`2^k mod 2^64 = 0`），纯性能修复。
+- 测试：`EvmSmoke.testArithOps` 新增 `and(not(` 与 UInt64-ceiling guard 计数（`0xffffffffffffffff` 出现次数 ≥4：sload/mul/add/bitNot）断言；`Tests/Materialization/Targets.lean` 新增 `testNoirHugeFoldedShiftCount`（`0xFFFFFFFF - 1` 折叠 → literal-false invalidShift guard + 死字面量 0，防回归）；Anvil 差分扩展：`testdata/valid/ArithOps.lean`（scale 含 mul/div/mod、bits 含 `~x`）接入 `target-smoke` 与 `scripts/smoke_evm.sh`——`bits(0) == UInt64.max`、`bits(5) == max-5`（掩码位反运行验证）、`scale(3,2) == 11`、initial=maxU64 时 `scale(2,1)` 必须 revert（mul 溢出运行验证）。
+- Verification：修复后 `just dev-check` 与完整 `just ci` 全绿（fast 套件含新回归断言与 `testNoirHugeFoldedShiftCount` 通过）；Anvil 差分已实现（`testdata/valid/ArithOps.lean` 的 EVM 构建成功、solc bytecode 生成正常）但**端到端运行被并发 call/schedule Normalize 扩面的半成品状态阻塞**（validate_artifacts 不认新 Noir relation 格式、其测试尚未同步，与本次修复无关，待其切片收尾后重跑 `just evm-runtime` 闭合）；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
+- Boundary（审计发现、本轮未修）：**doc comment（`/-- ... -/`）紧邻 `program` 命令会解析失败**——Lean 4 的 doc comment 只能前缀声明类命令，自定义 `syntax : command` 的 `program` 不在其列（块注释/行注释正常），报泛化 `PF-SRC-INVALID: failed to parse file`（真实错误被 Loader 丢弃仅留 span）；体内 doc comment 同样失败。`SemanticProgramV1.invariants` 访问器对非法 carrier 静默返回 `#[]`（fail-open 脚枪，测试固定该行为）。formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
 
 ## 2026-07-31 — S1 Normalize 扩面：shift/bitwise/logical 二元（`<<`/`>>`/`&`/`^`/`|`/`&&`/`||`）贯穿四 target
 
