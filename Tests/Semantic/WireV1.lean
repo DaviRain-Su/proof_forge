@@ -46,6 +46,28 @@ namespace Tests.Semantic.WireV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
 
+/-! The first proof-validation seam is definitional on the transparent spine,
+and its theorem is reusable without `native_decide`, axioms, or runtime IO. -/
+example (bytes : TransparentByteSpineV1) (offset : Nat) :
+    remainingBytesAtV1 (ByteArray.mk bytes.toArray) offset =
+      spineRemainingV1 bytes offset :=
+  remainingBytesAtV1_refinesSpine bytes offset
+
+example : readSpineByteV1 [0x10, 0x20, 0x30] 1 = .ok 0x20 := by rfl
+
+example : readSpineByteV1 [0x10, 0x20, 0x30] 3 = .error .truncated := by rfl
+
+example (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset :=
+  readByteAtV1_refinesSpine bytes offset
+
+example :
+    (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
+        (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
+      .ok (0x10, 1, 0) := by rfl
+
+example : decodeU8 (start ByteArray.empty) = .error .truncated := by rfl
+
 private def expect (c : Bool) (m : String) : IO Unit :=
   unless c do throw <| IO.userError m
 

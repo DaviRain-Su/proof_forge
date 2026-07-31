@@ -91,6 +91,20 @@ normative: false
   未加入第二validator、native_decide、axiom或伪proof subject。下一步需设计production ByteArray decoder
   与透明proof-facing byte spine之间的可证明refinement，而非继续堆高reduction limits。
 
+## 2026-07-31 — proof-validation transparent primitive byte-read seam
+
+- Production/Proof：`WireV1`新增透明`List UInt8` spine的remaining/read-byte primitive，以及production
+  `ByteArray`对应primitive；现有Cursor `takeByte`直接委托production primitive，未复制semantic
+  decoder。两个公开refinement theorem对任意offset证明`ByteArray.mk bytes.toArray`与spine的remaining
+  和read结果一致，包括越界时exact `.truncated`。
+- Kernel/Tests：theorem仅用透明`List.toArray`/`ByteArray.mk`与标准`getElem?` lemma，由Lean kernel
+  检查；聚焦examples固定in-bounds、out-of-bounds、production cursor success/EOF，不使用
+  `native_decide`、axiom、unsafe、runtime IO或opaque digest替代。blocker-only review结论APPROVE。
+- Boundary：本切片只建立primitive byte-read/length bridge；`takeBytes`仍经
+  `ByteArray.extract/copySlice`，尚未建立u16/u32、magic、tagged records或完整program decoder
+  refinement，也未产生closed `InvariantTheoremV1`证明或formal TST evidence。下一步按同一shared
+  primitive路线建立exact slice/take refinement，须保留canonical NC decoder的`.nonCanonical`错误映射。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

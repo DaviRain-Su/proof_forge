@@ -244,6 +244,13 @@ true/false、PureCall、checked revert、explicit trap、OOR、malformed state/p
 theorem proposition definitional shape。下一步是`InvariantTheoremV1`/TST-SEM-002/003 canonical corpus，
 formal TASK状态暂不提前关闭。
 
+closed theorem的kernel路径现新增第一层可信wire refinement：`WireV1`以透明`List UInt8` spine定义
+remaining/read-byte，并为production `ByteArray` primitive证明任意offset（含越界`.truncated`）的
+exact等价；production Cursor `takeByte`直接消费该primitive，因此不是第二套validator。当前只闭合
+size/single-byte边界；`takeBytes`仍会进入`ByteArray.extract/copySlice`，尚不能声称617-byte canonical
+carrier可在kernel中完成validation reduction。下一步应建立exact slice/take bridge，再逐层覆盖
+u16/u32与transport framing；NC canonical reader的`.nonCanonical`错误合同不得误改为`.truncated`。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

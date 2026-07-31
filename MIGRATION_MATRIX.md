@@ -235,6 +235,14 @@ Construct仍关闭，Map index、ContextRead/Commit与Option/Enum canonical Cons
 VariantPayload、fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已由后续独立切片接纳。正式`evalInvariantV1`/
 `InvariantTheoremV1`及formal TASK-D2-07/TST-SEM-002/003仍pending。
 
+### D2-07 proof-validation byte refinement 增量（2026-07-31）
+
+`WireV1`现有第一层kernel-checkable transport seam：透明`List UInt8` spine与production `ByteArray`
+分别拥有remaining/read-byte primitive，两个refinement theorem覆盖任意offset及exact越界错误；production
+Cursor `takeByte`直接委托该shared primitive，未新增第二semantic decoder。聚焦Lean examples固定proof
+复用与production cursor成功/EOF。`takeBytes`/`ByteArray.extract`、u16/u32和完整transport/program
+refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
+
 ## D3：Registry、resolver、materializer与OutputSet
 
 | Task | Formal | 新设计要求 | 实际代码与产品接线 | 现有测试事实 | Engineering | 迁移与旧代码处理 |

@@ -752,8 +752,23 @@ def start (input : ByteArray) : Cursor :=
 def startAtNesting (input : ByteArray) (nesting : Nat) : Cursor :=
   ⟨input, 0, nesting⟩
 
+/-- Remaining length on the transparent proof spine. -/
+def spineRemainingV1 (bytes : List UInt8) (offset : Nat) : Nat :=
+  bytes.length - offset
+
+/-- Remaining length primitive used by the production cursor. -/
+def remainingBytesAtV1 (bytes : ByteArray) (offset : Nat) : Nat :=
+  bytes.size - offset
+
 def remaining (c : Cursor) : Nat :=
-  c.input.size - c.offset
+  remainingBytesAtV1 c.input c.offset
+
+/-- Remaining-length refinement for a `ByteArray` built from the transparent
+    spine. -/
+theorem remainingBytesAtV1_refinesSpine (bytes : List UInt8) (offset : Nat) :
+    remainingBytesAtV1 (ByteArray.mk bytes.toArray) offset =
+      spineRemainingV1 bytes offset := by
+  rfl
 
 def cursorNesting (c : Cursor) : Nat :=
   c.nesting
@@ -763,10 +778,38 @@ def finish (c : Cursor) : Except SemanticWireErrorV1 Unit := do
     return ← err .trailingBytes
   pure ()
 
+/-- Transparent proof-facing byte spine. This is deliberately only the
+    primitive read seam, not an independent semantic decoder. -/
+abbrev TransparentByteSpineV1 := List UInt8
+
+/-- Read one byte from the transparent proof spine. Bounds failure has the
+    same closed wire error as the production cursor. -/
+def readSpineByteV1 (bytes : TransparentByteSpineV1) (offset : Nat) :
+    Except SemanticWireErrorV1 UInt8 :=
+  match bytes[offset]? with
+  | some byte => .ok byte
+  | none => .error .truncated
+
+/-- Production `ByteArray` primitive corresponding to `readSpineByteV1`.
+    Cursor decoding calls this definition, so the refinement theorem below
+    relates the proof spine to the runtime authority rather than to a copied
+    validator. -/
+def readByteAtV1 (bytes : ByteArray) (offset : Nat) :
+    Except SemanticWireErrorV1 UInt8 :=
+  match bytes.data[offset]? with
+  | some byte => .ok byte
+  | none => .error .truncated
+
+/-- Primitive byte-read refinement, including the exact out-of-bounds error.
+    `List.toArray` and `ByteArray.mk` are transparent, so this theorem is
+    kernel-checkable without reducing `ByteArray.extract`/`copySlice`. -/
+theorem readByteAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset := by
+  simp [readByteAtV1, readSpineByteV1, List.getElem?_toArray]
+
 private def takeByte (c : Cursor) : Except SemanticWireErrorV1 (UInt8 × Cursor) := do
-  unless remaining c ≥ 1 do
-    return ← err .truncated
-  pure (c.input.get! c.offset, ⟨c.input, c.offset + 1, c.nesting⟩)
+  let byte ← readByteAtV1 c.input c.offset
+  pure (byte, ⟨c.input, c.offset + 1, c.nesting⟩)
 
 private def takeBytes (c : Cursor) (n : Nat) :
     Except SemanticWireErrorV1 (ByteArray × Cursor) := do
