@@ -43,6 +43,7 @@ TaskQualification资料继续如实保留，但不冒充工程实现完成度。
   [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md)。
 - 目标求解：[`specs/capabilities-extensions.md`](specs/capabilities-extensions.md)、
   [`specs/target-registry.md`](specs/target-registry.md)、
+  [`specs/target-aleo.md`](specs/target-aleo.md)、
   [`specs/materializer-protocol.md`](specs/materializer-protocol.md)。
 - 公共产品面：[`specs/cli.md`](specs/cli.md)、
   [`specs/output-contract.md`](specs/output-contract.md)、
