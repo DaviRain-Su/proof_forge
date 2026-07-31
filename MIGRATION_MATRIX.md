@@ -249,7 +249,10 @@ production `ByteArray.extract`输出映回logical list后等于transparent `drop
 transparent/production readers与universal refinement，并让production decoders直接委托。magic/tagged
 framing原仍pending；后续magic/version切片已复用exact take并以ByteArray/List BEq bridge闭合prefix
 success、`.truncated`优先与`.badMagic` mismatch，production `consumeMagic`直接委托。tagged framing与
-完整program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
+完整program refinement原仍pending；后续tagged-header切片已闭合u32 length/范围、raw ASCII、exact
+expected tag及u16 field count，`decodeTag`/`expectTag`直接委托shared production primitives，两个
+universal theorem保持全部错误相位。root payload/完整program refinement仍pending，因此closed
+invariant theorem与formal TASK/TST状态不变。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

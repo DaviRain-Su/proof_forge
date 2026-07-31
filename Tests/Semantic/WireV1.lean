@@ -133,6 +133,39 @@ example (input want : TransparentByteSpineV1) (offset : Nat) :
       consumeMagicSpineBytesV1 input offset want :=
   consumeMagicBytesAtV1_refinesSpine input want offset
 
+example : readTagSpineBytesV1 [0xff, 3, 0, 0, 0, 0x41, 0x2e, 0x42, 0xee] 1 =
+    .ok ([0x41, 0x2e, 0x42], 8) := by rfl
+
+example : readTagSpineBytesV1 [0, 0, 0, 0] 0 = .error .badTag := by rfl
+
+example : readTagSpineBytesV1 [2, 0, 0, 0, 0x41] 0 = .error .truncated := by rfl
+
+example : readTagSpineBytesV1 [1, 0, 0, 0, 0x80] 0 = .error .badTag := by rfl
+
+example (input : TransparentByteSpineV1) (offset : Nat) :
+    (readTagBytesAtV1 (ByteArray.mk input.toArray) offset).map
+        (fun (raw, next) => (raw.data.toList, next)) =
+      readTagSpineBytesV1 input offset :=
+  readTagBytesAtV1_refinesSpine input offset
+
+example : expectTaggedHeaderSpineV1 [0xff, 3, 0, 0, 0, 0x41, 0x2e, 0x42, 2, 0]
+    1 [0x41, 0x2e, 0x42] 2 = .ok 10 := by rfl
+
+example : expectTaggedHeaderSpineV1 [3, 0, 0, 0, 0x41, 0x2e, 0x43]
+    0 [0x41, 0x2e, 0x42] 2 = .error .badTag := by rfl
+
+example : expectTaggedHeaderSpineV1 [3, 0, 0, 0, 0x41, 0x2e, 0x42]
+    0 [0x41, 0x2e, 0x42] 2 = .error .truncated := by rfl
+
+example : expectTaggedHeaderSpineV1 [3, 0, 0, 0, 0x41, 0x2e, 0x42, 1, 0]
+    0 [0x41, 0x2e, 0x42] 2 = .error .badFieldCount := by rfl
+
+example (input want : TransparentByteSpineV1) (offset fieldCount : Nat) :
+    expectTaggedHeaderBytesAtV1 (ByteArray.mk input.toArray) offset
+        (ByteArray.mk want.toArray) fieldCount =
+      expectTaggedHeaderSpineV1 input offset want fieldCount :=
+  expectTaggedHeaderBytesAtV1_refinesSpine input want offset fieldCount
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
