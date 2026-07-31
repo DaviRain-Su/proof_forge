@@ -33,7 +33,9 @@
   after generic CFG/op typing and before invariant closure/fuel/requirements),
   the ContextRead static-only catalog binds its sole Unix-time-seconds key to
   anonymous UInt64 and one exact requirement row; Commit binds exact
-  operand/result TypeIds and one exact disclosure.commitment row. Formal TST-SEM-001 corpus
+  operand/result TypeIds and one exact disclosure.commitment row. Fixtures that
+  exercise ContextRead/Commit pass those exact requirement rows explicitly via
+  `programWithTypes` (no silent scan/injection). Formal TST-SEM-001 corpus
   remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -996,45 +998,52 @@ private def constOf (id : ConstantIdV1) (name : String) (typeId : TypeIdV1)
     (valueBytes : ByteArray) : ConstantV1 :=
   { id, name, typeId, valueBytes }
 
+/-- Exact ContextRead catalog requirement row (sole wire-owned key).
+    Fixtures that use `.contextRead` must pass this explicitly via
+    `programWithTypes` / `programWithTypesWithReqs` — no silent injection. -/
+private def exactContextRequirementRowV1 : IO RequirementRequestV1 :=
+  match unixTimeSecondsContextRequirementV1 with
+  | .ok row => pure row
+  | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+
+/-- Exact Commit disclosure requirement row. Fixtures that use `.commit` must
+    pass this explicitly — no silent injection. -/
+private def exactCommitRequirementRowV1 : IO RequirementRequestV1 :=
+  match commitmentDisclosureRequirementV1 with
+  | .ok row => pure row
+  | .error e => throw <| IO.userError s!"Commit requirement: {e}"
+
 /-- Structure-gated program builder. Appends a minimal valid `.entry` callable
     (`entryGateCallable`) so fixtures satisfy the SPEC §6 aggregate entry/view
     presence gate while exercising an unrelated phase. The appended entry's
     `id` equals `callables.size` (array index), and errors in the supplied
     callables still fire first because all earlier gates run in source order.
-    Tests that need to exercise the entry/view presence gate itself use
-    `rawProgramWithTypes`, which does not append. -/
+    Requirements default to empty — fixtures that use `.contextRead` /
+    `.commit` must pass exact rows via `programWithTypesWithReqs` (or the
+    `requirements` parameter) so CFG suites do not become requirements-valid
+    by accident. Tests that need to exercise the entry/view presence gate
+    itself use `rawProgramWithTypes`, which does not append. -/
 private def programWithTypes (name : String) (types : Array TypeDeclV1)
     (constants : Array ConstantV1 := #[])
-    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
+    (callables : Array CallableV1 := #[])
+    (requirements : Array RequirementRequestV1 := #[]) :
+    IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
-  -- Most ContextRead fixtures predate the closed catalog and intentionally
-  -- exercise later invariant phases. Keep this narrowly scoped compatibility
-  -- injection here; the catalog test explicitly overrides `requirements` for
-  -- every binding negative, so no requirement assertion is hidden by it.
-  let mut usesContext := false
-  let mut usesCommit := false
-  for callable in callables do
-    for block in callable.blocks do
-      for instr in block.instructions do
-        match instr.op with
-        | .contextRead _ => usesContext := true
-        | .commit _ => usesCommit := true
-        | _ => pure ()
-  let mut requirementItems : Array RequirementRequestV1 := #[]
-  if usesContext then
-    match unixTimeSecondsContextRequirementV1 with
-    | .ok row => requirementItems := requirementItems.push row
-    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
-  if usesCommit then
-    match commitmentDisclosureRequirementV1 with
-    | .ok row => requirementItems := requirementItems.push row
-    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
   pure { data0 with
     types := types
     constants := constants
     callables := callables.push (entryGateCallable entryId)
-    requirements := { items := requirementItems } }
+    requirements := { items := requirements } }
+
+/-- Same as `programWithTypes` but makes the requirement-row argument
+    mandatory so ContextRead/Commit fixtures document intent at the call
+    site. -/
+private def programWithTypesWithReqs (name : String) (types : Array TypeDeclV1)
+    (requirements : Array RequirementRequestV1)
+    (constants : Array ConstantV1 := #[])
+    (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 :=
+  programWithTypes name types constants callables requirements
 
 private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CallableV1 :=
@@ -5702,6 +5711,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
   let ctxTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 64 }]
+  let ctxReq := #[← exactContextRequirementRowV1]
   let forbiddenReadRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
       blocks := #[cfgBlockInstrs 0
@@ -5711,7 +5721,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
       invariantSteps := some 4
   }
   let n1Base ← programWithTypes "InvCtxN1Root" ctxTypes #[]
-    #[forbiddenReadRoot]
+    #[forbiddenReadRoot] ctxReq
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -5727,7 +5737,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
       name := some "run"
       invariantSteps := none
   }
-  let p1 ← programWithTypes "InvCtxP1Entry" ctxTypes #[] #[entryRead]
+  let p1 ← programWithTypes "InvCtxP1Entry" ctxTypes #[] #[entryRead] ctxReq
   expectCfgOk "P1 entry direct ContextRead remains allowed" p1
   -- Generic result-presence typing must win before the closure restriction.
   -- The separate Bool literal keeps the invariant return valid.
@@ -5740,7 +5750,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
       invariantSteps := some 4
   }
   let n2Base ← programWithTypes "InvCtxN2Typing" ctxTypes #[]
-    #[missingResultRoot]
+    #[missingResultRoot] ctxReq
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -5764,6 +5774,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
     entry when operand/result TypeIds match. Exact disclosure requirement
     validation and the transitive pureFn closure op allowlist remain separate. -/
 private def testInvariantRootCommitProhibited : IO Unit := do
+  let commitReq := #[← exactCommitRequirementRowV1]
   let forbiddenCommitRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
       blocks := #[cfgBlockInstrs 0
@@ -5773,7 +5784,7 @@ private def testInvariantRootCommitProhibited : IO Unit := do
       invariantSteps := some 4
   }
   let n1Base ← programWithTypes "InvCommitN1Root" cfgBoolTypes #[]
-    #[forbiddenCommitRoot]
+    #[forbiddenCommitRoot] commitReq
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -5786,7 +5797,8 @@ private def testInvariantRootCommitProhibited : IO Unit := do
       name := some "run"
       invariantSteps := none
   }
-  let p1 ← programWithTypes "InvCommitP1Entry" cfgBoolTypes #[] #[entryCommit]
+  let p1 ← programWithTypes "InvCommitP1Entry" cfgBoolTypes #[]
+    #[entryCommit] commitReq
   expectCfgOk "P1 entry direct Commit remains allowed" p1
   -- Generic result-presence typing must win before the closure restriction.
   let missingResultRoot : CallableV1 := {
@@ -5799,7 +5811,7 @@ private def testInvariantRootCommitProhibited : IO Unit := do
       invariantSteps := some 5
   }
   let n2Base ← programWithTypes "InvCommitN2Typing" cfgBoolTypes #[]
-    #[missingResultRoot]
+    #[missingResultRoot] commitReq
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -6707,6 +6719,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
   let ctxTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 64 }]
+  let ctxReq := #[← exactContextRequirementRowV1]
   let contextReader : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
       #[cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey),
@@ -6733,13 +6746,13 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
       invariantSteps := some 3
   }
   let p1Base ← programWithTypes "InvClosureCtxP1Unreachable" ctxTypes #[]
-    #[{ contextReader with invariantSteps := none }, literalRoot]
+    #[{ contextReader with invariantSteps := none }, literalRoot] ctxReq
   let p1 : SemanticProgramDataV1 := {
     p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
   expectCfgOk "P1 unreachable pureFn ContextRead outside invariant closure" p1
   let n1Base ← programWithTypes "InvClosureCtxN1Reachable" ctxTypes #[]
-    #[contextReader, root]
+    #[contextReader, root] ctxReq
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
@@ -6762,7 +6775,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
       invariantSteps := some 10
   }
   let n2Base ← programWithTypes "InvClosureCtxN2Transitive" ctxTypes #[]
-    #[contextReader, middle, transitiveRoot]
+    #[contextReader, middle, transitiveRoot] ctxReq
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
   }
@@ -6777,7 +6790,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
         (.return_ (some 0))]
   }
   let n3Base ← programWithTypes "InvClosureCtxN3CfgFirst" ctxTypes #[]
-    #[missingResultReader, root]
+    #[missingResultReader, root] ctxReq
   let n3 : SemanticProgramDataV1 := {
     n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
@@ -6803,6 +6816,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
     restriction. Generic Commit operand/result typing runs before the post-CFG
     closure gate. -/
 private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
+  let commitReq := #[← exactCommitRequirementRowV1]
   let committer : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
       #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
@@ -6829,13 +6843,13 @@ private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
       invariantSteps := some 3
   }
   let p1Base ← programWithTypes "InvClosureCommitP1Unreachable" cfgBoolTypes #[]
-    #[{ committer with invariantSteps := none }, literalRoot]
+    #[{ committer with invariantSteps := none }, literalRoot] commitReq
   let p1 : SemanticProgramDataV1 := {
     p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
   expectCfgOk "P1 unreachable pureFn Commit outside invariant closure" p1
   let n1Base ← programWithTypes "InvClosureCommitN1Reachable" cfgBoolTypes #[]
-    #[committer, root]
+    #[committer, root] commitReq
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
@@ -6858,7 +6872,7 @@ private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
       invariantSteps := some 10
   }
   let n2Base ← programWithTypes "InvClosureCommitN2Transitive" cfgBoolTypes #[]
-    #[committer, middle, transitiveRoot]
+    #[committer, middle, transitiveRoot] commitReq
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
   }
@@ -6874,7 +6888,7 @@ private def testInvariantClosurePureFnCommitProhibited : IO Unit := do
         (.return_ (some 1))]
   }
   let n3Base ← programWithTypes "InvClosureCommitN3CfgFirst" cfgBoolTypes #[]
-    #[missingResultCommitter, root]
+    #[missingResultCommitter, root] commitReq
   let n3 : SemanticProgramDataV1 := {
     n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
@@ -7974,12 +7988,14 @@ private def testCfgValueOpResultPresence : IO Unit := do
   let ctxTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 64 }]
+  let ctxReq := #[← exactContextRequirementRowV1]
+  let commitReq := #[← exactCommitRequirementRowV1]
   let p15 ← programWithTypes "PresP15ContextRead" ctxTypes #[]
     #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
           #[ cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey) ]
           (.return_ none)
-      ] 0]
+      ] 0] ctxReq
   expectCfgOk "P15 contextRead result present" p15
   -- P16: Commit with an operand-matching result present.
   let p16 ← programWithTypes "PresP16Commit" cfgOpTypes #[]
@@ -7988,7 +8004,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
           #[ cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 1),
              cfgInstr (some (cfgOpU8Def 1)) (.commit 0) ]
           (.return_ none)
-      ] 2]
+      ] 2] commitReq
   expectCfgOk "P16 commit result present" p16
   -- NEGATIVES (result := none on each value-producing op; expectCfgErr
   --   .badCfg, structure+encode dual path). Each op's ValueId operands are
@@ -8156,7 +8172,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
       #[ cfgBlockInstrs 0
           #[ cfgInstr none (.contextRead ctxKey) ]
           (.return_ none)
-      ] 2]
+      ] 2] ctxReq
   expectCfgErr "N15 contextRead result none" n15
   -- N16: Commit with result none.
   let n16 ← programWithTypes "PresN16Commit" cfgOpTypes #[]
@@ -8165,7 +8181,7 @@ private def testCfgValueOpResultPresence : IO Unit := do
           #[ cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 1),
              cfgInstr none (.commit 0) ]
           (.return_ none)
-      ] 2]
+      ] 2] commitReq
   expectCfgErr "N16 commit result none" n16
   -- REGRESSION: the void rule is unchanged — every void family with
   --   result := none remains accepted. (P1–P5 of testCfgVoidOpResultPresence
@@ -8803,13 +8819,14 @@ private def testCfgCheckedCastTyping : IO Unit := do
     Exact disclosure.commitment requirement binding and Reference execution
     remain deferred. -/
 private def testCfgCommitTyping : IO Unit := do
+  let commitReq := #[← exactCommitRequirementRowV1]
   -- P1: primitive UInt8 operand/result exact match.
   let p1 ← programWithTypes "CommitP1UInt8" cfgOpTypes #[]
     #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
             cfgInstr (some (cfgOpU8Def 1)) (.commit 0)]
-          (.return_ (some 1))] 3]
+          (.return_ (some 1))] 3] commitReq
   expectCfgOk "P1 Commit UInt8 exact result" p1
   -- P2: Option<UInt8> proves Commit does not inherit Eq/Ne's aggregate
   -- exclusion; result remains the exact aggregate TypeId.
@@ -8819,7 +8836,7 @@ private def testCfgCommitTyping : IO Unit := do
           #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
             cfgInstr (some { valueId := 1, typeId := 5 }) (.construct 5 1 #[0]),
             cfgInstr (some { valueId := 2, typeId := 5 }) (.commit 1)]
-          (.return_ (some 2))] 5]
+          (.return_ (some 2))] 5] commitReq
   expectCfgOk "P2 Commit canonical Option exact result" p2
   -- N1: wrong but in-range result TypeId.
   let n1 ← programWithTypes "CommitN1WrongResult" cfgOpTypes #[]
@@ -8827,14 +8844,14 @@ private def testCfgCommitTyping : IO Unit := do
       #[cfgBlockInstrs 0
           #[cfgInstr (some (cfgOpU8Def 0)) (cfgOpU8Lit 7),
             cfgInstr (some (cfgOpBoolDef 1)) (.commit 0)]
-          (.return_ none)] 2]
+          (.return_ none)] 2] commitReq
   expectCfgErr "N1 Commit wrong result TypeId" n1
   -- N2: undefined operand remains a generic CFG failure.
   let n2 ← programWithTypes "CommitN2UndefinedOperand" cfgOpTypes #[]
     #[cfgOpCallableResult
       #[cfgBlockInstrs 0
           #[cfgInstr (some (cfgOpU8Def 0)) (.commit 99)]
-          (.return_ none)] 2]
+          (.return_ none)] 2] commitReq
   expectCfgErr "N2 Commit undefined operand" n2
   expectCfgInvariantPhase "N2 Commit undefined operand cfg phase" .cfg .badCfg n2
   -- N3: local type failure precedes the later requirement structure phase.
@@ -8853,7 +8870,8 @@ private def testCfgCommitTyping : IO Unit := do
         (.return_ (some 1))]
       invariantSteps := some 4
   }
-  let n4Base ← programWithTypes "CommitN4InvariantTyping" cfgOpTypes #[] #[badInvariant]
+  let n4Base ← programWithTypes "CommitN4InvariantTyping" cfgOpTypes #[]
+    #[badInvariant] commitReq
   let n4 : SemanticProgramDataV1 := {
     n4Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -8876,7 +8894,8 @@ private def testCfgCommitTyping : IO Unit := do
           (.return_ none)] 2) with
       params := #[condParam]
   }
-  let n5 ← programWithTypes "CommitN5SiblingDominance" cfgOpTypes #[] #[siblingCommit]
+  let n5 ← programWithTypes "CommitN5SiblingDominance" cfgOpTypes #[]
+    #[siblingCommit] commitReq
   expectCfgErr "N5 Commit operand does not dominate sibling use" n5
   expectCfgInvariantPhase "N5 Commit dominance cfg phase" .cfg .badCfg n5
 
@@ -9236,6 +9255,7 @@ private def testCfgExternalCalleeShape : IO Unit := do
    invariant closure, fuel, and requirements. -/
 private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let ctxKey := unixTimeSecondsContextKeyV1
+  let ctxReq := #[← exactContextRequirementRowV1]
   -- typeId 0 = Bool (wrong in-range shape), typeId 1 = UInt64 (catalog shape).
   let types : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
@@ -9254,18 +9274,18 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
           (resultTypeId := 0)) with
       id
       blocks := #[cfgBlockInstrs 0 instrs (.return_ none)] }
-  -- P1: zero reads.
+  -- P1: zero reads (no ContextRead → no requirement row required).
   let p1 ← programWithTypes "CtxConsP1Zero" types #[]
     #[entryCallable #[]]
   expectCfgOk "P1 zero reads" p1
   -- P2: one exact catalog read.
   let p2 ← programWithTypes "CtxConsP2One" types #[]
-    #[entryCallable #[ctxRead 0 1 ctxKey]]
+    #[entryCallable #[ctxRead 0 1 ctxKey]] ctxReq
   expectCfgOk "P2 one read" p2
   -- P3: same key, same TypeId across two callables.
   let p3 ← programWithTypes "CtxConsP3TwoCalls" types #[]
     #[entryCallable #[ctxRead 0 1 ctxKey] 0 "runA",
-      entryCallable #[ctxRead 0 1 ctxKey] 1 "runB"]
+      entryCallable #[ctxRead 0 1 ctxKey] 1 "runB"] ctxReq
   expectCfgOk "P3 same key same type across callables" p3
   -- P4: same key, same TypeId across two blocks within one callable. The
   --   branch is split between block 1 (then) and block 2 (else), each
@@ -9285,7 +9305,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
           cfgBlockInstrs 2
             #[ctxRead 2 1 ctxKey]
             (.return_ none)
-        ] }]
+        ] }] ctxReq
   expectCfgOk "P4 same key same type across branches" p4
   -- P5: same key, same TypeId repeated within one block. Local repetition of
   --   the same exact key with the same result TypeId is allowed; the global
@@ -9293,12 +9313,12 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   --   key.
   let p5 ← programWithTypes "CtxConsP5LocalRepeat" types #[]
     #[entryCallable
-        #[ctxRead 0 1 ctxKey, ctxRead 1 1 ctxKey]]
+        #[ctxRead 0 1 ctxKey, ctxRead 1 1 ctxKey]] ctxReq
   expectCfgOk "P5 same key same UInt64 repeated one block" p5
   -- N1: known key with wrong in-range Bool result.
   let n1 ← programWithTypes "CtxConsN1Block" types #[]
     #[entryCallable
-        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]]
+        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]] ctxReq
   expectCfgErr "N1 same key different type one block" n1
   expectCfgInvariantPhase "N1 cfg consistency phase" .cfg .badCfg n1
   -- N2: same key, different TypeId across branches.
@@ -9316,25 +9336,25 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
           cfgBlockInstrs 2
             #[ctxRead 2 0 ctxKey]
             (.return_ none)
-        ] }]
+        ] }] ctxReq
   expectCfgErr "N2 same key different type across branches" n2
   expectCfgInvariantPhase "N2 cfg consistency phase" .cfg .badCfg n2
   -- N3: same key, different TypeId across different callables.
   let n3 ← programWithTypes "CtxConsN3Callables" types #[]
     #[entryCallable #[ctxRead 0 1 ctxKey] 0 "runA",
-      entryCallable #[ctxRead 0 0 ctxKey] 1 "runB"]
+      entryCallable #[ctxRead 0 0 ctxKey] 1 "runB"] ctxReq
   expectCfgErr "N3 same key different type across callables" n3
   expectCfgInvariantPhase "N3 cfg consistency phase" .cfg .badCfg n3
   -- N4: unknown keys are rejected by the closed catalog.
   let nearKey : SchemaId := { value := "proof-forge.context.unknown.v1" }
   let n4 ← programWithTypes "CtxConsN4ExactKey" types #[]
-    #[entryCallable #[ctxRead 0 1 nearKey]]
+    #[entryCallable #[ctxRead 0 1 nearKey]] ctxReq
   expectCfgErrCode "N4 unknown key rejected" .badCfg n4
   -- Precedence: a missing ContextRead result (generic CFG/op typing) fails
   --   before the global consistency pass.
   let n5 ← programWithTypes "CtxConsN5MissingResult" types #[]
     #[entryCallable
-        #[cfgInstr none (.contextRead ctxKey)]]
+        #[cfgInstr none (.contextRead ctxKey)]] ctxReq
   expectCfgErrCode "N5 missing result before consistency" .badCfg n5
   expectCfgInvariantPhase "N5 generic typing before consistency" .cfg .badCfg n5
   -- Precedence: a def-site TypeId OOR (step h) fails as `.badReference`
@@ -9343,7 +9363,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let n6 ← programWithTypes "CtxConsN6TypeOOR" types #[]
     #[entryCallable
         #[cfgInstr (some { valueId := 0, typeId := 99 })
-            (.contextRead ctxKey)]]
+            (.contextRead ctxKey)]] ctxReq
   expectCfgErrCode "N6 def TypeId OOR before consistency"
     .badReference n6
   -- Precedence: a generic CFG failure (undefined terminator use) fails before
@@ -9357,7 +9377,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
             #[ctxRead 0 1 ctxKey]
             (.branch 7 (cfgJumpTarget 1) (cfgJumpTarget 1)),
           cfgBlock 1 (.return_ none)
-        ] }]
+        ] }] ctxReq
   expectCfgErrCode "N7 generic CFG before consistency" .badCfg n7
   expectCfgInvariantPhase "N7 generic CFG phase wins" .cfg .badCfg n7
   -- Mixed-invalid phase precedence 3a: a canonical valueBytes error (bad
@@ -9370,7 +9390,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
         ctxRead 1 1 ctxKey,
         ctxRead 2 0 ctxKey]
   let m1 ← programWithTypes "CtxConsM1ValueBeforeMismatch" types #[]
-    #[badValueMismatch]
+    #[badValueMismatch] ctxReq
   expectCfgErrCode "M1 canonical valueBytes before consistency"
     .nonCanonical m1
   -- Mixed-invalid phase precedence 3b: a same-key TypeId mismatch co-located
@@ -9397,7 +9417,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   ]
   let m3 ← programWithTypes "CtxConsM3NameDupBeforeMismatch" dupTypes #[]
     #[entryCallable
-        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]]
+        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]] ctxReq
   expectCfgErrCode "M3 named-name duplicate before consistency"
     .duplicate m3
   -- Mixed-invalid cross-callable phase order 4: ALL per-callable generic
@@ -9420,7 +9440,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let m4 ← programWithTypes "CtxConsM4CrossCallablePhase" types #[]
     #[entryCallable
         #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey] 0 "runA",
-      laterOor]
+      laterOor] ctxReq
   expectCfgErrCode "M4 per-callable OOR before global consistency"
     .badReference m4
   expectCfgInvariantPhase "M4 cfg phase per-callable OOR"
@@ -9440,7 +9460,8 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
         (.return_ (some 0))]
       invariantSteps := some 7
   }
-  let n8Base ← programWithTypes "CtxConsN8RootPhase" types #[] #[rootMismatch]
+  let n8Base ← programWithTypes "CtxConsN8RootPhase" types #[]
+    #[rootMismatch] ctxReq
   let n8 : SemanticProgramDataV1 := {
     n8Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
   }
@@ -9470,7 +9491,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       invariantSteps := some 8
   }
   let n9Base ← programWithTypes "CtxConsN9ClosureValidConsistency" types #[]
-    #[contextReader, invariantRoot]
+    #[contextReader, invariantRoot] ctxReq
   let n9 : SemanticProgramDataV1 := {
     n9Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
@@ -9531,7 +9552,8 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       (resultTypeId := 0)) with
       id := 0
       blocks := #[cfgBlockInstrs 0 instrs (.return_ none)] }
-  let r ← programWithTypes "CtxConsResource" types #[] #[resourceCallable]
+  let r ← programWithTypes "CtxConsResource" types #[]
+    #[resourceCallable] ctxReq
   expectCfgOk "resource 2000 reads bounded" r
 
 /-- Exact ContextRead requirement binding variants. -/
@@ -9545,19 +9567,20 @@ private def testCfgContextReadCatalogRequirements : IO Unit := do
   let entry (instructions : Array InstructionV1) : CallableV1 := {
     (cfgCallableKindName .entry (some "run") (resultTypeId := 0)) with
       blocks := #[cfgBlockInstrs 0 instructions (.return_ none)] }
-  let exact ← match unixTimeSecondsContextRequirementV1 with
-    | .ok row => pure row
-    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+  let exact ← exactContextRequirementRowV1
+  let ctxReq := #[exact]
   let base ← programWithTypes "ContextCatalog" types #[]
-    #[entry #[read 0, read 1]]
+    #[entry #[read 0, read 1]] ctxReq
   expectCfgOk "exact ContextRead catalog row" base
   let repeated ← programWithTypes "ContextCatalogRepeated" types #[]
-    #[entry (Array.ofFn (fun i : Fin 2000 => read i.val.toUInt32))]
+    #[entry (Array.ofFn (fun i : Fin 2000 => read i.val.toUInt32))] ctxReq
   expectCfgOk "bounded repeated ContextRead occurrences" repeated
   let unknown : SchemaId := { value := "proof-forge.context.unknown.v1" }
-  let badKey ← programWithTypes "ContextCatalogUnknown" types #[] #[entry #[read 0 1 unknown]]
+  let badKey ← programWithTypes "ContextCatalogUnknown" types #[]
+    #[entry #[read 0 1 unknown]] ctxReq
   expectCfgErrCode "unknown ContextRead key" .badCfg badKey
-  let badType ← programWithTypes "ContextCatalogWrongType" types #[] #[entry #[read 0 0]]
+  let badType ← programWithTypes "ContextCatalogWrongType" types #[]
+    #[entry #[read 0 0]] ctxReq
   expectCfgErrCode "wrong in-range ContextRead shape" .badCfg badType
   expectCfgInvariantPhase "wrong ContextRead shape is cfg phase" .cfg .badCfg badType
   let missing : SemanticProgramDataV1 := { base with requirements := { items := #[] } }
@@ -9590,9 +9613,8 @@ private def testCfgContextReadCatalogRequirements : IO Unit := do
 /-- Exact Commit disclosure requirement binding variants. Recognition of this
     Wire-owned row does not add it to any target support catalog. -/
 private def testCfgCommitCatalogRequirements : IO Unit := do
-  let exact ← match commitmentDisclosureRequirementV1 with
-    | .ok row => pure row
-    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
+  let exact ← exactCommitRequirementRowV1
+  let commitReq := #[exact]
   let commitEntry : CallableV1 := {
     (cfgCallableKindName .entry (some "run") (resultTypeId := 3)) with
       blocks := #[cfgBlockInstrs 0
@@ -9600,7 +9622,8 @@ private def testCfgCommitCatalogRequirements : IO Unit := do
           cfgInstr (some (cfgOpU8Def 1)) (.commit 0),
           cfgInstr (some (cfgOpU8Def 2)) (.commit 1)]
         (.return_ (some 2))] }
-  let base ← programWithTypes "CommitCatalog" cfgOpTypes #[] #[commitEntry]
+  let base ← programWithTypes "CommitCatalog" cfgOpTypes #[]
+    #[commitEntry] commitReq
   expectCfgOk "exact Commit requirement row" base
   let missing : SemanticProgramDataV1 := { base with requirements := { items := #[] } }
   expectCfgErrCode "missing Commit requirement" .badRequirement missing
@@ -9635,9 +9658,7 @@ private def testCfgCommitCatalogRequirements : IO Unit := do
     { noCommit with requirements := { items := #[exact] } }
   -- Combined ContextRead + Commit rows remain in canonical UTF-8 order:
   -- context.unix-time-seconds precedes disclosure.commitment.
-  let contextExact ← match unixTimeSecondsContextRequirementV1 with
-    | .ok row => pure row
-    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+  let contextExact ← exactContextRequirementRowV1
   let combinedTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 64 }]
@@ -9648,7 +9669,8 @@ private def testCfgCommitCatalogRequirements : IO Unit := do
             (.contextRead unixTimeSecondsContextKeyV1),
           cfgInstr (some { valueId := 1, typeId := 1 }) (.commit 0)]
         (.return_ (some 1))] }
-  let combined ← programWithTypes "CommitContextCatalog" combinedTypes #[] #[combinedEntry]
+  let combined ← programWithTypes "CommitContextCatalog" combinedTypes #[]
+    #[combinedEntry] #[contextExact, exact]
   expect (combined.requirements.items == #[contextExact, exact])
     "combined Commit/Context requirements must be canonical"
   expectCfgOk "combined Commit/Context exact rows" combined

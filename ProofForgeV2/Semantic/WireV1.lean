@@ -2369,17 +2369,32 @@ def collectValueTypeDefs (c : CallableV1) : Array (ValueIdV1 × TypeIdV1) :=
         | none => pure ()
     pure defs
 
-/-- First TypeId whose shape is `.bool`, if any. Bounded, non-recursive. -/
-def boolTypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
+/-- The unique TypeId whose shape satisfies `pred`, if exactly one exists.
+    Bounded, non-recursive. Zero or multiple matches yield `none`. Shared by
+    `boolTypeId` / `uint32TypeId` / `uint8TypeId` as defense-in-depth relative
+    to the earlier primitive anonymous TypeKey gate (duplicates fail there as
+    `.nonCanonical` before step j). -/
+def uniqueShapeTypeId (types : Array TypeDeclV1)
+    (pred : TypeShapeV1 → Bool) : Option TypeIdV1 := Id.run do
   let mut r : Option TypeIdV1 := none
+  let mut dup : Bool := false
   let mut i : Nat := 0
   for t in types do
-    if r.isNone then
-      match t.shape with
-      | .bool => r := some (UInt32.ofNat i)
-      | _ => pure ()
+    if pred t.shape then
+      match r with
+      | none => r := some (UInt32.ofNat i)
+      | some _ => dup := true
     i := i + 1
-  pure r
+  if dup then pure none else pure r
+
+/-- The unique TypeId whose shape is `.bool`, if exactly one exists.
+    Bounded, non-recursive. Defense-in-depth relative to the earlier
+    primitive anonymous TypeKey gate (duplicates fail there as
+    `.nonCanonical`). -/
+def boolTypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .bool => true
+    | _ => false
 
 /-- Step h: every def-site TypeId (block params + instruction results) is in
     `[0, typeCount)`. Callable param/result TypeIds are already checked at
@@ -2521,44 +2536,24 @@ def checkTerminatorTyping (c : CallableV1)
     provenance join, normalizer, product wire. -/
 
 /-- The unique TypeId whose shape is `.uint 32`, if exactly one exists.
-    Bounded, non-recursive. Like `uint8TypeId` (and unlike first-match
-    `boolTypeId`), this defensive resolver returns `some` only when exactly
-    one `.uint 32` declaration is present, and `none` otherwise. The earlier
-    primitive anonymous TypeKey gate is authoritative: duplicates fail there
-    as `.nonCanonical` before step j. This helper still fails closed for direct
+    Bounded, non-recursive. Defense-in-depth relative to the earlier
+    primitive anonymous TypeKey gate (duplicates fail there as
+    `.nonCanonical` before step j). This helper still fails closed for direct
     internal use; recursive/full TypeKey closure and ranking remain pending. -/
-def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
-  let mut r : Option TypeIdV1 := none
-  let mut dup : Bool := false
-  let mut i : Nat := 0
-  for t in types do
-    match t.shape with
-    | .uint 32 =>
-        match r with
-        | none => r := some (UInt32.ofNat i)
-        | some _ => dup := true
-    | _ => pure ()
-    i := i + 1
-  if dup then pure none else pure r
+def uint32TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .uint 32 => true
+    | _ => false
 
 /-- The unique TypeId whose shape is `.uint 8`, if exactly one exists.
     Bounded and non-recursive. Bytes IndexGet/IndexSet require the unique
     structurally interned UInt8 TypeId. The earlier primitive anonymous
     TypeKey gate rejects duplicates as `.nonCanonical`; this defensive helper
     still returns `none` for zero or duplicate matches. -/
-def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 := Id.run do
-  let mut r : Option TypeIdV1 := none
-  let mut dup : Bool := false
-  let mut i : Nat := 0
-  for t in types do
-    match t.shape with
-    | .uint 8 =>
-        match r with
-        | none => r := some (UInt32.ofNat i)
-        | some _ => dup := true
-    | _ => pure ()
-    i := i + 1
-  if dup then pure none else pure r
+def uint8TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .uint 8 => true
+    | _ => false
 
 /-- First TypeId whose shape is `.option element` with the given element
     TypeId, if any. Bounded, non-recursive. Used by `indexGet` on Map to
@@ -5279,51 +5274,70 @@ private def validateProgramRequirementsStructure (reqs : ProgramRequirementsV1) 
     prev? := some item
   pure ()
 
-/-- Bind every used wire-owned ContextRead key to its one exact requirement
-    row. Generic requirement structure/order is validated first. -/
-private def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
-    Except SemanticWireErrorV1 Unit := do
-  let mut used := false
+/-- Apply `f` to every instruction in callables → blocks → instructions
+    source order. Full scan; no early exit. -/
+private def forEachInstruction {m : Type → Type} [Monad m]
+    (data : SemanticProgramDataV1) (f : InstructionV1 → m Unit) : m Unit := do
   for callable in data.callables do
     for block in callable.blocks do
       for instr in block.instructions do
-        match instr.op with
-        | .contextRead _ => used := true
-        | _ => pure ()
-  unless used do return
-  let expected ← match unixTimeSecondsContextRequirementV1 with
+        f instr
+
+/-- True if any instruction's op satisfies `used`. Full source-order scan
+    (callables → blocks → instructions); no early exit. Bool-accumulating
+    wrapper over `forEachInstruction`. -/
+private def anyUsedOpV1 (data : SemanticProgramDataV1)
+    (used : SemanticOpV1 → Bool) : Bool :=
+  (StateT.run
+    (forEachInstruction (m := StateM Bool) data fun instr => do
+      if used instr.op then set true)
+    false).2
+
+/-- Bind a used op family to exactly one requirement row.
+    Order is preserved exactly from the prior twin gates: scan ops first; if
+    unused return early *before* matching `expectedRow`; then mint the row
+    (`.error` → `.badRequirement`); then require a single exact id match in
+    `data.requirements`. A malformed mint with unused ops therefore still
+    returns early without observing the mint failure. -/
+private def bindUsedOpToExactRequirementRow
+    (data : SemanticProgramDataV1)
+    (used : SemanticOpV1 → Bool)
+    (expectedId : String)
+    (expectedRow : Except String RequirementRequestV1) :
+    Except SemanticWireErrorV1 Unit := do
+  unless anyUsedOpV1 data used do return
+  let expected ← match expectedRow with
     | .ok row => pure row
     | .error _ => return ← err .badRequirement
   let mut found := false
   for item in data.requirements.items do
-    if item.id == unixTimeSecondsContextRequirementIdV1 then
+    if item.id == expectedId then
       unless item == expected do return ← err .badRequirement
       if found then return ← err .badRequirement
       found := true
   unless found do return ← err .badRequirement
 
+/-- Bind every used wire-owned ContextRead key to its one exact requirement
+    row. Generic requirement structure/order is validated first. -/
+private def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit :=
+  bindUsedOpToExactRequirementRow data
+    (fun
+      | .contextRead _ => true
+      | _ => false)
+    unixTimeSecondsContextRequirementIdV1
+    unixTimeSecondsContextRequirementV1
+
 /-- Bind every used Commit operation to the one exact disclosure.commitment
     requirement row. Generic requirement structure/order is validated first. -/
 private def validateCommitRequirementsV1 (data : SemanticProgramDataV1) :
-    Except SemanticWireErrorV1 Unit := do
-  let mut used := false
-  for callable in data.callables do
-    for block in callable.blocks do
-      for instr in block.instructions do
-        match instr.op with
-        | .commit _ => used := true
-        | _ => pure ()
-  unless used do return
-  let expected ← match commitmentDisclosureRequirementV1 with
-    | .ok row => pure row
-    | .error _ => return ← err .badRequirement
-  let mut found := false
-  for item in data.requirements.items do
-    if item.id == commitmentDisclosureRequirementIdV1 then
-      unless item == expected do return ← err .badRequirement
-      if found then return ← err .badRequirement
-      found := true
-  unless found do return ← err .badRequirement
+    Except SemanticWireErrorV1 Unit :=
+  bindUsedOpToExactRequirementRow data
+    (fun
+      | .commit _ => true
+      | _ => false)
+    commitmentDisclosureRequirementIdV1
+    commitmentDisclosureRequirementV1
 
 private def checkTableIds (getId : α → UInt32) (table : Array α) :
     Except SemanticWireErrorV1 Unit := do
