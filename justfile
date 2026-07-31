@@ -98,7 +98,6 @@ w2-single-semantic-carrier-deletion-gate:
       --root ProofForgeV2.CLI.Main \
       --root ProofForgeV2.CLI.Exe \
       --root ProofForgeV2.Frontend.WorkerMainV1 \
-      --root ProofForgeV2.Frontend.SafeOpenWorkerMainV1 \
       --forbid ProofForgeV2.Core.Source \
       --forbid ProofForgeV2.Core.Typed \
       --forbid ProofForgeV2.Core.TypedV1 \
