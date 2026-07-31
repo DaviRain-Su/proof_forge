@@ -54,6 +54,12 @@ inductive InputRole where
   | postInitialized
   | result
   | eventSlot (emitIndex argIndex : Nat)
+  /-- Verifier witness of one static external call's outcome: true when the
+      executing path's response disposition is returned (a reverted claim is
+      inadmissible, mirroring externalCallReverted). -/
+  | callStatus (callIndex : Nat)
+  | callArgSlot (callIndex argIndex : Nat)
+  | scheduleArgSlot (scheduleIndex argIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -134,6 +140,15 @@ inductive Statement where
   | assert (condition : Expr)
   | emitEvent (effectId : Nat) (eventIndex : Nat) (args : Array Expr)
   | revertError (errorIndex : Nat) (args : Array Expr)
+  /-- Sync external call (v1: statement effect, no result value). Each static
+      site binds one status witness and one public arg slot per argument;
+      the executing path asserts the status returned and binds the computed
+      arg values, other paths zero everything. -/
+  | externalCall (effectId : Nat) (callee : Array String) (args : Array Expr)
+  /-- Async workflow schedule (fire-and-forget, no response channel): each
+      static site binds one public arg slot per argument, bound on the
+      executing path and zeroed elsewhere. -/
+  | schedule (effectId : Nat) (callee : Array String) (args : Array Expr)
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
@@ -496,13 +511,47 @@ private partial def collectEmitSlots (statements : Array Statement) :
     | .forLoop _ _ _ _ _ body => slots ++ collectEmitSlots body
     | _ => slots) #[]
 
+/-- Pre-order external-call scan of a relation body: (argCount) keyed by the
+    canonical EffectId each static call statement carries. Call arg slots
+    and the status witness are keyed by that EffectId. -/
+private partial def collectCallSlots (statements : Array Statement) :
+    Array (Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .externalCall effectId _ args => slots.push (effectId, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectCallSlots thenBody ++ collectCallSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectCallSlots body) #[]
+        slots ++ caseSlots ++ collectCallSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectCallSlots body
+    | _ => slots) #[]
+
+/-- Pre-order schedule scan of a relation body: (argCount) keyed by the
+    canonical EffectId each static schedule statement carries. -/
+private partial def collectScheduleSlots (statements : Array Statement) :
+    Array (Nat × Nat) :=
+  statements.foldl (fun slots statement =>
+    match statement with
+    | .schedule effectId _ args => slots.push (effectId, args.size)
+    | .ifThenElse _ thenBody elseBody =>
+        slots ++ collectScheduleSlots thenBody ++ collectScheduleSlots elseBody
+    | .switchOn _ cases defaultBody =>
+        let caseSlots := cases.foldl (fun acc (_, body) =>
+          acc ++ collectScheduleSlots body) #[]
+        slots ++ caseSlots ++ collectScheduleSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectScheduleSlots body
+    | _ => slots) #[]
+
 /-- Build the canonical public-input envelope. `resultType` is used only for
     non-initializer relations (entry/view) and is ignored for `.initialize`.
     Event slots trail the result input: one verifier-visible u64 per argument
     of each static emit statement in pre-order. -/
 private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
     (params : Array Param) (resultType : InputType)
-    (emitSlots : Array (Nat × Nat × Nat)) : Array InputBinding := Id.run do
+    (emitSlots : Array (Nat × Nat × Nat)) (callSlots : Array (Nat × Nat))
+    (scheduleSlots : Array (Nat × Nat)) : Array InputBinding := Id.run do
   let mut inputs : Array InputBinding := #[]
   if !states.isEmpty then
     inputs := inputs.push {
@@ -561,6 +610,31 @@ private def makeInputsV1 (states : Array StateField) (mode : RelationMode)
         type := .u64
         visibility := .verifier
         role := .eventSlot effectId argIndex
+      }
+  for (effectId, argCount) in callSlots do
+    inputs := inputs.push {
+      name := s!"call_e{effectId}_status"
+      sourceName := s!"call_status_{effectId}"
+      type := .bool
+      visibility := .verifier
+      role := .callStatus effectId
+    }
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"call_e{effectId}_a{argIndex}"
+        sourceName := s!"call_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .callArgSlot effectId argIndex
+      }
+  for (effectId, argCount) in scheduleSlots do
+    for argIndex in [0:argCount] do
+      inputs := inputs.push {
+        name := s!"sched_e{effectId}_a{argIndex}"
+        sourceName := s!"schedule_slot_{effectId}_{argIndex}"
+        type := .u64
+        visibility := .verifier
+        role := .scheduleArgSlot effectId argIndex
       }
   pure inputs
 
@@ -1141,6 +1215,40 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
         body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
         segmentStart := values.size
+    | .externalCall effectId qname argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable makes an external call"
+        unless qname.components.toArray.size ≥ 2 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: external call callee must have at least two components"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: external call arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+        body := body.push (.externalCall effectId.toNat qname.components.toArray argExprs)
+        segmentStart := values.size
+    | .schedule effectId qname argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: view callable schedules a workflow"
+        unless qname.components.toArray.size ≥ 2 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: schedule callee must have at least two components"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+        body := body.push (.schedule effectId.toNat qname.components.toArray argExprs)
+        segmentStart := values.size
     | .pureCall callableId argIds, some result =>
         let some fnSig := fnSigs.find? (fun sig => sig.callableId == callableId.toNat) |
           throw <| .planInvariant .noir
@@ -1613,7 +1721,8 @@ private def makeRelationV1
     mode
     params := lowered.params
     inputs := makeInputsV1 states mode lowered.params resultType
-      (collectEmitSlots lowered.body)
+      (collectEmitSlots lowered.body) (collectCallSlots lowered.body)
+      (collectScheduleSlots lowered.body)
     body := lowered.body
   }
 
@@ -1740,6 +1849,24 @@ private partial def checkRelationStatementsV1
         for arg in args do
           total ← addPlanExprNodes plan relation total arg
         total := total + 1
+    | .externalCall _ callee args =>
+        if relation.mode == .view then
+          throw <| .planInvariant .noir s!"view relation '{relation.name}' makes an external call"
+        unless callee.size ≥ 2 do
+          throw <| .planInvariant .noir
+            s!"relation '{relation.name}' external call callee must have at least two components"
+        for arg in args do
+          total ← addPlanExprNodes plan relation total arg
+        total := total + 1
+    | .schedule _ callee args =>
+        if relation.mode == .view then
+          throw <| .planInvariant .noir s!"view relation '{relation.name}' schedules a workflow"
+        unless callee.size ≥ 2 do
+          throw <| .planInvariant .noir
+            s!"relation '{relation.name}' schedule callee must have at least two components"
+        for arg in args do
+          total ← addPlanExprNodes plan relation total arg
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < plan.errors.size do
           throw <| .planInvariant .noir s!"relation '{relation.name}' reverts with an unknown error"
@@ -1795,7 +1922,9 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     (if relation.mode == .initialize then 0 else plan.states.size) +
     relation.params.size + plan.states.size +
     (if relation.mode == .initialize then 0 else 1) +
-    (collectEmitSlots relation.body).foldl (fun acc (_, _, argCount) => acc + argCount) 0
+    (collectEmitSlots relation.body).foldl (fun acc (_, _, argCount) => acc + argCount) 0 +
+    (collectCallSlots relation.body).foldl (fun acc (_, argCount) => acc + 1 + argCount) 0 +
+    (collectScheduleSlots relation.body).foldl (fun acc (_, argCount) => acc + argCount) 0
   unless relation.inputs.size == expectedInputCount do
     throw <| .planInvariant .noir "relation input count is outside the canonical envelope"
   unless relation.index == expectedIndex && isIdentifier relation.name &&
@@ -1807,7 +1936,8 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
   let expectedResultType := resultInputTypeOf relation
   unless relation.params == expectedParams plan.states relation &&
       relation.inputs == makeInputsV1 plan.states relation.mode relation.params
-        expectedResultType (collectEmitSlots relation.body) do
+        expectedResultType (collectEmitSlots relation.body)
+        (collectCallSlots relation.body) (collectScheduleSlots relation.body) do
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
   if relation.mode != .initialize then
     unless expectedResultType == .u64 || expectedResultType == .bool do
@@ -2058,7 +2188,7 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
+      | .store _ | .assert _ | .emitEvent .. | .externalCall .. | .schedule .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 
@@ -2222,8 +2352,11 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
           "unsupported Noir semantic shape: shift count is not a compile-time constant"
       -- count ≥ 64 renders the invalidShift guard as a literal-false
       -- constraint (inadmissible); shl ≡ x * 2^k and the checked u64
-      -- multiply carries the arithmeticOverflow constraint.
-      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      -- multiply carries the arithmeticOverflow constraint. The folded
+      -- count is UInt32-bounded but can be huge (e.g. 0xFFFFFFFF - 1), so
+      -- 2^k is only evaluated for k < 64; the wrapped literal is otherwise
+      -- dead inside the inadmissible constraint.
+      let pow : UInt64 := if k < 64 then UInt64.ofNat (2 ^ k) else 0
       pure {
         operations := lhs.operations ++
           #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
@@ -2237,8 +2370,8 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: shift count is not a compile-time constant"
       -- shr ≡ x / 2^k (truncating); the invalidShift guard is literal when
-      -- the count is out of range.
-      let pow : UInt64 := UInt64.ofNat (2 ^ k)
+      -- the count is out of range. 2^k is only evaluated for k < 64 (see shl).
+      let pow : UInt64 := if k < 64 then UInt64.ofNat (2 ^ k) else 0
       pure {
         operations := lhs.operations ++
           #[.assertConstraint (.literal (if k < 64 then 1 else 0)),
@@ -2495,6 +2628,12 @@ private partial def inlineStmtsV1
       | .emitEvent .. =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: fn body emits an event"
+      | .externalCall .. =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn body makes an external call"
+      | .schedule .. =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: fn body schedules a workflow"
       | .forLoop .. =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: loops inside fn bodies are outside the Noir pilot"
@@ -2568,6 +2707,14 @@ private partial def inlineStmtsV1
 
 end
 
+/-- The per-relation static effect slots: event arg slots, external-call
+    status/arg slots, and schedule arg slots, all keyed by the shared
+    canonical EffectId sequence. -/
+private structure RelationSlotsV1 where
+  emit : Array (Nat × Nat × Nat)
+  call : Array (Nat × Nat)
+  schedule : Array (Nat × Nat)
+
 /-- Final path assertions: post-state equality per field, post-initialized
     flag, (non-initializer) the public result binding, and event-slot
     bindings. Each static emit in `emitSlots` binds its argument slots to the
@@ -2575,6 +2722,7 @@ end
     (and on reverted paths, whose effects are discarded). -/
 private def leafAssertions (plan : Plan) (relation : Relation)
     (emitSlots : Array (Nat × Nat × Nat))
+    (callSlots : Array (Nat × Nat)) (scheduleSlots : Array (Nat × Nat))
     (stateValues : Array ValueRef) (returned : Option ValueRef)
     (pathEmits : Array (Nat × Array ValueRef)) : Array Operation := Id.run do
   let mut operations : Array Operation := #[]
@@ -2597,18 +2745,52 @@ private def leafAssertions (plan : Plan) (relation : Relation)
         | none => .literal 0
       operations := operations.push <| .assertEqual
         (.input (inputIndexFor relation (.eventSlot effectId argIndex))) value
+  for (effectId, argCount) in callSlots do
+    let pathValues? := pathEmits.findSome? fun (slotId, values) =>
+      if slotId == effectId then some values else none
+    for argIndex in [0:argCount] do
+      let value := match pathValues? with
+        | some values => values[argIndex]!
+        | none => .literal 0
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.callArgSlot effectId argIndex))) value
+    -- Status witness: true when this path executed the call (a returned
+    -- response); false on paths that never made it.
+    operations := operations.push <| .assertBool
+      (inputIndexFor relation (.callStatus effectId)) pathValues?.isSome
+  for (effectId, argCount) in scheduleSlots do
+    let pathValues? := pathEmits.findSome? fun (slotId, values) =>
+      if slotId == effectId then some values else none
+    for argIndex in [0:argCount] do
+      let value := match pathValues? with
+        | some values => values[argIndex]!
+        | none => .literal 0
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.scheduleArgSlot effectId argIndex))) value
   pure operations
 
 /-- Reverted path assertions: every event slot zeroed (effects are discarded
     on revert) and the path marked inadmissible — a reverting call admits no
     post-state or result witness. -/
 private def revertAssertions (relation : Relation)
-    (emitSlots : Array (Nat × Nat × Nat)) : Array Operation := Id.run do
+    (emitSlots : Array (Nat × Nat × Nat))
+    (callSlots : Array (Nat × Nat)) (scheduleSlots : Array (Nat × Nat)) :
+    Array Operation := Id.run do
   let mut operations : Array Operation := #[]
   for (effectId, _, argCount) in emitSlots do
     for argIndex in [0:argCount] do
       operations := operations.push <| .assertEqual
         (.input (inputIndexFor relation (.eventSlot effectId argIndex))) (.literal 0)
+  for (effectId, argCount) in callSlots do
+    for argIndex in [0:argCount] do
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.callArgSlot effectId argIndex))) (.literal 0)
+    operations := operations.push <| .assertBool
+      (inputIndexFor relation (.callStatus effectId)) false
+  for (effectId, argCount) in scheduleSlots do
+    for argIndex in [0:argCount] do
+      operations := operations.push <| .assertEqual
+        (.input (inputIndexFor relation (.scheduleArgSlot effectId argIndex))) (.literal 0)
   operations.push (.assertConstraint (.literal 0))
 
 /-- Continuation invoked at an open path leaf (a fall-through with no
@@ -2622,12 +2804,13 @@ private abbrev OpenLeafV1 :=
 /-- Default open leaf: only the initializer's implicit fallthrough may reach
     it; every other relation path must end in a return or declared revert. -/
 private def defaultOpenLeafV1 (plan : Plan) (relation : Relation)
-    (emitSlots : Array (Nat × Nat × Nat)) : OpenLeafV1 :=
+    (slots : RelationSlotsV1) : OpenLeafV1 :=
   fun stateValues next pathEmits acc => do
     unless relation.mode == .initialize do
       throw <| .planInvariant .noir
         s!"relation '{relation.name}' path does not end in a return"
-    pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits, next)
+    pure (acc ++ leafAssertions plan relation slots.emit slots.call slots.schedule
+      stateValues none pathEmits, next)
 
 mutual
 
@@ -2641,7 +2824,7 @@ mutual
     and fails closed. -/
 private partial def lowerPathStatementsV1
     (plan : Plan) (relation : Relation) (fuel : Nat)
-    (emitSlots : Array (Nat × Nat × Nat))
+    (slots : RelationSlotsV1)
     (loopEnv : Array (Nat × ValueRef))
     (openLeaf : OpenLeafV1)
     (stateValues : Array ValueRef) (next : Nat)
@@ -2661,12 +2844,12 @@ private partial def lowerPathStatementsV1
       match statement with
       | .store store =>
           let value ← lowerExpr plan fuel loopEnv stateValues next store.value
-          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
             (stateValues.set! store.fieldIndex value.value) value.next pathEmits
             (acc ++ value.operations) rest
       | .assert condition =>
           let value ← lowerExpr plan fuel loopEnv stateValues next condition
-          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
             stateValues value.next
             pathEmits (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
       | .emitEvent effectId _ args =>
@@ -2680,7 +2863,35 @@ private partial def lowerPathStatementsV1
             acc' := acc' ++ value.operations
             argRefs := argRefs.push value.value
             next' := value.next
-          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
+            stateValues next'
+            (pathEmits.push (effectId, argRefs)) acc' rest
+      | .externalCall effectId _ args =>
+          -- Evaluate args into the current path; arg slot and status
+          -- bindings land at the path leaf.
+          let mut acc' := acc
+          let mut next' := next
+          let mut argRefs : Array ValueRef := #[]
+          for arg in args do
+            let value ← lowerExpr plan fuel loopEnv stateValues next' arg
+            acc' := acc' ++ value.operations
+            argRefs := argRefs.push value.value
+            next' := value.next
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
+            stateValues next'
+            (pathEmits.push (effectId, argRefs)) acc' rest
+      | .schedule effectId _ args =>
+          -- Evaluate args into the current path; schedule arg slot bindings
+          -- land at the path leaf (fire-and-forget: no status exists).
+          let mut acc' := acc
+          let mut next' := next
+          let mut argRefs : Array ValueRef := #[]
+          for arg in args do
+            let value ← lowerExpr plan fuel loopEnv stateValues next' arg
+            acc' := acc' ++ value.operations
+            argRefs := argRefs.push value.value
+            next' := value.next
+          lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
             stateValues next'
             (pathEmits.push (effectId, argRefs)) acc' rest
       | .returnValue valueExpr =>
@@ -2689,13 +2900,15 @@ private partial def lowerPathStatementsV1
               s!"relation '{relation.name}' has a statement after a return"
           let value ← lowerExpr plan fuel loopEnv stateValues next valueExpr
           pure (acc ++ value.operations ++
-            leafAssertions plan relation emitSlots stateValues (some value.value) pathEmits,
+            leafAssertions plan relation slots.emit slots.call slots.schedule
+              stateValues (some value.value) pathEmits,
             value.next)
       | .returnNone =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
-          pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits,
+          pure (acc ++ leafAssertions plan relation slots.emit slots.call slots.schedule
+              stateValues none pathEmits,
             next)
       | .revertError _ args =>
           unless rest.isEmpty do
@@ -2710,7 +2923,7 @@ private partial def lowerPathStatementsV1
             let value ← lowerExpr plan fuel loopEnv stateValues next' arg
             acc' := acc' ++ value.operations
             next' := value.next
-          pure (acc' ++ revertAssertions relation emitSlots, next')
+          pure (acc' ++ revertAssertions relation slots.emit slots.call slots.schedule, next')
       | .ifThenElse condition thenBody elseBody =>
           let condition ← lowerExpr plan fuel loopEnv stateValues next condition
           -- Emission invariant: a region followed by a continuation always
@@ -2721,9 +2934,9 @@ private partial def lowerPathStatementsV1
               s!"relation '{relation.name}' has a continuation after a closed region"
           let fold := fun (arm : Array Statement) =>
             if statementListClosesV1 arm.toList then arm.toList else arm.toList ++ rest
-          let (thenOps, next1) ← lowerPathStatementsV1 plan relation fuel emitSlots
+          let (thenOps, next1) ← lowerPathStatementsV1 plan relation fuel slots
             loopEnv openLeaf stateValues condition.next pathEmits #[] (fold thenBody)
-          let (elseOps, next2) ← lowerPathStatementsV1 plan relation fuel emitSlots
+          let (elseOps, next2) ← lowerPathStatementsV1 plan relation fuel slots
             loopEnv openLeaf stateValues next1 pathEmits #[] (fold elseBody)
           pure (acc ++ condition.operations ++
             #[.ifRegion condition.value thenOps elseOps], next2)
@@ -2744,21 +2957,23 @@ private partial def lowerPathStatementsV1
           let mut caseOps : Array (UInt64 × Array Operation) := #[]
           let mut nextAcc := scrutinee.next
           for (caseValue, caseBody) in cases do
-            let (operations, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
+            let (operations, next') ← lowerPathStatementsV1 plan relation fuel slots
               loopEnv openLeaf stateValues nextAcc pathEmits #[] (fold caseBody)
             caseOps := caseOps.push (caseValue, operations)
             nextAcc := next'
-          let (defaultOps, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
+          let (defaultOps, next') ← lowerPathStatementsV1 plan relation fuel slots
             loopEnv openLeaf stateValues nextAcc pathEmits #[] (fold defaultBody)
           pure (acc ++ scrutinee.operations ++
             #[.switchRegion scrutinee.value scrutIsBool caseOps defaultOps], next')
       | .forLoop slot bound initE condE updateE body => do
-          -- One static event slot cannot bind multiple dynamic occurrences.
-          unless (collectEmitSlots body).isEmpty do
+          -- One static effect slot cannot bind multiple dynamic occurrences.
+          unless (collectEmitSlots body).isEmpty &&
+              (collectCallSlots body).isEmpty &&
+              (collectScheduleSlots body).isEmpty do
             throw <| .planInvariant .noir
-              s!"relation '{relation.name}' emits an event inside a loop"
+              s!"relation '{relation.name}' has an effect statement inside a loop"
           let init ← lowerExpr plan fuel loopEnv stateValues next initE
-          lowerLoopLevelV1 plan relation fuel emitSlots slot bound condE updateE body
+          lowerLoopLevelV1 plan relation fuel slots slot bound condE updateE body
             0 init.value loopEnv openLeaf stateValues init.next pathEmits
             (acc ++ init.operations) rest
 
@@ -2772,7 +2987,7 @@ private partial def lowerPathStatementsV1
     statements from this level's environment. -/
 private partial def lowerLoopLevelV1
     (plan : Plan) (relation : Relation) (fuel : Nat)
-    (emitSlots : Array (Nat × Nat × Nat))
+    (slots : RelationSlotsV1)
     (slot : Nat) (bound : UInt32) (condE updateE : Expr) (body : Array Statement)
     (level : Nat) (iRef : ValueRef)
     (loopEnv : Array (Nat × ValueRef))
@@ -2790,7 +3005,7 @@ private partial def lowerLoopLevelV1
   -- Exit continuation: walk the post-loop statements from this level's
   -- environment (reached when the condition first fails).
   let exitWalk := fun (nx : Nat) =>
-    lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+    lowerPathStatementsV1 plan relation fuel slots loopEnv openLeaf
       stateValues nx pathEmits #[] rest
   if level ≥ bound.toNat then
     -- Exact back-edge placement: the (bound+1)-th body still executes (a
@@ -2806,7 +3021,7 @@ private partial def lowerLoopLevelV1
         | .temp _ => anchored := anchored.push (.assertEqual ref ref)
         | _ => pure ()
       pure (anchored.push (.assertConstraint (.literal 0)), nx)
-    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel emitSlots
+    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel slots
       loopEnvK boundLeaf stateValues cond.next pathEmits #[] body.toList
     let (exitOps, exitNext) ← exitWalk thenNext
     pure (acc ++ cond.operations ++ #[.ifRegion cond.value thenOps exitOps], exitNext)
@@ -2814,10 +3029,10 @@ private partial def lowerLoopLevelV1
     -- The body's open leaf evaluates the update and descends one level.
     let bodyLeaf : OpenLeafV1 := fun sv nx pe ac => do
       let update ← lowerExpr plan fuel loopEnvK sv nx updateE
-      lowerLoopLevelV1 plan relation fuel emitSlots slot bound condE updateE body
+      lowerLoopLevelV1 plan relation fuel slots slot bound condE updateE body
         (level + 1) update.value loopEnv openLeaf sv update.next pe
         (ac ++ update.operations) rest
-    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel emitSlots
+    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel slots
       loopEnvK bodyLeaf stateValues cond.next pathEmits #[] body.toList
     let (exitOps, exitNext) ← exitWalk thenNext
     pure (acc ++ cond.operations ++ #[.ifRegion cond.value thenOps exitOps], exitNext)
@@ -2836,10 +3051,14 @@ private def lowerRelation (plan : Plan) (relation : Relation) :
   if !plan.states.isEmpty then
     operations := operations.push <| .assertBool
       (inputIndexFor relation .preInitialized) (relation.mode != .initialize)
-  let emitSlots := collectEmitSlots relation.body
+  let slots : RelationSlotsV1 := {
+    emit := collectEmitSlots relation.body
+    call := collectCallSlots relation.body
+    schedule := collectScheduleSlots relation.body
+  }
   let (pathOps, next) ← lowerPathStatementsV1 plan relation
-    plan.resourceLimits.maxIrOperations emitSlots #[]
-    (defaultOpenLeafV1 plan relation emitSlots)
+    plan.resourceLimits.maxIrOperations slots #[]
+    (defaultOpenLeafV1 plan relation slots)
     stateValues 0 #[] #[] relation.body.toList
   pure {
     sourceRelation := relation
@@ -3155,6 +3374,10 @@ private def renderInputJson (input : InputBinding) : String :=
     | .postInitialized => ("post-initialized", "null")
     | .result => ("result", "null")
     | .eventSlot emitIndex argIndex => ("event-slot", s!"[{emitIndex},{argIndex}]")
+    | .callStatus callIndex => ("call-status", toString callIndex)
+    | .callArgSlot callIndex argIndex => ("call-arg-slot", s!"[{callIndex},{argIndex}]")
+    | .scheduleArgSlot scheduleIndex argIndex =>
+        ("schedule-arg-slot", s!"[{scheduleIndex},{argIndex}]")
   let type := if input.type == .u64 then "u64" else "bool"
   "{" ++
     s!"\"name\":\"{Targets.escapeJson input.name}\"," ++

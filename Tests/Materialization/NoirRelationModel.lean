@@ -421,7 +421,7 @@ private def statefulInputs (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
-    | .eventSlot _ _ => none
+    | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 /-- Stateful relation witness with a Bool entry/view result binding. -/
 private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
@@ -434,7 +434,7 @@ private def statefulInputsBoolResult (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .bool result
-    | .eventSlot _ _ => none
+    | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private def privateSumInputs (relation : Targets.Noir.RelationIR)
     (params : Array U64) (result : U64) : Except String (Array ModelValue) :=
@@ -1252,6 +1252,7 @@ private def statefulInputsWithSlots (relation : Targets.Noir.RelationIR)
     | .eventSlot emitIndex argIndex =>
         (slots.find? fun (e, a, _) => e == emitIndex && a == argIndex).map
           fun (_, _, value) => ModelValue.u64 value
+    | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private unsafe def checkEmitRevertProduct : IO Unit := do
   let ir ← compileIrFromProgramV1 emitRevertSourceText
@@ -1730,7 +1731,7 @@ private def statefulInputs2 (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .u64 result
-    | .eventSlot _ _ => none
+    | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private def statefulInputs2Bool (relation : Targets.Noir.RelationIR)
     (preInitialized : Bool) (preState pa pb postState : U64)
@@ -1742,7 +1743,7 @@ private def statefulInputs2Bool (relation : Targets.Noir.RelationIR)
     | .postState _ => some <| .u64 postState
     | .postInitialized => some <| .bool postInitialized
     | .result => some <| .bool result
-    | .eventSlot _ _ => none
+    | .eventSlot _ _ | .callStatus _ | .callArgSlot _ _ | .scheduleArgSlot _ _ => none
 
 private unsafe def checkShiftBitwiseLogicalProduct : IO Unit := do
   let ir ← compileIrFromProgramV1 bitLogicSourceText
@@ -1854,6 +1855,151 @@ private unsafe def checkShiftBitwiseLogicalProduct : IO Unit := do
   expect (bothNr.contents.contains ": bool = ")
     "BitLogic both .nr must render the Bool result"
 
+/-- External call and workflow schedule: each static call site binds a
+    status witness (returned is provable; a reverted claim is inadmissible)
+    and public arg slots; schedules bind arg slots only (fire-and-forget,
+    no response channel). -/
+private def extFlowSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program ExtFlow where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  event Ping(x : UInt64)\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    emit Ping(count)\n" ++
+  "    call Oracle.feed(count)\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  entry later(delta : UInt64) : UInt64 do\n" ++
+  "    schedule ledger.daily(count)\n" ++
+  "    schedule ledger.weekly(delta)\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private def extFlowInputs (relation : Targets.Noir.RelationIR)
+    (preInitialized : Bool) (preState parameter postState : U64)
+    (postInitialized : Bool) (result : U64)
+    (eventSlots : Array (Nat × Nat × U64))
+    (callSlots : Array (Nat × Nat × U64))
+    (callStatuses : Array (Nat × Bool))
+    (scheduleSlots : Array (Nat × Nat × U64)) :
+    Except String (Array ModelValue) :=
+  bindInputs relation fun role => match role with
+    | .preInitialized => some <| .bool preInitialized
+    | .preState _ => some <| .u64 preState
+    | .parameter _ => some <| .u64 parameter
+    | .postState _ => some <| .u64 postState
+    | .postInitialized => some <| .bool postInitialized
+    | .result => some <| .u64 result
+    | .eventSlot emitIndex argIndex =>
+        (eventSlots.find? fun (e, a, _) => e == emitIndex && a == argIndex).map
+          fun (_, _, value) => ModelValue.u64 value
+    | .callStatus callIndex =>
+        (callStatuses.find? fun (c, _) => c == callIndex).map
+          fun (_, value) => ModelValue.bool value
+    | .callArgSlot callIndex argIndex =>
+        (callSlots.find? fun (c, a, _) => c == callIndex && a == argIndex).map
+          fun (_, _, value) => ModelValue.u64 value
+    | .scheduleArgSlot scheduleIndex argIndex =>
+        (scheduleSlots.find? fun (s, a, _) => s == scheduleIndex && a == argIndex).map
+          fun (_, _, value) => ModelValue.u64 value
+
+private unsafe def checkExternalCallScheduleProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 extFlowSourceText
+    "Examples.ExtFlow" "<noir-ext-flow>"
+  let bump ← findRelation ir "bump"
+  let later ← findRelation ir "later"
+
+  -- Plan pins: emit (effectId 0) then call (effectId 1) share one sequence;
+  -- later's two schedules number 0,1 per callable.
+  let bumpPlan := bump.sourceRelation
+  match bumpPlan.body[0]?, bumpPlan.body[1]? with
+  | some (s0 : Targets.Noir.Statement), some (s1 : Targets.Noir.Statement) =>
+      match s0, s1 with
+      | .emitEvent 0 0 #[.stateLoad 0],
+        .externalCall 1 #["Oracle", "feed"] #[.stateLoad 0] => pure ()
+      | _, _ =>
+          throw <| IO.userError "ExtFlow bump must lower emit Ping + call Oracle.feed in shared order"
+  | _, _ => throw <| IO.userError "ExtFlow bump body is too short"
+  let laterPlan := later.sourceRelation
+  match laterPlan.body[0]?, laterPlan.body[1]? with
+  | some (s0 : Targets.Noir.Statement), some (s1 : Targets.Noir.Statement) =>
+      match s0, s1 with
+      | .schedule 0 #["ledger", "daily"] #[.stateLoad 0],
+        .schedule 1 #["ledger", "weekly"] #[.param 2] => pure ()
+      | _, _ =>
+          throw <| IO.userError "ExtFlow later must lower two schedules numbered 0,1"
+  | _, _ => throw <| IO.userError "ExtFlow later body is too short"
+
+  -- Input envelope pins: bump carries the event slot, the call status
+  -- witness, and the call arg slot after the lifecycle inputs.
+  let bumpInputs := bump.sourceRelation.inputs
+  expect (bumpInputs.size == 9)
+    s!"ExtFlow bump inputs must be lifecycle 6 + event slot + status + call arg, got {bumpInputs.size}"
+  expect (bumpInputs[6]!.name == "ev_e0_a0" && bumpInputs[7]!.name == "call_e1_status" &&
+      bumpInputs[7]!.type == .bool && bumpInputs[8]!.name == "call_e1_a0")
+    "ExtFlow bump envelope must bind ev_e0_a0, call_e1_status (bool), call_e1_a0"
+  let laterInputs := later.sourceRelation.inputs
+  expect (laterInputs.size == 8 &&
+      laterInputs[6]!.name == "sched_e0_a0" && laterInputs[7]!.name == "sched_e1_a0")
+    "ExtFlow later envelope must bind sched_e0_a0 and sched_e1_a0"
+
+  -- Model: bump(5) from count=0 with a returned response.
+  let bumpOk ← liftModel "ExtFlow bump ok inputs" <|
+    extFlowInputs bump true 0 5 5 true 5
+      #[(0, 0, 0)] #[(1, 0, 0)] #[(1, true)] #[]
+  expectAccept "ExtFlow bump(5) with returned status accepts" bump bumpOk
+  -- A reverted claim (status false on the executing path) is inadmissible.
+  let bumpReverted ← liftModel "ExtFlow bump reverted inputs" <|
+    extFlowInputs bump true 0 5 5 true 5
+      #[(0, 0, 0)] #[(1, 0, 0)] #[(1, false)] #[]
+  expectReject "ExtFlow bump with reverted claim is inadmissible" bump bumpReverted
+  -- Wrong call arg slot rejects.
+  let bumpWrongArg ← liftModel "ExtFlow bump wrong arg inputs" <|
+    extFlowInputs bump true 0 5 5 true 5
+      #[(0, 0, 0)] #[(1, 0, 9)] #[(1, true)] #[]
+  expectReject "ExtFlow bump with a wrong call arg rejects" bump bumpWrongArg
+  -- later(2) from count=5: schedule slots bind count and delta.
+  let laterOk ← liftModel "ExtFlow later ok inputs" <|
+    extFlowInputs later true 5 2 5 true 5
+      #[] #[] #[] #[(0, 0, 5), (1, 0, 2)]
+  expectAccept "ExtFlow later(2) accepts" later laterOk
+  let laterWrong ← liftModel "ExtFlow later wrong inputs" <|
+    extFlowInputs later true 5 2 5 true 5
+      #[] #[] #[] #[(0, 0, 5), (1, 0, 9)]
+  expectReject "ExtFlow later with a wrong schedule slot rejects" later laterWrong
+
+  -- `.nr` surface: status witness binding and slot declarations.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 extFlowSourceText
+      "<noir-ext-emit>" "Examples.ExtFlow" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some bumpNr := files.find? (fun file =>
+      file.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "ExtFlow missing bump main.nr"
+  expect (bumpNr.contents.contains "call_e1_status: pub bool" &&
+      bumpNr.contents.contains "call_e1_a0: pub u64" &&
+      bumpNr.contents.contains "ev_e0_a0: pub u64")
+    "ExtFlow bump .nr must declare the status witness and arg slots"
+  expect (bumpNr.contents.contains "assert(call_e1_status == true);")
+    "ExtFlow bump .nr must assert the returned status on executing paths"
+  let some laterNr := files.find? (fun file =>
+      file.path.endsWith "r2-later/src/main.nr") |
+    throw <| IO.userError "ExtFlow missing later main.nr"
+  expect (laterNr.contents.contains "sched_e0_a0: pub u64" &&
+      laterNr.contents.contains "sched_e1_a0: pub u64")
+    "ExtFlow later .nr must declare both schedule arg slots"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1887,5 +2033,6 @@ unsafe def run : IO Unit := do
   checkArithOpsProduct
   checkForLoopProduct
   checkShiftBitwiseLogicalProduct
+  checkExternalCallScheduleProduct
 
 end Tests.Materialization.NoirRelationModel
