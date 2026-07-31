@@ -4099,6 +4099,163 @@ def encodeCanonicalArrayValueV1 (types : Array TypeDeclV1)
   let _ ← spendCanonicalValueWorkV1 budget (max 1 out.size)
   pure out
 
+/-- Canonical Map entry returned by the narrow public Map codec seam. -/
+structure CanonicalMapEntryV1 where
+  keyBytes   : ByteArray
+  valueBytes : ByteArray
+  deriving Inhabited
+
+/-- Phase-aware Map mutation failure. Input failures retain their exact Wire
+    error; only work/capacity failures after all inputs validate are resources. -/
+inductive CanonicalMapUpdateErrorV1 where
+  | invalidInput (error : SemanticWireErrorV1)
+  | resourceExhausted
+  deriving BEq, Repr
+
+private def mapUpdateInputV1 (result : Except SemanticWireErrorV1 α) :
+    Except CanonicalMapUpdateErrorV1 α :=
+  match result with
+  | .ok value => .ok value
+  | .error error => .error (.invalidInput error)
+
+private def canonicalMapShapeV1 (types : Array TypeDeclV1) (mapTypeId : TypeIdV1) :
+    Except SemanticWireErrorV1 (TypeIdV1 × TypeIdV1) := do
+  match types[mapTypeId.toNat]? with
+  | none => err .badReference
+  | some { shape := .map key value, .. } =>
+      -- Keep Map-key policy owned by Wire rather than duplicating or widening
+      -- it in an evaluator.
+      checkLegalMapKeyTypeV1 types key types.size
+      pure (key, value)
+  | some _ => err .badType
+
+private def splitCanonicalMapValueWithBudgetV1 (types : Array TypeDeclV1)
+    (mapTypeId : TypeIdV1) (valueBytes : ByteArray) (budget : Nat) :
+    Except SemanticWireErrorV1 (Array CanonicalMapEntryV1 × Nat) := do
+  unless valueBytes.size ≤ maxCanonicalValueBytes do return ← err .limitExceeded
+  let (keyType, valueType) ← canonicalMapShapeV1 types mapTypeId
+  let mut budget ← spendCanonicalValueWorkV1 budget 1
+  let (countU, c0) ← takeU32leNC (start valueBytes)
+  let count := countU.toNat
+  unless count ≤ maxMapEntriesV1 do return ← err .limitExceeded
+  let mut c := c0
+  let mut entries : Array CanonicalMapEntryV1 := Array.emptyWithCapacity count
+  let mut previous : Option ByteArray := none
+  for _ in [:count] do
+    let (keyLenU, c1) ← takeU32leNC c
+    let (key, c2) ← takeBytesNC c1 keyLenU.toNat
+    let (keyRe, keyCursor, budget') ←
+      decodeAndReencodeValueBytesV1 types keyType (maxNesting - 1) budget (start key)
+    budget := budget'
+    unless remaining keyCursor == 0 && keyRe == key do return ← err .nonCanonical
+    match previous with
+    | some prior =>
+        unless compareByteArrayLex prior key == .lt do return ← err .nonCanonical
+    | none => pure ()
+    previous := some key
+    let (valueLenU, c3) ← takeU32leNC c2
+    let (value, c4) ← takeBytesNC c3 valueLenU.toNat
+    let (valueRe, valueCursor, budget') ←
+      decodeAndReencodeValueBytesV1 types valueType (maxNesting - 1) budget (start value)
+    budget := budget'
+    unless remaining valueCursor == 0 && valueRe == value do return ← err .nonCanonical
+    entries := entries.push { keyBytes := key, valueBytes := value }
+    c := c4
+  unless remaining c == 0 do return ← err .nonCanonical
+  budget ← spendCanonicalValueWorkV1 budget (max 1 valueBytes.size)
+  pure (entries, budget)
+
+/-- Split and validate one complete canonical Map under a single cumulative
+    traversal budget. -/
+def splitCanonicalMapValueV1 (types : Array TypeDeclV1) (mapTypeId : TypeIdV1)
+    (valueBytes : ByteArray) : Except SemanticWireErrorV1 (Array CanonicalMapEntryV1) := do
+  let (entries, _) ← splitCanonicalMapValueWithBudgetV1 types mapTypeId valueBytes
+    maxCanonicalProgramBytes
+  pure entries
+
+/-- Wire-owned canonical empty Map encoding. -/
+def encodeCanonicalEmptyMapValueV1 (types : Array TypeDeclV1)
+    (mapTypeId : TypeIdV1) : Except SemanticWireErrorV1 ByteArray := do
+  let _ ← canonicalMapShapeV1 types mapTypeId
+  let out := encodeU32le 0
+  validateValueBytesV1 types mapTypeId out
+  pure out
+
+/-- Lookup an exact canonical key in a canonical Map. Both the map and key are
+    validated against their exact TypeIds; ordering/framing remains private. -/
+def lookupCanonicalMapValueV1 (types : Array TypeDeclV1) (mapTypeId : TypeIdV1)
+    (mapBytes keyBytes : ByteArray) : Except SemanticWireErrorV1 (Option ByteArray) := do
+  let (keyType, _) ← canonicalMapShapeV1 types mapTypeId
+  let budget ← validateValueBytesWithFuelV1 types keyType keyBytes (maxNesting - 1)
+    maxCanonicalProgramBytes
+  let (entries, budget) ←
+    splitCanonicalMapValueWithBudgetV1 types mapTypeId mapBytes budget
+  let mut budget := budget
+  for entry in entries do
+    budget ← spendCanonicalValueWorkV1 budget 1
+    match compareByteArrayLex entry.keyBytes keyBytes with
+    | .eq => return some entry.valueBytes
+    | .gt => return none
+    | .lt => pure ()
+  pure none
+
+/-- Immutable canonical Map upsert. Equal keys replace without count growth;
+    otherwise insertion preserves strict unsigned-byte lexicographic order.
+    Input validation and mutation resource failures remain distinguishable. -/
+def upsertCanonicalMapValueV1 (types : Array TypeDeclV1) (mapTypeId : TypeIdV1)
+    (mapBytes keyBytes valueBytes : ByteArray) :
+    Except CanonicalMapUpdateErrorV1 ByteArray := do
+  let (keyType, valueType) ← mapUpdateInputV1 (canonicalMapShapeV1 types mapTypeId)
+  let budget ← mapUpdateInputV1 <|
+    validateValueBytesWithFuelV1 types keyType keyBytes (maxNesting - 1)
+      maxCanonicalProgramBytes
+  let budget ← mapUpdateInputV1 <|
+    validateValueBytesWithFuelV1 types valueType valueBytes (maxNesting - 1) budget
+  let (entries, budget) ← mapUpdateInputV1 <|
+    splitCanonicalMapValueWithBudgetV1 types mapTypeId mapBytes budget
+  let mut budget := budget
+  budget ←
+    match spendCanonicalValueWorkV1 budget entries.size with
+    | .ok updatedBudget => pure updatedBudget
+    | .error _ => throw .resourceExhausted
+  let replacing := entries.any (fun e => e.keyBytes == keyBytes)
+  unless replacing || entries.size < maxMapEntriesV1 do
+    throw .resourceExhausted
+  let count := if replacing then entries.size else entries.size + 1
+  let mut out := encodeU32le (UInt32.ofNat count)
+  let appendEntry (out : ByteArray) (key value : ByteArray) :
+      Except CanonicalMapUpdateErrorV1 ByteArray := do
+    unless key.size ≤ maxCanonicalValueBytes - 8 do throw .resourceExhausted
+    let keyFramed := key.size + 8
+    unless value.size ≤ maxCanonicalValueBytes - keyFramed do throw .resourceExhausted
+    let needed := keyFramed + value.size
+    unless needed ≤ maxCanonicalValueBytes - out.size do
+      throw .resourceExhausted
+    pure ((((out.append (encodeU32le (UInt32.ofNat key.size))).append key).append
+      (encodeU32le (UInt32.ofNat value.size))).append value)
+  let mut inserted := false
+  for entry in entries do
+    budget ←
+      match spendCanonicalValueWorkV1 budget 1 with
+      | .ok updatedBudget => pure updatedBudget
+      | .error _ => throw .resourceExhausted
+    match compareByteArrayLex entry.keyBytes keyBytes with
+    | .lt => out ← appendEntry out entry.keyBytes entry.valueBytes
+    | .eq =>
+        out ← appendEntry out keyBytes valueBytes
+        inserted := true
+    | .gt =>
+        unless inserted do
+          out ← appendEntry out keyBytes valueBytes
+          inserted := true
+        out ← appendEntry out entry.keyBytes entry.valueBytes
+  unless inserted do out ← appendEntry out keyBytes valueBytes
+  let _ ←
+    match spendCanonicalValueWorkV1 budget (max 1 out.size) with
+    | .ok remainingBudget => pure remainingBudget
+    | .error _ => throw .resourceExhausted
+  pure out
+
 /-- Split one complete canonical Option/Enum value into its constructor tag and
     canonical payload slices. The outer variant reserves one nesting level;
     payloads are decoded by the sole canonical decoder. -/

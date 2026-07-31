@@ -110,6 +110,15 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现；formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+### D2-07 Map index runtime 增量（2026-07-31）
+
+工程（非formal）ReferenceV1现接纳Wire-legal Map、empty Construct及Map IndexGet/immutable
+IndexSet；get产生exact Option<value>，set保留旧SSA。WireV1 public lookup/upsert seam复用sole
+cumulative decoder与unsigned-lex comparator，负责canonical framing、key legality、strict unique
+order及count/byte/work/nesting cap。admission以`maxMapEntriesV1`理论最大entry count作cap-safe
+保守width/work计算且不按count循环，可能拒绝实际可容纳的小Map。ContextRead、Commit与formal
+evaluator仍pending。
+
 ### D2-07 Array/Bytes index runtime 增量（2026-07-31）
 
 工程（非formal）ReferenceV1 slice现接纳fixed-length Array、Array Construct及Array/Bytes

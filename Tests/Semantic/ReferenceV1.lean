@@ -1478,7 +1478,8 @@ private def testAdmissionUnsupported : IO Unit := do
   admitUnsupported "adm-int" cI
     (fun d => d.toLower.contains "int") "int"
 
-  -- aggregate Map remains unsupported (fixed Array is admitted).
+  -- Map declarations are admitted when their conservative theoretical shape
+  -- fits the Wire byte/work limits.
   let typesAgg : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .map 0 0 },
@@ -1490,11 +1491,7 @@ private def testAdmissionUnsupported : IO Unit := do
     baseA with types := typesAgg, callables := #[entryAgg]
   }
   let cA ← encodeCarrier "adm-agg" dataA
-  admitUnsupported "adm-agg" cA
-    (fun d =>
-      let l := d.toLower
-      l.contains "aggregate" || l.contains "map")
-    "Map aggregate"
+  let _ ← admitOk "adm-agg" cA
 
   -- PureCall in entry body: now admitted (pureFn kind + arity checked at
   -- admission; a wrong-kind or wrong-arity callee still fails closed).
@@ -2400,20 +2397,231 @@ private def testArrayBytesReferenceSlice : IO Unit := do
   admitUnsupported "over-array-width" overWidthCarrier
     (fun detail => detail.contains "byte limit") "Array byte limit"
 
-  -- Map remains wire-typed but unsupported by this reference admission slice.
+  -- Map mechanics stay Wire-owned. UInt8 fixed-width keys cannot exercise a
+  -- prefix relation, so ordering coverage uses differing unsigned bytes.
   let mapTypes := types.push { id := 6, name := none, shape := .map 0 0 }
-  let mapEntry := mkEntry 0 "mapIndex" #[] 4 #[
-    instr (some (vd 0 6)) (.literal 6 (ByteArray.mk #[0, 0, 0, 0])),
-    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[0])),
-    instr (some (vd 2 7)) (.indexGet 0 1)
-  ] (.return_ none)
   let mapBase ← emptyData "MapIndex"
-  -- Structure typing needs Option<UInt8> for Map IndexGet result.
   let mapTypes := mapTypes.push { id := 7, name := none, shape := .option 0 }
+  let emptyMap ← match encodeCanonicalEmptyMapValueV1 mapTypes 6 with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map empty codec: {repr e}"
+  expect (emptyMap == ByteArray.mk #[0, 0, 0, 0]) "map canonical empty"
+  let inserted ← match upsertCanonicalMapValueV1 mapTypes 6 emptyMap
+      (ByteArray.mk #[20]) (ByteArray.mk #[9]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map insert codec: {repr e}"
+  let before ← match upsertCanonicalMapValueV1 mapTypes 6 inserted
+      (ByteArray.mk #[10]) (ByteArray.mk #[8]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map before codec: {repr e}"
+  let after ← match upsertCanonicalMapValueV1 mapTypes 6 before
+      (ByteArray.mk #[30]) (ByteArray.mk #[7]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map after codec: {repr e}"
+  let replaced ← match upsertCanonicalMapValueV1 mapTypes 6 after
+      (ByteArray.mk #[20]) (ByteArray.mk #[6]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map replace codec: {repr e}"
+  match splitCanonicalMapValueV1 mapTypes 6 replaced with
+  | .ok entries =>
+      expect (entries.size == 3 && entries[0]!.keyBytes == ByteArray.mk #[10] &&
+        entries[1]!.valueBytes == ByteArray.mk #[6] &&
+        entries[2]!.keyBytes == ByteArray.mk #[30]) "map sorted insert/replace"
+  | .error e => throw <| IO.userError s!"map split codec: {repr e}"
+  let middle ← match upsertCanonicalMapValueV1 mapTypes 6 replaced
+      (ByteArray.mk #[15]) (ByteArray.mk #[5]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map middle codec: {repr e}"
+  match splitCanonicalMapValueV1 mapTypes 6 middle with
+  | .ok entries =>
+      expect (entries.size == 4 && entries[0]!.keyBytes == ByteArray.mk #[10] &&
+        entries[1]!.keyBytes == ByteArray.mk #[15] &&
+        entries[2]!.keyBytes == ByteArray.mk #[20] &&
+        entries[3]!.keyBytes == ByteArray.mk #[30]) "map middle insertion"
+  | .error e => throw <| IO.userError s!"map middle split: {repr e}"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (replaced.append (ByteArray.mk #[0])))) "map trailing rejected"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (ByteArray.mk #[2,0,0,0, 1,0,0,0, 20, 1,0,0,0,9,
+      1,0,0,0, 10, 1,0,0,0,8]))) "map unsorted rejected"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (ByteArray.mk #[2,0,0,0, 1,0,0,0, 10, 1,0,0,0,9,
+      1,0,0,0, 10, 1,0,0,0,8]))) "map duplicate rejected"
+  expect (match upsertCanonicalMapValueV1 mapTypes 6
+      (encodeU32le (UInt32.ofNat (maxMapEntriesV1 + 1)))
+      (ByteArray.mk #[10]) (ByteArray.mk #[9]) with
+    | .error (.invalidInput .limitExceeded) => true
+    | _ => false) "map malformed limit is invalid input"
+  expect (match upsertCanonicalMapValueV1 mapTypes 6 emptyMap
+      (ByteArray.mk #[10, 11]) (ByteArray.mk #[9]) with
+    | .error (.invalidInput .nonCanonical) => true
+    | _ => false) "map malformed key is invalid input"
+
+  let mut nestingTypes : Array TypeDeclV1 := #[]
+  for i in [:maxNesting - 1] do
+    nestingTypes := nestingTypes.push {
+      id := UInt32.ofNat i, name := none, shape := .option (UInt32.ofNat (i + 1)) }
+  nestingTypes := nestingTypes.push {
+    id := UInt32.ofNat (maxNesting - 1), name := none, shape := .unit }
+  let nestingKeyId := UInt32.ofNat maxNesting
+  nestingTypes := nestingTypes.push {
+    id := nestingKeyId, name := none, shape := .uint 8 }
+  let nestingMapId := UInt32.ofNat (maxNesting + 1)
+  nestingTypes := nestingTypes.push {
+    id := nestingMapId, name := none, shape := .map nestingKeyId 0 }
+  let nestingValue := ByteArray.mk (Array.replicate (maxNesting - 1) 1)
+  match validateValueBytesV1 nestingTypes 0 nestingValue with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"map standalone nesting boundary: {repr e}"
+  let nestingEmpty ← match encodeCanonicalEmptyMapValueV1 nestingTypes nestingMapId with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map nesting empty: {repr e}"
+  expect (match upsertCanonicalMapValueV1 nestingTypes nestingMapId nestingEmpty
+      (ByteArray.mk #[0]) nestingValue with
+    | .error (.invalidInput .limitExceeded) => true
+    | _ => false) "map insertion reserves outer nesting"
+
+  let mapEntry := mkEntry 0 "mapIndex" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 7)) (.indexGet 0 1),
+    instr (some (vd 3 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 4 6)) (.indexSet 0 1 3),
+    instr (some (vd 5 7)) (.indexGet 0 1),
+    instr (some (vd 6 7)) (.indexGet 4 1)
+  ] (.return_ (some 6))
   let mapCarrier ← encodeCarrier "map-index" {
     mapBase with types := mapTypes, callables := #[mapEntry]
   }
-  admitUnsupported "map-index" mapCarrier (fun d => d.contains "Map") "Map index"
+  let mapAdmitted ← admitOk "map-index" mapCarrier
+  let mapDefault ← match defaultValueV1 mapCarrier 6 with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map default: {repr e}"
+  expect (mapDefault == emptyMap) "map default is canonical empty"
+  expectReturned "map-index" (stepReferenceSliceV1 mapAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[1, 9] }) #[]
+
+  let mapMissing := mkEntry 0 "mapMissing" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 7)) (.indexGet 0 1)
+  ] (.return_ (some 2))
+  let mapMissingCarrier ← encodeCarrier "map-missing" {
+    mapBase with types := mapTypes, callables := #[mapMissing]
+  }
+  let mapMissingAdmitted ← admitOk "map-missing" mapMissingCarrier
+  expectReturned "map-missing" (stepReferenceSliceV1 mapMissingAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[0] }) #[]
+
+  let mapOld := mkEntry 0 "mapOld" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 3 6)) (.indexSet 0 1 2),
+    instr (some (vd 4 7)) (.indexGet 0 1)
+  ] (.return_ (some 4))
+  let mapOldCarrier ← encodeCarrier "map-old" {
+    mapBase with types := mapTypes, callables := #[mapOld]
+  }
+  let mapOldAdmitted ← admitOk "map-old" mapOldCarrier
+  expectReturned "map-old" (stepReferenceSliceV1 mapOldAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[0] }) #[]
+
+  let mapLookupPure := mkPureFn 1 "mapLookupPure" #[
+    { valueId := 0, name := "m", typeId := 6, visibility := .public_ },
+    { valueId := 1, name := "k", typeId := 0, visibility := .public_ }
+  ] 7 #[instr (some (vd 2 7)) (.indexGet 0 1)] (.return_ (some 2))
+  let mapPureEntry := mkEntry 0 "mapPureEntry" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 3 6)) (.indexSet 0 1 2),
+    instr (some (vd 4 7)) (.pureCall 1 #[3, 1])
+  ] (.return_ (some 4))
+  let mapPureCarrier ← encodeCarrier "map-pure" {
+    mapBase with types := mapTypes, callables := #[mapPureEntry, mapLookupPure]
+  }
+  let mapPureAdmitted ← admitOk "map-pure" mapPureCarrier
+  expectReturned "map-pure" (stepReferenceSliceV1 mapPureAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[1, 9] }) #[]
+
+  let mapInvariant : CallableV1 := {
+    id := 1, kind := .invariant, name := some "mapInvariant", params := #[]
+    result := { typeId := 5, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 #[
+      instr (some (vd 0 6)) (.construct 6 0 #[]),
+      instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+      instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+      instr (some (vd 3 6)) (.indexSet 0 1 2),
+      instr (some (vd 4 7)) (.indexGet 3 1),
+      instr (some (vd 5 1)) (.variantTag 4),
+      instr (some (vd 6 1)) (.literal 1 (leBytesFromNat 1 4)),
+      instr (some (vd 7 5)) (.binary .eq 5 6)
+    ] (.return_ (some 7))]
+    loopBounds := #[]
+    invariantSteps := some 10
+  }
+  let mapInvariantGate := mkEntry 0 "mapInvariantGate" #[] 4 #[] (.return_ none)
+  let mapInvariantCarrier ← encodeCarrier "map-invariant" {
+    mapBase with
+    types := mapTypes
+    callables := #[mapInvariantGate, mapInvariant]
+    invariants := #[{ id := 0, name := "mapInvariant", callableId := 1 }]
+  }
+  let mapInvariantAdmitted ← admitOk "map-invariant" mapInvariantCarrier
+  expect (evalInvariantReferenceSliceV1 mapInvariantAdmitted 0
+    { initialized := true, canonicalValues := ByteArray.empty } == .returnedTrue)
+    "map-invariant: returned true"
+
+  let mapWorkTypes (fieldCount : Nat) : Array TypeDeclV1 := Id.run do
+    let mut fields : Array StructFieldV1 := #[]
+    for i in [:fieldCount] do
+      fields := fields.push { name := s!"f{i}", typeId := 2 }
+    pure #[
+      { id := 0, name := some "MapValue", shape := .struct fields },
+      { id := 1, name := none, shape := .uint 32 },
+      { id := 2, name := none, shape := .unit },
+      { id := 3, name := none, shape := .map 1 0 },
+      { id := 4, name := none, shape := .bool }
+    ]
+  let mapWorkGate := mkEntry 0 "mapWorkGate" #[] 4 #[] (.return_ none)
+  let mapWorkBase ← emptyData "MapWork"
+  let boundedMapWorkCarrier ← encodeCarrier "bounded-map-work" {
+    mapWorkBase with types := mapWorkTypes 17, callables := #[mapWorkGate]
+  }
+  let _ ← admitOk "bounded-map-work" boundedMapWorkCarrier
+  let overMapWorkCarrier ← encodeCarrier "over-map-work" {
+    mapWorkBase with types := mapWorkTypes 18, callables := #[mapWorkGate]
+  }
+  admitUnsupported "over-map-work" overMapWorkCarrier
+    (fun detail => detail.contains "Map canonical update work") "Map update work"
+
+  let recursiveMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "MapLoop", shape := .enum #[
+      { name := "Stop", payloadTypes := #[] },
+      { name := "More", payloadTypes := #[1] }] },
+    { id := 1, name := none, shape := .map 3 2 },
+    { id := 2, name := none, shape := .option 0 },
+    { id := 3, name := none, shape := .uint 8 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let recursiveMapGate := mkEntry 0 "recursiveMapGate" #[] 4 #[] (.return_ none)
+  let recursiveMapBase ← emptyData "RecursiveMap"
+  let recursiveMapCarrier ← encodeCarrier "recursive-map" {
+    recursiveMapBase with types := recursiveMapTypes, callables := #[recursiveMapGate]
+  }
+  admitUnsupported "recursive-map" recursiveMapCarrier
+    (fun detail => detail.contains "recursive" && detail.contains "resource bounds")
+    "recursive Map boundary"
 
 /-- Option/Enum canonical seam and runtime Construct/tag/payload behavior. -/
 private def testVariantReferenceSlice : IO Unit := do
@@ -2572,7 +2780,7 @@ private def testVariantReferenceSlice : IO Unit := do
     recursiveBase with types := recursiveTypes, callables := #[recursiveGate]
   }
   admitUnsupported "recursive-variant" recursiveCarrier
-    (fun detail => detail.contains "recursive Struct/Array/Option/Enum")
+    (fun detail => detail.contains "recursive" && detail.contains "resource bounds")
     "recursive aggregate boundary"
 
   -- Enum alternatives use a maximum (only one constructor exists at runtime),

@@ -226,6 +226,12 @@ Array/Bytes/Map index、ContextRead/Commit及formal evaluator仍pending。
 
 ## D2-07 reference Option/Enum engineering status（2026-07-31）
 
+Map增量：Reference现接纳Wire-legal Map、empty `Construct 0 []`与immutable
+IndexGet/IndexSet；Wire sole canonical decoder及新增lookup/upsert seam独占framing、unsigned
+lex order、key legality和共享byte/work/nesting caps。资源 admission 使用`maxMapEntriesV1`
+理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。ContextRead/Commit、formal
+evaluator与TASK-D2-07/TST-SEM-002/003仍pending。
+
 同一general-CFG/PureCall Reference machine现进一步开放`TypeShapeV1.Option`/`Enum`、对应
 `Construct`以及`VariantTag`/`VariantPayload`。`WireV1`拥有唯一窄canonical variant split/encode
 seam，保留outer nesting fuel、16MiB append前cap、full-consume/re-encode及错误shape/tag/count/

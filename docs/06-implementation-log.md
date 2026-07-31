@@ -30,6 +30,21 @@ normative: false
 - 修复：cleanup 组杀容忍表扩为 `errno != ESRCH && errno != EPERM`——完整性仍由后续 `pf_count_other_pgroup` 采样把关（EPERM 若真意味着有杀不掉的活成员，other>0 照样 INCOMPLETE fail closed），容忍不可能产出假 COMPLETE。另把 ambient-fd 探针脚本去括号子shell（dash fork 出的瞬时第二进程会被 10ms group sampler 计入 maxProcesses=1），断言语义不变。
 - 性质：宿主环境兼容修复（非产品语义变化）；supervisor suite 与产品 CLI 在新内核恢复全绿；`just sbom-package-files-refresh` 已随 native `.c` 变更刷新 package pin。
 
+## 2026-07-31 — D2-07 Map IndexGet/IndexSet engineering slice
+
+- `WireV1`新增Map empty/split/lookup/upsert窄public seam，canonical framing仍唯一为
+  `u32 count || repeated(u32 keyLen,key,u32 valueLen,value)`；sole cumulative decoder负责
+  exact consume、canonical key/value、strict unsigned-byte lex order、unique/count/16MiB/
+  64MiB work/nesting limits，upsert immutable replace或有序insert。
+- `ReferenceV1`接纳合法Wire Map、仅`Construct 0 []`、Map IndexGet/IndexSet。get返回静态
+  exact `Option<value>`（none=`00`、some经variant encoder）；set产生新Map SSA且保留旧值。
+  explicit-stack资源分析对最大`maxMapEntriesV1`作checked division/add/multiply的保守
+  width/work上界，不按count循环；因此理论最大形状超cap的Map即使实际为空也会拒绝。
+- encode→decode carrier聚焦覆盖empty/default、missing/hit、before/after/equal replacement、
+  old/new SSA及Wire malformed/unsorted/trailing negatives。固定UInt8 key无法表达prefix关系，
+  故使用不同unsigned fixed bytes。ContextRead、Commit与formal evaluator仍unsupported；
+  general CFG、PureCall、Struct/Option/Enum/Array/Bytes行为保持。
+
 ## 2026-07-30 — D1 engineering gap：Linux development-observed frontend supervisor
 
 - Context/State：远端 general CFG walker lineage保持D2唯一权威；本独立切片只补Linux ordinary-development frontend product path，不关闭formal TASK-D1-08、TST-RESOURCE-001或D1 milestone。
