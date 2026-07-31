@@ -29,7 +29,7 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
     cat "$log" >&2
     exit 1
   fi
-  if [[ ! -d "$out" ]] || ! rg -q '^built target=solana' "$log"; then
+  if [[ ! -d "$out" ]] || ! rg -q '^built Counter target=solana' "$log"; then
     echo "Linux source gate: build-counter did not publish output" >&2
     cat "$log" >&2
     exit 1
