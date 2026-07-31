@@ -11038,3 +11038,10 @@ normative: false
 - Tests：覆盖Array codec、construct/get/immutable set、Bytes get/set、Array/Bytes get/set OOR、旧/新SSA
   可观察性、PureCall/nonformal invariant复用、nested Option element、raw length gate及width/work正负边界。
 - Boundary：Map Construct/Index、ContextRead、Commit及formal evaluator/theorem仍pending。
+## 2026-07-31 — D2-07 ContextRead static-only single-row catalog (proposed)
+
+- WireV1 仅静态接纳 `proof-forge.context.unix-time-seconds.v1`，要求程序唯一匿名 UInt64
+  结果与 exact `context.unix-time-seconds@1.0.0` empty-predicate/domain-digest row；unknown key、
+  wrong shape 为 `.badCfg`，requirement binding 错误为 `.badRequirement`。
+- 语义冻结为 invocation 开始时 immutable Unix epoch seconds snapshot。Reference admission/runtime
+  与 target support 保持关闭；caller、authorizers、randomness deferred，formal TASK-D2-07 pending。

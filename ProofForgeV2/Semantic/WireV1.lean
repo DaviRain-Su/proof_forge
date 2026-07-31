@@ -186,8 +186,8 @@ import Std.Data.HashMap
     result for ContextRead/Commit,
     and void-op result-presence plus the at-least-two-component callee shape
     for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
-    serializability, the ContextRead requirement-to-result-type binding and key
-    capability support plus the exact Commit disclosure contract,
+    serializability and the exact Commit disclosure contract (ContextRead now
+    has a closed one-row key/result/requirement catalog),
     recursive/full TypeKey closure beyond the enforced named-prefix rank,
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
@@ -232,6 +232,14 @@ def maxMapEntriesV1 : Nat := maxArrayElements
 
 /-- v1 Field catalog sole entry id (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
+
+/-- Sole statically admitted v1 ContextRead key. -/
+def unixTimeSecondsContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.unix-time-seconds.v1" }
+
+/-- Requirement identity bound to the sole v1 ContextRead key. -/
+def unixTimeSecondsContextRequirementIdV1 : String :=
+  "context.unix-time-seconds"
 
 /-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrModulusBEV1 : ByteArray :=
@@ -493,6 +501,17 @@ structure RequirementRequestV1 where
 structure ProgramRequirementsV1 where
   items : Array RequirementRequestV1
   deriving BEq
+
+/-- Exact requirement row for the sole v1 ContextRead key. -/
+def unixTimeSecondsContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    unixTimeSecondsContextRequirementIdV1.toUTF8
+  pure {
+    id := unixTimeSecondsContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
 
 inductive SemanticEntityRefV1 where
   | typeRef (id : TypeIdV1)
@@ -2473,15 +2492,14 @@ def checkTerminatorTyping (c : CallableV1)
     Emit resolves eventId, matches args positionally against EventDecl fields,
     and carries no result. `Op.ContextRead` carries result presence here plus
     the §5.1 same-key result-TypeId global consistency pass (a separate
-    post-CFG gate); its requirement-to-result-type binding and key capability
-    support remain deferred. `Op.Commit` carries presence-only result; its
+    post-CFG gate), followed by its closed key/result/requirement catalog.
+    `Op.Commit` carries presence-only result; its
     exact disclosure contract remains deferred. ExternalCall/
     Schedule MUST carry `result := none` and a callee with at least two
     qualified-name components; a spurious result, short callee, or missing
     result on a value-producing op is an invalid Core trap → `.badCfg`. All
     step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
-    ExternalCall/Schedule argument serializability, the ContextRead
-    requirement-to-result-type binding and key capability support, the exact
+    ExternalCall/Schedule argument serializability, the exact
     `Op.Commit` disclosure contract, recursive/full TypeKey
     closure/ranking/reachability,
     provenance join, normalizer, product wire. -/
@@ -2592,8 +2610,8 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     The remaining result-producing ops (`ContextRead`/`Commit`) MUST carry
     `result := some _` presence-only here; `Op.ContextRead` additionally
     carries the §5.1 same-key result-TypeId consistency pass (a separate
-    post-CFG global gate), while the requirement-to-result-type binding and
-    the exact `Op.Commit` disclosure contract remain deferred to later slices.
+    post-CFG global catalog gate), while the exact `Op.Commit` disclosure
+    contract remains deferred to later slices.
     All failures → `.badCfg`. Bounded, non-recursive (serializableType is
     fuel-bounded). -/
 def checkOpTyping (instr : InstructionV1)
@@ -2636,8 +2654,8 @@ def checkOpTyping (instr : InstructionV1)
   --   local op branch here is presence-only (ContextRead/Commit). SPEC
   --   §4.3/§5.1 mandates a result; a missing result is `.badCfg`.
   --   `Op.ContextRead` additionally carries the §5.1 same-key result-TypeId
-  --   global consistency pass (a separate post-CFG gate); its requirement
-  --   binding and key capability support remain deferred. `Op.Commit`'s exact
+  --   global closed-catalog pass (a separate post-CFG gate), including exact
+  --   key/result shape and later requirement binding. `Op.Commit`'s exact
   --   disclosure contract remains deferred. FieldSet, VariantTag,
   --   VariantPayload, IndexSet, and CheckedCast have their own exact static
   --   contracts below.
@@ -3033,8 +3051,8 @@ def checkOpTyping (instr : InstructionV1)
   -- Remaining result-producing ops (ContextRead/Commit) carry
   --   `Instruction.result = some _` presence-only here. `Op.ContextRead`
   --   additionally carries the §5.1 same-key result-TypeId consistency pass
-  --   (a separate post-CFG global gate); the requirement-to-result-type
-  --   binding and the exact `Op.Commit` disclosure contract remain deferred.
+  --   (a separate post-CFG closed-catalog gate); the exact `Op.Commit`
+  --   disclosure contract remains deferred.
   | .contextRead _ | .commit _ => requireResultPresent
 
 /-- Per-callable CFG shape + reachability + loopBounds + EffectId assignment
@@ -3136,8 +3154,9 @@ private def validateCallableCfgShape (c : CallableV1)
   --   a spurious result is `.badCfg`. VariantPayload, IndexSet, and
   --   CheckedCast have exact static contracts; `Op.ContextRead` carries
   --   result presence here plus the §5.1 same-key result-TypeId global
-  --   consistency pass (a separate post-CFG gate, requirement binding and key
-  --   capability support still deferred), and `Op.Commit` carries
+  --   consistency and closed exact key/anonymous UInt64 catalog in a separate
+  --   post-CFG gate; its exact requirement row is checked after generic
+  --   requirement structure. `Op.Commit` carries
   --   `result := some _` presence-only with its exact disclosure contract
   --   deferred. All failures → `.badCfg`. Reuses `defTypes`
   --   from step h.
@@ -5017,20 +5036,27 @@ private def validateInvariantStepsIntrinsicCeilingV1
     `.badCfg`. It scans callables → blocks → instructions in source order and
     performs exact-key lookup/insert only (`key.value` string equality); it
     never iterates the host map. Expected time O(number of ContextRead
-    occurrences), space O(distinct keys). This slice does not bind the result
-    type to a requirement, implement ContextRead key capability support, or
-    validate the Commit disclosure contract; those remain deferred. -/
-private def validateContextReadResultTypeConsistencyV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+    occurrences), space O(distinct keys). The wire-owned v1 catalog admits
+    only the Unix-time-seconds key with anonymous UInt64 shape; exact
+    requirement binding runs after generic requirement validation. Commit's
+    disclosure contract remains deferred. -/
+private def validateContextReadCatalogV1
+    (types : Array TypeDeclV1) (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 Unit := do
   let mut seen : Std.HashMap String TypeIdV1 := {}
   for callable in callables do
     for block in callable.blocks do
       for instr in block.instructions do
         match instr.op with
         | .contextRead key =>
+            unless key == unixTimeSecondsContextKeyV1 do
+              return ← err .badCfg
             match instr.result with
             | none => return ← err .badCfg
             | some rdef =>
+                match types[rdef.typeId.toNat]? with
+                | some { name := none, shape := .uint 64, .. } => pure ()
+                | _ => return ← err .badCfg
                 match seen.get? key.value with
                 | none => seen := seen.insert key.value rdef.typeId
                 | some prevT =>
@@ -5075,7 +5101,7 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     liftCfgInvariantValidationPhaseV1 .cfg
       (validateCallableCfgShape callable data.types.size data.types data)
   liftCfgInvariantValidationPhaseV1 .cfg
-    (validateContextReadResultTypeConsistencyV1 data.callables)
+    (validateContextReadCatalogV1 data.types data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
     (validateInvariantRootDirectOpsV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantClosure
@@ -5232,6 +5258,29 @@ private def validateProgramRequirementsStructure (reqs : ProgramRequirementsV1) 
     prev? := some item
   pure ()
 
+/-- Bind every used wire-owned ContextRead key to its one exact requirement
+    row. Generic requirement structure/order is validated first. -/
+private def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut used := false
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .contextRead _ => used := true
+        | _ => pure ()
+  unless used do return
+  let expected ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error _ => return ← err .badRequirement
+  let mut found := false
+  for item in data.requirements.items do
+    if item.id == unixTimeSecondsContextRequirementIdV1 then
+      unless item == expected do return ← err .badRequirement
+      if found then return ← err .badRequirement
+      found := true
+  unless found do return ← err .badRequirement
+
 private def checkTableIds (getId : α → UInt32) (table : Array α) :
     Except SemanticWireErrorV1 Unit := do
   let mut i : Nat := 0
@@ -5281,8 +5330,9 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
       destination/result contract; Op.StateStore exact state lookup/value type/
       void-result contract; Op.Assert exact Bool/error/args/void-result contract;
       Op.Emit exact EventDecl/args/void-result contract; presence-only result
-      for ContextRead/Commit plus the §5.1 ContextRead same-key result-TypeId
-      consistency pass; ExternalCall/Schedule void-result plus
+      for Commit; ContextRead presence plus the closed exact key/anonymous
+      UInt64 catalog in `.cfg` and exact requirement binding after generic
+      requirement validation; ExternalCall/Schedule void-result plus
       at-least-two-component callee shape)
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
@@ -5290,9 +5340,8 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT ExternalCall/Schedule argument serializability,
-    the ContextRead requirement-to-result-type binding and key capability
-    support plus the exact Commit disclosure contract,
+    result-presence) — NOT ExternalCall/Schedule argument serializability or
+    the exact Commit disclosure contract,
     runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
     beyond the enforced named-prefix rank and closed cycle condition,
@@ -5384,16 +5433,19 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   --   both fail; before CFG so bad names fail closed without CFG work.
   --   Transport decoder stays NFC-only on bare strings.
   validateDeclarationIdentifierNamesV1 data
-  -- 4.5–4.75) Generic CFG/op typing → global ContextRead same-key result-
-  --   TypeId consistency (§5.1, `.cfg`) → direct root restrictions + exact
-  --   transitive pureFn closure membership + reachable call-graph/CFG
-  --   acyclicity → intrinsic invariant fuel. The shared helper preserves the
-  --   public wire error while exposing the stable subphase to focused tests.
+  -- 4.5–4.75) Generic CFG/op typing → closed ContextRead exact key/anonymous
+  --   UInt64 plus same-key result-TypeId consistency (§5.1, `.cfg`) → direct
+  --   root restrictions + exact transitive pureFn closure membership +
+  --   reachable call-graph/CFG acyclicity → intrinsic invariant fuel. Exact
+  --   ContextRead requirement binding follows generic requirement structure
+  --   validation below. The shared helper preserves the public wire error
+  --   while exposing the stable subphase to focused tests.
   match validateCfgInvariantPhasesV1 data with
   | .ok () => pure ()
   | .error failure => throw failure.error
-  -- 5) Requirement key + predicate order
+  -- 5) Requirement key + predicate order, then exact ContextRead catalog row
   validateProgramRequirementsStructure data.requirements
+  validateContextReadRequirementsV1 data
 
 def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 ByteArray := do

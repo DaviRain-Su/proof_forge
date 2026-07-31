@@ -210,7 +210,12 @@ slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `i
 不迭代，零宽元素仍按count计work，recursive Array aggregate graph fail closed。Wire sole value decoder
 另以64MiB program-wide cumulative work budget跨declarations与recursive siblings线程化，并在进入
 raw Array helper循环前防御性执行length cap。Map Construct/Index、
-ContextRead、Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
+ContextRead runtime、Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
+
+D2-07 首个 ContextRead static-only 提议切片已冻结单行 wire catalog：仅
+`proof-forge.context.unix-time-seconds.v1` → anonymous UInt64，并 exact 绑定
+`context.unix-time-seconds@1.0.0` requirement。语义为 invocation immutable Unix-seconds
+snapshot；Reference runtime、targets、caller/authorizers/randomness 仍未支持。
 
 ## D2-07 reference Struct engineering status（2026-07-31）
 
@@ -222,7 +227,7 @@ Reference admission只开放Struct形态Construct，并以explicit-stack postord
 logical-state defaults含slot prefix累计受64MiB byte/work caps。
 runtime再次检查shape/index/TypeId/canonical bytes，FieldSet为immutable SSA update。entry、nested
 Struct、PureCall及nonformal invariant evaluator均复用远端canonical machine。Enum/Option、
-Array/Bytes/Map index、ContextRead/Commit及formal evaluator仍pending。
+Array/Bytes/Map index、ContextRead runtime/Commit及formal evaluator仍pending。
 
 ## D2-07 reference Option/Enum engineering status（2026-07-31）
 

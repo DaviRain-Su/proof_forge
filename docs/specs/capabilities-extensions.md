@@ -276,6 +276,12 @@ ID 为小写 dotted ASCII，如 `state.map`、`failure.atomic-revert`；version 
 - `failure.*`：revert/trap/external failure/commit boundary。
 - `extension.*`：target/ecosystem-specific typed semantics。
 
+提议中的 pre-acceptance D2-07 静态切片只冻结
+`context.unix-time-seconds`：它表示一次 invocation 开始时捕获的 immutable snapshot，单位为
+Unix epoch seconds，调用期间重复读取必须得到同一 UInt64。caller、authorizers 与 randomness
+仍 deferred。该 row 不加入 RequirementsV1 S2 catalog 或任何 target support catalog，也不表示
+Reference runtime 已支持。
+
 ## 推导
 
 每个 typed operation 通过静态 table 贡献 requirements；复合节点取 key union，分别合并 semantic

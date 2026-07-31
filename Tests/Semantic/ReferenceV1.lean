@@ -1538,11 +1538,12 @@ private def testAdmissionUnsupported : IO Unit := do
     { preInitPC with initialized := true } none #[]
 
   -- ContextRead
-  let ctxKey ← match parseSchemaId "proof-forge.context.example.v1" with
-    | .ok k => pure k
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let ctxKey := unixTimeSecondsContextKeyV1
+  let ctxRequirement ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
   let typesC : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .bool },
+    { id := 0, name := none, shape := .uint 64 },
     { id := 1, name := none, shape := .unit }
   ]
   let entryCR := mkEntry 0 "ctx" #[] 1
@@ -1550,7 +1551,10 @@ private def testAdmissionUnsupported : IO Unit := do
     (.return_ none)
   let baseC ← emptyData "AdmCtx"
   let dataC : SemanticProgramDataV1 := {
-    baseC with types := typesC, callables := #[entryCR]
+    baseC with
+      types := typesC
+      callables := #[entryCR]
+      requirements := { items := #[ctxRequirement] }
   }
   let cC ← encodeCarrier "adm-ctx" dataC
   admitUnsupported "adm-ctx" cC
@@ -1561,6 +1565,10 @@ private def testAdmissionUnsupported : IO Unit := do
     "ContextRead"
 
   -- Commit
+  let typesCm : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .unit }
+  ]
   let entryCm := mkEntry 0 "cm" #[] 1
     #[
       instr (some { valueId := 0, typeId := 0 })
@@ -1570,7 +1578,7 @@ private def testAdmissionUnsupported : IO Unit := do
     (.return_ none)
   let baseCm ← emptyData "AdmCommit"
   let dataCm : SemanticProgramDataV1 := {
-    baseCm with types := typesC, callables := #[entryCm]
+    baseCm with types := typesCm, callables := #[entryCm]
   }
   let cCm ← encodeCarrier "adm-commit" dataCm
   admitUnsupported "adm-commit" cCm

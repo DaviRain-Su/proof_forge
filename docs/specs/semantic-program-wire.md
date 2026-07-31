@@ -740,6 +740,12 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 表中 “declared resultType” 仍必须是 `Instruction.result` 的实际 TypeId；不存在由 host 推断的 hidden type。
 同一 program 内所有 `Op.ContextRead` 的相同 key 必须使用同一 result TypeId；不同 callable/branch 对
 同 key 声明不同 type 是 invalid Core，不能由 Invocation 或 target adapter 任选其一。
+提议中的 v1 wire-owned closed catalog 仅接纳 key
+`proof-forge.context.unix-time-seconds.v1`，其结果语义形状必须是程序中唯一匿名
+`TypeShapeV1.uint 64`。使用该 key 时 requirements 必须包含且只能包含一个 id 为
+`context.unix-time-seconds` 的 exact row：SemVer `1.0.0`、空 predicates、digest 为
+`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。此规则仅为静态门禁；
+Reference runtime 与 target support catalog 均未接纳 ContextRead。
 任何 result presence/type、input arity/type 或 referenced declaration不符都是 invalid Core trap，而
 Array/Bytes runtime index越界、checked arithmetic/cast/assert failure 才是 `.reverted`。
 

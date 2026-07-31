@@ -31,8 +31,9 @@
   result-TypeId consistency pass is pinned (one exact SchemaId key → one
   Instruction.result TypeId across the whole program, `.badCfg`, `.cfg` phase
   after generic CFG/op typing and before invariant closure/fuel/requirements),
-  while the ContextRead requirement-to-result-type binding and the exact
-  Commit disclosure contract remain deferred. Formal TST-SEM-001 corpus
+  the ContextRead static-only catalog binds its sole Unix-time-seconds key to
+  anonymous UInt64 and one exact requirement row; the exact Commit disclosure
+  contract remains deferred. Formal TST-SEM-001 corpus
   remains pending.
 -/
 import ProofForgeV2.Core.Common
@@ -1007,10 +1008,27 @@ private def programWithTypes (name : String) (types : Array TypeDeclV1)
     (callables : Array CallableV1 := #[]) : IO SemanticProgramDataV1 := do
   let data0 ← emptyProgram name
   let entryId : CallableIdV1 := callables.size.toUInt32
+  -- Most ContextRead fixtures predate the closed catalog and intentionally
+  -- exercise later invariant phases. Keep this narrowly scoped compatibility
+  -- injection here; the catalog test explicitly overrides `requirements` for
+  -- every binding negative, so no requirement assertion is hidden by it.
+  let mut usesContext := false
+  for callable in callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .contextRead _ => usesContext := true
+        | _ => pure ()
+  let contextReqs ← if usesContext then
+      match unixTimeSecondsContextRequirementV1 with
+      | .ok row => pure { items := #[row] }
+      | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+    else pure { items := #[] }
   pure { data0 with
     types := types
     constants := constants
-    callables := callables.push (entryGateCallable entryId) }
+    callables := callables.push (entryGateCallable entryId)
+    requirements := contextReqs }
 
 private def minimalCallableLiteral (typeId : TypeIdV1) (valueBytes : ByteArray) :
     CallableV1 :=
@@ -5674,17 +5692,19 @@ private def testInvariantRootStateStoreProhibited : IO Unit := do
     this slice for other callable kinds. Exact ContextRead key/requirement type
     binding and the transitive pureFn closure op allowlist remain separate. -/
 private def testInvariantRootContextReadProhibited : IO Unit := do
-  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
-    | .ok key => pure key
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let ctxKey := unixTimeSecondsContextKeyV1
+  let ctxTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
   let forbiddenReadRoot : CallableV1 := {
     (cfgCallableKindName .invariant (some "safe")) with
       blocks := #[cfgBlockInstrs 0
-        #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
-        (.return_ (some 0))]
-      invariantSteps := some 3
+        #[cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey),
+          cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+        (.return_ (some 1))]
+      invariantSteps := some 4
   }
-  let n1Base ← programWithTypes "InvCtxN1Root" cfgBoolTypes #[]
+  let n1Base ← programWithTypes "InvCtxN1Root" ctxTypes #[]
     #[forbiddenReadRoot]
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
@@ -5701,7 +5721,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
       name := some "run"
       invariantSteps := none
   }
-  let p1 ← programWithTypes "InvCtxP1Entry" cfgBoolTypes #[] #[entryRead]
+  let p1 ← programWithTypes "InvCtxP1Entry" ctxTypes #[] #[entryRead]
   expectCfgOk "P1 entry direct ContextRead remains allowed" p1
   -- Generic result-presence typing must win before the closure restriction.
   -- The separate Bool literal keeps the invariant return valid.
@@ -5713,7 +5733,7 @@ private def testInvariantRootContextReadProhibited : IO Unit := do
         (.return_ (some 0))]
       invariantSteps := some 4
   }
-  let n2Base ← programWithTypes "InvCtxN2Typing" cfgBoolTypes #[]
+  let n2Base ← programWithTypes "InvCtxN2Typing" ctxTypes #[]
     #[missingResultRoot]
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 0 }]
@@ -6678,16 +6698,18 @@ private def testInvariantClosurePureFnStateStoreProhibited : IO Unit := do
     restriction. Generic ContextRead result-presence validation runs before the
     post-CFG closure gate. -/
 private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
-  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
-    | .ok key => pure key
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  let ctxKey := unixTimeSecondsContextKeyV1
+  let ctxTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
   let contextReader : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
-      #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
-      (.return_ (some 0))]) with
+      #[cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey),
+        cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+      (.return_ (some 1))]) with
       id := 0
       name := some "contextReader"
-      invariantSteps := some 3
+      invariantSteps := some 4
   }
   let root : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
@@ -6696,7 +6718,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
       id := 1
       kind := .invariant
       name := some "safe"
-      invariantSteps := some 6
+      invariantSteps := some 7
   }
   let literalRoot : CallableV1 := {
     root with
@@ -6705,13 +6727,13 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
         (.return_ (some 0))]
       invariantSteps := some 3
   }
-  let p1Base ← programWithTypes "InvClosureCtxP1Unreachable" cfgBoolTypes #[]
+  let p1Base ← programWithTypes "InvClosureCtxP1Unreachable" ctxTypes #[]
     #[{ contextReader with invariantSteps := none }, literalRoot]
   let p1 : SemanticProgramDataV1 := {
     p1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
   }
   expectCfgOk "P1 unreachable pureFn ContextRead outside invariant closure" p1
-  let n1Base ← programWithTypes "InvClosureCtxN1Reachable" cfgBoolTypes #[]
+  let n1Base ← programWithTypes "InvClosureCtxN1Reachable" ctxTypes #[]
     #[contextReader, root]
   let n1 : SemanticProgramDataV1 := {
     n1Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
@@ -6724,7 +6746,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
       id := 1
       kind := .pureFn
       name := some "middle"
-      invariantSteps := some 6
+      invariantSteps := some 7
   }
   let transitiveRoot : CallableV1 := {
     root with
@@ -6732,9 +6754,9 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
       blocks := #[cfgBlockInstrs 0
         #[cfgInstr (some (cfgValueDef 0)) (.pureCall 1 #[])]
         (.return_ (some 0))]
-      invariantSteps := some 9
+      invariantSteps := some 10
   }
-  let n2Base ← programWithTypes "InvClosureCtxN2Transitive" cfgBoolTypes #[]
+  let n2Base ← programWithTypes "InvClosureCtxN2Transitive" ctxTypes #[]
     #[contextReader, middle, transitiveRoot]
   let n2 : SemanticProgramDataV1 := {
     n2Base with invariants := #[{ id := 0, name := "safe", callableId := 2 }]
@@ -6749,7 +6771,7 @@ private def testInvariantClosurePureFnContextReadProhibited : IO Unit := do
           cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1)]
         (.return_ (some 0))]
   }
-  let n3Base ← programWithTypes "InvClosureCtxN3CfgFirst" cfgBoolTypes #[]
+  let n3Base ← programWithTypes "InvClosureCtxN3CfgFirst" ctxTypes #[]
     #[missingResultReader, root]
   let n3 : SemanticProgramDataV1 := {
     n3Base with invariants := #[{ id := 0, name := "safe", callableId := 1 }]
@@ -7942,17 +7964,17 @@ private def testCfgValueOpResultPresence : IO Unit := do
           (.return_ none)
       ] 2]
   expectCfgOk "P14 checkedCast result present" p14
-  -- P15: ContextRead (deferred family) with result present. The key is a
-  --   valid SchemaId; result ValueId 1 typeId 3 (UInt8, in range).
-  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
-    | .ok k => pure k
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
-  let p15 ← programWithTypes "PresP15ContextRead" cfgOpTypes #[]
+  -- P15: catalog-bound ContextRead with its exact UInt64 result present.
+  let ctxKey := unixTimeSecondsContextKeyV1
+  let ctxTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
+  let p15 ← programWithTypes "PresP15ContextRead" ctxTypes #[]
     #[cfgOpCallableResult
       #[ cfgBlockInstrs 0
-          #[ cfgInstr (some (cfgOpU8Def 0)) (.contextRead ctxKey) ]
+          #[ cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey) ]
           (.return_ none)
-      ] 2]
+      ] 0]
   expectCfgOk "P15 contextRead result present" p15
   -- P16: Commit (deferred family) with result present.
   let p16 ← programWithTypes "PresP16Commit" cfgOpTypes #[]
@@ -9119,24 +9141,16 @@ private def testCfgExternalCalleeShape : IO Unit := do
           (.return_ none)] 2]
   expectCfgErr "N2 schedule single-component callee" n2
 
-/- SPEC-SEM-WIRE-001 §5.1 engineering subset: within one SemanticProgramV1,
-   every `Op.ContextRead` carrying the same exact `SchemaId` key MUST use the
-   same `Instruction.result` TypeId; a different callable/branch declaring a
-   different type for the same key is invalid Core and cannot be rescued by an
-   Invocation or target adapter. This is a structure-gate-only slice: it does
-   not bind the result type to a requirement or implement ContextRead key
-   capability support. The global consistency pass runs as
-   `CfgInvariantValidationPhaseV1.cfg` after every callable's generic CFG/op
-   typing succeeds and before invariant-closure/fuel/requirements. -/
+/- SPEC-SEM-WIRE-001 §5.1 closed ContextRead catalog coverage. The sole exact
+   key has the program's unique anonymous UInt64 result and exact requirement;
+   catalog validation follows all per-callable CFG validation and precedes
+   invariant closure, fuel, and requirements. -/
 private def testCfgContextReadResultTypeConsistency : IO Unit := do
-  let ctxKey ← match parseSchemaId "proof-forge.ctx.k.v1" with
-    | .ok key => pure key
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
-  let otherKey ← match parseSchemaId "proof-forge.ctx.other.v1" with
-    | .ok key => pure key
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
-  -- Two-type fixture: typeId 0 = Bool, typeId 1 = UInt8.
-  let types : Array TypeDeclV1 := cfgUint8Types
+  let ctxKey := unixTimeSecondsContextKeyV1
+  -- typeId 0 = Bool (wrong in-range shape), typeId 1 = UInt64 (catalog shape).
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
   -- Instruction with a ContextRead op producing a result at the given
   --   ValueId/TypeId for the given key.
   let ctxRead (vid : ValueIdV1) (tid : TypeIdV1) (key : SchemaId) :
@@ -9155,14 +9169,14 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let p1 ← programWithTypes "CtxConsP1Zero" types #[]
     #[entryCallable #[]]
   expectCfgOk "P1 zero reads" p1
-  -- P2: one read (Bool result).
+  -- P2: one exact catalog read.
   let p2 ← programWithTypes "CtxConsP2One" types #[]
-    #[entryCallable #[ctxRead 0 0 ctxKey]]
+    #[entryCallable #[ctxRead 0 1 ctxKey]]
   expectCfgOk "P2 one read" p2
   -- P3: same key, same TypeId across two callables.
   let p3 ← programWithTypes "CtxConsP3TwoCalls" types #[]
-    #[entryCallable #[ctxRead 0 0 ctxKey] 0 "runA",
-      entryCallable #[ctxRead 0 0 ctxKey] 1 "runB"]
+    #[entryCallable #[ctxRead 0 1 ctxKey] 0 "runA",
+      entryCallable #[ctxRead 0 1 ctxKey] 1 "runB"]
   expectCfgOk "P3 same key same type across callables" p3
   -- P4: same key, same TypeId across two blocks within one callable. The
   --   branch is split between block 1 (then) and block 2 (else), each
@@ -9177,30 +9191,25 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
             #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
             (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
           cfgBlockInstrs 1
-            #[ctxRead 1 0 ctxKey]
+            #[ctxRead 1 1 ctxKey]
             (.return_ none),
           cfgBlockInstrs 2
-            #[ctxRead 2 0 ctxKey]
+            #[ctxRead 2 1 ctxKey]
             (.return_ none)
         ] }]
   expectCfgOk "P4 same key same type across branches" p4
-  -- P5: different keys may use different result TypeIds.
-  let p5 ← programWithTypes "CtxConsP5DiffKeys" types #[]
-    #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 1 otherKey]]
-  expectCfgOk "P5 different keys different types" p5
-  -- P6: same key, same TypeId repeated within one block. Local repetition of
+  -- P5: same key, same TypeId repeated within one block. Local repetition of
   --   the same exact key with the same result TypeId is allowed; the global
   --   consistency gate only rejects a divergent TypeId for an already-seen
   --   key.
-  let p6 ← programWithTypes "CtxConsP6LocalRepeat" types #[]
+  let p5 ← programWithTypes "CtxConsP5LocalRepeat" types #[]
     #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 0 ctxKey]]
-  expectCfgOk "P6 same key same type repeated one block" p6
-  -- N1: same key, different TypeId in one block (Bool vs UInt8).
+        #[ctxRead 0 1 ctxKey, ctxRead 1 1 ctxKey]]
+  expectCfgOk "P5 same key same UInt64 repeated one block" p5
+  -- N1: known key with wrong in-range Bool result.
   let n1 ← programWithTypes "CtxConsN1Block" types #[]
     #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]]
+        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]]
   expectCfgErr "N1 same key different type one block" n1
   expectCfgInvariantPhase "N1 cfg consistency phase" .cfg .badCfg n1
   -- N2: same key, different TypeId across branches.
@@ -9213,29 +9222,25 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
             #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 0)]
             (.branch 0 (cfgJumpTarget 1) (cfgJumpTarget 2)),
           cfgBlockInstrs 1
-            #[ctxRead 1 0 ctxKey]
+            #[ctxRead 1 1 ctxKey]
             (.return_ none),
           cfgBlockInstrs 2
-            #[ctxRead 2 1 ctxKey]
+            #[ctxRead 2 0 ctxKey]
             (.return_ none)
         ] }]
   expectCfgErr "N2 same key different type across branches" n2
   expectCfgInvariantPhase "N2 cfg consistency phase" .cfg .badCfg n2
   -- N3: same key, different TypeId across different callables.
   let n3 ← programWithTypes "CtxConsN3Callables" types #[]
-    #[entryCallable #[ctxRead 0 0 ctxKey] 0 "runA",
-      entryCallable #[ctxRead 0 1 ctxKey] 1 "runB"]
+    #[entryCallable #[ctxRead 0 1 ctxKey] 0 "runA",
+      entryCallable #[ctxRead 0 0 ctxKey] 1 "runB"]
   expectCfgErr "N3 same key different type across callables" n3
   expectCfgInvariantPhase "N3 cfg consistency phase" .cfg .badCfg n3
-  -- N4: exact key equality. A key differing only in the final segment is a
-  --   distinct key and may carry a different TypeId.
-  let nearKey ← match parseSchemaId "proof-forge.ctx.k.v2" with
-    | .ok key => pure key
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
+  -- N4: unknown keys are rejected by the closed catalog.
+  let nearKey : SchemaId := { value := "proof-forge.context.unknown.v1" }
   let n4 ← programWithTypes "CtxConsN4ExactKey" types #[]
-    #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 1 nearKey]]
-  expectCfgOk "N4 distinct keys may differ" n4
+    #[entryCallable #[ctxRead 0 1 nearKey]]
+  expectCfgErrCode "N4 unknown key rejected" .badCfg n4
   -- Precedence: a missing ContextRead result (generic CFG/op typing) fails
   --   before the global consistency pass.
   let n5 ← programWithTypes "CtxConsN5MissingResult" types #[]
@@ -9260,7 +9265,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
         id := 0
         blocks := #[
           cfgBlockInstrs 0
-            #[ctxRead 0 0 ctxKey]
+            #[ctxRead 0 1 ctxKey]
             (.branch 7 (cfgJumpTarget 1) (cfgJumpTarget 1)),
           cfgBlock 1 (.return_ none)
         ] }]
@@ -9273,8 +9278,8 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let badValueMismatch : CallableV1 :=
     entryCallable
       #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 2),
-        ctxRead 1 0 ctxKey,
-        ctxRead 2 1 ctxKey]
+        ctxRead 1 1 ctxKey,
+        ctxRead 2 0 ctxKey]
   let m1 ← programWithTypes "CtxConsM1ValueBeforeMismatch" types #[]
     #[badValueMismatch]
   expectCfgErrCode "M1 canonical valueBytes before consistency"
@@ -9303,13 +9308,13 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   ]
   let m3 ← programWithTypes "CtxConsM3NameDupBeforeMismatch" dupTypes #[]
     #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]]
+        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]]
   expectCfgErrCode "M3 named-name duplicate before consistency"
     .duplicate m3
   -- Mixed-invalid cross-callable phase order 4: ALL per-callable generic
   --   CFG/op validation (the `.cfg` per-callable loop) must finish before the
   --   global same-key consistency pass begins. The first callable has a valid
-  --   CFG but two ContextReads using the same key with Bool/UInt8 result
+  --   CFG but two ContextReads using the same key with UInt64/Bool result
   --   TypeIds (a global mismatch that only the post-loop consistency pass
   --   would catch). The later callable carries a distinguishable generic
   --   def-site TypeId out-of-range error (`.badReference`, step h). Because
@@ -9325,7 +9330,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       1 "runB"
   let m4 ← programWithTypes "CtxConsM4CrossCallablePhase" types #[]
     #[entryCallable
-        #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey] 0 "runA",
+        #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey] 0 "runA",
       laterOor]
   expectCfgErrCode "M4 per-callable OOR before global consistency"
     .badReference m4
@@ -9341,8 +9346,8 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       (resultTypeId := 0)) with
       blocks := #[cfgBlockInstrs 0
         #[cfgInstr (some (cfgValueDef 0)) (cfgBoolLit 1),
-          ctxRead 1 0 ctxKey,
-          ctxRead 2 1 ctxKey]
+          ctxRead 1 1 ctxKey,
+          ctxRead 2 0 ctxKey]
         (.return_ (some 0))]
       invariantSteps := some 7
   }
@@ -9359,11 +9364,12 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   --   up to that point.
   let contextReader : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
-      #[cfgInstr (some (cfgValueDef 0)) (.contextRead ctxKey)]
-      (.return_ (some 0))]) with
+      #[cfgInstr (some { valueId := 0, typeId := 1 }) (.contextRead ctxKey),
+        cfgInstr (some (cfgValueDef 1)) (cfgBoolLit 1)]
+      (.return_ (some 1))]) with
       id := 0
       name := some "contextReader"
-      invariantSteps := some 4
+      invariantSteps := some 5
   }
   let invariantRoot : CallableV1 := {
     (cfgCallable #[cfgBlockInstrs 0
@@ -9372,7 +9378,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       id := 1
       kind := .invariant
       name := some "safe"
-      invariantSteps := some 7
+      invariantSteps := some 8
   }
   let n9Base ← programWithTypes "CtxConsN9ClosureValidConsistency" types #[]
     #[contextReader, invariantRoot]
@@ -9397,7 +9403,7 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
   let emptyErrors ← expectOk "tr errors" (encodeArray encodeErrorDeclV1 #[])
   let trCallable : CallableV1 :=
     entryCallable
-      #[ctxRead 0 0 ctxKey, ctxRead 1 1 ctxKey]
+      #[ctxRead 0 1 ctxKey, ctxRead 1 0 ctxKey]
   let callablesB ← expectOk "tr callables"
     (encodeArray encodeCallableV1 #[trCallable])
   let emptyInvariants ← expectOk "tr invariants"
@@ -9423,22 +9429,11 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
     (encodeSemanticProgramDataV1 decoded)
   expectErr "carrier rejects same-key mismatch" .badCfg
     (decodeSemanticProgramV1 trBytes)
-  -- Resource: ~2000 ContextRead occurrences (1000 repeats of one key with
-  --   the same Bool TypeId, plus 1000 distinct keys each carrying the UInt8
-  --   TypeId) must stay bounded; every key uses a single consistent TypeId,
-  --   so the global consistency gate stays green. `expectCfgOk` exercises the
-  --   structure + encode dual path. This guards expected O(occurrences) time
-  --   and O(distinct keys) space.
+  -- Resource: 2000 repetitions of the sole exact key/UInt64 row stay bounded.
   let mut instrs : Array InstructionV1 := #[]
   let mut vid : ValueIdV1 := 0
-  for _ in [:1000] do
-    instrs := instrs.push (ctxRead vid 0 ctxKey)
-    vid := vid + 1
-  for i in [:1000] do
-    let dk ← match parseSchemaId s!"proof-forge.ctx.k{i}.v1" with
-      | .ok key => pure key
-      | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
-    instrs := instrs.push (ctxRead vid 1 dk)
+  for _ in [:2000] do
+    instrs := instrs.push (ctxRead vid 1 ctxKey)
     vid := vid + 1
   -- The single entry callable must terminate; the large instruction array
   --   keeps all ValueIds distinct so SSA remains valid.
@@ -9449,6 +9444,59 @@ private def testCfgContextReadResultTypeConsistency : IO Unit := do
       blocks := #[cfgBlockInstrs 0 instrs (.return_ none)] }
   let r ← programWithTypes "CtxConsResource" types #[] #[resourceCallable]
   expectCfgOk "resource 2000 reads bounded" r
+
+/-- Exact ContextRead requirement binding variants. -/
+private def testCfgContextReadCatalogRequirements : IO Unit := do
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 64 }]
+  let read (vid : ValueIdV1) (tid : TypeIdV1 := 1)
+      (key : SchemaId := unixTimeSecondsContextKeyV1) : InstructionV1 :=
+    cfgInstr (some { valueId := vid, typeId := tid }) (.contextRead key)
+  let entry (instructions : Array InstructionV1) : CallableV1 := {
+    (cfgCallableKindName .entry (some "run") (resultTypeId := 0)) with
+      blocks := #[cfgBlockInstrs 0 instructions (.return_ none)] }
+  let exact ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
+  let base ← programWithTypes "ContextCatalog" types #[]
+    #[entry #[read 0, read 1]]
+  expectCfgOk "exact ContextRead catalog row" base
+  let repeated ← programWithTypes "ContextCatalogRepeated" types #[]
+    #[entry (Array.ofFn (fun i : Fin 2000 => read i.val.toUInt32))]
+  expectCfgOk "bounded repeated ContextRead occurrences" repeated
+  let unknown : SchemaId := { value := "proof-forge.context.unknown.v1" }
+  let badKey ← programWithTypes "ContextCatalogUnknown" types #[] #[entry #[read 0 1 unknown]]
+  expectCfgErrCode "unknown ContextRead key" .badCfg badKey
+  let badType ← programWithTypes "ContextCatalogWrongType" types #[] #[entry #[read 0 0]]
+  expectCfgErrCode "wrong in-range ContextRead shape" .badCfg badType
+  expectCfgInvariantPhase "wrong ContextRead shape is cfg phase" .cfg .badCfg badType
+  let missing : SemanticProgramDataV1 := { base with requirements := { items := #[] } }
+  expectCfgErrCode "missing ContextRead requirement" .badRequirement missing
+  let wrongVersion : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with version := { major := 1, minor := 0, patch := 1 } }] } }
+  expectCfgErrCode "wrong ContextRead requirement version" .badRequirement wrongVersion
+  let wrongDigest : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with digest := zeroDigest }] } }
+  expectCfgErrCode "wrong ContextRead requirement digest" .badRequirement wrongDigest
+  let wrongPredicates : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with predicates := #[.boolEquals "x" true] }] } }
+  expectCfgErrCode "wrong ContextRead requirement predicates" .badRequirement wrongPredicates
+  let wrongId : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ exact with id := "context.unix-time-second" }] } }
+  expectCfgErrCode "wrong ContextRead requirement id is missing" .badRequirement wrongId
+  let alternateSameId : SemanticProgramDataV1 := {
+    base with requirements := { items := #[{ req "context.unix-time-seconds" with
+      version := exact.version }] } }
+  expectCfgErrCode "alternate same-id requirement row" .badRequirement alternateSameId
+  let malformedFirst : SemanticProgramDataV1 := {
+    base with requirements := { items := #[req "notadomain", exact] } }
+  expectCfgErrCode "generic requirement structure precedes catalog binding"
+    .badRequirement malformedFirst
+  let unrelated := req "value.extra"
+  let extra : SemanticProgramDataV1 := {
+    base with requirements := { items := #[exact, unrelated] } }
+  expectCfgOk "unrelated generic requirement accepted" extra
 
 /-- SPEC-SEM-WIRE-001 §6 EffectId assignment: within each callable, every
     Emit/ExternalCall/Schedule instruction must carry the next contiguous
@@ -9852,6 +9900,7 @@ def run : IO Unit := do
   testCfgEmitTyping
   testCfgExternalCalleeShape
   testCfgContextReadResultTypeConsistency
+  testCfgContextReadCatalogRequirements
   testCfgEffectIdOrder
   IO.println "Tests.Semantic.WireV1: ok"
 
