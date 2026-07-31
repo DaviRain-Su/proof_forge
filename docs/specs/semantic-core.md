@@ -51,6 +51,10 @@ canonicalization 时重编号，避免 hash 受内部 hash-map 顺序影响。
 `InvariantABI → ReferenceMachineV1` formal evaluator依赖保持无环。target adapter 只能转换到/
 从这些 closed values，不能声明另一套 normalized outcome：
 
+lower machine可提供仅消费structure-validated decoded program、selected invariant callable与canonical
+state的执行seam；该seam不得依赖whole-program engineering admission、选择invariant ordinal或冒用
+formal `evalInvariantV1`名称。public ABI负责program validation、ordinal/state/closure join后才能调用它。
+
 ```lean
 structure ReferenceValueV1 where
   typeId     : TypeIdV1

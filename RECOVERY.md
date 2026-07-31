@@ -204,6 +204,12 @@ foundation并定义`ReferenceV1` namespace下的现有carriers/admission/machine
 `ReferenceV1.lean`保留public façade。lower machine不得重新import upper `InvariantABI`，否则会阻断
 下一切片所需的`InvariantABI → ReferenceMachineV1`无环依赖。
 
+`ReferenceMachineV1.runInvariantCallableV1`现提供formal-compatible lower seam：输入已structure-validated
+`SemanticProgramDataV1`、selected callableId与state，使用callable携带的exact `invariantSteps`执行，
+不依赖/扫描`AdmittedReferenceSliceV1`。既有`evalInvariantReferenceSliceV1`在完成engineering admission、
+StateConforms与ordinal join后委托给该seam。测试固定无关Int64 declaration会使general admission失败但
+selected Bool invariant仍执行true；这不表示Int/Field runtime或formal `evalInvariantV1`已完成。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

@@ -23,6 +23,20 @@ normative: false
 - 聚合（主代理）：`Tests/Materialization/Targets.lean` 新增 `testCallScheduleSemanticPlans` 接入 `runSemanticPlanLeafFast`——ExtFlow（含 sync call）仅 Noir 可 mint capability、EVM/Solana/NEAR 均 PF-REQ-UNSUPPORTED；LaterFlow（schedule-only）NEAR/Noir 支持、EVM/Solana 拒；Noir call 语句与 status/slot 包络 pin、NEAR `promiseAccount "ledger.daily" "daily"` plan pin 与 WAT promise host/账号 pin。
 - Verification：共享核心与四 lane focused build/test 各自绿（worker 在隔离 worktree 自验；主代理逐一审计 diff：文件集合精确、无 fallback/adapter/residual、形态与简报一致）；集成后 `proof_forge_next_fast_tests` 与 `proof_forge_next_tests` 全绿；`just ci` 通过；`git diff --check` 通过；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
 - Boundary：call args 限 UInt64 且 v1 无返回值（typed return 需 schema 升级）；schedule 无 response/失败传播（与 NEAR promise 精确一致，EVM/Solana 待 address-bearing 类型后另行评估）；`call`/`schedule` 在 loop body（静态 slot 无法绑多次动态发生）与 fn/view（PF-EFFECT-001）fail closed；ContextRead、Commit、aggregates、Int/Field/Principal 仍 fail closed；formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+## 2026-07-31 — D2-07 selected-invariant lower machine runner
+
+- Production：从既有engineering invariant evaluator抽取
+  `ReferenceV1.runInvariantCallableV1(data, callableId, state)`。该lower seam直接选择validated data中的
+  invariant callable、读取其carried exact `invariantSteps`、decode canonical state slots并复用同一private
+  Machine/CallFrame/fuel/result mapper；不接收`AdmittedReferenceSliceV1`，不扫描无关type/callable，且不
+  选择ordinal或validate carrier。原`evalInvariantReferenceSliceV1`保留admission/StateConforms/ordinal
+  边界后委托该seam，public engineering结果不变。
+- Tests：既有true/false/revert/trap/PureCall/fuel/state/ordinal suite全通过；新增structure-valid program含
+  无关Int64 type，general Reference admission按既有策略unsupported，但lower runner对selected Bool
+  invariant返回true，并覆盖missing callable/uninitialized/malformed state trap。
+- Boundary：尚未定义formal `evalInvariantV1`/`InvariantTheoremV1`；Int/Field完整运算、Unit Construct与
+  dynamic canonical/type hardening仍是formal ABI前置，不得将本seam描述为正式evaluator。
+
 ## 2026-07-31 — D2-07 ReferenceMachine dependency extraction
 
 - Production：将原`InvariantABI` state carrier/default/codec/StateConforms机械移动到lower

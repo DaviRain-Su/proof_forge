@@ -114,6 +114,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > public façade；lower machine不import upper InvariantABI，从而为下一切片
 > `InvariantABI → ReferenceMachineV1` formal evaluator依赖保持无环。本次仅机械抽取，行为未变。
 
+> 后续lower-runner切片现从engineering `evalInvariantReferenceSliceV1`抽取
+> `runInvariantCallableV1(data, callableId, state)`：它直接消费structure-validated decoded data与selected
+> invariant callable的carried exact fuel，不构造/消费`AdmittedReferenceSliceV1`，因此无关的
+> engineering-unsupported type/callable不会污染所选invariant执行。formal ABI仍未命名/开放；完整
+> Int/Field/cast与dynamic canonical边界仍须先闭合。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

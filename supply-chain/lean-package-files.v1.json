@@ -231,9 +231,9 @@
       "sha256": "5d6a136efafa107d5e382f390f7cb60c2cb9e6ef82430a5e7aad637a42f21464"
     },
     {
-      "bytes": 85456,
+      "bytes": 86335,
       "path": "ProofForgeV2/Semantic/ReferenceMachineV1.lean",
-      "sha256": "0570ed016ac91a567436a7d2a10a8fe59bb2a3d6a2be0969c23b3004a4df0c3f"
+      "sha256": "b09f907f2aca2df6d8ad35bde9ab133281d7a5cf5c37554049238ca52f92a696"
     },
     {
       "bytes": 452,

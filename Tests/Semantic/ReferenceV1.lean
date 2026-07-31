@@ -45,6 +45,8 @@
        immutable shared snapshot execution.
    15. Commit exact requirement admission and target-neutral identity execution
        across roots/PureCall, including aggregate bytes and repeated Commit.
+   16. Lower invariant runner bypasses narrower whole-program engineering
+       admission while preserving exact carried fuel and result mapping.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -3145,6 +3147,48 @@ private def testInvariantReferenceSlice : IO Unit := do
   let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
   expect (evalInvariantReferenceSliceV1 admitted 0 pre == .returnedTrue)
     "invariant-pure-call: exact carried shared fuel succeeds"
+
+  -- The lower invariant runner is selected-callable scoped, not gated by the
+  -- narrower whole-program engineering admission. An unrelated Int64 type
+  -- rejects general Reference admission but cannot poison this Bool invariant.
+  let broadTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .int 64 },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let broadGate := mkEntry 0 "broadGate" #[] 2 #[] (.return_ none)
+  let broadRoot : CallableV1 := {
+    id := 1, kind := .invariant, name := some "broadTruth", params := #[]
+    result := { typeId := 0, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0
+      #[instr (some (vd 0 0)) (.literal 0 (ByteArray.mk #[1]))]
+      (.return_ (some 0))]
+    loopBounds := #[]
+    invariantSteps := some 3
+  }
+  let broadBase ← emptyData "InvariantLowerRunner"
+  let broadCarrier ← encodeCarrier "invariant-lower-runner" {
+    broadBase with
+      types := broadTypes
+      callables := #[broadGate, broadRoot]
+      invariants := #[{ id := 0, name := "broadTruth", callableId := 1 }]
+  }
+  admitUnsupported "invariant-lower-runner-admission" broadCarrier
+    (fun detail => detail.contains "Int64") "unrelated Int64"
+  let broadData ← match validateSemanticProgramV1 broadCarrier with
+    | .ok data => pure data
+    | .error e => throw <| IO.userError s!"invariant-lower-runner validate: {repr e}"
+  expect (runInvariantCallableV1 broadData 1 pre == .returnedTrue)
+    "invariant-lower-runner: unrelated unsupported type must not poison selected invariant"
+  expect (runInvariantCallableV1 broadData 99 pre == .trapped)
+    "invariant-lower-runner: missing callable must trap"
+  expect (runInvariantCallableV1 broadData 1
+      { initialized := false, canonicalValues := ByteArray.empty } == .trapped)
+    "invariant-lower-runner: uninitialized state must trap"
+  expect (runInvariantCallableV1 broadData 1
+      { initialized := true, canonicalValues := ByteArray.mk #[255] } == .trapped)
+    "invariant-lower-runner: malformed state must trap"
 
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
