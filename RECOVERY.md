@@ -221,10 +221,10 @@ nonascending/wrong-TypeId/noncanonical value，并由所有PureCall frame共享�
 执行时不可能的missing/mismatch映射`internalInvariant`。invariant root/closure、Commit、targets、
 caller/authorizers/randomness与formal evaluator仍未开放。
 
-Commit当前仅新增Wire local typing：operand必须可解析，result TypeId必须精确等于operand TypeId；
-canonical aggregate同样可通过。`disclosure.commitment` exact requirement row尚未冻结，因此
-requirement binding与Reference runtime仍关闭，不能把该局部合约解释为已实现declassification或
-target commitment support。
+Commit当前Wire contract要求operand可解析、result TypeId精确等于operand TypeId，canonical
+aggregate同样可通过；并exact绑定Wire-owned `disclosure.commitment@1.0.0` empty-predicate row，
+digest domain为`pf.commit-requirement.v1`。该row不加入S2或target support catalog；Reference runtime
+仍关闭，不能把static recognition解释为target commitment support。
 
 ## D2-07 reference Struct engineering status（2026-07-31）
 

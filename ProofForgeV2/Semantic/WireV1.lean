@@ -185,9 +185,8 @@ import Std.Data.HashMap
     typing and before invariant closure/fuel/requirements), presence-only
     local result for ContextRead, exact Commit operand/result TypeId equality,
     and void-op result-presence plus the at-least-two-component callee shape
-    for ExternalCall/Schedule are now covered; ExternalCall/Schedule argument
-    serializability and exact Commit disclosure requirement binding (ContextRead now
-    has a closed one-row key/result/requirement catalog),
+    for ExternalCall/Schedule are now covered; ContextRead and Commit each have
+    a closed exact requirement row. ExternalCall/Schedule argument serializability,
     recursive/full TypeKey closure beyond the enforced named-prefix rank,
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
@@ -240,6 +239,10 @@ def unixTimeSecondsContextKeyV1 : SchemaId :=
 /-- Requirement identity bound to the sole v1 ContextRead key. -/
 def unixTimeSecondsContextRequirementIdV1 : String :=
   "context.unix-time-seconds"
+
+/-- Exact requirement identity contributed by every v1 Commit operation. -/
+def commitmentDisclosureRequirementIdV1 : String :=
+  "disclosure.commitment"
 
 /-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrModulusBEV1 : ByteArray :=
@@ -508,6 +511,18 @@ def unixTimeSecondsContextRequirementV1 : Except String RequirementRequestV1 := 
     unixTimeSecondsContextRequirementIdV1.toUTF8
   pure {
     id := unixTimeSecondsContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for the v1 Commit disclosure boundary. Recognition
+    here does not imply support by any target catalog. -/
+def commitmentDisclosureRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.commit-requirement.v1"
+    commitmentDisclosureRequirementIdV1.toUTF8
+  pure {
+    id := commitmentDisclosureRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
     digest
     predicates := #[]
@@ -2494,14 +2509,14 @@ def checkTerminatorTyping (c : CallableV1)
     the §5.1 same-key result-TypeId global consistency pass (a separate
     post-CFG gate), followed by its closed key/result/requirement catalog.
     `Op.Commit` requires its operand to resolve and its result TypeId to equal
-    the operand TypeId; exact disclosure requirement binding remains deferred.
+    the operand TypeId; its exact disclosure requirement row is checked after
+    generic requirement validation.
     ExternalCall/
     Schedule MUST carry `result := none` and a callee with at least two
     qualified-name components; a spurious result, short callee, or missing
     result on a value-producing op is an invalid Core trap → `.badCfg`. All
     step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
-    ExternalCall/Schedule argument serializability, the exact
-    `Op.Commit` disclosure requirement binding, recursive/full TypeKey
+    ExternalCall/Schedule argument serializability, recursive/full TypeKey
     closure/ranking/reachability,
     provenance join, normalizer, product wire. -/
 
@@ -3052,8 +3067,8 @@ def checkOpTyping (instr : InstructionV1)
   -- Op.Commit (SPEC-SEM-WIRE-001 §5.1): the operand ValueId MUST resolve and
   --   the result TypeId MUST exactly equal type(value). Every structure-valid
   --   TypeShape has canonical value bytes, so this branch deliberately does
-  --   not reuse the narrower Eq/Ne `serializableType` predicate. Exact
-  --   disclosure requirement binding remains deferred.
+  --   not reuse the narrower Eq/Ne `serializableType` predicate. The exact
+  --   disclosure requirement row is enforced after generic requirements.
   | .commit value =>
       let valueT ← requireOperandType value
       requireResult valueT
@@ -5287,6 +5302,29 @@ private def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
       found := true
   unless found do return ← err .badRequirement
 
+/-- Bind every used Commit operation to the one exact disclosure.commitment
+    requirement row. Generic requirement structure/order is validated first. -/
+private def validateCommitRequirementsV1 (data : SemanticProgramDataV1) :
+    Except SemanticWireErrorV1 Unit := do
+  let mut used := false
+  for callable in data.callables do
+    for block in callable.blocks do
+      for instr in block.instructions do
+        match instr.op with
+        | .commit _ => used := true
+        | _ => pure ()
+  unless used do return
+  let expected ← match commitmentDisclosureRequirementV1 with
+    | .ok row => pure row
+    | .error _ => return ← err .badRequirement
+  let mut found := false
+  for item in data.requirements.items do
+    if item.id == commitmentDisclosureRequirementIdV1 then
+      unless item == expected do return ← err .badRequirement
+      if found then return ← err .badRequirement
+      found := true
+  unless found do return ← err .badRequirement
+
 private def checkTableIds (getId : α → UInt32) (table : Array α) :
     Except SemanticWireErrorV1 Unit := do
   let mut i : Nat := 0
@@ -5346,8 +5384,7 @@ private def validateProgramQualifiedNameShapeV1 (name : QualifiedName) :
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
     type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT ExternalCall/Schedule argument serializability or
-    exact Commit disclosure requirement binding,
+    result-presence) — NOT ExternalCall/Schedule argument serializability,
     runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
     beyond the enforced named-prefix rank and closed cycle condition,
@@ -5449,9 +5486,10 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   match validateCfgInvariantPhasesV1 data with
   | .ok () => pure ()
   | .error failure => throw failure.error
-  -- 5) Requirement key + predicate order, then exact ContextRead catalog row
+  -- 5) Requirement key + predicate order, then exact ContextRead/Commit rows
   validateProgramRequirementsStructure data.requirements
   validateContextReadRequirementsV1 data
+  validateCommitRequirementsV1 data
 
 def encodeSemanticProgramDataV1 (p : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 ByteArray := do

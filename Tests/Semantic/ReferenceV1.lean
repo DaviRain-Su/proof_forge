@@ -1656,8 +1656,14 @@ private def testAdmissionUnsupported : IO Unit := do
     ]
     (.return_ none)
   let baseCm ← emptyData "AdmCommit"
+  let commitRequirement ← match commitmentDisclosureRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"Commit requirement: {e}"
   let dataCm : SemanticProgramDataV1 := {
-    baseCm with types := typesCm, callables := #[entryCm]
+    baseCm with
+      types := typesCm
+      callables := #[entryCm]
+      requirements := { items := #[commitRequirement] }
   }
   let cCm ← encodeCarrier "adm-commit" dataCm
   admitUnsupported "adm-commit" cCm

@@ -88,7 +88,9 @@ pure。`view` 只允许 `state.read/context.read/failure.revert`；`init/entry` 
 
 label 为 `public | commitment | private`。默认参数、state、return 为 public；显式 private
 值只可流入 private sink；`commit(x)` 是唯一从 private 到 commitment 的降级操作并推导
-`disclosure.commitment` requirement；没有隐式 declassification。public 值可用于 private
+`disclosure.commitment` requirement；其target-neutral逻辑值是identity（TypeId与canonical bytes
+不变），密码学commitment realization属于target capability/materialization层；没有隐式
+declassification。public 值可用于 private
 计算。分支条件、index、错误 variant、event、call data 和返回值都参与隐式流检查：
 private condition 下对 public state/effect 的可观察差异为 `PF-VIS-001`。
 

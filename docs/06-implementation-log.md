@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 Commit exact disclosure requirement binding
+
+- Contract：冻结Wire-owned `disclosure.commitment@1.0.0`、empty predicates、digest
+  `domainSeparatedSha256("pf.commit-requirement.v1", UTF-8(id))`。Semantic Commit明确为label-only
+  identity（exact TypeId/canonical bytes不变），密码学realization属于target capability/materialization。
+- Production：generic requirement structure/order后，仅program实际使用Commit时要求该exact row；
+  missing、wrong SemVer/digest/predicates、alternate same-id均`.badRequirement`。无Commit时不强制该row，
+  unrelated valid rows允许，ContextRead+Commit组合保持UTF-8 canonical requirement order。
+- Tests：迁移所有Commit fixtures使用exact row，并覆盖重复Commit、全部binding negatives、generic
+  requirement precedence、unused row与ContextRead组合。S2 catalog及所有target support catalog未修改。
+- Boundary：Reference admission/runtime仍关闭；本切片不声明任何target支持、formal task或完整
+  information-flow proof。
+
 ## 2026-07-31 — D2-07 Commit operand/result Wire typing slice
 
 - Production：`WireV1.checkOpTyping`不再只检查Commit result presence；现要求operand ValueId可解析，

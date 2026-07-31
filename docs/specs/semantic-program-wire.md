@@ -744,8 +744,14 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 `proof-forge.context.unix-time-seconds.v1`，其结果语义形状必须是程序中唯一匿名
 `TypeShapeV1.uint 64`。使用该 key 时 requirements 必须包含且只能包含一个 id 为
 `context.unix-time-seconds` 的 exact row：SemVer `1.0.0`、空 predicates、digest 为
-`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。此规则仅为静态门禁；
-Reference runtime 与 target support catalog 均未接纳 ContextRead。
+`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。Reference runtime按
+SPEC-SEM-CORE-001 exact invocation context执行；target support catalog仍未接纳ContextRead。
+`Op.Commit` 是 target-neutral 的 label-only disclosure boundary：其逻辑结果保持 operand 的
+exact TypeId 与 canonical value bytes，不在 Semantic 层执行hash、加盐或改变值表示。每个含
+Commit 的program必须包含且只能包含一个id为`disclosure.commitment`的exact row：SemVer
+`1.0.0`、空predicates、digest为
+`domainSeparatedSha256("pf.commit-requirement.v1", UTF-8(id))`。识别该row不表示任何target
+支持commitment；target必须另行发布并解析同一exact capability claim。
 任何 result presence/type、input arity/type 或 referenced declaration不符都是 invalid Core trap，而
 Array/Bytes runtime index越界、checked arithmetic/cast/assert failure 才是 `.reverted`。
 
