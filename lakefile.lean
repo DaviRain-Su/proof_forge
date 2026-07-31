@@ -1,44 +1,8 @@
 import Lake
 open Lake DSL
 
-private def xcrunValue (args : Array String) : IO String := do
-  let output ← IO.Process.output {
-    cmd := "/usr/bin/xcrun"
-    args
-    stdin := .null
-    stdout := .piped
-    stderr := .piped
-    inheritEnv := true
-  }
-  unless output.exitCode == 0 do
-    throw <| IO.userError "xcrun failed while resolving the macOS native toolchain"
-  let value := output.stdout.trimAscii.copy
-  if value.isEmpty then
-    throw <| IO.userError "xcrun returned an empty macOS native toolchain path"
-  pure value
-
 package «proof-forge-next» where
   version := v!"0.1.0"
-
-extern_lib proof_forge_frontend_native_v1 pkg := do
-  let source ← inputFile
-    (pkg.dir / "ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c") false
-  let leanInclude ← getLeanIncludeDir
-  let (cc, platformArgs) ←
-    if System.Platform.isOSX then do
-      let cc := System.FilePath.mk (← liftM <| xcrunValue #["--find", "clang"])
-      let sdk ← liftM <| xcrunValue #["--sdk", "macosx", "--show-sdk-path"]
-      pure (cc, #["-isysroot", sdk])
-    else do
-      let cc ← getLeanCc
-      pure (cc, #[])
-  let object ← buildO
-    (pkg.buildDir / "native/frontend/proof_forge_frontend_native_v1.o") source #[]
-    (#["-std=c11", "-fPIC", "-Wall", "-Wextra", "-Werror", "-I",
-        leanInclude.toString] ++ platformArgs)
-    cc
-  buildStaticLib
-    (pkg.buildDir / "lib" / nameToStaticLib "proof_forge_frontend_native_v1") #[object]
 
 @[default_target]
 lean_lib ProofForgeV2 where
@@ -174,12 +138,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Core.DiagnosticV1,
     `Tests.Core.DiagnosticBundleV1,
     `Tests.Frontend.ProtocolV1,
-    `Tests.Frontend.WorkerV1,
-    `Tests.Frontend.SafeOpenV1,
-    `Tests.Frontend.SafeOpenWorkerV1,
-    `Tests.Frontend.DarwinSupervisorReceiptV1,
-    `Tests.Frontend.DarwinWorkerSupervisorV1,
-    `Tests.Frontend.DarwinSourceSupervisorV1
+    `Tests.Frontend.WorkerV1
   ]
 
 lean_exe proof_forge_next where
@@ -195,19 +154,6 @@ lean_exe proof_forge_frontend_worker_v1 where
   root := `ProofForgeV2.Frontend.WorkerMainV1
   supportInterpreter := true
 
-lean_exe proof_forge_frontend_safe_open_worker_v1 where
-  exeName := "proof-forge-frontend-safe-open-worker-v1"
-  root := `ProofForgeV2.Frontend.SafeOpenWorkerMainV1
-
-/-- Focused standalone safe-open protocol/process suite. -/
-lean_exe b11b2_safe_open_worker where
-  root := `Tests.Frontend.SafeOpenWorkerMainV1
-
-/-- Focused B11b2 source-supervisor suite (development matrix). -/
-lean_exe b11b2_source_supervisor where
-  root := `Tests.Frontend.DarwinSourceSupervisorMainV1
-  supportInterpreter := true
-
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests
@@ -216,4 +162,63 @@ lean_exe proof_forge_next_tests where
 lean_exe proof_forge_next_fast_tests where
   exeName := "proof-forge-next-fast-tests"
   root := `Tests.Fast
+  supportInterpreter := true
+
+-- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
+-- above the 7 GB hosted runner limit because Lean does not return heap to the
+-- OS between suites. Each shard runs an independent process so the OS reclaims
+-- memory when it exits. `test` runs the shards instead of the aggregate.
+lean_exe proof_forge_next_tests_shard_core where
+  exeName := "proof-forge-next-tests-shard-core"
+  root := `Tests.Shards.Core
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_worker where
+  exeName := "proof-forge-next-tests-shard-worker"
+  root := `Tests.Shards.Worker
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_typed where
+  exeName := "proof-forge-next-tests-shard-typed"
+  root := `Tests.Shards.Typed
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_language where
+  exeName := "proof-forge-next-tests-shard-language"
+  root := `Tests.Shards.Language
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_language_b where
+  exeName := "proof-forge-next-tests-shard-language-b"
+  root := `Tests.Shards.LanguageB
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_language_c where
+  exeName := "proof-forge-next-tests-shard-language-c"
+  root := `Tests.Shards.LanguageC
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_aggregate where
+  exeName := "proof-forge-next-tests-shard-aggregate"
+  root := `Tests.Shards.Aggregate
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_language_heavy where
+  exeName := "proof-forge-next-tests-shard-language-heavy"
+  root := `Tests.Shards.LanguageHeavy
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_source where
+  exeName := "proof-forge-next-tests-shard-source"
+  root := `Tests.Shards.Source
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_source_b where
+  exeName := "proof-forge-next-tests-shard-source-b"
+  root := `Tests.Shards.SourceB
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_targets where
+  exeName := "proof-forge-next-tests-shard-targets"
+  root := `Tests.Shards.Targets
   supportInterpreter := true

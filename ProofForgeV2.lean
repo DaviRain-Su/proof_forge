@@ -49,12 +49,6 @@ import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.DiagnosticLocateV1
 import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Frontend.WorkerV1
-import ProofForgeV2.Frontend.SafeOpenV1
-import ProofForgeV2.Frontend.SafeOpenWorkerProtocolV1
-import ProofForgeV2.Frontend.SafeOpenWorkerV1
-import ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
-import ProofForgeV2.Frontend.DarwinWorkerSupervisorV1
-import ProofForgeV2.Frontend.DarwinSupervisorV1
 import ProofForgeV2.Typed.DiagnosticDraftV1
 import ProofForgeV2.Typed.ModelV1
 import ProofForgeV2.Typed.NameResolutionV1

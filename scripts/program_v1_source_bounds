@@ -15,26 +15,26 @@ LOG_DIR="$FIXTURE_DIR/logs"
 rm -rf "$FIXTURE_DIR"
 mkdir -p "$LOG_DIR"
 
-# B12's product source authority is Darwin development-only. Portable Linux CI
-# keeps the ProgramV1 bound unit/codec suites and must explicitly prove that the
-# product CLI fails closed instead of restoring the removed in-process Loader.
+# Product CLI source reading is in-process (Loader) on all hosts. Portable
+# Linux CI runs a lightweight positive gate (built-in Counter build) and keeps
+# the heavy 300-term/20k-state/16 MiB bound fixtures Darwin-only; the ProgramV1
+# bound unit/codec suites still run on Linux.
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  log="$LOG_DIR/non-darwin.cli.log"
-  out="$FIXTURE_DIR/non-darwin-out"
+  log="$LOG_DIR/linux.cli.log"
+  out="$FIXTURE_DIR/linux-out"
   ec=0
-  "${CLI[@]}" build Examples/Counter.lean --module Examples.Counter --root "$ROOT" \
-    --target solana -o "$out" >"$log" 2>&1 || ec=$?
-  if [[ "$ec" -ne 3 ]]; then
-    echo "non-Darwin source gate: expected fail-closed exit 3, got $ec" >&2
+  "${CLI[@]}" build-counter --target solana -o "$out" >"$log" 2>&1 || ec=$?
+  if [[ "$ec" -ne 0 ]]; then
+    echo "Linux source gate: product CLI build-counter failed (exit $ec)" >&2
     cat "$log" >&2
     exit 1
   fi
-  rg -q '^PF-FRONTEND-PROTOCOL: frontend supervisor unavailable$' "$log"
-  if [[ -e "$out" ]] || rg -q '^built target=' "$log"; then
-    echo "non-Darwin source gate: unsupported supervisor published output" >&2
+  if [[ ! -d "$out" ]] || ! rg -q '^built target=solana' "$log"; then
+    echo "Linux source gate: build-counter did not publish output" >&2
+    cat "$log" >&2
     exit 1
   fi
-  echo "program_v1_source_bounds: ok (unsupported host fails closed)"
+  echo "program_v1_source_bounds: ok (portable CLI positive gate)"
   exit 0
 fi
 

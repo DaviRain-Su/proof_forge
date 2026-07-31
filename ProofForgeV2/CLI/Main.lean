@@ -3,7 +3,8 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Examples.Counter
-import ProofForgeV2.Frontend.DarwinSupervisorV1
+import ProofForgeV2.Frontend.ProtocolV1
+import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.BuildSelectionV1
 
 namespace ProofForgeV2.CLI
@@ -12,10 +13,7 @@ open ProofForgeV2 System
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Core.DiagnosticV1
-open ProofForgeV2.Frontend.DarwinSupervisorReceiptV1
-open ProofForgeV2.Frontend.DarwinSupervisorV1
 open ProofForgeV2.Frontend.ProtocolV1
-open ProofForgeV2.Frontend.SafeOpenV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
@@ -45,12 +43,6 @@ private def failBundle (bundle : DiagnosticBundleV1) : IO α := do
   let exitByte : UInt8 := if code ≥ 256 then 70 else UInt8.ofNat code
   IO.Process.exit exitByte
 
-private def safeOpenWorkerExecutableName : String :=
-  "proof-forge-frontend-safe-open-worker-v1"
-
-private def frontendWorkerExecutableName : String :=
-  "proof-forge-frontend-worker-v1"
-
 private def validateSourceArgument (source : String) : IO ProjectRelativePath := do
   unless source.endsWith ".lean" do
     failUsage "source path must end in .lean"
@@ -60,7 +52,7 @@ private def validateSourceArgument (source : String) : IO ProjectRelativePath :=
       failUsage "source path must be a canonical project-relative path under --root"
 
 /-- Resolve only the caller-selected trusted root lexically. Source lookup is
-    exclusively performed by the supervised no-follow safe-open child. -/
+    performed by the in-process Loader under this root. -/
 private def resolveProjectRoot (value : String) : IO FilePath := do
   if value.isEmpty || value.toList.any (· == '\x00') then
     failUsage "--root must be a nonempty filesystem path"
@@ -115,24 +107,6 @@ private def checkedCompilerBinDir : IO FilePath := do
   | some parent => pure parent
   | none => failUsage "compiler executable has no package bin directory"
 
-private def validatePinnedWorker (label : String) (path : FilePath) : IO Unit := do
-  let metadata ← try path.symlinkMetadata
-    catch _ => failUsage s!"pinned {label} worker is unavailable"
-  unless metadata.type == .file do
-    failUsage s!"pinned {label} worker is not a regular file"
-
-/-- Workers are non-symlink regular siblings of the physically resolved running
-    compiler binary; ambient PATH is never consulted. -/
-private def pinnedFrontendWorkers : IO (FilePath × FilePath) := do
-  let binDir ← checkedCompilerBinDir
-  let safeOpenWorker := binDir / safeOpenWorkerExecutableName
-  let frontendWorker := binDir / frontendWorkerExecutableName
-  validatePinnedWorker "safe-open" safeOpenWorker
-  validatePinnedWorker "frontend" frontendWorker
-  pure (safeOpenWorker, frontendWorker)
-
-/-- Engineering `build-counter` source root. The convenience command exists only
-    in the checked Lake package layout and never falls back to invocation CWD. -/
 private def builtInSourceRoot : IO FilePath := do
   let binDir ← checkedCompilerBinDir
   unless binDir.fileName == some "bin" do
@@ -169,95 +143,24 @@ private def failFrontendDiagnostic
     (stableContext := some stableClass)
   failBundle (mkFailureBundleV1 #[diagnostic])
 
-private def failSupervisorCall
-    (sourcePath : ProjectRelativePath) (detail : String) : IO α :=
-  let actual := if detail == "unsupported-platform" then detail
-    else "supervisor-call-failed"
-  failFrontendDiagnostic sourcePath .frontendProtocol
-    "frontend supervisor unavailable"
-    "request-bound supervised frontend response" actual
-    ("frontend.call." ++ actual)
-
-private def failSupervisorEvent
-    (sourcePath : ProjectRelativePath)
-    (event : DarwinFrontendSupervisorEventV1)
-    (sourceOpenFault : Option SafeOpenFaultV1) : IO α :=
-  let actual := event.wire
-  match event with
-  | .sourceOpenFailed =>
-      match sourceOpenFault with
-      | some .tooLarge =>
-          failFrontendDiagnostic sourcePath .sourceInvalid
-            "source exceeds the 16 MiB limit"
-            "source bytes at most 16777216" SafeOpenFaultV1.tooLarge.wire
-            "frontend.source-too-large"
-      | _ =>
-          failFrontendDiagnostic sourcePath .sourceInvalid "source open failed"
-            "regular single-link source file under project root" actual
-            "frontend.source-open-failed"
-  | .deadlineObserved =>
-      failFrontendDiagnostic sourcePath .resourceTime
-        "frontend wall limit exceeded" "within effective frontend wall limit"
-        actual "frontend.resource-time"
-  | .processLimitObserved =>
-      failFrontendDiagnostic sourcePath .resourceProcess
-        "frontend process limit exceeded" "within effective frontend process limit"
-        actual "frontend.resource-process"
-  | .memoryLimitObserved =>
-      failFrontendDiagnostic sourcePath .resourceMemory
-        "frontend memory limit exceeded" "within effective frontend memory limit"
-        actual "frontend.resource-memory"
-  | .outputLimitObserved =>
-      failFrontendDiagnostic sourcePath .resourceOutput
-        "frontend protocol output limit exceeded"
-        "within effective frontend protocol output limit" actual
-        "frontend.resource-output"
-  | .workerExitObserved =>
-      failFrontendDiagnostic sourcePath .frontendProtocol
-        "frontend worker exited without a valid response"
-        "canonical Frontend.Ok.v1 or Frontend.Err.v1" actual
-        "frontend.worker-exit"
-  | .workerSignalObserved =>
-      failFrontendDiagnostic sourcePath .frontendProtocol
-        "frontend worker terminated without a valid response"
-        "canonical Frontend.Ok.v1 or Frontend.Err.v1" actual
-        "frontend.worker-signal"
-  | .supervisorFault =>
-      failFrontendDiagnostic sourcePath .frontendProtocol
-        "frontend supervisor rejected the worker response"
-        "canonical request-bound frontend protocol" actual
-        "frontend.supervisor-fault"
-  | .responseAccepted =>
-      failFrontendDiagnostic sourcePath .frontendProtocol
-        "frontend response/product join is inconsistent"
-        "success product input or diagnostic failure bundle" actual
-        "frontend.response-join"
-
-/-- Sole CLI source authority. Success consumes the product pair reconstructed
-    inside the supervisor; callers never reopen, decode, or reparse source. -/
-private unsafe def loadSupervisedProduct
+/-- Sole CLI source authority: in-process Loader read of the source file
+    under the resolved project root. Product compilation consumes the
+    reconstructed ValidatedSourceV1 + OriginInventoryV1 pair. -/
+private unsafe def loadSourceProduct
     (projectRoot : FilePath)
     (sourcePath : ProjectRelativePath)
     (moduleSelector : String)
-    (programSelector : Option String)
-    (languageVersion : SemVer) :
+    (programSelector : Option String) :
     IO (ValidatedSourceV1 × OriginInventoryV1) := do
-  let (safeOpenWorker, frontendWorker) ← pinnedFrontendWorkers
-  let supervised ←
-    match ← superviseFrontendSourceV1 safeOpenWorker frontendWorker projectRoot
-        languageVersion sourcePath moduleSelector programSelector
-        hardFrontendProfileForHost with
-    | .ok value => pure value
-    | .error detail => failSupervisorCall sourcePath detail
-  match SupervisedFrontendV1.response supervised,
-      SupervisedFrontendV1.productInput supervised with
-  | some (.success _), some productInput => pure productInput
-  | some (.failure failure), none => failBundle (FrontendFailureV1.bundle failure)
-  | _, _ =>
-      failSupervisorEvent sourcePath
-        (DarwinFrontendSupervisorReceiptV1.event
-          (SupervisedFrontendV1.receipt supervised))
-        (SupervisedFrontendV1.sourceOpenFault supervised)
+  let logicalPath ← match renderProjectRelativePath sourcePath with
+    | .ok path => pure path
+    | .error _ => failUsage "source path is not canonical"
+  let sourceFile := projectRoot / FilePath.mk logicalPath
+  let source ← IO.FS.readFile sourceFile
+  match ← ProofForgeV2.Language.Loader.selectProgramV1Product
+      source logicalPath moduleSelector programSelector with
+  | .error bundle => failBundle bundle
+  | .ok product => pure product
 
 private def liftCompileResult (result : Except CompileError α) : IO α :=
   match result with
@@ -293,11 +196,11 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let sourcePath ← validateSourceArgument source
   let root ← resolveProjectRoot (options.root.getD ".")
   let (sourceProgram, origins) ←
-    loadSupervisedProduct root sourcePath moduleName options.programName languageVersion
+    loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
-      -- Product phase: supervised frontend → located compile → exact
+      -- Product phase: in-process Loader read → located compile → exact
       -- requirement capability → emit/finalize/disk closure.
       let capability ← liftCompileResult
         (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -313,7 +216,7 @@ private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
   let root ← builtInSourceRoot
   let sourcePath ← validateSourceArgument counterLogicalSourcePath
   let (sourceProgram, origins) ←
-    loadSupervisedProduct root sourcePath Examples.counterModuleNameV1 none languageVersion
+    loadSourceProduct root sourcePath Examples.counterModuleNameV1 none
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>

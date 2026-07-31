@@ -7,12 +7,8 @@
     * usage/config: exit 2 (missing --module, unknown command, unknown --target);
       no diagnostic code invention (no PF-CLI-USAGE / PF-TARGET-UNKNOWN as exception)
     * parser/source boundary: exit 3
-    * supervised source authority: in-root leaf symlink is rejected with exit 3
     * build-counter package source is independent of caller cwd
-    * compiler symlink launch cannot redirect pinned sibling workers
     * Counter `build-counter` success: exit 0 + success stdout, no failure artifacts
-    * unsupported hosts: both product build commands fail closed with the stable frontend
-      protocol diagnostic and zero output (no in-process Loader fallback)
 -/
 import ProofForgeV2.Core.Common
 
@@ -22,9 +18,6 @@ open System
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
-
-private def supervisorHostSupported : Bool :=
-  System.Platform.isOSX || (System.Platform.target.splitOn "-").contains "linux"
 
 private def containsSubstr (s sub : String) : Bool :=
   let rec loop (cs : List Char) : Bool :=
@@ -155,18 +148,12 @@ private def testLanguageVersionSelection : IO Unit := do
     "--language-version", "1.0.0",
     "-o", explicitOut.toString
   ]
-  if supervisorHostSupported then
-    expect (explicitEc == 0)
-      s!"explicit 1.0.0 must follow the default product path: {explicitStderr}"
-    expect (containsSubstr explicitStdout "built target=solana")
-      "explicit 1.0.0 must build the same product"
-    expect (← explicitOut.pathExists) "explicit 1.0.0 must publish on supported host"
-    IO.FS.removeDirAll explicitOut
-  else
-    expect (explicitEc == 3 && containsSubstr explicitStderr "PF-FRONTEND-PROTOCOL")
-      "explicit 1.0.0 must reach the unsupported-host supervisor boundary"
-    expect (explicitStdout == "" && !(← explicitOut.pathExists))
-      "explicit 1.0.0 must not bypass unsupported-host fail-closed behavior"
+  expect (explicitEc == 0)
+    s!"explicit 1.0.0 must follow the default product path: {explicitStderr}"
+  expect (containsSubstr explicitStdout "built target=solana")
+    "explicit 1.0.0 must build the same product"
+  expect (← explicitOut.pathExists) "explicit 1.0.0 must publish"
+  IO.FS.removeDirAll explicitOut
   let (unknownEc, unknownStdout, unknownStderr) ← runCli #[
     "build", "does-not-exist.lean",
     "--root", "does-not-exist-root",
@@ -206,46 +193,6 @@ private def testParserBoundaryExit3 : IO Unit := do
   expect (!(← outDir.pathExists))
     "parser failure must not create output"
 
-private def testSupervisedSourceRejectsLeafSymlink : IO Unit := do
-  let root := FilePath.mk "build/v2/cli-supervised-source"
-  if ← root.pathExists then IO.FS.removeDirAll root
-  IO.FS.createDirAll root
-  let source :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
-    "  state count : UInt64\n" ++
-    "  init(initial : UInt64) do\n" ++
-    "    count := initial\n" ++
-    "  entry increment(delta : UInt64) : UInt64 do\n" ++
-    "    count := count + delta\n" ++
-    "    return count\n" ++
-    "  view get() : UInt64 do\n" ++
-    "    return count\n"
-  IO.FS.writeFile (root / "real.lean") source
-  let linkResult ← IO.Process.output {
-    cmd := "/bin/ln"
-    args := #["-s", "real.lean", (root / "link.lean").toString]
-  }
-  expect (linkResult.exitCode == 0)
-    s!"could not create source symlink: {linkResult.stderr}"
-  let outDir := root / "out"
-  let (ec, stdout, stderr) ← runCli #[
-    "build", "link.lean",
-    "--root", root.toString,
-    "--module", "Root",
-    "--target", "solana",
-    "-o", "out"
-  ]
-  expect (ec == 3)
-    s!"supervised leaf symlink must exit 3, got {ec}\nstderr={stderr}\nstdout={stdout}"
-  expect (containsSubstr stderr "PF-SRC-INVALID: source open failed")
-    s!"leaf symlink must map to stable source-open diagnostic, stderr={stderr}"
-  expect (!containsSubstr stdout "built target=")
-    "leaf symlink failure must not print success"
-  expect (!(← outDir.pathExists))
-    "leaf symlink failure must not create output"
-
 private def testBuildCounterUsesPackageSource : IO Unit := do
   let foreignRoot := FilePath.mk "build/v2/cli-build-counter-foreign-cwd"
   if ← foreignRoot.pathExists then IO.FS.removeDirAll foreignRoot
@@ -263,37 +210,6 @@ private def testBuildCounterUsesPackageSource : IO Unit := do
     s!"package-source build-counter stdout missing: {stdout}"
   expect (← outDir.pathExists)
     "package-source build-counter must create output"
-
-private def testSymlinkLaunchCannotRedirectWorkers : IO Unit := do
-  let fixture := FilePath.mk "build/v2/cli-symlink-launch"
-  if ← fixture.pathExists then IO.FS.removeDirAll fixture
-  IO.FS.createDirAll fixture
-  let fixture ← IO.FS.realPath fixture
-  let realCli ← IO.FS.realPath cliBin
-  let linkedCli := fixture / "proof-forge-next"
-  runTool "/bin/ln" #["-s", realCli.toString, linkedCli.toString]
-  let safeMarker := fixture / "forged-safe-open-ran.flag"
-  let frontendMarker := fixture / "forged-frontend-ran.flag"
-  writeExecutable (fixture / "proof-forge-frontend-safe-open-worker-v1") <|
-    "#!/bin/sh\n" ++ s!": > '{safeMarker}'\n" ++ "exit 7\n"
-  writeExecutable (fixture / "proof-forge-frontend-worker-v1") <|
-    "#!/bin/sh\n" ++ s!": > '{frontendMarker}'\n" ++ "exit 7\n"
-  let outDir := fixture / "out"
-  let (ec, stdout, stderr) ← runCliAt linkedCli #[
-    "build-counter", "--target", "solana", "-o", outDir.toString
-  ]
-  expect (!(← safeMarker.pathExists) && !(← frontendMarker.pathExists))
-    "symlink launch must never execute forged sibling workers"
-  if ec == 0 then
-    expect (containsSubstr stdout "built Counter target=solana")
-      s!"physical app-path launch lost success output: {stdout}"
-    expect (← outDir.pathExists)
-      "physical app-path launch must create output"
-  else
-    expect (ec == 2 && containsSubstr stderr "symbolic link")
-      s!"symlink launch must resolve physically or fail closed, got {ec}: {stderr}"
-    expect (!(← outDir.pathExists))
-      "rejected symlink launch must not create output"
 
 private def testBuildCounterSuccess : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-build-counter-ok"
@@ -314,36 +230,6 @@ private def testBuildCounterSuccess : IO Unit := do
   expect (← outDir.pathExists)
     "build-counter success must create output directory"
 
-private def testUnsupportedPlatformFailsClosed : IO Unit := do
-  let sourceOut := FilePath.mk "build/v2/diagnostic-non-darwin-source"
-  let counterOut := FilePath.mk "build/v2/diagnostic-non-darwin-counter"
-  if ← sourceOut.pathExists then IO.FS.removeDirAll sourceOut
-  if ← counterOut.pathExists then IO.FS.removeDirAll counterOut
-  let (sourceEc, sourceStdout, sourceStderr) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
-    "--target", "solana",
-    "-o", sourceOut.toString
-  ]
-  expect (sourceEc == 3)
-    s!"unsupported-host build must fail closed with exit 3, got {sourceEc}: {sourceStderr}"
-  expect (containsSubstr sourceStderr
-      "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
-    s!"unsupported-host build must report the closed supervisor diagnostic: {sourceStderr}"
-  expect (sourceStdout == "" && !(← sourceOut.pathExists))
-    "unsupported-host build must not print success or publish output"
-
-  let (counterEc, counterStdout, counterStderr) ← runCli #[
-    "build-counter", "--target", "solana", "-o", counterOut.toString
-  ]
-  expect (counterEc == 3)
-    s!"unsupported-host build-counter must fail closed with exit 3, got {counterEc}: {counterStderr}"
-  expect (containsSubstr counterStderr
-      "PF-FRONTEND-PROTOCOL: frontend supervisor unavailable")
-    s!"unsupported-host build-counter must report the closed supervisor diagnostic: {counterStderr}"
-  expect (counterStdout == "" && !(← counterOut.pathExists))
-    "unsupported-host build-counter must not print success or publish output"
-
 unsafe def run : IO Unit := do
   unless ← cliBin.pathExists do
     throw <| IO.userError
@@ -352,16 +238,10 @@ unsafe def run : IO Unit := do
   testUnknownCommandExit2
   testUnknownTargetExit2
   testLanguageVersionSelection
-  if !supervisorHostSupported then
-    testUnsupportedPlatformFailsClosed
-    IO.println "Tests.CLI.DiagnosticsV1: ok (unsupported host fails closed)"
-  else
-    testMultiErrorProductCli
-    testParserBoundaryExit3
-    testSupervisedSourceRejectsLeafSymlink
-    testBuildCounterUsesPackageSource
-    testSymlinkLaunchCannotRedirectWorkers
-    testBuildCounterSuccess
-    IO.println "Tests.CLI.DiagnosticsV1: ok"
+  testMultiErrorProductCli
+  testParserBoundaryExit3
+  testBuildCounterUsesPackageSource
+  testBuildCounterSuccess
+  IO.println "Tests.CLI.DiagnosticsV1: ok"
 
 end Tests.CLI.DiagnosticsV1

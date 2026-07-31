@@ -8,11 +8,19 @@ locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Develope
 default: dev-check
 
 build:
-    lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1 proof_forge_frontend_safe_open_worker_v1
+    lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1
 
 test: build
-    lake build proof_forge_next_tests
-    lake env .lake/build/bin/proof-forge-next-tests
+    lake build proof_forge_next_tests_shard_core proof_forge_next_tests_shard_typed proof_forge_next_tests_shard_language_b proof_forge_next_tests_shard_language_c proof_forge_next_tests_shard_aggregate proof_forge_next_tests_shard_language_heavy proof_forge_next_tests_shard_source proof_forge_next_tests_shard_source_b proof_forge_next_tests_shard_targets
+    lake env .lake/build/bin/proof-forge-next-tests-shard-core
+    lake env .lake/build/bin/proof-forge-next-tests-shard-typed
+    lake env .lake/build/bin/proof-forge-next-tests-shard-language-b
+    lake env .lake/build/bin/proof-forge-next-tests-shard-language-c
+    lake env .lake/build/bin/proof-forge-next-tests-shard-aggregate
+    lake env .lake/build/bin/proof-forge-next-tests-shard-language-heavy
+    lake env .lake/build/bin/proof-forge-next-tests-shard-source
+    lake env .lake/build/bin/proof-forge-next-tests-shard-source-b
+    lake env .lake/build/bin/proof-forge-next-tests-shard-targets
 
 test-fast: build
     lake build proof_forge_next_fast_tests
@@ -581,79 +589,6 @@ s7c-disk-closure-gate:
     fi
     echo "s7c-disk-closure-gate: ok"
 
-# B12: CLI source authority is the supervised safe-open → frontend worker chain.
-# No in-process open/Loader/reconstruct fallback may reappear in Main.lean.
-b12-cli-source-authority-deletion-gate:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    main="ProofForgeV2/CLI/Main.lean"
-    supervisor="ProofForgeV2/Frontend/DarwinSupervisorV1.lean"
-    native="ProofForgeV2/Frontend/Native/proof_forge_frontend_native_v1.c"
-    fail_if_match() {
-      local pat="$1"
-      local file="${2:-$main}"
-      local hits ec
-      set +e
-      hits="$(rg -n --no-heading "$pat" "$file" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "b12-cli-source-authority-deletion-gate: forbidden pattern in $file: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "b12-cli-source-authority-deletion-gate: rg failed for $pat in $file (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local label="$2"
-      local hits count
-      hits="$(rg -n --no-heading "$pat" "$main")"
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]]; then
-        echo "b12-cli-source-authority-deletion-gate: $label expected one match" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    fail_if_match 'import ProofForgeV2\.Language\.Loader'
-    fail_if_match 'IO\.FS\.realPath'
-    fail_if_match 'IO\.FS\.readFile'
-    fail_if_match 'selectProgramV1Product'
-    fail_if_match 'ensureContainedSource'
-    fail_if_match 'reconstructFrontendSuccessV1'
-    fail_if_match 'counterSourceText'
-    expect_one_match 'superviseFrontendSourceV1' 'sole supervised source call'
-    expect_one_match 'SupervisedFrontendV1\.productInput' 'sole product-input consumption'
-    rg -q 'SupervisedFrontendV1\.sourceOpenFault' "$main"
-    rg -F -q 'source exceeds the 16 MiB limit' "$main"
-    rg -q 'sourceOpenFault_ : Option SafeOpenFaultV1' "$supervisor"
-    rg -q 'SafeOpenWorkerFailureV1\.fault failure' "$supervisor"
-    rg -F -q '"proof-forge-frontend-safe-open-worker-v1"' "$main"
-    rg -F -q '"proof-forge-frontend-worker-v1"' "$main"
-    rg -q 'checkedCompilerBinDir' "$main"
-    rg -q 'builtInSourceRoot' "$main"
-    fail_if_match 'resolveProjectRoot "\."'
-    rg -q 'compileProgramProductV1' "$main"
-    fail_if_match 'posix_spawn\(&child, worker_path' "$native"
-    rg -q 'PF_SUP_MAX_WORKER_BYTES' "$native"
-    rg -q 'pf_prepare_worker_snapshot' "$native"
-    rg -q 'F_GETPATH' "$native"
-    fail_if_match '/private/tmp' "$native"
-    fail_if_match 'fclonefileat' "$native"
-    rg -q 'pf_clear_and_verify_extended_acl' "$native"
-    rg -q 'O_WRONLY \| O_CREAT \| O_EXCL \| O_NOFOLLOW \| O_CLOEXEC' "$native"
-    rg -q 'POSIX_SPAWN_START_SUSPENDED' "$native"
-    rg -q 'EVFILT_VNODE' "$native"
-    rg -q 'posix_spawn\(&child, worker_snapshot\.worker_path' "$native"
-    rg -q 'pf_cleanup_worker_snapshot' "$native"
-    lake build ProofForgeV2.CLI.Main Tests.Frontend.DarwinSourceSupervisorV1 Tests.CLI.DiagnosticsV1
-    echo "b12-cli-source-authority-deletion-gate: ok"
-
 # Wave 2 EVM pilot: target Plan body consumes retained SemanticProgramV1 only;
 # the frozen public-UInt64 envelope retains exact checked add/sub semantics.
 s1-evm-semantic-plan-deletion-gate:
@@ -749,7 +684,7 @@ s1-target-semantic-plan-deletion-gate:
     lake build ProofForgeV2.Targets.Solana ProofForgeV2.Targets.Near ProofForgeV2.Targets.Noir Tests.Materialization.Targets Tests.Materialization.NearHostModel Tests.Materialization.NoirRelationModel
     echo "s1-target-semantic-plan-deletion-gate: ok"
 
-dev-check: docs-check sbom-package-files-check build test-fast b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+dev-check: docs-check sbom-package-files-check build test-fast s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
@@ -1188,6 +1123,6 @@ evm-runtime: target-smoke
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.
-ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative b12-cli-source-authority-deletion-gate s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+ci: docs-check sbom-package-files-check build test product-negative source-bounds target-cli-positive target-negative s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
 
 check: ci

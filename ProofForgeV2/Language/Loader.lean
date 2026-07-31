@@ -407,6 +407,13 @@ structure ParserSession where
 
 namespace ParserSession
 
+/-- Read-only access to the session's parser environment, so callers can reuse
+    the same immutable environment (e.g. parse a module command for span-join
+    tests) without constructing a second full `ProofForgeV2.Language.Syntax`
+    environment. -/
+def sessionEnvironment (session : ParserSession) : Environment :=
+  session.environment
+
 unsafe def create : IO ParserSession :=
   return { environment := ← parserEnvironment }
 

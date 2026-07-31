@@ -57,23 +57,27 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
-      # The Lean-bundled clang is built against Lean's self-contained sysroot
-      # and does not probe the distro gcc include layout: compiling the native
-      # frontend .c fails with 'stddef.h file not found' (stddef.h lives in the
-      # gcc private include dir on Ubuntu), and forcing the gcc headers in via
-      # CPATH breaks on gcc's stdatomic.h macros. The supported alternative is
-      # LEAN_CC pointing at the distro clang (resolves libc headers natively),
-      # plus the distro libc++/libuv development libraries for the final link.
-      - name: Provision C toolchain headers
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libc++-dev libc++abi-dev libuv1-dev
-          echo "LEAN_CC=/usr/bin/clang" >> "$GITHUB_ENV"
-
       - name: Install Lean
         run: |
           scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      # The product tests materialize real targets (EVM solc bytecode, NEAR
+      # wasm, Solana plan, Noir source). The capability-gated materializers
+      # resolve these locked external tools at runtime, so the ordinary CI
+      # source-core job provisions and materializes the Linux tool root
+      # exactly like the manual linux-tool-root audit lane.
+      - name: Select linux tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
+
+      - name: Provision linux external assets
+        run: just toolchains-provision-external
+
+      - name: Materialize linux tool root
+        run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
+
+      - name: Verify linux tool root
+        run: just toolchains-verify-external
 
       - name: Tool versions
         run: |

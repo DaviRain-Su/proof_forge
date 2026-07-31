@@ -173,15 +173,10 @@ private def findSubbytes (haystack needle : ByteArray) : Option Nat := do
       return start
   none
 
-private unsafe def parserEnvironment : IO Environment := do
-  enableInitializersExecution
-  initSearchPath (← findSysroot "lean")
-  importModules #[{ module := `ProofForgeV2.Language.Syntax }] {} 0
-    (loadExts := true)
-
-private unsafe def parseProgramCommand (source : String) : IO Syntax := do
-  let env ← parserEnvironment
-  let moduleStx ← Parser.testParseModule env "<spans>" source
+private unsafe def parseProgramCommand
+    (session : Language.Loader.ParserSession) (source : String) : IO Syntax := do
+  let moduleStx ← Parser.testParseModule
+    (Language.Loader.ParserSession.sessionEnvironment session) "<spans>" source
   match moduleStx.getArgs with
   | #[_header, commands] =>
       match commands.getArgs.find? (·.isOfKind `ProofForgeV2.Language.programDecl) with
@@ -293,7 +288,7 @@ unsafe def run : IO Unit := do
     (spanJoinV1 baseSource syntheticCommand baseSourceUnit.program)
 
   -- Count mismatch against a tampered AST must fail closed.
-  let commandStx ← parseProgramCommand baseSource
+  let commandStx ← parseProgramCommand session baseSource
   let firstItem ← match baseSourceUnit.program.items[0]? with
     | some item => pure item
     | none => throw <| IO.userError "base program has no items"
@@ -382,7 +377,7 @@ unsafe def run : IO Unit := do
     "  entry ok() : UInt64 do\n" ++
     "    return 0\n"
   let (arrayStateUnit, _) ← selectWithSpans session arrayStateSource none
-  let arrayStateCmd ← parseProgramCommand arrayStateSource
+  let arrayStateCmd ← parseProgramCommand session arrayStateSource
   let tamperedArrayToOption : ProgramV1 :=
     match arrayStateUnit.program.items.toList with
     | [.state s0, .state s1, rest] =>
