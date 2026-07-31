@@ -1275,6 +1275,110 @@ private unsafe def testArithOps : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "validatePlan must reject Bool entry returning bitNot"
 
+/-- Wave G: bounded for-loop Plan recovery, runtime maxIterations back-edge
+    enforcement, and Yul `for` rendering. -/
+private unsafe def testForLoop : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LoopSum where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load LoopSum" (← session.selectProgramV1
+    sourceText "<evm-for-loop>" "Tests.EvmForLoop" none)
+  let compiled ← liftResult "compile LoopSum" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan LoopSum" <| planEvm compiled
+  expect (plan.entries.map (·.name) == #["addUp", "scan", "addUpTight", "get"])
+    "LoopSum must lower four entries in source order"
+  let addUp := plan.entries[0]!
+  -- Induction temp = block-param ValueId 1; counter temp = maxBp+1+loopIdx = 2.
+  expect (addUp.body == #[
+      .forLoop 1 2 8
+        (.param 0)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 0) (.literal 4)))
+        (.add (.temp 1) (.literal 1))
+        #[.store {
+          slot := 0
+          value := .checkedAdd (.storageLoad 0) (.temp 1)
+        }],
+      .returnValue (.storageLoad 0)])
+    "addUp must lower let+for into forLoop with counter/maxIterations/init/cond/update/body"
+  let scan := plan.entries[1]!
+  expect (scan.body == #[
+      .forLoop 1 2 2
+        (.param 0)
+        (.compare .lt (.temp 1) (.param 0))
+        (.add (.temp 1) (.literal 1))
+        #[.store {
+          slot := 0
+          value := .checkedAdd (.storageLoad 0) (.literal 1)
+        }],
+      .returnValue (.storageLoad 0)])
+    "scan must lower a zero-trip for (n ..< n) with maxIterations=2"
+  let addUpTight := plan.entries[2]!
+  -- Over-declared: range spans 4 values but bound is 3 — Plan carries 3;
+  -- Yul reverts at the back edge after the 4th body (reference-exact).
+  expect (addUpTight.body == #[
+      .forLoop 1 2 3
+        (.param 0)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 0) (.literal 4)))
+        (.add (.temp 1) (.literal 1))
+        #[.store {
+          slot := 0
+          value := .checkedAdd (.storageLoad 0) (.temp 1)
+        }],
+      .returnValue (.storageLoad 0)])
+    "addUpTight must pin forLoop maxIterations=3 for the over-bound case"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"LoopSum plan must validate: {e.render}"
+  let output ← liftResult "materialize LoopSum" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "LoopSum.yul") |
+    throw <| IO.userError "LoopSum: missing LoopSum.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "for {")
+    "LoopSum Yul must render native for {"
+  expect (yul.contains "lt(")
+    "LoopSum Yul must render lt( for the loop condition"
+  expect (yul.contains "add(")
+    "LoopSum Yul must render add( for limit/body/update arithmetic"
+  expect (yul.contains "t1 :=")
+    "LoopSum Yul must assign the induction temporary (t1 := ...)"
+  expect (yul.contains "t1 := add(" || yul.contains "t1 := add")
+    "LoopSum Yul must update the induction temporary via add"
+  expect (yul.contains "t2 := 0")
+    "LoopSum Yul must init the completed-iteration counter to 0"
+  expect (yul.contains "if eq(t2, 8)")
+    "LoopSum Yul must back-edge check addUp bound 8"
+  expect (yul.contains "if eq(t2, 3)")
+    "LoopSum Yul must back-edge check addUpTight bound 3"
+  expect (yul.contains "if eq(t2," && yul.contains "revert(0, 0)")
+    "LoopSum Yul must revert(0, 0) when the static bound is exceeded at the back edge"
+  expect (yul.contains "t2 := add(t2, 1)")
+    "LoopSum Yul must increment the completed-iteration counter after the bound check"
+  -- No-loop programs remain accepted (regression guard via Counter path in run).
+  pure ()
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -1295,6 +1399,7 @@ unsafe def run : IO Unit := do
   testEmitRevertFlow
   testFnLocalCall
   testArithOps
+  testForLoop
   testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared

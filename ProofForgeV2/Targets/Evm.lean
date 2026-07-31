@@ -41,6 +41,9 @@ ABI word positions have already been selected by the plan builder. -/
 inductive Expr where
   | literal (value : UInt64)
   | param (wordIndex : Nat)
+  /-- Named induction temporary for bounded `for` loops. Renders as `t{tempIndex}`
+  and is mutated by the loop update step. -/
+  | temp (tempIndex : Nat)
   | storageLoad (slot : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
@@ -51,6 +54,9 @@ inductive Expr where
   | checkedDiv (lhs rhs : Expr)
   /-- Checked UInt64 modulo: reverts on zero divisor. -/
   | checkedMod (lhs rhs : Expr)
+  /-- Unchecked UInt64 add. Only admitted for the bounded-for induction step
+  `i + 1`, which cannot overflow: the body runs only while `i < end ≤ UInt64.max`. -/
+  | add (lhs rhs : Expr)
   /-- Bitwise not on a UInt64 operand (`Yul not`). -/
   | bitNot (operand : Expr)
   /-- Logical not on a Bool operand (`Yul iszero`). -/
@@ -76,6 +82,14 @@ inductive Statement where
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  /-- Bounded for recovered from a loopBounds header: induction temp, completed-
+  iteration counter temp, static `maxIterations` (enforced at the back edge),
+  init expression (incoming jump args), unsigned `i < end` condition, post-body
+  update (always `i + 1` in the Normalize pilot), and body statements.
+  Runtime: the (N+1)-th body executes then reverts at the post/back-edge check
+  (`eq(counter, N) → revert`), matching ReferenceV1 boundExceeded. -/
+  | forLoop (varTemp counterTemp : Nat) (maxIterations : UInt32)
+      (initial : Expr) (cond : Expr) (update : Expr) (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- Constructor carries store-only `stores` for the historical store-only path
@@ -584,6 +598,47 @@ private def consumeSegmentRootsV1
       "unsupported EVM semantic shape: dead or reordered value instructions"
   pure ()
 
+/-- Like `consumeCurrentSegmentV1`, but dependencies listed in `armReadables`
+    (induction temps, dominating pure values, match scrutinees) are free and
+    need not live in the current segment. Used for loop-header conditions and
+    loop-body sinks that close over the induction variable. -/
+private def consumeCurrentSegmentWithArmsV1
+    (values : Array LoweredValueV1)
+    (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (root : ValueIdV1) : CompileResult Expr := do
+  let rootValue ← currentValueWithArmsV1 values paramCount segmentStart armReadables root
+  let segmentCount := values.size - segmentStart
+  let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
+  let mut stack : Array Nat := #[]
+  if root.toNat >= paramCount && !armReadables.contains root then
+    stack := stack.push root.toNat
+  else if root.toNat >= segmentStart then
+    stack := stack.push root.toNat
+  let mut visitedCount := 0
+  while !stack.isEmpty do
+    let index := stack.back!
+    stack := stack.pop
+    unless segmentStart <= index && index < values.size do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: sink references a stale ValueId"
+    let localIndex := index - segmentStart
+    if visited[localIndex]? == some false then
+      visited := visited.set! localIndex true
+      visitedCount := visitedCount + 1
+      let value := values[index]!
+      for dependency in value.dependencies do
+        let dependencyIndex := dependency.toNat
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
+          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: expression crosses an effect boundary"
+          stack := stack.push dependencyIndex
+  unless visitedCount == segmentCount do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: dead or reordered value instructions"
+  pure rootValue.expr
+
 private def appendResultValueV1
     (expectedTypeId : TypeIdV1)
     (values : Array LoweredValueV1)
@@ -617,7 +672,9 @@ private structure LoweredBlockV1 where
 
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; values from dominating
-    blocks stay referenceable only via params or match-arm scrutinees. -/
+    blocks stay referenceable only via params, match-arm scrutinees, or
+    loop-dominating pure values (armReadables). Loop-header block params are
+    pre-allocated in the value table and already bound to induction temps. -/
 private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
@@ -630,9 +687,18 @@ private def lowerBlockInstructionsV1
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
   let uint64TypeId := types.uint64TypeId
-  unless block.id.toNat < 1000000 && block.params.isEmpty do
+  unless block.id.toNat < 1000000 do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: block parameters are not supported"
+      "unsupported EVM semantic shape: block id is out of range"
+  -- Block params are admitted only when already materialised in values0
+  -- (loop-header induction temps pre-allocated by lowerCallableV1).
+  for p in block.params do
+    unless p.valueId.toNat < values0.size do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: block parameter ValueId is not pre-allocated"
+    unless p.typeId == uint64TypeId do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: block parameter must be anonymous UInt64"
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .evm
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
@@ -777,7 +843,8 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: state store value must be UInt64"
         let binding ← findStorageV1 layout stateId
-        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        let value ← consumeCurrentSegmentWithArmsV1
+          values paramCount segmentStart armReadables valueId
         let store : Store := { slot := binding.slot, value }
         body := body.push (.store store)
         segmentStart := values.size
@@ -789,7 +856,8 @@ private def lowerBlockInstructionsV1
         unless condVal.isBool do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: assert condition must be Bool"
-        let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        let cond ← consumeCurrentSegmentWithArmsV1
+          values paramCount segmentStart armReadables condId
         body := body.push (.assert cond)
         hasAssert := true
         segmentStart := values.size
@@ -823,12 +891,121 @@ private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
   else
     decodeUInt64LiteralV1 bytes
 
-/-- Structured emission of the forward-only multi-block CFG. Diamonds
-    (branch/switch) are recovered by following each arm to its exit jump or
-    return; convergent joins continue the region. The fuel bounds recursion
-    to the block count. Returns (statements, values, nextJoin, hasAssert,
-    hasControlRegion). -/
-private partial def emitRegionV1
+private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
+    Option LoopBoundV1 :=
+  loopBounds.find? (fun lb => lb.header.toNat == headerId)
+
+/-- Method-scoped counter temp for a loopBounds header: one unique Nat per
+    loop, allocated after every induction (block-param) ValueId so Yul names
+    `t{counterTemp}` never collide with induction temps. -/
+private def loopCounterTempV1 (blocks : Array BlockV1) (loopBounds : Array LoopBoundV1)
+    (headerId : Nat) : CompileResult Nat := do
+  let mut maxBp : Nat := 0
+  for b in blocks do
+    for p in b.params do
+      if p.valueId.toNat > maxBp then
+        maxBp := p.valueId.toNat
+  let mut idx : Nat := 0
+  let mut found : Option Nat := none
+  for lb in loopBounds do
+    if lb.header.toNat == headerId then
+      found := some idx
+    idx := idx + 1
+  match found with
+  | some i => pure (maxBp + 1 + i)
+  | none =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: loop counter temp missing loopBounds entry"
+
+/-- Collect pure ValueIds in `[paramCount, values.size)` so loop-header and
+    body blocks may read dominating pure arithmetic (e.g. `limit := n + 4`). -/
+private def dominatingPureReadablesV1
+    (paramCount : Nat) (values : Array LoweredValueV1)
+    (base : Array ValueIdV1) : Array ValueIdV1 := Id.run do
+  let mut out := base
+  for i in [paramCount:values.size] do
+    let id : ValueIdV1 := UInt32.ofNat i
+    unless out.contains id do
+      out := out.push id
+  pure out
+
+/-- Strip the checked-add overflow guard from a latch update. Normalize always
+    emits `i + 1` after a body that only ran while `i < end ≤ UInt64.max`, so
+    the induction step cannot overflow. -/
+private def inductionUpdateExprV1 (expr : Expr) : Expr :=
+  match expr with
+  | .checkedAdd lhs rhs => .add lhs rhs
+  | other => other
+
+/-- Nested Yul expression form (no intermediate lets). Used for for-loop
+    condition/update slots that require expression positions. Storage loads
+    and checked overflow guards are not nested here — callers pre-render
+    loop-invariant subtrees with the statement form. -/
+private partial def renderExprNested (paramPrefix : String) : Expr → String
+  | .literal value => toString value
+  | .param wordIndex => s!"{paramPrefix}{wordIndex}"
+  | .temp tempIndex => s!"t{tempIndex}"
+  | .storageLoad slot => s!"sload({slot})"
+  | .checkedAdd lhs rhs =>
+      s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .add lhs rhs =>
+      s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .checkedSub lhs rhs =>
+      s!"sub({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .compare op lhs rhs =>
+      let l := renderExprNested paramPrefix lhs
+      let r := renderExprNested paramPrefix rhs
+      match op with
+      | .eq => s!"eq({l}, {r})"
+      | .ne => s!"iszero(eq({l}, {r}))"
+      | .lt => s!"lt({l}, {r})"
+      | .le => s!"iszero(gt({l}, {r}))"
+      | .gt => s!"gt({l}, {r})"
+      | .ge => s!"iszero(lt({l}, {r}))"
+  | .checkedMul lhs rhs =>
+      s!"mul({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .checkedDiv lhs rhs =>
+      s!"div({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .checkedMod lhs rhs =>
+      s!"mod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .bitNot operand => s!"not({renderExprNested paramPrefix operand})"
+  | .boolNot operand => s!"iszero({renderExprNested paramPrefix operand})"
+  | .callFn fnIndex args =>
+      let argsJoined := String.intercalate ", "
+        (args.toList.map (renderExprNested paramPrefix))
+      s!"pf_fn{fnIndex}({argsJoined})"
+
+/-- Continuation of a region walk: terminal, forward join, or loop latch. -/
+private inductive RegionContV1 where
+  | done
+  | join (blockId : Nat)
+  | latch (update : Expr)
+  deriving Inhabited
+
+/-- Single recursive entry for region and for-loop materialisation (avoids a
+    mutual block). -/
+private inductive EmitJobV1 where
+  | region
+      (armReadables : Array ValueIdV1)
+      (activeLoopHeader : Option Nat)
+      (start : Nat)
+      (values : Array LoweredValueV1)
+  | forFromJump
+      (armReadables : Array ValueIdV1)
+      (enclosingLoopHeader : Option Nat)
+      (lb : LoopBoundV1)
+      (initArgs : Array ValueIdV1)
+      (values : Array LoweredValueV1)
+      (segmentStart : Nat)
+
+/-- Structured emission of multi-block CFGs including forward diamonds
+    (branch/switch) and bounded for-loops recovered from `loopBounds`. Diamonds
+    follow each arm to its exit jump or return; convergent joins continue the
+    region. A jump into a loopBounds header materialises a `forLoop` statement
+    (nested headers recurse). The fuel bounds recursion to the block count.
+    Returns (statements, values, cont, hasAssert, hasControlRegion).
+    `activeLoopHeader = some h` means a jump back to `h` is this loop's latch. -/
+private partial def emitJobV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : EvmTypeClosureV1)
@@ -836,168 +1013,330 @@ private partial def emitRegionV1
     (fnIndexByCallableId : Array (Option Nat))
     (fns : Array FnBinding)
     (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1)
+    (paramCount : Nat)
+    (expectedResultKind : Option ResultKind)
+    (fuel : Nat)
+    (job : EmitJobV1) :
+    CompileResult (Array Statement × Array LoweredValueV1 × RegionContV1 × Bool × Bool) := do
+  if fuel == 0 then
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: CFG region exceeds block bound"
+  match job with
+  | .forFromJump armReadables enclosingLoopHeader lb initArgs values0 segmentStart0 => do
+      let headerId := lb.header.toNat
+      let header ← match blocks[headerId]? with
+        | some b => pure b
+        | none => throw (.planInvariant .evm
+            "unsupported EVM semantic shape: loopBounds header is missing")
+      unless header.id.toNat == headerId do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop header block id is not dense"
+      let headerParam ← match header.params[0]? with
+        | some p => pure p
+        | none => throw (.planInvariant .evm
+            "unsupported EVM semantic shape: loop header must carry exactly one block param")
+      unless header.params.size == 1 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop header must carry exactly one block param"
+      let initArg ← match initArgs[0]? with
+        | some a => pure a
+        | none => throw (.planInvariant .evm
+            "unsupported EVM semantic shape: loop entry must pass exactly one induction arg")
+      unless initArgs.size == 1 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop entry must pass exactly one induction arg"
+      let initRoot ← currentValueWithArmsV1
+        values0 paramCount segmentStart0 armReadables initArg
+      unless !initRoot.isBool do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop induction init must be UInt64"
+      let initial := initRoot.expr
+      let varTemp := headerParam.valueId.toNat
+      unless varTemp < values0.size do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: induction ValueId is not pre-allocated"
+      let mut values := values0.set! varTemp {
+        expr := .temp varTemp
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+        isBool := false
+      }
+      let mut loopReadables :=
+        dominatingPureReadablesV1 paramCount values armReadables
+      let indId : ValueIdV1 := UInt32.ofNat varTemp
+      unless loopReadables.contains indId do
+        loopReadables := loopReadables.push indId
+      let headerLowered ← lowerBlockInstructionsV1
+        owner mode types layout fnIndexByCallableId fns paramCount loopReadables header values
+      values := headerLowered.values
+      let headerSeg := headerLowered.segmentStart
+      unless headerLowered.statements.isEmpty do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop header must not emit side-effect statements"
+      match header.terminator with
+      | .branch condId thenT elseT =>
+          let condVal ← currentValueWithArmsV1
+            values paramCount headerSeg loopReadables condId
+          unless condVal.isBool do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: loop condition must be Bool"
+          let cond ← consumeCurrentSegmentWithArmsV1
+            values paramCount headerSeg loopReadables condId
+          let (bodyStmts, values1, bodyCont, hA1, _) ←
+            emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+              paramCount expectedResultKind (fuel - 1)
+              (.region loopReadables (some headerId) thenT.blockId.toNat values)
+          let update ← match bodyCont with
+            | .latch u => pure u
+            | _ =>
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: loop body must latch back to its header"
+          values := values1
+          let exitId := elseT.blockId.toNat
+          let counterTemp ← loopCounterTempV1 blocks loopBounds headerId
+          unless counterTemp != varTemp do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: loop counter temp collides with induction temp"
+          let forStmt : Statement :=
+            .forLoop varTemp counterTemp lb.maxIterations initial cond update bodyStmts
+          let (exitStmts, values2, exitCont, hA2, _) ←
+            emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+              paramCount expectedResultKind (fuel - 1)
+              (.region loopReadables enclosingLoopHeader exitId values)
+          pure (#[forStmt] ++ exitStmts, values2, exitCont, hA1 || hA2, true)
+      | _ =>
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: loop header terminator must be a branch"
+  | .region armReadables activeLoopHeader start values0 => do
+      if activeLoopHeader != some start then
+        if (findLoopBoundV1 loopBounds start).isSome then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: loop header must be entered via jump"
+      let block ← match blocks[start]? with
+        | some value => pure value
+        | none => throw (.planInvariant .evm
+            "unsupported EVM semantic shape: region references a missing block")
+      unless block.id.toNat == start do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: block ids are not dense"
+      let lowered ← lowerBlockInstructionsV1
+        owner mode types layout fnIndexByCallableId fns paramCount armReadables block values0
+      let instrs := lowered.statements
+      let values := lowered.values
+      let segmentStart := lowered.segmentStart
+      let hA := lowered.hasAssert
+      match block.terminator with
+      | .return_ (some valueId) =>
+          match mode with
+          | .constructor =>
+              throw <| .planInvariant .evm "constructor cannot return a value"
+          | .entry | .view | .pureFn =>
+              let expected ← match expectedResultKind with
+                | some kind => pure kind
+                | none => throw (.planInvariant .evm
+                    "unsupported EVM semantic shape: entry/view/pureFn return missing expected result kind")
+              let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+              match expected with
+              | .uint64 =>
+                  unless !returned.isBool do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt64"
+              | .bool =>
+                  unless returned.isBool do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be Bool"
+              let value ← consumeCurrentSegmentWithArmsV1
+                values paramCount segmentStart armReadables valueId
+              pure (instrs.push (.returnValue value), values, .done, hA, false)
+      | .return_ none =>
+          unless segmentStart == values.size do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: block has unconsumed values"
+          pure (instrs.push .returnNone, values, .done, hA, false)
+      | .jump target =>
+          let targetId := target.blockId.toNat
+          if activeLoopHeader == some targetId then
+            unless target.args.size == 1 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: loop latch must pass exactly one induction arg"
+            let updateArg ← match target.args[0]? with
+              | some a => pure a
+              | none => throw (.planInvariant .evm
+                  "unsupported EVM semantic shape: loop latch must pass exactly one induction arg")
+            let updateRoot ← currentValueWithArmsV1
+              values paramCount segmentStart armReadables updateArg
+            unless !updateRoot.isBool do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: loop induction update must be UInt64"
+            let update ← consumeCurrentSegmentWithArmsV1
+              values paramCount segmentStart armReadables updateArg
+            pure (instrs, values, .latch (inductionUpdateExprV1 update), hA, false)
+          else
+            match findLoopBoundV1 loopBounds targetId with
+            | some lb =>
+                let (loopStmts, values1, exitCont, hA1, _) ←
+                  emitJobV1 owner mode types layout fnIndexByCallableId fns
+                    blocks loopBounds paramCount expectedResultKind (fuel - 1)
+                    (.forFromJump armReadables activeLoopHeader lb target.args values segmentStart)
+                pure (instrs ++ loopStmts, values1, exitCont, hA || hA1, true)
+            | none =>
+                unless target.args.isEmpty do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: non-header jump must carry empty args"
+                unless segmentStart == values.size do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: block has unconsumed values"
+                pure (instrs, values, .join targetId, hA, false)
+      | .branch condId thenT elseT =>
+          let condVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+          unless condVal.isBool do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: branch condition must be Bool"
+          let cond ← consumeCurrentSegmentWithArmsV1
+            values paramCount segmentStart armReadables condId
+          let (thenBody, values1, thenCont, hA1, _) ←
+            emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+              paramCount expectedResultKind (fuel - 1)
+              (.region armReadables activeLoopHeader thenT.blockId.toNat values)
+          match thenCont with
+          | .latch update =>
+              pure (instrs ++ #[.ifThenElse cond thenBody #[]], values1,
+                .latch update, hA || hA1, true)
+          | .join j =>
+              if elseT.blockId.toNat == j then
+                let (rest, values2, next, hA2, _) ←
+                  emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                    paramCount expectedResultKind (fuel - 1)
+                    (.region armReadables activeLoopHeader j values1)
+                pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest,
+                  values2, next, hA || hA1 || hA2, true)
+              else
+                let (elseBody, values2, elseCont, hA2, _) ←
+                  emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                    paramCount expectedResultKind (fuel - 1)
+                    (.region armReadables activeLoopHeader elseT.blockId.toNat values1)
+                match elseCont with
+                | .join j2 =>
+                    unless j == j2 do
+                      throw <| .planInvariant .evm
+                        "unsupported EVM semantic shape: branch arms converge on divergent joins"
+                    let (rest, values3, next, hA3, _) ←
+                      emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                        paramCount expectedResultKind (fuel - 1)
+                        (.region armReadables activeLoopHeader j values2)
+                    pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
+                      values3, next, hA || hA1 || hA2 || hA3, true)
+                | .done =>
+                    let (rest, values3, next, hA3, _) ←
+                      emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                        paramCount expectedResultKind (fuel - 1)
+                        (.region armReadables activeLoopHeader j values2)
+                    pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
+                      values3, next, hA || hA1 || hA2 || hA3, true)
+                | .latch _ =>
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: branch arms mix latch and join exits"
+          | .done =>
+              let (elseBody, values2, elseCont, hA2, _) ←
+                emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                  paramCount expectedResultKind (fuel - 1)
+                  (.region armReadables activeLoopHeader elseT.blockId.toNat values1)
+              pure (instrs ++ #[.ifThenElse cond thenBody elseBody],
+                values2, elseCont, hA || hA1 || hA2, true)
+      | .switch scrutId cases defaultTarget =>
+          let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
+          let scrut ← consumeCurrentSegmentWithArmsV1
+            values paramCount segmentStart armReadables scrutId
+          let some defaultT := defaultTarget |
+            throw (.planInvariant .evm
+              "unsupported EVM semantic shape: switch must carry a default target")
+          let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+          let mut joinAcc : Option Nat := none
+          let mut valuesA := values
+          let mut hAAcc := hA
+          for switchCase in cases do
+            let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
+            let (body, values1, armCont, hA1, _) ←
+              emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                paramCount expectedResultKind (fuel - 1)
+                (.region (armReadables.push scrutId) activeLoopHeader
+                  switchCase.target.blockId.toNat valuesA)
+            caseBodies := caseBodies.push (caseValue, body)
+            valuesA := values1
+            hAAcc := hAAcc || hA1
+            match armCont, joinAcc with
+            | .done, _ => pure ()
+            | .latch _, _ =>
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: switch arm cannot be a loop latch"
+            | .join j, none => joinAcc := some j
+            | .join j, some j0 =>
+                unless j == j0 do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: switch arms converge on divergent joins"
+          let (defaultBody, values2, defaultCont, hA2, _) ←
+            emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+              paramCount expectedResultKind (fuel - 1)
+              (.region (armReadables.push scrutId) activeLoopHeader
+                defaultT.blockId.toNat valuesA)
+          hAAcc := hAAcc || hA2
+          match defaultCont, joinAcc with
+          | .done, _ => pure ()
+          | .latch _, _ =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: switch default cannot be a loop latch"
+          | .join j, none => joinAcc := some j
+          | .join j, some j0 =>
+              unless j == j0 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: switch arms converge on divergent joins"
+          match joinAcc with
+          | none =>
+              pure (instrs ++ #[.switchOn scrut caseBodies defaultBody],
+                values2, .done, hAAcc, true)
+          | some j =>
+              let (rest, values3, next, hA3, _) ←
+                emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                  paramCount expectedResultKind (fuel - 1)
+                  (.region armReadables activeLoopHeader j values2)
+              pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
+                values3, next, hAAcc || hA3, true)
+      | .revert errorId argIds =>
+          let mut argExprs : Array Expr := #[]
+          for argId in argIds do
+            let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            unless !root.isBool do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: revert arguments must be UInt64"
+            argExprs := argExprs.push root.expr
+          let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+          pure (instrs.push (.revertError errorId.toNat argExprs), values, .done, hA, false)
+      | .trap _ =>
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: trap terminators are outside the current pilot"
+
+private def emitRegionV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (types : EvmTypeClosureV1)
+    (layout : Array StorageBinding)
+    (fnIndexByCallableId : Array (Option Nat))
+    (fns : Array FnBinding)
+    (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
+    (activeLoopHeader : Option Nat)
     (expectedResultKind : Option ResultKind)
     (fuel : Nat)
     (start : Nat)
     (values0 : Array LoweredValueV1) :
-    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat × Bool × Bool) := do
-  if fuel == 0 then
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: CFG region exceeds block bound"
-  let block ← match blocks[start]? with
-    | some value => pure value
-    | none => throw (.planInvariant .evm
-        "unsupported EVM semantic shape: region references a missing block")
-  unless block.id.toNat == start do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: block ids are not dense"
-  let lowered ← lowerBlockInstructionsV1
-    owner mode types layout fnIndexByCallableId fns paramCount armReadables block values0
-  let instrs := lowered.statements
-  let values := lowered.values
-  let segmentStart := lowered.segmentStart
-  let hA := lowered.hasAssert
-  match block.terminator with
-  | .return_ (some valueId) =>
-      match mode with
-      | .constructor =>
-          throw <| .planInvariant .evm "constructor cannot return a value"
-      | .entry | .view | .pureFn =>
-          let expected ← match expectedResultKind with
-            | some kind => pure kind
-            | none => throw (.planInvariant .evm
-                "unsupported EVM semantic shape: entry/view/pureFn return missing expected result kind")
-          let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
-          match expected with
-          | .uint64 =>
-              unless !returned.isBool do
-                throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: return value must be UInt64"
-          | .bool =>
-              unless returned.isBool do
-                throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: return value must be Bool"
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-          pure (instrs.push (.returnValue value), values, none, hA, false)
-  | .return_ none =>
-      unless segmentStart == values.size do
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: block has unconsumed values"
-      -- Explicit marker: an early bare `return` inside a branch arm is
-      -- otherwise indistinguishable from a fallthrough arm once the join
-      -- continuation is emitted after the region.
-      pure (instrs.push .returnNone, values, none, hA, false)
-  | .jump target =>
-      unless segmentStart == values.size do
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: block has unconsumed values"
-      pure (instrs, values, some target.blockId.toNat, hA, false)
-  | .branch condId thenT elseT =>
-      let condVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
-      unless condVal.isBool do
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
-      let (thenBody, values1, thenNext, hA1, _) ←
-        emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-          armReadables expectedResultKind (fuel - 1) thenT.blockId.toNat values
-      match thenNext with
-      | some j =>
-          if elseT.blockId.toNat == j then
-            let (rest, values2, next, hA2, _) ←
-              emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-                armReadables expectedResultKind (fuel - 1) j values1
-            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest,
-              values2, next, hA || hA1 || hA2, true)
-          else
-            let (elseBody, values2, elseNext, hA2, _) ←
-              emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-                armReadables expectedResultKind (fuel - 1) elseT.blockId.toNat values1
-            match elseNext with
-            | some j2 =>
-                unless j == j2 do
-                  throw <| .planInvariant .evm
-                    "unsupported EVM semantic shape: branch arms converge on divergent joins"
-                let (rest, values3, next, hA3, _) ←
-                  emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-                    armReadables expectedResultKind (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
-                  values3, next, hA || hA1 || hA2 || hA3, true)
-            | none =>
-                let (rest, values3, next, hA3, _) ←
-                  emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-                    armReadables expectedResultKind (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
-                  values3, next, hA || hA1 || hA2 || hA3, true)
-      | none =>
-          let (elseBody, values2, elseNext, hA2, _) ←
-            emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-              armReadables expectedResultKind (fuel - 1) elseT.blockId.toNat values1
-          pure (instrs ++ #[.ifThenElse cond thenBody elseBody],
-            values2, elseNext, hA || hA1 || hA2, true)
-  | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
-      let some defaultT := defaultTarget |
-        throw (.planInvariant .evm
-          "unsupported EVM semantic shape: switch must carry a default target")
-      let mut caseBodies : Array (UInt64 × Array Statement) := #[]
-      let mut joinAcc : Option Nat := none
-      let mut valuesA := values
-      let mut hAAcc := hA
-      for switchCase in cases do
-        let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
-        let (body, values1, armNext, hA1, _) ←
-          emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-            (armReadables.push scrutId) expectedResultKind (fuel - 1)
-            switchCase.target.blockId.toNat valuesA
-        caseBodies := caseBodies.push (caseValue, body)
-        valuesA := values1
-        hAAcc := hAAcc || hA1
-        match armNext, joinAcc with
-        | none, _ => pure ()
-        | some j, none => joinAcc := some j
-        | some j, some j0 =>
-            unless j == j0 do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, defaultNext, hA2, _) ←
-        emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-          (armReadables.push scrutId) expectedResultKind (fuel - 1)
-          defaultT.blockId.toNat valuesA
-      hAAcc := hAAcc || hA2
-      match defaultNext, joinAcc with
-      | none, _ => pure ()
-      | some j, none => joinAcc := some j
-      | some j, some j0 =>
-          unless j == j0 do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: switch arms converge on divergent joins"
-      match joinAcc with
-      | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody],
-            values2, none, hAAcc, true)
-      | some j =>
-          let (rest, values3, next, hA3, _) ←
-            emitRegionV1 owner mode types layout fnIndexByCallableId fns blocks paramCount
-              armReadables expectedResultKind (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
-            values3, next, hAAcc || hA3, true)
-  | .revert errorId argIds =>
-      let mut argExprs : Array Expr := #[]
-      for argId in argIds do
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-        unless !root.isBool do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: revert arguments must be UInt64"
-        argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-      pure (instrs.push (.revertError errorId.toNat argExprs), values, none, hA, false)
-  | .trap _ =>
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: trap terminators are outside the current pilot"
+    CompileResult (Array Statement × Array LoweredValueV1 × RegionContV1 × Bool × Bool) :=
+  emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+    paramCount expectedResultKind fuel
+    (.region armReadables activeLoopHeader start values0)
 
 private def lowerCallableV1
     (owner : String)
@@ -1009,42 +1348,94 @@ private def lowerCallableV1
     (callable : CallableV1)
     (expectedResultKind : Option ResultKind) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      callable.invariantSteps.isNone do
     throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: callable must have an acyclic entry block"
-  unless callable.blocks.all (fun b => b.params.isEmpty) do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: block parameters are not supported"
+      "unsupported EVM semantic shape: callable entry/invariant shape is invalid"
+  -- Block params are admitted only on loopBounds headers (exactly one UInt64
+  -- induction param). Degenerate param'd blocks without a loopBounds entry
+  -- stay fail-closed (out of pilot).
+  for b in callable.blocks do
+    if !b.params.isEmpty then
+      unless b.params.size == 1 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop header must have exactly one block param"
+      unless (findLoopBoundV1 callable.loopBounds b.id.toNat).isSome do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: block parameters require a loopBounds header"
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: loopBounds header is out of range"
+    unless header.params.size == 1 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: loopBounds header must carry one block param"
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: loopBounds backEdgeFrom is out of range"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: loop latch must jump to its header with one arg"
+    | _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: loop back edge must be a jump"
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
   let paramCount := params.size
-  let (body0, values0, nextJoin0, hA0, hasRegion0) ←
-    emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks paramCount #[]
-      expectedResultKind callable.blocks.size 0 initialValues
+  -- Pre-allocate block-param ValueIds so instruction results stay dense
+  -- (callable params < all block params < instruction results).
+  let mut values := initialValues
+  for b in callable.blocks do
+    for p in b.params do
+      unless p.valueId.toNat == values.size do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: block parameter ValueIds are not canonical"
+      unless p.typeId == types.uint64TypeId do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: block parameter must be anonymous UInt64"
+      -- Placeholder; overwrite with `.temp` when the loop is materialised.
+      values := values.push {
+        expr := .literal 0
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+        isBool := false
+      }
+  let (body0, valuesAfter, cont0, hA0, hasRegion0) ←
+    emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks
+      callable.loopBounds paramCount #[] none expectedResultKind callable.blocks.size 0 values
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
   -- in the forward-only CFG, so this terminates within blocks.size folds.
   let mut body := body0
-  let mut values := values0
-  let mut nextJoin := nextJoin0
+  let mut liveValues := valuesAfter
+  let mut cont := cont0
   let mut hasAssert := hA0
   let mut hasRegion := hasRegion0
   for _ in [0:callable.blocks.size] do
-    match nextJoin with
-    | none => break
-    | some j =>
-        let (rest, values1, next1, hA1, hasRegion1) ←
-          emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks paramCount #[]
-            expectedResultKind callable.blocks.size j values
+    match cont with
+    | .done => break
+    | .latch _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: dangling loop latch outside a for body"
+    | .join j =>
+        let (rest, values1, cont1, hA1, hasRegion1) ←
+          emitRegionV1 owner mode types layout fnIndexByCallableId fns callable.blocks
+            callable.loopBounds paramCount #[] none expectedResultKind
+            callable.blocks.size j liveValues
         body := body ++ rest
-        values := values1
-        nextJoin := next1
+        liveValues := values1
+        cont := cont1
         hasAssert := hasAssert || hA1
         hasRegion := hasRegion || hasRegion1
-  match nextJoin with
-  | some _ =>
+  match cont with
+  | .done => pure ()
+  | .join _ =>
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: callable does not end in return on all paths"
-  | none => pure ()
+  | .latch _ =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: dangling loop latch outside a for body"
   if body.size > maxBodyStatements then
     throw <| .planInvariant .evm s!"{owner} body exceeds profile limit {maxBodyStatements}"
   -- Constructor store-only path keeps `stores` authoritative (aggregate
@@ -1169,8 +1560,18 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     match expr with
     | .literal .. => some 1
     | .param wordIndex => if wordIndex < paramCount then some 1 else none
+    | .temp _ => some 1
     | .storageLoad slot => if slots.contains slot then some 1 else none
     | .checkedAdd lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .add lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns lhs with
@@ -1429,6 +1830,33 @@ private partial def checkPlanStatementsV1
           eventCount eventFieldCounts errorCount errorFieldCounts fns defaultBody total
         total := td
         closed := allClosed && cd
+    | .forLoop varTemp counterTemp maxIterations initial cond update body =>
+        unless varTemp != counterTemp do
+          throw <| .planInvariant .evm
+            s!"{owner} for-loop induction and counter temps must be distinct"
+        unless maxIterations.toNat <= 4096 do
+          throw <| .planInvariant .evm
+            s!"{owner} for-loop maxIterations exceeds the wire maximum 4096"
+        unless exprIsUInt64CompatibleV1 fns initial do
+          throw <| .planInvariant .evm
+            s!"{owner} for-loop initial must be a UInt64-typed expression"
+        unless exprIsBoolCompatibleV1 fns cond do
+          throw <| .planInvariant .evm
+            s!"{owner} for-loop condition must be a Bool-typed expression"
+        unless exprIsUInt64CompatibleV1 fns update do
+          throw <| .planInvariant .evm
+            s!"{owner} for-loop update must be a UInt64-typed expression"
+        total ← addPlanExprNodes slots paramCount total fns initial
+        total ← addPlanExprNodes slots paramCount total fns cond
+        total ← addPlanExprNodes slots paramCount total fns update
+        -- forLoop node + counter init/check/increment accounting
+        total := total + 4
+        let (tb, _cb) ← checkPlanStatementsV1
+          owner isConstructor isView resultKind slots paramCount false
+          eventCount eventFieldCounts errorCount errorFieldCounts fns body total
+        total := tb
+        -- A for-loop does not itself close every path; code after the loop may run.
+        closed := false
   pure (total, closed)
 
 /-- Validate the public `Evm.Plan` value before any Yul is produced. -/
@@ -1737,6 +2165,9 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
   | .param wordIndex =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := {paramPrefix}{wordIndex}\n", value := name, next := next + 1 }
+  | .temp tempIndex =>
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := t{tempIndex}\n", value := name, next := next + 1 }
   | .storageLoad slot =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := sload({slot})\n" ++
@@ -1748,6 +2179,14 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{rhs.next}"
       { code := lhs.code ++ rhs.code ++
           s!"{indent}if gt({lhs.value}, sub(0xffffffffffffffff, {rhs.value})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := add({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .add lhs rhs =>
+      -- Unchecked add: only for bounded-for induction `i + 1` (cannot overflow).
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := add({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
   | .checkedSub lhs rhs =>
@@ -1840,6 +2279,33 @@ private structure RenderedBody where
 
 /-- Render a statement list. `returnVar = none` is the contract path
     (`mstore` + `return`); `some r` is a Yul function path that assigns `r`. -/
+private structure PeeledForCondV1 where
+  code : String
+  cond : String
+  next : Nat
+  deriving Inhabited
+
+/-- Peel `compare op (.temp varTemp) endExpr` so the end bound is evaluated once
+    (with overflow guards) before the Yul for; otherwise nest the full cond. -/
+private def peelForCondV1 (indent paramPrefix : String) (next varTemp : Nat)
+    (cond : Expr) : PeeledForCondV1 :=
+  match cond with
+  | .compare op (.temp t) endExpr =>
+      if t == varTemp then
+        let endR := renderExpr indent paramPrefix next endExpr
+        let yul := match op with
+          | .eq => s!"eq(t{varTemp}, {endR.value})"
+          | .ne => s!"iszero(eq(t{varTemp}, {endR.value}))"
+          | .lt => s!"lt(t{varTemp}, {endR.value})"
+          | .le => s!"iszero(gt(t{varTemp}, {endR.value}))"
+          | .gt => s!"gt(t{varTemp}, {endR.value})"
+          | .ge => s!"iszero(lt(t{varTemp}, {endR.value}))"
+        { code := endR.code, cond := yul, next := endR.next }
+      else
+        { code := "", cond := renderExprNested paramPrefix cond, next }
+  | _ =>
+      { code := "", cond := renderExprNested paramPrefix cond, next }
+
 private partial def renderBody (indent paramPrefix : String) (next : Nat)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (returnVar : Option String)
@@ -1930,6 +2396,35 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           output := output ++ s!"{indent}if iszero({guard}) \{\n" ++
             defaultRendered.code ++ s!"{indent}}\n"
           next := defaultRendered.next
+    | .forLoop varTemp counterTemp maxIterations initial cond update body =>
+        -- Init and loop-invariant end bound are rendered once before the for.
+        -- Condition uses nested expression form. Induction `i + 1` is unchecked
+        -- (see Expr.add): body only runs while i < end ≤ UInt64.max.
+        -- Back-edge post (after body, before next cond): bound check then
+        -- counter++ then update — the (N+1)-th body runs, then reverts.
+        let initR := renderExpr indent paramPrefix next initial
+        output := output ++ initR.code
+        next := initR.next
+        let peeled := peelForCondV1 indent paramPrefix next varTemp cond
+        output := output ++ peeled.code
+        next := peeled.next
+        let updateNested := renderExprNested paramPrefix update
+        let bodyR := renderBody (indent ++ "  ") paramPrefix next
+          events errors returnVar body
+        let postIndent := indent ++ "  "
+        let bound := toString maxIterations.toNat
+        let tV := "t" ++ toString varTemp
+        let tC := "t" ++ toString counterTemp
+        output := output ++
+          indent ++ "for { let " ++ tV ++ " := " ++ initR.value ++
+          " let " ++ tC ++ " := 0 } " ++ peeled.cond ++ " {\n" ++
+          postIndent ++ "if eq(" ++ tC ++ ", " ++ bound ++ ") { revert(0, 0) }\n" ++
+          postIndent ++ tC ++ " := add(" ++ tC ++ ", 1)\n" ++
+          postIndent ++ tV ++ " := " ++ updateNested ++ "\n" ++
+          indent ++ "} {\n" ++
+          bodyR.code ++
+          indent ++ "}\n"
+        next := bodyR.next
   return { code := output, next }
 
 /-- Emit `function pf_fn{i}(...) -> r { ... }` definitions. Duplicated into both
