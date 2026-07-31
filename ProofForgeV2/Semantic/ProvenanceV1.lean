@@ -945,8 +945,50 @@ private partial def attrStmt
         nextEffectId := st'.nextEffectId + 1
         acc := acc2
       }, .open_)
-  | .call _ => failUnsupported "S2 provenance does not support call"
-  | .schedule _ => failUnsupported "S2 provenance does not support schedule"
+  | .call call => do
+      -- Args attribute under the nested ExternalCallExpr; the void
+      -- Op.ExternalCall instruction and its EffectId both bind the call
+      -- statement (same shape as emit).
+      let mut st' := st
+      let mut i := 0
+      let callPath := directChild stmtPath "Stmt.Call" "call"
+      for arg in call.args do
+        let argPath := childPath callPath "ExternalCallExpr" "args" i
+        let (_vid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let instrEntity := SemanticEntityRefV1.instruction callableId
+        (UInt32.ofNat st'.blockId) (UInt32.ofNat st'.nextInstr)
+      let acc1 ← attrPushPath st'.acc idx instrEntity stmtPath
+      let effectEntity := SemanticEntityRefV1.effect callableId st'.nextEffectId
+      let acc2 ← attrPushPath acc1 idx effectEntity stmtPath
+      pure ({ st' with
+        nextInstr := st'.nextInstr + 1
+        nextEffectId := st'.nextEffectId + 1
+        acc := acc2
+      }, .open_)
+  | .schedule call => do
+      -- Args attribute under the nested ExternalCallExpr; the void
+      -- Op.Schedule instruction and its EffectId both bind the schedule
+      -- statement (same shape as emit/call).
+      let mut st' := st
+      let mut i := 0
+      let callPath := directChild stmtPath "Stmt.Schedule" "call"
+      for arg in call.args do
+        let argPath := childPath callPath "ExternalCallExpr" "args" i
+        let (_vid, st1) ← attrExpr callableId arg argPath st' states idx
+        st' := st1
+        i := i + 1
+      let instrEntity := SemanticEntityRefV1.instruction callableId
+        (UInt32.ofNat st'.blockId) (UInt32.ofNat st'.nextInstr)
+      let acc1 ← attrPushPath st'.acc idx instrEntity stmtPath
+      let effectEntity := SemanticEntityRefV1.effect callableId st'.nextEffectId
+      let acc2 ← attrPushPath acc1 idx effectEntity stmtPath
+      pure ({ st' with
+        nextInstr := st'.nextInstr + 1
+        nextEffectId := st'.nextEffectId + 1
+        acc := acc2
+      }, .open_)
 
 end
 
@@ -1127,7 +1169,11 @@ mutual
         | none => rs
     | .call call =>
         Id.run do
-          let mut r := rs
+          -- Mirror RequirementsInferV1: structured call contributes
+          -- effect.synchronous-call + failure.atomic-rollback at the statement
+          -- path (emit → effect.event only; assert/revert → rollback).
+          let mut r := reqPush rs "effect.synchronous-call" stmtPath
+          r := reqPush r "failure.atomic-rollback" stmtPath
           let callPath := directChild stmtPath "Stmt.Call" "call"
           let mut i := 0
           for a in call.args do
@@ -1137,7 +1183,9 @@ mutual
           pure r
     | .schedule call =>
         Id.run do
-          let mut r := rs
+          -- Mirror RequirementsInferV1: structured schedule contributes
+          -- effect.asynchronous-workflow at the statement path.
+          let mut r := reqPush rs "effect.asynchronous-workflow" stmtPath
           let callPath := directChild stmtPath "Stmt.Schedule" "call"
           let mut i := 0
           for a in call.args do

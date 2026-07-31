@@ -59,9 +59,10 @@
 
   Out of scope for this module:
     * broadening beyond the public UInt64 arithmetic/comparison/bare-assert +
-      if/match-literal + revert/emit + pure-fn + immutable-let + bounded-for
+      if/match-literal + revert/emit + pure-fn + immutable-let + bounded-for +
+      shift/bitwise/logical + call/schedule (UInt64 args, qualified callee)
       envelope (loop-carried locals beyond the induction variable, mutable
-      locals, match expressions, aggregates, external calls)
+      locals, match expressions, aggregates, ContextRead/Commit)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -476,6 +477,26 @@ private partial def synthLetExpectedV1
   | .match_ _ _ =>
       failUnsupported "S1 normalizer does not support match expressions"
 
+/-- Emit a value-producing instruction: allocate the next ValueId, bind it as
+    the instruction result at `typeId`, and advance `nextValueId`. -/
+private def emitValue (st : BodyStateV1) (typeId : TypeIdV1) (op : SemanticOpV1) :
+    BodyStateV1 × ValueIdV1 :=
+  let vid := st.nextValueId
+  let instr : InstructionV1 := {
+    result := some { valueId := vid, typeId := typeId }
+    op := op
+  }
+  ({ st with
+    instructions := st.instructions.push instr
+    nextValueId := vid + 1
+  }, vid)
+
+/-- Emit a void instruction (`result = none`); does not touch ValueId/EffectId. -/
+private def emitVoid (st : BodyStateV1) (op : SemanticOpV1) : BodyStateV1 :=
+  { st with
+    instructions := st.instructions.push { result := none, op := op }
+  }
+
 private def lowerPlace
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
@@ -489,18 +510,12 @@ private def lowerPlace
           | none =>
               failUnsupported s!"S1 bare place '{key}' is neither param nor state"
           | some (sid, tid) =>
-              let vid := st.nextValueId
-              let instr : InstructionV1 := {
-                result := some { valueId := vid, typeId := tid }
-                op := .stateLoad sid
-              }
-              pure (vid, tid, { st with
-                instructions := st.instructions.push instr
-                nextValueId := vid + 1
-              })
+              let (st1, vid) := emitValue st tid (.stateLoad sid)
+              pure (vid, tid, st1)
   | .field _ _ => failUnsupported "S1 normalizer does not support field places"
   | .index _ _ => failUnsupported "S1 normalizer does not support index places"
 
+mutual
 private partial def lowerExpr
     (expr : SrcExpr) (expectedTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
@@ -549,15 +564,8 @@ private partial def lowerExpr
         unless lTid == expectedTid && rTid == expectedTid do
           return ← failUnsupported
             "S1 binary arithmetic/bitwise requires same-width expected operands"
-        let vid := st2.nextValueId
-        let instr : InstructionV1 := {
-          result := some { valueId := vid, typeId := expectedTid }
-          op := .binary semanticOp lVid rVid
-        }
-        pure (vid, expectedTid, { st2 with
-          instructions := st2.instructions.push instr
-          nextValueId := vid + 1
-        })
+        let (st3, vid) := emitValue st2 expectedTid (.binary semanticOp lVid rVid)
+        pure (vid, expectedTid, st3)
       | none =>
         match shiftOp? with
         | some semanticOp => do
@@ -573,15 +581,8 @@ private partial def lowerExpr
           let (rVid, rTid, st2) ← lowerExpr rhs u32Tid st1 states fns
           unless rTid == u32Tid do
             return ← failUnsupported "S1 shift count must be UInt32"
-          let vid := st2.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := expectedTid }
-            op := .binary semanticOp lVid rVid
-          }
-          pure (vid, expectedTid, { st2 with
-            instructions := st2.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (st3, vid) := emitValue st2 expectedTid (.binary semanticOp lVid rVid)
+          pure (vid, expectedTid, st3)
         | none =>
         match logicalOp? with
         | some semanticOp => do
@@ -598,15 +599,8 @@ private partial def lowerExpr
             let (rVid, rTid, st2) ← lowerExpr rhs boolTid st1 states fns
             unless rTid == boolTid do
               return ← failUnsupported "S1 logical operator requires Bool operands"
-            let vid := st2.nextValueId
-            let instr : InstructionV1 := {
-              result := some { valueId := vid, typeId := boolTid }
-              op := .binary semanticOp lVid rVid
-            }
-            pure (vid, boolTid, { st2 with
-              instructions := st2.instructions.push instr
-              nextValueId := vid + 1
-            })
+            let (st3, vid) := emitValue st2 boolTid (.binary semanticOp lVid rVid)
+            pure (vid, boolTid, st3)
         | none =>
         match cmpOp? with
         | some semanticOp => do
@@ -623,15 +617,8 @@ private partial def lowerExpr
             unless rTid == u64Tid do
               return ← failUnsupported
                 "S1 comparison requires UInt64 operands"
-            let vid := st2.nextValueId
-            let instr : InstructionV1 := {
-              result := some { valueId := vid, typeId := boolTid }
-              op := .binary semanticOp lVid rVid
-            }
-            pure (vid, boolTid, { st2 with
-              instructions := st2.instructions.push instr
-              nextValueId := vid + 1
-            })
+            let (st3, vid) := emitValue st2 boolTid (.binary semanticOp lVid rVid)
+            pure (vid, boolTid, st3)
         | none =>
             failUnsupported "S1 normalizer supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
   | .literal literal =>
@@ -660,30 +647,16 @@ private partial def lowerExpr
           let bytes :=
             if width == 64 then encodeU64le (UInt64.ofNat magnitude)
             else encodeU32le (UInt32.ofNat magnitude)
-          let vid := st.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := expectedTid }
-            op := .literal expectedTid bytes
-          }
-          pure (vid, expectedTid, { st with
-            instructions := st.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (st1, vid) := emitValue st expectedTid (.literal expectedTid bytes)
+          pure (vid, expectedTid, st1)
       | .bool value => do
           let (i1, boolTid) := internShape st.interner .bool
           unless boolTid == expectedTid do
             return ← failUnsupported
               "S1 Bool literal requires an enclosing Bool expected type"
           let st0 := { st with interner := i1 }
-          let vid := st0.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := boolTid }
-            op := .literal boolTid (encodeBool value)
-          }
-          pure (vid, boolTid, { st0 with
-            instructions := st0.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (st1, vid) := emitValue st0 boolTid (.literal boolTid (encodeBool value))
+          pure (vid, boolTid, st1)
       | .string _ =>
           failUnsupported "S1 normalizer supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S1 normalizer does not support constructors"
@@ -697,35 +670,18 @@ private partial def lowerExpr
           unless oTid == expectedTid do
             return ← failUnsupported
               "S1 unary checked negation requires a UInt64 operand"
-          let zeroVid := st1.nextValueId
-          let zeroInstr : InstructionV1 := {
-            result := some { valueId := zeroVid, typeId := expectedTid }
-            op := .literal expectedTid (encodeU64le 0)
-          }
-          let vid := zeroVid + 1
-          let subInstr : InstructionV1 := {
-            result := some { valueId := vid, typeId := expectedTid }
-            op := .binary .sub zeroVid oVid
-          }
-          pure (vid, expectedTid, { st1 with
-            instructions := st1.instructions.push zeroInstr |>.push subInstr
-            nextValueId := vid + 1
-          })
+          let (st2, zeroVid) :=
+            emitValue st1 expectedTid (.literal expectedTid (encodeU64le 0))
+          let (st3, vid) := emitValue st2 expectedTid (.binary .sub zeroVid oVid)
+          pure (vid, expectedTid, st3)
       | .bitNot => do
           requireExpectedUInt64 st.interner.types expectedTid "unary bit-not"
           let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
           unless oTid == expectedTid do
             return ← failUnsupported
               "S1 unary bit-not requires a UInt64 operand"
-          let vid := st1.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := expectedTid }
-            op := .unary .bitNot oVid
-          }
-          pure (vid, expectedTid, { st1 with
-            instructions := st1.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (st2, vid) := emitValue st1 expectedTid (.unary .bitNot oVid)
+          pure (vid, expectedTid, st2)
       | .not => do
           let (i1, boolTid) := internShape st.interner .bool
           unless boolTid == expectedTid do
@@ -736,15 +692,8 @@ private partial def lowerExpr
           unless oTid == boolTid do
             return ← failUnsupported
               "S1 unary not requires a Bool operand"
-          let vid := st1.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := boolTid }
-            op := .unary .not oVid
-          }
-          pure (vid, boolTid, { st1 with
-            instructions := st1.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (st2, vid) := emitValue st1 boolTid (.unary .not oVid)
+          pure (vid, boolTid, st2)
   | .localCall callee args => do
       let key := raw callee
       match fnLookup fns key with
@@ -757,24 +706,55 @@ private partial def lowerExpr
           unless args.size == paramTids.size do
             return ← failUnsupported
               s!"S1 localCall '{key}' expects {paramTids.size} arguments, got {args.size}"
-          let mut st' := st
-          let mut argIds : Array ValueIdV1 := #[]
-          for (arg, paramTid) in args.zip paramTids do
-            let (vid, argTid, st1) ← lowerExpr arg paramTid st' states fns
-            unless argTid == paramTid do
-              return ← failUnsupported s!"S1 localCall '{key}' argument type mismatch"
-            argIds := argIds.push vid
-            st' := st1
-          let vid := st'.nextValueId
-          let instr : InstructionV1 := {
-            result := some { valueId := vid, typeId := fnResultTid }
-            op := .pureCall callableId argIds
-          }
-          pure (vid, fnResultTid, { st' with
-            instructions := st'.instructions.push instr
-            nextValueId := vid + 1
-          })
+          let (argIds, st') ← lowerArgs args paramTids st states fns
+            s!"S1 localCall '{key}' argument type mismatch"
+          let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
+          pure (vid, fnResultTid, st2)
   | .match_ _ _ => failUnsupported "S1 normalizer does not support match expressions"
+
+/-- Lower a positional argument list under expected TypeIds (arity already
+    checked by the caller). Evaluation order is source order; each argument's
+    produced type must equal its expected TypeId. -/
+private partial def lowerArgs
+    (args : Array SrcExpr) (expectedTids : Array TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1)
+    (typeMismatch : String) :
+    Except NormalizeErrorV1 (Array ValueIdV1 × BodyStateV1) := do
+  let mut st' := st
+  let mut argIds : Array ValueIdV1 := #[]
+  for (arg, expectedTid) in args.zip expectedTids do
+    let (vid, argTid, st1) ← lowerExpr arg expectedTid st' states fns
+    unless argTid == expectedTid do
+      return ← failUnsupported typeMismatch
+    argIds := argIds.push vid
+    st' := st1
+  pure (argIds, st')
+end
+
+/-- Lower a statement-level external effect (`call` / `schedule`): qualified
+    callee (≥2 components), UInt64 args, void op with the shared EffectId
+    sequence. The only difference between the two is the op constructor. -/
+private partial def lowerExternalEffect
+    (label : String)
+    (mkOp : EffectIdV1 → QualifiedName → Array ValueIdV1 → SemanticOpV1)
+    (externalCall : ProofForgeV2.Source.AstSpineV1.ExternalCallExprV1)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
+  let callee := externalCall.callee
+  let calleeComponents := (NonEmptyArray.toArray callee.components).map (·.raw)
+  unless calleeComponents.size ≥ 2 do
+    return ← failUnsupported
+      s!"S1 {label} callee must have at least two components"
+  let qn ← match parseQualifiedName calleeComponents with
+    | .ok qn => pure qn
+    | .error e => failUnsupported s!"S1 {label} callee: {e}"
+  let (iU, u64Tid) := internShape st.interner (.uint 64)
+  let st0 := { st with interner := iU }
+  let expectedTids := externalCall.args.map (fun _ => u64Tid)
+  let (argIds, st') ← lowerArgs externalCall.args expectedTids st0 states fns
+    s!"S1 {label} argument must be UInt64"
+  let st1 := emitVoid st' (mkOp st'.nextEffectId qn argIds)
+  pure ({ st1 with nextEffectId := st1.nextEffectId + 1 }, .open_)
 
 mutual
 
@@ -826,13 +806,7 @@ private partial def lowerStmt
                   unless tid == expectedTid do
                     return ← failUnsupported
                       s!"S1 assign type mismatch for state '{key}'"
-                  let instr : InstructionV1 := {
-                    result := none
-                    op := .stateStore sid vid
-                  }
-                  pure ({ st1 with
-                    instructions := st1.instructions.push instr
-                  }, .open_)
+                  pure (emitVoid st1 (.stateStore sid vid), .open_)
       | .field _ _ => failUnsupported "S1 assign does not support field targets"
       | .index _ _ => failUnsupported "S1 assign does not support index targets"
   -- Explicit bare `return` is rejected at the S1 gate so product compile never
@@ -856,13 +830,7 @@ private partial def lowerStmt
           let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
           unless condTid == boolTid do
             return ← failUnsupported "S1 assert condition must be Bool"
-          let instr : InstructionV1 := {
-            result := none
-            op := .assert_ condVid none #[]
-          }
-          pure ({ st1 with
-            instructions := st1.instructions.push instr
-          }, .open_)
+          pure (emitVoid st1 (.assert_ condVid none #[]), .open_)
   | .if_ condition thenBlock elseBlock? => do
       let (i1, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := i1 }
@@ -1078,15 +1046,10 @@ private partial def lowerStmt
       -- `i < endExclusive` gates the body. The latch's `i + 1` cannot
       -- overflow: the body only runs while i < end ≤ UInt64.max.
       let st5 := { st4 with currentParams := #[{ valueId := iVid, typeId := u64Tid }] }
-      let condVid := st5.nextValueId
-      let condInstr : InstructionV1 := {
-        result := some { valueId := condVid, typeId := boolTid }
-        op := .binary BinaryOpV1.lt iVid eVid
-      }
-      let bodyId := UInt32.ofNat (st5.blocks.size + 1)
-      let st6 := sealCurrentBlock { st5 with
-        instructions := st5.instructions.push condInstr
-        nextValueId := condVid + 1 } (.branch condVid
+      let (st5b, condVid) :=
+        emitValue st5 boolTid (.binary BinaryOpV1.lt iVid eVid)
+      let bodyId := UInt32.ofNat (st5b.blocks.size + 1)
+      let st6 := sealCurrentBlock st5b (.branch condVid
           { blockId := bodyId, args := #[] } { blockId := 0, args := #[] })
       -- Body: the binder scopes to the induction param; the pre-loop env is
       -- restored at the exit so body lets never leak past the loop.
@@ -1097,19 +1060,11 @@ private partial def lowerStmt
       let stL ← match bodyStatus with
         | .open_ =>
             let latchIdx := stB.blocks.size
-            let oneVid := stB.nextValueId
-            let oneInstr : InstructionV1 := {
-              result := some { valueId := oneVid, typeId := u64Tid }
-              op := .literal u64Tid (encodeU64le 1)
-            }
-            let incVid := oneVid + 1
-            let incInstr : InstructionV1 := {
-              result := some { valueId := incVid, typeId := u64Tid }
-              op := .binary BinaryOpV1.add iVid oneVid
-            }
-            let stSealed := sealCurrentBlock { stB with
-              instructions := (stB.instructions.push oneInstr).push incInstr
-              nextValueId := incVid + 1 }
+            let (stB1, oneVid) :=
+              emitValue stB u64Tid (.literal u64Tid (encodeU64le 1))
+            let (stB2, incVid) :=
+              emitValue stB1 u64Tid (.binary BinaryOpV1.add iVid oneVid)
+            let stSealed := sealCurrentBlock stB2
               (.jump { blockId := headerId, args := #[incVid] })
             pure { stSealed with
               loopBounds := stSealed.loopBounds.push {
@@ -1132,14 +1087,8 @@ private partial def lowerStmt
           unless args.size == fieldTids.size do
             return ← failUnsupported
               s!"S1 revert '{key}' expects {fieldTids.size} arguments, got {args.size}"
-          let mut st' := st
-          let mut argIds : Array ValueIdV1 := #[]
-          for (arg, fieldTid) in args.zip fieldTids do
-            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states fns
-            unless argTid == fieldTid do
-              return ← failUnsupported s!"S1 revert '{key}' argument type mismatch"
-            argIds := argIds.push vid
-            st' := st1
+          let (argIds, st') ← lowerArgs args fieldTids st states fns
+            s!"S1 revert '{key}' argument type mismatch"
           pure (sealCurrentBlock st' (TerminatorV1.revert errorId argIds), .closed)
   | .emit eventName args => do
       let key := raw eventName
@@ -1150,80 +1099,22 @@ private partial def lowerStmt
           unless args.size == fieldTids.size do
             return ← failUnsupported
               s!"S1 emit '{key}' expects {fieldTids.size} arguments, got {args.size}"
-          let mut st' := st
-          let mut argIds : Array ValueIdV1 := #[]
-          for (arg, fieldTid) in args.zip fieldTids do
-            let (vid, argTid, st1) ← lowerExpr arg fieldTid st' states fns
-            unless argTid == fieldTid do
-              return ← failUnsupported s!"S1 emit '{key}' argument type mismatch"
-            argIds := argIds.push vid
-            st' := st1
-          let instr : InstructionV1 := {
-            result := none
-            op := .emit st'.nextEffectId eventId argIds
-          }
-          pure ({ st' with
-            instructions := st'.instructions.push instr
-            nextEffectId := st'.nextEffectId + 1
-          }, .open_)
-  | .call externalCall => do
+          let (argIds, st') ← lowerArgs args fieldTids st states fns
+            s!"S1 emit '{key}' argument type mismatch"
+          let st1 := emitVoid st' (.emit st'.nextEffectId eventId argIds)
+          pure ({ st1 with nextEffectId := st1.nextEffectId + 1 }, .open_)
+  | .call externalCall =>
       -- Sync external call: a statement effect with no result value (v1).
       -- The callee is an opaque qualified name (at least two components per
       -- the wire shape gate), resolved at deployment, never by the compiler.
-      let callee := externalCall.callee
-      let calleeComponents := (NonEmptyArray.toArray callee.components).map (·.raw)
-      unless calleeComponents.size ≥ 2 do
-        return ← failUnsupported
-          s!"S1 call callee must have at least two components"
-      let qn ← match parseQualifiedName calleeComponents with
-        | .ok qn => pure qn
-        | .error e => failUnsupported s!"S1 call callee: {e}"
-      let (iU, u64Tid) := internShape st.interner (.uint 64)
-      let st0 := { st with interner := iU }
-      let mut st' := st0
-      let mut argIds : Array ValueIdV1 := #[]
-      for arg in externalCall.args do
-        let (vid, tid, st1) ← lowerExpr arg u64Tid st' states fns
-        unless tid == u64Tid do
-          return ← failUnsupported s!"S1 call argument must be UInt64"
-        argIds := argIds.push vid
-        st' := st1
-      let instr : InstructionV1 := {
-        result := none
-        op := .externalCall st'.nextEffectId qn argIds
-      }
-      pure ({ st' with
-        instructions := st'.instructions.push instr
-        nextEffectId := st'.nextEffectId + 1
-      }, .open_)
-  | .schedule externalCall => do
+      lowerExternalEffect "call"
+        (fun effectId qn argIds => .externalCall effectId qn argIds)
+        externalCall st states fns
+  | .schedule externalCall =>
       -- Async workflow schedule: same statement-effect shape as call.
-      let callee := externalCall.callee
-      let calleeComponents := (NonEmptyArray.toArray callee.components).map (·.raw)
-      unless calleeComponents.size ≥ 2 do
-        return ← failUnsupported
-          s!"S1 schedule callee must have at least two components"
-      let qn ← match parseQualifiedName calleeComponents with
-        | .ok qn => pure qn
-        | .error e => failUnsupported s!"S1 schedule callee: {e}"
-      let (iU, u64Tid) := internShape st.interner (.uint 64)
-      let st0 := { st with interner := iU }
-      let mut st' := st0
-      let mut argIds : Array ValueIdV1 := #[]
-      for arg in externalCall.args do
-        let (vid, tid, st1) ← lowerExpr arg u64Tid st' states fns
-        unless tid == u64Tid do
-          return ← failUnsupported s!"S1 schedule argument must be UInt64"
-        argIds := argIds.push vid
-        st' := st1
-      let instr : InstructionV1 := {
-        result := none
-        op := .schedule st'.nextEffectId qn argIds
-      }
-      pure ({ st' with
-        instructions := st'.instructions.push instr
-        nextEffectId := st'.nextEffectId + 1
-      }, .open_)
+      lowerExternalEffect "schedule"
+        (fun effectId qn argIds => .schedule effectId qn argIds)
+        externalCall st states fns
 
 end
 

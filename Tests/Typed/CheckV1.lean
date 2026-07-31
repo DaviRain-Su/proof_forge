@@ -2882,6 +2882,80 @@ private unsafe def testCallScheduleLowering
   | .ok _ => throw <| IO.userError "fn-call: fn with call must be typedNotOk"
   | .error e => throw <| IO.userError s!"fn-call: expected typedNotOk, got {repr e}"
 
+/-- Provenance for call/schedule: every frozen S2 requirement id must have
+    producing origin sites (effect.synchronous-call at the call statement,
+    effect.asynchronous-workflow at the schedule statement), and the void
+    instruction/effect entities bind those exact statement nodes. -/
+private unsafe def testCallScheduleProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExtProv" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Peer.go(count)\n" ++
+    "    schedule ledger.daily(delta)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let (validated, spans) ← loadSourceWithSpans session "ext-prov" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "ext-prov: CheckV1.ok"
+  expect typed.analysisComplete "ext-prov: CheckV1.analysisComplete"
+  let path ← parseTestPath "ext-prov"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"ext-prov: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error (.unsupported d) =>
+        throw <| IO.userError s!"ext-prov: normalize+provenance unsupported: {d}"
+    | .error e => throw <| IO.userError s!"ext-prov: normalize+provenance: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ext-prov: validate: {repr e}"
+  expect (data.requirements.items.map (·.id) ==
+      #["effect.asynchronous-workflow", "effect.synchronous-call",
+        "failure.atomic-rollback", "state.persistent"])
+    s!"ext-prov: wire-order requirements, got {data.requirements.items.map (·.id)}"
+  -- Statement paths: items 0=state, 1=init, 2=entry bump, 3=view.
+  let entryItemPath := childPathT #[] "Program" "items" 2
+  let bodyPath := directChildT entryItemPath "EntryDecl" "body"
+  let callStmtPath := childPathT bodyPath "Block" "statements" 0
+  let schedStmtPath := childPathT bodyPath "Block" "statements" 1
+  let callOrigin ← originAtExplicitPath validated inventory callStmtPath
+  let schedOrigin ← originAtExplicitPath validated inventory schedStmtPath
+  -- Requirement sites (wire order): 0=async, 1=sync, 2=rollback, 3=persist.
+  -- RequirementsInferV1: call → sync+rollback; schedule → async only.
+  let reqAsync := findOrigins provenance (.requirement 0)
+  let reqSync := findOrigins provenance (.requirement 1)
+  let reqRollback := findOrigins provenance (.requirement 2)
+  expect (reqAsync == #[schedOrigin])
+    "ext-prov: effect.asynchronous-workflow must bind the schedule statement"
+  expect (reqSync == #[callOrigin])
+    "ext-prov: effect.synchronous-call must bind the call statement"
+  expect (reqRollback == #[callOrigin])
+    "ext-prov: failure.atomic-rollback must bind the call statement"
+  -- Entity attribution: bump is callable 1; block0 is
+  -- stateLoad(count) → externalCall → schedule → stateLoad(count for return).
+  let some callInstrOrigin := findOrigin provenance (.instruction 1 0 1) |
+    throw <| IO.userError "ext-prov: missing call instruction origin"
+  let some callEffectOrigin := findOrigin provenance (.effect 1 0) |
+    throw <| IO.userError "ext-prov: missing call effect origin"
+  expect (callInstrOrigin == callOrigin && callEffectOrigin == callOrigin)
+    "ext-prov: call instruction/effect entities must bind the call statement"
+  let some schedInstrOrigin := findOrigin provenance (.instruction 1 0 2) |
+    throw <| IO.userError "ext-prov: missing schedule instruction origin"
+  let some schedEffectOrigin := findOrigin provenance (.effect 1 1) |
+    throw <| IO.userError "ext-prov: missing schedule effect origin"
+  expect (schedInstrOrigin == schedOrigin && schedEffectOrigin == schedOrigin)
+    "ext-prov: schedule instruction/effect entities must bind the schedule statement"
+  match ProofForgeV2.Semantic.NormalizeV1.validateSemanticProvenanceV1
+      validated path spans carrier provenance with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ext-prov: provenance authority: {repr e}"
+
 /-- Shift, bitwise, and strict logical binary operators: exact op/type pins
     (UInt32 shift counts intern on first use), plus typed-not-ok negatives
     for non-Bool logical operands and UInt64 shift counts. -/
@@ -4262,6 +4336,7 @@ unsafe def run : IO Unit := do
   testUnaryOps session
   testShiftBitwiseLogical session
   testCallScheduleLowering session
+  testCallScheduleProvenance session
   testLetForLoop session
   testLetForProvenance session
   testUInt64LiteralProvenance session
