@@ -45,6 +45,16 @@ inductive Expr where
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- Checked UInt64 multiply: Yul `mul` with overflow guard. -/
+  | checkedMul (lhs rhs : Expr)
+  /-- Checked UInt64 divide: reverts on zero divisor. -/
+  | checkedDiv (lhs rhs : Expr)
+  /-- Checked UInt64 modulo: reverts on zero divisor. -/
+  | checkedMod (lhs rhs : Expr)
+  /-- Bitwise not on a UInt64 operand (`Yul not`). -/
+  | bitNot (operand : Expr)
+  /-- Logical not on a Bool operand (`Yul iszero`). -/
+  | boolNot (operand : Expr)
   /-- Pure local call: `fnIndex` indexes `Plan.fns`; args are UInt64 expressions.
   Result kind is the callee's declared result (UInt64 or Bool). Not an effect
   boundary — stays inside a value segment like checkedAdd. -/
@@ -382,6 +392,61 @@ private def makeCompareValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
 
+/-- Multiply has the same bounded SSA-tree cost as addition. -/
+private def makeCheckedMulValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedMul lhsId rhsId lhs rhs false
+
+/-- Division has the same bounded SSA-tree cost as addition. -/
+private def makeCheckedDivValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedDiv lhsId rhsId lhs rhs false
+
+/-- Modulo has the same bounded SSA-tree cost as addition. -/
+private def makeCheckedModValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedMod lhsId rhsId lhs rhs false
+
+/-- Shared bounded SSA-tree cost for unary Expr constructors. -/
+private def makeUnaryTreeValueV1
+    (mk : Expr → Expr)
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1)
+    (expectBoolOperand isBoolResult : Bool) : CompileResult LoweredValueV1 := do
+  unless operand.isBool == expectBoolOperand do
+    throw <| .planInvariant .evm
+      (if expectBoolOperand then
+        "unsupported EVM semantic shape: unary not operand must be Bool"
+       else
+        "unsupported EVM semantic shape: unary bitNot operand must be UInt64")
+  let depth := 1 + operand.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk operand.expr
+    depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+    isBool := isBoolResult
+  }
+
+/-- Bitwise not: UInt64 operand → UInt64 result. -/
+private def makeBitNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 .bitNot operandId operand false false
+
+/-- Logical not: Bool operand → Bool result. -/
+private def makeBoolNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 .boolNot operandId operand true true
+
 /-- PureCall tree cost: one node plus each argument tree (SSA args counted per
     use). Result kind is the callee's declared result. -/
 private def makeCallFnValueV1
@@ -626,11 +691,20 @@ private def lowerBlockInstructionsV1
         else if op == .sub then
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .mul then
+          let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .div then
+          let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .mod then
+          let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
         else
           match comparisonOpOfBinaryV1 op with
           | none =>
               throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: only checked UInt64 add/sub and comparisons are supported"
+                "unsupported EVM semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
           | some cmpOp =>
               let boolTid ← match types.boolTypeId with
                 | some tid => pure tid
@@ -641,6 +715,27 @@ private def lowerBlockInstructionsV1
                   "unsupported EVM semantic shape: comparison result must be Bool"
               let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
               values := ← appendResultValueV1 boolTid values result value
+    | .unary op operandId, some result =>
+        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        match op with
+        | .bitNot =>
+            let value ← makeBitNotValueV1 operandId operand
+            values := ← appendResultValueV1 uint64TypeId values result value
+        | .not =>
+            let boolTid ← match types.boolTypeId with
+              | some tid => pure tid
+              | none => throw (.planInvariant .evm
+                  "unsupported EVM semantic shape: unary not requires anonymous Bool type")
+            unless result.typeId == boolTid do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: unary not result must be Bool"
+            let value ← makeBoolNotValueV1 operandId operand
+            values := ← appendResultValueV1 boolTid values result value
+        | .neg =>
+            -- Checked negation is desugared to `0 - x` by Normalize; direct
+            -- Op.Unary.neg is outside the EVM pilot envelope.
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: unary neg is not admitted (Normalize desugars to sub)"
     | .pureCall callableId argIds, some result =>
         -- Not an effect boundary: callFn is a value expression inside the segment.
         let fnIndex ← resolveFnIndexV1 fnIndexByCallableId callableId
@@ -1102,6 +1197,45 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedMul lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedDiv lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .checkedMod lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .bitNot operand =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns operand with
+        | none => none
+        | some nodes => some (1 + nodes)
+    | .boolNot operand =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns operand with
+        | none => none
+        | some nodes => some (1 + nodes)
     | .callFn fnIndex args =>
         match fns[fnIndex]? with
         | none => none
@@ -1109,10 +1243,11 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             if args.size != binding.params.size then
               none
             else
-              -- Args must be UInt64-compatible (no compare / Bool-returning callFn).
+              -- Args must be UInt64-compatible (no compare / boolNot / Bool-returning callFn).
               let argsOk := args.all fun arg =>
                 match arg with
                 | .compare .. => false
+                | .boolNot .. => false
                 | .callFn nestedIdx _ =>
                     match fns[nestedIdx]? with
                     | some nested => !nested.resultIsBool
@@ -1164,6 +1299,7 @@ private def exprIsBoolLiteralV1 : Expr → Bool
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => true
+  | .boolNot .. => true
   | .literal value => value == 0 || value == 1
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
@@ -1171,12 +1307,13 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
       | none => false
   | _ => false
 
-/-- UInt64-compatible: everything except comparison and Bool-returning callFn.
-    Literals/params/loads/arithmetic remain UInt64, including 0/1 which also
-    double as Bool words when resultKind demands it. -/
+/-- UInt64-compatible: everything except comparison, boolNot, and Bool-returning
+    callFn. Literals/params/loads/arithmetic/bitNot remain UInt64, including
+    0/1 which also double as Bool words when resultKind demands it. -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => false
+  | .boolNot .. => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some binding => !binding.resultIsBool
@@ -1634,6 +1771,45 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
         | .ge => s!"iszero(lt({lhs.value}, {rhs.value}))"
       { code := lhs.code ++ rhs.code ++ s!"{indent}let {name} := {yul}\n",
         value := name, next := rhs.next + 1 }
+  | .checkedMul lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      -- Overflow guard: if lhs ≠ 0 and div(product, lhs) ≠ rhs then wrap.
+      -- Yul `if l` treats nonzero as true; div-by-zero yields 0 when l=0,
+      -- which is skipped by the outer guard.
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := mul({lhs.value}, {rhs.value})\n" ++
+          s!"{indent}if {lhs.value} \{ if iszero(eq(div({name}, {lhs.value}), {rhs.value})) \{ revert(0, 0) } }\n",
+        value := name, next := rhs.next + 1 }
+  | .checkedDiv lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := div({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .checkedMod lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero({rhs.value}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := mod({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .bitNot operand =>
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      { code := operand.code ++
+          s!"{indent}let {name} := not({operand.value})\n",
+        value := name, next := operand.next + 1 }
+  | .boolNot operand =>
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      { code := operand.code ++
+          s!"{indent}let {name} := iszero({operand.value})\n",
+        value := name, next := operand.next + 1 }
   | .callFn fnIndex args => Id.run do
       let mut code := ""
       let mut next := next

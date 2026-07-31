@@ -1188,6 +1188,93 @@ private unsafe def testComparisonNegatives : IO Unit := do
           | .error e => throw <| IO.userError s!"Bool param must fail closed, got {e.render}"
           | .ok _ => throw <| IO.userError "Bool param must not produce an EVM plan"
 
+/-- Wave F: mul/div/mod + unary bitNot/boolNot Plan lowering and Yul. -/
+private unsafe def testArithOps : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArithOps where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry scale(factor : UInt64, divisor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / divisor + count % divisor\n" ++
+    "    return count\n" ++
+    "  entry bits(x : UInt64) : UInt64 do\n" ++
+    "    return ~x\n" ++
+    "  entry neg5(x : UInt64) : Bool do\n" ++
+    "    return !(x > 5)\n"
+  let source ← liftResult "load ArithOps" (← session.selectProgramV1
+    sourceText "<evm-arith-ops>" "Tests.EvmArithOps" none)
+  let compiled ← liftResult "compile ArithOps" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan ArithOps" <| planEvm compiled
+  expect (plan.entries.map (·.name) == #["scale", "bits", "neg5"])
+    "ArithOps must lower three entries in source order"
+  let scale := plan.entries[0]!
+  expect (scale.body == #[
+      .store {
+        slot := 0
+        value := .checkedAdd
+          (.checkedDiv
+            (.checkedMul (.storageLoad 0) (.param 0))
+            (.param 1))
+          (.checkedMod (.storageLoad 0) (.param 1))
+      },
+      .returnValue (.storageLoad 0)])
+    "scale must lower mul/div/mod into checkedMul/checkedDiv/checkedMod with left-assoc + lower-tier add"
+  let bits := plan.entries[1]!
+  expect (bits.body == #[.returnValue (.bitNot (.param 0))])
+    "bits must lower ~x to bitNot on the param"
+  let neg5 := plan.entries[2]!
+  expect (neg5.resultKind == .bool)
+    "neg5 must declare a Bool result"
+  expect (neg5.body == #[
+      .returnValue (.boolNot (.compare .gt (.param 0) (.literal 5)))])
+    "neg5 must lower !(x > 5) to boolNot over a gt compare"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArithOps plan must validate: {e.render}"
+  let output ← liftResult "materialize ArithOps" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "ArithOps.yul") |
+    throw <| IO.userError "ArithOps: missing ArithOps.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "mul(")
+    "ArithOps Yul must render mul("
+  expect (yul.contains "div(")
+    "ArithOps Yul must render div("
+  expect (yul.contains "mod(")
+    "ArithOps Yul must render mod("
+  expect (yul.contains "not(")
+    "ArithOps Yul must render bitwise not("
+  expect (yul.contains "iszero(")
+    "ArithOps Yul must render iszero( for boolNot and/or zero-divisor guards"
+  expect (yul.contains "revert(0, 0)")
+    "ArithOps Yul must contain overflow/zero-divisor revert(0, 0) guards"
+  -- Hand-crafted negative: store a boolNot into a UInt64 slot fails closed.
+  let base := plan
+  let scaleEntry := base.entries[0]!
+  let storeBoolNot := { base with entries := base.entries.set! 0 {
+    scaleEntry with body := #[
+      .store { slot := 0, value := .boolNot (.compare .gt (.param 0) (.literal 5)) },
+      .returnValue (.storageLoad 0)
+    ]
+  } }
+  match Targets.Evm.validatePlan storeBoolNot with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject storing boolNot into a UInt64 slot"
+  -- Bool entry returning bitNot (UInt64-typed) fails closed.
+  let neg5Entry := base.entries[2]!
+  let boolReturnsBitNot := { base with entries := base.entries.set! 2 {
+    neg5Entry with body := #[.returnValue (.bitNot (.param 0))]
+  } }
+  match Targets.Evm.validatePlan boolReturnsBitNot with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validatePlan must reject Bool entry returning bitNot"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -1207,6 +1294,7 @@ unsafe def run : IO Unit := do
   testInitEarlyBareReturnClosed
   testEmitRevertFlow
   testFnLocalCall
+  testArithOps
   testRegionValidationNegatives
   testComparisonNegatives
   let session ← Tests.Language.ParserSession.shared
