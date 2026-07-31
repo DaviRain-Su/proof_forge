@@ -32,25 +32,8 @@ test-fast: build
 w2-single-semantic-carrier-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "w2-single-semantic-carrier-deletion-gate: forbidden pattern: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "w2-single-semantic-carrier-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
+    source scripts/gate_helpers.sh
+    gate="w2-single-semantic-carrier-deletion-gate"
     product_paths=(
       ProofForgeV2/Compiler/Pipeline.lean
       ProofForgeV2/Targets/EngineeringBuildV1.lean
@@ -66,9 +49,9 @@ w2-single-semantic-carrier-deletion-gate:
       '\bvalidateDualCarrierConsistencyV1\b' '\bmappedAlphaOfV1Id\?' \
       '\bv1IdOfMappedAlpha\?' '\bresidualProgramName\b' \
       '\bresidualSourceHash\b' '\bresidualSemanticHash\b'; do
-      fail_if_match "$pat" ProofForgeV2
+      fail_if_match "$gate" "$pat" ProofForgeV2
     done
-    fail_if_match 'Semantic\.fromTyped|Typed\.checkV1' ProofForgeV2/Compiler/Pipeline.lean
+    fail_if_match "$gate" 'Semantic\.fromTyped|Typed\.checkV1' ProofForgeV2/Compiler/Pipeline.lean
     # Compatibility may define its own namespace, but no other ProofForgeV2
     # module (including the umbrella) may import or mention it.
     set +e
@@ -104,13 +87,13 @@ w2-single-semantic-carrier-deletion-gate:
       --forbid ProofForgeV2.Core.SemanticIR \
       --forbid ProofForgeV2.Core.Semantics \
       --forbid ProofForgeV2.Compiler.AlphaCompatibility
-    fail_if_match 'ProgramRequirement\.|Semantic\.deriveRequirements|Core\.SemanticIR' \
+    fail_if_match "$gate" 'ProgramRequirement\.|Semantic\.deriveRequirements|Core\.SemanticIR' \
       ProofForgeV2/Typed/RequirementsInferV1.lean
-    fail_if_match '\bProgramRequirement\b|^\s*\|\s*unsupportedRequirement\b' \
+    fail_if_match "$gate" '\bProgramRequirement\b|^\s*\|\s*unsupportedRequirement\b' \
       ProofForgeV2/Core/Diagnostic.lean
     for pat in 'private .*typeKeys' 'private .*exprKeys' 'private .*stmtKeys' \
       'private .*itemKeys' 'inferContributionKeysV1'; do
-      fail_if_match "$pat" ProofForgeV2/Semantic/RequirementsV1.lean
+      fail_if_match "$gate" "$pat" ProofForgeV2/Semantic/RequirementsV1.lean
     done
     rg -q 'structure CompiledSemanticV1 where' ProofForgeV2/Compiler/Pipeline.lean
     rg -q 'private mk ::' ProofForgeV2/Compiler/Pipeline.lean
@@ -141,59 +124,20 @@ w2-single-semantic-carrier-deletion-gate:
 requirement-resolver-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
+    source scripts/gate_helpers.sh
+    gate="requirement-resolver-deletion-gate"
     # No fixed /tmp paths: capture rg output in shell variables only.
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "requirement-resolver-deletion-gate: forbidden pattern still present: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      # rg exit 1 = no matches (required); other exits are tool failure
-      if [[ $ec -ne 1 ]]; then
-        echo "requirement-resolver-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local must_path="$2"
-      local label="$3"
-      local hits ec count
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -ne 0 ]]; then
-        echo "requirement-resolver-deletion-gate: $label expected one match (rg exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
-        echo "requirement-resolver-deletion-gate: $label expected sole match in $must_path" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
     # Line-anchored / call-site patterns so the suite's own string literals
     # (and justfile commentary) do not self-fail the gate.
-    fail_if_match '^\s*def checkSupport\b' ProofForgeV2 Tests
-    fail_if_match '\bTargets\.checkSupport\b' ProofForgeV2 Tests
-    fail_if_match '^\s*def materializeResult \(selection' ProofForgeV2
-    fail_if_match '^\s*def materialize \(selection' ProofForgeV2
-    fail_if_match '^\s*def emitProgram \(selection' ProofForgeV2
+    fail_if_match "$gate" '^\s*def checkSupport\b' ProofForgeV2 Tests
+    fail_if_match "$gate" '\bTargets\.checkSupport\b' ProofForgeV2 Tests
+    fail_if_match "$gate" '^\s*def materializeResult \(selection' ProofForgeV2
+    fail_if_match "$gate" '^\s*def materialize \(selection' ProofForgeV2
+    fail_if_match "$gate" '^\s*def emitProgram \(selection' ProofForgeV2
     # Sole mints (exact count + path whitelist).
-    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
+    expect_one_match "$gate" 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
-    expect_one_match 'CompiledSemanticV1\.mk' 'Pipeline.lean' \
+    expect_one_match "$gate" 'CompiledSemanticV1\.mk' 'Pipeline.lean' \
       'CompiledSemanticV1.mk'
     # CompiledSemanticV1.mk must sit in the shared product/non-product finish gate.
     set +e
@@ -215,67 +159,29 @@ requirement-resolver-deletion-gate:
 s6-plan-cutover-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "s6-plan-cutover-deletion-gate: forbidden pattern still present: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "s6-plan-cutover-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local must_path="$2"
-      local label="$3"
-      local hits ec count
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -ne 0 ]]; then
-        echo "s6-plan-cutover-deletion-gate: $label expected one match (rg exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
-        echo "s6-plan-cutover-deletion-gate: $label expected sole match in $must_path" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
+    source scripts/gate_helpers.sh
+    gate="s6-plan-cutover-deletion-gate"
     # Public residual resolve / validateResolved closed in Common.
-    fail_if_match '^\s*def resolve\b' ProofForgeV2/Targets/Common.lean
-    fail_if_match '^\s*def validateResolved\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*def resolve\b' ProofForgeV2/Targets/Common.lean
+    fail_if_match "$gate" '^\s*def validateResolved\b' ProofForgeV2
     # No public makePlan (ResolvedProgram or otherwise) under Targets.
-    fail_if_match '^\s*def makePlan\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def makePlan\b' ProofForgeV2/Targets
     # No product call sites to residual resolve (space after resolve excludes
     # resolveEngineeringRequirementsV1). Doc comments must not use this form.
-    fail_if_match 'Targets\.resolve\s' ProofForgeV2
-    fail_if_match 'Common\.resolve\s' ProofForgeV2
+    fail_if_match "$gate" 'Targets\.resolve\s' ProofForgeV2
+    fail_if_match "$gate" 'Common\.resolve\s' ProofForgeV2
     # TargetDescriptor carries no residual requirement list; resolver is sole authority.
-    fail_if_match '\bsupportedRequirements\b' ProofForgeV2
+    fail_if_match "$gate" '\bsupportedRequirements\b' ProofForgeV2
     # No public emit / lower / residual plan-alpha / Residual emission bypass under Targets.
-    fail_if_match '^\s*def emit\b' ProofForgeV2/Targets
-    fail_if_match '^\s*def lower\b' ProofForgeV2/Targets
-    fail_if_match '^\s*def planFromResidualAlpha\b' ProofForgeV2/Targets
-    fail_if_match '^\s*def planFromAlpha\b' ProofForgeV2/Targets
-    fail_if_match '^\s*def lowerPlan\b' ProofForgeV2/Targets
-    fail_if_match '^\s*def filesFromIR\b' ProofForgeV2/Targets
-    fail_if_match 'namespace Residual' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def emit\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def lower\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def planFromResidualAlpha\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def planFromAlpha\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def lowerPlan\b' ProofForgeV2/Targets
+    fail_if_match "$gate" '^\s*def filesFromIR\b' ProofForgeV2/Targets
+    fail_if_match "$gate" 'namespace Residual' ProofForgeV2/Targets
     # Dead public residual carrier deleted.
-    fail_if_match '^\s*structure ResolvedProgram\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*structure ResolvedProgram\b' ProofForgeV2
     # Each implemented target must expose capability-gated public entries only.
     for tgt in Evm Solana Near Noir; do
       set +e
@@ -296,7 +202,7 @@ s6-plan-cutover-deletion-gate:
       fi
     done
     # Sole capability mint in EngineeringBuild leaf next to resolveEngineeringRequirementsV1.
-    expect_one_match 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
+    expect_one_match "$gate" 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
     set +e
     mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 40 'ResolvedEngineeringBuildV1\.mk' ProofForgeV2/Targets/EngineeringBuildV1.lean 2>&1)"
@@ -321,54 +227,16 @@ s6-plan-cutover-deletion-gate:
 s7-output-envelope-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "s7-output-envelope-deletion-gate: forbidden pattern still present: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "s7-output-envelope-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local must_path="$2"
-      local label="$3"
-      local hits ec count
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -ne 0 ]]; then
-        echo "s7-output-envelope-deletion-gate: $label expected one match (rg exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
-        echo "s7-output-envelope-deletion-gate: $label expected sole match in $must_path" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
+    source scripts/gate_helpers.sh
+    gate="s7-output-envelope-deletion-gate"
     # Public alpha product surfaces deleted.
-    fail_if_match '^\s*structure OutputSet\b' ProofForgeV2
-    fail_if_match '^\s*structure OutputManifest\b' ProofForgeV2
-    fail_if_match '^\s*def makeOutput\b' ProofForgeV2
-    fail_if_match '^\s*def manifestJson\b' ProofForgeV2
-    fail_if_match '^\s*def validateOutputSet\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*structure OutputSet\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*structure OutputManifest\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*def makeOutput\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*def manifestJson\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*def validateOutputSet\b' ProofForgeV2
     # Sole mint of MaterializedArtifactsV1.
-    expect_one_match 'MaterializedArtifactsV1\.mk' 'MaterializedArtifactsV1.lean' \
+    expect_one_match "$gate" 'MaterializedArtifactsV1\.mk' 'MaterializedArtifactsV1.lean' \
       'MaterializedArtifactsV1.mk'
     set +e
     # Wide context: private .mk sits at the end of mintMaterializedArtifactsV1.
@@ -410,60 +278,19 @@ s7-output-envelope-deletion-gate:
 s7b-finalize-authority-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "s7b-finalize-authority-deletion-gate: forbidden pattern still present: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "s7b-finalize-authority-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local must_path="$2"
-      local label="$3"
-      local hits ec count
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -ne 0 ]]; then
-        echo "s7b-finalize-authority-deletion-gate: $label expected one match (rg exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
-        echo "s7b-finalize-authority-deletion-gate: $label expected sole match in $must_path" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
+    source scripts/gate_helpers.sh
+    gate="s7b-finalize-authority-deletion-gate"
     # CLI Toolchain module deleted; no product re-exports.
-    if [[ -e ProofForgeV2/CLI/Toolchain.lean ]]; then
-      echo "s7b-finalize-authority-deletion-gate: ProofForgeV2/CLI/Toolchain.lean must be deleted" >&2
-      exit 1
-    fi
+    fail_if_file_exists "$gate" ProofForgeV2/CLI/Toolchain.lean
     # Import form only (comments/tests may mention the deleted path).
-    fail_if_match 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
-    fail_if_match '^\s*def finalizeEvm\b' ProofForgeV2
-    fail_if_match '^\s*def finalizeNear\b' ProofForgeV2
+    fail_if_match "$gate" 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
+    fail_if_match "$gate" '^\s*def finalizeEvm\b' ProofForgeV2
+    fail_if_match "$gate" '^\s*def finalizeNear\b' ProofForgeV2
     # solc/wat2wasm product tool resolve ids must not appear in CLI Emit publisher.
-    fail_if_match 'resolve "solc"' ProofForgeV2/CLI
-    fail_if_match 'resolve "wat2wasm"' ProofForgeV2/CLI
+    fail_if_match "$gate" 'resolve "solc"' ProofForgeV2/CLI
+    fail_if_match "$gate" 'resolve "wat2wasm"' ProofForgeV2/CLI
     # Sole FinalizedArtifactsV1 mint.
-    expect_one_match 'FinalizedArtifactsV1\.mk' 'EngineeringFinalizationV1.lean' \
+    expect_one_match "$gate" 'FinalizedArtifactsV1\.mk' 'EngineeringFinalizationV1.lean' \
       'FinalizedArtifactsV1.mk'
     set +e
     mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 40 'FinalizedArtifactsV1\.mk' ProofForgeV2/Materialization 2>&1)"
@@ -475,11 +302,11 @@ s7b-finalize-authority-deletion-gate:
       exit 1
     fi
     # Sole Registry finalize dispatch.
-    expect_one_match '^\s*def finalizeMaterializedArtifactsV1\b' 'Registry.lean' \
+    expect_one_match "$gate" '^\s*def finalizeMaterializedArtifactsV1\b' 'Registry.lean' \
       'finalizeMaterializedArtifactsV1'
     # LockedToolchain must not import Core.Source / CLI.
-    fail_if_match 'import ProofForgeV2\.Core\.Source' ProofForgeV2/Materialization/LockedToolchainV1.lean
-    fail_if_match 'import ProofForgeV2\.CLI' ProofForgeV2/Materialization/LockedToolchainV1.lean
+    fail_if_match "$gate" 'import ProofForgeV2\.Core\.Source' ProofForgeV2/Materialization/LockedToolchainV1.lean
+    fail_if_match "$gate" 'import ProofForgeV2\.CLI' ProofForgeV2/Materialization/LockedToolchainV1.lean
     lake build Tests.Materialization.EngineeringFinalizationV1
     echo "s7b-finalize-authority-deletion-gate: ok"
 
@@ -492,56 +319,15 @@ s7b-finalize-authority-deletion-gate:
 s7c-disk-closure-gate:
     #!/usr/bin/env bash
     set -euo pipefail
-    fail_if_match() {
-      local pat="$1"
-      shift
-      local hits ec
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$@" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "s7c-disk-closure-gate: forbidden pattern still present: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "s7c-disk-closure-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    expect_one_match() {
-      local pat="$1"
-      local must_path="$2"
-      local label="$3"
-      local hits ec count
-      set +e
-      hits="$(rg --glob '*.lean' -n --no-heading "$pat" ProofForgeV2 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -ne 0 ]]; then
-        echo "s7c-disk-closure-gate: $label expected one match (rg exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      count="$(printf '%s\n' "$hits" | sed '/^$/d' | wc -l | tr -d ' ')"
-      if [[ "$count" != "1" ]] || ! printf '%s\n' "$hits" | grep -q "$must_path"; then
-        echo "s7c-disk-closure-gate: $label expected sole match in $must_path" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
+    source scripts/gate_helpers.sh
+    gate="s7c-disk-closure-gate"
     # Sole production validator; no parallel expected-list caller API.
-    expect_one_match '^\s*def validateEngineeringDiskClosureV1\b' \
+    expect_one_match "$gate" '^\s*def validateEngineeringDiskClosureV1\b' \
       'EngineeringDiskClosureV1.lean' 'validateEngineeringDiskClosureV1'
-    fail_if_match 'validateEngineeringDiskClosureV1\s*\([^)]*expected' ProofForgeV2
+    fail_if_match "$gate" 'validateEngineeringDiskClosureV1\s*\([^)]*expected' ProofForgeV2
     # CLI Toolchain must remain deleted (S7b pin retained).
-    if [[ -e ProofForgeV2/CLI/Toolchain.lean ]]; then
-      echo "s7c-disk-closure-gate: ProofForgeV2/CLI/Toolchain.lean must stay deleted" >&2
-      exit 1
-    fi
-    fail_if_match 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
+    fail_if_file_exists "$gate" ProofForgeV2/CLI/Toolchain.lean
+    fail_if_match "$gate" 'import ProofForgeV2\.CLI\.Toolchain' ProofForgeV2 Tests
     # Manifest-last: evidence write before manifest write in Emit publisher.
     if ! rg -n --no-heading 'IO\.FS\.writeFile \(stagingDir / "evidence\.json"\)' \
         ProofForgeV2/CLI/Emit.lean >/dev/null; then
@@ -593,29 +379,13 @@ s7c-disk-closure-gate:
 s1-evm-semantic-plan-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
+    source scripts/gate_helpers.sh
+    gate="s1-evm-semantic-plan-deletion-gate"
     source="ProofForgeV2/Targets/Evm.lean"
-    fail_if_match() {
-      local pat="$1"
-      local hits ec
-      set +e
-      hits="$(rg -n --no-heading "$pat" "$source" 2>&1)"
-      ec=$?
-      set -e
-      if [[ $ec -eq 0 ]]; then
-        echo "s1-evm-semantic-plan-deletion-gate: forbidden EVM residual pattern: $pat" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-      if [[ $ec -ne 1 ]]; then
-        echo "s1-evm-semantic-plan-deletion-gate: rg failed for $pat (exit $ec)" >&2
-        printf '%s\n' "$hits" >&2
-        exit 1
-      fi
-    }
-    fail_if_match 'alphaResidualOf'
-    fail_if_match 'makePlanFromAlpha'
-    fail_if_match 'validateRequirementEnvelope'
-    fail_if_match 'Semantic\.deriveRequirements'
+    fail_if_match "$gate" 'alphaResidualOf' "$source"
+    fail_if_match "$gate" 'makePlanFromAlpha' "$source"
+    fail_if_match "$gate" 'validateRequirementEnvelope' "$source"
+    fail_if_match "$gate" 'Semantic\.deriveRequirements' "$source"
     rg -q 'private def makePlanFromSemanticV1' "$source"
     rg -q 'validateSemanticProgramV1' "$source"
     rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1 source' "$source"
@@ -637,20 +407,24 @@ s1-evm-semantic-plan-deletion-gate:
 s1-target-semantic-plan-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
+    source scripts/gate_helpers.sh
+    gate="s1-target-semantic-plan-deletion-gate"
     for target in Solana Near Noir; do
       source="ProofForgeV2/Targets/${target}.lean"
+      # Per-target residual message names the target (not shared fail_if_match
+      # wording); same rg exit-code contract as scripts/gate_helpers.sh.
       for pat in alphaResidualOf makePlanFromAlpha validateRequirementEnvelope 'Semantic\.deriveRequirements'; do
         set +e
-        hits="$(rg -n --no-heading "$pat" "$source" 2>&1)"
+        hits="$(rg --glob '*.lean' -n --no-heading "$pat" "$source" 2>&1)"
         ec=$?
         set -e
         if [[ $ec -eq 0 ]]; then
-          echo "s1-target-semantic-plan-deletion-gate: forbidden ${target} residual pattern: $pat" >&2
+          echo "$gate: forbidden ${target} residual pattern: $pat" >&2
           printf '%s\n' "$hits" >&2
           exit 1
         fi
         if [[ $ec -ne 1 ]]; then
-          echo "s1-target-semantic-plan-deletion-gate: rg failed for ${target}/$pat (exit $ec)" >&2
+          echo "$gate: rg failed for ${target}/$pat (exit $ec)" >&2
           printf '%s\n' "$hits" >&2
           exit 1
         fi
