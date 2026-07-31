@@ -147,6 +147,22 @@ normative: false
 - Boundary：magic中包含v1版本文本与NUL，因此该切片闭合root magic/version prefix；root tagged record、
   field count和完整transport/program refinement仍pending。formal TASK/TST状态不变。
 
+## 2026-07-31 — proof-validation tagged-header refinement
+
+- Production/Proof：新增raw tag transparent/production reader，按u32 length→`1..64` gate→exact slice→
+  byte-level ASCII gate执行；`decodeTag`直接委托production reader。新增expected-tag+u16 field-count
+  production primitive并让`expectTag`直接委托；expected/raw在runtime保持`ByteArray` direct compare，List
+  只存在于proof projection。
+- Refinement/Error：universal theorem覆盖任意input/offset/want/fieldCount，组合既有u32/exact-take/u16
+  theorem与`Array.all_toList`、`Array.beq_toList`，保持truncated length→badTag length→truncated payload→
+  badTag non-ASCII/mismatch→truncated count→badFieldCount的exact顺序。无第二tagged decoder。
+- Tests/Review：固定nonzero-offset success、empty/non-ASCII/short raw、tag mismatch-before-count、matched-
+  tag short count、count mismatch及两个universal theorem；完整Wire suite通过，final blocker review为
+  APPROVE。String wrapper不伪造`rfl`/`native_decide`证明，既有production root suite继续覆盖valid、wrong
+  tag与wrong field count。
+- Boundary：root expected tagged header已闭合；payload九字段及其array/record递归refinement仍pending，
+  closed carrier kernel validation与formal TASK/TST状态不变。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

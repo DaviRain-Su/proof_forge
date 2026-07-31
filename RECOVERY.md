@@ -265,6 +265,12 @@ cursor input/nesting。short input仍先于内容比较返回`.truncated`，足�
 root真实截断测试已固定。下一步进入root tagged header（tag length/bytes/field count）refinement，而不是
 新增第二套root decoder。完整carrier kernel validation与formal corpus仍pending。
 
+tagged-header切片现进一步闭合u32 tag length、`1..64`、exact raw slice、ASCII、expected-tag ByteArray
+compare及u16 field count。`decodeTag`与`expectTag`均委托shared production primitives；两个universal
+theorem把production raw/result投影到transparent spine并保持`.truncated`/`.badTag`/
+`.badFieldCount`全序。runtime expected/raw不转List；List只用于proof。下一步从root
+`SemanticProgram.Data`九字段payload开始逐段refinement，不应复制完整program decoder。formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

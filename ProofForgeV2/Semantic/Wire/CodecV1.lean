@@ -320,6 +320,180 @@ theorem takeBytesAtV1_refinesSpine (bytes : TransparentByteSpineV1)
     simp [List.extract_eq_take_drop]
   · rfl
 
+/-- ASCII predicate used by the transparent tagged-header spine. -/
+def isAsciiTagSpineBytesV1 (bytes : List UInt8) : Bool :=
+  bytes.all fun byte => byte.toNat ≤ 127
+
+/-- Production byte-level ASCII predicate for tagged headers. -/
+def isAsciiTagBytesV1 (bytes : ByteArray) : Bool :=
+  bytes.data.all fun byte => byte.toNat ≤ 127
+
+/-- Read and validate the length-prefixed raw tag bytes on the transparent
+    spine. Empty/oversized/non-ASCII tags are `.badTag`; short prefixes or
+    payloads preserve `.truncated`. -/
+def readTagSpineBytesV1 (input : TransparentByteSpineV1) (offset : Nat) :
+    Except SemanticWireErrorV1 (List UInt8 × Nat) :=
+  match readSpineU32leV1 input offset with
+  | .error e => .error e
+  | .ok (lenU, afterLen) =>
+      let len := lenU.toNat
+      if !(1 ≤ len && len ≤ maxTagAsciiBytes) then
+        .error .badTag
+      else
+        match takeSpineBytesV1 input afterLen len with
+        | .error e => .error e
+        | .ok raw =>
+            if isAsciiTagSpineBytesV1 raw then
+              .ok (raw, afterLen + len)
+            else
+              .error .badTag
+
+/-- Production byte-level tagged-header reader. It retains `ByteArray` slices
+    and is shared by the String-facing decoder below. -/
+def readTagBytesAtV1 (input : ByteArray) (offset : Nat) :
+    Except SemanticWireErrorV1 (ByteArray × Nat) :=
+  match readU32leAtV1 input offset with
+  | .error e => .error e
+  | .ok (lenU, afterLen) =>
+      let len := lenU.toNat
+      if !(1 ≤ len && len ≤ maxTagAsciiBytes) then
+        .error .badTag
+      else
+        match takeBytesAtV1 input afterLen len with
+        | .error e => .error e
+        | .ok raw =>
+            if isAsciiTagBytesV1 raw then
+              .ok (raw, afterLen + len)
+            else
+              .error .badTag
+
+/-- Raw tagged-header refinement through length decode, bounds, exact slice,
+    and ASCII validation. -/
+theorem readTagBytesAtV1_refinesSpine (input : TransparentByteSpineV1) (offset : Nat) :
+    (readTagBytesAtV1 (ByteArray.mk input.toArray) offset).map
+        (fun (raw, next) => (raw.data.toList, next)) =
+      readTagSpineBytesV1 input offset := by
+  unfold readTagBytesAtV1 readTagSpineBytesV1
+  rw [readU32leAtV1_refinesSpine]
+  cases hread : readSpineU32leV1 input offset with
+  | error e => rfl
+  | ok pair =>
+    rcases pair with ⟨lenU, afterLen⟩
+    by_cases hv : !(1 ≤ lenU.toNat && lenU.toNat ≤ maxTagAsciiBytes)
+    · simp only [if_pos hv, Except.map]
+    · simp only [if_neg hv]
+      have hr := remainingBytesAtV1_refinesSpine input afterLen
+      unfold takeBytesAtV1 takeSpineBytesV1
+      rw [hr]
+      by_cases ht : lenU.toNat ≤ spineRemainingV1 input afterLen
+      · simp only [if_pos ht]
+        let rawB :=
+          (ByteArray.mk input.toArray).extract afterLen (afterLen + lenU.toNat)
+        let rawS := (input.drop afterLen).take lenU.toNat
+        have hraw : rawB.data.toList = rawS := by
+          unfold rawB rawS
+          rw [ByteArray.data_extract, Array.toList_extract]
+          simp [List.extract_eq_take_drop]
+        have hascii : isAsciiTagBytesV1 rawB = isAsciiTagSpineBytesV1 rawS := by
+          unfold isAsciiTagBytesV1 isAsciiTagSpineBytesV1
+          rw [← Array.all_toList, hraw]
+        change (Except.map (fun (raw, next) => (raw.data.toList, next))
+          (if isAsciiTagBytesV1 rawB then
+            Except.ok (rawB, afterLen + lenU.toNat)
+          else Except.error SemanticWireErrorV1.badTag)) =
+          (if isAsciiTagSpineBytesV1 rawS then
+            Except.ok (rawS, afterLen + lenU.toNat)
+          else Except.error SemanticWireErrorV1.badTag)
+        rw [hascii]
+        by_cases ha : isAsciiTagSpineBytesV1 rawS
+        · simp only [if_pos ha, Except.map]
+          rw [hraw]
+        · simp only [if_neg ha, Except.map]
+      · simp only [if_neg ht]
+        rfl
+
+/-- Exact expected-tag plus field-count check on the transparent spine. -/
+def expectTaggedHeaderSpineV1 (input : TransparentByteSpineV1) (offset : Nat)
+    (want : List UInt8) (fieldCount : Nat) : Except SemanticWireErrorV1 Nat :=
+  match readTagSpineBytesV1 input offset with
+  | .error e => .error e
+  | .ok (raw, next) =>
+      if raw != want then
+        .error .badTag
+      else
+        match readSpineU16leV1 input next with
+        | .error e => .error e
+        | .ok (count, afterCount) =>
+            if count.toNat == fieldCount then
+              .ok afterCount
+            else
+              .error .badFieldCount
+
+/-- Production exact expected-tag plus field-count primitive. Expected and raw
+    tags remain `ByteArray`s at runtime; List projection is proof-only. -/
+def expectTaggedHeaderBytesAtV1 (input : ByteArray) (offset : Nat)
+    (want : ByteArray) (fieldCount : Nat) : Except SemanticWireErrorV1 Nat :=
+  match readTagBytesAtV1 input offset with
+  | .error e => .error e
+  | .ok (raw, next) =>
+      if raw != want then
+        .error .badTag
+      else
+        match readU16leAtV1 input next with
+        | .error e => .error e
+        | .ok (count, afterCount) =>
+            if count.toNat == fieldCount then
+              .ok afterCount
+            else
+              .error .badFieldCount
+
+/-- Full expected tagged-header refinement: tag length/bytes/ASCII, exact tag
+    comparison, u16 field count, and exact error precedence. -/
+theorem expectTaggedHeaderBytesAtV1_refinesSpine (input want : List UInt8)
+    (offset fieldCount : Nat) :
+    expectTaggedHeaderBytesAtV1 (ByteArray.mk input.toArray) offset
+        (ByteArray.mk want.toArray) fieldCount =
+      expectTaggedHeaderSpineV1 input offset want fieldCount := by
+  unfold expectTaggedHeaderBytesAtV1 expectTaggedHeaderSpineV1
+  have ht := readTagBytesAtV1_refinesSpine input offset
+  cases hs : readTagSpineBytesV1 input offset with
+  | error e =>
+    rw [hs] at ht
+    cases hp : readTagBytesAtV1 (ByteArray.mk input.toArray) offset with
+    | error ep =>
+      rw [hp] at ht
+      simp only [Except.map, Except.error.injEq] at ht
+      subst ep
+      rfl
+    | ok productionPair =>
+      rw [hp] at ht
+      contradiction
+  | ok spinePair =>
+    rcases spinePair with ⟨rawS, next⟩
+    rw [hs] at ht
+    cases hp : readTagBytesAtV1 (ByteArray.mk input.toArray) offset with
+    | error ep =>
+      rw [hp] at ht
+      contradiction
+    | ok productionPair =>
+      rcases productionPair with ⟨rawB, nextB⟩
+      rw [hp] at ht
+      simp only [Except.map, Except.ok.injEq, Prod.mk.injEq] at ht
+      rcases ht with ⟨hraw, hnext⟩
+      subst nextB
+      have heq : (rawB == ByteArray.mk want.toArray) = (rawS == want) := by
+        change (rawB.data == want.toArray) = (rawS == want)
+        rw [← Array.beq_toList, hraw]
+      have hne : (rawB != ByteArray.mk want.toArray) = (rawS != want) := by
+        change (!(rawB == ByteArray.mk want.toArray)) = (!(rawS == want))
+        rw [heq]
+      simp only
+      rw [hne]
+      by_cases hm : rawS != want
+      · simp only [if_pos hm]
+      · simp only [if_neg hm]
+        rw [readU16leAtV1_refinesSpine]
+
 /-- Consume one exact magic/version prefix on the transparent proof spine.
     Short input remains `.truncated`; an equal-length mismatch is `.badMagic`. -/
 def consumeMagicSpineBytesV1 (input : TransparentByteSpineV1) (offset : Nat)
@@ -503,13 +677,8 @@ def decodeSourceOrigin : Decoder SourceOrigin := fun c => do
   | .ok _ => pure (origin, c)
 
 def decodeTag : Decoder String := fun c => do
-  let (lenU, c) ← decodeU32le c
-  let len := lenU.toNat
-  unless 1 ≤ len && len ≤ maxTagAsciiBytes do
-    return ← err .badTag
-  unless remaining c ≥ len do
-    return ← err .truncated
-  let (raw, c) ← takeBytes c len
+  let (raw, offset) ← readTagBytesAtV1 c.input c.offset
+  let c : Cursor := ⟨c.input, offset, c.nesting⟩
   match String.fromUTF8? raw with
   | none => err .badTag
   | some tag => do
@@ -524,10 +693,8 @@ def decodeFieldCount (expected : Nat) : Decoder Unit := fun c => do
   pure ((), c)
 
 def expectTag (want : String) (fieldCount : Nat) : Decoder Unit := fun c => do
-  let (tag, c) ← decodeTag c
-  unless tag == want do
-    return ← err .badTag
-  decodeFieldCount fieldCount c
+  let offset ← expectTaggedHeaderBytesAtV1 c.input c.offset want.toUTF8 fieldCount
+  pure ((), ⟨c.input, offset, c.nesting⟩)
 
 private def decodeNullary (want : String) : Decoder Unit :=
   expectTag want 0
