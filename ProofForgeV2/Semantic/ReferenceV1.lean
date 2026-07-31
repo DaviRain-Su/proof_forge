@@ -204,7 +204,7 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .indexGet _ _ => pure ()
   | .indexSet _ _ _ => pure ()
   | .pureCall _ _ => pure ()
-  | .contextRead _ => admitFail "unsupported op ContextRead"
+  | .contextRead _ => pure ()
   | .commit _ => admitFail "unsupported op Commit"
 
 /-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit). -/
@@ -615,6 +615,7 @@ private structure MachineV1 where
   pre            : LogicalStateV1
   callable       : CallableV1
   isInitializer  : Bool
+  context        : Array ContextInputV1
   overlay        : Array ByteArray
   env            : Array (Option ReferenceValueV1)
   effects        : Array OrderedEffectV1
@@ -1422,7 +1423,18 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
       | some vd, some base, some index, some value =>
           fromEval m vd.valueId (evalIndexSet m.data base index value vd.typeId)
       | _, _, _, _ => .done m (.trapped .invalidCore)
-  | .pureCall _ _ | .contextRead _ | .commit _ =>
+  | .contextRead key =>
+      match instr.result with
+      | none => .done m (.trapped .invalidCore)
+      | some vd =>
+          match m.context.find? fun row => row.key == key with
+          | none => .done m (.trapped .internalInvariant)
+          | some row =>
+              if row.value.typeId != vd.typeId then
+                .done m (.trapped .internalInvariant)
+              else
+                storeResult m vd.valueId row.value
+  | .pureCall _ _ | .commit _ =>
       .done m (.trapped .internalInvariant)
 
 /-- Simultaneous jump-arg bind: gather all source values from the pre-write
@@ -1655,7 +1667,94 @@ private inductive InvocationGateV1 where
   | ready
       (callable : CallableV1)
       (overlay : Array ByteArray)
+      (context : Array ContextInputV1)
       (isInitializer : Bool)
+
+private def compareBytesLex (left right : ByteArray) : Ordering := Id.run do
+  let common := Nat.min left.size right.size
+  for i in [:common] do
+    let l := left[i]!
+    let r := right[i]!
+    if l < r then return .lt
+    if l > r then return .gt
+  pure (compare left.size right.size)
+
+private def compareContextKey (left right : SchemaId) : Ordering :=
+  compareBytesLex left.value.toUTF8 right.value.toUTF8
+
+/-- Collect the exact ContextRead key/type set reachable from the selected
+    invocation root through static PureCall edges. Wire validation has already
+    proved that every edge targets an in-range pureFn and that equal keys use
+    one TypeId; this bounded traversal rechecks both facts fail closed. -/
+private def requiredInvocationContext
+    (data : SemanticProgramDataV1) (root : CallableV1) :
+    Option (Array (SchemaId × TypeIdV1)) := Id.run do
+  let mut visited := Array.replicate data.callables.size false
+  let rootIndex := root.id.toNat
+  if h : rootIndex < visited.size then
+    visited := visited.set rootIndex true
+  else
+    return none
+  let mut worklist : Array Nat := #[rootIndex]
+  let mut cursor : Nat := 0
+  let mut required : Array (SchemaId × TypeIdV1) := #[]
+  while cursor < worklist.size do
+    let callerIndex := worklist[cursor]!
+    cursor := cursor + 1
+    match data.callables[callerIndex]? with
+    | none => return none
+    | some caller =>
+        for block in caller.blocks do
+          for instr in block.instructions do
+            match instr.op with
+            | .contextRead key =>
+                match instr.result with
+                | none => return none
+                | some vd =>
+                    match required.find? fun row => row.1 == key with
+                    | none => required := required.push (key, vd.typeId)
+                    | some row => if row.2 != vd.typeId then return none
+            | .pureCall calleeId _ =>
+                let calleeIndex := calleeId.toNat
+                match data.callables[calleeIndex]? with
+                | none => return none
+                | some callee =>
+                    if callee.kind != .pureFn then return none
+                    if h : calleeIndex < visited.size then
+                      unless visited[calleeIndex]! do
+                        visited := visited.set calleeIndex true
+                        worklist := worklist.push calleeIndex
+                    else
+                      return none
+            | _ => pure ()
+  pure (some (required.qsort fun left right =>
+    compareContextKey left.1 right.1 == .lt))
+
+/-- Validate canonical key order and exact key/type/value membership, returning
+    the supplied immutable snapshot unchanged for machine execution. -/
+private def validateInvocationContext
+    (data : SemanticProgramDataV1) (root : CallableV1)
+    (supplied : Array ContextInputV1) : Option (Array ContextInputV1) :=
+  match requiredInvocationContext data root with
+  | none => none
+  | some required => Id.run do
+      let mut previous : Option SchemaId := none
+      for row in supplied do
+        match previous with
+        | some key =>
+            unless compareContextKey key row.key == .lt do return none
+        | none => pure ()
+        previous := some row.key
+      unless supplied.size == required.size do return none
+      for i in [:required.size] do
+        match required[i]?, supplied[i]? with
+        | some expected, some actual =>
+            unless actual.key == expected.1 &&
+                actual.value.typeId == expected.2 &&
+                valueCanonical data actual.value do
+              return none
+        | _, _ => return none
+      pure (some supplied)
 
 /-- Shape checks (id/kind/arity/type/context) → invalidInvocation.
     Lifecycle (uninit / alreadyInit / internal) → lifecycle candidate.
@@ -1665,10 +1764,7 @@ private def gateInvocation
     (invocation : InvocationV1) : InvocationGateV1 :=
   let data := admitted.data
   let program := admitted.program
-  if !invocation.context.isEmpty then
-    .invalidInvocation
-  else
-    match data.callables[invocation.callableId.toNat]? with
+  match data.callables[invocation.callableId.toNat]? with
     | none => .invalidInvocation
     | some callable =>
         let kindOk :=
@@ -1695,31 +1791,34 @@ private def gateInvocation
           if !argsOk then
             .invalidInvocation
           else
-            let isInit := callable.kind == .initializer
-            match initialLogicalStateV1 program with
-            | .error _ =>
-                -- Admitted program always validates; treat as lifecycle fault.
-                .lifecycle (.trapped .internalInvariant)
-            | .ok initial =>
-                if isInit then
-                  if logicalStateBytesEq pre initial then
-                    match decodeLogicalStateValuesV1 data pre with
-                    | .ok overlay => .ready callable overlay true
-                    | .error _ =>
-                        .lifecycle (.trapped .internalInvariant)
-                  else if pre.initialized && stateConformsBoolV1 program pre then
-                    .lifecycle (.reverted (.standard .alreadyInitialized))
-                  else
-                    .invalidInvocation
-                else if pre.initialized && stateConformsBoolV1 program pre then
-                  match decodeLogicalStateValuesV1 data pre with
-                  | .ok overlay => .ready callable overlay false
-                  | .error _ =>
-                      .lifecycle (.trapped .internalInvariant)
-                else if logicalStateBytesEq pre initial then
-                  .lifecycle (.reverted (.standard .uninitialized))
-                else
-                  .invalidInvocation
+            match validateInvocationContext data callable invocation.context with
+            | none => .invalidInvocation
+            | some context =>
+                let isInit := callable.kind == .initializer
+                match initialLogicalStateV1 program with
+                | .error _ =>
+                    -- Admitted program always validates; treat as lifecycle fault.
+                    .lifecycle (.trapped .internalInvariant)
+                | .ok initial =>
+                    if isInit then
+                      if logicalStateBytesEq pre initial then
+                        match decodeLogicalStateValuesV1 data pre with
+                        | .ok overlay => .ready callable overlay context true
+                        | .error _ =>
+                            .lifecycle (.trapped .internalInvariant)
+                      else if pre.initialized && stateConformsBoolV1 program pre then
+                        .lifecycle (.reverted (.standard .alreadyInitialized))
+                      else
+                        .invalidInvocation
+                    else if pre.initialized && stateConformsBoolV1 program pre then
+                      match decodeLogicalStateValuesV1 data pre with
+                      | .ok overlay => .ready callable overlay context false
+                      | .error _ =>
+                          .lifecycle (.trapped .internalInvariant)
+                    else if logicalStateBytesEq pre initial then
+                      .lifecycle (.reverted (.standard .uninitialized))
+                    else
+                      .invalidInvocation
 
 /-- Lifecycle / terminal candidates with cursor==0: any trailing responses
     override to invalidExternalResponse (same finalizer rule as body halt). -/
@@ -1745,7 +1844,7 @@ def stepReferenceSliceV1
   | .invalidInvocation => .trapped .invalidInvocation pre
   -- Valid invocation shape; lifecycle halt still exhausts responses.
   | .lifecycle cand => finalizeLifecycle pre responses cand
-  | .ready callable overlay isInitializer =>
+  | .ready callable overlay context isInitializer =>
       let envSize := maxValueIdInCallable callable + 1
       let bindResult : Option (Array (Option ReferenceValueV1)) := Id.run do
         let mut env := emptyEnv envSize
@@ -1770,6 +1869,7 @@ def stepReferenceSliceV1
             pre
             callable
             isInitializer
+            context
             overlay
             env
             effects := #[]
@@ -1820,6 +1920,7 @@ def evalInvariantReferenceSliceV1
                 pre := state
                 callable
                 isInitializer := false
+                context := #[]
                 overlay
                 env := emptyEnv (maxValueIdInCallable callable + 1)
                 effects := #[]

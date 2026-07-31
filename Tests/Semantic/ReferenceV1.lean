@@ -25,9 +25,8 @@
     4. Emit-then-revert discards overlay/effects; wrong callable
        id/kind/arity/type/noncanonical args → invalidInvocation; entry before
        init / init twice; determinism.
-    5. Admission fail-closed on unsupported Int / aggregate / PureCall /
-       ContextRead / Commit / view stateStore / view Emit (errors separated
-       from Outcome).
+    5. Admission fail-closed on unsupported Int / Commit / view stateStore /
+       view Emit (errors separated from Outcome).
     6. Lifecycle + trailing: uninit/alreadyInit + trailing →
        invalidExternalResponse; invalidInvocation + trailing stays
        invalidInvocation.
@@ -42,6 +41,8 @@
        normal Invocation remains invalid.
    13. Struct canonical codec seam plus Construct/FieldGet/FieldSet in entry,
        nested immutable update, PureCall, and invariant-root execution.
+   14. ContextRead exact selected-root/PureCall-closure invocation gate and
+       immutable shared snapshot execution; Commit remains unsupported.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -128,6 +129,10 @@ private def emptyResponses : ExternalResponsesV1 := #[]
 private def inv (callableId : CallableIdV1) (args : Array ReferenceValueV1) :
     InvocationV1 :=
   { callableId, args, context := emptyContext }
+
+private def invWithContext (callableId : CallableIdV1)
+    (args : Array ReferenceValueV1) (context : Array ContextInputV1) : InvocationV1 :=
+  { callableId, args, context }
 
 private def logicalStateEq (a b : LogicalStateV1) : Bool :=
   a.initialized == b.initialized && bytesEqual a.canonicalValues b.canonicalValues
@@ -1537,33 +1542,6 @@ private def testAdmissionUnsupported : IO Unit := do
     (stepReferenceSliceV1 initAdmitted preInitPC (inv 0 #[]) #[])
     { preInitPC with initialized := true } none #[]
 
-  -- ContextRead
-  let ctxKey := unixTimeSecondsContextKeyV1
-  let ctxRequirement ← match unixTimeSecondsContextRequirementV1 with
-    | .ok row => pure row
-    | .error e => throw <| IO.userError s!"ContextRead requirement: {e}"
-  let typesC : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .uint 64 },
-    { id := 1, name := none, shape := .unit }
-  ]
-  let entryCR := mkEntry 0 "ctx" #[] 1
-    #[instr (some { valueId := 0, typeId := 0 }) (.contextRead ctxKey)]
-    (.return_ none)
-  let baseC ← emptyData "AdmCtx"
-  let dataC : SemanticProgramDataV1 := {
-    baseC with
-      types := typesC
-      callables := #[entryCR]
-      requirements := { items := #[ctxRequirement] }
-  }
-  let cC ← encodeCarrier "adm-ctx" dataC
-  admitUnsupported "adm-ctx" cC
-    (fun d =>
-      let l := d.toLower
-      l.contains "contextread" || l.contains "context_read" ||
-        l.contains "context read")
-    "ContextRead"
-
   -- Commit
   let typesCm : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
@@ -1633,6 +1611,115 @@ private def testAdmissionUnsupported : IO Unit := do
       let l := d.toLower
       l.contains "view" && (l.contains "emit" || l.contains "effect"))
     "view Emit"
+
+/-- ContextRead uses the exact selected-root PureCall closure and one immutable
+    invocation snapshot; malformed context fails before lifecycle/responses. -/
+private def testContextReadReferenceSlice : IO Unit := do
+  let key := unixTimeSecondsContextKeyV1
+  let requirement ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"context-read requirement: {e}"
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .unit }
+  ]
+  let leaf := mkPureFn 0 "readClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ (some 0))
+  let nested := mkPureFn 1 "nestedClock" #[] 0
+    #[instr (some (vd 0 0)) (.pureCall 0 #[])]
+    (.return_ (some 0))
+  let initializer := mkInit 2 #[] 1
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ none)
+  let direct := mkEntry 3 "directClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ (some 0))
+  let throughNested := mkView 4 "nestedView" #[] 0
+    #[instr (some (vd 0 0)) (.pureCall 1 #[])]
+    (.return_ (some 0))
+  let noContext := mkEntry 5 "noContext" #[] 1 #[] (.return_ none)
+  let repeated := mkEntry 6 "repeatedClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key),
+      instr (some (vd 1 0)) (.contextRead key)]
+    (.return_ (some 1))
+  let base ← emptyData "ContextReadRuntime"
+  let data : SemanticProgramDataV1 := {
+    base with
+      types
+      callables := #[leaf, nested, initializer, direct, throughNested, noContext, repeated]
+      requirements := { items := #[requirement] }
+  }
+  let carrier ← encodeCarrier "context-read-runtime" data
+  let admitted ← admitOk "context-read-runtime" carrier
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok st => pure st
+    | .error e => throw <| IO.userError s!"context-read initial state: {repr e}"
+  let value := refU64 0 1700000000
+  let context : Array ContextInputV1 := #[{ key, value }]
+
+  -- Missing initializer context is invalid invocation even with a response;
+  -- a valid initializer read still publishes the initialized lifecycle bit.
+  expectTrapped "context-init-missing+response"
+    (stepReferenceSliceV1 admitted initial (inv 2 #[]) trailingResp)
+    .invalidInvocation initial
+  let initialized : LogicalStateV1 := { initial with initialized := true }
+  expectReturned "context-init"
+    (stepReferenceSliceV1 admitted initial (invWithContext 2 #[] context) emptyResponses)
+    initialized none #[]
+
+  expectReturned "context-entry-direct"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 3 #[] context) emptyResponses)
+    initialized (some value) #[]
+  expectReturned "context-view-nested-purecall"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 4 #[] context) emptyResponses)
+    initialized (some value) #[]
+  expectReturned "context-repeated-snapshot"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 6 #[] context) emptyResponses)
+    initialized (some value) #[]
+
+  -- Required keys are selected-root scoped, not program-wide.
+  expectReturned "context-unreachable-not-required"
+    (stepReferenceSliceV1 admitted initialized (inv 5 #[]) emptyResponses)
+    initialized none #[]
+  expectTrapped "context-extra-for-empty-root"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 5 #[] context) emptyResponses)
+    .invalidInvocation initialized
+
+  expectTrapped "context-required-missing"
+    (stepReferenceSliceV1 admitted initialized (inv 3 #[]) emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-required-missing+response"
+    (stepReferenceSliceV1 admitted initialized (inv 3 #[]) trailingResp)
+    .invalidInvocation initialized
+  expectTrapped "context-duplicate"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value }, { key, value }]) emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-wrong-type"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value := { typeId := 1, valueBytes := ByteArray.empty } }])
+      emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-noncanonical-value"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value := { typeId := 0, valueBytes := ByteArray.mk #[1] } }])
+      emptyResponses)
+    .invalidInvocation initialized
+  let later : SchemaId := { value := "proof-forge.context.z.v1" }
+  let earlier : SchemaId := { value := "proof-forge.context.a.v1" }
+  expectTrapped "context-nonascending-extra"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 5 #[] #[{ key := later, value }, { key := earlier, value }])
+      emptyResponses)
+    .invalidInvocation initialized
+
+  -- Once context shape is valid, lifecycle candidates retain the established
+  -- trailing-response precedence.
+  expectTrapped "context-init-twice+response"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 2 #[] context) trailingResp)
+    .invalidExternalResponse initialized
 
 /-- Unit return shape: return_ none ok; return_ (some unit) → invalidCore. -/
 private def testUnitReturnShape : IO Unit := do
@@ -2932,6 +3019,7 @@ unsafe def run : IO Unit := do
   testEmitThenRevertDiscardsEffects
   testInvalidInvocationAndInitLifecycle session
   testAdmissionUnsupported
+  testContextReadReferenceSlice
   testUnitReturnShape
   testSwitchTrapAndTrailing
   testBoundedLoopEmitOccurrences

@@ -210,12 +210,16 @@ slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `i
 不迭代，零宽元素仍按count计work，recursive Array aggregate graph fail closed。Wire sole value decoder
 另以64MiB program-wide cumulative work budget跨declarations与recursive siblings线程化，并在进入
 raw Array helper循环前防御性执行length cap。Map Construct/Index、
-ContextRead runtime、Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
+Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
 
 D2-07 首个 ContextRead static-only 提议切片已冻结单行 wire catalog：仅
 `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64，并 exact 绑定
 `context.unix-time-seconds@1.0.0` requirement。语义为 invocation immutable Unix-seconds
-snapshot；Reference runtime、targets、caller/authorizers/randomness 仍未支持。
+snapshot。Reference runtime现按selected initializer/entry/view root及其statically reachable
+PureCall closure收集exact key/type集合，在lifecycle/response cursor前拒绝missing/extra/duplicate/
+nonascending/wrong-TypeId/noncanonical value，并由所有PureCall frame共享同一immutable snapshot；
+执行时不可能的missing/mismatch映射`internalInvariant`。invariant root/closure、Commit、targets、
+caller/authorizers/randomness与formal evaluator仍未开放。
 
 ## D2-07 reference Struct engineering status（2026-07-31）
 
@@ -227,14 +231,14 @@ Reference admission只开放Struct形态Construct，并以explicit-stack postord
 logical-state defaults含slot prefix累计受64MiB byte/work caps。
 runtime再次检查shape/index/TypeId/canonical bytes，FieldSet为immutable SSA update。entry、nested
 Struct、PureCall及nonformal invariant evaluator均复用远端canonical machine。Enum/Option、
-Array/Bytes/Map index、ContextRead runtime/Commit及formal evaluator仍pending。
+Array/Bytes/Map index、Commit及formal evaluator仍pending。
 
 ## D2-07 reference Option/Enum engineering status（2026-07-31）
 
 Map增量：Reference现接纳Wire-legal Map、empty `Construct 0 []`与immutable
 IndexGet/IndexSet；Wire sole canonical decoder及新增lookup/upsert seam独占framing、unsigned
 lex order、key legality和共享byte/work/nesting caps。资源 admission 使用`maxMapEntriesV1`
-理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。ContextRead/Commit、formal
+理论最大值作无count循环的保守上界，因此可能拒绝实际小Map。Commit、formal
 evaluator与TASK-D2-07/TST-SEM-002/003仍pending。
 
 同一general-CFG/PureCall Reference machine现进一步开放`TypeShapeV1.Option`/`Enum`、对应
@@ -244,5 +248,5 @@ payload/trailing fail-closed。admission的显式栈width/depth/work分析按con
 payload occurrence（包括共享TypeId）计费；runtime防御性复核shape、TypeId、tag及payload index，
 Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Unit/Array/Map Construct、
 Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式unsupported；
-Index、ContextRead、Commit仍关闭；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
+Index、Commit仍关闭；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
 TASK-D2-07/TST-SEM-002/003仍pending。

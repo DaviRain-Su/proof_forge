@@ -104,7 +104,8 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > 2026-07-31 状态更正：上方 `TASK-D2-06` 累计长表中的 “ContextRead
 > requirement-to-result binding/key capability support 仍 Not yet” 已由本次 proposed/pre-acceptance
 > static-only slice supersede；Wire 现已关闭单行 exact key/anonymous UInt64/exact requirement
-> catalog。仍未完成的是 Reference ContextRead runtime、Invocation context gate 与全部 target support。
+> catalog。Reference ContextRead runtime与Invocation exact-context gate现也已由后续工程切片实现；
+> 仍未完成的是Commit、全部target support与formal evaluator/theorem。
 
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
@@ -112,7 +113,15 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 `proof-forge.context.unix-time-seconds.v1` 必须返回程序唯一匿名 UInt64，并携 exact
 `context.unix-time-seconds@1.0.0` empty-predicate/domain-separated digest row。其含义是 invocation
 开始时 immutable Unix epoch seconds snapshot；Reference runtime 与所有 target support catalog
-仍关闭，caller/authorizers/randomness deferred，formal `TASK-D2-07` 状态不变。
+原先均关闭；后续Reference工程切片已开放runtime，但所有target support catalog仍关闭，
+caller/authorizers/randomness deferred，formal `TASK-D2-07` 状态不变。
+
+Reference invocation gate现从selected initializer/entry/view root沿static `Op.PureCall`边做bounded
+closure traversal，收集并UTF-8排序exact ContextRead key/type集合；supplied context必须strict ascending、
+exact set、TypeId一致且value bytes canonical，否则在lifecycle/response cursor前返回
+`.trapped(.invalidInvocation, pre)`。validated snapshot仅存于Machine、由nested PureCall frame共享；
+runtime lookup impossible missing/type mismatch返回`internalInvariant`。invariant closure仍由Wire拒绝
+ContextRead，Commit、targets和formal evaluator/theorem未开放。
 
 `ReferenceV1`现新增明确非formal的`evalInvariantReferenceSliceV1`：按validated InvariantDecl ordinal
 选择zero-arg public Bool invariant，以`StateConformsV1`门禁logical state，使用carried exact

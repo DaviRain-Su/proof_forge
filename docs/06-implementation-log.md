@@ -12,6 +12,23 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 ReferenceV1 ContextRead runtime engineering slice
+
+- Production：`ReferenceV1` admission开放Wire-owned ContextRead，不开放Commit。invocation gate从
+  selected initializer/entry/view root沿static PureCall边做bounded visited-worklist traversal，收集
+  exact key/result-TypeId集合并按key UTF-8 bytes排序；supplied rows必须strict ascending、exact match、
+  TypeId一致且value bytes canonical，否则在lifecycle与response cursor前统一`invalidInvocation`。
+- Runtime：validated context作为Machine级immutable snapshot，不复制进CallFrame；direct与nested
+  PureCall读取同一value。ContextRead按key查找并经既有result binding写入callee/local env；通过
+  static+invocation gate后仍missing或TypeId mismatch属于impossible state，映射`internalInvariant`。
+  context不进入overlay/effects，initializer身份、rollback与response terminal precedence不变。
+- Tests：encode→decode carrier覆盖initializer/entry/view、nested PureCall、repeated reads、program内
+  不可达ContextRead不污染selected root required set，以及missing/extra/duplicate/nonascending/
+  wrong-TypeId/noncanonical bytes；invalid context优先于trailing response，valid context lifecycle仍由
+  既有terminal exhaustion规则处理。Wire invariant root/reachable closure禁止保持，Commit仍unsupported。
+- Boundary：工程/nonformal；target support catalog、caller/authorizers/randomness、正式
+  `evalInvariantV1`/`InvariantTheoremV1`与formal TASK-D2-07/TST-SEM-002/003仍pending。
+
 ## 2026-07-31 — S1 Normalize 扩面：shift/bitwise/logical 二元（`<<`/`>>`/`&`/`^`/`|`/`&&`/`||`）贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 let/for 扩面，本切片把 ProgramV1 移位、位运算与严格逻辑二元贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理审计时发现 **UInt32 计算计数**缺口并恢复两路 worker 补齐（EVM/Solana），Noir lane 由主代理串行实现。
