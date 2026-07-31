@@ -105,7 +105,8 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > requirement-to-result binding/key capability support 仍 Not yet” 已由本次 proposed/pre-acceptance
 > static-only slice supersede；Wire 现已关闭单行 exact key/anonymous UInt64/exact requirement
 > catalog。Reference ContextRead runtime与Invocation exact-context gate现也已由后续工程切片实现；
-> 仍未完成的是Commit、全部target support与formal evaluator/theorem。
+> Commit现已闭合operand/result TypeId exact equality，但exact disclosure requirement row/runtime仍关闭；
+> 全部target support与formal evaluator/theorem也仍未完成。
 
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
@@ -122,6 +123,12 @@ exact set、TypeId一致且value bytes canonical，否则在lifecycle/response c
 `.trapped(.invalidInvocation, pre)`。validated snapshot仅存于Machine、由nested PureCall frame共享；
 runtime lookup impossible missing/type mismatch返回`internalInvariant`。invariant closure仍由Wire拒绝
 ContextRead，Commit、targets和formal evaluator/theorem未开放。
+
+Commit的独立Wire typing切片现要求operand ValueId可解析且
+`Instruction.result.typeId == type(value)`；Option等具有canonical encoding的aggregate同样允许，
+不复用Eq/Ne的窄`serializableType` allowlist。由于`disclosure.commitment`尚未冻结exact
+SemVer/digest/predicates row，requirement binding与Reference identity runtime继续fail closed，target
+support不变；不得把本地TypeId合约写成完整declassification证明。
 
 `ReferenceV1`现新增明确非formal的`evalInvariantReferenceSliceV1`：按validated InvariantDecl ordinal
 选择zero-arg public Bool invariant，以`StateConformsV1`门禁logical state，使用carried exact

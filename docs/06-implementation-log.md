@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 Commit operand/result Wire typing slice
+
+- Production：`WireV1.checkOpTyping`不再只检查Commit result presence；现要求operand ValueId可解析，
+  且`result.typeId == type(value)`，失败保持`.badCfg`/`.cfg` phase。所有structure-valid TypeShape均有
+  canonical value encoding，因此未错误复用Eq/Ne专用、排除Array/Map/Option/Unit的窄
+  `serializableType` predicate。既有invariant root/reachable closure Commit禁止不变。
+- Tests：structure+encode双路径覆盖UInt8与Option正向、wrong in-range result TypeId、undefined operand、
+  typing先于requirements及malformed invariant Commit先于closure prohibition；既有missing-result与
+  valid invariant-closure禁止回归保持。
+- Boundary：`disclosure.commitment`尚无冻结的exact SemVer/digest/predicates row，因此Wire requirement
+  binding、Reference identity runtime与target support继续关闭；本切片不声称完整declassification、
+  formal TASK-D2-07或TST-SEM完成。
+
 ## 2026-07-31 — D2-07 ReferenceV1 ContextRead runtime engineering slice
 
 - Production：`ReferenceV1` admission开放Wire-owned ContextRead，不开放Commit。invocation gate从

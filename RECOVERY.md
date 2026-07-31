@@ -221,6 +221,11 @@ nonascending/wrong-TypeId/noncanonical value，并由所有PureCall frame共享�
 执行时不可能的missing/mismatch映射`internalInvariant`。invariant root/closure、Commit、targets、
 caller/authorizers/randomness与formal evaluator仍未开放。
 
+Commit当前仅新增Wire local typing：operand必须可解析，result TypeId必须精确等于operand TypeId；
+canonical aggregate同样可通过。`disclosure.commitment` exact requirement row尚未冻结，因此
+requirement binding与Reference runtime仍关闭，不能把该局部合约解释为已实现declassification或
+target commitment support。
+
 ## D2-07 reference Struct engineering status（2026-07-31）
 
 同一general-CFG Reference machine现支持Struct-only`Construct`/`FieldGet`/`FieldSet`。canonical
