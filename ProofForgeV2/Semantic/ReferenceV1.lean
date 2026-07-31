@@ -12,12 +12,12 @@ import ProofForgeV2.Semantic.WireV1
   machine `stepReferenceSliceV1`.
 
   Admitted surface:
-    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / Struct / Option /
-      Enum over acyclic recursively admitted payload types
+    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / fixed Array /
+      Struct / Option / Enum over acyclic recursively admitted payload types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
       CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
-      ExternalCall, Schedule
+      ExternalCall, Schedule, Array Construct, Array/Bytes IndexGet/IndexSet
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
     * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
     * view: no StateStore / Emit / ExternalCall / Schedule
@@ -27,8 +27,8 @@ import ProofForgeV2.Semantic.WireV1
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Int / Field / Array / Map, recursive Struct/Option/Enum type graphs,
-    non-Struct/Option/Enum Construct / Index* / ContextRead / Commit,
+    Int / Field / Map, recursive Struct/Array/Option/Enum type graphs,
+    Unit/Map Construct / Map Index* / ContextRead / Commit,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
   Semantics (SPEC-SEM-001 engineering):
@@ -173,7 +173,7 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
   | .bytes _ => pure ()
   | .int w => admitFail s!"unsupported Int{w}"
   | .field _ => admitFail "unsupported Field"
-  | .array _ _ => admitFail "unsupported aggregate Array"
+  | .array _ _ => pure ()
   | .map _ _ => admitFail "unsupported aggregate Map"
   | .option _ => pure ()
   | .struct _ => pure ()
@@ -200,8 +200,8 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .fieldSet _ _ _ => pure ()
   | .variantTag _ => pure ()
   | .variantPayload _ _ _ => pure ()
-  | .indexGet _ _ => admitFail "unsupported IndexGet (Array/Map/Bytes index)"
-  | .indexSet _ _ _ => admitFail "unsupported IndexSet (Array/Map/Bytes index)"
+  | .indexGet _ _ => pure ()
+  | .indexSet _ _ _ => pure ()
   | .pureCall _ _ => pure ()
   | .contextRead _ => admitFail "unsupported op ContextRead"
   | .commit _ => admitFail "unsupported op Commit"
@@ -238,14 +238,15 @@ private def admitCallableBody (data : SemanticProgramDataV1) (c : CallableV1) :
   for block in c.blocks do
     for instr in block.instructions do
       opAdmitted instr.op
-      -- Construct remains closed except for Struct and the variant family.
+      -- Construct remains closed except for Struct, Array, and variants.
       match instr.op with
       | .construct tid _ _ =>
           match data.types[tid.toNat]? with
           | some { shape := .struct _, .. }
+          | some { shape := .array _ _, .. }
           | some { shape := .option _, .. }
           | some { shape := .enum _, .. } => pure ()
-          | some _ => admitFail "unsupported non-Struct/Option/Enum Construct shape"
+          | some _ => admitFail "unsupported non-Struct/Array/Option/Enum Construct shape"
           | none => admitFail "Construct typeId out of range"
       | _ => pure ()
       -- view: no state write / effects (runtime has no view-snapshot model)
@@ -330,6 +331,9 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
               let alternatives : Array (Array TypeIdV1) :=
                 match decl.shape with
                 | .struct fields => #[fields.map (·.typeId)]
+                | .array element _ =>
+                    -- Array is handled arithmetically below; never expand length.
+                    #[#[element]]
                 | .option element => #[#[], #[element]]
                 | .enum variants => variants.map (·.payloadTypes)
                 | _ => #[]
@@ -338,23 +342,33 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
               let mut total := 0
               let mut childDepth := 0
               let mut totalWork := 0
-              let headerWidth := match decl.shape with | .struct _ => 0 | .option _ => 1 | _ => 4
+              let headerWidth := match decl.shape with | .struct _ | .array _ _ => 0 | .option _ => 1 | _ => 4
               for children in alternatives do
                 let mut altWidth := headerWidth
-                let mut altWork := 0
+                -- Match Wire's cumulative decoder: one node-entry unit,
+                -- every child occurrence, then this node's canonical output.
+                let mut altWork := 1
                 for childId in children do
                   let child := childId.toNat
                   unless child < n && color[child]! == 2 do
                     return ← admitFail "aggregate resource bounds could not be resolved"
                   let width := widths[child]!
-                  unless width ≤ maxCanonicalValueBytes - altWidth do
+                  let count := match decl.shape with | .array _ length => length.toNat | _ => 1
+                  unless count == 0 || width ≤ maxCanonicalValueBytes / count do
                     return ← admitFail "aggregate canonical value exceeds byte limit"
-                  altWidth := altWidth + width
+                  let addedWidth := count * width
+                  unless addedWidth ≤ maxCanonicalValueBytes - altWidth do
+                    return ← admitFail "aggregate canonical value exceeds byte limit"
+                  altWidth := altWidth + addedWidth
                   childDepth := max childDepth depths[child]!
                   let work := works[child]!
-                  unless work ≤ maxCanonicalProgramBytes - altWork do
+                  -- Every occurrence is charged, including zero-width values.
+                  unless count == 0 || work ≤ maxCanonicalProgramBytes / count do
                     return ← admitFail "aggregate canonical construction work exceeds limit"
-                  altWork := altWork + work
+                  let addedWork := count * work
+                  unless addedWork ≤ maxCanonicalProgramBytes - altWork do
+                    return ← admitFail "aggregate canonical construction work exceeds limit"
+                  altWork := altWork + addedWork
                 let ownWork := max 1 altWidth
                 unless ownWork ≤ maxCanonicalProgramBytes - altWork do
                   return ← admitFail "aggregate canonical construction work exceeds limit"
@@ -374,28 +388,28 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
           | 2 => pure ()
           | 1 =>
               return ← admitFail
-                "recursive Struct/Option/Enum resource bounds unsupported"
+                "recursive Struct/Array/Option/Enum resource bounds unsupported"
           | _ =>
               match types[tid]? with
               | some { shape := .bool, .. } =>
                   widths := widths.set! tid 1
                   depths := depths.set! tid 1
-                  works := works.set! tid 1
+                  works := works.set! tid 2
                   color := color.set! tid 2
               | some { shape := .uint width, .. } =>
                   let bytes := width.toNat / 8
                   widths := widths.set! tid bytes
                   depths := depths.set! tid 1
-                  works := works.set! tid bytes
+                  works := works.set! tid (1 + max 1 bytes)
                   color := color.set! tid 2
               | some { shape := .unit, .. } =>
                   depths := depths.set! tid 1
-                  works := works.set! tid 1
+                  works := works.set! tid 2
                   color := color.set! tid 2
               | some { shape := .bytes length, .. } =>
                   widths := widths.set! tid length.toNat
                   depths := depths.set! tid 1
-                  works := works.set! tid (max 1 length.toNat)
+                  works := works.set! tid (1 + max 1 length.toNat)
                   color := color.set! tid 2
               | some { shape := .struct fields, .. } =>
                   color := color.set! tid 1
@@ -408,6 +422,10 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                     | none =>
                         return ← admitFail
                           "Struct resource bounds could not be resolved"
+              | some { shape := .array element _, .. } =>
+                  color := color.set! tid 1
+                  stack := stack.push (1, tid)
+                  stack := stack.push (0, element.toNat)
               | some { shape := .option element, .. } =>
                   color := color.set! tid 1
                   stack := stack.push (1, tid)
@@ -427,7 +445,7 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                           match variant.payloadTypes[pi]? with
                           | some child => stack := stack.push (0, child.toNat)
                           | none => return ← admitFail "Enum resource bounds could not be resolved"
-              | _ => return ← admitFail "Struct resource bounds unsupported type"
+              | _ => return ← admitFail "aggregate resource bounds unsupported type"
     root := root + 1
   pure (widths, works)
 
@@ -915,6 +933,88 @@ private def evalStructConstruct (data : SemanticProgramDataV1)
   | .ok bytes => pure { typeId, valueBytes := bytes }
   | .error _ => .error (.trapped .invalidCore)
 
+private def evalArrayConstruct (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1) (constructorIndex : UInt32)
+    (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
+    Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == typeId && constructorIndex == 0 do
+    throw (.trapped .invalidCore)
+  let (element, length) ←
+    match data.types[typeId.toNat]? with
+    | some { shape := .array element length, .. } => pure (element, length.toNat)
+    | _ => throw (.trapped .invalidCore)
+  unless args.size == length do throw (.trapped .invalidCore)
+  let mut chunks := #[]
+  for arg in args do
+    unless arg.typeId == element && valueCanonical data arg do
+      throw (.trapped .invalidCore)
+    chunks := chunks.push arg.valueBytes
+  match encodeCanonicalArrayValueV1 data.types typeId chunks with
+  | .ok bytes => pure { typeId, valueBytes := bytes }
+  | .error _ => throw (.trapped .invalidCore)
+
+private def checkedIndex (data : SemanticProgramDataV1)
+    (index : ReferenceValueV1) : Except CandidateV1 Nat := do
+  match data.types[index.typeId.toNat]? with
+  | some { shape := .uint 32, .. } => pure ()
+  | _ => throw (.trapped .invalidCore)
+  unless index.valueBytes.size == 4 && valueCanonical data index do
+    throw (.trapped .invalidCore)
+  pure (leBytesToNat index.valueBytes)
+
+private def evalIndexGet (data : SemanticProgramDataV1) (base index : ReferenceValueV1)
+    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+  unless valueCanonical data base do throw (.trapped .invalidCore)
+  let i ← checkedIndex data index
+  match data.types[base.typeId.toNat]? with
+  | some { shape := .array element _, .. } =>
+      unless resultTypeId == element do throw (.trapped .invalidCore)
+      match splitCanonicalArrayValueV1 data.types base.typeId base.valueBytes with
+      | .ok chunks =>
+          match chunks[i]? with
+          | some bytes => pure { typeId := element, valueBytes := bytes }
+          | none => throw (.reverted (.standard .indexOutOfBounds))
+      | .error _ => throw (.trapped .invalidCore)
+  | some { shape := .bytes _, .. } =>
+      match data.types[resultTypeId.toNat]? with
+      | some { shape := .uint 8, .. } =>
+          match byteAt? base.valueBytes i with
+          | some b => pure { typeId := resultTypeId, valueBytes := ByteArray.mk #[b] }
+          | none => throw (.reverted (.standard .indexOutOfBounds))
+      | _ => throw (.trapped .invalidCore)
+  | _ => throw (.trapped .invalidCore)
+
+private def evalIndexSet (data : SemanticProgramDataV1) (base index value : ReferenceValueV1)
+    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+  unless resultTypeId == base.typeId && valueCanonical data base && valueCanonical data value do
+    throw (.trapped .invalidCore)
+  let i ← checkedIndex data index
+  match data.types[base.typeId.toNat]? with
+  | some { shape := .array element _, .. } =>
+      unless value.typeId == element do throw (.trapped .invalidCore)
+      match splitCanonicalArrayValueV1 data.types base.typeId base.valueBytes with
+      | .ok chunks =>
+          if h : i < chunks.size then
+            match encodeCanonicalArrayValueV1 data.types base.typeId
+                (chunks.set i value.valueBytes) with
+            | .ok bytes => pure { typeId := base.typeId, valueBytes := bytes }
+            | .error _ => throw (.trapped .invalidCore)
+          else throw (.reverted (.standard .indexOutOfBounds))
+      | .error _ => throw (.trapped .invalidCore)
+  | some { shape := .bytes _, .. } =>
+      match data.types[value.typeId.toNat]? with
+      | some { shape := .uint 8, .. } =>
+          match byteAt? value.valueBytes 0 with
+          | some b =>
+              if i < base.valueBytes.size then
+                let bytes := (base.valueBytes.extract 0 i).append
+                  ((ByteArray.mk #[b]).append (base.valueBytes.extract (i + 1) base.valueBytes.size))
+                pure { typeId := base.typeId, valueBytes := bytes }
+              else throw (.reverted (.standard .indexOutOfBounds))
+          | none => throw (.trapped .invalidCore)
+      | _ => throw (.trapped .invalidCore)
+  | _ => throw (.trapped .invalidCore)
+
 private def evalVariantConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
@@ -1193,6 +1293,8 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
             match m.data.types[typeId.toNat]? with
             | some { shape := .struct _, .. } =>
                 evalStructConstruct m.data typeId constructorIndex args vd.typeId
+            | some { shape := .array _ _, .. } =>
+                evalArrayConstruct m.data typeId constructorIndex args vd.typeId
             | some { shape := .option _, .. } | some { shape := .enum _, .. } =>
                 evalVariantConstruct m.data typeId constructorIndex args vd.typeId
             | _ => .error (.trapped .invalidCore)
@@ -1220,7 +1322,16 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
           fromEval m vd.valueId
             (evalVariantPayload m.data base variantIndex payloadIndex vd.typeId)
       | _, _ => .done m (.trapped .invalidCore)
-  | .indexGet _ _ | .indexSet _ _ _
+  | .indexGet baseId indexId =>
+      match instr.result, envGet m.env baseId, envGet m.env indexId with
+      | some vd, some base, some index =>
+          fromEval m vd.valueId (evalIndexGet m.data base index vd.typeId)
+      | _, _, _ => .done m (.trapped .invalidCore)
+  | .indexSet baseId indexId valueId =>
+      match instr.result, envGet m.env baseId, envGet m.env indexId, envGet m.env valueId with
+      | some vd, some base, some index, some value =>
+          fromEval m vd.valueId (evalIndexSet m.data base index value vd.typeId)
+      | _, _, _, _ => .done m (.trapped .invalidCore)
   | .pureCall _ _ | .contextRead _ | .commit _ =>
       .done m (.trapped .internalInvariant)
 

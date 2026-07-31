@@ -3813,12 +3813,22 @@ private def fieldValueByteLengthV1 (modulusBE : ByteArray) : Nat :=
     let bitLength := Nat.log2 p + 1
     (bitLength + 7) / 8
 
-/-- Decode one type-driven value and return its re-encoded canonical bytes.
-    Fuel bounds recursive shapes (Array/Map/Option/Struct/Enum). -/
+/-- Spend canonical-value work before continuing traversal or allocation. -/
+private def spendCanonicalValueWorkV1 (budget cost : Nat) :
+    Except SemanticWireErrorV1 Nat :=
+  if cost ≤ budget then pure (budget - cost) else err .limitExceeded
+
+/-- Decode one type-driven value and return its re-encoded canonical bytes and
+    remaining cumulative work. Fuel bounds recursive shapes; unlike fuel, work
+    is shared by every child and sibling. Each node costs one on entry and its
+    own canonical output size (at least one) after its children. -/
 private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
-    (fuel : Nat) → Decoder ByteArray
-  | 0 => fun _ => err .limitExceeded
-  | fuel + 1 => fun c => do
+    (fuel budget : Nat) → (c : Cursor) →
+      Except SemanticWireErrorV1 (ByteArray × Cursor × Nat)
+  | 0, _, _ => err .limitExceeded
+  | fuel + 1, budget, c => do
+    let budget ← spendCanonicalValueWorkV1 budget 1
+    let (out, c, budget) ←
     match types[typeId.toNat]? with
     | none => err .badReference
     | some decl =>
@@ -3827,35 +3837,38 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
           let (b, c) ← takeByteNC c
           unless b == 0 || b == 1 do
             return ← err .nonCanonical
-          pure (encodeU8 b, c)
+          pure (encodeU8 b, c, budget)
       | .uint width => do
           let n := width.toNat / 8
           let (raw, c) ← takeBytesNC c n
-          pure (raw, c)
+          pure (raw, c, budget)
       | .int width => do
           let n := width.toNat / 8
           let (raw, c) ← takeBytesNC c n
-          pure (raw, c)
+          pure (raw, c, budget)
       | .principal => do
           let (lenU, c) ← takeU32leNC c
           let len := lenU.toNat
           unless 1 ≤ len && len ≤ maxTypeLengthV1 do
             return ← err .nonCanonical
           let (bodyBytes, c) ← takeBytesNC c len
-          pure ((encodeU32le lenU).append bodyBytes, c)
+          pure ((encodeU32le lenU).append bodyBytes, c, budget)
       | .unit =>
-          pure (ByteArray.empty, c)
+          pure (ByteArray.empty, c, budget)
       | .bytes length => do
           let (raw, c) ← takeBytesNC c length.toNat
-          pure (raw, c)
+          pure (raw, c, budget)
       | .array element length => do
+          unless length.toNat ≤ maxTypeLengthV1 do return ← err .limitExceeded
           let mut out := ByteArray.empty
           let mut c := c
+          let mut budget := budget
           for _ in [:length.toNat] do
-            let (chunk, c') ← decodeAndReencodeValueBytesV1 types element fuel c
+            let (chunk, c', budget') ← decodeAndReencodeValueBytesV1 types element fuel budget c
             out := out.append chunk
             c := c'
-          pure (out, c)
+            budget := budget'
+          pure (out, c, budget)
       | .map keyType valueType => do
           let (countU, c) ← takeU32leNC c
           let count := countU.toNat
@@ -3863,13 +3876,15 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
             return ← err .limitExceeded
           let mut out := encodeU32le countU
           let mut c := c
+          let mut budget := budget
           let mut prevKey? : Option ByteArray := none
           for _ in [:count] do
             let (keyLenU, c1) ← takeU32leNC c
             let keyLen := keyLenU.toNat
             let (keyBytes, c2) ← takeBytesNC c1 keyLen
-            let (keyRe, keyC) ←
-              decodeAndReencodeValueBytesV1 types keyType fuel (start keyBytes)
+            let (keyRe, keyC, budget') ←
+              decodeAndReencodeValueBytesV1 types keyType fuel budget (start keyBytes)
+            budget := budget'
             unless remaining keyC == 0 do
               return ← err .nonCanonical
             unless keyRe == keyBytes do
@@ -3886,8 +3901,9 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
             let (valLenU, c3) ← takeU32leNC c2
             let valLen := valLenU.toNat
             let (valBytes, c4) ← takeBytesNC c3 valLen
-            let (valRe, valC) ←
-              decodeAndReencodeValueBytesV1 types valueType fuel (start valBytes)
+            let (valRe, valC, budget') ←
+              decodeAndReencodeValueBytesV1 types valueType fuel budget (start valBytes)
+            budget := budget'
             unless remaining valC == 0 do
               return ← err .nonCanonical
             unless valRe == valBytes do
@@ -3898,14 +3914,14 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
               ((out.append (encodeU32le keyLenU)).append keyBytes).append
                 ((encodeU32le valLenU).append valBytes)
             c := c4
-          pure (out, c)
+          pure (out, c, budget)
       | .option element => do
           let (m, c) ← takeByteNC c
           match m.toNat with
-          | 0 => pure (encodeU8 0, c)
+          | 0 => pure (encodeU8 0, c, budget)
           | 1 => do
-              let (payload, c) ← decodeAndReencodeValueBytesV1 types element fuel c
-              pure ((encodeU8 1).append payload, c)
+              let (payload, c, budget) ← decodeAndReencodeValueBytesV1 types element fuel budget c
+              pure ((encodeU8 1).append payload, c, budget)
           | _ => err .nonCanonical
       | .field spec => do
           let width := fieldValueByteLengthV1 spec.modulusBE
@@ -3914,15 +3930,17 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
           let modulus := beBytesToNatV1 spec.modulusBE
           unless value < modulus do
             return ← err .nonCanonical
-          pure (raw, c)
+          pure (raw, c, budget)
       | .struct fields => do
           let mut out := ByteArray.empty
           let mut c := c
+          let mut budget := budget
           for f in fields do
-            let (chunk, c') ← decodeAndReencodeValueBytesV1 types f.typeId fuel c
+            let (chunk, c', budget') ← decodeAndReencodeValueBytesV1 types f.typeId fuel budget c
             out := out.append chunk
             c := c'
-          pure (out, c)
+            budget := budget'
+          pure (out, c, budget)
       | .enum variants => do
           let (idxU, c) ← takeU32leNC c
           let idx := idxU.toNat
@@ -3931,33 +3949,38 @@ private def decodeAndReencodeValueBytesV1 (types : Array TypeDeclV1) (typeId : T
           | some variant => do
               let mut out := encodeU32le idxU
               let mut c := c
+              let mut budget := budget
               for payloadType in variant.payloadTypes do
-                let (chunk, c') ←
-                  decodeAndReencodeValueBytesV1 types payloadType fuel c
+                let (chunk, c', budget') ←
+                  decodeAndReencodeValueBytesV1 types payloadType fuel budget c
                 out := out.append chunk
                 c := c'
-              pure (out, c)
+                budget := budget'
+              pure (out, c, budget)
+    let budget ← spendCanonicalValueWorkV1 budget (max 1 out.size)
+    pure (out, c, budget)
 
 /-- Validate a complete valueBytes slice with an explicit recursive-shape fuel
     budget. Kept private so public callers cannot select a weaker policy; the
     Struct assembler uses it only after reserving the outer Struct level. -/
 private def validateValueBytesWithFuelV1 (types : Array TypeDeclV1)
-    (typeId : TypeIdV1) (valueBytes : ByteArray) (fuel : Nat) :
-    Except SemanticWireErrorV1 Unit := do
+    (typeId : TypeIdV1) (valueBytes : ByteArray) (fuel budget : Nat) :
+    Except SemanticWireErrorV1 Nat := do
   unless valueBytes.size ≤ maxCanonicalValueBytes do
     return ← err .limitExceeded
-  let (reencoded, c) ←
-    decodeAndReencodeValueBytesV1 types typeId fuel (start valueBytes)
+  let (reencoded, c, budget) ←
+    decodeAndReencodeValueBytesV1 types typeId fuel budget (start valueBytes)
   unless remaining c == 0 do
     return ← err .nonCanonical
   unless reencoded == valueBytes do
     return ← err .nonCanonical
-  pure ()
+  pure budget
 
 /-- Validate a complete valueBytes slice for `typeId` (full consume + re-encode). -/
 def validateValueBytesV1 (types : Array TypeDeclV1) (typeId : TypeIdV1)
-    (valueBytes : ByteArray) : Except SemanticWireErrorV1 Unit :=
-  validateValueBytesWithFuelV1 types typeId valueBytes maxNesting
+    (valueBytes : ByteArray) : Except SemanticWireErrorV1 Unit := do
+  let _ ← validateValueBytesWithFuelV1 types typeId valueBytes maxNesting maxCanonicalProgramBytes
+  pure ()
 
 /-- Split one complete canonical Struct value into its canonical field byte
     slices. This is the narrow public aggregate-codec seam used by the
@@ -3977,23 +4000,26 @@ def splitCanonicalStructValueV1 (types : Array TypeDeclV1)
     | some _ => err .badType
   let mut chunks : Array ByteArray := #[]
   let mut c := start valueBytes
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
   for field in fields do
     let beginOffset := c.offset
-    let (reencoded, c') ←
-      decodeAndReencodeValueBytesV1 types field.typeId (maxNesting - 1) c
+    let (reencoded, c', budget') ←
+      decodeAndReencodeValueBytesV1 types field.typeId (maxNesting - 1) budget c
     let source := valueBytes.extract beginOffset c'.offset
     unless reencoded == source do
       return ← err .nonCanonical
     chunks := chunks.push source
     c := c'
+    budget := budget'
   unless remaining c == 0 do
     return ← err .nonCanonical
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 valueBytes.size)
   pure chunks
 
 /-- Assemble one canonical Struct value from exact source-order canonical
     field byte slices. Each field is validated against its declared TypeId;
-    the aggregate cap is checked before allocation growth, and the completed
-    Struct is revalidated through the sole canonical value decoder. -/
+    the aggregate cap is checked before allocation growth, and the outer node
+    is charged under the same cumulative decoder work policy. -/
 def encodeCanonicalStructValueV1 (types : Array TypeDeclV1)
     (structTypeId : TypeIdV1) (fieldBytes : Array ByteArray) :
     Except SemanticWireErrorV1 ByteArray := do
@@ -4005,17 +4031,72 @@ def encodeCanonicalStructValueV1 (types : Array TypeDeclV1)
   unless fieldBytes.size == fields.size do
     return ← err .nonCanonical
   let mut out := ByteArray.empty
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
   let mut i := 0
   while i < fields.size do
     match fields[i]?, fieldBytes[i]? with
     | some field, some bytes =>
         unless bytes.size ≤ maxCanonicalValueBytes - out.size do
           return ← err .limitExceeded
-        validateValueBytesWithFuelV1 types field.typeId bytes (maxNesting - 1)
+        budget ← validateValueBytesWithFuelV1 types field.typeId bytes
+          (maxNesting - 1) budget
         out := out.append bytes
     | _, _ => return ← err .nonCanonical
     i := i + 1
-  validateValueBytesV1 types structTypeId out
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 out.size)
+  pure out
+
+/-- Split one complete canonical fixed-length Array value into exactly its
+    declared number of canonical element slices. The outer Array reserves one
+    nesting level and the sole type-driven decoder performs every split. -/
+def splitCanonicalArrayValueV1 (types : Array TypeDeclV1)
+    (arrayTypeId : TypeIdV1) (valueBytes : ByteArray) :
+    Except SemanticWireErrorV1 (Array ByteArray) := do
+  unless valueBytes.size ≤ maxCanonicalValueBytes do return ← err .limitExceeded
+  let (element, length) ←
+    match types[arrayTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .array element length, .. } => pure (element, length.toNat)
+    | some _ => err .badType
+  unless length ≤ maxTypeLengthV1 do return ← err .limitExceeded
+  let mut chunks : Array ByteArray := #[]
+  let mut c := start valueBytes
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
+  for _ in [:length] do
+    let beginOffset := c.offset
+    let (reencoded, c', budget') ←
+      decodeAndReencodeValueBytesV1 types element (maxNesting - 1) budget c
+    let source := valueBytes.extract beginOffset c'.offset
+    unless reencoded == source do return ← err .nonCanonical
+    chunks := chunks.push source
+    c := c'
+    budget := budget'
+  unless chunks.size == length && remaining c == 0 do return ← err .nonCanonical
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 valueBytes.size)
+  pure chunks
+
+/-- Assemble one fixed-length Array from exact canonical element slices,
+    checking the canonical value cap before every append and revalidating the
+    completed value through the sole decoder. -/
+def encodeCanonicalArrayValueV1 (types : Array TypeDeclV1)
+    (arrayTypeId : TypeIdV1) (elementBytes : Array ByteArray) :
+    Except SemanticWireErrorV1 ByteArray := do
+  let (element, length) ←
+    match types[arrayTypeId.toNat]? with
+    | none => err .badReference
+    | some { shape := .array element length, .. } => pure (element, length.toNat)
+    | some _ => err .badType
+  unless length ≤ maxTypeLengthV1 do return ← err .limitExceeded
+  unless elementBytes.size == length do return ← err .nonCanonical
+  let mut out := ByteArray.empty
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
+  for bytes in elementBytes do
+    unless bytes.size ≤ maxCanonicalValueBytes - out.size do
+      return ← err .limitExceeded
+    budget ← validateValueBytesWithFuelV1 types element bytes
+      (maxNesting - 1) budget
+    out := out.append bytes
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 out.size)
   pure out
 
 /-- Split one complete canonical Option/Enum value into its constructor tag and
@@ -4044,15 +4125,18 @@ def splitCanonicalVariantValueV1 (types : Array TypeDeclV1)
     | some _ => err .badType
   let mut chunks : Array ByteArray := #[]
   let mut c := { start valueBytes with offset := payloadOffset }
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
   for payloadType in payloadTypes do
     let beginOffset := c.offset
-    let (reencoded, c') ←
-      decodeAndReencodeValueBytesV1 types payloadType (maxNesting - 1) c
+    let (reencoded, c', budget') ←
+      decodeAndReencodeValueBytesV1 types payloadType (maxNesting - 1) budget c
     let source := valueBytes.extract beginOffset c'.offset
     unless reencoded == source do return ← err .nonCanonical
     chunks := chunks.push source
     c := c'
+    budget := budget'
   unless remaining c == 0 do return ← err .nonCanonical
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 valueBytes.size)
   pure (tag, chunks)
 
 /-- Assemble one canonical Option/Enum from an exact constructor tag and exact
@@ -4075,50 +4159,57 @@ def encodeCanonicalVariantValueV1 (types : Array TypeDeclV1)
     | some _ => err .badType
   unless payloadBytes.size == payloadTypes.size do return ← err .nonCanonical
   let mut out := headerBytes
+  let mut budget ← spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1
   let mut i := 0
   while i < payloadTypes.size do
     match payloadTypes[i]?, payloadBytes[i]? with
     | some payloadType, some bytes =>
         unless bytes.size ≤ maxCanonicalValueBytes - out.size do
           return ← err .limitExceeded
-        validateValueBytesWithFuelV1 types payloadType bytes (maxNesting - 1)
+        budget ← validateValueBytesWithFuelV1 types payloadType bytes
+          (maxNesting - 1) budget
         out := out.append bytes
     | _, _ => return ← err .nonCanonical
     i := i + 1
-  validateValueBytesV1 types variantTypeId out
+  let _ ← spendCanonicalValueWorkV1 budget (max 1 out.size)
   pure out
 
-private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1) :
-    Except SemanticWireErrorV1 Unit := do
+private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1)
+    (budget : Nat) : Except SemanticWireErrorV1 Nat := do
   match op with
   | .literal typeId valueBytes =>
-      validateValueBytesV1 types typeId valueBytes
-  | _ => pure ()
+      validateValueBytesWithFuelV1 types typeId valueBytes maxNesting budget
+  | _ => pure budget
 
 private def validateTerminatorValueBytesV1 (types : Array TypeDeclV1)
-    (term : TerminatorV1) : Except SemanticWireErrorV1 Unit := do
+    (term : TerminatorV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
   match term with
   | .switch _scrutinee cases _default =>
+      let mut budget := budget
       for sc in cases do
-        validateValueBytesV1 types sc.typeId sc.valueBytes
-  | _ => pure ()
+        budget ← validateValueBytesWithFuelV1 types sc.typeId sc.valueBytes
+          maxNesting budget
+      pure budget
+  | _ => pure budget
 
 private def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
-    (constants : Array ConstantV1) : Except SemanticWireErrorV1 Unit := do
+    (constants : Array ConstantV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
+  let mut budget := budget
   for c in constants do
-    validateValueBytesV1 types c.typeId c.valueBytes
-  pure ()
+    budget ← validateValueBytesWithFuelV1 types c.typeId c.valueBytes maxNesting budget
+  pure budget
 
 /-- Walk callable blocks for Op.Literal and SwitchCase valueBytes only.
     Does not check CFG reachability, dominance, or ValueId SSA. -/
 private def validateCallablesValueBytesV1 (types : Array TypeDeclV1)
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
+    (callables : Array CallableV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
+  let mut budget := budget
   for callable in callables do
     for block in callable.blocks do
       for instr in block.instructions do
-        validateOpValueBytesV1 types instr.op
-      validateTerminatorValueBytesV1 types block.terminator
-  pure ()
+        budget ← validateOpValueBytesV1 types instr.op budget
+      budget ← validateTerminatorValueBytesV1 types block.terminator budget
+  pure budget
 
 /-- Exact declaration/field names are checked on a private UTF-8 sort so
     public source-order arrays remain unchanged and duplicate detection stays
@@ -5108,8 +5199,8 @@ def validateSemanticProgramStructureV1 (data : SemanticProgramDataV1) :
   | .error failure => throw failure.error
   validateNamedTypeNameUniquenessV1 data.types
   -- 4) Canonical valueBytes (Constant / Op.Literal / SwitchCase)
-  validateConstantsValueBytesV1 data.types data.constants
-  validateCallablesValueBytesV1 data.types data.callables
+  let budget ← validateConstantsValueBytesV1 data.types data.constants maxCanonicalProgramBytes
+  let _ ← validateCallablesValueBytesV1 data.types data.callables budget
   -- 4.2) Constant, logicalState, EventDecl/ErrorDecl, and per-declaration
   --   interface-field names form one same-error `.duplicate` phase after
   --   canonical values.

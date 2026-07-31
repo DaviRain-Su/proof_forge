@@ -20,6 +20,12 @@ normative: false
 - Tests：Linux运行source+worker live matrix（success、shared wall、peaks、deadline/process/RSS/stdout/stderr、exit/signal、malformed/replay、snapshot/metadata negatives），并固定sticky-root snapshot、ambient fd不可见及真实CLI positives。
 - Boundary/Verification：legacy `Darwin*` module/type名称仍为兼容债；本切片不宣称hermetic import closure、signed executable identity、cgroup/`setsid` containment或formal evidence。focused receipt/live/CLI suites在Linux orb通过；完整CI仍受locked host tool profile约束。
 
+## 2026-07-31 — D2-07 Array/Bytes IndexGet/IndexSet engineering slice
+
+- `WireV1`新增fixed Array canonical split/encode public seam：sole recursive decoder、outer fuel reservation、exact count、append前16MiB cap、full consume/re-encode；Bytes无需aggregate seam。
+- `ReferenceV1`接纳Array type/Construct与Array/Bytes IndexGet/IndexSet；UInt32 LE index及base/element/UInt8均防御性canonical/type检查，immutable set不改旧SSA；越界复用已声明standard `indexOutOfBounds` revert。Map/ContextRead/Commit仍关闭。
+- explicit-stack资源分析以cap-safe乘加计算Array width/depth/work，不迭代UInt32 length，shared occurrence与zero-width count完整计费，recursive Array graph拒绝。聚焦suite经encode→decode carrier覆盖codec、construct/get/set、旧base、Bytes、越界及Map关闭边界。工程/nonformal；formal evaluator/TASK-D2-07/TST-SEM-002/003仍pending。
+
 ## 2026-07-31 — D2-07 invariant reference evaluation engineering slice
 
 - `ReferenceV1`新增明确非formal的`evalInvariantReferenceSliceV1`，消费admitted carrier、`InvariantOrdinalV1`与`LogicalStateV1`；不改变普通Invocation对invariant root的拒绝。
@@ -10986,3 +10992,16 @@ normative: false
 - Boundary：仍属engineering/nonformal。Unit/Array/Map Construct、Index、ContextRead、Commit与正式
   `evalInvariantV1`/`InvariantTheoremV1`均未开放；Wire-legal recursive Struct/Option/Enum graph
   在该有限maximum-resource subset仍显式unsupported；formal TASK-D2-07/TST-SEM-002/003仍pending。
+
+## 2026-07-31 — D2-07 ReferenceV1 Array/Bytes index engineering slice
+
+- Production：在同一general-CFG/PureCall machine开放fixed Array、Array Construct及Array/Bytes
+  `IndexGet`/`IndexSet`；set创建新canonical bytes，OOR映射既有`indexOutOfBounds` standard revert。
+  Wire新增Array split/encode seam并保留outer fuel、exact count、16MiB cap及canonical child validation。
+- Resource：sole value decoder新增64MiB program-wide cumulative work budget，跨constant/literal/switch
+  及Array/Map/Struct/Option/Enum siblings线程化；每node计entry与`max(1, output width)`，Array raw
+  length在任何helper loop前受4096 cap。Reference explicit-stack admission使用相同recurrence与checked
+  multiplication，拒绝zero-width/nested compact amplification及recursive aggregate graph。
+- Tests：覆盖Array codec、construct/get/immutable set、Bytes get/set、Array/Bytes get/set OOR、旧/新SSA
+  可观察性、PureCall/nonformal invariant复用、nested Option element、raw length gate及width/work正负边界。
+- Boundary：Map Construct/Index、ContextRead、Commit及formal evaluator/theorem仍pending。

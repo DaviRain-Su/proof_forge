@@ -110,6 +110,18 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现；formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+### D2-07 Array/Bytes index runtime 增量（2026-07-31）
+
+工程（非formal）ReferenceV1 slice现接纳fixed-length Array、Array Construct及Array/Bytes
+IndexGet/IndexSet；immutable set产生新canonical bytes并保留旧SSA值。UInt32 LE index、base、
+element/UInt8均按exact TypeId/shape与canonical bytes防御性复核；越界使用既有标准
+`indexOutOfBounds` revert。WireV1新增窄Array split/encode seam，复用sole value decoder并预留outer
+fuel、exact count、append前16MiB cap及full-consume/re-encode；canonical value decoder以64MiB
+program-wide cumulative work budget跨constants/literals/switch values及所有recursive siblings线程化，
+每个node计entry与canonical output work。显式栈资源分析使用相同recurrence和checked乘加，不按
+UInt32 length展开，重复与零宽元素均完整计费；递归Array图仍拒绝。Map Construct/Index、ContextRead、Commit及formal
+evalInvariant/TASK-D2-07/TST-SEM-002/003仍pending。
+
 ### D2-07 Struct runtime 增量（2026-07-31）
 
 `ReferenceV1`现进一步执行Struct-only aggregate family：admission允许递归字段均落在既有admitted

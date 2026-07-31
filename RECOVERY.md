@@ -202,6 +202,16 @@ PureCall frame保持root invocation的initializer身份，Unit pureFn的`return 
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
 
+## D2-07 reference Array/Bytes index engineering status（2026-07-31）
+
+`WireV1`现提供fixed Array的窄canonical split/encode seam；`ReferenceV1`工程admission/runtime
+现支持Array Construct与Array/Bytes IndexGet/IndexSet，set保持immutable SSA，越界走既有
+`indexOutOfBounds`标准revert。Array资源通过explicit-stack postorder与cap-safe乘加分析，巨大length
+不迭代，零宽元素仍按count计work，recursive Array aggregate graph fail closed。Wire sole value decoder
+另以64MiB program-wide cumulative work budget跨declarations与recursive siblings线程化，并在进入
+raw Array helper循环前防御性执行length cap。Map Construct/Index、
+ContextRead、Commit、formal `evalInvariantV1`/`InvariantTheoremV1`与TASK/TST仍pending。
+
 ## D2-07 reference Struct engineering status（2026-07-31）
 
 同一general-CFG Reference machine现支持Struct-only`Construct`/`FieldGet`/`FieldSet`。canonical
