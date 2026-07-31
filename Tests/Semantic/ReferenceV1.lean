@@ -57,6 +57,11 @@
    20. BN254 Field lower runner: canonical boundaries, modular arithmetic,
        inverse/division, Eq/Ne, exact division-by-zero, whole-program admission,
        and selected-invariant independence from unrelated Principal support.
+   21. T6 Normalize product path → Reference execution: multi-width UInt state
+       arith/compare/overflow, Int positive lit/compare/bitNot, Struct
+       construct/fieldGet/fieldSet, Enum construct + constructor-pattern match
+       (VariantTag/Payload), expression-match join block-params, expression
+       match on Enum constructors, and Principal admission fail-closed.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -3501,6 +3506,399 @@ private def testFixedWidthIntegerLowerRunner : IO Unit := do
   wholeCast "cast-int-uint-exact" i256 u8 (signedBytes (-1) 256)
   wholeCast "cast-int-int-exact" i256 i8 (signedBytes 128 256)
 
+/-- Find anonymous UInt/Int TypeId by width, or named type by exact name. -/
+private def findAnonUint (types : Array TypeDeclV1) (width : Nat) : Option TypeIdV1 :=
+  match types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint w => w.toNat == width | _ => false with
+  | some i => some (UInt32.ofNat i)
+  | none => none
+
+private def findAnonInt (types : Array TypeDeclV1) (width : Nat) : Option TypeIdV1 :=
+  match types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .int w => w.toNat == width | _ => false with
+  | some i => some (UInt32.ofNat i)
+  | none => none
+
+private def findNamedType (types : Array TypeDeclV1) (name : String) : Option TypeIdV1 :=
+  match types.findIdx? fun t => t.name == some name with
+  | some i => some (UInt32.ofNat i)
+  | none => none
+
+private def refNat (typeId : TypeIdV1) (n : Nat) (widthBits : Nat) : ReferenceValueV1 :=
+  { typeId, valueBytes := leBytesFromNat n (widthBits / 8) }
+
+private def refBoolV (typeId : TypeIdV1) (b : Bool) : ReferenceValueV1 :=
+  { typeId, valueBytes := encodeBool b }
+
+/-- T6 product path: multi-width UInt via Normalize → admit → step.
+    Covers UInt8 state arith/compare, exact overflow, and UInt32/128/256 results. -/
+private unsafe def testMultiWidthNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- UInt8 Counter: add + compare + overflow rollback
+  let u8Src := wrap "MwU8Ref" <|
+    "  state count : UInt8\n" ++
+    "  init(initial : UInt8) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt8) : UInt8 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry cmp(x : UInt8) : Bool do\n" ++
+    "    return x < 10\n" ++
+    "  view get() : UInt8 do\n" ++
+    "    return count\n"
+  let u8Val ← loadSource session "mw-u8-ref" u8Src
+  let u8Carrier ← match normalizeProgramV1 u8Val with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"mw-u8-ref: normalize: {repr e}"
+  let u8Data ← match validateSemanticProgramV1 u8Carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"mw-u8-ref: validate: {repr e}"
+  let u8Admitted ← admitOk "mw-u8-ref" u8Carrier
+  let some u8Tid := findAnonUint u8Data.types 8 |
+    throw <| IO.userError "mw-u8-ref: missing UInt8"
+  let some boolTid :=
+      (u8Data.types.findIdx? fun t =>
+          t.name.isNone && match t.shape with | .bool => true | _ => false).map UInt32.ofNat |
+    throw <| IO.userError "mw-u8-ref: missing Bool"
+  let initial ← match initialLogicalStateV1 u8Carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"mw-u8-ref: initial: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 u8Admitted initial (inv 0 #[refNat u8Tid 40 8]) emptyResponses
+  let forty : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (leBytesFromNat 40 1) }
+  expectReturned "mw-u8-init" initPost forty none #[]
+  let inc :=
+    stepReferenceSliceV1 u8Admitted forty (inv 1 #[refNat u8Tid 2 8]) emptyResponses
+  let fortyTwo : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (leBytesFromNat 42 1) }
+  expectReturned "mw-u8-inc" inc fortyTwo (some (refNat u8Tid 42 8)) #[]
+  let cmpT :=
+    stepReferenceSliceV1 u8Admitted fortyTwo (inv 2 #[refNat u8Tid 3 8]) emptyResponses
+  expectReturned "mw-u8-cmp-t" cmpT fortyTwo (some (refBoolV boolTid true)) #[]
+  let cmpF :=
+    stepReferenceSliceV1 u8Admitted fortyTwo (inv 2 #[refNat u8Tid 10 8]) emptyResponses
+  expectReturned "mw-u8-cmp-f" cmpF fortyTwo (some (refBoolV boolTid false)) #[]
+  let get := stepReferenceSliceV1 u8Admitted fortyTwo (inv 3 #[]) emptyResponses
+  expectReturned "mw-u8-get" get fortyTwo (some (refNat u8Tid 42 8)) #[]
+  -- 255 + 1 → arithmeticOverflow, pre-state preserved
+  let maxSt : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (leBytesFromNat 255 1) }
+  let ovf :=
+    stepReferenceSliceV1 u8Admitted maxSt (inv 1 #[refNat u8Tid 1 8]) emptyResponses
+  expectRevertedStandard "mw-u8-overflow" ovf .arithmeticOverflow maxSt
+
+  -- UInt16 / UInt32 / UInt128 / UInt256 result literals execute with exact LE bytes
+  let widths : Array (String × Nat × Nat) := #[
+    ("UInt16", 16, 0x0201),
+    ("UInt32", 32, 0x04030201),
+    ("UInt128", 128, 0x0102),
+    ("UInt256", 256, 0xabcd)
+  ]
+  for (tyName, width, lit) in widths do
+    let label := s!"mw-u{width}-lit"
+    let src := wrap s!"MwU{width}Lit" <|
+      s!"  entry run() : {tyName} do\n" ++
+      s!"    return {lit}\n"
+    let validated ← loadSource session label src
+    let carrier ← match normalizeProgramV1 validated with
+      | .ok c => pure c
+      | .error e => throw <| IO.userError s!"{label}: normalize: {repr e}"
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    let admitted ← admitOk label carrier
+    let some tid := findAnonUint data.types width |
+      throw <| IO.userError s!"{label}: missing type"
+    let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+    expectReturned label
+      (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+      pre (some (refNat tid lit width)) #[]
+
+  -- Multi-width statement match on UInt8
+  let matchSrc := wrap "MwMatchU8Ref" <|
+    "  entry apply(delta : UInt8) : UInt8 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return 10\n" ++
+    "    | 1 => do\n" ++
+    "      return 20\n" ++
+    "    | _ => do\n" ++
+    "      return delta\n"
+  let matchVal ← loadSource session "mw-match-u8-ref" matchSrc
+  let matchCarrier ← match normalizeProgramV1 matchVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"mw-match-u8-ref: normalize: {repr e}"
+  let matchData ← match validateSemanticProgramV1 matchCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"mw-match-u8-ref: validate: {repr e}"
+  let matchAdmitted ← admitOk "mw-match-u8-ref" matchCarrier
+  let some mTid := findAnonUint matchData.types 8 |
+    throw <| IO.userError "mw-match-u8-ref: missing UInt8"
+  let mPre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "mw-match-u8-0"
+    (stepReferenceSliceV1 matchAdmitted mPre (inv 0 #[refNat mTid 0 8]) emptyResponses)
+    mPre (some (refNat mTid 10 8)) #[]
+  expectReturned "mw-match-u8-1"
+    (stepReferenceSliceV1 matchAdmitted mPre (inv 0 #[refNat mTid 1 8]) emptyResponses)
+    mPre (some (refNat mTid 20 8)) #[]
+  expectReturned "mw-match-u8-def"
+    (stepReferenceSliceV1 matchAdmitted mPre (inv 0 #[refNat mTid 7 8]) emptyResponses)
+    mPre (some (refNat mTid 7 8)) #[]
+
+/-- T6 product path: Int positive literals / compare / bitNot via Normalize. -/
+private unsafe def testIntNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "IntRef" <|
+    "  entry lit() : Int8 do\n" ++
+    "    return 42\n" ++
+    "  entry cmp() : Bool do\n" ++
+    "    let a : Int8 := 3\n" ++
+    "    let b : Int8 := 5\n" ++
+    "    return a < b\n" ++
+    "  entry bits() : Int8 do\n" ++
+    "    let x : Int8 := 0\n" ++
+    "    return ~x\n" ++
+    "  entry wide() : Int256 do\n" ++
+    "    return 9\n"
+  let validated ← loadSource session "int-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"int-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"int-ref: validate: {repr e}"
+  let admitted ← admitOk "int-ref" carrier
+  let some i8 := findAnonInt data.types 8 |
+    throw <| IO.userError "int-ref: missing Int8"
+  let some i256 := findAnonInt data.types 256 |
+    throw <| IO.userError "int-ref: missing Int256"
+  let some boolTid :=
+      (data.types.findIdx? fun t =>
+          t.name.isNone && match t.shape with | .bool => true | _ => false).map UInt32.ofNat |
+    throw <| IO.userError "int-ref: missing Bool"
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "int-ref-lit"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refNat i8 42 8)) #[]
+  expectReturned "int-ref-cmp"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+    pre (some (refBoolV boolTid true)) #[]
+  -- ~0 as Int8 is all-ones (two's complement -1)
+  expectReturned "int-ref-bitnot"
+    (stepReferenceSliceV1 admitted pre (inv 2 #[]) emptyResponses)
+    pre (some (refNat i8 255 8)) #[]
+  expectReturned "int-ref-wide"
+    (stepReferenceSliceV1 admitted pre (inv 3 #[]) emptyResponses)
+    pre (some (refNat i256 9 256)) #[]
+  -- Int unary neg remains Normalize fail closed (no Op.Unary.neg product path)
+  let negSrc := wrap "IntNegRef" <|
+    "  entry run() : Int8 do\n" ++
+    "    return -1\n"
+  let negVal ← loadSource session "int-neg-ref" negSrc
+  match normalizeProgramV1 negVal with
+  | .ok _ => throw <| IO.userError "int-neg-ref: Normalize must still fail closed for Int neg"
+  | .error (.unsupported _) => pure ()
+  | .error e => throw <| IO.userError s!"int-neg-ref: expected unsupported, got {repr e}"
+
+/-- T6 product path: Struct construct / fieldGet / fieldSet via Normalize. -/
+private unsafe def testStructNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "StructRef" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let p : Point := Point.new(1, 2)\n" ++
+    "    let a : UInt64 := p.x\n" ++
+    "    p.x := 9\n" ++
+    "    return p.x + a\n"
+  let validated ← loadSource session "struct-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"struct-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"struct-ref: validate: {repr e}"
+  let admitted ← admitOk "struct-ref" carrier
+  let some u64Tid := findAnonUint data.types 64 |
+    throw <| IO.userError "struct-ref: missing UInt64"
+  expect (findNamedType data.types "Point").isSome "struct-ref: Point registered"
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  -- 9 + 1 = 10 (fieldSet rebinds p.x; a still holds original get)
+  expectReturned "struct-ref-exec"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 10)) #[]
+
+/-- T6 product path: Enum construct + constructor-pattern match (VariantTag/Payload). -/
+private unsafe def testEnumMatchNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "EnumMatchRef" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  entry unwrapSome() : UInt64 do\n" ++
+    "    let o : Maybe := Maybe.Some(7)\n" ++
+    "    match o with\n" ++
+    "    | Maybe.None() => do\n" ++
+    "      return 0\n" ++
+    "    | Maybe.Some(x) => do\n" ++
+    "      return x\n" ++
+    "  entry unwrapNone() : UInt64 do\n" ++
+    "    let o : Maybe := Maybe.None()\n" ++
+    "    match o with\n" ++
+    "    | Maybe.None() => do\n" ++
+    "      return 11\n" ++
+    "    | Maybe.Some(x) => do\n" ++
+    "      return x\n"
+  let validated ← loadSource session "enum-match-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"enum-match-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"enum-match-ref: validate: {repr e}"
+  let admitted ← admitOk "enum-match-ref" carrier
+  let some u64Tid := findAnonUint data.types 64 |
+    throw <| IO.userError "enum-match-ref: missing UInt64"
+  expect (findNamedType data.types "Maybe").isSome "enum-match-ref: Maybe registered"
+  -- Ops must include VariantTag + VariantPayload on the Normalize product path
+  let hasTag := data.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i => match i.op with | .variantTag _ => true | _ => false
+  let hasPayload := data.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i =>
+        match i.op with | .variantPayload _ _ _ => true | _ => false
+  expect hasTag "enum-match-ref: VariantTag present"
+  expect hasPayload "enum-match-ref: VariantPayload present"
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "enum-match-some"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 7)) #[]
+  expectReturned "enum-match-none"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 11)) #[]
+
+/-- T6 product path: expression match join block-params execute correctly. -/
+private unsafe def testExprMatchNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "ExprMatchRef" <|
+    "  entry apply(delta : UInt64) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match delta with\n" ++
+    "      | 0 => 10\n" ++
+    "      | 1 => 20\n" ++
+    "      | rest => rest\n" ++
+    "  entry withLet(x : UInt64) : UInt64 do\n" ++
+    "    let v : UInt64 := match x with\n" ++
+    "                      | 0 => 1\n" ++
+    "                      | _ => 2\n" ++
+    "    return\n" ++
+    "      (match x with\n" ++
+    "       | 0 => 3\n" ++
+    "       | _ => 4) + v\n" ++
+    "  entry flag(x : UInt64) : UInt64 do\n" ++
+    "    let b : Bool := x > 0\n" ++
+    "    return\n" ++
+    "      match b with\n" ++
+    "      | true => 1\n" ++
+    "      | false => 2\n" ++
+    "      | _ => 0\n"
+  let validated ← loadSource session "expr-match-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-ref: validate: {repr e}"
+  let admitted ← admitOk "expr-match-ref" carrier
+  let some u64Tid := findAnonUint data.types 64 |
+    throw <| IO.userError "expr-match-ref: missing UInt64"
+  -- Join block params must exist on product path
+  let joinParams := data.callables.foldl (fun acc c =>
+      acc + c.blocks.foldl (fun a b => a + b.params.size) 0) 0
+  expect (joinParams ≥ 1)
+    s!"expr-match-ref: expected join block params, got {joinParams}"
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "expr-match-0"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[refU64 u64Tid 0]) emptyResponses)
+    pre (some (refU64 u64Tid 10)) #[]
+  expectReturned "expr-match-1"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[refU64 u64Tid 1]) emptyResponses)
+    pre (some (refU64 u64Tid 20)) #[]
+  expectReturned "expr-match-rest"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[refU64 u64Tid 5]) emptyResponses)
+    pre (some (refU64 u64Tid 5)) #[]
+  -- withLet: x=0 → (3)+1 = 4; x=9 → (4)+2 = 6
+  expectReturned "expr-match-let-0"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[refU64 u64Tid 0]) emptyResponses)
+    pre (some (refU64 u64Tid 4)) #[]
+  expectReturned "expr-match-let-9"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[refU64 u64Tid 9]) emptyResponses)
+    pre (some (refU64 u64Tid 6)) #[]
+  expectReturned "expr-match-bool-t"
+    (stepReferenceSliceV1 admitted pre (inv 2 #[refU64 u64Tid 1]) emptyResponses)
+    pre (some (refU64 u64Tid 1)) #[]
+  expectReturned "expr-match-bool-f"
+    (stepReferenceSliceV1 admitted pre (inv 2 #[refU64 u64Tid 0]) emptyResponses)
+    pre (some (refU64 u64Tid 2)) #[]
+
+/-- T6 product path: expression-match enum constructors execute through join. -/
+private unsafe def testExprMatchEnumNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "ExprMatchEnumRef" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n" ++
+    "  entry runRed() : UInt64 do\n" ++
+    "    let c : Color := Color.Red()\n" ++
+    "    return\n" ++
+    "      match c with\n" ++
+    "      | Color.Red() => 1\n" ++
+    "      | Color.Blue() => 2\n" ++
+    "      | _ => 0\n" ++
+    "  entry runBlue() : UInt64 do\n" ++
+    "    let c : Color := Color.Blue()\n" ++
+    "    return\n" ++
+    "      match c with\n" ++
+    "      | Color.Red() => 1\n" ++
+    "      | Color.Blue() => 2\n" ++
+    "      | _ => 0\n"
+  let validated ← loadSource session "expr-match-enum-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-enum-ref: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-enum-ref: validate: {repr e}"
+  let admitted ← admitOk "expr-match-enum-ref" carrier
+  let some u64Tid := findAnonUint data.types 64 |
+    throw <| IO.userError "expr-match-enum-ref: missing UInt64"
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  expectReturned "expr-match-enum-red"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 1)) #[]
+  expectReturned "expr-match-enum-blue"
+    (stepReferenceSliceV1 admitted pre (inv 1 #[]) emptyResponses)
+    pre (some (refU64 u64Tid 2)) #[]
+
+/-- T6: Principal type in Normalize carrier is admitted fail-closed (known gap). -/
+private unsafe def testPrincipalNormalizeAdmissionRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "PrinRef" <|
+    "  struct Bundle where\n" ++
+    "    who : Principal\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "prin-ref" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"prin-ref: normalize: {repr e}"
+  admitUnsupported "prin-ref" carrier
+    (fun d => d.contains "Principal" || d.contains "principal")
+    "Principal"
+
 /-- Focused BN254 scalar-field semantics, separate from fixed-width integers. -/
 private def testBn254FieldLowerRunner : IO Unit := do
   let fieldTid : TypeIdV1 := 2
@@ -3629,6 +4027,14 @@ unsafe def run : IO Unit := do
   testInvariantReferenceSlice
   testFixedWidthIntegerLowerRunner
   testBn254FieldLowerRunner
+  -- T6: Normalize product path → Reference execution (T1–T5 surface)
+  testMultiWidthNormalizeReference session
+  testIntNormalizeReference session
+  testStructNormalizeReference session
+  testEnumMatchNormalizeReference session
+  testExprMatchNormalizeReference session
+  testExprMatchEnumNormalizeReference session
+  testPrincipalNormalizeAdmissionRejected session
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1
