@@ -336,6 +336,49 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       match selected with
       | some ops => runOperations input deposit ops.toList machine
       | none => runOperations input deposit defaultOps.toList machine
+  | .forRegion varTemp initial counterTemp maxIterations
+        condOps condition bodyOps updateOps updateValue => do
+      -- Seed induction from the initial expression temp and zero the bound
+      -- counter. Bound is checked at the back edge after the body (reference
+      -- noteBackEdge): body runs first; trap if completed ≥ N; then increment.
+      -- A return/revert inside the body completes before the check. Latch
+      -- update is unchecked i+1 (body only runs while i < end ≤ UInt64.max).
+      let initVal ← readTemp machine initial
+      let machine ← writeTemp machine varTemp initVal
+      let machine ← writeTemp machine counterTemp 0
+      runForRegion input deposit machine varTemp counterTemp maxIterations
+        condOps condition bodyOps updateOps updateValue
+
+private partial def runForRegion (input : ByteArray) (deposit : Deposit)
+    (machine : Machine) (varTemp counterTemp maxIterations : Nat)
+    (condOps : Array Targets.Near.Operation) (condition : Nat)
+    (bodyOps : Array Targets.Near.Operation)
+    (updateOps : Array Targets.Near.Operation) (updateValue : Nat) :
+    Except String Machine := do
+  let machine ← runOperations input deposit condOps.toList machine
+  if machine.halted then pure machine
+  else
+    let condVal ← readTemp machine condition
+    if condVal == 0 then
+      pure machine
+    else
+      -- Body first (may return/revert/halt before the bound check).
+      let machine ← runOperations input deposit bodyOps.toList machine
+      if machine.halted then pure machine
+      else
+        let count ← readTemp machine counterTemp
+        -- Back-edge placement: after the (N+1)-th completed body, trap.
+        if count.toNat ≥ maxIterations then
+          modelError "loop bound exceeded"
+        else
+          let machine ← writeTemp machine counterTemp (count + 1)
+          let machine ← runOperations input deposit updateOps.toList machine
+          if machine.halted then pure machine
+          else
+            let updated ← readTemp machine updateValue
+            let machine ← writeTemp machine varTemp updated
+            runForRegion input deposit machine varTemp counterTemp maxIterations
+              condOps condition bodyOps updateOps updateValue
 
 private partial def runOperations (input : ByteArray) (deposit : Deposit) :
     List Targets.Near.Operation → Machine → Except String Machine
@@ -502,6 +545,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
     | .switchRegion .. => "switchRegion"
+    | .forRegion .. => "forRegion"
     | .callFn .. => "callFn"
     | .returnValue _ => "returnValue"
 
@@ -1512,6 +1556,131 @@ private unsafe def testArithOpsProductPath
   expect (files.map (·.contents) == files2.map (·.contents))
     "arith-ops: buildFromCapability must be byte-identical on rebuild"
 
+/-- Wave G: bounded for-loop product path. addUp sums i over [n, n+4);
+    scan is zero-trip; addUpTight (bounded 3 over 4 iters) traps at the
+    back edge after the 4th body (reference noteBackEdge placement).
+    Host: init(0)→addUp(1)=10; addUp(6)→40; scan leaves state; tight traps.
+    Return-inside-body success is not pinned: Normalize bodies that close
+    every path without a latch are fail-closed as degenerate one-shots.
+    WAT pins loop/br_if/i64.lt_u (or ge_u)/i64.add. -/
+private unsafe def testForLoopProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LoopSum where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-host-for-loop>" "Examples.LoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some addUp := plan.entries.find? (·.name == "addUp") |
+    throw <| IO.userError s!"for-loop: missing addUp entry, got {plan.entries.map (·.name)}"
+  let some scan := plan.entries.find? (·.name == "scan") |
+    throw <| IO.userError s!"for-loop: missing scan entry, got {plan.entries.map (·.name)}"
+  unless (plan.entries.find? (·.name == "addUpTight")).isSome do
+    throw <| IO.userError s!"for-loop: missing addUpTight entry, got {plan.entries.map (·.name)}"
+  -- Pin the addUp Plan shape: forLoop(var=0, init=n, cond=i<n+4, update=i+1, N=8,
+  -- body=store count+i) then return count.
+  expect (addUp.body == #[
+      .forLoop 0
+        (.param 0)
+        (.compare .lt (.localTemp 0) (.checkedAdd (.param 0) (.literal 4)))
+        (.checkedAdd (.localTemp 0) (.literal 1))
+        8
+        #[.store {
+          fieldIndex := 0
+          value := .checkedAdd (.stateLoad 0) (.localTemp 0)
+        }],
+      .returnValue (.stateLoad 0)])
+    "for-loop: addUp must lower to forLoop + return"
+  -- Zero-trip scan still lowers a forLoop (body may not run).
+  match scan.body[0]? with
+  | some (stmt : Targets.Near.Statement) =>
+      match stmt with
+      | .forLoop _ _ _ _ 2 _ => pure ()
+      | other =>
+          throw <| IO.userError s!"for-loop: scan must lower a forLoop bounded 2, got {repr other}"
+  | none => throw <| IO.userError "for-loop: scan body is empty"
+  expect (scan.body.size ≥ 1 && match scan.body.back? with
+    | some (.returnValue (_ : Targets.Near.Expr)) => true
+    | _ => false)
+    "for-loop: scan must end in a return"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "for-loop: IR rebuild must be structure-identical"
+  let addUpIR ← findMethod ir "addUp"
+  let scanIR ← findMethod ir "scan"
+  let tightIR ← findMethod ir "addUpTight"
+  let addUpKinds := operationKinds addUpIR.operations
+  expect (addUpKinds.contains "forRegion")
+    s!"for-loop: addUp IR must contain forRegion, got {addUpKinds}"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  -- init(0) → addUp(1) = 0+1+2+3+4 = 10
+  let (storage0, _, _) ← requireSuccess "for-loop init"
+    (execute initializer empty (encodeUInt64LE 0) zero)
+  expect (storedUInt64? storage0 field.key == some 0)
+    "for-loop init must store seed 0"
+  let (storage1, ret1, _) ← requireSuccess "for-loop addUp(1)"
+    (execute addUpIR storage0 (encodeUInt64LE 1) zero)
+  expect (ret1 == some 10 && storedUInt64? storage1 field.key == some 10)
+    s!"for-loop: init(0)+addUp(1) must yield 10, got ret={ret1} state={storedUInt64? storage1 field.key}"
+  -- addUp(6) from 10 → 10+6+7+8+9 = 40
+  let (storage2, ret2, _) ← requireSuccess "for-loop addUp(6)"
+    (execute addUpIR storage1 (encodeUInt64LE 6) zero)
+  expect (ret2 == some 40 && storedUInt64? storage2 field.key == some 40)
+    s!"for-loop: addUp(6) from 10 must yield 40, got ret={ret2} state={storedUInt64? storage2 field.key}"
+  -- scan(7) is zero-trip: state unchanged.
+  let (storage3, ret3, _) ← requireSuccess "for-loop scan(7)"
+    (execute scanIR storage2 (encodeUInt64LE 7) zero)
+  expect (ret3 == some 40 && storedUInt64? storage3 field.key == some 40)
+    s!"for-loop: scan(7) must leave state 40, got ret={ret3} state={storedUInt64? storage3 field.key}"
+  -- addUpTight: range of 4 with bound 3 — 4th body runs then back-edge traps
+  -- (completed count 0..2 pass; after body 4, count==3 ≥ 3). Rollback.
+  match execute tightIR storage3 (encodeUInt64LE 1) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 40)
+        "for-loop: bound trap must roll back storage"
+      expect (reason.contains "loop bound exceeded")
+        s!"for-loop: expected loop bound exceeded trap, got {reason}"
+  | .success .. => throw <| IO.userError "for-loop: addUpTight must trap on bound"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "for-loop: missing .wat artifact"
+  expectContains wat.contents "loop" "for-loop WAT loop"
+  expectContains wat.contents "br_if" "for-loop WAT br_if"
+  expect (wat.contents.contains "i64.lt_u" || wat.contents.contains "i64.ge_u")
+    "for-loop WAT must contain i64.lt_u or i64.ge_u"
+  expectContains wat.contents "i64.add" "for-loop WAT i64.add"
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "for-loop: buildFromCapability must be byte-identical on rebuild"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1524,6 +1693,7 @@ unsafe def run : IO Unit := do
   testFnLocalCallProductPath session
   testEmitRevertProductPath session
   testArithOpsProductPath session
+  testForLoopProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

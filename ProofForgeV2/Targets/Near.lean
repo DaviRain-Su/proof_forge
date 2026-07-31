@@ -121,6 +121,9 @@ inductive Expr where
   | boolNot (operand : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
+  /-- Mutable plan-local (loop induction). Index is method-local and unique per
+      forLoop; IR lowering maps it to a stable Wasm temp rewritten each latch. -/
+  | localTemp (index : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -138,6 +141,15 @@ inductive Statement where
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  /-- Bounded for-loop recovered from a Semantic header/latch CFG. `varTemp` is
+      the induction local; `condition`/`update`/`body` may mention `.localTemp
+      varTemp`. `maxIterations` is the static Normalize bound enforced at the
+      back edge after each completed body (bodies 1..N pass; the (N+1)-th body
+      runs then traps; a `return` inside any body exits before the check). The
+      latch update is unchecked `i+1` at WAT level because the body only runs
+      while `i < end ≤ UInt64.max`. -/
+  | forLoop (varTemp : Nat) (initial : Expr) (condition : Expr) (update : Expr)
+      (maxIterations : Nat) (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
@@ -239,6 +251,17 @@ inductive Operation where
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
+  /-- Structured bounded loop. Host/WAT re-run `condOps` each iteration;
+      `varTemp` is seeded from `initial` then rewritten from `updateValue`
+      after each body. `counterTemp` counts completed bodies; the static bound
+      is checked at the back edge after the body (reference `noteBackEdge`
+      placement): body runs first, then trap if `counterTemp ≥ maxIterations`,
+      then increment + update. A body `return`/`revert` exits before the check. -/
+  | forRegion (varTemp : Nat) (initial : Nat) (counterTemp : Nat)
+      (maxIterations : Nat)
+      (condOps : Array Operation) (condition : Nat)
+      (bodyOps : Array Operation)
+      (updateOps : Array Operation) (updateValue : Nat)
   | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
   | returnValue (value : Nat)
   | checkedMul (destination lhs rhs : Nat)
@@ -542,26 +565,30 @@ private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   | .ge => some .ge
   | _ => none
 
+/-- `stableCount` is the prefix of the value table that remains readable across
+    effect segments: callable params, all loop-header block params, and any
+    pre-header values frozen when a loop is entered. -/
 private def currentValueV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (stableCount segmentStart : Nat)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= paramCount && index < segmentStart then
+  if index >= stableCount && index < segmentStart then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
 /-- Match-bind arm readability: the scrutinee of an enclosing switch may be
     referenced by its arm bodies across the (dominating) scrut-block boundary.
-    All other cross-block reads still fail at the effect boundary. -/
+    Loop-stable values (`index < stableCount`) and arm readables are free;
+    all other cross-segment reads still fail at the effect boundary. -/
 private def currentValueWithArmsV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (stableCount segmentStart : Nat)
     (armReadables : Array ValueIdV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= paramCount && index < segmentStart && !armReadables.contains id then
+  if index >= stableCount && index < segmentStart && !armReadables.contains id then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
@@ -654,13 +681,13 @@ private def makeCompareValueV1
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (stableCount segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let rootValue ← currentValueV1 values stableCount segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
-  if root.toNat >= paramCount then
+  if root.toNat >= stableCount then
     stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -676,7 +703,7 @@ private def consumeCurrentSegmentV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
+        if dependencyIndex >= stableCount then
           unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: expression crosses an effect boundary"
@@ -691,15 +718,15 @@ private def consumeCurrentSegmentV1
     least one sink root, mirroring the single-root discipline. -/
 private def consumeSegmentRootsV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (stableCount segmentStart : Nat)
     (roots : Array ValueIdV1) : CompileResult Unit := do
   for root in roots do
-    let _ ← currentValueV1 values paramCount segmentStart root
+    let _ ← currentValueV1 values stableCount segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
   for root in roots do
-    if root.toNat >= paramCount then
+    if root.toNat >= stableCount then
       stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -715,7 +742,7 @@ private def consumeSegmentRootsV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
+        if dependencyIndex >= stableCount then
           unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: expression crosses an effect boundary"
@@ -794,20 +821,33 @@ private def makeCallFnValueV1
 
 /-- Lower one block's instruction sequence (terminator handled by the region
     walker). Each block starts a fresh effect segment; values from dominating
-    blocks stay referenceable only via params or match-arm scrutinees. -/
+    blocks stay referenceable via the stable prefix, match-arm scrutinees, or
+    pre-materialized loop-header block params. -/
 private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : NearTypeClosureV1)
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
-    (paramCount : Nat)
+    (stableCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
-  unless block.params.isEmpty do
-    throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: block parameters are not supported"
+  -- Block params are admitted only as pre-materialized loop induction slots
+  -- (filled by the region walker before entering a header). Empty is the
+  -- non-loop case; non-empty without a prior materialization fails closed.
+  for p in block.params do
+    let some slot := values0[p.valueId.toNat]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: block parameter ValueId is out of range"
+    match slot.expr with
+    | .localTemp _ =>
+        unless slot.kind == .uint64 && p.typeId == types.uint64TypeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop induction must be public UInt64"
+    | _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: block parameters are not supported outside loop headers"
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .near
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
@@ -857,8 +897,8 @@ private def lowerBlockInstructionsV1
           dependencies := #[]
         }
     | .binary op lhsId rhsId, some result =>
-        let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
-        let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
+        let lhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables rhsId
         if op == .add then
           let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
@@ -891,7 +931,7 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
     | .unary op operandId, some result =>
-        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        let operand ← currentValueWithArmsV1 values stableCount segmentStart armReadables operandId
         match op with
         | .bitNot =>
             let value ← makeBitNotValueV1 operandId operand
@@ -937,7 +977,7 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureCall result type does not match the callee"
         let mut argValues : Array LoweredValueV1 := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
           unless root.kind == .uint64 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pureCall arguments must be UInt64"
@@ -954,22 +994,22 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureFn cannot store state"
         let field ← findFieldV1 layout stateId
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
         unless root.kind == .uint64 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: state store value must be UInt64"
-        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
         body := body.push (.store { fieldIndex := field.sourceId, value })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert must use errorId=none and empty args"
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables condId
         unless root.kind == .bool do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: assert condition must be Bool"
-        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        let condition ← consumeCurrentSegmentV1 values stableCount segmentStart condId
         body := body.push (.assert condition)
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
@@ -981,14 +1021,14 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureFn cannot emit events"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
           unless root.kind == .uint64 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: event arguments must be UInt64"
           argExprs := argExprs.push root.expr
         -- Multi-root effect boundary: every value produced in the current
         -- segment must be reachable from at least one argument tree.
-        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
     | _, _ =>
@@ -1005,10 +1045,75 @@ private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
   else
     decodeUInt64LiteralV1 bytes
 
-/-- Structured emission of the forward-only multi-block CFG. Diamonds
-    (branch/switch) are recovered by following each arm to its exit jump or
-    return; convergent joins continue the region. The fuel bounds recursion
-    to the block count. Returns (statements, values, nextJoin). -/
+/-- Region continuation after emitting a block sequence. -/
+private inductive RegionContV1 where
+  | closed
+  | join (blockId : Nat)
+  | latch (args : Array ValueIdV1)
+  deriving Inhabited
+
+private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
+    Option LoopBoundV1 :=
+  loopBounds.find? (fun lb => lb.header.toNat == headerId)
+
+private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bool :=
+  (findLoopBoundV1 loopBounds blockId).isSome
+
+/-- Validate the Normalize loop envelope: each loopBounds header carries
+    exactly one UInt64 block param; every param'd block is a recorded header;
+    each latch is a jump back to its header with one arg; degenerate param'd
+    blocks without a loopBounds row fail closed. -/
+private def validateCallableLoopsV1
+    (types : NearTypeClosureV1) (callable : CallableV1) : CompileResult Nat := do
+  let mut blockParamCount : Nat := 0
+  for block in callable.blocks do
+    if block.params.isEmpty then
+      pure ()
+    else
+      unless block.params.size == 1 do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop header must carry exactly one block param"
+      let some p := block.params[0]? |
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop header must carry exactly one block param"
+      unless p.typeId == types.uint64TypeId do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop induction must be public UInt64"
+      unless p.valueId.toNat == callable.params.size + blockParamCount do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: block parameter ValueIds are not canonical"
+      unless isLoopHeaderV1 callable.loopBounds block.id.toNat do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: block parameters require a loopBounds header entry"
+      blockParamCount := blockParamCount + 1
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loopBounds header is out of range"
+    unless header.params.size == 1 do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loopBounds header must have one block param"
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loopBounds backEdgeFrom is out of range"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop latch must jump to its header with one arg"
+    | _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop latch terminator must be a jump"
+    unless lb.maxIterations.toNat ≤ 4096 do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loop maxIterations exceeds the wire ceiling"
+  pure blockParamCount
+
+/-- Structured emission of multi-block CFGs: forward diamonds (branch/switch)
+    and Normalize loop headers (loopBounds + single induction param). Fuel
+    bounds recursion to the block count. `enclosingHeader` is set while walking
+    a loop body so a jump back to that header ends the body as a latch.
+    Returns (statements, values, nextLocal, continuation). -/
 private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
@@ -1017,12 +1122,15 @@ private partial def emitRegionV1
     (layout : StorageLayout)
     (fnEnv : NearFnEnvV1)
     (blocks : Array BlockV1)
-    (paramCount : Nat)
+    (loopBounds : Array LoopBoundV1)
+    (stableCount : Nat)
+    (nextLocal0 : Nat)
+    (enclosingHeader : Option Nat)
     (armReadables : Array ValueIdV1)
     (fuel : Nat)
     (start : Nat)
     (values0 : Array LoweredValueV1) :
-    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat) := do
+    CompileResult (Array Statement × Array LoweredValueV1 × Nat × RegionContV1) := do
   if fuel == 0 then
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: CFG region exceeds block bound"
@@ -1033,8 +1141,22 @@ private partial def emitRegionV1
   unless block.id.toNat == start do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: block ids are not dense"
+  -- Starting emission at a loop header is only valid when the induction slot
+  -- was already materialised (nested entry is via the jump-to-header path).
+  if isLoopHeaderV1 loopBounds start then
+    let some p := block.params[0]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loop header missing induction param"
+    let some slot := values0[p.valueId.toNat]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: loop header must be entered via its pre-header jump"
+    match slot.expr with
+    | .localTemp _ => pure ()
+    | _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop header must be entered via its pre-header jump"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types layout fnEnv paramCount armReadables block values0
+    owner mode types layout fnEnv stableCount armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
@@ -1049,7 +1171,7 @@ private partial def emitRegionV1
             | none =>
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: entry/view/pureFn is missing expected return kind"
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
           unless root.kind == expectedKind do
             let expectedLabel :=
               match expectedKind with
@@ -1057,8 +1179,8 @@ private partial def emitRegionV1
               | .bool => "Bool"
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: return value must be {expectedLabel}"
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-          pure (instrs.push (.returnValue value), values, none)
+          let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
+          pure (instrs.push (.returnValue value), values, nextLocal0, .closed)
   | .return_ none =>
       unless expectedReturn.isNone do
         throw <| .planInvariant .near
@@ -1069,54 +1191,188 @@ private partial def emitRegionV1
       -- Explicit marker: an early bare `return` inside a branch arm is
       -- otherwise indistinguishable from a fallthrough arm once the join
       -- continuation is emitted after the region.
-      pure (instrs.push .returnNone, values, none)
+      pure (instrs.push .returnNone, values, nextLocal0, .closed)
   | .jump target =>
-      unless segmentStart == values.size do
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: block has unconsumed values"
-      pure (instrs, values, some target.blockId.toNat)
+      let targetId := target.blockId.toNat
+      -- Latch: jump back to the loop currently being lowered as a body.
+      if enclosingHeader == some targetId then
+        unless target.args.size == 1 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop latch must carry exactly one induction arg"
+        -- Latch args may reference the just-produced increment; do not require
+        -- the segment to be empty — the update expr is recovered from args.
+        let _ ← currentValueWithArmsV1 values stableCount segmentStart armReadables target.args[0]!
+        pure (instrs, values, nextLocal0, .latch target.args)
+      else if isLoopHeaderV1 loopBounds targetId then
+        -- Enter a (possibly nested) bounded for-loop.
+        let some lb := findLoopBoundV1 loopBounds targetId |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: missing loopBounds for loop header"
+        unless target.args.size == 1 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop pre-header must jump with one start arg"
+        let initRoot ←
+          currentValueWithArmsV1 values stableCount segmentStart armReadables target.args[0]!
+        unless initRoot.kind == .uint64 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop start value must be UInt64"
+        let initial := initRoot.expr
+        -- Freeze every value produced so far (params, block-param slots,
+        -- pre-header lets/arithmetic) as loop-stable for the header/body.
+        let loopStable := values.size
+        let some header := blocks[targetId]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop header block is missing"
+        unless header.params.size == 1 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop header must carry exactly one block param"
+        let some inductionParam := header.params[0]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop header must carry exactly one block param"
+        let inductionVid := inductionParam.valueId
+        unless inductionVid.toNat < values.size do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: induction ValueId slot was not pre-allocated"
+        let varTemp := nextLocal0
+        let nextLocal1 := nextLocal0 + 1
+        let inductionSlot : LoweredValueV1 := {
+          expr := .localTemp varTemp
+          kind := .uint64
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+        let mut valuesH := values.set! inductionVid.toNat inductionSlot
+        let loweredH ← lowerBlockInstructionsV1
+          owner mode types layout fnEnv loopStable armReadables header valuesH
+        valuesH := loweredH.values
+        let headerSeg := loweredH.segmentStart
+        unless loweredH.statements.isEmpty do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop header may not contain effect instructions"
+        let loopResult ← match header.terminator with
+          | .branch condId thenT elseT => do
+              let condRoot ←
+                currentValueWithArmsV1 valuesH loopStable headerSeg armReadables condId
+              unless condRoot.kind == .bool do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: loop condition must be Bool"
+              let cond ← consumeCurrentSegmentV1 valuesH loopStable headerSeg condId
+              unless thenT.args.isEmpty && elseT.args.isEmpty do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: loop branch targets must carry empty args"
+              -- Body region ends at the latch (jump back to this header).
+              let (bodyStmts, valuesB, nextLocal2, bodyCont) ←
+                emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                  loopStable nextLocal1 (some targetId) armReadables (fuel - 1)
+                  thenT.blockId.toNat valuesH
+              let updateArgs ← match bodyCont with
+                | .latch args => pure args
+                | .closed =>
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: loop body closed without a latch (degenerate one-shot loops are out of pilot)"
+                | .join _ =>
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: loop body must end at its latch jump"
+              unless updateArgs.size == 1 do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: loop latch must carry exactly one update arg"
+              -- Re-derive the update expr from the already-lowered value table
+              -- (latch increment is left in valuesB by the body walk).
+              let updateRoot ← findValueV1 valuesB updateArgs[0]!
+              unless updateRoot.kind == .uint64 do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: loop update must be UInt64"
+              let update := updateRoot.expr
+              let forStmt : Statement :=
+                .forLoop varTemp initial cond update lb.maxIterations.toNat bodyStmts
+              -- Continue the enclosing walk at the exit (else target).
+              let (rest, valuesE, nextLocal3, exitCont) ←
+                emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                  loopStable nextLocal2 enclosingHeader armReadables (fuel - 1)
+                  elseT.blockId.toNat valuesB
+              pure (instrs ++ #[forStmt] ++ rest, valuesE, nextLocal3, exitCont)
+          | _ =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: loop header terminator must be a branch"
+        pure loopResult
+      else
+        -- Forward join: no phi / block args in the non-loop pilot.
+        unless target.args.isEmpty do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: non-loop jump targets must carry empty args"
+        unless segmentStart == values.size do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: block has unconsumed values"
+        pure (instrs, values, nextLocal0, .join targetId)
   | .branch condId thenT elseT =>
-      let condRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      let condRoot ← currentValueWithArmsV1 values stableCount segmentStart armReadables condId
       unless condRoot.kind == .bool do
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
-      let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-          armReadables (fuel - 1) thenT.blockId.toNat values
-      match thenNext with
+      let cond ← consumeCurrentSegmentV1 values stableCount segmentStart condId
+      let (thenBody, values1, nextLocal1, thenNext) ←
+        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+          stableCount nextLocal0 enclosingHeader armReadables (fuel - 1)
+          thenT.blockId.toNat values
+      -- A latch may only arise on the then-arm of a loop header (handled
+      -- above); diamond arms must not latch.
+      let thenJoin ← match thenNext with
+        | .latch _ =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: loop latch outside loop-body walk"
+        | .closed => pure (none : Option Nat)
+        | .join j => pure (some j)
+      match thenJoin with
       | some j =>
           if elseT.blockId.toNat == j then
-            let (rest, values2, next) ←
-              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-                armReadables (fuel - 1) j values1
-            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
+            let (rest, values2, nextLocal2, next) ←
+              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                stableCount nextLocal1 enclosingHeader armReadables (fuel - 1) j values1
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, nextLocal2, next)
           else
-            let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-                armReadables (fuel - 1) elseT.blockId.toNat values1
-            match elseNext with
+            let (elseBody, values2, nextLocal2, elseNext) ←
+              emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                stableCount nextLocal1 enclosingHeader armReadables (fuel - 1)
+                elseT.blockId.toNat values1
+            let elseJoin ← match elseNext with
+              | .latch _ =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: loop latch outside loop-body walk"
+              | .closed => pure (none : Option Nat)
+              | .join j2 => pure (some j2)
+            match elseJoin with
             | some j2 =>
                 unless j == j2 do
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: branch arms converge on divergent joins"
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-                    armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+                let (rest, values3, nextLocal3, next) ←
+                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                    stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
+                  values3, nextLocal3, next)
             | none =>
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-                    armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+                let (rest, values3, nextLocal3, next) ←
+                  emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+                    stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest,
+                  values3, nextLocal3, next)
       | none =>
-          let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-              armReadables (fuel - 1) elseT.blockId.toNat values1
-          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
+          let (elseBody, values2, nextLocal2, elseNext) ←
+            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+              stableCount nextLocal1 enclosingHeader armReadables (fuel - 1)
+              elseT.blockId.toNat values1
+          match elseNext with
+          | .latch _ =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: loop latch outside loop-body walk"
+          | .closed =>
+              pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, nextLocal2, .closed)
+          | .join j =>
+              pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, nextLocal2, .join j)
   | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
+      let scrutVal ← currentValueWithArmsV1 values stableCount segmentStart armReadables scrutId
+      let scrut ← consumeCurrentSegmentV1 values stableCount segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .near
           "unsupported NEAR semantic shape: switch must carry a default target")
@@ -1124,50 +1380,59 @@ private partial def emitRegionV1
       let mut caseBodies : Array (UInt64 × Array Statement) := #[]
       let mut joinAcc : Option Nat := none
       let mut valuesA := values
+      let mut nextLocalA := nextLocal0
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
-        let (body, values1, armNext) ←
-          emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-            (armReadables.push scrutId) (fuel - 1)
+        let (body, values1, nextLocal1, armNext) ←
+          emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+            stableCount nextLocalA enclosingHeader (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
         valuesA := values1
+        nextLocalA := nextLocal1
         match armNext, joinAcc with
-        | none, _ => pure ()
-        | some j, none => joinAcc := some j
-        | some j, some j0 =>
+        | .closed, _ => pure ()
+        | .latch _, _ =>
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: loop latch outside loop-body walk"
+        | .join j, none => joinAcc := some j
+        | .join j, some j0 =>
             unless j == j0 do
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-          (armReadables.push scrutId) (fuel - 1)
+      let (defaultBody, values2, nextLocal2, defaultNext) ←
+        emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+          stableCount nextLocalA enclosingHeader (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultNext, joinAcc with
-      | none, _ => pure ()
-      | some j, none => joinAcc := some j
-      | some j, some j0 =>
+      | .closed, _ => pure ()
+      | .latch _, _ =>
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: loop latch outside loop-body walk"
+      | .join j, none => joinAcc := some j
+      | .join j, some j0 =>
           unless j == j0 do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: switch arms converge on divergent joins"
       match joinAcc with
       | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, nextLocal2, .closed)
       | some j =>
-          let (rest, values3, next) ←
-            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks paramCount
-              armReadables (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
+          let (rest, values3, nextLocal3, next) ←
+            emitRegionV1 owner mode expectedReturn types layout fnEnv blocks loopBounds
+              stableCount nextLocal2 enclosingHeader armReadables (fuel - 1) j values2
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
+            values3, nextLocal3, next)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
         unless root.kind == .uint64 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+      let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, nextLocal0, .closed)
   | .trap _ =>
       throw <| .planInvariant .near
         "unsupported NEAR semantic shape: trap terminators are outside the current pilot"
@@ -1181,38 +1446,53 @@ private def lowerCallableV1
     (fnEnv : NearFnEnvV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      callable.invariantSteps.isNone do
     throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: callable must have an acyclic entry block"
-  unless callable.blocks.all (fun b => b.params.isEmpty) do
-    throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: block parameters are not supported"
+      "unsupported NEAR semantic shape: callable must start at dense entry block 0"
+  let blockParamCount ← validateCallableLoopsV1 types callable
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
-  let paramCount := params.size
-  let (body0, values0, nextJoin0) ←
-    emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks paramCount #[]
-      callable.blocks.size 0 initialValues
+  -- Pre-allocate dense ValueId slots for every loop induction (canonical
+  -- order: callable params < all block params < instruction results).
+  let mut valuesInit := initialValues
+  for _ in [0:blockParamCount] do
+    valuesInit := valuesInit.push {
+      expr := .literal 0
+      kind := .uint64
+      depth := 1
+      expandedNodes := 1
+      dependencies := #[]
+    }
+  let stableCount0 := valuesInit.size
+  let (body0, values0, _nextLocal0, cont0) ←
+    emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks
+      callable.loopBounds stableCount0 0 none #[] callable.blocks.size 0 valuesInit
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
   -- in the forward-only CFG, so this terminates within blocks.size folds.
   let mut body := body0
   let mut values := values0
-  let mut nextJoin := nextJoin0
+  let mut nextLocal := _nextLocal0
+  let mut cont := cont0
   for _ in [0:callable.blocks.size] do
-    match nextJoin with
-    | none => break
-    | some j =>
-        let (rest, values1, next1) ←
+    match cont with
+    | .closed => break
+    | .latch _ =>
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: loop latch escaped its body walk"
+    | .join j =>
+        let (rest, values1, nextLocal1, next1) ←
           emitRegionV1 owner mode expectedReturn types layout fnEnv callable.blocks
-            paramCount #[] callable.blocks.size j values
+            callable.loopBounds stableCount0 nextLocal none #[]
+            callable.blocks.size j values
         body := body ++ rest
         values := values1
-        nextJoin := next1
-  match nextJoin with
-  | some _ =>
+        nextLocal := nextLocal1
+        cont := next1
+  match cont with
+  | .closed => pure ()
+  | _ =>
       throw <| .planInvariant .near
         "unsupported NEAR semantic shape: callable does not end in return on all paths"
-  | none => pure ()
   if body.size > maxBodyStatements then
     throw <| .planInvariant .near s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
@@ -1350,6 +1630,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .literal .. => some 1
     | .param inputOffset => if params.any (·.inputOffset == inputOffset) then some 1 else none
     | .stateLoad fieldIndex => if fieldIndex < layout.fields.size then some 1 else none
+    | .localTemp _ => some 1
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
@@ -1548,6 +1829,22 @@ private partial def checkMethodStatementsV1
         total := td
         methodTemps := md
         closed := allClosed && cd
+    | .forLoop _varTemp initial condition update _maxIterations body =>
+        total ← addPlanExprNodes limits layout params fns total initial
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps initial
+        total ← addPlanExprNodes limits layout params fns total condition
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
+        total ← addPlanExprNodes limits layout params fns total update
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps update
+        total := total + 1
+        let (tb, mb, _cb) ← checkMethodStatementsV1
+          limits layout isInitializer isView isPureFn false
+          eventCount eventFieldCounts errorCount errorFieldCounts
+          params fns body total methodTemps
+        total := tb
+        methodTemps := mb
+        -- A for-loop itself does not close the enclosing method.
+        closed := false
   pure (total, methodTemps, closed)
 
 private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
@@ -1818,9 +2115,10 @@ private def fieldRegion (keys : Array KeyRegion) (fieldIndex : Nat) : KeyRegion 
   keys[fieldIndex + 1]!
 
 /-- `paramAsTemp`: pureFn bodies bind params to temps `0..n-1` (Wasm params),
-    so `.param` is a direct temp reference rather than a host input load. -/
+    so `.param` is a direct temp reference rather than a host input load.
+    `localEnv` maps plan `.localTemp` indices to IR temps (loop induction). -/
 private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
-    (paramAsTemp : Bool) : Expr → LoweredExpr
+    (paramAsTemp : Bool) (localEnv : Array (Nat × Nat)) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
   | .param inputOffset =>
@@ -1828,6 +2126,14 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         { operations := #[], value := inputOffset / 8, next := next }
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
+  | .localTemp index =>
+      match localEnv.find? (fun p => p.1 == index) with
+      | some (_, irTemp) =>
+          { operations := #[], value := irTemp, next := next }
+      | none =>
+          -- Unresolved local: allocate a sink temp so validation still binds;
+          -- well-formed plans always resolve induction locals via forLoop.
+          { operations := #[.literal next 0], value := next, next := next + 1 }
   | .stateLoad fieldIndex =>
       {
         operations := #[.loadState next (fieldRegion keys fieldIndex)]
@@ -1835,8 +2141,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := next + 1
       }
   | .checkedAdd lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
@@ -1844,8 +2150,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := rhs.next + 1
       }
   | .checkedSub lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value]
@@ -1853,8 +2159,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := rhs.next + 1
       }
   | .checkedMul lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMul rhs.next lhs.value rhs.value]
@@ -1862,8 +2168,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := rhs.next + 1
       }
   | .checkedDiv lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedDiv rhs.next lhs.value rhs.value]
@@ -1871,8 +2177,8 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := rhs.next + 1
       }
   | .checkedMod lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMod rhs.next lhs.value rhs.value]
@@ -1880,22 +2186,22 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := rhs.next + 1
       }
   | .bitNot operand =>
-      let operand := lowerExpr keys next paramAsTemp operand
+      let operand := lowerExpr keys next paramAsTemp localEnv operand
       {
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
       }
   | .boolNot operand =>
-      let operand := lowerExpr keys next paramAsTemp operand
+      let operand := lowerExpr keys next paramAsTemp localEnv operand
       {
         operations := operand.operations ++ #[.boolNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
       }
   | .compare op lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
@@ -1907,7 +2213,7 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       let mut next := next
       let mut argTemps : Array Nat := #[]
       for arg in args do
-        let lowered := lowerExpr keys next paramAsTemp arg
+        let lowered := lowerExpr keys next paramAsTemp localEnv arg
         operations := operations ++ lowered.operations
         argTemps := argTemps.push lowered.value
         next := lowered.next
@@ -1934,7 +2240,7 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. => false
+      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -1954,19 +2260,20 @@ private def armOpsWithHardReturn (arm : Array Statement)
 
 private partial def lowerBodyOps
     (keys : Array KeyRegion) (next : Nat) (statements : Array Statement)
-    (fnMode : Bool) :
+    (fnMode : Bool) (localEnv : Array (Nat × Nat)) :
     Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
+  let mut localEnv := localEnv
   for statement in statements do
     match statement with
     | .store store =>
-        let value := lowerExpr keys next fnMode store.value
+        let value := lowerExpr keys next fnMode localEnv store.value
         operations := operations ++ value.operations
         operations := operations.push (.storeState (fieldRegion keys store.fieldIndex) value.value)
         next := value.next
     | .returnValue value =>
-        let value := lowerExpr keys next fnMode value
+        let value := lowerExpr keys next fnMode localEnv value
         operations := operations ++ value.operations
         if fnMode then
           operations := operations.push (.returnValue value.value)
@@ -1980,7 +2287,7 @@ private partial def lowerBodyOps
     | .emitEvent eventIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next fnMode arg
+          let value := lowerExpr keys next fnMode localEnv arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
@@ -1988,38 +2295,61 @@ private partial def lowerBodyOps
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next fnMode arg
+          let value := lowerExpr keys next fnMode localEnv arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
     | .assert condition =>
-        let value := lowerExpr keys next fnMode condition
+        let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value)
         next := value.next
     | .ifThenElse condition thenBody elseBody =>
-        let value := lowerExpr keys next fnMode condition
+        let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode
-        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode
+        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv
+        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv
         operations := operations.push (.ifRegion value.value
           (armOpsWithHardReturn thenBody thenOps fnMode)
           (armOpsWithHardReturn elseBody elseOps fnMode))
         next := next2
     | .switchOn scrutinee cases defaultBody =>
-        let value := lowerExpr keys next fnMode scrutinee
+        let value := lowerExpr keys next fnMode localEnv scrutinee
         operations := operations ++ value.operations
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode
+          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode localEnv
           caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops fnMode)
           nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode
+        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode localEnv
         operations := operations.push (.switchRegion value.value caseOps
           (armOpsWithHardReturn defaultBody defaultOps fnMode))
         next := nextD
+    | .forLoop varTemp initial condition update maxIterations body =>
+        let initL := lowerExpr keys next fnMode localEnv initial
+        operations := operations ++ initL.operations
+        let irVar := initL.next
+        let counterTemp := initL.next + 1
+        next := initL.next + 2
+        -- Seed the induction temp from the initial expression.
+        -- forRegion copies initial → varTemp at entry and zeroes counterTemp.
+        let localEnv' := localEnv.push (varTemp, irVar)
+        let condL := lowerExpr keys next fnMode localEnv' condition
+        let condOps := condL.operations
+        let condTemp := condL.value
+        next := condL.next
+        let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv'
+        next := nextB
+        let updateL := lowerExpr keys next fnMode localEnv' update
+        let updateOps := updateL.operations
+        let updateTemp := updateL.value
+        next := updateL.next
+        operations := operations.push
+          (.forRegion irVar initL.value counterTemp maxIterations
+            condOps condTemp bodyOps updateOps updateTemp)
+        localEnv := localEnv'
   pure (operations, next)
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
@@ -2040,7 +2370,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps, next) := lowerBodyOps keys 0 body false
+  let (bodyOps, next) := lowerBodyOps keys 0 body false #[]
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -2055,7 +2385,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
 private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
   let paramCount := fn.params.size
   -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.
-  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true
+  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true #[]
   {
     name := fn.name
     paramCount
@@ -2081,6 +2411,9 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .switchRegion _ cases defaultOps =>
       defaultOps.any opIsMethodOnlyV1 ||
         cases.any fun (_, ops) => ops.any opIsMethodOnlyV1
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opIsMethodOnlyV1 || bodyOps.any opIsMethodOnlyV1 ||
+        updateOps.any opIsMethodOnlyV1
   | _ => false
 
 private partial def opIsFnReturnValueV1 : Operation → Bool
@@ -2090,6 +2423,9 @@ private partial def opIsFnReturnValueV1 : Operation → Bool
   | .switchRegion _ cases defaultOps =>
       defaultOps.any opIsFnReturnValueV1 ||
         cases.any fun (_, ops) => ops.any opIsFnReturnValueV1
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opIsFnReturnValueV1 || bodyOps.any opIsFnReturnValueV1 ||
+        updateOps.any opIsFnReturnValueV1
   | _ => false
 
 /-- Validate the typed host-call recipe and bind it exactly to its source Plan. -/
@@ -2335,6 +2671,35 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}  )\n" ++
         (if elseOps.isEmpty then "" else
           s!"{indent}  (else\n" ++ elseText ++ s!"{indent}  )\n") ++
+        s!"{indent})\n"
+  | .forRegion varTemp initial counterTemp maxIterations
+        condOps condition bodyOps updateOps updateValue =>
+      -- Canonical Wasm loop. Labels are deterministic from the induction temp
+      -- index. Bound check sits at the back edge after the body (reference
+      -- noteBackEdge): bodies 1..N pass; the (N+1)-th body runs then traps.
+      -- A body return exits before the check. The latch `i := i+1` is
+      -- unguarded: Normalize only runs the body while `i < end ≤ UInt64.max`.
+      let inner := indent ++ "  "
+      let deeper := indent ++ "    "
+      let condText := condOps.foldl (fun output operation =>
+        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+      let bodyText := bodyOps.foldl (fun output operation =>
+        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+      let updateText := updateOps.foldl (fun output operation =>
+        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+      s!"{indent}(local.set $t{varTemp} (local.get $t{initial}))\n" ++
+        s!"{indent}(local.set $t{counterTemp} (i64.const 0))\n" ++
+        s!"{indent}(block $pf_exit{varTemp}\n" ++
+        s!"{inner}(loop $pf_loop{varTemp}\n" ++
+        condText ++
+        s!"{deeper}(br_if $pf_exit{varTemp} (i64.eqz (local.get $t{condition})))\n" ++
+        bodyText ++
+        s!"{deeper}(if (i64.ge_u (local.get $t{counterTemp}) (i64.const {maxIterations})) (then unreachable))\n" ++
+        s!"{deeper}(local.set $t{counterTemp} (i64.add (local.get $t{counterTemp}) (i64.const 1)))\n" ++
+        updateText ++
+        s!"{deeper}(local.set $t{varTemp} (local.get $t{updateValue}))\n" ++
+        s!"{deeper}(br $pf_loop{varTemp})\n" ++
+        s!"{inner})\n" ++
         s!"{indent})\n"
   | .switchRegion scrutinee cases defaultOps =>
       -- Right-nested if/else chain: first matching case wins, else default.
