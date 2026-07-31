@@ -488,8 +488,8 @@ s7b-finalize-authority-deletion-gate:
 # Fast path: Python no-tool self-test of shared exact_physical_closure.
 # Darwin product path: Solana + Noir Counter publish + unified validate_artifacts
 # membership (no EVM solc required). Linux retains static/Lean/Python closure
-# checks while the B12 product supervisor intentionally fails closed there.
-# Retains S5–S7b gates; not formal OutputSetV1 / hermetic publisher.
+# checks; both hosts run the in-process Loader product CLI. Retains S5–S7b
+# gates; not formal OutputSetV1 / hermetic publisher.
 s7c-disk-closure-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -585,7 +585,7 @@ s7c-disk-closure-gate:
         -o build/v2/s7c-gate-noir
       /usr/bin/python3 -I -S scripts/s7c_product_closure_check.py
     else
-      echo "s7c product CLI closure positive: skipped (Darwin-only supervisor)"
+      echo "s7c product CLI closure positive: skipped (non-Darwin)"
     fi
     echo "s7c-disk-closure-gate: ok"
 
