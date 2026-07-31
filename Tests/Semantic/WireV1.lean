@@ -61,6 +61,42 @@ example (bytes : TransparentByteSpineV1) (offset : Nat) :
     readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset :=
   readByteAtV1_refinesSpine bytes offset
 
+example : readSpineU16leV1 [0xff, 0x34, 0x12, 0xee] 1 = .ok (0x1234, 3) := by rfl
+
+example : readSpineU16leV1 [0x34] 0 = .error .truncated := by rfl
+
+example (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU16leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU16leV1 bytes offset :=
+  readU16leAtV1_refinesSpine bytes offset
+
+example : readSpineU32leV1 [0xff, 0x78, 0x56, 0x34, 0x12, 0xee] 1 =
+    .ok (0x12345678, 5) := by rfl
+
+example : readSpineU32leV1 [0x78, 0x56, 0x34] 0 = .error .truncated := by rfl
+
+example (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU32leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU32leV1 bytes offset :=
+  readU32leAtV1_refinesSpine bytes offset
+
+example :
+    (decodeU16le (startAtNesting (ByteArray.mk [0x34, 0x12, 0xee].toArray) 7)).map
+        (fun (value, cursor) => (value, remaining cursor, cursorNesting cursor)) =
+      .ok (0x1234, 1, 7) := by rfl
+
+example : decodeU16le (start ByteArray.empty) = .error .truncated := by rfl
+example : decodeU16le (start (ByteArray.mk [0x34].toArray)) = .error .truncated := by rfl
+
+example :
+    (decodeU32le (startAtNesting (ByteArray.mk [0x78, 0x56, 0x34, 0x12, 0xee].toArray) 9)).map
+        (fun (value, cursor) => (value, remaining cursor, cursorNesting cursor)) =
+      .ok (0x12345678, 1, 9) := by rfl
+
+example : decodeU32le (start ByteArray.empty) = .error .truncated := by rfl
+example : decodeU32le (start (ByteArray.mk [0x78].toArray)) = .error .truncated := by rfl
+example : decodeU32le (start (ByteArray.mk [0x78, 0x56].toArray)) = .error .truncated := by rfl
+example : decodeU32le (start (ByteArray.mk [0x78, 0x56, 0x34].toArray)) =
+    .error .truncated := by rfl
+
 example : takeSpineBytesV1 [0x10, 0x20, 0x30, 0x40] 1 2 = .ok [0x20, 0x30] := by rfl
 
 example : takeSpineBytesV1 [0x10, 0x20, 0x30, 0x40] 3 2 = .error .truncated := by rfl

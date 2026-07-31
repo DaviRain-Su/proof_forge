@@ -242,8 +242,10 @@ VariantPayload、fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已
 Cursor `takeByte`直接委托该shared primitive，未新增第二semantic decoder。聚焦Lean examples固定proof
 复用与production cursor成功/EOF。后续exact-slice theorem已通过标准库extract correctness证明
 production `ByteArray.extract`输出映回logical list后等于transparent `drop/take`，Cursor `takeBytes`
-直接委托该primitive，runtime性能路径不改；short input与越界zero-count边界均固定。u16/u32和完整
-transport/program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
+直接委托该primitive，runtime性能路径不改；short input与越界zero-count边界均固定。后续scalar
+切片已用shared byte primitive闭合u16/u32
+transparent/production readers与universal refinement，并让production decoders直接委托。magic/tagged
+framing与完整program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

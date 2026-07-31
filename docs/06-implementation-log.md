@@ -118,6 +118,18 @@ normative: false
   program decoder refinement仍未建立；NC canonical reader仍保留独立`.nonCanonical`合同。closed
   invariant theorem与formal TASK/TST状态不变。
 
+## 2026-07-31 — proof-validation little-endian scalar refinement
+
+- Production/Proof：为u16/u32新增transparent spine与production `ByteArray` offset readers，均逐字节
+  委托已证明的primitive read；`decodeU16le`/`decodeU32le`直接委托production reader并保留input、最终
+  offset与nesting。两个universal theorem通过组合byte refinement覆盖任意offset及每一个partial-prefix
+  `.truncated`路径。
+- Tests/Review：固定nonzero offset little-endian值、transparent short input、production wrapper的
+  remaining/nesting，以及u16的0/1-byte和u32的0/1/2/3-byte截断矩阵；blocker-only review为APPROVE。
+  无`native_decide`、axiom、unsafe、runtime IO或第二套framing/semantic decoder。
+- Boundary：当前可信primitive层为remaining、byte、exact slice、u16/u32；magic/version/tagged framing与
+  完整program decoder refinement仍pending。closed invariant theorem与formal TASK/TST状态不变。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

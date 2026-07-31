@@ -807,6 +807,70 @@ theorem readByteAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat
     readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset := by
   simp [readByteAtV1, readSpineByteV1, List.getElem?_toArray]
 
+/-- Read one little-endian u16 from the transparent proof spine. -/
+def readSpineU16leV1 (bytes : TransparentByteSpineV1) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt16 × Nat) := do
+  let b0 ← readSpineByteV1 bytes offset
+  let b1 ← readSpineByteV1 bytes (offset + 1)
+  pure (UInt16.ofNat (b0.toNat + b1.toNat * 256), offset + 2)
+
+/-- Production offset primitive for one little-endian u16. -/
+def readU16leAtV1 (bytes : ByteArray) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt16 × Nat) := do
+  let b0 ← readByteAtV1 bytes offset
+  let b1 ← readByteAtV1 bytes (offset + 1)
+  pure (UInt16.ofNat (b0.toNat + b1.toNat * 256), offset + 2)
+
+/-- Little-endian u16 refinement, including truncation after either byte. -/
+theorem readU16leAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU16leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU16leV1 bytes offset := by
+  unfold readU16leAtV1 readSpineU16leV1
+  rw [readByteAtV1_refinesSpine]
+  cases h0 : readSpineByteV1 bytes offset with
+  | error e => rfl
+  | ok b0 =>
+    rw [readByteAtV1_refinesSpine]
+
+/-- Read one little-endian u32 from the transparent proof spine. -/
+def readSpineU32leV1 (bytes : TransparentByteSpineV1) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt32 × Nat) := do
+  let b0 ← readSpineByteV1 bytes offset
+  let b1 ← readSpineByteV1 bytes (offset + 1)
+  let b2 ← readSpineByteV1 bytes (offset + 2)
+  let b3 ← readSpineByteV1 bytes (offset + 3)
+  let value :=
+    b0.toNat + b1.toNat * 256 + b2.toNat * 65536 + b3.toNat * 16777216
+  pure (UInt32.ofNat value, offset + 4)
+
+/-- Production offset primitive for one little-endian u32. -/
+def readU32leAtV1 (bytes : ByteArray) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt32 × Nat) := do
+  let b0 ← readByteAtV1 bytes offset
+  let b1 ← readByteAtV1 bytes (offset + 1)
+  let b2 ← readByteAtV1 bytes (offset + 2)
+  let b3 ← readByteAtV1 bytes (offset + 3)
+  let value :=
+    b0.toNat + b1.toNat * 256 + b2.toNat * 65536 + b3.toNat * 16777216
+  pure (UInt32.ofNat value, offset + 4)
+
+/-- Little-endian u32 refinement, including truncation after any byte. -/
+theorem readU32leAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU32leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU32leV1 bytes offset := by
+  unfold readU32leAtV1 readSpineU32leV1
+  rw [readByteAtV1_refinesSpine]
+  cases h0 : readSpineByteV1 bytes offset with
+  | error e => rfl
+  | ok b0 =>
+    rw [readByteAtV1_refinesSpine]
+    cases h1 : readSpineByteV1 bytes (offset + 1) with
+    | error e => rfl
+    | ok b1 =>
+      rw [readByteAtV1_refinesSpine]
+      cases h2 : readSpineByteV1 bytes (offset + 2) with
+      | error e => rfl
+      | ok b2 =>
+        rw [readByteAtV1_refinesSpine]
+
 /-- Take exactly `count` bytes from the transparent proof spine. Unlike bare
     `List.take`, a short input fails closed with the production wire error. -/
 def takeSpineBytesV1 (bytes : TransparentByteSpineV1) (offset count : Nat) :
@@ -869,17 +933,12 @@ def withTaggedNesting (body : Decoder α) : Decoder α := fun c => do
 def decodeU8 : Decoder UInt8 := takeByte
 
 def decodeU16le : Decoder UInt16 := fun c => do
-  let (b0, c) ← takeByte c
-  let (b1, c) ← takeByte c
-  pure (UInt16.ofNat (b0.toNat + b1.toNat * 256), c)
+  let (value, offset) ← readU16leAtV1 c.input c.offset
+  pure (value, ⟨c.input, offset, c.nesting⟩)
 
 def decodeU32le : Decoder UInt32 := fun c => do
-  let (b0, c) ← takeByte c
-  let (b1, c) ← takeByte c
-  let (b2, c) ← takeByte c
-  let (b3, c) ← takeByte c
-  let v := b0.toNat + b1.toNat * 256 + b2.toNat * 65536 + b3.toNat * 16777216
-  pure (UInt32.ofNat v, c)
+  let (value, offset) ← readU32leAtV1 c.input c.offset
+  pure (value, ⟨c.input, offset, c.nesting⟩)
 
 def decodeU64le : Decoder UInt64 := fun c => do
   let mut n : Nat := 0

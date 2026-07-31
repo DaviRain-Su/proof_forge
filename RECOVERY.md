@@ -253,6 +253,12 @@ zero-count边界）；runtime仍使用`ByteArray.extract`，proof可经theorem r
 尚不能声称617-byte canonical carrier已完成kernel validation；下一步逐层覆盖u16/u32与transport
 framing。NC canonical reader的`.nonCanonical`错误合同不得误改为`.truncated`。
 
+后续scalar切片已闭合u16/u32 little-endian：transparent与production offset reader均组合shared
+single-byte primitive，production `decodeU16le`/`decodeU32le`直接委托；universal theorem覆盖任意
+offset和每个partial-prefix truncation，cursor-level tests另固定remaining/nesting。下一步不再重复
+primitive reader，而应建立magic/version与tagged framing的结构性refinement。完整carrier kernel
+validation与formal corpus仍pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
