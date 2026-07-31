@@ -1745,7 +1745,8 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
         | .internalInvariant => .internalInvariant
       .done m (.trapped fault)
 
-private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × CandidateV1
+private def runMachine (chargeFrameEntry : Bool) :
+    (fuel : Nat) → MachineV1 → Nat × MachineV1 × CandidateV1
   | 0, m => (0, m, .trapped .resourceExhausted)
   | fuel + 1, m =>
       match m.callable.blocks[m.blockId.toNat]? with
@@ -1797,18 +1798,29 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                                   instrIdx := m.instrIdx + 1
                                   resultValueId := resultDef.valueId
                                 }
-                                runMachine fuel { m with
+                                let calleeMachine := { m with
                                   callable := callee
                                   env := calleeEnv
                                   loopCounts := Array.replicate callee.loopBounds.size (0 : UInt32)
                                   blockId := callee.entryBlock
                                   instrIdx := 0
                                   frames := m.frames.push frame }
+                                -- Formal invariant fuel separately carries the
+                                -- callee frame-entry step. The ordinary engineering
+                                -- runner preserves its pre-existing fixed-cap policy.
+                                if chargeFrameEntry then
+                                  match fuel with
+                                  | 0 => (0, calleeMachine, .trapped .resourceExhausted)
+                                  | calleeFuel + 1 =>
+                                      runMachine chargeFrameEntry calleeFuel calleeMachine
+                                else
+                                  runMachine chargeFrameEntry fuel calleeMachine
                 | _, _ =>
                     match execInstruction m instr with
                     | .done m' cand => (0, m', cand)
                     | .next m1 =>
-                        runMachine fuel { m1 with instrIdx := m1.instrIdx + 1 }
+                        runMachine chargeFrameEntry fuel
+                          { m1 with instrIdx := m1.instrIdx + 1 }
           else
             match block.terminator, m.frames.back? with
             | .return_ value?, some frame =>
@@ -1836,7 +1848,7 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
                     match envSet frame.env frame.resultValueId result with
                     | none => (0, m, .trapped .invalidCore)
                     | some env' =>
-                        runMachine fuel { m with
+                        runMachine chargeFrameEntry fuel { m with
                           callable := frame.callable
                           env := env'
                           loopCounts := frame.loopCounts
@@ -1846,7 +1858,7 @@ private def runMachine : (fuel : Nat) → MachineV1 → Nat × MachineV1 × Cand
             | _, _ =>
                 match execTerminator m block.terminator with
                 | .done m' cand => (0, m', cand)
-                | .next mNext => runMachine fuel mNext
+                | .next mNext => runMachine chargeFrameEntry fuel mNext
 
 /-! ### Invocation validation -/
 
@@ -2075,7 +2087,7 @@ def stepReferenceSliceV1
             instrIdx := 0
             frames := #[]
           }
-          let (_fuelLeft, mEnd, cand) := runMachine 1000000 m0
+          let (_fuelLeft, mEnd, cand) := runMachine false 1000000 m0
           finalize mEnd cand
 
 /-! ### Invariant reference slice -/
@@ -2125,7 +2137,12 @@ def runInvariantCallableV1
               instrIdx := 0
               frames := #[]
             }
-            let (_, _, cand) := runMachine steps.toNat m0
+            -- `invariantSteps` includes the root frame-entry charge in
+            -- addition to every instruction, terminator, and callee entry.
+            let (_, _, cand) :=
+              match steps.toNat with
+              | 0 => (0, m0, CandidateV1.trapped .resourceExhausted)
+              | machineFuel + 1 => runMachine true machineFuel m0
             match cand with
             | .reverted _ => .reverted
             | .trapped _ => .trapped

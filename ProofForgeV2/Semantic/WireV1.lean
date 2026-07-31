@@ -3117,8 +3117,10 @@ private def validateCallableCfgShape (c : CallableV1)
     (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   let blockCount := c.blocks.size
-  -- a) entryBlock == 0
+  -- a) the canonical entry block exists and has id 0
   unless c.entryBlock.toNat == 0 do
+    return ← err .badCfg
+  if blockCount == 0 then
     return ← err .badCfg
   -- b) block id == array index
   let mut idx : Nat := 0
@@ -3145,15 +3147,11 @@ private def validateCallableCfgShape (c : CallableV1)
     for target in terminatorJumpTargets (BlockV1.terminator b) do
       checkJumpTargetArity c.blocks blockCount target
   -- d) reachability from entry (bounded fixed-point passes). The reachable
-  --   array is hoisted so steps d, f, g share it (when blockCount==0 it is
-  --   empty and dominance is a no-op).
+  --   array is hoisted so steps d, f, g share it.
   let reachable : Array Bool :=
-    if blockCount == 0 then
-      #[]
-    else
-      let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
-      let visited1 := visited0.set! 0 true
-      cfgReachFixpoint c.blocks blockCount blockCount visited1
+    let visited0 : Array Bool := Array.mk (List.replicate blockCount false)
+    let visited1 := visited0.set! 0 true
+    cfgReachFixpoint c.blocks blockCount blockCount visited1
   for v in reachable do
     unless v do
       return ← err .badCfg

@@ -230,6 +230,12 @@ Field runtime仅接受Wire catalog固定的`proof-forge.field.bn254-fr.v1`与exa
 按32-byte leaf计资源；selected lower runner以无关Principal声明固定不扫描whole-program engineering
 admission。下一步应先做formal-compatible closure/defensive gap复核，再定义public evaluator。
 
+该复核已闭合两个blocker。`WireV1.validateCallableCfgShape`现要求`blocks.size > 0`，因此声明
+`entryBlock=0`却没有block 0的callable在CFG phase以`.badCfg`失败。`runInvariantCallableV1`现从carried
+fuel先扣root frame-entry，PureCall instruction扣除后再单独扣callee frame-entry；root/callee仍共享
+同一Nat fuel，不引入per-frame额度。测试以Wire-valid exact fuel 3/6成功和绕过Wire后仅将metadata降为
+2/5必trap固定防御行为。下一步可进入public `InvariantABI.evalInvariantV1`实现。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

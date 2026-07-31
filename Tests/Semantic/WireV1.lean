@@ -4385,6 +4385,10 @@ private def testInvariantStepsExactComputation : IO Unit := do
     .invariantFuel .badCfg n7
 
 private def testCfgShapeAndReachability : IO Unit := do
+  -- Positive boundary: block 0 exists even when it contains no instructions.
+  let p0 ← programWithTypes "CfgEmptyInstructions" cfgBoolTypes #[]
+    #[cfgCallable #[cfgBlock 0 (.return_ none)]]
+  expectCfgOk "one block with no instructions" p0
   -- Positive 1: single-block callable, return terminator (re-pin).
   --   Defines ValueId 0 via a literal instruction so the return use is covered.
   let p1 ← programWithTypes "CfgSingle" cfgBoolTypes #[]
@@ -4423,9 +4427,42 @@ private def testCfgShapeAndReachability : IO Unit := do
       cfgBlock 1 (.return_ none)
     ]]
   expectCfgOk "switch reachability" p4
-  -- Positive 5: empty-callables program still legal (regression).
+  -- Positive 5: the builder's appended entry block remains valid when no
+  -- focused callable fixture is supplied.
   let p5 ← programWithTypes "CfgEmpty" cfgBoolTypes
-  expectCfgOk "empty callables regression" p5
+  expectCfgOk "appended entry callable" p5
+  -- Every callable must contain entry block 0; an entry or view with an empty
+  -- block array is rejected by both the structure and encoder pathways.
+  let emptyEntry : CallableV1 := {
+    (cfgCallable #[]) with kind := .entry, name := some "run"
+  }
+  let n0Entry ← programWithTypes "CfgEmptyEntryBlocks" cfgBoolTypes #[]
+    #[emptyEntry]
+  expectCfgErr "entry callable empty blocks" n0Entry
+  let emptyView : CallableV1 := {
+    (cfgCallable #[]) with kind := .view, name := some "read"
+  }
+  let n0View ← programWithTypes "CfgEmptyViewBlocks" cfgBoolTypes #[]
+    #[emptyView]
+  expectCfgErr "view callable empty blocks" n0View
+  -- Keep the invariant signature, exact declaration join, and carried fuel
+  -- otherwise valid. Missing entry block 0 is a CFG failure before exact fuel
+  -- computation can compare the root's `some 1` metadata.
+  let emptyInvariant : CallableV1 := {
+    (cfgCallable #[]) with
+      kind := .invariant
+      name := some "safe"
+      invariantSteps := some 1
+  }
+  let n0InvBase ← programWithTypes "CfgEmptyInvariantBlocks" cfgBoolTypes #[]
+    #[emptyInvariant]
+  let n0Inv : SemanticProgramDataV1 := {
+    n0InvBase with
+      invariants := #[{ id := 0, name := "safe", callableId := 0 }]
+  }
+  expectCfgErr "invariant callable empty blocks" n0Inv
+  expectCfgInvariantPhase "invariant empty blocks fail before fuel"
+    .cfg .badCfg n0Inv
   -- Negative 1: entryBlock != 0.
   let n1 ← programWithTypes "CfgBadEntry" cfgBoolTypes #[]
     #[cfgCallable

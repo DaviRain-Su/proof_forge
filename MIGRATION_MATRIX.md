@@ -139,6 +139,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > 计入资源界限；带无关Principal declaration的selected invariant固定lower runner不依赖general admission。
 > numeric前置至此闭合，正式ABI前还需最终closure/defensive gap复核。
 
+> formal前closure/fuel复核已修复两个边界：Wire CFG现在要求每个callable实际包含entry block 0，
+> 不再让`blocks=[]`经reachability/fuel检查vacuously通过；lower invariant machine按冻结公式实际扣除
+> root frame entry与每次PureCall callee frame entry，并继续与instruction/terminator共享唯一fuel。
+> tests固定empty entry/view/invariant CFG拒绝、单empty-instruction block正向，以及exact 3/6 fuel成功、
+> 防御性降为2/5后trap。正式`evalInvariantV1`仍未定义。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

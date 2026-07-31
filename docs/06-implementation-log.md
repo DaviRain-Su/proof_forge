@@ -42,6 +42,18 @@ normative: false
   one、Eq/Ne，以及whole-program admission与exact division-zero类别；无关Principal声明固定selected
   Field invariant仍可执行。下一切片为formal-compatible closure/defensive gap复核。
 
+## 2026-07-31 — D2-07 formal-precondition CFG/fuel closure repair
+
+- Wire：每个callable现在必须实际包含canonical entry block 0；`entryBlock=0`配`blocks=[]`不再通过空
+  reachability/SSA/fuel phase，而是在CFG gate返回`.badCfg`。entry/view/invariant三类空blocks负例与
+  单block零instructions正边界均通过structure+encoder路径固定。
+- Runtime：`runInvariantCallableV1`按Wire exact step公式先扣root frame-entry；每次PureCall在扣call
+  instruction后再扣callee frame-entry。所有frame继续共享一个Nat fuel；耗尽映射既有trap，不改变
+  rollback/result mapping。
+- Tests/Boundary：exact straight-line fuel 3与root→leaf fuel 6成功；在decoded data上仅将root metadata
+  防御性降为2/5均trap，后者可区分漏扣callee entry。数值/Field/op surface不变；正式public
+  `evalInvariantV1`与theorem仍未在本切片定义。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

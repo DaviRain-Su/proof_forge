@@ -3148,6 +3148,22 @@ private def testInvariantReferenceSlice : IO Unit := do
   let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
   expect (evalInvariantReferenceSliceV1 admitted 0 pre == .returnedTrue)
     "invariant-pure-call: exact carried shared fuel succeeds"
+  let pureCallData ← match validateSemanticProgramV1 carrier with
+    | .ok data => pure data
+    | .error e => throw <| IO.userError s!"invariant-pure-call validate: {repr e}"
+  expect (runInvariantCallableV1 pureCallData 2 pre == .returnedTrue)
+    "invariant-pure-call lower runner: exact carried fuel 6 succeeds"
+  -- Defensive lower-seam test: mutate already decoded, structure-valid data
+  -- without sending deliberately stale metadata back through Wire validation.
+  -- Lower only the root metadata; the leaf remains at its exact carried fuel 3.
+  let pureCallRootFuel5 : SemanticProgramDataV1 := {
+    pureCallData with
+    callables := pureCallData.callables.map fun callable =>
+      if callable.id == 2 then { callable with invariantSteps := some 5 }
+      else callable
+  }
+  expect (runInvariantCallableV1 pureCallRootFuel5 2 pre == .trapped)
+    "invariant-pure-call lower runner: root fuel 5 must trap after root+callee entry charges"
 
   -- The lower invariant runner is selected-callable scoped. An unrelated
   -- Int64 declaration cannot poison this Bool invariant.
@@ -3179,6 +3195,16 @@ private def testInvariantReferenceSlice : IO Unit := do
     | .error e => throw <| IO.userError s!"invariant-lower-runner validate: {repr e}"
   expect (runInvariantCallableV1 broadData 1 pre == .returnedTrue)
     "invariant-lower-runner: unrelated unsupported type must not poison selected invariant"
+  -- As above, this intentionally bypasses Wire revalidation: the lower runner
+  -- must defensively enforce fuel even when decoded metadata is later mutated.
+  let broadRootFuel2 : SemanticProgramDataV1 := {
+    broadData with
+    callables := broadData.callables.map fun callable =>
+      if callable.id == 1 then { callable with invariantSteps := some 2 }
+      else callable
+  }
+  expect (runInvariantCallableV1 broadRootFuel2 1 pre == .trapped)
+    "invariant-lower-runner: straight-line exact fuel 3 lowered to 2 must trap"
   expect (runInvariantCallableV1 broadData 99 pre == .trapped)
     "invariant-lower-runner: missing callable must trap"
   expect (runInvariantCallableV1 broadData 1
