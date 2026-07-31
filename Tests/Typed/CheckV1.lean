@@ -2782,6 +2782,257 @@ private unsafe def testMulDivModUnary
         "arith-flow: div must apply to the mul result and divisor"
   | _ => throw <| IO.userError "arith-flow: div shape mismatch"
 
+/-- Immutable let bindings and bounded for loops: exact multi-block CFG with
+    a single-param loop header, latch back edge, and canonical loopBounds;
+    let single-evaluation; reassignment and oversized bounds fail closed. -/
+private unsafe def testLetForLoop
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "LoopSum" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry never(n : UInt64) : UInt64 do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    for i in one ..< n bounded 0 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry square(dummy : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := count + 1\n" ++
+    "    count := x * x\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "loop-sum" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "loop-sum: CheckV1.ok"
+  expect typed.analysisComplete "loop-sum: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"loop-sum: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"loop-sum: validate: {repr e}"
+  expect (data.callables.size == 7) "loop-sum: init + five entries + get"
+  let some addUp := data.callables[1]? |
+    throw <| IO.userError "loop-sum: missing addUp callable"
+  expect (addUp.blocks.size == 4)
+    s!"loop-sum: addUp must lower to pre/header/body/exit blocks, got {addUp.blocks.size}"
+  -- Canonical ValueIds: param n=v0; block-param range [1]; instruction
+  -- results v2.. above it (forCount=1).
+  let some blk0 := addUp.blocks[0]? |
+    throw <| IO.userError "loop-sum: missing pre-header"
+  expect (blk0.params.isEmpty) "loop-sum: pre-header has no params"
+  let some litInstr := blk0.instructions[0]? |
+    throw <| IO.userError "loop-sum: missing literal 4"
+  match litInstr with
+  | { result := some r, op := .literal _ _ } =>
+      expect (r.valueId == 2) "loop-sum: literal 4 must be v2"
+  | _ => throw <| IO.userError "loop-sum: literal shape mismatch"
+  let some addInstr := blk0.instructions[1]? |
+    throw <| IO.userError "loop-sum: missing limit add"
+  match addInstr with
+  | { result := some r, op := .binary .add l rv } =>
+      expect (l == 0 && rv == 2 && r.valueId == 3)
+        "loop-sum: limit must be n + 4"
+  | _ => throw <| IO.userError "loop-sum: limit add shape mismatch"
+  match blk0.terminator with
+  | .jump target =>
+      expect (target.blockId == 1 && target.args == #[0])
+        "loop-sum: pre-header must jump to the header with the start value"
+  | _ => throw <| IO.userError "loop-sum: pre-header must jump"
+  let some header := addUp.blocks[1]? |
+    throw <| IO.userError "loop-sum: missing header"
+  let some headerParam := header.params[0]? |
+    throw <| IO.userError "loop-sum: missing header param"
+  expect (header.params.size == 1 && headerParam.valueId == 1)
+    "loop-sum: header must carry exactly the induction param v1"
+  let some condInstr := header.instructions[0]? |
+    throw <| IO.userError "loop-sum: missing loop condition"
+  match condInstr with
+  | { result := some r, op := .binary .lt l rv } =>
+      expect (l == 1 && rv == 3 && r.valueId == 4)
+        "loop-sum: condition must be i < limit"
+  | _ => throw <| IO.userError "loop-sum: condition shape mismatch"
+  match header.terminator with
+  | .branch cond thenT elseT =>
+      expect (cond == 4 && thenT.blockId == 2 && elseT.blockId == 3)
+        "loop-sum: header must branch to body/exit"
+  | _ => throw <| IO.userError "loop-sum: header must branch"
+  let some body := addUp.blocks[2]? |
+    throw <| IO.userError "loop-sum: missing body"
+  let some bodyAdd := body.instructions[1]? |
+    throw <| IO.userError "loop-sum: missing body add"
+  match bodyAdd with
+  | { result := some r, op := .binary .add l rv } =>
+      expect (l == 5 && rv == 1 && r.valueId == 6)
+        "loop-sum: body must add the induction param"
+  | _ => throw <| IO.userError "loop-sum: body add shape mismatch"
+  let some incInstr := body.instructions[4]? |
+    throw <| IO.userError "loop-sum: missing increment"
+  match incInstr with
+  | { result := some r, op := .binary .add l rv } =>
+      expect (l == 1 && rv == 7 && r.valueId == 8)
+        "loop-sum: latch must increment the induction param"
+  | _ => throw <| IO.userError "loop-sum: increment shape mismatch"
+  match body.terminator with
+  | .jump target =>
+      expect (target.blockId == 1 && target.args == #[8])
+        "loop-sum: latch must jump back with the incremented value"
+  | _ => throw <| IO.userError "loop-sum: latch must jump back"
+  expect (addUp.loopBounds == #[{ header := 1, backEdgeFrom := 2, maxIterations := 8 }])
+    "loop-sum: loopBounds must record exactly the (header, latch, 8) back edge"
+  -- square: let single-evaluation (mul reuses the add result on both sides).
+  let some square := data.callables[5]? |
+    throw <| IO.userError "loop-sum: missing square callable"
+  let some sqBlk := square.blocks[0]? |
+    throw <| IO.userError "loop-sum: missing square block"
+  let some mulInstr := sqBlk.instructions[3]? |
+    throw <| IO.userError "loop-sum: missing square mul"
+  match mulInstr with
+  | { result := some r, op := .binary .mul l rv } =>
+      expect (l == 3 && rv == 3 && r.valueId == 4)
+        "loop-sum: let must evaluate `count + 1` once and reuse the value"
+  | _ => throw <| IO.userError "loop-sum: square mul shape mismatch"
+  -- Reassignment of a let-local fails closed at the assign arm.
+  let reassignSource := wrap "ReassignLocal" <|
+    "  entry bad(n : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := n\n" ++
+    "    x := 5\n" ++
+    "    return x\n"
+  let reassign ← loadSource session "reassign-local" reassignSource
+  expect (checkProgramTypedResultV1 reassign).ok "reassign-local: CheckV1.ok"
+  match normalizeProgramV1 reassign with
+  | .ok _ => throw <| IO.userError "reassign-local: must fail closed"
+  | .error _ => pure ()
+  -- The parser caps the bound at the wire maximum (4096): 4097 is rejected
+  -- at the loader and never reaches the normalizer; 4096 lowers cleanly.
+  let bigBoundSource := wrap "BigBound" <|
+    "  state count : UInt64\n" ++
+    "  entry bad(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 4097 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n"
+  match ← session.selectProgramV1 bigBoundSource (testSourcePath "big-bound") moduleName none with
+  | .ok _ => throw <| IO.userError "big-bound: bound 4097 must fail at the loader"
+  | .error _ => pure ()
+  let maxBoundSource := wrap "MaxBound" <|
+    "  state count : UInt64\n" ++
+    "  entry ok(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 4096 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n"
+  let maxBound ← loadSource session "max-bound" maxBoundSource
+  expect (checkProgramTypedResultV1 maxBound).ok "max-bound: CheckV1.ok"
+  let maxCarrier ← match normalizeProgramV1 maxBound with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"max-bound: normalize: {repr e}"
+  match validateSemanticProgramV1 maxCarrier with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"max-bound: validate: {repr e}"
+
+/-- Loop/let provenance: header param, synthesized condition/latch entities,
+    and block entities bind the exact for/body/let statement nodes; the
+    retro-fixed mul binary arm and the two-instruction checked-negation
+    desugar are covered through the sole provenance rebuild. -/
+private unsafe def testLetForProvenance
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ProvLoop" <|
+    "  state count : UInt64\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n * 2\n" ++
+    "    for i in n ..< limit bounded 4 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry neg(x : UInt64) : UInt64 do\n" ++
+    "    return -x\n"
+  let (validated, spans) ← loadSourceWithSpans session "prov-loop" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "prov-loop: CheckV1.ok"
+  expect typed.analysisComplete "prov-loop: CheckV1.analysisComplete"
+  let path ← parseTestPath "prov-loop"
+  let inventory ← match buildSourceNodeInventoryV1 validated path spans with
+    | .ok inv => pure inv
+    | .error e => throw <| IO.userError s!"prov-loop: inventory: {repr e}"
+  let (carrier, provenance) ← match
+      normalizeProgramWithProvenanceV1 validated path spans with
+    | .ok pair => pure pair
+    | .error e => throw <| IO.userError s!"prov-loop: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"prov-loop: validate: {repr e}"
+  expect (data.callables.size == 2) "prov-loop: addUp + neg"
+  -- addUp: let (stmt 0), for (stmt 1), return (stmt 2).
+  let itemPath := childPathT #[] "Program" "items" 1
+  let bodyPath := directChildT itemPath "EntryDecl" "body"
+  let letStmtPath := childPathT bodyPath "Block" "statements" 0
+  let letValuePath := directChildT letStmtPath "Stmt.Let" "value"
+  let forStmtPath := childPathT bodyPath "Block" "statements" 1
+  let forBodyPath := directChildT forStmtPath "Stmt.For" "body"
+  let forOrigin ← originAtExplicitPath validated inventory forStmtPath
+  let forBodyOrigin ← originAtExplicitPath validated inventory forBodyPath
+  -- mul retro-fix: the let value binary instruction/result bind the `n * 2`
+  -- expression node (previously the binary arm rejected mul/div/mod).
+  let letValueOrigin ← originAtExplicitPath validated inventory letValuePath
+  let some mulInstrOrigin := findOrigin provenance (.instruction 0 0 1) |
+    throw <| IO.userError "prov-loop: missing mul instruction origin"
+  let some mulValueOrigin := findOrigin provenance (.value 0 3) |
+    throw <| IO.userError "prov-loop: missing mul value origin"
+  expect (mulInstrOrigin == letValueOrigin && mulValueOrigin == letValueOrigin)
+    "prov-loop: mul instruction/value must bind the let value expression"
+  -- Loop structure: header block, induction param, condition, and latch all
+  -- bind the for statement; the body block binds the for body.
+  let some headerOrigin := findOrigin provenance (.block 0 1) |
+    throw <| IO.userError "prov-loop: missing header block origin"
+  let some paramOrigin := findOrigin provenance (.value 0 1) |
+    throw <| IO.userError "prov-loop: missing induction param origin"
+  let some condOrigin := findOrigin provenance (.instruction 0 1 0) |
+    throw <| IO.userError "prov-loop: missing condition origin"
+  let some bodyBlockOrigin := findOrigin provenance (.block 0 2) |
+    throw <| IO.userError "prov-loop: missing body block origin"
+  let some latchLitOrigin := findOrigin provenance (.instruction 0 2 3) |
+    throw <| IO.userError "prov-loop: missing latch literal origin"
+  let some latchIncOrigin := findOrigin provenance (.instruction 0 2 4) |
+    throw <| IO.userError "prov-loop: missing latch increment origin"
+  let some exitOrigin := findOrigin provenance (.block 0 3) |
+    throw <| IO.userError "prov-loop: missing exit block origin"
+  expect (headerOrigin == forOrigin && paramOrigin == forOrigin &&
+      condOrigin == forOrigin && latchLitOrigin == forOrigin &&
+      latchIncOrigin == forOrigin && exitOrigin == forOrigin)
+    "prov-loop: synthesized loop entities must bind the for statement"
+  expect (bodyBlockOrigin == forBodyOrigin)
+    "prov-loop: body block must bind the for body"
+  -- Checked-negation retro-fix: the desugared `0 - x` produces two
+  -- instruction/value entity pairs, all binding the unary expression node.
+  let negItemPath := childPathT #[] "Program" "items" 2
+  let negBodyPath := directChildT negItemPath "EntryDecl" "body"
+  let negStmtPath := childPathT negBodyPath "Block" "statements" 0
+  let unaryPath := directChildT negStmtPath "Stmt.Return" "value"
+  let unaryOrigin ← originAtExplicitPath validated inventory unaryPath
+  let some zeroInstrOrigin := findOrigin provenance (.instruction 1 0 0) |
+    throw <| IO.userError "prov-loop: missing zero literal origin"
+  let some zeroValueOrigin := findOrigin provenance (.value 1 1) |
+    throw <| IO.userError "prov-loop: missing zero value origin"
+  let some subInstrOrigin := findOrigin provenance (.instruction 1 0 1) |
+    throw <| IO.userError "prov-loop: missing sub instruction origin"
+  let some subValueOrigin := findOrigin provenance (.value 1 2) |
+    throw <| IO.userError "prov-loop: missing sub value origin"
+  expect (zeroInstrOrigin == unaryOrigin && zeroValueOrigin == unaryOrigin &&
+      subInstrOrigin == unaryOrigin && subValueOrigin == unaryOrigin)
+    "prov-loop: desugared negation entities must bind the unary expression"
+
 /-- Unary neg/bitNot/not: op kinds and result types; `!` feeding a branch. -/
 private unsafe def testUnaryOps
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -3813,6 +4064,8 @@ unsafe def run : IO Unit := do
   testFnLocalCallProvenance session
   testMulDivModUnary session
   testUnaryOps session
+  testLetForLoop session
+  testLetForProvenance session
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testFnIdentitySupported session

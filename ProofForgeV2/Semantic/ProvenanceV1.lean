@@ -397,9 +397,26 @@ private structure BodyAttrV1 where
   nextInstr : Nat
   blockId : Nat
   nextBlockId : Nat
+  nextBlockParamOrdinal : Nat
+  callableParamCount : Nat
   nextEffectId : UInt32
   env : AttrEnvV1
   acc : AttrAccumV1
+
+/-- Mirror of NormalizeV1.countForLoopsStmtsV1: every lowered `for`
+allocates exactly one loop-header block param, so this syntactic count sizes
+the canonical block-param ValueId range before instruction results begin. -/
+private partial def countForLoopsStmtsV1 (stmts : Array SrcStmt) : Nat :=
+  stmts.foldl (fun acc stmt => acc + countForLoopsStmtV1 stmt) 0
+where
+  countForLoopsStmtV1 : SrcStmt → Nat
+    | .if_ _ thenBlock elseBlock? =>
+        countForLoopsStmtsV1 thenBlock.statements +
+          (elseBlock?.map (fun b => countForLoopsStmtsV1 b.statements)).getD 0
+    | .match_ _ arms =>
+        arms.foldl (fun acc arm => acc + countForLoopsStmtsV1 arm.body.statements) 0
+    | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
+    | _ => 0
 
 /-- Mirror of the normalizer's per-path status for attribution. -/
 private inductive AttrPathStatusV1 where
@@ -449,6 +466,9 @@ private partial def attrExpr
       let srcOp := op
       let isSupported := srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mul ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.div ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mod ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
@@ -474,7 +494,7 @@ private partial def attrExpr
           acc := acc2
         })
       else
-        failUnsupported "S2 provenance supports only binary add/sub/comparisons"
+        failUnsupported "S2 provenance supports only binary arithmetic and comparisons"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
@@ -508,22 +528,48 @@ private partial def attrExpr
       | .string _ =>
           failUnsupported "S2 provenance supports only UInt64/Bool literals"
   | .constructor _ _ => failUnsupported "S2 provenance does not support constructors"
-  | .unary _ operand => do
-      -- Op.Unary and its result bind the unary expression itself (operand
-      -- attributes first, mirroring the normalizer's evaluation order).
+  | .unary op operand => do
       let operandPath := directChild exprPath "Expr.Unary" "operand"
       let (_vid, st1) ← attrExpr callableId operand operandPath st states idx
-      let vid := st1.nextValueId
-      let instrEntity :=
-        SemanticEntityRefV1.instruction callableId (UInt32.ofNat st1.blockId) (UInt32.ofNat st1.nextInstr)
-      let valEntity := SemanticEntityRefV1.value callableId vid
-      let acc1 ← attrPushPath st1.acc idx instrEntity exprPath
-      let acc2 ← attrPushPath acc1 idx valEntity exprPath
-      pure (vid, { st1 with
-        nextValueId := vid + 1
-        nextInstr := st1.nextInstr + 1
-        acc := acc2
-      })
+      match op with
+      | .neg =>
+          -- Checked negation desugars to `0 - x` in the normalizer: the
+          -- synthesized zero literal and the subtraction instruction/value
+          -- entities both bind the unary expression node, in evaluation
+          -- order (literal first, then the binary).
+          let zeroVid := st1.nextValueId
+          let zeroInstrEntity :=
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st1.blockId)
+              (UInt32.ofNat st1.nextInstr)
+          let zeroValEntity := SemanticEntityRefV1.value callableId zeroVid
+          let acc1 ← attrPushPath st1.acc idx zeroInstrEntity exprPath
+          let acc2 ← attrPushPath acc1 idx zeroValEntity exprPath
+          let vid := zeroVid + 1
+          let subInstrEntity :=
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st1.blockId)
+              (UInt32.ofNat (st1.nextInstr + 1))
+          let subValEntity := SemanticEntityRefV1.value callableId vid
+          let acc3 ← attrPushPath acc2 idx subInstrEntity exprPath
+          let acc4 ← attrPushPath acc3 idx subValEntity exprPath
+          pure (vid, { st1 with
+            nextValueId := vid + 1
+            nextInstr := st1.nextInstr + 2
+            acc := acc4
+          })
+      | _ => do
+          -- Op.Unary and its result bind the unary expression itself (operand
+          -- attributes first, mirroring the normalizer's evaluation order).
+          let vid := st1.nextValueId
+          let instrEntity :=
+            SemanticEntityRefV1.instruction callableId (UInt32.ofNat st1.blockId) (UInt32.ofNat st1.nextInstr)
+          let valEntity := SemanticEntityRefV1.value callableId vid
+          let acc1 ← attrPushPath st1.acc idx instrEntity exprPath
+          let acc2 ← attrPushPath acc1 idx valEntity exprPath
+          pure (vid, { st1 with
+            nextValueId := vid + 1
+            nextInstr := st1.nextInstr + 1
+            acc := acc2
+          })
   | .localCall _ args => do
       -- PureCall instruction and its result bind the local-call expression;
       -- each argument attributes in call order (mirroring the normalizer).
@@ -633,13 +679,17 @@ private partial def attrStmt
       let branchEntity := SemanticEntityRefV1.terminator callableId
         (UInt32.ofNat st.blockId)
       let accB ← attrPushPath st1.acc idx branchEntity stmtPath
+      -- Arms start from the pre-branch env; lets stay scoped to their arm
+      -- (mirroring the normalizer's env save/restore).
+      let savedEnv := st1.env
       -- Then block: fresh block id in creation order.
       let thenId := st1.nextBlockId
       let thenPath := directChild stmtPath "Stmt.If" "thenBlock"
       let accT ← attrPushPath accB idx
         (SemanticEntityRefV1.block callableId (UInt32.ofNat thenId)) thenPath
       let stT0 : BodyAttrV1 := { st1 with
-        blockId := thenId, nextBlockId := thenId + 1, nextInstr := 0, acc := accT }
+        blockId := thenId, nextBlockId := thenId + 1, nextInstr := 0,
+        env := savedEnv, acc := accT }
       let (stT, thenStatus) ← attrStmts callableId
         thenBlock.statements thenPath stT0 states idx
       let (stT, thenOpen) ← match thenStatus with
@@ -659,7 +709,8 @@ private partial def attrStmt
             let accE ← attrPushPath stT.acc idx
               (SemanticEntityRefV1.block callableId (UInt32.ofNat elseId)) elsePath
             let stE0 : BodyAttrV1 := { stT with
-              blockId := elseId, nextBlockId := elseId + 1, nextInstr := 0, acc := accE }
+              blockId := elseId, nextBlockId := elseId + 1, nextInstr := 0,
+              env := savedEnv, acc := accE }
             let (stE1, status) ← attrStmts callableId
               elseBlock.statements elsePath stE0 states idx
             match status with
@@ -679,7 +730,7 @@ private partial def attrStmt
           (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
         pure ({ stE with
           blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
-          acc := accJoin }, .open_)
+          env := savedEnv, acc := accJoin }, .open_)
   | .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S2 provenance match requires at least one arm"
@@ -712,6 +763,8 @@ private partial def attrStmt
       let accS ← if caseIdxs.isEmpty then pure st1.acc
         else attrPushPath st1.acc idx termEntity stmtPath
       let stS := { st1 with acc := accS }
+      -- Arms start from the pre-match env; lets stay scoped to their arm.
+      let savedEnv := st1.env
       if caseIdxs.isEmpty then
         -- Catch-all-only match: straight-line — the arm body attributes inline
         -- into the current block (binder env only; no block/terminator entity).
@@ -720,10 +773,11 @@ private partial def attrStmt
         let armPath := childPath stmtPath "Stmt.Match" "arms" defaultIdx
         let bodyPath := directChild armPath "StmtMatchArm" "body"
         let envD := match arm.pattern with
-          | .bind name => envInsertAttr stS.env (raw name) _scrutVid
-          | _ => stS.env
+          | .bind name => envInsertAttr savedEnv (raw name) _scrutVid
+          | _ => savedEnv
         let stD := { stS with env := envD }
-        attrStmts callableId arm.body.statements bodyPath stD states idx
+        let (stR, rStatus) ← attrStmts callableId arm.body.statements bodyPath stD states idx
+        pure ({ stR with env := savedEnv }, rStatus)
       else
         let orderedArmIdxs := caseIdxs ++ #[defaultIdx]
         let mut stA := stS
@@ -738,8 +792,8 @@ private partial def attrStmt
             (SemanticEntityRefV1.block callableId (UInt32.ofNat armBlockId)) bodyPath
           -- A bind arm's binder maps to the scrutinee value (same env slot).
           let envA := match arm.pattern with
-            | .bind name => envInsertAttr stA.env (raw name) _scrutVid
-            | _ => stA.env
+            | .bind name => envInsertAttr savedEnv (raw name) _scrutVid
+            | _ => savedEnv
           let stA0 : BodyAttrV1 := { stA with
             blockId := armBlockId, nextBlockId := armBlockId + 1, nextInstr := 0,
             env := envA, acc := accA }
@@ -761,9 +815,95 @@ private partial def attrStmt
             (SemanticEntityRefV1.block callableId (UInt32.ofNat joinId)) stmtPath
           pure ({ stA with
             blockId := joinId, nextBlockId := joinId + 1, nextInstr := 0,
-            acc := accJoin }, .open_)
-  | .let_ _ _ _ => failUnsupported "S2 provenance does not support let"
-  | .for_ _ _ _ _ _ => failUnsupported "S2 provenance does not support for"
+            env := savedEnv, acc := accJoin }, .open_)
+  | .let_ name _ value => do
+      -- Immutable binding: the RHS attributes its own entities; the let
+      -- itself emits no instruction (mirroring the normalizer's env insert).
+      let valuePath := directChild stmtPath "Stmt.Let" "value"
+      let (vid, st1) ← attrExpr callableId value valuePath st states idx
+      pure ({ st1 with env := envInsertAttr st1.env (raw name) vid }, .open_)
+  | .for_ binder start endExclusive _bound body => do
+      let startPath := directChild stmtPath "Stmt.For" "start"
+      let (_sVid, st1) ← attrExpr callableId start startPath st states idx
+      let endPath := directChild stmtPath "Stmt.For" "endExclusive"
+      let (_eVid, st2) ← attrExpr callableId endExclusive endPath st1 states idx
+      -- Pre-header jump terminator binds the for statement.
+      let jumpEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat st2.blockId)
+      let accJ ← attrPushPath st2.acc idx jumpEntity stmtPath
+      -- Header block and induction param (value id from the canonical
+      -- block-param range) both bind the for statement.
+      let headerId := st2.nextBlockId
+      let iVid := UInt32.ofNat (st2.callableParamCount + st2.nextBlockParamOrdinal)
+      let accH ← attrPushPath accJ idx
+        (SemanticEntityRefV1.block callableId (UInt32.ofNat headerId)) stmtPath
+      let accI ← attrPushPath accH idx
+        (SemanticEntityRefV1.value callableId iVid) stmtPath
+      -- Header condition (i < endExclusive): instruction and result value
+      -- bind the for statement (synthesized comparison).
+      let condVid := st2.nextValueId
+      let condInstrEntity := SemanticEntityRefV1.instruction callableId
+        (UInt32.ofNat headerId) 0
+      let condValEntity := SemanticEntityRefV1.value callableId condVid
+      let accC1 ← attrPushPath accI idx condInstrEntity stmtPath
+      let accC2 ← attrPushPath accC1 idx condValEntity stmtPath
+      -- Header branch terminator binds the for statement.
+      let branchEntity := SemanticEntityRefV1.terminator callableId
+        (UInt32.ofNat headerId)
+      let accB ← attrPushPath accC2 idx branchEntity stmtPath
+      -- Body block: the binder scopes to the induction param.
+      let bodyId := headerId + 1
+      let bodyPath := directChild stmtPath "Stmt.For" "body"
+      let accBody ← attrPushPath accB idx
+        (SemanticEntityRefV1.block callableId (UInt32.ofNat bodyId)) bodyPath
+      let stB0 : BodyAttrV1 := { st2 with
+        blockId := bodyId
+        nextBlockId := bodyId + 1
+        nextInstr := 0
+        nextValueId := condVid + 1
+        nextBlockParamOrdinal := st2.nextBlockParamOrdinal + 1
+        env := envInsertAttr st2.env (raw binder) iVid
+        acc := accBody
+      }
+      let (stB, bodyStatus) ← attrStmts callableId body.statements bodyPath stB0 states idx
+      let stL ← match bodyStatus with
+        | .open_ => do
+            -- Latch: synthesized literal 1, increment, and back-edge jump
+            -- all bind the for statement.
+            let oneVid := stB.nextValueId
+            let oneInstrEntity := SemanticEntityRefV1.instruction callableId
+              (UInt32.ofNat stB.blockId) (UInt32.ofNat stB.nextInstr)
+            let oneValEntity := SemanticEntityRefV1.value callableId oneVid
+            let acc1 ← attrPushPath stB.acc idx oneInstrEntity stmtPath
+            let acc2 ← attrPushPath acc1 idx oneValEntity stmtPath
+            let incVid := oneVid + 1
+            let incInstrEntity := SemanticEntityRefV1.instruction callableId
+              (UInt32.ofNat stB.blockId) (UInt32.ofNat (stB.nextInstr + 1))
+            let incValEntity := SemanticEntityRefV1.value callableId incVid
+            let acc3 ← attrPushPath acc2 idx incInstrEntity stmtPath
+            let acc4 ← attrPushPath acc3 idx incValEntity stmtPath
+            let latchJumpEntity := SemanticEntityRefV1.terminator callableId
+              (UInt32.ofNat stB.blockId)
+            let acc5 ← attrPushPath acc4 idx latchJumpEntity stmtPath
+            pure { stB with
+              nextValueId := incVid + 1
+              nextBlockId := stB.blockId + 1
+              acc := acc5
+            }
+        -- Body returns/reverts on every path: no latch, no back edge.
+        | .closed => pure stB
+      -- Exit block binds the for statement; the env is restored so the
+      -- binder and body lets stay scoped to the loop.
+      let exitId := stL.nextBlockId
+      let accX ← attrPushPath stL.acc idx
+        (SemanticEntityRefV1.block callableId (UInt32.ofNat exitId)) stmtPath
+      pure ({ stL with
+        blockId := exitId
+        nextBlockId := exitId + 1
+        nextInstr := 0
+        env := st2.env
+        acc := accX
+      }, .open_)
   | .revert _ args => do
       -- Args attribute in declaration order; the revert terminator binds the
       -- statement node and closes the path (mirroring the normalizer).
@@ -817,10 +957,12 @@ private def attrBlock
   for (name, vid) in params do
     env := envInsertAttr env name vid
   let st : BodyAttrV1 := {
-    nextValueId := UInt32.ofNat params.size
+    nextValueId := UInt32.ofNat (params.size + countForLoopsStmtsV1 body.statements)
     nextInstr := 0
     blockId := 0
     nextBlockId := 1
+    nextBlockParamOrdinal := 0
+    callableParamCount := params.size
     nextEffectId := 0
     env := env
     acc := accB

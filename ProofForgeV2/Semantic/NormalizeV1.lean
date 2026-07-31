@@ -30,10 +30,14 @@
       Bool literals); one TypeId per distinct shape, interned on first actual
       use in source traversal order. State/parameter positions stay
       UInt64-only; entry/view results may be UInt64, Unit, or Bool
-    * callables: multi-block forward-only CFG (entryBlock=0, dense block ids,
-      no block params, empty loopBounds, invariantSteps=none; every emitted
-      edge points to a higher block id, so no back edges exist);
-      empty constants/events/errors/invariants
+    * callables: multi-block CFG (entryBlock=0, dense block ids,
+      invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
+      lower to a single-param header block (the induction variable), a
+      branch, and a latch with the only back edge; `loopBounds` records
+      exactly that (header, latch, N) edge in ascending order. Non-loop
+      edges still point forward; block params appear only on loop headers
+      * statements: immutable `let` bindings lower to environment entries
+      (the RHS evaluates once; reassignment via `assign` fails closed)
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
       before encode/hash; companion provenance only via
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
@@ -52,9 +56,10 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * broadening beyond the forward-only public UInt64 add/sub + comparison +
-      bare-assert + if/match-literal envelope (block params, loops, let
-      bindings, match expressions, aggregates, effects)
+    * broadening beyond the public UInt64 arithmetic/comparison/bare-assert +
+      if/match-literal + revert/emit + pure-fn + immutable-let + bounded-for
+      envelope (loop-carried locals beyond the induction variable, mutable
+      locals, match expressions, aggregates, external calls)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -290,28 +295,45 @@ private def fnLookup (table : FnTableV1) (name : String) :
 live: comparison/Bool-literal lowering interns shapes on first actual use so
 existing programs keep byte-identical type tables. `blocks` holds completed
 blocks in id order; `instructions` accumulates the current open block.
-`nextEffectId` counts emitted effect instructions (emit) in
-BlockId/instruction order, which is exactly the canonical EffectId order. -/
+`currentParams` carries the open block's params (only loop headers have any
+in this envelope: exactly the induction variable). `loopBounds` accumulates
+static loop-bound entries in completion order and is sorted into canonical
+ascending (header, backEdgeFrom) order at callable assembly. `nextEffectId`
+counts emitted effect instructions (emit) in BlockId/instruction order, which
+is exactly the canonical EffectId order. Loop-header block params draw from
+`callableParamCount + nextBlockParamOrdinal` (creation order == BlockId
+order), and `nextValueId` starts past the syntactically counted header-param
+range, so the SPEC §6 canonical three-pass ValueId order (callable params →
+block params → instruction results) holds by construction with no remap. -/
 structure BodyStateV1 where
   blocks : Array BlockV1
   instructions : Array InstructionV1
+  currentParams : Array BlockParameterV1
+  loopBounds : Array LoopBoundV1
   nextValueId : ValueIdV1
+  nextBlockParamOrdinal : Nat
+  callableParamCount : Nat
   nextEffectId : UInt32
   env : LocalEnvV1
   interner : TypeInternerV1
 
+/-- Wire ceiling for a static loop bound (`maxIterations ≤ 4096`). -/
+private def maxWireLoopBoundV1 : UInt32 := 4096
+
 /-- Seal the current open block with a terminator and start a fresh one. Block
-ids are dense (`id == blocks.size` at seal time) and every edge emitted by
-this normalizer points forward, so `loopBounds` stays empty. -/
+ids are dense (`id == blocks.size` at seal time). Non-loop edges emitted by
+this normalizer point forward; the only back edge is a loop latch jumping to
+its header, recorded in `loopBounds`. -/
 private def sealCurrentBlock (st : BodyStateV1) (term : TerminatorV1) : BodyStateV1 :=
   { st with
     blocks := st.blocks.push {
       id := UInt32.ofNat st.blocks.size
-      params := #[]
+      params := st.currentParams
       instructions := st.instructions
       terminator := term
     }
-    instructions := #[] }
+    instructions := #[]
+    currentParams := #[] }
 
 /-- Whether the current control-flow path is still open (can take more
 statements / needs an explicit or implicit return) or closed (already ended
@@ -351,6 +373,90 @@ private def patchSwitch (st : BodyStateV1) (blockIdx : Nat)
   patchTerminatorAt st blockIdx fun
     | .switch scrut _ _ => .switch scrut cases defaultTarget
     | t => t
+
+/-- Count the `for` statements in a statement list, recursing through branch
+and loop bodies. Every lowered `for` allocates exactly one loop-header block
+param, so this syntactic count sizes the canonical block-param ValueId range
+(`params.size .. params.size + count`) before instruction results begin. -/
+private partial def countForLoopsStmtsV1 (stmts : Array SrcStmt) : Nat :=
+  stmts.foldl (fun acc stmt => acc + countForLoopsStmtV1 stmt) 0
+where
+  countForLoopsStmtV1 : SrcStmt → Nat
+    | .if_ _ thenBlock elseBlock? =>
+        countForLoopsStmtsV1 thenBlock.statements +
+          (elseBlock?.map (fun b => countForLoopsStmtsV1 b.statements)).getD 0
+    | .match_ _ arms =>
+        arms.foldl (fun acc arm => acc + countForLoopsStmtsV1 arm.body.statements) 0
+    | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
+    | _ => 0
+
+/-- Require an already-interned TypeId to resolve to anonymous UInt64 or Bool:
+the only types an immutable `let` binding can carry in this envelope. -/
+private def requireLetTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      if decl.name.isNone && (match decl.shape with
+          | .uint 64 => true | .bool => true | _ => false) then
+        pure ()
+      else
+        failUnsupported s!"S1 {context} requires UInt64/Bool type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
+
+/-- Derive the expected TypeId for an unannotated `let` RHS from its head
+shape. CheckV1 has already rejected integer literals without an expected
+type, so every remaining pilot shape carries an intrinsic result type. -/
+private partial def synthLetExpectedV1
+    (value : SrcExpr) (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
+  match value with
+  | .literal (.integer _) =>
+      failUnsupported "S1 let integer literal requires a type annotation"
+  | .literal (.bool _) => pure (internShape st.interner .bool)
+  | .literal (.string _) =>
+      failUnsupported "S1 normalizer supports only UInt64/Bool literals"
+  | .place (.name n) =>
+      let key := raw n
+      match envLookup st.env key with
+      | some (_, tid) => pure (st.interner, tid)
+      | none =>
+          match stateLookup states key with
+          | some (_, tid) => pure (st.interner, tid)
+          | none => failUnsupported s!"S1 bare place '{key}' is neither param nor state"
+  | .place (.field ..) =>
+      failUnsupported "S1 normalizer does not support field places"
+  | .place (.index ..) =>
+      failUnsupported "S1 normalizer does not support index places"
+  | .binary op _ _ =>
+      let srcOp := op
+      if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mul ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.div ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mod then
+        pure (internShape st.interner (.uint 64))
+      else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ne ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.le ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt ||
+          srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge then
+        pure (internShape st.interner .bool)
+      else
+        failUnsupported "S1 normalizer supports only binary arithmetic and comparisons"
+  | .unary .not _ => pure (internShape st.interner .bool)
+  | .unary _ _ => pure (internShape st.interner (.uint 64))
+  | .constructor _ _ =>
+      failUnsupported "S1 normalizer does not support constructors"
+  | .localCall callee _ =>
+      let key := raw callee
+      match fnLookup fns key with
+      | none => failUnsupported s!"S1 localCall '{key}' is not a declared fn"
+      | some (_, _, fnResultTid) => pure (st.interner, fnResultTid)
+  | .match_ _ _ =>
+      failUnsupported "S1 normalizer does not support match expressions"
 
 private def lowerPlace
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1) :
@@ -674,7 +780,10 @@ private partial def lowerStmt
       let thenId := UInt32.ofNat (condIdx + 1)
       let st2 := sealCurrentBlock st1 (.branch condVid
         { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
-      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid st2 states events errors fns
+      -- Arms start from the pre-branch env; lets stay scoped to their arm.
+      let savedEnv := st1.env
+      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid
+        { st2 with env := savedEnv } states events errors fns
       let (stT, thenJump?) := match thenStatus with
         | .closed => (stT, none)
         | .open_ =>
@@ -685,7 +794,8 @@ private partial def lowerStmt
       let elseId := UInt32.ofNat stT.blocks.size
       let (stE, elseJump?, elseClosed) ← match elseBlock? with
         | some elseBlock => do
-            let (stE0, status) ← lowerStmts elseBlock.statements resultTid stT states events errors fns
+            let (stE0, status) ← lowerStmts elseBlock.statements resultTid
+              { stT with env := savedEnv } states events errors fns
             match status with
             | .closed => pure (stE0, none, true)
             | .open_ =>
@@ -710,7 +820,7 @@ private partial def lowerStmt
           let stP := match elseJump? with
             | some j => patchJumpTarget stP j joinId
             | none => stP
-          pure (stP, .open_)
+          pure ({ stP with env := savedEnv }, .open_)
   | .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S1 match requires at least one arm"
@@ -776,19 +886,25 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => st1
           | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
-        lowerStmts defaultBody.statements resultTid stD states events errors fns
+        let (stR, rStatus) ← lowerStmts defaultBody.statements resultTid stD
+          states events errors fns
+        -- The catch-all binder and body lets stay scoped to the arm.
+        pure ({ stR with env := st1.env }, rStatus)
       else
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         -- Lower each literal arm body into its own block; record exact case
-        -- targets and jump-back-patch slots as we go.
+        -- targets and jump-back-patch slots as we go. Every arm starts from
+        -- the pre-match env so lets stay scoped to their arm.
+        let savedEnv := st1.env
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
         let mut closedCount : Nat := 0
         for (_, _, body) in caseArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let (stB, status) ← lowerStmts body.statements resultTid stA states events errors fns
+          let (stB, status) ← lowerStmts body.statements resultTid
+            { stA with env := savedEnv } states events errors fns
           stA := stB
           match status with
           | .closed => closedCount := closedCount + 1
@@ -798,8 +914,8 @@ private partial def lowerStmt
         -- Default arm: optional binder maps to the scrutinee value.
         let defaultId := UInt32.ofNat stA.blocks.size
         let stD := match defaultBinder? with
-          | none => stA
-          | some name => { stA with env := envInsert stA.env (raw name) scrutVid scrutTid }
+          | none => { stA with env := savedEnv }
+          | some name => { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
         let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states events errors fns
         stA := stD
         match dStatus with
@@ -826,9 +942,91 @@ private partial def lowerStmt
           let stP := patchSwitch stA scrutIdx switchCases (some {
             blockId := defaultId, args := #[] })
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
-          pure (stP, .open_)
-  | .let_ _ _ _ => failUnsupported "S1 normalizer does not support let"
-  | .for_ _ _ _ _ _ => failUnsupported "S1 normalizer does not support for"
+          pure ({ stP with env := savedEnv }, .open_)
+  | .let_ name typeAnn value => do
+      -- Immutable SSA binding: the RHS evaluates exactly once and the name is
+      -- scoped to the enclosing block (branch/loop bodies save and restore
+      -- the env). Reassignment via `assign` fails closed at the assign arm
+      -- because env-bound names are never state targets.
+      let (i1, tid) ← match typeAnn with
+        | some ann => internSourceType st.interner ann
+        | none => synthLetExpectedV1 value st states fns
+      requireLetTypeId i1.types tid "let binding"
+      let st0 := { st with interner := i1 }
+      let (vid, vtid, st1) ← lowerExpr value tid st0 states fns
+      unless vtid == tid do
+        return ← failUnsupported s!"S1 let '{raw name}' type mismatch"
+      pure ({ st1 with env := envInsert st1.env (raw name) vid tid }, .open_)
+  | .for_ binder start endExclusive bound body => do
+      let (iU, u64Tid) := internShape st.interner (.uint 64)
+      let (iB, boolTid) := internShape iU .bool
+      let st0 := { st with interner := iB }
+      let (sVid, sTid, st1) ← lowerExpr start u64Tid st0 states fns
+      unless sTid == u64Tid do
+        return ← failUnsupported "S1 for start must be UInt64"
+      let (eVid, eTid, st2) ← lowerExpr endExclusive u64Tid st1 states fns
+      unless eTid == u64Tid do
+        return ← failUnsupported "S1 for end must be UInt64"
+      unless bound ≤ maxWireLoopBoundV1 do
+        return ← failUnsupported "S1 for bound exceeds the wire loop maximum"
+      -- Pre-header: enter the loop with the start value. The header id is
+      -- the next block after the sealed pre-header. The induction param
+      -- draws from the canonical block-param range (creation order ==
+      -- BlockId order), keeping instruction results above it.
+      let headerIdx := st2.blocks.size + 1
+      let headerId := UInt32.ofNat headerIdx
+      let iVid := UInt32.ofNat (st2.callableParamCount + st2.nextBlockParamOrdinal)
+      let st3 := { st2 with nextBlockParamOrdinal := st2.nextBlockParamOrdinal + 1 }
+      let st4 := sealCurrentBlock st3 (.jump { blockId := headerId, args := #[sVid] })
+      -- Header: the induction variable is the sole block param; the condition
+      -- `i < endExclusive` gates the body. The latch's `i + 1` cannot
+      -- overflow: the body only runs while i < end ≤ UInt64.max.
+      let st5 := { st4 with currentParams := #[{ valueId := iVid, typeId := u64Tid }] }
+      let condVid := st5.nextValueId
+      let condInstr : InstructionV1 := {
+        result := some { valueId := condVid, typeId := boolTid }
+        op := .binary BinaryOpV1.lt iVid eVid
+      }
+      let bodyId := UInt32.ofNat (st5.blocks.size + 1)
+      let st6 := sealCurrentBlock { st5 with
+        instructions := st5.instructions.push condInstr
+        nextValueId := condVid + 1 } (.branch condVid
+          { blockId := bodyId, args := #[] } { blockId := 0, args := #[] })
+      -- Body: the binder scopes to the induction param; the pre-loop env is
+      -- restored at the exit so body lets never leak past the loop.
+      let savedEnv := st2.env
+      let (stB, bodyStatus) ← lowerStmts body.statements resultTid
+        { st6 with env := envInsert savedEnv (raw binder) iVid u64Tid }
+        states events errors fns
+      let stL ← match bodyStatus with
+        | .open_ =>
+            let latchIdx := stB.blocks.size
+            let oneVid := stB.nextValueId
+            let oneInstr : InstructionV1 := {
+              result := some { valueId := oneVid, typeId := u64Tid }
+              op := .literal u64Tid (encodeU64le 1)
+            }
+            let incVid := oneVid + 1
+            let incInstr : InstructionV1 := {
+              result := some { valueId := incVid, typeId := u64Tid }
+              op := .binary BinaryOpV1.add iVid oneVid
+            }
+            let stSealed := sealCurrentBlock { stB with
+              instructions := (stB.instructions.push oneInstr).push incInstr
+              nextValueId := incVid + 1 }
+              (.jump { blockId := headerId, args := #[incVid] })
+            pure { stSealed with
+              loopBounds := stSealed.loopBounds.push {
+                header := headerId
+                backEdgeFrom := UInt32.ofNat latchIdx
+                maxIterations := bound
+              } }
+        -- Body returns/reverts on every path: no back edge exists, so no
+        -- loop-bound entry is recorded (the header degenerates to a one-shot).
+        | .closed => pure stB
+      -- Exit: back-patch the header's else target and restore the env.
+      let exitId := UInt32.ofNat stL.blocks.size
+      pure ({ patchBranchElse stL headerIdx exitId with env := savedEnv }, .open_)
   | .revert errorName args => do
       let key := raw errorName
       match errorLookup errors key with
@@ -882,28 +1080,38 @@ private def lowerBlock
     (interner : TypeInternerV1) (states : StateTableV1)
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
     (allowImplicitReturnNone : Bool) :
-    Except NormalizeErrorV1 (Array BlockV1 × TypeInternerV1) := do
+    Except NormalizeErrorV1 (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1) := do
   let mut env := emptyEnv
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
   let st : BodyStateV1 := {
     blocks := #[]
     instructions := #[]
-    nextValueId := UInt32.ofNat params.size
+    currentParams := #[]
+    loopBounds := #[]
+    nextValueId := UInt32.ofNat (params.size + countForLoopsStmtsV1 body.statements)
+    nextBlockParamOrdinal := 0
+    callableParamCount := params.size
     nextEffectId := 0
     env := env
     interner := interner
   }
   let (st', status) ← lowerStmts body.statements resultTid st states events errors fns
+  -- Canonical ascending (header, backEdgeFrom) loop-bound order.
+  let finish := fun (stF : BodyStateV1) =>
+    (stF.blocks,
+      stF.loopBounds.qsort (fun a b =>
+        a.header < b.header || (a.header == b.header && a.backEdgeFrom < b.backEdgeFrom)),
+      stF.interner)
   match status with
   | .closed =>
       -- Body ended in return on every path; the trailing open block (if any
       -- instructions were sealed already) is complete.
-      pure (st'.blocks, st'.interner)
+      pure (finish st')
   | .open_ =>
       if allowImplicitReturnNone then
         let st'' := sealCurrentBlock st' (TerminatorV1.return_ none)
-        pure (st''.blocks, st''.interner)
+        pure (finish st'')
       else
         failUnsupported "S1 normalizer requires explicit return for entry/view"
 
@@ -929,7 +1137,7 @@ private def lowerParams
 private def mkCallable
     (id : CallableIdV1) (kind : CallableKindV1) (name : Option String)
     (params : Array ParameterV1) (result : CallableResultV1)
-    (blocks : Array BlockV1) :
+    (blocks : Array BlockV1) (loopBounds : Array LoopBoundV1) :
     CallableV1 :=
   {
     id
@@ -939,7 +1147,7 @@ private def mkCallable
     result
     entryBlock := 0
     blocks
-    loopBounds := #[]
+    loopBounds
     invariantSteps := none
   }
 
@@ -1065,12 +1273,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (blocks, interner''') ←
+        let (blocks, loopBounds, interner''') ←
           lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable true
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
-          { typeId := unitTid, visibility := VisibilityV1.public_ } blocks)
+          { typeId := unitTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
     | .entry e =>
         let (interner', params) ← lowerParams e.params interner
@@ -1078,12 +1286,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
-        let (blocks, interner''') ←
+        let (blocks, loopBounds, interner''') ←
           lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
     | .view v =>
         let (interner', params) ← lowerParams v.params interner
@@ -1091,12 +1299,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (blocks, interner''') ←
+        let (blocks, loopBounds, interner''') ←
           lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
     | .struct _ =>
         return ← failUnsupported "S1 normalizer does not support struct"
@@ -1115,12 +1323,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         -- Fn purity: the body resolves bare places against an empty state
         -- table, so any state name fails closed (fn effects are revert-only).
         let emptyStates : StateTableV1 := ⟨#[]⟩
-        let (blocks, interner''') ←
+        let (blocks, loopBounds, interner''') ←
           lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable false
         interner := interner'''
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
-          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks)
+          { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
         callableId := callableId + 1
     | .invariant _ =>
         return ← failUnsupported "S1 normalizer does not support invariant"

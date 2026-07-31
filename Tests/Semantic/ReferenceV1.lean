@@ -679,6 +679,111 @@ private unsafe def testArithUnaryReferenceSlice
   expectReturned "arith-ref-bitnot" bits fourteenState
     (some (refU64 u64Tid 18446744073709551615)) #[]
 
+/-- Bounded for loops and immutable lets on the admitted reference machine:
+    sum accumulation, zero-trip, exact boundExceeded semantics (the back edge
+    after the (N+1)-th body execution reverts), and let single-evaluation. -/
+private unsafe def testLetForReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "LoopRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry never(n : UInt64) : UInt64 do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    for i in one ..< n bounded 0 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n" ++
+    "  entry square(dummy : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := count + 1\n" ++
+    "    count := x * x\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "loop-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"loop-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"loop-ref: validate failed: {repr e}"
+  let admitted ← admitOk "loop-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let addUpId : CallableIdV1 := 1
+  let scanId : CallableIdV1 := 2
+  let tightId : CallableIdV1 := 3
+  let neverId : CallableIdV1 := 4
+  let squareId : CallableIdV1 := 5
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"loop-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0]) emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "loop-ref-init" initPost zeroState none #[]
+  -- addUp(1): limit = 5, i ∈ {1,2,3,4} → count = 10.
+  let added :=
+    stepReferenceSliceV1 admitted zeroState (inv addUpId #[refU64 u64Tid 1]) emptyResponses
+  let tenState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 10) }
+  expectReturned "loop-ref-addUp" added tenState (some (refU64 u64Tid 10)) #[]
+  -- addUp(6): limit = 10, i ∈ {6,7,8,9} → count = 10 + 30 = 40.
+  let added2 :=
+    stepReferenceSliceV1 admitted tenState (inv addUpId #[refU64 u64Tid 6]) emptyResponses
+  let fortyState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 40) }
+  expectReturned "loop-ref-addUp2" added2 fortyState (some (refU64 u64Tid 40)) #[]
+  -- scan(7): start == end → zero iterations, state and result unchanged.
+  let scanned :=
+    stepReferenceSliceV1 admitted fortyState (inv scanId #[refU64 u64Tid 7]) emptyResponses
+  expectReturned "loop-ref-scan" scanned fortyState (some (refU64 u64Tid 40)) #[]
+  -- addUpTight(1): four iterations exceed bound 3; the back edge after the
+  -- fourth body execution reverts boundExceeded with the pre-state kept.
+  let tight :=
+    stepReferenceSliceV1 admitted fortyState (inv tightId #[refU64 u64Tid 1]) emptyResponses
+  match tight with
+  | .reverted (.standard code) st =>
+      expect (code == .boundExceeded) s!"loop-ref-tight: code, got {repr code}"
+      expect (logicalStateEq st fortyState) "loop-ref-tight: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"loop-ref-tight: expected standard revert, got {repr other}"
+  -- never(2): bound 0 rejects the first back edge; never(1) is a zero-trip.
+  let never2 :=
+    stepReferenceSliceV1 admitted fortyState (inv neverId #[refU64 u64Tid 2]) emptyResponses
+  match never2 with
+  | .reverted (.standard code) st =>
+      expect (code == .boundExceeded) s!"loop-ref-never2: code, got {repr code}"
+      expect (logicalStateEq st fortyState) "loop-ref-never2: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"loop-ref-never2: expected standard revert, got {repr other}"
+  let never1 :=
+    stepReferenceSliceV1 admitted fortyState (inv neverId #[refU64 u64Tid 1]) emptyResponses
+  expectReturned "loop-ref-never1" never1 fortyState (some (refU64 u64Tid 40)) #[]
+  -- square: let x = count + 1 evaluated once → count = 41 * 41 = 1681.
+  let squared :=
+    stepReferenceSliceV1 admitted fortyState (inv squareId #[refU64 u64Tid 0]) emptyResponses
+  let squareState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 1681) }
+  expectReturned "loop-ref-square" squared squareState (some (refU64 u64Tid 1681)) #[]
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1605,6 +1710,7 @@ unsafe def run : IO Unit := do
   testEmitRevertReferenceSlice session
   testFnLocalCallReferenceSlice session
   testArithUnaryReferenceSlice session
+  testLetForReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects
