@@ -111,6 +111,28 @@ example (bytes : TransparentByteSpineV1) (offset count : Nat) :
       takeSpineBytesV1 bytes offset count :=
   takeBytesAtV1_refinesSpine bytes offset count
 
+example : consumeMagicSpineBytesV1 [0xff, 0x70, 0x66, 0, 0xee] 1 [0x70, 0x66, 0] =
+    .ok 4 := by rfl
+
+example : consumeMagicSpineBytesV1 [0x70, 0x66] 0 [0x70, 0x66, 0] =
+    .error .truncated := by rfl
+
+example : consumeMagicSpineBytesV1 [0x70, 0x67, 0] 0 [0x70, 0x66, 0] =
+    .error .badMagic := by rfl
+
+example : consumeMagicSpineBytesV1 [0x70] 3 [] = .ok 3 := by rfl
+
+example : consumeMagicSpineBytesV1 [0x70] 3 [0x70] = .error .truncated := by rfl
+
+example : consumeMagicSpineBytesV1 [0x71] 0 [0x70, 0x66] =
+    .error .truncated := by rfl
+
+example (input want : TransparentByteSpineV1) (offset : Nat) :
+    consumeMagicBytesAtV1 (ByteArray.mk input.toArray) offset
+        (ByteArray.mk want.toArray) =
+      consumeMagicSpineBytesV1 input offset want :=
+  consumeMagicBytesAtV1_refinesSpine input want offset
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
@@ -282,6 +304,8 @@ private def testEmptyProgramRoundtrip : IO Unit := do
     (decodeSemanticProgramDataV1 (bytes.push 0))
   -- wrong magic
   let magicLen := semanticProgramMagicV1.toUTF8.size + 1
+  expectErr "truncated magic" .truncated
+    (decodeSemanticProgramDataV1 (bytes.extract 0 (magicLen - 1)))
   let badMagic := ("pf.wrong.v1".toUTF8.push 0).append
     (bytes.extract magicLen bytes.size)
   expectErr "wrong magic" .badMagic (decodeSemanticProgramDataV1 badMagic)

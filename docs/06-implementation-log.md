@@ -135,6 +135,18 @@ normative: false
 - Production：B11a/B11a2/B11b1/B11b2/B12 native safe-open/supervisor 层整体删除（`Frontend/SafeOpen*`、`DarwinSupervisor*`、native C、两个 worker exe 与 `b12-cli-source-authority-deletion-gate`）；产品 CLI `build`/`build-counter` 源读取恢复为进程内 `Loader.selectProgramV1Product`（validated project root 下 `IO.FS.readFile`）→ `normalizeProgramLocatedV1` → `compileProgramProductV1`；`Frontend/ProtocolV1`、`WorkerV1`/`WorkerMainV1` 协议与 worker 面保留。原监督切面的 contained/host-race formal 资格随层删除不再适用，formal TASK-D1-08 superseded；fail-closed 与无 fallback 产品边界由 in-process Loader + located Normalize 门禁保持。
 - CI：lakefile `extern_lib` 删除修复 Linux 工具链 stddef/libc++ 链接失败（CI 自 2026-07-26 持续红）；测试套件按内存上限拆分为独立分片可执行（core/typed/language-b/language-c/aggregate/language-heavy/source/source-b/targets，各分片峰值 <5.2 GB），两个重套件退出默认链；CI source-core job 预置并物化 Linux tool root（solc/wat2wasm/anvil/cast/jv）。amd64 ubuntu-24.04 容器全量验证。
 
+## 2026-07-31 — proof-validation magic/version prefix refinement
+
+- Production/Proof：新增transparent与production exact magic/version-prefix primitive；production
+  `consumeMagic`直接委托该primitive并保留原input/nesting。refinement theorem复用exact-take bridge，
+  再以`Array.beq_toList`证明ByteArray/List prefix equality一致，不展开`copySlice`。
+- Error contract/Tests：short input优先`.truncated`，足长mismatch才`.badMagic`，success返回exact next
+  offset；固定nonzero offset success、short/mismatch、offset越界empty/nonempty want、short-but-already-
+  mismatching precedence，以及真实`decodeSemanticProgramDataV1`截断magic路径。blocker-only review为
+  APPROVE，完整Wire suite通过。
+- Boundary：magic中包含v1版本文本与NUL，因此该切片闭合root magic/version prefix；root tagged record、
+  field count和完整transport/program refinement仍pending。formal TASK/TST状态不变。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

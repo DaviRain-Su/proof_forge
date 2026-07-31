@@ -910,6 +910,46 @@ theorem takeBytesAtV1_refinesSpine (bytes : TransparentByteSpineV1)
     simp [List.extract_eq_take_drop]
   · rfl
 
+/-- Consume one exact magic/version prefix on the transparent proof spine.
+    Short input remains `.truncated`; an equal-length mismatch is `.badMagic`. -/
+def consumeMagicSpineBytesV1 (input : TransparentByteSpineV1) (offset : Nat)
+    (want : List UInt8) : Except SemanticWireErrorV1 Nat :=
+  match takeSpineBytesV1 input offset want.length with
+  | .error e => .error e
+  | .ok got =>
+      if got == want then .ok (offset + want.length) else .error .badMagic
+
+/-- Production exact magic/version-prefix primitive. -/
+def consumeMagicBytesAtV1 (input : ByteArray) (offset : Nat) (want : ByteArray) :
+    Except SemanticWireErrorV1 Nat :=
+  match takeBytesAtV1 input offset want.size with
+  | .error e => .error e
+  | .ok got =>
+      if got == want then .ok (offset + want.size) else .error .badMagic
+
+/-- Magic/version-prefix refinement, preserving the `.truncated` versus
+    `.badMagic` error boundary and the exact next offset. -/
+theorem consumeMagicBytesAtV1_refinesSpine (input want : List UInt8) (offset : Nat) :
+    consumeMagicBytesAtV1 (ByteArray.mk input.toArray) offset
+        (ByteArray.mk want.toArray) =
+      consumeMagicSpineBytesV1 input offset want := by
+  have hs : (ByteArray.mk want.toArray).size = want.length := rfl
+  have hr := remainingBytesAtV1_refinesSpine input offset
+  unfold consumeMagicBytesAtV1 consumeMagicSpineBytesV1
+    takeBytesAtV1 takeSpineBytesV1
+  rw [hs, hr]
+  by_cases h : want.length ≤ spineRemainingV1 input offset
+  · simp only [if_pos h]
+    change (if ((ByteArray.mk input.toArray).extract offset (offset + want.length)).data ==
+        want.toArray then Except.ok (offset + want.length)
+      else Except.error SemanticWireErrorV1.badMagic) =
+      (if (input.drop offset).take want.length == want then
+        Except.ok (offset + want.length)
+      else Except.error SemanticWireErrorV1.badMagic)
+    rw [ByteArray.data_extract, ← Array.beq_toList, Array.toList_extract]
+    simp [List.extract_eq_take_drop]
+  · simp only [if_neg h]
+
 private def takeByte (c : Cursor) : Except SemanticWireErrorV1 (UInt8 × Cursor) := do
   let byte ← readByteAtV1 c.input c.offset
   pure (byte, ⟨c.input, c.offset + 1, c.nesting⟩)
@@ -1933,12 +1973,8 @@ private def encodeMagicPrefix (magic : String) : ByteArray :=
 
 private def consumeMagic (magic : String) : Decoder Unit := fun c => do
   let want := encodeMagicPrefix magic
-  unless remaining c ≥ want.size do
-    return ← err .truncated
-  let (got, c) ← takeBytes c want.size
-  unless got == want do
-    return ← err .badMagic
-  pure ((), c)
+  let offset ← consumeMagicBytesAtV1 c.input c.offset want
+  pure ((), ⟨c.input, offset, c.nesting⟩)
 
 private def checkTableSize (size : Nat) : Except SemanticWireErrorV1 Unit := do
   unless size ≤ maxTableElements do
