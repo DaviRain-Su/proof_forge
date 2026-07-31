@@ -689,11 +689,13 @@ s1-evm-semantic-plan-deletion-gate:
     rg -q 'consumeCurrentSegmentV1' "$source"
     # checked-arithmetic makers and segment discipline must survive in the
     # per-block lowering reached from lowerCallableV1 via emitRegionV1.
-    rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegmentV1' "$source"
+    # Wave G repin: loop-body sinks use the arm-whitelisted variant
+    # `consumeCurrentSegmentWithArmsV1`; the prefix pin covers both.
+    rg -Uq '(?s)private def lowerBlockInstructionsV1.*?makeCheckedAddValueV1.*?makeCheckedSubValueV1.*?consumeCurrentSegment' "$source"
     rg -Uq '(?s)private def lowerCallableV1.*?emitRegionV1' "$source"
     rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
     rg -Uq '(?s)\.checkedSub lhs rhs =>.*?if lt\(\{lhs\.value\}, \{rhs\.value\}\).*?let \{name\} := sub\(' "$source"
-    rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentV1.*?segmentStart := values\.size' "$source"
+    rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentWithArmsV1.*?segmentStart := values\.size' "$source"
     lake build ProofForgeV2.Targets.Evm Tests.Materialization.EvmSmoke Tests.Product.CounterV1Evm
     echo "s1-evm-semantic-plan-deletion-gate: ok"
 

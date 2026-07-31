@@ -1028,6 +1028,132 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
   expect (parityNr.contents.contains ": bool = !")
     "arith-ops Noir parity must render Bool NOT"
 
+/-- Deepest nested if-region depth in a Noir relation operation list (the
+    bounded-loop unrolling shape pin). -/
+private partial def countIfRegionDepthTargets
+    (ops : Array Targets.Noir.Operation) : Nat :=
+  ops.foldl (fun acc op =>
+    match op with
+    | .ifRegion _ thenOps elseOps =>
+        max acc (max (1 + countIfRegionDepthTargets thenOps)
+          (countIfRegionDepthTargets elseOps))
+    | _ => acc) 0
+
+/-- ProgramV1 LoopSum source text for the Wave G let/for leaf. -/
+private def loopSumSourceTextV1 : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program LoopSum where\n" ++
+  "  state count : UInt64\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n" ++
+  "  entry addUp(n : UInt64) : UInt64 do\n" ++
+  "    let limit : UInt64 := n + 4\n" ++
+  "    for i in n ..< limit bounded 8 do\n" ++
+  "      count := count + i\n" ++
+  "    return count\n" ++
+  "  entry scan(n : UInt64) : UInt64 do\n" ++
+  "    for i in n ..< n bounded 2 do\n" ++
+  "      count := count + 1\n" ++
+  "    return count\n" ++
+  "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+  "    for i in n ..< n + 4 bounded 3 do\n" ++
+  "      count := count + i\n" ++
+  "    return count\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n"
+
+/-- Four-target retained-V1 bounded-loop conformance: the same let+for
+    program lowers through all four capability Plans into forLoop
+    statements (induction temp, init/cond/update, static bound, body store)
+    with exact back-edge bound enforcement on each emitter surface. -/
+private unsafe def testForLoopSemanticPlans : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    loopSumSourceTextV1 "<targets-for-loop>" "Tests.Targets.LoopSum" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let evm ← liftResult <| planEvm compiled
+  let solana ← liftResult <| planSolana compiled
+  let near ← liftResult <| planNear compiled
+  let noir ← liftResult <| planNoir compiled
+
+  expect (evm.entries.map (·.name) == #["addUp", "scan", "addUpTight", "get"] &&
+      solana.entries.map (·.name) == #["addUp", "scan", "addUpTight", "get"] &&
+      near.entries.map (·.name) == #["addUp", "scan", "addUpTight", "get"])
+    "all three account-model targets must carry addUp/scan/addUpTight/get in source order"
+  expect (noir.relations.map (·.name) ==
+      #["init", "addUp", "scan", "addUpTight", "get"])
+    "Noir relations must be init/addUp/scan/addUpTight/get in source order"
+
+  expect (evm.entries[0]!.body == #[
+      .forLoop 1 2 8
+        (.param 0)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 0) (.literal 4)))
+        (.add (.temp 1) (.literal 1))
+        #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.temp 1) }],
+      .returnValue (.storageLoad 0)])
+    "EVM addUp must lower let+for into forLoop with counter/maxIterations/init/cond/update/body"
+  expect (solana.entries[0]!.body == #[
+      .forLoop 1
+        (.param 8)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 8) (.literal 4)))
+        (.checkedAdd (.temp 1) (.literal 1))
+        8
+        #[.store { accountIndex := 0, byteOffset := 8, value := .checkedAdd (.stateLoad 0 8) (.temp 1) }],
+      .returnValue (.stateLoad 0 8)])
+    "Solana addUp must lower let+for into forLoop with init/cond/update/max/body"
+  expect (near.entries[0]!.body == #[
+      .forLoop 0
+        (.param 0)
+        (.compare .lt (.localTemp 0) (.checkedAdd (.param 0) (.literal 4)))
+        (.checkedAdd (.localTemp 0) (.literal 1))
+        8
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.localTemp 0) }],
+      .returnValue (.stateLoad 0)])
+    "NEAR addUp must lower let+for into forLoop with init/cond/update/max/body"
+  expect (noir.relations[1]!.body == #[
+      .forLoop 0 8
+        (.param 2)
+        (.compare .lt (.loopParam 0) (.checkedAdd (.param 2) (.literal 4)))
+        (.checkedAdd (.loopParam 0) (.literal 1))
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.loopParam 0) }],
+      .returnValue (.stateLoad 0)])
+    "Noir addUp must lower let+for into forLoop with slot/bound/init/cond/update/body"
+
+  liftResult <| Targets.Evm.validatePlan evm
+  liftResult <| Targets.Solana.validatePlan solana
+  liftResult <| Targets.Near.validatePlan near
+  let noirIR ← liftResult <| irNoir compiled
+  liftResult <| Targets.Noir.validateIR noirIR
+  expect (countIfRegionDepthTargets noirIR.relations[1]!.operations == 9)
+    "Noir addUp must unroll bound 8 into nine nested predicated regions"
+
+  let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
+  let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
+  let nearOutput ← liftResult <| materializeSelected TargetId.near compiled
+  let noirOutput ← liftResult <| materializeSelected TargetId.noir compiled
+  let some yulFile := evmOutput.files.find? (·.path == "LoopSum.yul") |
+    throw <| IO.userError "for-loop: missing LoopSum.yul"
+  expect (yulFile.contents.contains "for {" &&
+      yulFile.contents.contains "if eq(t2, 8)" &&
+      yulFile.contents.contains "revert(0, 0)")
+    "for-loop Yul must render native for loops with the back-edge bound revert"
+  let some sbpf := solanaOutput.files.find? (·.path == "LoopSum.sbpf-plan") |
+    throw <| IO.userError "for-loop: missing LoopSum.sbpf-plan"
+  expect (sbpf.contents.contains "loop_u64" && sbpf.contents.contains "bound {" &&
+      sbpf.contents.contains "program_error 0x1003")
+    "for-loop sbpf-plan must render loop_u64 with the loopBoundExceeded policy code"
+  let some wat := nearOutput.files.find? (·.path == "LoopSum.wat") |
+    throw <| IO.userError "for-loop: missing LoopSum.wat"
+  expect (wat.contents.contains "(loop $pf_loop" && wat.contents.contains "br_if" &&
+      wat.contents.contains "unreachable")
+    "for-loop WAT must render block/loop/br_if with the bound trap"
+  let some addUpNr := noirOutput.files.find?
+      (·.path == "relations/r1-addUp/src/main.nr") |
+    throw <| IO.userError "for-loop: missing Noir addUp relation"
+  expect (addUpNr.contents.contains "if " && addUpNr.contents.contains "assert(false)")
+    "for-loop Noir source must render unrolled predicated ifs with the bound guard"
+
 -- Fast regression for the frozen four-target retained-V1 UInt64 add/sub seam.
 set_option maxRecDepth 10000 in
 unsafe def runSemanticPlanLeafFast : IO Unit := do
@@ -1039,6 +1165,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testEmitRevertSemanticPlans
   testFnLocalCallSemanticPlans
   testArithOpsSemanticPlans
+  testForLoopSemanticPlans
 
 /-- ProgramV1 BoolPredicate source text for the Bool-result leaf. -/
 private def repeatedByte (count : Nat) (value : UInt8) : ByteArray :=
