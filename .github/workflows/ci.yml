@@ -62,12 +62,12 @@ jobs:
       # frontend .c fails with 'stddef.h file not found' (stddef.h lives in the
       # gcc private include dir on Ubuntu), and forcing the gcc headers in via
       # CPATH breaks on gcc's stdatomic.h macros. The supported alternative is
-      # LEAN_CC pointing at the distro clang, which resolves the libc headers
-      # natively and is a documented Lean configuration knob.
+      # LEAN_CC pointing at the distro clang (resolves libc headers natively),
+      # plus the distro libc++/libuv development libraries for the final link.
       - name: Provision C toolchain headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang
+          sudo apt-get install -y clang libc++-dev libc++abi-dev libuv1-dev
           echo "LEAN_CC=/usr/bin/clang" >> "$GITHUB_ENV"
 
       - name: Install Lean
