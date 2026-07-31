@@ -759,7 +759,7 @@ test-host-isolation: build
 # Fast product-document validation. It deliberately excludes task/evidence
 # qualification and all host ceremony.
 docs-check:
-    /usr/bin/python3 -I -S scripts/docs_check.py --profile development
+    /usr/bin/python3 -I -S scripts/docs_check.py
 
 # TASK-D0-08: re-pin the lean package file-set after any ProofForgeV2 source
 # change (the manifest is a committed TST-SBOM-002 input).
