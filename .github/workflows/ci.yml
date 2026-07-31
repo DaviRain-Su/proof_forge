@@ -97,6 +97,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-lake-v2-
 
+      # Lake does not garbage-collect olean artifacts of deleted modules, so a
+      # restored cache can carry orphans that break import-closure gates.
+      - name: Prune stale olean artifacts
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
+
       - name: Portable source-core gate
         run: just ci
 
