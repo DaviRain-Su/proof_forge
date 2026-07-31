@@ -3370,6 +3370,10 @@ private def validatePrimitiveAnonymousTypeKeyUniquenessV1
       | .array _ _ | .map _ _ | .option _ | .struct _ | .enum _ => false
     if isPrimitive then
       keys := keys.push (← encodeTypeShapeV1 decl.shape)
+  -- Zero/one key is unique by construction. Besides avoiding unnecessary
+  -- sorting work, this keeps the minimal closed proof subject on transparent
+  -- collection operations only.
+  if keys.size ≤ 1 then return
   let sorted := keys.qsort fun left right =>
     compareByteArrayLex left right == .lt
   let mut index : Nat := 1
@@ -3616,6 +3620,14 @@ def computeStructuralTypeClassIdsV1 (types : Array TypeDeclV1) :
     before named-name/canonical-value/signature/requirement phases. -/
 private def validateRecursiveAnonymousTypeKeyUniquenessV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  -- Without an anonymous container there is no recursive class to compare or
+  -- anonymous-only cycle to detect. Avoid constructing the runtime HashMap on
+  -- this mathematically empty path; full programs retain the existing logic.
+  let hasAnonymousContainer := types.any fun decl =>
+    match decl.shape with
+    | .array _ _ | .map _ _ | .option _ => true
+    | _ => false
+  if !hasAnonymousContainer then return
   let classIds ← computeStructuralTypeClassIdsV1 types
   -- Collect anonymous container class IDs and reject duplicates via a
   -- private sort + adjacent comparison. Public table order is unchanged.
@@ -3720,6 +3732,14 @@ private def isOptionDecl (types : Array TypeDeclV1) (id : TypeIdV1) : Bool :=
     `recursiveAnonymous`. -/
 private def validateNamedBodyOptionCycleLegalityV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  -- Primitive/Option-only tables cannot contain an edge in the induced graph.
+  -- Struct/Enum remain explicit edge sources so named-body cycles still reach
+  -- the DFS; this shortcut is intentionally narrower than "no containers".
+  let hasNonOptionEdgeSource := types.any fun decl =>
+    match decl.shape with
+    | .array _ _ | .map _ _ | .struct _ | .enum _ => true
+    | _ => false
+  if !hasNonOptionEdgeSource then return
   let n := types.size
   let mut color : Array Nat := Array.replicate n 0
   let mut stack : Array (Nat × Nat) := #[]

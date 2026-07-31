@@ -78,6 +78,19 @@ normative: false
   evidence。closed kernel theorem尝试因`validateSemanticProgramV1`无法在kernel中归约而未使用
   native_decide/axiom弱化，也未提交伪formal证明。
 
+## 2026-07-31 — proof-validation transparent TypeKey fast paths
+
+- Production：Wire TypeKey validation对singleton primitive key、无anonymous Array/Map/Option、以及无
+  non-Option edge source的primitive/Option-only graph分别在qsort、HashMap与DFS前证明式early return。
+  fast path不跳过shape encoding error，Struct/Enum仍视为edge source，既有named-body cycle与phase
+  precedence保持不变；完整程序继续走原算法。
+- Tests/Review：singleton Bool program经structure+encoder正向固定；既有primitive duplicate、recursive
+  anonymous duplicate/cycle、named Struct self-cycle及phase tests全通过。blocker-only复核确认行为保持。
+- Boundary：该切片只移除minimal closed subject路径上的runtime collection边界，尚不足以使617-byte
+  carrier在kernel中实际归约；transport `ByteArray.extract/copySlice`展开仍超过合理recDepth/time。
+  未加入第二validator、native_decide、axiom或伪proof subject。下一步需设计production ByteArray decoder
+  与透明proof-facing byte spine之间的可证明refinement，而非继续堆高reduction limits。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

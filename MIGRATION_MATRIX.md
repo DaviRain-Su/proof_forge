@@ -158,6 +158,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > standard revert code与6个fault constructor均有engineering Outcome-level命中，但完整
 > TST-SEM-002/003 corpus、target structural differential与retained evidence仍pending。
 
+> kernel theorem前置的首个透明化增量为TypeKey空/单例路径加入数学等价fast path：singleton primitive
+> 不qsort、无anonymous container不建HashMap、primitive/Option-only graph不建named-body DFS；
+> Struct/Enum cycle gate与phase precedence不变。该优化已审查通过，但closed literal validation仍受
+> transport ByteArray extract/copySlice的kernel reduction成本阻塞；未使用native_decide/axiom，也未
+> 建立未经refinement证明的第二validator。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

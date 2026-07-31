@@ -1580,6 +1580,9 @@ private def expectCallableSignaturePhase (label : String)
     `testRecursiveAnonymousTypeKeyUniqueness`. Every case drives both the
     production structure gate and the structure-gated encoder. -/
 private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
+  let singleton ← programWithTypes "PrimitiveTypeKeySingleton"
+    #[{ id := 0, name := none, shape := .bool }]
+  expectCfgOk "singleton primitive table fast path" singleton
   let distinctTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 8 },
