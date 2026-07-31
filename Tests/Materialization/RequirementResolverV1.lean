@@ -341,25 +341,33 @@ private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
   expect (rows.size == 5) "exactly five support rows"
   let expectedKeys := #[
-    ("aleo", "aleo-leo-4.0.2-u64-v1"),
-    ("evm", "evm-yul-solc-0.8.34-v1"),
-    ("near", "near-wasm-raw-u64-v1"),
-    ("noir", "noir-source-u64-relations-v1"),
-    ("solana", "solana-sbpf-plan-v1")
+    ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
+    ("evm", "evm-yul-solc-0.8.34-v1", 5),
+    ("near", "near-wasm-raw-u64-v1", 6),
+    ("noir", "noir-source-u64-relations-v1", 7),
+    ("solana", "solana-sbpf-plan-v1", 5)
   ]
   let mut i : Nat := 0
   while i < 5 do
     match rows[i]?, expectedKeys[i]? with
-    | some row, some (tid, prof) =>
+    | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
-        expect (row.supported.size == s2CatalogIdsWireOrderV1.size)
-          s!"row {i} S2 catalog size"
-        expect (row.supported.map (·.id) == s2CatalogIdsWireOrderV1)
-          s!"row {i} S2 ids wire order"
+        expect (row.supported.size == supportCount)
+          s!"row {i} support count"
+        -- Every row is a wire-order subset of the S2 catalog; only Noir
+        -- currently supports both external-call keys, and NEAR the async one.
+        let ids := row.supported.map (·.id)
+        expect (ids.all isS2CatalogIdV1) s!"row {i} ids are catalog members"
+        expect (row.supported.all fun item =>
+            item.version == s2RequirementVersionV1 && item.predicates.isEmpty)
+          s!"row {i} version/predicates"
+        let expectCalls := row.targetId == TargetId.noir
+        expect ((ids.contains "effect.synchronous-call") == expectCalls &&
+            (ids.contains "effect.asynchronous-workflow") ==
+              (expectCalls || row.targetId == TargetId.near))
+          s!"row {i} capability gate shape"
         for item in row.supported do
-          expect (item.version == s2RequirementVersionV1) s!"row {i} version 1.0.0"
-          expect (item.predicates.isEmpty) s!"row {i} empty predicates"
           match engineeringRequirementDigestV1 item.id with
           | .ok d => expect (item.digest == d) s!"row {i} digest for {item.id}"
           | .error e => throw <| IO.userError e
@@ -508,19 +516,24 @@ private def testIndexValidationNegatives : IO Unit := do
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
-  -- Unknown requirement id (replace first with garbage but keep size)
+  -- Unknown requirement id (swap the last item for a non-catalog id that
+  -- keeps wire order; the unknown-id check must fire, not dup/order/digest).
   let unknown : RequirementRequestV1 := {
-    id := "effect.event"
+    id := "effect.zzz"
     version := s2RequirementVersionV1
     digest := zeroDigest
     predicates := #[]
   }
-  let unkTrio := #[unknown, r1, r2]
+  let unkTrio ← do
+    let full ← s2Trio
+    let some first := full[0]? | throw <| IO.userError "trio0"
+    let some second := full[1]? | throw <| IO.userError "trio1"
+    pure #[first, second, unknown]
   let unkRows := #[
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 unkTrio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
+    mkRow .near CodegenProfileId.nearWasmRawU64V1 unkTrio,
+    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 unkTrio,
+    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 unkTrio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
@@ -542,7 +555,11 @@ private def testSeedPrecedence : IO Unit := do
     inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
       TargetId.evm CodegenProfileId.evmYulSolc0834V1
   expect (insp.targetId == TargetId.evm) "DI inspection target"
-  expect (insp.supported.size == s2CatalogIdsWireOrderV1.size) "DI inspection S2 catalog"
+  -- EVM declines both external-call keys: five of the seven catalog ids.
+  expect (insp.supported.size == 5 &&
+      !insp.supported.any (·.id == "effect.synchronous-call") &&
+      !insp.supported.any (·.id == "effect.asynchronous-workflow"))
+    "DI inspection EVM capability gate"
 
 private def testRequestInspectionErrors : IO Unit := do
   let trio ← s2Trio
@@ -555,10 +572,16 @@ private def testRequestInspectionErrors : IO Unit := do
   match inspectResolveRequestsV1 supported emptyProgramRequirements with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
-  -- Full S2 trio success
-  match inspectResolveRequestsV1 supported { items := trio } with
+  -- Full S2 catalog succeeds only against the all-capable Noir row...
+  let noirSupported ← match rows[2]? with
+    | some row => pure row.supported
+    | none => throw <| IO.userError "missing noir support row"
+  match inspectResolveRequestsV1 noirSupported { items := trio } with
   | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"full trio should succeed: {e.render}"
+  | .error e => throw <| IO.userError s!"full trio on noir should succeed: {e.render}"
+  -- ...while EVM's capability gate declines the external-call keys.
+  expectErrorCode (inspectResolveRequestsV1 supported { items := trio })
+    "PF-REQ-UNSUPPORTED" "evm declines external-call keys"
   -- Unknown id
   let unknown : RequirementRequestV1 := {
     id := "disclosure.private-witness"
@@ -811,7 +834,10 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
     "CLI emit profile"
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
-      let expectedIds := String.intercalate ", " s2CatalogIdsWireOrderV1.toList
+      let expectedIds := String.intercalate ", "
+        ((s2CatalogIdsWireOrderV1.filter fun id =>
+          id != "effect.asynchronous-workflow" &&
+            id != "effect.synchronous-call").toList)
       expect
         (text ==
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
@@ -906,7 +932,7 @@ private def testRequestResolveNegativesOnInspection : IO Unit := do
     (inspectResolveRequestsV1 supported { items := #[r2, r1, r0] })
     "PF-REQ-UNSUPPORTED" "inspection reverse-order requests"
   let unknownWithPred : RequirementRequestV1 := {
-    id := "effect.synchronous-call"
+    id := "disclosure.private-witness"
     version := s2RequirementVersionV1
     digest := zeroDigest
     predicates := #[.boolEquals "flag" true]

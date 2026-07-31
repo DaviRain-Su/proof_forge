@@ -1250,10 +1250,19 @@ private unsafe def testArithOps : IO Unit := do
     "ArithOps Yul must render mod("
   expect (yul.contains "not(")
     "ArithOps Yul must render bitwise not("
+  expect (yul.contains "and(not(")
+    "ArithOps Yul must mask bitwise not() to the UInt64 word (2^64-1 - x)"
   expect (yul.contains "iszero(")
     "ArithOps Yul must render iszero( for boolNot and/or zero-divisor guards"
   expect (yul.contains "revert(0, 0)")
     "ArithOps Yul must contain overflow/zero-divisor revert(0, 0) guards"
+  -- The UInt64 ceiling appears once per guarded op: sload, checkedMul,
+  -- checkedAdd (sub(max, rhs)), and the bitNot mask. Fewer occurrences
+  -- means a guard regressed (e.g. checkedMul previously used a round-trip
+  -- div check that could never fire on 256-bit Yul arithmetic).
+  let maskCount := (yul.splitOn "0xffffffffffffffff").length - 1
+  expect (maskCount >= 4)
+    s!"ArithOps Yul must carry four UInt64-ceiling guard uses, got {maskCount}"
   -- Hand-crafted negative: store a boolNot into a UInt64 slot fails closed.
   let base := plan
   let scaleEntry := base.entries[0]!
@@ -1485,6 +1494,79 @@ private unsafe def testForLoop : IO Unit := do
   -- No-loop programs remain accepted (regression guard via Counter path in run).
   pure ()
 
+/-- Wave I product gate: EVM declines both external-call requirement keys
+    because no address-bearing type exists in the public-UInt64 envelope.
+    Compile succeeds (Normalize lowers `call`/`schedule`), selection succeeds,
+    but `resolveEngineeringRequirementsV1` fails closed with PF-REQ-UNSUPPORTED
+    before any EVM Plan/Yul lowering. The EVM lowerer's explicit
+    `externalCall`/`schedule` planInvariant arms are defensive only — the
+    product path never reaches them. -/
+private unsafe def testExternalCallGate : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let callText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallGate where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let callSource ← liftResult "load CallGate" (← session.selectProgramV1
+    callText "<evm-call-gate>" "Tests.EvmCallGate" none)
+  let callCompiled ← liftResult "compile CallGate" <|
+    Compiler.compileValidatedSourceV1 callSource
+  let callSelection ← liftResult "select EVM (call)" <|
+    resolveBuildSelectionV1 TargetId.evm none
+  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"EVM must reject effect.synchronous-call with PF-REQ-UNSUPPORTED, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EVM resolveEngineeringRequirementsV1 must reject a program with call Oracle.feed"
+  -- planFromCapability is unreachable on the product path: without a capability
+  -- the defensive lowerer never runs. Pin that the call-bearing compiled carrier
+  -- cannot obtain a capability for EVM (same gate as above, re-checked).
+  match Targets.resolveEngineeringRequirementsV1 callSelection callCompiled with
+  | .error e =>
+      expect (e.render.startsWith "PF-REQ-UNSUPPORTED:")
+        s!"call gate must render PF-REQ-UNSUPPORTED:, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "call gate: capability mint must stay closed"
+
+  let scheduleText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ScheduleGate where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let scheduleSource ← liftResult "load ScheduleGate" (← session.selectProgramV1
+    scheduleText "<evm-schedule-gate>" "Tests.EvmScheduleGate" none)
+  let scheduleCompiled ← liftResult "compile ScheduleGate" <|
+    Compiler.compileValidatedSourceV1 scheduleSource
+  let scheduleSelection ← liftResult "select EVM (schedule)" <|
+    resolveBuildSelectionV1 TargetId.evm none
+  match Targets.resolveEngineeringRequirementsV1 scheduleSelection scheduleCompiled with
+  | .error e =>
+      expect (e.code == "PF-REQ-UNSUPPORTED")
+        s!"EVM must reject effect.asynchronous-workflow with PF-REQ-UNSUPPORTED, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EVM resolveEngineeringRequirementsV1 must reject a program with schedule Ledger.daily"
+  pure ()
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -1509,6 +1591,7 @@ unsafe def run : IO Unit := do
   testForLoop
   testRegionValidationNegatives
   testComparisonNegatives
+  testExternalCallGate
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

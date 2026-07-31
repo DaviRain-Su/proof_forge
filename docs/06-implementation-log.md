@@ -12,6 +12,32 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 ReferenceV1 ContextRead runtime engineering slice
+
+- Production：`ReferenceV1` admission开放Wire-owned ContextRead，不开放Commit。invocation gate从
+  selected initializer/entry/view root沿static PureCall边做bounded visited-worklist traversal，收集
+  exact key/result-TypeId集合并按key UTF-8 bytes排序；supplied rows必须strict ascending、exact match、
+  TypeId一致且value bytes canonical，否则在lifecycle与response cursor前统一`invalidInvocation`。
+- Runtime：validated context作为Machine级immutable snapshot，不复制进CallFrame；direct与nested
+  PureCall读取同一value。ContextRead按key查找并经既有result binding写入callee/local env；通过
+  static+invocation gate后仍missing或TypeId mismatch属于impossible state，映射`internalInvariant`。
+  context不进入overlay/effects，initializer身份、rollback与response terminal precedence不变。
+- Tests：encode→decode carrier覆盖initializer/entry/view、nested PureCall、repeated reads、program内
+  不可达ContextRead不污染selected root required set，以及missing/extra/duplicate/nonascending/
+  wrong-TypeId/noncanonical bytes；invalid context优先于trailing response，valid context lifecycle仍由
+  既有terminal exhaustion规则处理。Wire invariant root/reachable closure禁止保持，Commit仍unsupported。
+- Boundary：工程/nonformal；target support catalog、caller/authorizers/randomness、正式
+  `evalInvariantV1`/`InvariantTheoremV1`与formal TASK-D2-07/TST-SEM-002/003仍pending。
+## 2026-07-31 — 功能缺陷审计修复：EVM checkedMul 溢出 guard / EVM bitNot 64 位掩码 / Noir 2^k 急切计算
+
+- Context/State：全量功能缺陷审计（4 个只读扫描 lane + 主代理逐条亲验）发现三个真实缺陷并修复；另发现两个解析面/访问器问题（见 Boundary）。
+- **EVM `checkedMul` 溢出检测失效（P0）**：`renderExpr` 的 `.checkedMul` 用 `div(product, lhs) == rhs` 回环 guard——两个 UInt64 乘积 < 2^128，在 Yul 256 位算术下 `mul` 永不回绕、`div` 恒精确，guard 永不触发；`2^32 * 2^32 = 2^64` 被静默接受（参考机要求 `arithmeticOverflow` revert）。修复为与 `shl` 同构的结果上界检查 `if gt(name, 0xffffffffffffffff) { revert(0, 0) }`。Solana（checked_mul_u64）、NEAR（i64 回绕+除法校验）、Noir（原生 checked u64）对照均正确，仅 EVM 发散。
+- **EVM `bitNot` 256 位翻转（P1）**：Yul `not(x)` 翻转全 256 位（`~0 = 2^256-1`），参考机语义为 `(2^64-1) - x`。statement 形与 nested 形均修复为 `and(not(x), 0xffffffffffffffff)`。错误值此前会流入 sstore/sload 回环（sload 的 `gt` guard 反而 revert——写后读自毁）、后续算术与比较。
+- **Noir shl/shr 常数折叠 2^k 急切计算（P1，编译期资源）**：`pow := UInt64.ofNat (2 ^ k)` 在 k≥64 分支判断前无条件计算；折叠计数有界 `< 2^32`，k 接近 2^32 时编译器大数分配 ~512 MiB 并停顿数分钟（如 `x >> (0xFFFFFFFF - 1)`，CheckV1 只静态拒绝直接字面量 count≥64）。修复为 `if k < 64 then UInt64.ofNat (2 ^ k) else 0`——对 k≥64 字节恒等（`2^k mod 2^64 = 0`），纯性能修复。
+- 测试：`EvmSmoke.testArithOps` 新增 `and(not(` 与 UInt64-ceiling guard 计数（`0xffffffffffffffff` 出现次数 ≥4：sload/mul/add/bitNot）断言；`Tests/Materialization/Targets.lean` 新增 `testNoirHugeFoldedShiftCount`（`0xFFFFFFFF - 1` 折叠 → literal-false invalidShift guard + 死字面量 0，防回归）；Anvil 差分扩展：`testdata/valid/ArithOps.lean`（scale 含 mul/div/mod、bits 含 `~x`）接入 `target-smoke` 与 `scripts/smoke_evm.sh`——`bits(0) == UInt64.max`、`bits(5) == max-5`（掩码位反运行验证）、`scale(3,2) == 11`、initial=maxU64 时 `scale(2,1)` 必须 revert（mul 溢出运行验证）。
+- Verification：修复后 `just dev-check` 与完整 `just ci` 全绿（fast 套件含新回归断言与 `testNoirHugeFoldedShiftCount` 通过）；Anvil 差分已实现（`testdata/valid/ArithOps.lean` 的 EVM 构建成功、solc bytecode 生成正常）但**端到端运行被并发 call/schedule Normalize 扩面的半成品状态阻塞**（validate_artifacts 不认新 Noir relation 格式、其测试尚未同步，与本次修复无关，待其切片收尾后重跑 `just evm-runtime` 闭合）；`just sbom-package-files-refresh` 已刷新。这些结果不是 formal/hermetic evidence。
+- Boundary（审计发现、本轮未修）：**doc comment（`/-- ... -/`）紧邻 `program` 命令会解析失败**——Lean 4 的 doc comment 只能前缀声明类命令，自定义 `syntax : command` 的 `program` 不在其列（块注释/行注释正常），报泛化 `PF-SRC-INVALID: failed to parse file`（真实错误被 Loader 丢弃仅留 span）；体内 doc comment 同样失败。`SemanticProgramV1.invariants` 访问器对非法 carrier 静默返回 `#[]`（fail-open 脚枪，测试固定该行为）。formal TASK-D2-06/TST-SEM-001、SupportClaim/OutputSetV1、D4–D7 完成态仍 pending。
+
 ## 2026-07-31 — S1 Normalize 扩面：shift/bitwise/logical 二元（`<<`/`>>`/`&`/`^`/`|`/`&&`/`||`）贯穿四 target
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 let/for 扩面，本切片把 ProgramV1 移位、位运算与严格逻辑二元贯穿 shared core 与全部四个 target-owned Plan/IR/emitter。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana/NEAR，用户授权最多 3 路）→ 主代理审计时发现 **UInt32 计算计数**缺口并恢复两路 worker 补齐（EVM/Solana），Noir lane 由主代理串行实现。
@@ -29,6 +55,21 @@ normative: false
 - 现象：本机升级 macOS 26.4.1 后，B11b1/B11b2 worker supervisor 的 RESPONSE 路径在 cleanup 阶段被稳定改写为 `supervisorFault`（counter transport、产品 CLI `build-counter` 全部 PF-FRONTEND-PROTOCOL fail closed）。逐层 fprintf 定位链：worker 正常响应退出（exit 0、pipes drained、决策=RESPONSE）→ cleanup 组杀 `kill(-pgid, SIGKILL)` 对**仅剩 zombie 的进程组**在新内核上返回 `EPERM`（旧内核 0/ESRCH）→ 既有 `errno != ESRCH` 容忍表未覆盖 → 事件改写 FAULT。已用独立 C 复现该内核行为。
 - 修复：cleanup 组杀容忍表扩为 `errno != ESRCH && errno != EPERM`——完整性仍由后续 `pf_count_other_pgroup` 采样把关（EPERM 若真意味着有杀不掉的活成员，other>0 照样 INCOMPLETE fail closed），容忍不可能产出假 COMPLETE。另把 ambient-fd 探针脚本去括号子shell（dash fork 出的瞬时第二进程会被 10ms group sampler 计入 maxProcesses=1），断言语义不变。
 - 性质：宿主环境兼容修复（非产品语义变化）；supervisor suite 与产品 CLI 在新内核恢复全绿；`just sbom-package-files-refresh` 已随 native `.c` 变更刷新 package pin。
+
+## 2026-07-31 — D2-07 Map IndexGet/IndexSet engineering slice
+
+- `WireV1`新增Map empty/split/lookup/upsert窄public seam，canonical framing仍唯一为
+  `u32 count || repeated(u32 keyLen,key,u32 valueLen,value)`；sole cumulative decoder负责
+  exact consume、canonical key/value、strict unsigned-byte lex order、unique/count/16MiB/
+  64MiB work/nesting limits，upsert immutable replace或有序insert。
+- `ReferenceV1`接纳合法Wire Map、仅`Construct 0 []`、Map IndexGet/IndexSet。get返回静态
+  exact `Option<value>`（none=`00`、some经variant encoder）；set产生新Map SSA且保留旧值。
+  explicit-stack资源分析对最大`maxMapEntriesV1`作checked division/add/multiply的保守
+  width/work上界，不按count循环；因此理论最大形状超cap的Map即使实际为空也会拒绝。
+- encode→decode carrier聚焦覆盖empty/default、missing/hit、before/after/equal replacement、
+  old/new SSA及Wire malformed/unsorted/trailing negatives。固定UInt8 key无法表达prefix关系，
+  故使用不同unsigned fixed bytes。ContextRead、Commit与formal evaluator仍unsupported；
+  general CFG、PureCall、Struct/Option/Enum/Array/Bytes行为保持。
 
 ## 2026-07-30 — D1 engineering gap：Linux development-observed frontend supervisor
 
@@ -11023,3 +11064,10 @@ normative: false
 - Tests：覆盖Array codec、construct/get/immutable set、Bytes get/set、Array/Bytes get/set OOR、旧/新SSA
   可观察性、PureCall/nonformal invariant复用、nested Option element、raw length gate及width/work正负边界。
 - Boundary：Map Construct/Index、ContextRead、Commit及formal evaluator/theorem仍pending。
+## 2026-07-31 — D2-07 ContextRead static-only single-row catalog (proposed)
+
+- WireV1 仅静态接纳 `proof-forge.context.unix-time-seconds.v1`，要求程序唯一匿名 UInt64
+  结果与 exact `context.unix-time-seconds@1.0.0` empty-predicate/domain-digest row；unknown key、
+  wrong shape 为 `.badCfg`，requirement binding 错误为 `.badRequirement`。
+- 语义冻结为 invocation 开始时 immutable Unix epoch seconds snapshot。Reference admission/runtime
+  与 target support 保持关闭；caller、authorizers、randomness deferred，formal TASK-D2-07 pending。

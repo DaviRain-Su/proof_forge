@@ -362,6 +362,23 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         values := values.push (← readTemp machine arg)
       pure { machine with
         logs := machine.logs.push s!"pf-event:{name}:{hexArgs values}" }
+  | .promiseAccount receiver method args => do
+      -- Fire-and-forget: record the promise and continue. Args-hex is the
+      -- concatenation of each UInt64 argument's 8-byte little-endian payload
+      -- as 16 lowercase hex chars (matches the WAT i64.store LE serialization).
+      let mut payloadHex := ""
+      for arg in args do
+        let value ← readTemp machine arg
+        let le := encodeUInt64LE value
+        for i in [0:8] do
+          let b := le[i]!.toNat
+          let hi := b / 16
+          let lo := b % 16
+          let digit (d : Nat) : Char :=
+            if d < 10 then Char.ofNat (48 + d) else Char.ofNat (87 + d)
+          payloadHex := payloadHex.push (digit hi) |>.push (digit lo)
+      pure { machine with
+        logs := machine.logs.push s!"pf-promise:{receiver}:{method}:{payloadHex}" }
   | .revertError errorIndex args => do
       let some name := machine.errorNames[errorIndex]? |
         modelError s!"error index {errorIndex} is outside the declared table"
@@ -594,6 +611,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .ge => "compare.ge"
     | .assert _ => "assert"
     | .emitEvent .. => "emitEvent"
+    | .promiseAccount .. => "promiseAccount"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
@@ -1899,6 +1917,138 @@ private unsafe def testShiftBitwiseLogicalProductPath
   expect (files.map (·.contents) == files2.map (·.contents))
     "bit-logic: buildFromCapability must be byte-identical on rebuild"
 
+/-- Wave I: schedule → native promise (fire-and-forget). later schedules
+    `ledger.daily(count)` then returns count; bad uses uppercase Ledger (account-id
+    gate); callSync uses `call` and is declined by the S2 resolver (NEAR has no
+    sync cross-contract calls). Host: init(5)→later(1) returns 5 and logs the
+    promise with receiver/method/LE-args-hex. WAT pins promise host names and
+    the account-id string. Deposit/gas are explicit zero placeholders. -/
+private unsafe def testScheduleProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let scheduleText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ScheduleFlow where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule ledger.daily(count)\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    scheduleText "<near-schedule-flow>" "Examples.ScheduleFlow" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .promiseBatchCreate &&
+      plan.hostImports.contains .promiseBatchActionFunctionCall)
+    "schedule Plan must extend the host allowlist with promise hosts"
+  let some later := plan.entries.find? (·.name == "later") |
+    throw <| IO.userError s!"schedule: missing later entry, got {plan.entries.map (·.name)}"
+  expect (later.body == #[
+      .promiseAccount "ledger.daily" "daily" #[.stateLoad 0],
+      .returnValue (.stateLoad 0)])
+    "schedule: later must lower promiseAccount(ledger.daily, daily, count) then return"
+  liftResult <| Targets.Near.validatePlan plan
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let laterIR ← findMethod ir "later"
+  let kinds := operationKinds laterIR.operations
+  expect (kinds.contains "promiseAccount")
+    s!"schedule: later IR must contain promiseAccount, got {kinds}"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "schedule init"
+    (execute initializer empty (encodeUInt64LE 5) zero)
+  expect (storedUInt64? storage0 field.key == some 5)
+    "schedule init must store seed 5"
+  let (storage1, ret1, logs1) ← requireSuccess "schedule later"
+    (execute laterIR storage0 (encodeUInt64LE 1) zero)
+  expect (ret1 == some 5 && storedUInt64? storage1 field.key == some 5)
+    "schedule: later must return count without mutating state"
+  -- count=5 as LE bytes → hex 0500000000000000
+  expect (logs1 == #["pf-promise:ledger.daily:daily:0500000000000000"])
+    s!"schedule must log the fire-and-forget promise entry, got {logs1}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "schedule: missing .wat artifact"
+  expectContains wat.contents "promise_batch_create" "schedule WAT promise_batch_create"
+  expectContains wat.contents "promise_batch_action_function_call"
+    "schedule WAT promise_batch_action_function_call"
+  expectContains wat.contents "ledger.daily" "schedule WAT account id"
+  expectContains wat.contents "daily" "schedule WAT method name"
+  -- Explicit zero deposit/gas placeholders in the action call.
+  expectContains wat.contents "(i64.const 0) (i64.const 0) (i64.const 0))"
+    "schedule WAT zero deposit/gas placeholders"
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "schedule: buildFromCapability must be byte-identical on rebuild"
+
+  -- Uppercase receiver must fail the account-id gate (never case-normalized).
+  let badText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ScheduleBad where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bad(n : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    return n\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let badSource ← liftResult (← session.selectProgramV1
+    badText "<near-schedule-bad>" "Examples.ScheduleBad" none)
+  let badCompiled ← liftResult <| Compiler.compileValidatedSourceV1 badSource
+  let badCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection badCompiled
+  match Targets.Near.planFromCapability badCapability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "Ledger.daily" &&
+          (msg.contains "account id" || msg.contains "NEAR account"))
+        s!"schedule uppercase must fail account-id gate, got {msg}"
+  | .error other =>
+      throw <| IO.userError s!"schedule uppercase: expected planInvariant, got {other.render}"
+  | .ok _ =>
+      throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
+
+  -- Sync call: compiles, but NEAR S2 resolver declines effect.synchronous-call.
+  let callText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallSync where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry poke(n : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    return n\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let callSource ← liftResult (← session.selectProgramV1
+    callText "<near-call-sync>" "Examples.CallSync" none)
+  let callCompiled ← liftResult <| Compiler.compileValidatedSourceV1 callSource
+  match Targets.resolveEngineeringRequirementsV1 selection callCompiled with
+  | .error err =>
+      expect (err.code == "PF-REQ-UNSUPPORTED" &&
+          err.render.contains "effect.synchronous-call")
+        s!"sync call must be PF-REQ-UNSUPPORTED for NEAR, got {err.code}: {err.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "sync call: resolveEngineeringRequirementsV1 must fail for NEAR"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1913,6 +2063,7 @@ unsafe def run : IO Unit := do
   testArithOpsProductPath session
   testForLoopProductPath session
   testShiftBitwiseLogicalProductPath session
+  testScheduleProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

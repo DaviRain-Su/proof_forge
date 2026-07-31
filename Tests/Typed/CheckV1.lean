@@ -2782,6 +2782,106 @@ private unsafe def testMulDivModUnary
         "arith-flow: div must apply to the mul result and divisor"
   | _ => throw <| IO.userError "arith-flow: div shape mismatch"
 
+/-- External call and workflow schedule lowering: void ops with the shared
+    canonical EffectId sequence, verbatim qualified callees, and per-target
+    capability-gated S2 requirements; single-component callees, Bool args,
+    and fn/view effect violations fail at the right layer. -/
+private unsafe def testCallScheduleLowering
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExtFlow" <|
+    "  state count : UInt64\n" ++
+    "  event Ping(x : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Ping(count)\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    schedule Ledger.weekly(delta)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "ext-flow" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "ext-flow: CheckV1.ok"
+  expect typed.analysisComplete "ext-flow: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ext-flow: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ext-flow: validate: {repr e}"
+  expect (data.requirements.items.map (·.id) ==
+      #["effect.asynchronous-workflow", "effect.event", "effect.synchronous-call",
+        "failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"])
+    s!"ext-flow: wire-order requirements, got {data.requirements.items.map (·.id)}"
+  let some bump := data.callables[1]? |
+    throw <| IO.userError "ext-flow: missing bump callable"
+  let some blk0 := bump.blocks[0]? |
+    throw <| IO.userError "ext-flow: missing bump block0"
+  -- emit (effectId 0) then call (effectId 1): one shared EffectId sequence.
+  let some emitInstr := blk0.instructions[1]? |
+    throw <| IO.userError "ext-flow: missing emit instruction"
+  match emitInstr with
+  | { result := none, op := .emit effectId eventId args } =>
+      expect (effectId == 0 && eventId == 0 && args.size == 1)
+        "ext-flow: emit must take effectId 0 in the shared sequence"
+  | _ => throw <| IO.userError "ext-flow: emit shape mismatch"
+  let some callInstr := blk0.instructions[3]? |
+    throw <| IO.userError "ext-flow: missing call instruction"
+  match callInstr with
+  | { result := none, op := .externalCall effectId callee args } =>
+      expect (effectId == 1 && args.size == 1 &&
+          callee.components.toArray == #["Oracle", "feed"])
+        "ext-flow: call must take effectId 1 with the verbatim qualified callee"
+  | _ => throw <| IO.userError "ext-flow: call shape mismatch"
+  let some later := data.callables[2]? |
+    throw <| IO.userError "ext-flow: missing later callable"
+  let some lat0 := later.blocks[0]? |
+    throw <| IO.userError "ext-flow: missing later block0"
+  let mut schedEffects : Array UInt32 := #[]
+  for instr in lat0.instructions do
+    match instr.op with
+    | .schedule effectId _ _ => schedEffects := schedEffects.push effectId
+    | _ => pure ()
+  expect (schedEffects == #[0, 1])
+    s!"ext-flow: schedules must number 0,1 per callable, got {schedEffects}"
+  -- Single-component callees are rejected at the parser boundary (source
+  -- qualified ids require at least two components; the normalizer's own
+  -- ≥2 check is defensive for hand-built ASTs).
+  let oneCompSource := wrap "OneComp" <|
+    "  entry run(n : UInt64) : UInt64 do\n" ++
+    "    call Oracle(n)\n" ++
+    "    return n\n"
+  match ← session.selectProgramV1 oneCompSource (testSourcePath "one-comp") moduleName none with
+  | .ok _ => throw <| IO.userError "one-comp: single-component callee must fail at the loader"
+  | .error _ => pure ()
+  -- Bool call argument fails the UInt64 envelope at the normalizer.
+  let boolArgSource := wrap "BoolArg" <|
+    "  entry run(n : UInt64) : UInt64 do\n" ++
+  "    call Oracle.feed(n > 0)\n" ++
+    "    return n\n"
+  let boolArg ← loadSource session "bool-arg" boolArgSource
+  expect (checkProgramTypedResultV1 boolArg).ok "bool-arg: CheckV1.ok"
+  match normalizeProgramV1 boolArg with
+  | .ok _ => throw <| IO.userError "bool-arg: Bool argument must fail"
+  | .error _ => pure ()
+  -- fn with a call: PF-EFFECT-001 typedNotOk (fn allows only failure.revert).
+  let fnCallSource := wrap "FnCall" <|
+    "  fn helper(n : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(n)\n" ++
+    "    return n\n" ++
+    "  entry run(n : UInt64) : UInt64 do\n" ++
+    "    return helper(n)\n"
+  let fnCall ← loadSource session "fn-call" fnCallSource
+  match normalizeProgramV1 fnCall with
+  | .error (.typedNotOk _) => pure ()
+  | .ok _ => throw <| IO.userError "fn-call: fn with call must be typedNotOk"
+  | .error e => throw <| IO.userError s!"fn-call: expected typedNotOk, got {repr e}"
+
 /-- Shift, bitwise, and strict logical binary operators: exact op/type pins
     (UInt32 shift counts intern on first use), plus typed-not-ok negatives
     for non-Bool logical operands and UInt64 shift counts. -/
@@ -4161,6 +4261,7 @@ unsafe def run : IO Unit := do
   testMulDivModUnary session
   testUnaryOps session
   testShiftBitwiseLogical session
+  testCallScheduleLowering session
   testLetForLoop session
   testLetForProvenance session
   testUInt64LiteralProvenance session

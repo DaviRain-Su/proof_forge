@@ -25,9 +25,8 @@
     4. Emit-then-revert discards overlay/effects; wrong callable
        id/kind/arity/type/noncanonical args → invalidInvocation; entry before
        init / init twice; determinism.
-    5. Admission fail-closed on unsupported Int / aggregate / PureCall /
-       ContextRead / Commit / view stateStore / view Emit (errors separated
-       from Outcome).
+    5. Admission fail-closed on unsupported Int / Commit / view stateStore /
+       view Emit (errors separated from Outcome).
     6. Lifecycle + trailing: uninit/alreadyInit + trailing →
        invalidExternalResponse; invalidInvocation + trailing stays
        invalidInvocation.
@@ -42,6 +41,8 @@
        normal Invocation remains invalid.
    13. Struct canonical codec seam plus Construct/FieldGet/FieldSet in entry,
        nested immutable update, PureCall, and invariant-root execution.
+   14. ContextRead exact selected-root/PureCall-closure invocation gate and
+       immutable shared snapshot execution; Commit remains unsupported.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -128,6 +129,10 @@ private def emptyResponses : ExternalResponsesV1 := #[]
 private def inv (callableId : CallableIdV1) (args : Array ReferenceValueV1) :
     InvocationV1 :=
   { callableId, args, context := emptyContext }
+
+private def invWithContext (callableId : CallableIdV1)
+    (args : Array ReferenceValueV1) (context : Array ContextInputV1) : InvocationV1 :=
+  { callableId, args, context }
 
 private def logicalStateEq (a b : LogicalStateV1) : Bool :=
   a.initialized == b.initialized && bytesEqual a.canonicalValues b.canonicalValues
@@ -910,6 +915,107 @@ private unsafe def testShiftBitwiseLogicalReferenceSlice
   | other =>
       throw <| IO.userError s!"bit-ref-strict: expected standard revert, got {repr other}"
 
+/-- External call/schedule through the source pipeline into the admitted
+    machine: shared EffectId occurrences, returned responses continue,
+    reverted responses revert with the exact occurrence, and trailing or
+    missing responses trap invalidExternalResponse. -/
+private unsafe def testCallScheduleReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExtRef" <|
+    "  state count : UInt64\n" ++
+    "  event Ping(x : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    emit Ping(count)\n" ++
+    "    call Oracle.feed(count)\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry later(delta : UInt64) : UInt64 do\n" ++
+    "    schedule Ledger.daily(count)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "ext-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ext-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ext-ref: validate failed: {repr e}"
+  let admitted ← admitOk "ext-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let bumpId : CallableIdV1 := 1
+  let laterId : CallableIdV1 := 2
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ext-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0]) emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "ext-ref-init" initPost zeroState none #[]
+  let occEmit : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let occCall : EffectOccurrenceV1 := { effectId := 1, occurrence := 0 }
+  let occSched : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  -- Returned response: emit + call effects commit in order, count = 5.
+  let okResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned }
+  ]
+  let okOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) okResponses
+  let fiveState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 5) }
+  let okEffects : Array OrderedEffectV1 := #[
+    { occurrence := occEmit, payload := .event 0 #[refU64 u64Tid 0] },
+    { occurrence := occCall,
+      payload := .externalCall
+        (← qn2 "Oracle" "feed")
+        #[refU64 u64Tid 0] }
+  ]
+  expectReturned "ext-ref-returned" okOut fiveState (some (refU64 u64Tid 5)) okEffects
+  -- Reverted response: externalCallReverted with the exact occurrence, pre kept.
+  let revResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .reverted }
+  ]
+  let revOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) revResponses
+  match revOut with
+  | .reverted (.externalCallReverted o) st =>
+      expect (occurrenceEq o occCall) s!"ext-ref-reverted: occurrence"
+      expect (logicalStateEq st zeroState) "ext-ref-reverted: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"ext-ref-reverted: expected external revert, got {repr other}"
+  -- Missing response for the call: invalidExternalResponse.
+  let missingOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) emptyResponses
+  expectTrapped "ext-ref-missing" missingOut .invalidExternalResponse zeroState
+  -- Trailing unconsumed response after a matched call: same trap.
+  let extraResponses : ExternalResponsesV1 := #[
+    { occurrence := occCall, disposition := .returned },
+    { occurrence := { effectId := 9, occurrence := 0 }, disposition := .returned }
+  ]
+  let extraOut :=
+    stepReferenceSliceV1 admitted zeroState (inv bumpId #[refU64 u64Tid 5]) extraResponses
+  expectTrapped "ext-ref-extra" extraOut .invalidExternalResponse zeroState
+  -- Schedule consumes no response at all (fire-and-forget): it commits its
+  -- effect occurrence and the caller continues. Any provided response would
+  -- trail unconsumed into the exhaustion trap.
+  let schedOut :=
+    stepReferenceSliceV1 admitted fiveState (inv laterId #[refU64 u64Tid 2]) emptyResponses
+  let schedEffects : Array OrderedEffectV1 := #[
+    { occurrence := occSched,
+      payload := .schedule
+        (← qn2 "Ledger" "daily")
+        #[refU64 u64Tid 5] }
+  ]
+  expectReturned "ext-ref-schedule" schedOut fiveState (some (refU64 u64Tid 5)) schedEffects
+
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Bool entry/view results: comparison and Bool literal return values.
@@ -1478,7 +1584,8 @@ private def testAdmissionUnsupported : IO Unit := do
   admitUnsupported "adm-int" cI
     (fun d => d.toLower.contains "int") "int"
 
-  -- aggregate Map remains unsupported (fixed Array is admitted).
+  -- Map declarations are admitted when their conservative theoretical shape
+  -- fits the Wire byte/work limits.
   let typesAgg : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .map 0 0 },
@@ -1490,11 +1597,7 @@ private def testAdmissionUnsupported : IO Unit := do
     baseA with types := typesAgg, callables := #[entryAgg]
   }
   let cA ← encodeCarrier "adm-agg" dataA
-  admitUnsupported "adm-agg" cA
-    (fun d =>
-      let l := d.toLower
-      l.contains "aggregate" || l.contains "map")
-    "Map aggregate"
+  let _ ← admitOk "adm-agg" cA
 
   -- PureCall in entry body: now admitted (pureFn kind + arity checked at
   -- admission; a wrong-kind or wrong-arity callee still fails closed).
@@ -1540,30 +1643,11 @@ private def testAdmissionUnsupported : IO Unit := do
     (stepReferenceSliceV1 initAdmitted preInitPC (inv 0 #[]) #[])
     { preInitPC with initialized := true } none #[]
 
-  -- ContextRead
-  let ctxKey ← match parseSchemaId "proof-forge.context.example.v1" with
-    | .ok k => pure k
-    | .error e => throw <| IO.userError s!"parseSchemaId: {e}"
-  let typesC : Array TypeDeclV1 := #[
+  -- Commit
+  let typesCm : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .unit }
   ]
-  let entryCR := mkEntry 0 "ctx" #[] 1
-    #[instr (some { valueId := 0, typeId := 0 }) (.contextRead ctxKey)]
-    (.return_ none)
-  let baseC ← emptyData "AdmCtx"
-  let dataC : SemanticProgramDataV1 := {
-    baseC with types := typesC, callables := #[entryCR]
-  }
-  let cC ← encodeCarrier "adm-ctx" dataC
-  admitUnsupported "adm-ctx" cC
-    (fun d =>
-      let l := d.toLower
-      l.contains "contextread" || l.contains "context_read" ||
-        l.contains "context read")
-    "ContextRead"
-
-  -- Commit
   let entryCm := mkEntry 0 "cm" #[] 1
     #[
       instr (some { valueId := 0, typeId := 0 })
@@ -1573,7 +1657,7 @@ private def testAdmissionUnsupported : IO Unit := do
     (.return_ none)
   let baseCm ← emptyData "AdmCommit"
   let dataCm : SemanticProgramDataV1 := {
-    baseCm with types := typesC, callables := #[entryCm]
+    baseCm with types := typesCm, callables := #[entryCm]
   }
   let cCm ← encodeCarrier "adm-commit" dataCm
   admitUnsupported "adm-commit" cCm
@@ -1628,6 +1712,115 @@ private def testAdmissionUnsupported : IO Unit := do
       let l := d.toLower
       l.contains "view" && (l.contains "emit" || l.contains "effect"))
     "view Emit"
+
+/-- ContextRead uses the exact selected-root PureCall closure and one immutable
+    invocation snapshot; malformed context fails before lifecycle/responses. -/
+private def testContextReadReferenceSlice : IO Unit := do
+  let key := unixTimeSecondsContextKeyV1
+  let requirement ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"context-read requirement: {e}"
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .unit }
+  ]
+  let leaf := mkPureFn 0 "readClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ (some 0))
+  let nested := mkPureFn 1 "nestedClock" #[] 0
+    #[instr (some (vd 0 0)) (.pureCall 0 #[])]
+    (.return_ (some 0))
+  let initializer := mkInit 2 #[] 1
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ none)
+  let direct := mkEntry 3 "directClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key)]
+    (.return_ (some 0))
+  let throughNested := mkView 4 "nestedView" #[] 0
+    #[instr (some (vd 0 0)) (.pureCall 1 #[])]
+    (.return_ (some 0))
+  let noContext := mkEntry 5 "noContext" #[] 1 #[] (.return_ none)
+  let repeated := mkEntry 6 "repeatedClock" #[] 0
+    #[instr (some (vd 0 0)) (.contextRead key),
+      instr (some (vd 1 0)) (.contextRead key)]
+    (.return_ (some 1))
+  let base ← emptyData "ContextReadRuntime"
+  let data : SemanticProgramDataV1 := {
+    base with
+      types
+      callables := #[leaf, nested, initializer, direct, throughNested, noContext, repeated]
+      requirements := { items := #[requirement] }
+  }
+  let carrier ← encodeCarrier "context-read-runtime" data
+  let admitted ← admitOk "context-read-runtime" carrier
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok st => pure st
+    | .error e => throw <| IO.userError s!"context-read initial state: {repr e}"
+  let value := refU64 0 1700000000
+  let context : Array ContextInputV1 := #[{ key, value }]
+
+  -- Missing initializer context is invalid invocation even with a response;
+  -- a valid initializer read still publishes the initialized lifecycle bit.
+  expectTrapped "context-init-missing+response"
+    (stepReferenceSliceV1 admitted initial (inv 2 #[]) trailingResp)
+    .invalidInvocation initial
+  let initialized : LogicalStateV1 := { initial with initialized := true }
+  expectReturned "context-init"
+    (stepReferenceSliceV1 admitted initial (invWithContext 2 #[] context) emptyResponses)
+    initialized none #[]
+
+  expectReturned "context-entry-direct"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 3 #[] context) emptyResponses)
+    initialized (some value) #[]
+  expectReturned "context-view-nested-purecall"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 4 #[] context) emptyResponses)
+    initialized (some value) #[]
+  expectReturned "context-repeated-snapshot"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 6 #[] context) emptyResponses)
+    initialized (some value) #[]
+
+  -- Required keys are selected-root scoped, not program-wide.
+  expectReturned "context-unreachable-not-required"
+    (stepReferenceSliceV1 admitted initialized (inv 5 #[]) emptyResponses)
+    initialized none #[]
+  expectTrapped "context-extra-for-empty-root"
+    (stepReferenceSliceV1 admitted initialized (invWithContext 5 #[] context) emptyResponses)
+    .invalidInvocation initialized
+
+  expectTrapped "context-required-missing"
+    (stepReferenceSliceV1 admitted initialized (inv 3 #[]) emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-required-missing+response"
+    (stepReferenceSliceV1 admitted initialized (inv 3 #[]) trailingResp)
+    .invalidInvocation initialized
+  expectTrapped "context-duplicate"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value }, { key, value }]) emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-wrong-type"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value := { typeId := 1, valueBytes := ByteArray.empty } }])
+      emptyResponses)
+    .invalidInvocation initialized
+  expectTrapped "context-noncanonical-value"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 3 #[] #[{ key, value := { typeId := 0, valueBytes := ByteArray.mk #[1] } }])
+      emptyResponses)
+    .invalidInvocation initialized
+  let later : SchemaId := { value := "proof-forge.context.z.v1" }
+  let earlier : SchemaId := { value := "proof-forge.context.a.v1" }
+  expectTrapped "context-nonascending-extra"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 5 #[] #[{ key := later, value }, { key := earlier, value }])
+      emptyResponses)
+    .invalidInvocation initialized
+
+  -- Once context shape is valid, lifecycle candidates retain the established
+  -- trailing-response precedence.
+  expectTrapped "context-init-twice+response"
+    (stepReferenceSliceV1 admitted initialized
+      (invWithContext 2 #[] context) trailingResp)
+    .invalidExternalResponse initialized
 
 /-- Unit return shape: return_ none ok; return_ (some unit) → invalidCore. -/
 private def testUnitReturnShape : IO Unit := do
@@ -2400,20 +2593,231 @@ private def testArrayBytesReferenceSlice : IO Unit := do
   admitUnsupported "over-array-width" overWidthCarrier
     (fun detail => detail.contains "byte limit") "Array byte limit"
 
-  -- Map remains wire-typed but unsupported by this reference admission slice.
+  -- Map mechanics stay Wire-owned. UInt8 fixed-width keys cannot exercise a
+  -- prefix relation, so ordering coverage uses differing unsigned bytes.
   let mapTypes := types.push { id := 6, name := none, shape := .map 0 0 }
-  let mapEntry := mkEntry 0 "mapIndex" #[] 4 #[
-    instr (some (vd 0 6)) (.literal 6 (ByteArray.mk #[0, 0, 0, 0])),
-    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[0])),
-    instr (some (vd 2 7)) (.indexGet 0 1)
-  ] (.return_ none)
   let mapBase ← emptyData "MapIndex"
-  -- Structure typing needs Option<UInt8> for Map IndexGet result.
   let mapTypes := mapTypes.push { id := 7, name := none, shape := .option 0 }
+  let emptyMap ← match encodeCanonicalEmptyMapValueV1 mapTypes 6 with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map empty codec: {repr e}"
+  expect (emptyMap == ByteArray.mk #[0, 0, 0, 0]) "map canonical empty"
+  let inserted ← match upsertCanonicalMapValueV1 mapTypes 6 emptyMap
+      (ByteArray.mk #[20]) (ByteArray.mk #[9]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map insert codec: {repr e}"
+  let before ← match upsertCanonicalMapValueV1 mapTypes 6 inserted
+      (ByteArray.mk #[10]) (ByteArray.mk #[8]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map before codec: {repr e}"
+  let after ← match upsertCanonicalMapValueV1 mapTypes 6 before
+      (ByteArray.mk #[30]) (ByteArray.mk #[7]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map after codec: {repr e}"
+  let replaced ← match upsertCanonicalMapValueV1 mapTypes 6 after
+      (ByteArray.mk #[20]) (ByteArray.mk #[6]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map replace codec: {repr e}"
+  match splitCanonicalMapValueV1 mapTypes 6 replaced with
+  | .ok entries =>
+      expect (entries.size == 3 && entries[0]!.keyBytes == ByteArray.mk #[10] &&
+        entries[1]!.valueBytes == ByteArray.mk #[6] &&
+        entries[2]!.keyBytes == ByteArray.mk #[30]) "map sorted insert/replace"
+  | .error e => throw <| IO.userError s!"map split codec: {repr e}"
+  let middle ← match upsertCanonicalMapValueV1 mapTypes 6 replaced
+      (ByteArray.mk #[15]) (ByteArray.mk #[5]) with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map middle codec: {repr e}"
+  match splitCanonicalMapValueV1 mapTypes 6 middle with
+  | .ok entries =>
+      expect (entries.size == 4 && entries[0]!.keyBytes == ByteArray.mk #[10] &&
+        entries[1]!.keyBytes == ByteArray.mk #[15] &&
+        entries[2]!.keyBytes == ByteArray.mk #[20] &&
+        entries[3]!.keyBytes == ByteArray.mk #[30]) "map middle insertion"
+  | .error e => throw <| IO.userError s!"map middle split: {repr e}"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (replaced.append (ByteArray.mk #[0])))) "map trailing rejected"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (ByteArray.mk #[2,0,0,0, 1,0,0,0, 20, 1,0,0,0,9,
+      1,0,0,0, 10, 1,0,0,0,8]))) "map unsorted rejected"
+  expect (exceptIsError (splitCanonicalMapValueV1 mapTypes 6
+    (ByteArray.mk #[2,0,0,0, 1,0,0,0, 10, 1,0,0,0,9,
+      1,0,0,0, 10, 1,0,0,0,8]))) "map duplicate rejected"
+  expect (match upsertCanonicalMapValueV1 mapTypes 6
+      (encodeU32le (UInt32.ofNat (maxMapEntriesV1 + 1)))
+      (ByteArray.mk #[10]) (ByteArray.mk #[9]) with
+    | .error (.invalidInput .limitExceeded) => true
+    | _ => false) "map malformed limit is invalid input"
+  expect (match upsertCanonicalMapValueV1 mapTypes 6 emptyMap
+      (ByteArray.mk #[10, 11]) (ByteArray.mk #[9]) with
+    | .error (.invalidInput .nonCanonical) => true
+    | _ => false) "map malformed key is invalid input"
+
+  let mut nestingTypes : Array TypeDeclV1 := #[]
+  for i in [:maxNesting - 1] do
+    nestingTypes := nestingTypes.push {
+      id := UInt32.ofNat i, name := none, shape := .option (UInt32.ofNat (i + 1)) }
+  nestingTypes := nestingTypes.push {
+    id := UInt32.ofNat (maxNesting - 1), name := none, shape := .unit }
+  let nestingKeyId := UInt32.ofNat maxNesting
+  nestingTypes := nestingTypes.push {
+    id := nestingKeyId, name := none, shape := .uint 8 }
+  let nestingMapId := UInt32.ofNat (maxNesting + 1)
+  nestingTypes := nestingTypes.push {
+    id := nestingMapId, name := none, shape := .map nestingKeyId 0 }
+  let nestingValue := ByteArray.mk (Array.replicate (maxNesting - 1) 1)
+  match validateValueBytesV1 nestingTypes 0 nestingValue with
+  | .ok _ => pure ()
+  | .error e => throw <| IO.userError s!"map standalone nesting boundary: {repr e}"
+  let nestingEmpty ← match encodeCanonicalEmptyMapValueV1 nestingTypes nestingMapId with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map nesting empty: {repr e}"
+  expect (match upsertCanonicalMapValueV1 nestingTypes nestingMapId nestingEmpty
+      (ByteArray.mk #[0]) nestingValue with
+    | .error (.invalidInput .limitExceeded) => true
+    | _ => false) "map insertion reserves outer nesting"
+
+  let mapEntry := mkEntry 0 "mapIndex" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 7)) (.indexGet 0 1),
+    instr (some (vd 3 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 4 6)) (.indexSet 0 1 3),
+    instr (some (vd 5 7)) (.indexGet 0 1),
+    instr (some (vd 6 7)) (.indexGet 4 1)
+  ] (.return_ (some 6))
   let mapCarrier ← encodeCarrier "map-index" {
     mapBase with types := mapTypes, callables := #[mapEntry]
   }
-  admitUnsupported "map-index" mapCarrier (fun d => d.contains "Map") "Map index"
+  let mapAdmitted ← admitOk "map-index" mapCarrier
+  let mapDefault ← match defaultValueV1 mapCarrier 6 with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"map default: {repr e}"
+  expect (mapDefault == emptyMap) "map default is canonical empty"
+  expectReturned "map-index" (stepReferenceSliceV1 mapAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[1, 9] }) #[]
+
+  let mapMissing := mkEntry 0 "mapMissing" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 7)) (.indexGet 0 1)
+  ] (.return_ (some 2))
+  let mapMissingCarrier ← encodeCarrier "map-missing" {
+    mapBase with types := mapTypes, callables := #[mapMissing]
+  }
+  let mapMissingAdmitted ← admitOk "map-missing" mapMissingCarrier
+  expectReturned "map-missing" (stepReferenceSliceV1 mapMissingAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[0] }) #[]
+
+  let mapOld := mkEntry 0 "mapOld" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 3 6)) (.indexSet 0 1 2),
+    instr (some (vd 4 7)) (.indexGet 0 1)
+  ] (.return_ (some 4))
+  let mapOldCarrier ← encodeCarrier "map-old" {
+    mapBase with types := mapTypes, callables := #[mapOld]
+  }
+  let mapOldAdmitted ← admitOk "map-old" mapOldCarrier
+  expectReturned "map-old" (stepReferenceSliceV1 mapOldAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[0] }) #[]
+
+  let mapLookupPure := mkPureFn 1 "mapLookupPure" #[
+    { valueId := 0, name := "m", typeId := 6, visibility := .public_ },
+    { valueId := 1, name := "k", typeId := 0, visibility := .public_ }
+  ] 7 #[instr (some (vd 2 7)) (.indexGet 0 1)] (.return_ (some 2))
+  let mapPureEntry := mkEntry 0 "mapPureEntry" #[] 7 #[
+    instr (some (vd 0 6)) (.construct 6 0 #[]),
+    instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+    instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+    instr (some (vd 3 6)) (.indexSet 0 1 2),
+    instr (some (vd 4 7)) (.pureCall 1 #[3, 1])
+  ] (.return_ (some 4))
+  let mapPureCarrier ← encodeCarrier "map-pure" {
+    mapBase with types := mapTypes, callables := #[mapPureEntry, mapLookupPure]
+  }
+  let mapPureAdmitted ← admitOk "map-pure" mapPureCarrier
+  expectReturned "map-pure" (stepReferenceSliceV1 mapPureAdmitted
+    { initialized := true, canonicalValues := ByteArray.empty } (inv 0 #[]) #[])
+    { initialized := true, canonicalValues := ByteArray.empty }
+    (some { typeId := 7, valueBytes := ByteArray.mk #[1, 9] }) #[]
+
+  let mapInvariant : CallableV1 := {
+    id := 1, kind := .invariant, name := some "mapInvariant", params := #[]
+    result := { typeId := 5, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[blk 0 #[
+      instr (some (vd 0 6)) (.construct 6 0 #[]),
+      instr (some (vd 1 0)) (.literal 0 (ByteArray.mk #[20])),
+      instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[9])),
+      instr (some (vd 3 6)) (.indexSet 0 1 2),
+      instr (some (vd 4 7)) (.indexGet 3 1),
+      instr (some (vd 5 1)) (.variantTag 4),
+      instr (some (vd 6 1)) (.literal 1 (leBytesFromNat 1 4)),
+      instr (some (vd 7 5)) (.binary .eq 5 6)
+    ] (.return_ (some 7))]
+    loopBounds := #[]
+    invariantSteps := some 10
+  }
+  let mapInvariantGate := mkEntry 0 "mapInvariantGate" #[] 4 #[] (.return_ none)
+  let mapInvariantCarrier ← encodeCarrier "map-invariant" {
+    mapBase with
+    types := mapTypes
+    callables := #[mapInvariantGate, mapInvariant]
+    invariants := #[{ id := 0, name := "mapInvariant", callableId := 1 }]
+  }
+  let mapInvariantAdmitted ← admitOk "map-invariant" mapInvariantCarrier
+  expect (evalInvariantReferenceSliceV1 mapInvariantAdmitted 0
+    { initialized := true, canonicalValues := ByteArray.empty } == .returnedTrue)
+    "map-invariant: returned true"
+
+  let mapWorkTypes (fieldCount : Nat) : Array TypeDeclV1 := Id.run do
+    let mut fields : Array StructFieldV1 := #[]
+    for i in [:fieldCount] do
+      fields := fields.push { name := s!"f{i}", typeId := 2 }
+    pure #[
+      { id := 0, name := some "MapValue", shape := .struct fields },
+      { id := 1, name := none, shape := .uint 32 },
+      { id := 2, name := none, shape := .unit },
+      { id := 3, name := none, shape := .map 1 0 },
+      { id := 4, name := none, shape := .bool }
+    ]
+  let mapWorkGate := mkEntry 0 "mapWorkGate" #[] 4 #[] (.return_ none)
+  let mapWorkBase ← emptyData "MapWork"
+  let boundedMapWorkCarrier ← encodeCarrier "bounded-map-work" {
+    mapWorkBase with types := mapWorkTypes 17, callables := #[mapWorkGate]
+  }
+  let _ ← admitOk "bounded-map-work" boundedMapWorkCarrier
+  let overMapWorkCarrier ← encodeCarrier "over-map-work" {
+    mapWorkBase with types := mapWorkTypes 18, callables := #[mapWorkGate]
+  }
+  admitUnsupported "over-map-work" overMapWorkCarrier
+    (fun detail => detail.contains "Map canonical update work") "Map update work"
+
+  let recursiveMapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "MapLoop", shape := .enum #[
+      { name := "Stop", payloadTypes := #[] },
+      { name := "More", payloadTypes := #[1] }] },
+    { id := 1, name := none, shape := .map 3 2 },
+    { id := 2, name := none, shape := .option 0 },
+    { id := 3, name := none, shape := .uint 8 },
+    { id := 4, name := none, shape := .unit }
+  ]
+  let recursiveMapGate := mkEntry 0 "recursiveMapGate" #[] 4 #[] (.return_ none)
+  let recursiveMapBase ← emptyData "RecursiveMap"
+  let recursiveMapCarrier ← encodeCarrier "recursive-map" {
+    recursiveMapBase with types := recursiveMapTypes, callables := #[recursiveMapGate]
+  }
+  admitUnsupported "recursive-map" recursiveMapCarrier
+    (fun detail => detail.contains "recursive" && detail.contains "resource bounds")
+    "recursive Map boundary"
 
 /-- Option/Enum canonical seam and runtime Construct/tag/payload behavior. -/
 private def testVariantReferenceSlice : IO Unit := do
@@ -2572,7 +2976,7 @@ private def testVariantReferenceSlice : IO Unit := do
     recursiveBase with types := recursiveTypes, callables := #[recursiveGate]
   }
   admitUnsupported "recursive-variant" recursiveCarrier
-    (fun detail => detail.contains "recursive Struct/Array/Option/Enum")
+    (fun detail => detail.contains "recursive" && detail.contains "resource bounds")
     "recursive aggregate boundary"
 
   -- Enum alternatives use a maximum (only one constructor exists at runtime),
@@ -2711,11 +3115,13 @@ unsafe def run : IO Unit := do
   testArithUnaryReferenceSlice session
   testLetForReferenceSlice session
   testShiftBitwiseLogicalReferenceSlice session
+  testCallScheduleReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects
   testInvalidInvocationAndInitLifecycle session
   testAdmissionUnsupported
+  testContextReadReferenceSlice
   testUnitReturnShape
   testSwitchTrapAndTrailing
   testBoundedLoopEmitOccurrences

@@ -131,6 +131,7 @@ deploy() {
   case "$program" in
     evm) artifact=Counter ;;
     evm-accumulator) artifact=Accumulator ;;
+    evm-arithops) artifact=ArithOps ;;
     *) echo "evm-smoke: unknown program artifact '$program'" >&2; return 2 ;;
   esac
   bytecode="$(tr -d '\n\r ' < "$root/build/v2/$program/$artifact.bin")"
@@ -195,4 +196,22 @@ accumulator_preserved="$($cast call --rpc-url "$rpc" "$max_accumulator" 'current
 require_uint_equal "$accumulator_preserved" "18446744073709551615" \
   "Accumulator overflow changed state"
 
-echo "evm-smoke: ok (Counter + generic Accumulator init/add/read/overflow rollback)"
+# ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
+# overflow (scale with count = UInt64.max and factor = 2 must revert; the
+# previous Yul round-trip div guard could never fire and silently admitted
+# 2^32 * 2^32 = 2^64).
+arith="$(deploy evm-arithops 7)"
+bits_zero="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 0)"
+require_uint_equal "$bits_zero" "18446744073709551615" "ArithOps bits(0) must be UInt64.max (masked bitNot)"
+bits_five="$($cast call --rpc-url "$rpc" "$arith" 'bits(uint64)(uint64)' 5)"
+require_uint_equal "$bits_five" "18446744073709551610" "ArithOps bits(5) must be UInt64.max - 5"
+scale_ok="$($cast call --rpc-url "$rpc" "$arith" 'scale(uint64,uint64)(uint64)' 3 2)"
+require_uint_equal "$scale_ok" "11" "ArithOps scale(3,2) mismatch"
+max_arith="$(deploy evm-arithops 18446744073709551615)"
+if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+    "$max_arith" 'scale(uint64,uint64)' 2 1 >/dev/null 2>&1; then
+  echo "evm-smoke: checkedMul overflow transaction unexpectedly succeeded" >&2
+  exit 1
+fi
+
+echo "evm-smoke: ok (Counter + generic Accumulator init/add/read/overflow rollback + ArithOps mul overflow/masked bitNot)"

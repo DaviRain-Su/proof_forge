@@ -1430,10 +1430,11 @@ target-negative: build
     if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build-counter --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log; fi
 
 target-smoke: build
-    rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
+    rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/evm-arithops build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
     lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --module Standalone --target evm -o build/v2/standalone
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/evm
     lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target evm -o build/v2/evm-accumulator
+    lake env .lake/build/bin/proof-forge-next build testdata/valid/ArithOps.lean --module ArithOps --target evm -o build/v2/evm-arithops
     lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target solana -o build/v2/solana
     lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target solana -o build/v2/solana-accumulator
     DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/near

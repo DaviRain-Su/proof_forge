@@ -65,6 +65,13 @@ inductive HostImport where
   | attachedDeposit
   | logUtf8
   | panicUtf8
+  /-- NEAR async promise batch create (account_id_len, account_id_ptr → promise_idx).
+      Only present on Plans that lower at least one schedule. -/
+  | promiseBatchCreate
+  /-- NEAR async function-call action on a promise batch. Deposit (u128) and gas
+      are explicit zero placeholders in the emitted WAT — not economics. Only
+      present on Plans that lower at least one schedule. -/
+  | promiseBatchActionFunctionCall
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -162,6 +169,15 @@ inductive Statement where
       while `i < end ≤ UInt64.max`. -/
   | forLoop (varTemp : Nat) (initial : Expr) (condition : Expr) (update : Expr)
       (maxIterations : Nat) (body : Array Statement)
+  /-- Async fire-and-forget cross-contract schedule lowered to a NEAR promise.
+      `receiver` is the callee QualifiedName components joined by `.` (verbatim;
+      must pass the NEAR account-id grammar — no silent case fold). `method` is
+      the last component. `args` are public UInt64 values serialized in the WAT
+      as a deterministic little-endian payload (each arg 8-byte LE, in source
+      order). Failure never propagates to the caller (matches schedule's
+      no-response channel and NEAR promise semantics). Deposit/gas are not
+      carried on the Plan; the WAT emits explicit zero placeholders. -/
+  | promiseAccount (receiver : String) (method : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
@@ -292,6 +308,12 @@ inductive Operation where
   | boolAnd (destination lhs rhs : Nat)
   /-- Strict Bool OR: i64.or on 0/1 words. -/
   | boolOr (destination lhs rhs : Nat)
+  /-- Async schedule → `promise_batch_create` + `promise_batch_action_function_call`.
+      Args are temp indices whose i64 values are stored LE into the scratch
+      payload. Deposit (u128 = 0,0) and gas (0) are explicit artifact
+      placeholders, not economics. Fire-and-forget: no response, no revert
+      propagation. -/
+  | promiseAccount (receiver : String) (method : String) (args : Array Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -367,10 +389,21 @@ private def canonicalResourceLimits : ResourceLimits := {
   wasmMemoryPages := 1
 }
 
+/-- Base host allowlist for programs without schedules. Kept separate so
+    no-schedule Plans (and their WAT bytes) stay identical when promise hosts
+    are introduced for schedule-bearing programs only. -/
 private def canonicalImports : Array HostImport := #[
   .input, .registerLen, .readRegister, .storageRead, .storageWrite, .valueReturn,
   .attachedDeposit, .logUtf8, .panicUtf8
 ]
+
+/-- Extra hosts required only when the Plan lowers at least one schedule. -/
+private def promiseHostImports : Array HostImport := #[
+  .promiseBatchCreate, .promiseBatchActionFunctionCall
+]
+
+private def hostImportsFor (usesPromise : Bool) : Array HostImport :=
+  if usesPromise then canonicalImports ++ promiseHostImports else canonicalImports
 
 private def canonicalRegisters : RegisterLayout := {
   input := 0
@@ -391,6 +424,22 @@ private def isIdentifier (value : String) : Bool :=
       (isAsciiLetter first || first == '_') &&
         rest.all (fun character =>
           isAsciiLetter character || isAsciiDigit character || character == '_')
+
+/-- NEAR account-id grammar for schedule receivers (pilot): lowercase ASCII
+    letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
+    `.`. Uppercase is rejected (never case-normalized). This is intentionally
+    stricter than DSL identifier components and matches the NEAR account-id
+    character set for this envelope. -/
+private def isNearAccountId (value : String) : Bool :=
+  let n := value.toUTF8.size
+  let chars := value.toList.toArray
+  (2 ≤ n && n ≤ 64) && !chars.isEmpty &&
+    chars[0]! != '.' && chars[chars.size - 1]! != '.' &&
+      chars.all fun character =>
+        let code := character.toNat
+        (97 ≤ code && code ≤ 122) ||
+          (48 ≤ code && code ≤ 57) ||
+          character == '_' || character == '-' || character == '.'
 
 private def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
   let mut seen : Array α := #[]
@@ -1231,6 +1280,40 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
+    | .externalCall _effectId _callee _argIds, none =>
+        -- NEAR has no synchronous cross-contract calls. The S2 resolver already
+        -- declines effect.synchronous-call; this is the defensive plan gate.
+        throw <| .planInvariant .near
+          "synchronous external calls are outside the NEAR envelope (NEAR has no synchronous cross-contract calls)"
+    | .schedule _effectId callee argIds, none =>
+        if mode == .view then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: view callable schedules a workflow"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot schedule workflows"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: schedule callee must have at least two components"
+        let receiver := String.intercalate "." components.toList
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .near
+            s!"schedule receiver '{receiver}' is not a valid NEAR account id (lowercase letters/digits/_/-/., length 2..64, no leading/trailing dot)"
+        let method := components[components.size - 1]!
+        unless isIdentifier method do
+          throw <| .planInvariant .near
+            s!"schedule method '{method}' is not a safe identifier"
+        let mut argExprs : Array Expr := #[]
+        for argId in argIds do
+          let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables argId
+          unless root.kind == .uint64 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: schedule arguments must be UInt64"
+          argExprs := argExprs.push root.expr
+        let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
+        body := body.push (.promiseAccount receiver method argExprs)
+        segmentStart := values.size
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -1989,6 +2072,23 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
         total := total + 1
+    | .promiseAccount receiver method args =>
+        if isView then
+          throw <| .planInvariant .near "view method schedules a workflow"
+        if isPureFn then
+          throw <| .planInvariant .near "pureFn body schedules a workflow"
+        unless isNearAccountId receiver do
+          throw <| .planInvariant .near
+            s!"schedule receiver '{receiver}' is not a valid NEAR account id"
+        unless isIdentifier method do
+          throw <| .planInvariant .near
+            s!"schedule method '{method}' is not a safe identifier"
+        for arg in args do
+          unless exprIsUInt64CompatibleV1 fns arg do
+            throw <| .planInvariant .near "method schedule arguments must be UInt64 expressions"
+          total ← addPlanExprNodes limits layout params fns total arg
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+        total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
           throw <| .planInvariant .near "method reverts with an unknown error"
@@ -2107,14 +2207,34 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
       s!"pureFn '{fn.name}' does not terminate on all paths"
   return total
 
+/-- Whether any statement tree contains a schedule→promise lowering. -/
+private partial def statementsUsePromiseV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .promiseAccount .. => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUsePromiseV1 thenBody || statementsUsePromiseV1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUsePromiseV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUsePromiseV1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUsePromiseV1 body
+    | .store _ | .returnValue _ | .returnNone | .assert _ | .emitEvent ..
+    | .revertError .. => false
+
+private def planUsesPromiseV1 (plan : Plan) : Bool :=
+  statementsUsePromiseV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUsePromiseV1 m.body) ||
+    plan.fns.any (fun f => statementsUsePromiseV1 f.body)
+
 /-- Validate the public target-owned NEAR Plan before recipe lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
+  let expectedImports := hostImportsFor (planUsesPromiseV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&
       plan.hostAbi == hostAbiVersion && plan.inputAbi == rawInputAbi &&
       plan.layoutDomain == stateLayoutDomain &&
-      plan.hostImports == canonicalImports &&
+      plan.hostImports == expectedImports &&
       plan.failurePolicy == canonicalFailurePolicy &&
       plan.commitPolicy == .rollbackOnTrap &&
       plan.resourceLimits == canonicalResourceLimits do
@@ -2246,6 +2366,10 @@ private def makePlanFromSemanticDataV1
   let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .near "KV-state programs require an initializer"
+  let usesPromise :=
+    statementsUsePromiseV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUsePromiseV1 m.body) ||
+      fns.any (fun f => statementsUsePromiseV1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -2253,7 +2377,7 @@ private def makePlanFromSemanticDataV1
     hostAbi := hostAbiVersion
     inputAbi := rawInputAbi
     layoutDomain := stateLayoutDomain
-    hostImports := canonicalImports
+    hostImports := hostImportsFor usesPromise
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits
@@ -2514,7 +2638,7 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
+      | .store _ | .assert _ | .emitEvent .. | .forLoop .. | .promiseAccount .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -2566,6 +2690,14 @@ private partial def lowerBodyOps
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.emitEvent eventIndex argTemps)
+    | .promiseAccount receiver method args =>
+        let mut argTemps : Array Nat := #[]
+        for arg in args do
+          let value := lowerExpr keys next fnMode localEnv arg
+          operations := operations ++ value.operations
+          argTemps := argTemps.push value.value
+          next := value.next
+        operations := operations.push (.promiseAccount receiver method argTemps)
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
@@ -2792,6 +2924,14 @@ private def renderImport : HostImport → String
       "  (import \"env\" \"log_utf8\" (func $pf_log_utf8 (param i64 i64)))\n"
   | .panicUtf8 =>
       "  (import \"env\" \"panic_utf8\" (func $pf_panic_utf8 (param i64 i64)))\n"
+  | .promiseBatchCreate =>
+      -- account_id_len, account_id_ptr → promise_index
+      "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
+  | .promiseBatchActionFunctionCall =>
+      -- promise_idx, method_len, method_ptr, args_len, args_ptr,
+      -- amount_low, amount_high, gas. Deposit/gas are always zero placeholders
+      -- in this pilot (explicit in the call site, not silent economics).
+      "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64 i64)))\n"
 
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     (indent : String) (destination : Nat) (field : KeyRegion) : String :=
@@ -2847,9 +2987,54 @@ private def renderInterfaceMessage (registers : RegisterLayout) (memory : Memory
     s!"{indent}(call ${hostCall} (i64.const {cursor - offset}) (i64.const {offset}))\n"
   return output
 
+/-- First-seen order of schedule receiver/method strings across the IR, used to
+    pin account-id/method bytes as `(data ...)` segments so the WAT artifact
+    contains the literal strings (not only store8 immediates). -/
+private partial def collectPromiseStringsFromOps (ops : Array Operation) : Array String :=
+  ops.foldl (fun acc op =>
+    match op with
+    | .promiseAccount receiver method _ =>
+        let acc := if acc.contains receiver then acc else acc.push receiver
+        if acc.contains method then acc else acc.push method
+    | .ifRegion _ thenOps elseOps =>
+        acc ++ collectPromiseStringsFromOps thenOps ++ collectPromiseStringsFromOps elseOps
+    | .switchRegion _ cases defaultOps =>
+        cases.foldl (fun a (_, caseOps) => a ++ collectPromiseStringsFromOps caseOps)
+          (acc ++ collectPromiseStringsFromOps defaultOps)
+    | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+        acc ++ collectPromiseStringsFromOps condOps ++
+          collectPromiseStringsFromOps bodyOps ++
+          collectPromiseStringsFromOps updateOps
+    | _ => acc) #[]
+
+private def collectPromiseStrings (ir : IR) : Array String :=
+  ir.methods.foldl (fun acc m => acc ++ collectPromiseStringsFromOps m.operations) #[] ++
+    ir.fns.foldl (fun acc f => acc ++ collectPromiseStringsFromOps f.operations) #[]
+
+/-- Place promise strings in a fixed free region after the value/scratch area so
+    they never collide with KV key data, input packing, or deposit cells.
+    Returns (string → offset) pairs in first-seen order. -/
+private def layoutPromiseStrings (memory : MemoryLayout) (strings : Array String) :
+    Array (String × Nat) := Id.run do
+  -- valueOffset+8 is the interface-message scratch; leave 1 KiB for event/
+  -- error/arg payloads, then pin schedule account/method bytes.
+  let mut offset := memory.valueOffset + 1024
+  let mut table : Array (String × Nat) := #[]
+  for s in strings do
+    unless table.any (fun p => p.1 == s) do
+      table := table.push (s, offset)
+      offset := offset + s.toUTF8.size
+  pure table
+
+private def promiseStringOffset (table : Array (String × Nat)) (s : String) : Nat :=
+  match table.find? (fun p => p.1 == s) with
+  | some (_, off) => off
+  | none => 0
+
 private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
-    (fnNames : Array String) (indent : String) : Operation → String
+    (fnNames : Array String) (promiseStr : Array (String × Nat))
+    (indent : String) : Operation → String
   | .checkInputLen bytes =>
       s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
@@ -2932,6 +3117,34 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .emitEvent eventIndex args =>
       renderInterfaceMessage registers memory indent "event" "pf_log_utf8"
         events errors true eventIndex args
+  | .promiseAccount receiver method args =>
+      -- Account id / method come from module `(data ...)` segments (literal
+      -- strings in the WAT). Args are a deterministic u64-LE payload written
+      -- into the interface-message scratch (each arg 8-byte LE via i64.store,
+      -- source order). Deposit u128=(0,0) and gas=0 are explicit zero
+      -- placeholders — not economics. Fire-and-forget: promise failure never
+      -- propagates to the caller.
+      Id.run do
+        let _ := registers
+        let _ := events
+        let _ := errors
+        let _ := fnNames
+        let accountOffset := promiseStringOffset promiseStr receiver
+        let methodOffset := promiseStringOffset promiseStr method
+        let accountLen := receiver.toUTF8.size
+        let methodLen := method.toUTF8.size
+        let argsOffset := messageOffset memory
+        let mut output := ""
+        for j in [0:args.size] do
+          output := output ++
+            s!"{indent}(i64.store (i32.const {argsOffset + 8 * j}) (local.get $t{args[j]!}))\n"
+        let argsLen := 8 * args.size
+        pure <| output ++
+          s!"{indent}(call $pf_promise_batch_action_function_call\n" ++
+          s!"{indent}  (call $pf_promise_batch_create (i64.const {accountLen}) (i64.const {accountOffset}))\n" ++
+          s!"{indent}  (i64.const {methodLen}) (i64.const {methodOffset})\n" ++
+          s!"{indent}  (i64.const {argsLen}) (i64.const {argsOffset})\n" ++
+          s!"{indent}  (i64.const 0) (i64.const 0) (i64.const 0))\n"
   | .revertError errorIndex args =>
       renderInterfaceMessage registers memory indent "error" "pf_panic_utf8"
         events errors false errorIndex args
@@ -2957,10 +3170,10 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(return (local.get $t{value}))\n"
   | .ifRegion condition thenOps elseOps =>
       let thenText := thenOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors fnNames
+        output ++ renderOperation registers memory events errors fnNames promiseStr
           (indent ++ "  ") operation) ""
       let elseText := elseOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors fnNames
+        output ++ renderOperation registers memory events errors fnNames promiseStr
           (indent ++ "  ") operation) ""
       s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenText ++
         s!"{indent}  )\n" ++
@@ -2977,11 +3190,14 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       let inner := indent ++ "  "
       let deeper := indent ++ "    "
       let condText := condOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+        output ++ renderOperation registers memory events errors fnNames promiseStr
+          deeper operation) ""
       let bodyText := bodyOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+        output ++ renderOperation registers memory events errors fnNames promiseStr
+          deeper operation) ""
       let updateText := updateOps.foldl (fun output operation =>
-        output ++ renderOperation registers memory events errors fnNames deeper operation) ""
+        output ++ renderOperation registers memory events errors fnNames promiseStr
+          deeper operation) ""
       s!"{indent}(local.set $t{varTemp} (local.get $t{initial}))\n" ++
         s!"{indent}(local.set $t{counterTemp} (i64.const 0))\n" ++
         s!"{indent}(block $pf_exit{varTemp}\n" ++
@@ -3002,12 +3218,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         match remaining.toList with
         | [] =>
             let defaultText := defaultOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory events errors fnNames
+              output ++ renderOperation registers memory events errors fnNames promiseStr
                 (indent ++ "  ") operation) ""
             s!"{indent}(then\n" ++ defaultText ++ s!"{indent})\n"
         | (caseValue, caseOps) :: rest =>
             let caseText := caseOps.foldl (fun output operation =>
-              output ++ renderOperation registers memory events errors fnNames
+              output ++ renderOperation registers memory events errors fnNames promiseStr
                 (indent ++ "  ") operation) ""
             s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
               s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
@@ -3016,29 +3232,30 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       match cases.toList with
       | [] =>
           defaultOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory events errors fnNames
+            output ++ renderOperation registers memory events errors fnNames promiseStr
               indent operation) ""
       | (caseValue, caseOps) :: rest =>
           let caseText := caseOps.foldl (fun output operation =>
-            output ++ renderOperation registers memory events errors fnNames
+            output ++ renderOperation registers memory events errors fnNames promiseStr
               (indent ++ "  ") operation) ""
           s!"{indent}(if (i64.eq (local.get $t{scrutinee}) (i64.const {caseValue.toNat}))\n" ++
             s!"{indent}  (then\n" ++ caseText ++ s!"{indent}  )\n" ++
             s!"{indent}  (else\n" ++ renderCases (indent ++ "  ") rest.toArray ++
             s!"{indent})\n"
 
-private def renderMethod (ir : IR) (method : MethodIR) : String :=
+private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
+    (method : MethodIR) : String :=
   let fnNames := ir.fns.map (·.name)
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
     s!" (local $t{index} i64)"
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
-      ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
+      ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
   s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
 
 /-- PureFn WAT: params occupy the first local indices (`$t0..`), extra temps
     follow, and the body ends with Wasm `return` of the result value. -/
-private def renderFn (ir : IR) (fn : FnIR) : String :=
+private def renderFn (ir : IR) (promiseStr : Array (String × Nat)) (fn : FnIR) : String :=
   let fnNames := ir.fns.map (·.name)
   let params := String.intercalate "" <| (Array.range fn.paramCount).toList.map fun index =>
     s!" (param $t{index} i64)"
@@ -3050,18 +3267,24 @@ private def renderFn (ir : IR) (fn : FnIR) : String :=
           s!" (local $t{fn.paramCount + i} i64)"
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.registers ir.memory
-      ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
+      ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
   s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}\n" ++
     operations ++ "  )\n"
 
 private def renderWat (ir : IR) : String :=
   let imports := String.intercalate "" <| ir.imports.toList.map renderImport
-  let data := String.intercalate "" <| ir.keys.toList.map fun key =>
+  let promiseStr := layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+  let keyData := String.intercalate "" <| ir.keys.toList.map fun key =>
     s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
-  let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir)
-  let methods := String.intercalate "" <| ir.methods.toList.map (renderMethod ir)
+  -- Escape is unnecessary: account-id grammar and identifier method names are
+  -- restricted to safe ASCII (no quotes/backslashes).
+  let promiseData := String.intercalate "" <| promiseStr.toList.map fun (s, off) =>
+    s!"  (data (i32.const {off}) \"{s}\")\n"
+  let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir promiseStr)
+  let methods := String.intercalate "" <| ir.methods.toList.map (renderMethod ir promiseStr)
   "(module\n" ++ imports ++
-    s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++ data ++ fns ++ methods ++ ")\n"
+    s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++
+    keyData ++ promiseData ++ fns ++ methods ++ ")\n"
 
 private def renderMode : MethodMode → String
   | .initialize => "initialize"

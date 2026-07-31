@@ -379,7 +379,16 @@ private def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAcc
     .mustBeInitialized
 }
 
-/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering -/
+/-! ### Retained SemanticProgramV1 public-UInt64 Plan lowering
+
+The Solana pilot lowers public-UInt64 state, checked arith/bitwise/shift,
+Bool compare/logical, bare assert, emit/revert, pureFn localCall, if/match
+regions, and bounded for. External calls (`Op.ExternalCall`) and workflow
+schedules (`Op.Schedule`) are declined this wave: CPI needs a 32-byte
+program id, which the current UInt64 envelope cannot express. The product
+path rejects those S2 requirements at `resolveEngineeringRequirementsV1`
+before any Solana lowering; hand-built/inspection Semantic programs that
+still carry the ops fail closed here with an explicit planInvariant. -/
 
 private structure SolanaTypeClosureV1 where
   uint64TypeId : TypeIdV1
@@ -1173,6 +1182,16 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
+    -- External call / workflow schedule: Solana declines both this wave.
+    -- CPI needs a 32-byte program id; the UInt64 pilot envelope has no
+    -- address-bearing type, so there is no placeholder, adapter, or
+    -- fabricated program id — fail closed with an explicit planInvariant.
+    | .externalCall _ _ _, _ =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: external calls are outside the Solana pilot envelope (CPI requires a 32-byte program id the current UInt64 envelope cannot express)"
+    | .schedule _ _ _, _ =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: workflow schedules are outside the Solana pilot envelope (CPI requires a 32-byte program id the current UInt64 envelope cannot express)"
     | _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"
