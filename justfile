@@ -1011,7 +1011,7 @@ product-negative: build
     rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
     test ! -e build/v2/module-required-negative
     ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
-    if [ "$(uname -s)" = Darwin ]; then rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log; else rg -q -- '^PF-FRONTEND-PROTOCOL: frontend supervisor unavailable$' build/module-parse-negative.log; fi
+    rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
 
 # Exact positive CLI stdout anchors for list/describe (selection surface; no build outputs).
