@@ -41,9 +41,15 @@ origin 一样只进入 `SemanticProvenanceV1`，由 requirement index exact join
 `SemanticProgramV1`、`SemanticProgramDataV1`、provenance、所有 table/wire type、strict codec 与
 validator 的 owning module 固定为 `ProofForgeV2.Semantic.WireV1`。`InvariantOrdinalV1`、
 `LogicalStateV1`、`InvariantEvalResultV1`、`StateConformsV1`、`evalInvariantV1` 和
-`InvariantTheoremV1` 的唯一 owning module 固定为 `ProofForgeV2.Semantic.InvariantABI`；它 import
-`WireV1` 并直接定义这些 constants，不在 `WireV1` 建立第二份 alias/definition。ProofBundle manifest
-的 module/theorem identity 和 ABI `.olean` digest 仍绑定 `InvariantABI`。
+`InvariantTheoremV1` 的唯一 public owning module/namespace固定为
+`ProofForgeV2.Semantic.InvariantABI`。为保持formal evaluator到reference machine的acyclic依赖，
+`InvariantOrdinalV1`、`LogicalStateV1`、`InvariantEvalResultV1`与StateConforms所需codec/defaults可由
+lower `ProofForgeV2.Semantic.InvariantFoundationV1`在exact
+`ProofForgeV2.Semantic.InvariantABI` namespace下物理定义；public `InvariantABI` façade必须import该
+foundation并直接定义后续`evalInvariantV1`/`InvariantTheoremV1`，不得建立alias/wrapper或第二份
+definition。ProofBundle manifest的module/theorem identity与public ABI `.olean` digest仍绑定
+`InvariantABI`；trusted `.olean` closure必须exact包含其全部transitive依赖——当前含
+`InvariantFoundationV1`，在formal evaluator引入后也必须含`ReferenceMachineV1`。
 
 下列定义中的 `Digest`、`SemVer`、`SchemaId`、
 `QualifiedName`、`ProjectRelativePath`、`NodeId` 和 `SourceOrigin` 精确使用

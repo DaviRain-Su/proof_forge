@@ -108,6 +108,12 @@ event/error lookup、rollback/runtime 与 full Normalize 仍独立 pending。CLI
 > Commit现已闭合operand/result TypeId exact equality、exact disclosure requirement row与Reference identity runtime；
 > 全部target support与formal evaluator/theorem也仍未完成。
 
+> 2026-07-31 模块边界更正：`InvariantFoundationV1`现承载原`InvariantABI` state carrier/codec/
+> StateConforms declarations（FQName仍在public `InvariantABI` namespace），`ReferenceMachineV1`承载原
+> `ReferenceV1` admission/runtime（FQName仍在public `ReferenceV1` namespace）。两个原路径保留为
+> public façade；lower machine不import upper InvariantABI，从而为下一切片
+> `InvariantABI → ReferenceMachineV1` formal evaluator依赖保持无环。本次仅机械抽取，行为未变。
+
 ### D2-07 invariant reference evaluator 增量（2026-07-31）
 
 首个 proposed/pre-acceptance ContextRead static-only slice 另冻结 wire-owned 单行 catalog：

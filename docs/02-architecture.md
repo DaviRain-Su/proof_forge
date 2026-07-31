@@ -93,8 +93,10 @@ decoded data 包含 qualified name、types、constants、logical state、events/
 `SemanticProvenance` companion exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
 它只服务 diagnostics/audit/certification join，不能进入 target-neutral 业务求值或 target 选择。
 
-`SPEC-SEM-001`/`ProofForgeV2.Semantic.ReferenceV1` 唯一定义 `ReferenceValueV1`、`InvocationV1`、
-`ExternalResponsesV1`、`OrderedEffectV1`、revert/fault 与 `OutcomeV1`；本架构页不声明简化替身。
+`SPEC-SEM-001`/public façade `ProofForgeV2.Semantic.ReferenceV1` 唯一定义
+`ReferenceValueV1`、`InvocationV1`、`ExternalResponsesV1`、`OrderedEffectV1`、revert/fault 与
+`OutcomeV1`；实现机械抽取到lower `ReferenceMachineV1`但保留同一public namespace/FQName，本架构页
+不声明简化替身。
 `step : SemanticProgramV1 → LogicalStateV1 → InvocationV1 → ExternalResponsesV1 → OutcomeV1` 是
 reference semantics。
 失败时 logical state 原子回滚。NEAR receipt、ICP await 或外部 proof settlement 的额外提交

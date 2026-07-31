@@ -12,6 +12,20 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-07-31 — D2-07 ReferenceMachine dependency extraction
+
+- Production：将原`InvariantABI` state carrier/default/codec/StateConforms机械移动到lower
+  `InvariantFoundationV1`，public declarations仍保留`ProofForgeV2.Semantic.InvariantABI.*` FQName；
+  将原`ReferenceV1` carriers/admission/runtime/engineering invariant evaluator机械移动到lower
+  `ReferenceMachineV1`，public declarations仍保留`ProofForgeV2.Semantic.ReferenceV1.*` FQName。
+  两个原模块路径改为无wrapper/alias的public import façade。
+- Dependency：`ReferenceMachineV1`只import `InvariantFoundationV1`与Wire/Core，不import upper
+  `InvariantABI`；因此下一切片可由`InvariantABI`单向import lower machine并own formal evaluator，
+  不复制执行语义、不形成cycle。本切片未修改admission、fuel、state/effect/response或Outcome行为。
+- Boundary：未新增`evalInvariantV1`/`InvariantTheoremV1`、formal claim或target接线；private helper的
+  module-local compiled identity随机械移动变化，formal ABI尚未冻结。public source FQName与现有consumer
+  import路径保持。
+
 ## 2026-07-31 — D2-07 ReferenceV1 Commit identity runtime engineering slice
 
 - Production：`ReferenceV1` admission现开放Wire-owned Commit。runtime从当前env读取operand，并将

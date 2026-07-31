@@ -198,6 +198,12 @@ fuel上限，映射true/false/revert/trap且不发布state/effects。正式`eval
 `InvariantTheoremV1`仍由`InvariantABI`唯一拥有且尚未实现，formal TASK-D2-07/TST-SEM-002/003
 仍pending。
 
+模块依赖已为formal evaluator机械拆分且不改变public FQName：`InvariantFoundationV1`定义
+`InvariantABI` namespace下的state carrier/codec/StateConforms，`ReferenceMachineV1`只依赖该
+foundation并定义`ReferenceV1` namespace下的现有carriers/admission/machine；`InvariantABI.lean`与
+`ReferenceV1.lean`保留public façade。lower machine不得重新import upper `InvariantABI`，否则会阻断
+下一切片所需的`InvariantABI → ReferenceMachineV1`无环依赖。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
