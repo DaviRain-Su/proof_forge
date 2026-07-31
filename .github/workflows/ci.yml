@@ -57,6 +57,19 @@ jobs:
       - name: Install ripgrep
         run: sudo apt-get update && sudo apt-get install -y ripgrep
 
+      # The Lean-bundled clang does not probe the distro gcc include layout,
+      # so `stddef.h` (lives in the gcc private include dir on Ubuntu) is not
+      # found when compiling ProofForgeV2/Frontend/Native/*.c. CPATH appends
+      # the gcc include directory and the libc public headers to clang's
+      # system search path. libc6-dev/gcc are preinstalled on the runner
+      # image; the install is defensive for image drift.
+      - name: Provision C toolchain headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libc6-dev gcc
+          gcc_include="$(gcc -print-file-name=include)"
+          echo "CPATH=${gcc_include}:/usr/include:/usr/include/x86_64-linux-gnu" >> "$GITHUB_ENV"
+
       - name: Install Lean
         run: |
           scripts/ci/install-lean.sh
