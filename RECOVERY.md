@@ -247,9 +247,11 @@ formal TASK状态暂不提前关闭。
 closed theorem的kernel路径现新增第一层可信wire refinement：`WireV1`以透明`List UInt8` spine定义
 remaining/read-byte，并为production `ByteArray` primitive证明任意offset（含越界`.truncated`）的
 exact等价；production Cursor `takeByte`直接消费该primitive，因此不是第二套validator。当前只闭合
-size/single-byte边界；`takeBytes`仍会进入`ByteArray.extract/copySlice`，尚不能声称617-byte canonical
-carrier可在kernel中完成validation reduction。下一步应建立exact slice/take bridge，再逐层覆盖
-u16/u32与transport framing；NC canonical reader的`.nonCanonical`错误合同不得误改为`.truncated`。
+size/single-byte边界。后续exact-slice切片已让Cursor `takeBytes`委托shared production primitive，并以
+标准库extract correctness证明其logical list精确等于transparent `drop/take`（含short与offset越界的
+zero-count边界）；runtime仍使用`ByteArray.extract`，proof可经theorem rewrite绕开`copySlice` reduction。
+尚不能声称617-byte canonical carrier已完成kernel validation；下一步逐层覆盖u16/u32与transport
+framing。NC canonical reader的`.nonCanonical`错误合同不得误改为`.truncated`。
 
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer

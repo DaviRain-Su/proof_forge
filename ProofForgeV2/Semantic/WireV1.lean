@@ -807,15 +807,53 @@ theorem readByteAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat
     readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset := by
   simp [readByteAtV1, readSpineByteV1, List.getElem?_toArray]
 
+/-- Take exactly `count` bytes from the transparent proof spine. Unlike bare
+    `List.take`, a short input fails closed with the production wire error. -/
+def takeSpineBytesV1 (bytes : TransparentByteSpineV1) (offset count : Nat) :
+    Except SemanticWireErrorV1 (List UInt8) :=
+  if count ≤ spineRemainingV1 bytes offset then
+    .ok ((bytes.drop offset).take count)
+  else
+    .error .truncated
+
+/-- Production exact-slice primitive. It retains `ByteArray.extract` for the
+    runtime implementation; proofs cross to `takeSpineBytesV1` via the theorem
+    below instead of reducing `copySlice`. -/
+def takeBytesAtV1 (bytes : ByteArray) (offset count : Nat) :
+    Except SemanticWireErrorV1 ByteArray :=
+  if count ≤ remainingBytesAtV1 bytes offset then
+    .ok (bytes.extract offset (offset + count))
+  else
+    .error .truncated
+
+/-- Exact-slice refinement. Mapping the production slice back to its logical
+    byte list yields the transparent spine result, including short-input
+    failure. The proof uses library extract correctness, not `copySlice`
+    reduction. -/
+theorem takeBytesAtV1_refinesSpine (bytes : TransparentByteSpineV1)
+    (offset count : Nat) :
+    (takeBytesAtV1 (ByteArray.mk bytes.toArray) offset count).map
+        (fun slice => slice.data.toList) =
+      takeSpineBytesV1 bytes offset count := by
+  have hs : remainingBytesAtV1 (ByteArray.mk bytes.toArray) offset =
+      spineRemainingV1 bytes offset := remainingBytesAtV1_refinesSpine bytes offset
+  unfold takeBytesAtV1 takeSpineBytesV1
+  rw [hs]
+  split <;> rename_i h
+  · simp only [Except.map]
+    congr 1
+    rw [ByteArray.data_extract, Array.toList_extract]
+    simp [List.extract_eq_take_drop]
+  · rfl
+
 private def takeByte (c : Cursor) : Except SemanticWireErrorV1 (UInt8 × Cursor) := do
   let byte ← readByteAtV1 c.input c.offset
   pure (byte, ⟨c.input, c.offset + 1, c.nesting⟩)
 
 private def takeBytes (c : Cursor) (n : Nat) :
     Except SemanticWireErrorV1 (ByteArray × Cursor) := do
-  unless remaining c ≥ n do
-    return ← err .truncated
-  pure (c.input.extract c.offset (c.offset + n), ⟨c.input, c.offset + n, c.nesting⟩)
+  let bytes ← takeBytesAtV1 c.input c.offset n
+  pure (bytes, ⟨c.input, c.offset + n, c.nesting⟩)
 
 /-- Shared nesting frame for every tagged wire value (records + sums).
     Enter fails with `.limitExceeded` when `nesting ≥ maxNesting`.

@@ -240,8 +240,10 @@ VariantPayload、fixed-length Array Construct及Array/Bytes IndexGet/IndexSet已
 `WireV1`现有第一层kernel-checkable transport seam：透明`List UInt8` spine与production `ByteArray`
 分别拥有remaining/read-byte primitive，两个refinement theorem覆盖任意offset及exact越界错误；production
 Cursor `takeByte`直接委托该shared primitive，未新增第二semantic decoder。聚焦Lean examples固定proof
-复用与production cursor成功/EOF。`takeBytes`/`ByteArray.extract`、u16/u32和完整transport/program
-refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
+复用与production cursor成功/EOF。后续exact-slice theorem已通过标准库extract correctness证明
+production `ByteArray.extract`输出映回logical list后等于transparent `drop/take`，Cursor `takeBytes`
+直接委托该primitive，runtime性能路径不改；short input与越界zero-count边界均固定。u16/u32和完整
+transport/program refinement仍pending，因此closed invariant theorem与formal TASK/TST状态不变。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

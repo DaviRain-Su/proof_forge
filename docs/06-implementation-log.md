@@ -105,6 +105,19 @@ normative: false
   refinement，也未产生closed `InvariantTheoremV1`证明或formal TST evidence。下一步按同一shared
   primitive路线建立exact slice/take refinement，须保留canonical NC decoder的`.nonCanonical`错误映射。
 
+## 2026-07-31 — proof-validation exact byte-slice refinement
+
+- Production/Proof：新增透明spine exact take与production `ByteArray` exact slice primitive；Cursor
+  `takeBytes`直接委托后者，runtime继续使用`ByteArray.extract`。refinement theorem先统一remaining
+  guard，再以标准库`ByteArray.data_extract`/`Array.toList_extract`证明production slice映回logical list
+  后精确等于`drop offset |>.take count`，short input保持`.truncated`。
+- Tests/Review：固定中段slice、short input、offset越界时zero-count成功/nonzero失败，以及任意
+  bytes/offset/count theorem复用；blocker-only review为APPROVE。没有让production转换整包List，也没有
+  复制semantic decoder或改变`extract`性能路径。
+- Boundary：proof可通过theorem rewrite绕开`copySlice` reduction，但u16/u32、magic/tag/record和完整
+  program decoder refinement仍未建立；NC canonical reader仍保留独立`.nonCanonical`合同。closed
+  invariant theorem与formal TASK/TST状态不变。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

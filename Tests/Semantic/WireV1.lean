@@ -61,6 +61,20 @@ example (bytes : TransparentByteSpineV1) (offset : Nat) :
     readByteAtV1 (ByteArray.mk bytes.toArray) offset = readSpineByteV1 bytes offset :=
   readByteAtV1_refinesSpine bytes offset
 
+example : takeSpineBytesV1 [0x10, 0x20, 0x30, 0x40] 1 2 = .ok [0x20, 0x30] := by rfl
+
+example : takeSpineBytesV1 [0x10, 0x20, 0x30, 0x40] 3 2 = .error .truncated := by rfl
+
+example : takeSpineBytesV1 [0x10, 0x20] 3 0 = .ok [] := by rfl
+
+example : takeSpineBytesV1 [0x10, 0x20] 3 1 = .error .truncated := by rfl
+
+example (bytes : TransparentByteSpineV1) (offset count : Nat) :
+    (takeBytesAtV1 (ByteArray.mk bytes.toArray) offset count).map
+        (fun slice => slice.data.toList) =
+      takeSpineBytesV1 bytes offset count :=
+  takeBytesAtV1_refinesSpine bytes offset count
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
