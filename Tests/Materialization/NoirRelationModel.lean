@@ -1563,8 +1563,13 @@ private unsafe def checkForLoopProduct : IO Unit := do
     | none => throw <| IO.userError "LoopSum addUp nesting broke before the bound level"
   match findThen cursor with
   | some thenOps =>
-      expect (thenOps == #[.assertConstraint (.literal 0)])
-        "LoopSum addUp deepest taken arm must be inadmissible (boundExceeded)"
+      -- The (bound+1)-th body still walks; only its back-edge leaf is
+      -- inadmissible (assert(false) last, after the body ops).
+      match thenOps.back? with
+      | some (.assertConstraint (.literal 0)) => pure ()
+      | _ =>
+          throw <| IO.userError
+            "LoopSum addUp bound level must end in the inadmissible back-edge guard"
   | none => throw <| IO.userError "LoopSum addUp bound level must be an if-region"
 
   -- Model: init(0) → addUp(1) = 10 (i ∈ {1,2,3,4}); addUp(6) from 10 → 40;

@@ -2438,10 +2438,11 @@ private partial def lowerPathStatementsV1
 /-- One unrolling level of a `forLoop`: evaluate the condition against the
     current induction value, then nest the gated body level (which descends
     through the update) beside the exit continuation. At the static bound
-    the taken arm is inadmissible, mirroring the reference machine's
-    boundExceeded revert on the back edge after the (bound+1)-th body
-    execution. The exit arm always continues with the post-loop statements
-    from this level's environment. -/
+    the body still walks (returns inside it complete normally) but its open
+    leaf — the back edge — is inadmissible, mirroring the reference
+    machine's boundExceeded revert on the back edge after the (bound+1)-th
+    body execution. The exit arm always continues with the post-loop
+    statements from this level's environment. -/
 private partial def lowerLoopLevelV1
     (plan : Plan) (relation : Relation) (fuel : Nat)
     (emitSlots : Array (Nat × Nat × Nat))
@@ -2465,9 +2466,23 @@ private partial def lowerLoopLevelV1
     lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
       stateValues nx pathEmits #[] rest
   if level ≥ bound.toNat then
-    let (exitOps, exitNext) ← exitWalk cond.next
-    pure (acc ++ cond.operations ++
-      #[.ifRegion cond.value #[.assertConstraint (.literal 0)] exitOps], exitNext)
+    -- Exact back-edge placement: the (bound+1)-th body still executes (a
+    -- return inside it completes the path normally); only its open leaf —
+    -- the back edge — reverts, rendered as an inadmissible assertion. Body
+    -- values flowing into the discarded state environment are anchored by
+    -- trivial self-equalities so their checked-arithmetic failure stays
+    -- constrained for the liveness gate (the path rejects regardless).
+    let boundLeaf : OpenLeafV1 := fun sv nx _ ac => do
+      let mut anchored := ac
+      for ref in sv do
+        match ref with
+        | .temp _ => anchored := anchored.push (.assertEqual ref ref)
+        | _ => pure ()
+      pure (anchored.push (.assertConstraint (.literal 0)), nx)
+    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel emitSlots
+      loopEnvK boundLeaf stateValues cond.next pathEmits #[] body.toList
+    let (exitOps, exitNext) ← exitWalk thenNext
+    pure (acc ++ cond.operations ++ #[.ifRegion cond.value thenOps exitOps], exitNext)
   else do
     -- The body's open leaf evaluates the update and descends one level.
     let bodyLeaf : OpenLeafV1 := fun sv nx pe ac => do
