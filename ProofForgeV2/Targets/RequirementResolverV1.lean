@@ -23,6 +23,7 @@
 -/
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -225,13 +226,17 @@ private def mkImplementedRow
     log — emit fails closed at the materializer). -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
+  -- Capability filters reference closed S2 id spellings from RequirementIdsV1
+  -- (not bare literals). s2CatalogIdsWireOrderV1 stays RequirementsV1 public.
   let withoutCalls := catalogRequests.filter fun r =>
-    r.id != "effect.asynchronous-workflow" && r.id != "effect.synchronous-call"
+    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   let withoutSync := catalogRequests.filter fun r =>
-    r.id != "effect.synchronous-call"
+    r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   let aleoRequests := catalogRequests.filter fun r =>
-    r.id != "effect.event" && r.id != "effect.asynchronous-workflow" &&
-      r.id != "effect.synchronous-call"
+    r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 withoutCalls,

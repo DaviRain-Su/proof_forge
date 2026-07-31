@@ -15,6 +15,7 @@
   Formal TASK-D2-05 / RequirementRef / predicate merge / contribution origins
   remain pending.
 -/
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
@@ -27,6 +28,7 @@ import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace ProofForgeV2.Typed.RequirementsInferV1
 
+open ProofForgeV2.Semantic.RequirementIdsV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -53,18 +55,18 @@ end RequirementContributionV1
 private def contribution (id : String) : RequirementContributionV1 :=
   RequirementContributionV1.mk id
 
-private def persistentState := contribution "state.persistent"
-private def checkedArithmetic := contribution "value.checked-arithmetic"
-private def transactionalRollback := contribution "failure.atomic-rollback"
-private def synchronousCall := contribution "effect.synchronous-call"
-private def asynchronousWorkflow := contribution "effect.asynchronous-workflow"
-private def privateWitness := contribution "disclosure.private-witness"
-private def eventEmission := contribution "effect.event"
-private def boolValues := contribution "value.bool"
-private def commitmentDisclosure := contribution "disclosure.commitment"
-private def fieldBn254 := contribution "value.field.bn254-fr"
-private def privateState := contribution "disclosure.private-state"
-private def commitmentState := contribution "disclosure.commitment-state"
+private def persistentState := contribution s2StatePersistentIdV1
+private def checkedArithmetic := contribution s2ValueCheckedArithmeticIdV1
+private def transactionalRollback := contribution s2FailureAtomicRollbackIdV1
+private def synchronousCall := contribution s2EffectSyncCallIdV1
+private def asynchronousWorkflow := contribution s2EffectAsyncWorkflowIdV1
+private def privateWitness := contribution inferDisclosurePrivateWitnessIdV1
+private def eventEmission := contribution s2EffectEventIdV1
+private def boolValues := contribution s2ValueBoolIdV1
+private def commitmentDisclosure := contribution inferDisclosureCommitmentIdV1
+private def fieldBn254 := contribution inferValueFieldBn254FrIdV1
+private def privateState := contribution inferDisclosurePrivateStateIdV1
+private def commitmentState := contribution inferDisclosureCommitmentStateIdV1
 
 private def stableUniqueContributions
     (values : Array RequirementContributionV1) : Array RequirementContributionV1 :=

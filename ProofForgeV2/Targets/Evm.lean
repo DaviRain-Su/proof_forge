@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Evm.Keccak
@@ -11,6 +12,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.evm
@@ -191,36 +193,20 @@ private def maxBodyStatements : Nat := 4096
 private def maxExprDepth : Nat := 256
 private def maxPlanNodes : Nat := 100000
 
+/-- Thin adapter: binds EVM's `maxIdentifierBytes` (240) to the shared grammar. -/
 private def isIdentifier (value : String) : Bool :=
-  value.toUTF8.size <= maxIdentifierBytes && match value.toList with
-  | [] => false
-  | first :: rest =>
-      let isAsciiLetter (character : Char) : Bool :=
-        let code := character.toNat
-        (65 <= code && code <= 90) || (97 <= code && code <= 122)
-      let isAsciiDigit (character : Char) : Bool :=
-        let code := character.toNat
-        48 <= code && code <= 57
-      (isAsciiLetter first || first == '_') &&
-        rest.all (fun character => isAsciiLetter character || isAsciiDigit character || character == '_')
-
-private def hasDuplicates [BEq α] (values : Array α) : Bool := Id.run do
-  let mut seen : Array α := #[]
-  for value in values do
-    if seen.contains value then return true
-    seen := seen.push value
-  return false
+  isAsciiIdentifier maxIdentifierBytes value
 
 private def validSelector (selector : String) : Bool :=
   selector.length == 8 && selector.toList.all (fun character =>
     "0123456789abcdef".contains character)
 
-private structure EvmTypeClosureV1 where
-  uint64TypeId : TypeIdV1
-  unitTypeId : Option TypeIdV1
-  boolTypeId : Option TypeIdV1
-  /-- Optional anonymous UInt32: admitted only as shift-count intermediates. -/
-  uint32TypeId : Option TypeIdV1
+/-- EVM pilot type-closure carrier (shared `PilotTypeClosureV1`).
+    Bool/UInt32 optional; state/params remain UInt64-only. -/
+private abbrev EvmTypeClosureV1 := PilotTypeClosureV1
+
+private def evmPlanErr (message : String) : CompileError :=
+  .planInvariant .evm message
 
 /-- EVM pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
     emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
@@ -229,54 +215,8 @@ private structure EvmTypeClosureV1 where
     values and as entry/view results. UInt32 is optional (at most one): admitted
     only as shift-count literals/intermediates. State/params remain UInt64-only. -/
 private def validateEvmTypeClosureV1
-    (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 := do
-  let mut uint64TypeId : Option TypeIdV1 := none
-  let mut unitTypeId : Option TypeIdV1 := none
-  let mut boolTypeId : Option TypeIdV1 := none
-  let mut uint32TypeId : Option TypeIdV1 := none
-  for decl in types do
-    unless decl.name.isNone do
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: named types are outside the current UInt64 pilot"
-    match decl.shape with
-    | .uint width =>
-        match width.toNat with
-        | 64 =>
-            unless uint64TypeId.isNone do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: expected one anonymous UInt64 type"
-            uint64TypeId := some decl.id
-        | 32 =>
-            unless uint32TypeId.isNone do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: expected at most one anonymous UInt32 type"
-            uint32TypeId := some decl.id
-        | _ =>
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: only anonymous UInt64/UInt32 integer widths are supported"
-    | .unit =>
-        unless unitTypeId.isNone do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: duplicate Unit type"
-        unitTypeId := some decl.id
-    | .bool =>
-        unless boolTypeId.isNone do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: duplicate Bool type"
-        boolTypeId := some decl.id
-    | _ =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: only UInt64, UInt32, Unit, and Bool are supported"
-  let resolvedUInt64TypeId ← match uint64TypeId with
-    | some value => pure value
-    | none => throw (.planInvariant .evm
-        "unsupported EVM semantic shape: UInt64 type is missing")
-  pure {
-    uint64TypeId := resolvedUInt64TypeId
-    unitTypeId
-    boolTypeId
-    uint32TypeId
-  }
+    (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
+  validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
 
 private def makeStorageLayoutV1
     (uint64TypeId : TypeIdV1)
@@ -287,8 +227,7 @@ private def makeStorageLayoutV1
   for state in states do
     unless state.id.toNat == layout.size do
       throw <| .planInvariant .evm "semantic state ids must match declaration order"
-    unless state.typeId == uint64TypeId && state.visibility == .public_ do
-      throw <| .planInvariant .evm s!"state '{state.name}' is not public UInt64"
+    requirePublicUInt64State evmPlanErr uint64TypeId state
     unless isIdentifier state.name do
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
     layout := layout.push {
@@ -320,9 +259,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .evm
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    unless param.typeId == uint64TypeId && param.visibility == .public_ do
-      throw <| .planInvariant .evm
-        s!"parameter '{param.name}' in {owner} is not public UInt64"
+    requirePublicUInt64Param evmPlanErr uint64TypeId owner param
     unless isIdentifier param.name do
       throw <| .planInvariant .evm
         s!"parameter name '{param.name}' in {owner} is not an EVM ABI identifier"
@@ -355,37 +292,13 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 8 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: UInt64 literal must contain exactly 8 bytes"
-  match decodeU64le (start bytes) with
-  | .error _ =>
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: invalid UInt64 literal"
-  | .ok (value, cursor) =>
-      match finish cursor with
-      | .ok () => pure value
-      | .error _ =>
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: trailing UInt64 literal bytes"
+private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
+  decodeUInt64LiteralLe evmPlanErr "EVM" bytes
 
 /-- Shift-count literals are 4-byte LE UInt32 on the wire; widen to UInt64 for
     the Plan expression surface (values are always < 2^32). -/
-private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 4 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: UInt32 literal must contain exactly 4 bytes"
-  match decodeU32le (start bytes) with
-  | .error _ =>
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: invalid UInt32 literal"
-  | .ok (value, cursor) =>
-      match finish cursor with
-      | .ok () => pure (UInt64.ofNat value.toNat)
-      | .error _ =>
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: trailing UInt32 literal bytes"
+private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
+  decodeUInt32LiteralLe evmPlanErr "EVM" bytes
 
 private def currentValueV1
     (values : Array LoweredValueV1)
@@ -648,15 +561,10 @@ private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   | .ge => some .ge
   | _ => none
 
+/-- EVM Plan surface stores Bool as UInt64 0/1 words. -/
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 1 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: Bool literal must contain exactly 1 byte"
-  let b := bytes.get! 0
-  unless b == 0 || b == 1 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: Bool literal must be 0x00 or 0x01"
-  pure (UInt64.ofNat b.toNat)
+  let bit ← decodeBoolLiteralBit evmPlanErr "EVM" bytes
+  pure (if bit then 1 else 0)
 
 /-- Every instruction result emitted since the prior stateStore must be in the
     current sink's dependency closure. This preserves the current NormalizeV1

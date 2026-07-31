@@ -39,6 +39,7 @@
   Formal TASK-D2-06 remains pending.
 -/
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -60,6 +61,7 @@ import Std.Data.HashMap
 namespace ProofForgeV2.Semantic.ProvenanceV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
@@ -1067,16 +1069,16 @@ mutual
             op == ProofForgeV2.Source.AstV1.BinaryOpV1.mul ||
             op == ProofForgeV2.Source.AstV1.BinaryOpV1.div ||
             op == ProofForgeV2.Source.AstV1.BinaryOpV1.mod then
-          let rs3 := reqPush rs2 "value.checked-arithmetic" exprPath
-          reqPush rs3 "failure.atomic-rollback" exprPath
+          let rs3 := reqPush rs2 s2ValueCheckedArithmeticIdV1 exprPath
+          reqPush rs3 s2FailureAtomicRollbackIdV1 exprPath
         else
           rs2
     | .unary op operand =>
         let rs1 := reqExprSites operand
           (directChild exprPath "Expr.Unary" "operand") rs
         if op == ProofForgeV2.Source.AstV1.UnaryOpV1.neg then
-          let rs2 := reqPush rs1 "value.checked-arithmetic" exprPath
-          reqPush rs2 "failure.atomic-rollback" exprPath
+          let rs2 := reqPush rs1 s2ValueCheckedArithmeticIdV1 exprPath
+          reqPush rs2 s2FailureAtomicRollbackIdV1 exprPath
         else
           rs1
     | .literal _ => rs
@@ -1145,10 +1147,10 @@ mutual
     | .assert_ cond _ =>
         let rs1 := reqExprSites cond
           (directChild stmtPath "Stmt.Assert" "condition") rs
-        reqPush rs1 "failure.atomic-rollback" stmtPath
+        reqPush rs1 s2FailureAtomicRollbackIdV1 stmtPath
     | .revert _ args =>
         Id.run do
-          let mut r := reqPush rs "failure.atomic-rollback" stmtPath
+          let mut r := reqPush rs s2FailureAtomicRollbackIdV1 stmtPath
           let mut i := 0
           for a in args do
             r := reqExprSites a (childPath stmtPath "Stmt.Revert" "args" i) r
@@ -1156,7 +1158,7 @@ mutual
           pure r
     | .emit _ args =>
         Id.run do
-          let mut r := reqPush rs "effect.event" stmtPath
+          let mut r := reqPush rs s2EffectEventIdV1 stmtPath
           let mut i := 0
           for a in args do
             r := reqExprSites a (childPath stmtPath "Stmt.Emit" "args" i) r
@@ -1172,8 +1174,8 @@ mutual
           -- Mirror RequirementsInferV1: structured call contributes
           -- effect.synchronous-call + failure.atomic-rollback at the statement
           -- path (emit → effect.event only; assert/revert → rollback).
-          let mut r := reqPush rs "effect.synchronous-call" stmtPath
-          r := reqPush r "failure.atomic-rollback" stmtPath
+          let mut r := reqPush rs s2EffectSyncCallIdV1 stmtPath
+          r := reqPush r s2FailureAtomicRollbackIdV1 stmtPath
           let callPath := directChild stmtPath "Stmt.Call" "call"
           let mut i := 0
           for a in call.args do
@@ -1185,7 +1187,7 @@ mutual
         Id.run do
           -- Mirror RequirementsInferV1: structured schedule contributes
           -- effect.asynchronous-workflow at the statement path.
-          let mut r := reqPush rs "effect.asynchronous-workflow" stmtPath
+          let mut r := reqPush rs s2EffectAsyncWorkflowIdV1 stmtPath
           let callPath := directChild stmtPath "Stmt.Schedule" "call"
           let mut i := 0
           for a in call.args do
@@ -1494,7 +1496,7 @@ private def attributeCounterEntitiesV1
   let mut rs := emptyReqSites
   for itemI in stateItemIdxs do
     let itemPath := childPath #[] "Program" "items" itemI
-    rs := reqPush rs "state.persistent" itemPath
+    rs := reqPush rs s2StatePersistentIdV1 itemPath
   -- Type-annotation producing sites for value.bool (mirrors the contribution
   -- engine's type carriers: state/param/result Bool types).
   itemIdx := 0
@@ -1504,7 +1506,7 @@ private def attributeCounterEntitiesV1
     | .state s =>
         match s.type_ with
         | .bool =>
-            rs := reqPush rs "value.bool" (directChild itemPath "StateDecl" "type")
+            rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "StateDecl" "type")
         | _ => pure ()
     | .init d =>
         let mut pi : Nat := 0
@@ -1512,7 +1514,7 @@ private def attributeCounterEntitiesV1
           match p.type_ with
           | .bool =>
               let paramPath := childPath itemPath "InitDecl" "params" pi
-              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+              rs := reqPush rs s2ValueBoolIdV1 (directChild paramPath "Param" "type")
           | _ => pure ()
           pi := pi + 1
     | .entry e =>
@@ -1521,12 +1523,12 @@ private def attributeCounterEntitiesV1
           match p.type_ with
           | .bool =>
               let paramPath := childPath itemPath "EntryDecl" "params" pi
-              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+              rs := reqPush rs s2ValueBoolIdV1 (directChild paramPath "Param" "type")
           | _ => pure ()
           pi := pi + 1
         match e.result with
         | .bool =>
-            rs := reqPush rs "value.bool" (directChild itemPath "EntryDecl" "result")
+            rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "EntryDecl" "result")
         | _ => pure ()
     | .view v =>
         let mut pi : Nat := 0
@@ -1534,12 +1536,12 @@ private def attributeCounterEntitiesV1
           match p.type_ with
           | .bool =>
               let paramPath := childPath itemPath "ViewDecl" "params" pi
-              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+              rs := reqPush rs s2ValueBoolIdV1 (directChild paramPath "Param" "type")
           | _ => pure ()
           pi := pi + 1
         match v.result with
         | .bool =>
-            rs := reqPush rs "value.bool" (directChild itemPath "ViewDecl" "result")
+            rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "ViewDecl" "result")
         | _ => pure ()
     | .fn d =>
         let mut pi : Nat := 0
@@ -1547,12 +1549,12 @@ private def attributeCounterEntitiesV1
           match p.type_ with
           | .bool =>
               let paramPath := childPath itemPath "FnDecl" "params" pi
-              rs := reqPush rs "value.bool" (directChild paramPath "Param" "type")
+              rs := reqPush rs s2ValueBoolIdV1 (directChild paramPath "Param" "type")
           | _ => pure ()
           pi := pi + 1
         match d.result with
         | .bool =>
-            rs := reqPush rs "value.bool" (directChild itemPath "FnDecl" "result")
+            rs := reqPush rs s2ValueBoolIdV1 (directChild itemPath "FnDecl" "result")
         | _ => pure ()
     | _ => pure ()
     itemIdx := itemIdx + 1

@@ -1,5 +1,6 @@
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Unicode
+import ProofForgeV2.Semantic.RequirementIdsV1
 import Std.Data.HashMap
 
 /-!
@@ -236,14 +237,19 @@ def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
 def unixTimeSecondsContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.unix-time-seconds.v1" }
 
-/-- Requirement identity bound to the sole v1 ContextRead key. -/
+/-- Requirement identity bound to the sole v1 ContextRead key.
+    Thin alias of `RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
+    (domain `pf.context-read-requirement.v1`). -/
 def unixTimeSecondsContextRequirementIdV1 : String :=
-  "context.unix-time-seconds"
+  RequirementIdsV1.wireContextUnixTimeSecondsIdV1
 
-/-- Exact requirement identity contributed by every v1 Commit operation. -/
+/-- Exact requirement identity contributed by every v1 Commit operation.
+    Thin alias of `RequirementIdsV1.wireCommitmentDisclosureIdV1`
+    (domain `pf.commit-requirement.v1`). Same spelling as the infer-only
+    `inferDisclosureCommitmentIdV1` contribution — dual meaning; see
+    `RequirementIdsV1` module doc. -/
 def commitmentDisclosureRequirementIdV1 : String :=
-  "disclosure.commitment"
-
+  RequirementIdsV1.wireCommitmentDisclosureIdV1
 /-- Exact bn254 Fr modulus big-endian bytes (SPEC-SEM-WIRE-001 §5). -/
 def bn254FrModulusBEV1 : ByteArray :=
   ByteArray.mk #[

@@ -1,0 +1,123 @@
+/-
+  ProofForgeV2.Semantic.RequirementIdsV1 — closed string constants for every
+  requirement identity used on the engineering product path.
+
+  Single source of id spellings. Consumers must reference these defs; do not
+  reintroduce bare requirement-id string literals in RequirementsV1,
+  RequirementsInferV1, RequirementResolverV1, ProvenanceV1, or WireV1.
+
+  ═══════════════════════════════════════════════════════════════════════════
+  DIGEST DOMAINS (do not conflate the same id string across domains)
+  ═══════════════════════════════════════════════════════════════════════════
+
+  S2 engineering catalog (RequirementsV1 freeze only)
+    Domain tag: `pf.requirement-key.engineering.v1`
+    Digest: domainSeparatedSha256(domain, UTF-8(id))
+    Members: the seven ids in `s2CatalogIdsWireOrderV1`.
+    Consumers: RequirementsV1 (sole freeze), RequirementResolverV1 (S2 rows),
+    ProvenanceV1 (origin attribution for S2 contributions),
+    RequirementsInferV1 (may contribute these ids).
+
+  Wire-owned ContextRead binding (WireV1 exact row)
+    Domain tag: `pf.context-read-requirement.v1`
+    Id: `context.unix-time-seconds` (`wireContextUnixTimeSecondsIdV1`)
+    Bound only by `WireV1.unixTimeSecondsContextRequirementV1`.
+    Not part of the S2 freeze catalog.
+
+  Wire-owned Commit disclosure binding (WireV1 exact row)
+    Domain tag: `pf.commit-requirement.v1`
+    Id: `disclosure.commitment` (`wireCommitmentDisclosureIdV1`)
+    Bound only by `WireV1.commitmentDisclosureRequirementV1`.
+    Not part of the S2 freeze catalog.
+
+  Infer-only contributions (RequirementsInferV1; S2 freeze rejects)
+    No engineering digest is minted for these ids today. They appear as
+    contribution identities from ProgramV1 visibility/type surfaces and are
+    rejected by `RequirementsV1.freezeProgramRequirementsV1` as non-catalog.
+    Members: `inferOnlyRequirementIdsV1`.
+
+  KNOWN DUAL MEANING — `disclosure.commitment`
+    The same UTF-8 id string is carried by:
+      * `inferDisclosureCommitmentIdV1` — param-visibility contribution from
+        RequirementsInferV1; rejected at S2 freeze (not in catalog).
+      * `wireCommitmentDisclosureIdV1` — exact Commit-op requirement row in
+        WireV1 under domain `pf.commit-requirement.v1`.
+    This is intentional and safe today because the infer contribution never
+    enters the S2 engineering digest domain, and the wire row never reuses
+    `pf.requirement-key.engineering.v1`. Do NOT unify the two defs into one
+    shared constant that blurs the domain boundary; do NOT add
+    `disclosure.commitment` to the S2 catalog without a formal CAP decision.
+-/
+
+namespace ProofForgeV2.Semantic.RequirementIdsV1
+
+/-! ### S2 closed catalog ids (domain `pf.requirement-key.engineering.v1`) -/
+
+/-- S2 catalog: async workflow schedule surface. -/
+def s2EffectAsyncWorkflowIdV1 : String := "effect.asynchronous-workflow"
+
+/-- S2 catalog: event emit surface. -/
+def s2EffectEventIdV1 : String := "effect.event"
+
+/-- S2 catalog: synchronous external call surface. -/
+def s2EffectSyncCallIdV1 : String := "effect.synchronous-call"
+
+/-- S2 catalog: atomic rollback / checked failure surface. -/
+def s2FailureAtomicRollbackIdV1 : String := "failure.atomic-rollback"
+
+/-- S2 catalog: persistent logical state surface. -/
+def s2StatePersistentIdV1 : String := "state.persistent"
+
+/-- S2 catalog: Bool value surface. -/
+def s2ValueBoolIdV1 : String := "value.bool"
+
+/-- S2 catalog: checked arithmetic surface. -/
+def s2ValueCheckedArithmeticIdV1 : String := "value.checked-arithmetic"
+
+/-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
+    Exact order is part of the engineering freeze contract; do not reorder. -/
+def s2CatalogIdsWireOrderV1 : Array String :=
+  #[s2EffectAsyncWorkflowIdV1, s2EffectEventIdV1, s2EffectSyncCallIdV1,
+    s2FailureAtomicRollbackIdV1, s2StatePersistentIdV1, s2ValueBoolIdV1,
+    s2ValueCheckedArithmeticIdV1]
+
+/-! ### Wire-owned requirement ids (non-S2 digest domains) -/
+
+/-- Wire ContextRead exact-row id (domain `pf.context-read-requirement.v1`). -/
+def wireContextUnixTimeSecondsIdV1 : String := "context.unix-time-seconds"
+
+/-- Wire Commit exact-row id (domain `pf.commit-requirement.v1`).
+    Same spelling as `inferDisclosureCommitmentIdV1` — dual meaning; see
+    module doc. -/
+def wireCommitmentDisclosureIdV1 : String := "disclosure.commitment"
+
+/-- Closed wire-owned requirement ids (ContextRead + Commit bindings). -/
+def wireOwnedRequirementIdsV1 : Array String :=
+  #[wireContextUnixTimeSecondsIdV1, wireCommitmentDisclosureIdV1]
+
+/-! ### Infer-only contribution ids (S2 freeze rejects; no engineering digest) -/
+
+/-- Infer-only: private param / witness disclosure contribution. -/
+def inferDisclosurePrivateWitnessIdV1 : String := "disclosure.private-witness"
+
+/-- Infer-only: commitment-visibility param contribution.
+    Same spelling as `wireCommitmentDisclosureIdV1` — dual meaning; see
+    module doc. Rejected by S2 freeze. -/
+def inferDisclosureCommitmentIdV1 : String := "disclosure.commitment"
+
+/-- Infer-only: private state disclosure contribution. -/
+def inferDisclosurePrivateStateIdV1 : String := "disclosure.private-state"
+
+/-- Infer-only: commitment-visibility state disclosure contribution. -/
+def inferDisclosureCommitmentStateIdV1 : String := "disclosure.commitment-state"
+
+/-- Infer-only: bn254 Fr Field type contribution (not S2 catalog). -/
+def inferValueFieldBn254FrIdV1 : String := "value.field.bn254-fr"
+
+/-- Closed infer-only contribution ids (not in S2 catalog; freeze rejects). -/
+def inferOnlyRequirementIdsV1 : Array String :=
+  #[inferDisclosurePrivateWitnessIdV1, inferDisclosureCommitmentIdV1,
+    inferDisclosurePrivateStateIdV1, inferDisclosureCommitmentStateIdV1,
+    inferValueFieldBn254FrIdV1]
+
+end ProofForgeV2.Semantic.RequirementIdsV1

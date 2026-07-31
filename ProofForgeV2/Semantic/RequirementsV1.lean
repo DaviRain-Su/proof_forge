@@ -36,6 +36,7 @@
   pending.
 -/
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Semantic.RequirementIdsV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -57,11 +58,10 @@ def engineeringRequirementKeyDomainV1 : String :=
 def s2RequirementVersionV1 : SemVer :=
   { major := 1, minor := 0, patch := 0 }
 
-/-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending). -/
+/-- Closed S2 catalog IDs in SPEC wire order (UTF-8 ascending).
+    Sole spelling source: `RequirementIdsV1.s2CatalogIdsWireOrderV1`. -/
 def s2CatalogIdsWireOrderV1 : Array String :=
-  #["effect.asynchronous-workflow", "effect.event", "effect.synchronous-call",
-    "failure.atomic-rollback", "state.persistent", "value.bool",
-    "value.checked-arithmetic"]
+  RequirementIdsV1.s2CatalogIdsWireOrderV1
 
 def isS2CatalogIdV1 (id : String) : Bool :=
   s2CatalogIdsWireOrderV1.contains id
