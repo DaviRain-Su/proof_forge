@@ -2782,6 +2782,102 @@ private unsafe def testMulDivModUnary
         "arith-flow: div must apply to the mul result and divisor"
   | _ => throw <| IO.userError "arith-flow: div shape mismatch"
 
+/-- Shift, bitwise, and strict logical binary operators: exact op/type pins
+    (UInt32 shift counts intern on first use), plus typed-not-ok negatives
+    for non-Bool logical operands and UInt64 shift counts. -/
+private unsafe def testShiftBitwiseLogical
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BitLogic" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+    "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "    return count\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n" ++
+    "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    return a > 0 || (one / b) == one\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "bit-logic" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "bit-logic: CheckV1.ok"
+  expect typed.analysisComplete "bit-logic: CheckV1.analysisComplete"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bit-logic: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bit-logic: validate: {repr e}"
+  -- Exactly one anonymous UInt32 type (interned on the first shift count).
+  let u32Decls := data.types.filter fun t =>
+    t.name.isNone && match t.shape with | .uint 32 => true | _ => false
+  expect (u32Decls.size == 1)
+    s!"bit-logic: shift counts must intern exactly one anonymous UInt32 type, got {u32Decls.size}"
+  let some shiftMask := data.callables[1]? |
+    throw <| IO.userError "bit-logic: missing shiftMask callable"
+  let some blk0 := shiftMask.blocks[0]? |
+    throw <| IO.userError "bit-logic: missing shiftMask block0"
+  let u64Decls := data.types.filter fun t =>
+    t.name.isNone && match t.shape with | .uint 64 => true | _ => false
+  expect (u64Decls.size == 1) "bit-logic: exactly one anonymous UInt64 type"
+  let some u64Decl := u64Decls[0]? |
+    throw <| IO.userError "bit-logic: missing anonymous UInt64 decl"
+  let u64Tid := u64Decl.id
+  let some u32Decl := u32Decls[0]? |
+    throw <| IO.userError "bit-logic: missing anonymous UInt32 decl"
+  let u32Tid := u32Decl.id
+  let expectedOps : Array ProofForgeV2.Semantic.WireV1.BinaryOpV1 :=
+    #[.shl, .bitAnd, .shr, .bitXor, .bitOr]
+  let mut found : Array ProofForgeV2.Semantic.WireV1.BinaryOpV1 := #[]
+  for instr in blk0.instructions do
+    match instr.op with
+    | .binary op _ _ => found := found.push op
+    | _ => pure ()
+  expect (found == expectedOps)
+    s!"bit-logic: expected shl/bitAnd/shr/bitXor/bitOr op sequence, got {found.size} ops"
+  let some shlInstr := blk0.instructions[1]? |
+    throw <| IO.userError "bit-logic: missing shl instruction"
+  match shlInstr with
+  | { result := some r, op := .binary .shl l rv } =>
+      expect (l == 0 && rv == 1 && r.valueId == 2 && r.typeId == u64Tid)
+        "bit-logic: shl must bind x with a UInt64 result"
+  | _ => throw <| IO.userError "bit-logic: shl shape mismatch"
+  let some litInstr := blk0.instructions[0]? |
+    throw <| IO.userError "bit-logic: missing shift-count literal"
+  match litInstr with
+  | { result := some r, op := .literal tid bytes } =>
+      expect (tid == u32Tid && r.typeId == u32Tid && bytes.size == 4)
+        "bit-logic: shift count must be a 4-byte UInt32 literal"
+  | _ => throw <| IO.userError "bit-logic: shift-count literal shape mismatch"
+  let some strictOr := data.callables[3]? |
+    throw <| IO.userError "bit-logic: missing strictOr callable"
+  let some orBlk := strictOr.blocks[0]? |
+    throw <| IO.userError "bit-logic: missing strictOr block0"
+  let mut foundOr : Array ProofForgeV2.Semantic.WireV1.BinaryOpV1 := #[]
+  for instr in orBlk.instructions do
+    match instr.op with
+    | .binary op _ _ => foundOr := foundOr.push op
+    | _ => pure ()
+  expect (foundOr == #[.gt, .div, .eq, .or])
+    s!"bit-logic: strictOr must evaluate both sides (gt/div/eq/or), got {foundOr.size} ops"
+  -- Logical operator on non-Bool operands: CheckV1 rejects.
+  let badLogicalSource := wrap "BadLogical" <|
+    "  entry bad(a : UInt64) : Bool do\n" ++
+    "    return a && a > 0\n"
+  let badLogical ← loadSource session "bad-logical" badLogicalSource
+  expect (!(checkProgramTypedResultV1 badLogical).ok)
+    "bad-logical: CheckV1 must reject a UInt64 logical operand"
+  -- UInt64 shift count: CheckV1 rejects (counts are UInt32).
+  let badShiftSource := wrap "BadShift" <|
+    "  entry bad(x : UInt64, k : UInt64) : UInt64 do\n" ++
+    "    return x << k\n"
+  let badShift ← loadSource session "bad-shift" badShiftSource
+  expect (!(checkProgramTypedResultV1 badShift).ok)
+    "bad-shift: CheckV1 must reject a UInt64 shift count"
+
 /-- Immutable let bindings and bounded for loops: exact multi-block CFG with
     a single-param loop header, latch back edge, and canonical loopBounds;
     let single-evaluation; reassignment and oversized bounds fail closed. -/
@@ -4064,6 +4160,7 @@ unsafe def run : IO Unit := do
   testFnLocalCallProvenance session
   testMulDivModUnary session
   testUnaryOps session
+  testShiftBitwiseLogical session
   testLetForLoop session
   testLetForProvenance session
   testUInt64LiteralProvenance session

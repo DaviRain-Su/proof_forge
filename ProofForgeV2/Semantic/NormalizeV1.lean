@@ -23,9 +23,11 @@
       match expressions, and duplicate literals still fail closed; a
       catch-all-only match materializes to a plain jump)
     * expressions: bare place (param or state name), UInt64 integer literal,
-      Bool literal, checked binary add/sub on UInt64, and the six UInt64
-      comparisons (==/!=/</<=/>/>=) producing Bool; integer width is supplied
-      by the enclosing typed context, comparison operands are always UInt64
+      Bool literal, checked binary add/sub/mul/div/mod and bitwise
+      and/or/xor on same-width UInt64, shifts (lhs UInt64, count UInt32 —
+      the only UInt32 context), and the six UInt64 comparisons plus strict
+      logical and/or producing Bool; integer width is supplied by the
+      enclosing typed context, comparison operands are always UInt64
     * types: anonymous UInt64 + Unit (init result) + Bool (comparison results,
       Bool literals); one TypeId per distinct shape, interned on first actual
       use in source traversal order. State/parameter positions stay
@@ -240,6 +242,22 @@ private def requireExpectedUInt64
   | none =>
       failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
 
+/-- Require an already-interned expected TypeId to resolve to anonymous
+    UInt64 or UInt32. UInt32 values arise only inside shift-count
+    expressions in this envelope; every other position stays UInt64/Bool. -/
+private def requireExpectedUIntWidth
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | some decl =>
+      if decl.name.isNone && (match decl.shape with
+          | .uint 64 => true | .uint 32 => true | _ => false) then
+        pure ()
+      else
+        failUnsupported s!"S1 {context} requires expected UInt64/UInt32 type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
+
 /-- Param/local env: bare name → (ValueId, TypeId). -/
 structure LocalEnvV1 where
   bindings : Array (String × ValueIdV1 × TypeIdV1)
@@ -445,7 +463,7 @@ private partial def synthLetExpectedV1
           srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge then
         pure (internShape st.interner .bool)
       else
-        failUnsupported "S1 normalizer supports only binary arithmetic and comparisons"
+        failUnsupported "S1 normalizer supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
   | .unary .not _ => pure (internShape st.interner .bool)
   | .unary _ _ => pure (internShape st.interner (.uint 64))
   | .constructor _ _ =>
@@ -495,12 +513,20 @@ private partial def lowerExpr
       pure (vid, tid, st1)
   | .binary op lhs rhs => do
       let srcOp := op
+      -- Same-width integer ops (arithmetic and bitwise share one path).
       let arithOp? : Option BinaryOpV1 :=
         if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.add then some BinaryOpV1.add
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.sub then some BinaryOpV1.sub
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mul then some BinaryOpV1.mul
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.div then some BinaryOpV1.div
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.mod then some BinaryOpV1.mod
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitAnd then some BinaryOpV1.bitAnd
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitOr then some BinaryOpV1.bitOr
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitXor then some BinaryOpV1.bitXor
+        else none
+      let shiftOp? : Option BinaryOpV1 :=
+        if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shl then some BinaryOpV1.shl
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shr then some BinaryOpV1.shr
         else none
       let cmpOp? : Option BinaryOpV1 :=
         if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq then some BinaryOpV1.eq
@@ -510,15 +536,19 @@ private partial def lowerExpr
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt then some BinaryOpV1.gt
         else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge then some BinaryOpV1.ge
         else none
+      let logicalOp? : Option BinaryOpV1 :=
+        if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalAnd then some BinaryOpV1.and
+        else if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalOr then some BinaryOpV1.or
+        else none
       match arithOp? with
       | some semanticOp => do
-        requireExpectedUInt64 st.interner.types expectedTid "binary checked arithmetic"
+        requireExpectedUIntWidth st.interner.types expectedTid "binary arithmetic/bitwise"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
         let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
         let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states fns
         unless lTid == expectedTid && rTid == expectedTid do
           return ← failUnsupported
-            "S1 binary checked arithmetic requires expected UInt64 operands"
+            "S1 binary arithmetic/bitwise requires same-width expected operands"
         let vid := st2.nextValueId
         let instr : InstructionV1 := {
           result := some { valueId := vid, typeId := expectedTid }
@@ -529,6 +559,55 @@ private partial def lowerExpr
           nextValueId := vid + 1
         })
       | none =>
+        match shiftOp? with
+        | some semanticOp => do
+          requireExpectedUInt64 st.interner.types expectedTid "shift"
+          -- Shift counts are UInt32 (the only UInt32 context in this
+          -- envelope); the wire reverts invalidShift for counts ≥ 64 and
+          -- arithmeticOverflow on shl overflow.
+          let (iU32, u32Tid) := internShape st.interner (.uint 32)
+          let st0 := { st with interner := iU32 }
+          let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st0 states fns
+          unless lTid == expectedTid do
+            return ← failUnsupported "S1 shift requires a UInt64 operand"
+          let (rVid, rTid, st2) ← lowerExpr rhs u32Tid st1 states fns
+          unless rTid == u32Tid do
+            return ← failUnsupported "S1 shift count must be UInt32"
+          let vid := st2.nextValueId
+          let instr : InstructionV1 := {
+            result := some { valueId := vid, typeId := expectedTid }
+            op := .binary semanticOp lVid rVid
+          }
+          pure (vid, expectedTid, { st2 with
+            instructions := st2.instructions.push instr
+            nextValueId := vid + 1
+          })
+        | none =>
+        match logicalOp? with
+        | some semanticOp => do
+            -- Strict Bool binary (both operands always evaluate; there is no
+            -- short-circuit in the wire semantics).
+            let (i1, boolTid) := internShape st.interner .bool
+            unless boolTid == expectedTid do
+              return ← failUnsupported
+                "S1 logical operator requires an enclosing Bool expected type"
+            let st0 := { st with interner := i1 }
+            let (lVid, lTid, st1) ← lowerExpr lhs boolTid st0 states fns
+            unless lTid == boolTid do
+              return ← failUnsupported "S1 logical operator requires Bool operands"
+            let (rVid, rTid, st2) ← lowerExpr rhs boolTid st1 states fns
+            unless rTid == boolTid do
+              return ← failUnsupported "S1 logical operator requires Bool operands"
+            let vid := st2.nextValueId
+            let instr : InstructionV1 := {
+              result := some { valueId := vid, typeId := boolTid }
+              op := .binary semanticOp lVid rVid
+            }
+            pure (vid, boolTid, { st2 with
+              instructions := st2.instructions.push instr
+              nextValueId := vid + 1
+            })
+        | none =>
         match cmpOp? with
         | some semanticOp => do
             -- Comparison operands are UInt64; the result is Bool. Both shapes
@@ -554,20 +633,37 @@ private partial def lowerExpr
               nextValueId := vid + 1
             })
         | none =>
-            failUnsupported "S1 normalizer supports only binary arithmetic and comparisons"
+            failUnsupported "S1 normalizer supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
-          requireExpectedUInt64 st.interner.types expectedTid "integer literal"
+          -- UInt64 or UInt32 expected (UInt32 arises only as a shift count).
           -- CheckV1 owns the user-facing width diagnostic. This defensive seam
           -- still rejects direct lowerProgramDataV1 misuse instead of allowing
-          -- UInt64.ofNat to truncate modulo 2^64.
-          unless magnitude < UInt64.size do
-            return ← failUnsupported "S1 UInt64 integer literal is out of range"
+          -- truncation modulo the width.
+          let width? : Option Nat :=
+            match st.interner.types[expectedTid.toNat]? with
+            | some decl =>
+                if decl.name.isNone then
+                  match decl.shape with
+                  | .uint 64 => some 64
+                  | .uint 32 => some 32
+                  | _ => none
+                else none
+            | none => none
+          let some width := width? |
+            return ← failUnsupported
+              "S1 integer literal requires expected UInt64/UInt32 type"
+          let limit : Nat := if width == 64 then 18446744073709551616 else 4294967296
+          unless magnitude < limit do
+            return ← failUnsupported s!"S1 UInt{width} integer literal is out of range"
+          let bytes :=
+            if width == 64 then encodeU64le (UInt64.ofNat magnitude)
+            else encodeU32le (UInt32.ofNat magnitude)
           let vid := st.nextValueId
           let instr : InstructionV1 := {
             result := some { valueId := vid, typeId := expectedTid }
-            op := .literal expectedTid (encodeU64le (UInt64.ofNat magnitude))
+            op := .literal expectedTid bytes
           }
           pure (vid, expectedTid, { st with
             instructions := st.instructions.push instr

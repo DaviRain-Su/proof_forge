@@ -118,6 +118,9 @@ private def stateSlot (valueBytes : ByteArray) : ByteArray :=
 private def refU64 (typeId : TypeIdV1) (n : Nat) : ReferenceValueV1 :=
   { typeId, valueBytes := u64Bytes n }
 
+private def refBool (typeId : TypeIdV1) (b : Nat) : ReferenceValueV1 :=
+  { typeId, valueBytes := ByteArray.mk #[b.toUInt8] }
+
 private def emptyContext : Array ContextInputV1 := #[]
 
 private def emptyResponses : ExternalResponsesV1 := #[]
@@ -801,6 +804,111 @@ private unsafe def testLetForReferenceSlice
   let squareState : LogicalStateV1 :=
     { initialized := true, canonicalValues := stateSlot (u64Bytes 1681) }
   expectReturned "loop-ref-square" squared squareState (some (refU64 u64Tid 1681)) #[]
+
+/-- Shift, bitwise, and strict logical binaries on the admitted reference
+    machine: shift results and guards (shl overflow, invalidShift for counts
+    ≥ 64), bitwise masks, and the strict logical-or truth table (both sides
+    always evaluate, including a failing division). -/
+private unsafe def testShiftBitwiseLogicalReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BitRef" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+    "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "    return count\n" ++
+    "  entry shl2(x : UInt64) : UInt64 do\n" ++
+    "    return x << 2\n" ++
+    "  entry shrK(x : UInt64) : UInt64 do\n" ++
+    "    return x >> (32 + 32)\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n" ++
+    "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    return a > 0 || (one / b) == one\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "bit-ref" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bit-ref: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bit-ref: validate failed: {repr e}"
+  let admitted ← admitOk "bit-ref" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let boolTid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .bool => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initId : CallableIdV1 := 0
+  let shiftMaskId : CallableIdV1 := 1
+  let shl2Id : CallableIdV1 := 2
+  let shrKId : CallableIdV1 := 3
+  let bothId : CallableIdV1 := 4
+  let strictOrId : CallableIdV1 := 5
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"bit-ref: initialLogicalState: {repr e}"
+  let initPost :=
+    stepReferenceSliceV1 admitted initial (inv initId #[refU64 u64Tid 0]) emptyResponses
+  let zeroState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "bit-ref-init" initPost zeroState none #[]
+  -- shiftMask(20): (20<<2)&15 = 0; (20>>1)^3 = 9; 0|9 = 9.
+  let masked :=
+    stepReferenceSliceV1 admitted zeroState (inv shiftMaskId #[refU64 u64Tid 20]) emptyResponses
+  let nineState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 9) }
+  expectReturned "bit-ref-shiftMask" masked nineState (some (refU64 u64Tid 9)) #[]
+  -- shl2(2^63): 2^65 exceeds UInt64 → arithmeticOverflow.
+  let shlOverflow :=
+    stepReferenceSliceV1 admitted nineState
+      (inv shl2Id #[refU64 u64Tid 9223372036854775808]) emptyResponses
+  match shlOverflow with
+  | .reverted (.standard code) st =>
+      expect (code == .arithmeticOverflow) s!"bit-ref-shlovf: code, got {repr code}"
+      expect (logicalStateEq st nineState) "bit-ref-shlovf: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"bit-ref-shlovf: expected standard revert, got {repr other}"
+  -- shrK(7): the computed count 32 + 32 = 64 ≥ 64 → invalidShift.
+  let badShift :=
+    stepReferenceSliceV1 admitted nineState (inv shrKId #[refU64 u64Tid 7]) emptyResponses
+  match badShift with
+  | .reverted (.standard code) st =>
+      expect (code == .invalidShift) s!"bit-ref-shrK: code, got {repr code}"
+      expect (logicalStateEq st nineState) "bit-ref-shrK: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"bit-ref-shrK: expected standard revert, got {repr other}"
+  -- both(1,2) = true; both(0,2) = false.
+  let bothTrue :=
+    stepReferenceSliceV1 admitted nineState (inv bothId #[refU64 u64Tid 1, refU64 u64Tid 2]) emptyResponses
+  expectReturned "bit-ref-both-t" bothTrue nineState (some (refBool boolTid 1)) #[]
+  let bothFalse :=
+    stepReferenceSliceV1 admitted nineState (inv bothId #[refU64 u64Tid 0, refU64 u64Tid 2]) emptyResponses
+  expectReturned "bit-ref-both-f" bothFalse nineState (some (refBool boolTid 0)) #[]
+  -- strictOr(0,1) = true; strictOr(0,2) = false; strictOr(1,0) reverts even
+  -- though the left side is true (no short-circuit).
+  let orTrue :=
+    stepReferenceSliceV1 admitted nineState (inv strictOrId #[refU64 u64Tid 0, refU64 u64Tid 1]) emptyResponses
+  expectReturned "bit-ref-or-t" orTrue nineState (some (refBool boolTid 1)) #[]
+  let orFalse :=
+    stepReferenceSliceV1 admitted nineState (inv strictOrId #[refU64 u64Tid 0, refU64 u64Tid 2]) emptyResponses
+  expectReturned "bit-ref-or-f" orFalse nineState (some (refBool boolTid 0)) #[]
+  let orStrict :=
+    stepReferenceSliceV1 admitted nineState (inv strictOrId #[refU64 u64Tid 1, refU64 u64Tid 0]) emptyResponses
+  match orStrict with
+  | .reverted (.standard code) st =>
+      expect (code == .divisionByZero) s!"bit-ref-strict: code, got {repr code}"
+      expect (logicalStateEq st nineState) "bit-ref-strict: revert must keep pre-state"
+  | other =>
+      throw <| IO.userError s!"bit-ref-strict: expected standard revert, got {repr other}"
 
 private unsafe def testBoolResultReferenceSlice
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2166,6 +2274,7 @@ unsafe def run : IO Unit := do
   testFnLocalCallReferenceSlice session
   testArithUnaryReferenceSlice session
   testLetForReferenceSlice session
+  testShiftBitwiseLogicalReferenceSlice session
   testPrimitiveEffectLogAndResponses
   testProgramRevertWithTrailingResponse
   testEmitThenRevertDiscardsEffects

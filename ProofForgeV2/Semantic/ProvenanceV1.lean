@@ -474,7 +474,14 @@ private partial def attrExpr
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.lt ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.le ||
         srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.gt ||
-        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitAnd ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitOr ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.bitXor ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shl ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.shr ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalAnd ||
+        srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalOr
       if isSupported then do
         let lhsPath := directChild exprPath "Expr.Binary" "lhs"
         let rhsPath := directChild exprPath "Expr.Binary" "rhs"
@@ -494,7 +501,7 @@ private partial def attrExpr
           acc := acc2
         })
       else
-        failUnsupported "S2 provenance supports only binary arithmetic and comparisons"
+        failUnsupported "S2 provenance supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
   | .literal literal =>
       match literal with
       | .integer magnitude => do
