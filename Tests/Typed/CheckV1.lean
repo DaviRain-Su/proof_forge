@@ -2142,9 +2142,8 @@ private unsafe def testUnsupportedMatchDuplicateLiteral
 
 private unsafe def testUnsupportedMatchConstructorPattern
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Enum types register in Pass0, but entry params remain legal-UInt only and
-  -- constructor patterns stay fail closed. The first gate is usually the
-  -- named Color parameter (before match arms are lowered).
+  -- Named Enum entry parameters remain legal-UInt only (use local `let` for
+  -- constructor-match positives below). Pin the param gate.
   let source := wrap "CtorPat" <|
     "  enum Color where\n" ++
     "    | Red\n" ++
@@ -2158,8 +2157,8 @@ private unsafe def testUnsupportedMatchConstructorPattern
   expectUnsupportedAfterCheckOk session "ctor-pat" source
     (fun d =>
       d.contains "named" || d.contains "parameter" || d.contains "UInt" ||
-      d.contains "constructor")
-    "named param / constructor pattern"
+      d.contains "anonymous")
+    "named Color parameter still fail closed"
 
 /-- Event/error declaration tables plus emit/revert lowering: exact table
     shapes, canonical EffectId order, revert terminator closing the path. -/
@@ -5174,8 +5173,7 @@ private unsafe def testExprMatchCatchAllOnly
       expect (vid == 0) s!"expr-match-inline: return param vid0, got {vid}"
   | _ => throw <| IO.userError "expr-match-inline: expected return"
 
-/-- T4: constructor patterns stay fail closed at expression match
-    (named Color param also fails; pin either gate). -/
+/-- T4/T5: named Enum entry params still fail; constructor match uses `let`. -/
 private unsafe def testExprMatchConstructorFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ExprMatchCtor" <|
@@ -5189,9 +5187,211 @@ private unsafe def testExprMatchConstructorFailClosed
     "      | _ => 0\n"
   expectUnsupportedAfterCheckOk session "expr-match-ctor" source
     (fun d =>
-      d.contains "constructor" || d.contains "UInt" ||
-      d.contains "parameter" || d.contains "named")
-    "named param / constructor pattern"
+      d.contains "UInt" || d.contains "parameter" || d.contains "named" ||
+      d.contains "anonymous")
+    "named Color parameter still fail closed"
+
+/-- T5: statement match on Enum via local let — VariantTag + UInt32 switch. -/
+private unsafe def testStmtMatchEnumConstructors
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StmtMatchEnum" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Green\n" ++
+    "    | Blue\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let c : Color := Color.Green()\n" ++
+    "    match c with\n" ++
+    "    | Color.Red() => do\n" ++
+    "      return 1\n" ++
+    "    | Color.Green() => do\n" ++
+    "      return 2\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "stmt-match-enum" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"stmt-match-enum: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"stmt-match-enum: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"stmt-match-enum: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "stmt-match-enum: missing entry"
+  -- Must contain at least one VariantTag and a switch whose cases are UInt32.
+  let hasVariantTag := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with | .variantTag _ => true | _ => false
+  expect hasVariantTag "stmt-match-enum: Op.VariantTag present"
+  let mut foundU32Switch := false
+  for blk in entryC.blocks do
+    match blk.terminator with
+    | .switch _ cases _ =>
+        if cases.any fun sc => sc.valueBytes.size == 4 then
+          foundU32Switch := true
+    | _ => pure ()
+  expect foundU32Switch "stmt-match-enum: UInt32 switch cases (variant indices)"
+
+/-- T5: Enum constructor pattern with payload bind via VariantPayload. -/
+private unsafe def testStmtMatchEnumPayload
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StmtMatchPay" <|
+    "  enum Shape where\n" ++
+    "    | Circle(UInt64)\n" ++
+    "    | Point\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let s : Shape := Shape.Circle(42)\n" ++
+    "    match s with\n" ++
+    "    | Shape.Circle(r) => do\n" ++
+    "      return r\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "stmt-match-pay" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"stmt-match-pay: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"stmt-match-pay: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"stmt-match-pay: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "stmt-match-pay: missing entry"
+  let hasPayload := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with
+      | .variantPayload _ vIdx pIdx => vIdx == 0 && pIdx == 0
+      | _ => false
+  expect hasPayload "stmt-match-pay: VariantPayload(0,0) for Circle radius"
+  let hasTag := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with | .variantTag _ => true | _ => false
+  expect hasTag "stmt-match-pay: VariantTag present"
+
+/-- T5: expression match constructor patterns → join + VariantTag. -/
+private unsafe def testExprMatchEnumConstructors
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMatchEnum" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let c : Color := Color.Red()\n" ++
+    "    return\n" ++
+    "      match c with\n" ++
+    "      | Color.Red() => 1\n" ++
+    "      | Color.Blue() => 2\n" ++
+    "      | _ => 0\n"
+  let validated ← loadSource session "expr-match-enum" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"expr-match-enum: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"expr-match-enum: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"expr-match-enum: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "expr-match-enum: missing entry"
+  expect (entryC.blocks.size ≥ 4)
+    s!"expr-match-enum: switch arms + join, got {entryC.blocks.size} blocks"
+  let hasTag := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with | .variantTag _ => true | _ => false
+  expect hasTag "expr-match-enum: VariantTag present"
+  -- Join block carries the UInt64 result as a block param.
+  let hasJoinParam := entryC.blocks.any fun blk =>
+    blk.params.any fun p =>
+      match data.types[p.typeId.toNat]? with
+      | some t => match t.shape with | .uint 64 => true | _ => false
+      | none => false
+  expect hasJoinParam "expr-match-enum: join block param UInt64"
+
+/-- T5: Option-shaped enum (TypeCheck has no built-in Option.Some/None resolve;
+    Normalize still accepts Option.some/none on Option TypeShape when typed). -/
+private unsafe def testStmtMatchOptionLikeEnum
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StmtMatchMaybe" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let o : Maybe := Maybe.Some(7)\n" ++
+    "    match o with\n" ++
+    "    | Maybe.None() => do\n" ++
+    "      return 0\n" ++
+    "    | Maybe.Some(x) => do\n" ++
+    "      return x\n"
+  let validated ← loadSource session "stmt-match-maybe" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"stmt-match-maybe: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"stmt-match-maybe: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"stmt-match-maybe: validate: {repr e}"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "stmt-match-maybe: missing entry"
+  let hasTag := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with | .variantTag _ => true | _ => false
+  expect hasTag "stmt-match-maybe: VariantTag present"
+  let hasSomePayload := entryC.blocks.any fun blk =>
+    blk.instructions.any fun instr =>
+      match instr.op with
+      | .variantPayload _ vIdx pIdx => vIdx == 1 && pIdx == 0
+      | _ => false
+  expect hasSomePayload "stmt-match-maybe: VariantPayload(1,0) for Some"
+
+/-- T5: nested constructor sub-pattern fails closed. -/
+private unsafe def testNestedCtorPatternFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestedCtor" <|
+    "  enum Inner where\n" ++
+    "    | A\n" ++
+    "    | B\n" ++
+    "  enum Outer where\n" ++
+    "    | Wrap(Inner)\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    let o : Outer := Outer.Wrap(Inner.A())\n" ++
+    "    match o with\n" ++
+    "    | Outer.Wrap(Inner.A()) => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "nested-ctor" source
+  let typed := checkProgramTypedResultV1 validated
+  if typed.ok then
+    match normalizeProgramV1 validated with
+    | .ok _ => throw <| IO.userError "nested-ctor: expected fail closed"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "nested" || detail.contains "constructor")
+          s!"nested-ctor: detail={detail}"
+    | .error e => throw <| IO.userError s!"nested-ctor: {repr e}"
+  else
+    -- TypeCheck may also reject nested shapes depending on resolve path.
+    pure ()
+
+/-- T5: string patterns stay fail closed (no String TypeShapeV1). -/
+private unsafe def testStringPatternFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StrPat" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | \"hi\" => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "str-pat" source
+  let typed := checkProgramTypedResultV1 validated
+  -- TypeCheck rejects string patterns; Normalize must not invent a carrier.
+  expect (!typed.ok) "str-pat: CheckV1 rejects string patterns"
+  match normalizeProgramV1 validated with
+  | .error (.typedNotOk _) => pure ()
+  | .error e => throw <| IO.userError s!"str-pat: expected typedNotOk, got {repr e}"
+  | .ok _ => throw <| IO.userError "str-pat: must not normalize"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -5274,6 +5474,13 @@ unsafe def run : IO Unit := do
   testExprMatchNested session
   testExprMatchCatchAllOnly session
   testExprMatchConstructorFailClosed session
+  -- T5 constructor patterns (Enum/Option); string stays fail closed
+  testStmtMatchEnumConstructors session
+  testStmtMatchEnumPayload session
+  testExprMatchEnumConstructors session
+  testStmtMatchOptionLikeEnum session
+  testNestedCtorPatternFailClosed session
+  testStringPatternFailClosed session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

@@ -18,12 +18,13 @@
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none); bare `assert` with a Bool condition
       (assert-else still fails closed); `if cond then B (else B)?` lowered to
-      branch/jump blocks; `match scrut with` on a legal-UInt or Bool scrutinee
-      with integer/Bool literal arms plus exactly one wildcard/bind catch-all
-      lowered to switch/jump blocks (constructor patterns, string patterns,
-      and duplicate literals still fail closed; a catch-all-only match
-      materializes inline; expression-level match is also supported — see
-      expressions below)
+      branch/jump blocks; `match scrut with` on a legal-UInt/Bool scrutinee
+      (integer/Bool literal arms) or Enum/Option scrutinee (constructor arms
+      via `Op.VariantTag` → switch on UInt32 tag + arm-local
+      `Op.VariantPayload` binds); exactly one wildcard/bind catch-all when
+      required by TypeCheck; string patterns and nested constructor/literal
+      sub-patterns fail closed; a catch-all-only match materializes inline;
+      expression-level match shares the same pattern set (see expressions)
     * expressions: bare place (param or state name), expected-type integer
       literals (legal UInt/Int widths, LE valueBytes of width/8), Bool literal,
       checked binary add/sub/mul/div/mod and bitwise and/or/xor on same-width
@@ -52,11 +53,12 @@
       exactly that (header, latch, N) edge in ascending order. Non-loop
       edges still point forward; block params appear on loop headers and on
       expression-match join blocks (arm value → join via jump args)
-      * expression-level `match Expr with | Pattern => Expr` (T4): same literal
-      + catch-all pattern set as statement match; each arm value lowers in its
-      own block and jumps to a join block carrying the result as a single
-      block param; catch-all-only matches inline without a switch. Constructor/
-      string patterns remain fail closed (T5)
+      * expression-level `match Expr with | Pattern => Expr` (T4/T5): same
+      literal + Enum/Option constructor + catch-all pattern set as statement
+      match; each arm value lowers in its own block and jumps to a join block
+      carrying the result as a single block param; catch-all-only matches
+      inline without a switch. String patterns remain fail closed (no String
+      TypeShapeV1)
       * statements: immutable `let` bindings lower to environment entries
       (the RHS evaluates once; reassignment via `assign` fails closed except
       field/index update of an immutable local which rebinds the name)
@@ -81,7 +83,9 @@
     * Int/Field `Op.Unary.neg`, Int arithmetic/shift, private/commitment state,
       non-UInt64 call/schedule args and for endpoints, named/aggregate state,
       nonempty Map construction, nested field/index assign chains,
-      ContextRead/Commit, match constructor/string patterns (T5),
+      ContextRead/Commit, match string patterns (no String TypeShape),
+      nested constructor/literal sub-patterns inside constructor arms,
+      named Enum/Struct entry parameters (local `let` carries them),
       true mutable locals
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
@@ -136,6 +140,7 @@ private abbrev SrcExpr := ProofForgeV2.Source.AstSpineV1.ExprV1
 private abbrev SrcStmt := ProofForgeV2.Source.AstSpineV1.StmtV1
 private abbrev SrcPlace := ProofForgeV2.Source.AstSpineV1.PlaceV1
 private abbrev SrcBlock := ProofForgeV2.Source.AstSpineV1.BlockV1
+private abbrev SrcPattern := ProofForgeV2.Source.AstPatternV1.PatternV1
 /-- Fail-closed normalizer errors. Typed-not-ok never yields a carrier. -/
 inductive NormalizeErrorV1 where
   | typedNotOk (diagnostics : Array DiagnosticV1)
@@ -719,15 +724,14 @@ where
     | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
     | _ => 0
 
-/-- Whether an expression match has at least one integer/Bool literal case
-    (and therefore allocates a join block param). Catch-all-only and
-    constructor/string-only shapes either inline or fail closed without a
-    join allocation. -/
-private def exprMatchHasLiteralCaseV1
+/-- Whether an expression match has at least one switch case (integer/Bool
+    literal or constructor) and therefore allocates a join block param.
+    Catch-all-only matches inline without a join. -/
+private def exprMatchNeedsJoinV1
     (arms : Array ProofForgeV2.Source.AstSpineV1.ExprMatchArmV1) : Bool :=
   arms.any fun arm =>
     match arm.pattern with
-    | .literal (.integer _) | .literal (.bool _) => true
+    | .literal (.integer _) | .literal (.bool _) | .constructor _ _ => true
     | _ => false
 
 /-- Count expression-match join block params reachable from expressions
@@ -736,7 +740,7 @@ private def exprMatchHasLiteralCaseV1
 private partial def countExprMatchJoinsInExprV1 (expr : SrcExpr) : Nat :=
   match expr with
   | .match_ scrutinee arms =>
-      let self := if exprMatchHasLiteralCaseV1 arms then 1 else 0
+      let self := if exprMatchNeedsJoinV1 arms then 1 else 0
       self + countExprMatchJoinsInExprV1 scrutinee +
         arms.foldl (fun acc arm => acc + countExprMatchJoinsInExprV1 arm.value) 0
   | .binary _ lhs rhs =>
@@ -982,13 +986,14 @@ private def resolveConstructorLoweringV1
       if typeName == "Option" then
         match shapeOf? interner.types expectedTid with
         | some (.option elTid) =>
-            if variantName == "none" then
+            -- Accept both source-style Some/None and lowercase some/none.
+            if variantName == "none" || variantName == "None" then
               pure (expectedTid, 0, #[])
-            else if variantName == "some" then
+            else if variantName == "some" || variantName == "Some" then
               pure (expectedTid, 1, #[elTid])
             else
               failUnsupported
-                s!"S1 Option constructor must be Option.some or Option.none, got '{variantName}'"
+                s!"S1 Option constructor must be Option.some/none (or Some/None), got '{variantName}'"
         | _ =>
             failUnsupported
               "S1 Option constructor requires an enclosing Option expected type"
@@ -1039,6 +1044,54 @@ private def resolveConstructorLoweringV1
               failUnsupported s!"S1 constructor '{name}' is not declared"
   | _ =>
       failUnsupported "S1 constructor path must be Struct.new, Enum.Variant, or Option.some/none"
+
+/-- Resolve a constructor *pattern* against an already-known scrutinee TypeId.
+    Returns (variantIndex, payload TypeIds). Result type must equal scrutTid. -/
+private def resolveCtorPatternV1
+    (interner : TypeInternerV1) (ctor : SourceQualifiedNameV1) (scrutTid : TypeIdV1) :
+    Except NormalizeErrorV1 (UInt32 × Array TypeIdV1) := do
+  let (resultTid, idx, payloads) ←
+    resolveConstructorLoweringV1 interner ctor scrutTid
+  unless resultTid == scrutTid do
+    return ← failUnsupported
+      "S1 constructor pattern type does not match match scrutinee"
+  pure (idx, payloads)
+
+/-- Bind constructor-arm payload sub-patterns into the local env.
+    Supported sub-patterns: `wildcard` (skip) and `bind` (VariantPayload).
+    Nested constructor/literal sub-patterns fail closed in this slice. -/
+private def bindCtorArgPatternsV1
+    (scrutVid : ValueIdV1) (variantIndex : UInt32)
+    (payloadTids : Array TypeIdV1) (argPatterns : Array SrcPattern)
+    (st : BodyStateV1) : Except NormalizeErrorV1 BodyStateV1 := do
+  unless argPatterns.size == payloadTids.size do
+    return ← failUnsupported
+      s!"S1 constructor pattern expects {payloadTids.size} arguments, got {argPatterns.size}"
+  let mut st := st
+  let mut i : Nat := 0
+  for pat in argPatterns do
+    let some pTid := payloadTids[i]? |
+      return ← failUnsupported "S1 constructor pattern payload index out of range"
+    match pat with
+    | .wildcard => pure ()
+    | .bind name =>
+        let (st1, vid) := emitValue st pTid
+          (.variantPayload scrutVid variantIndex (UInt32.ofNat i))
+        st := { st1 with env := envInsert st1.env (raw name) vid pTid }
+    | .literal _ =>
+        return ← failUnsupported
+          "S1 constructor pattern nested literal sub-patterns are not supported"
+    | .constructor _ _ =>
+        return ← failUnsupported
+          "S1 constructor pattern nested constructor sub-patterns are not supported"
+    i := i + 1
+  pure st
+
+/-- True when the scrutinee TypeId is Enum or Option (constructor-matchable). -/
+private def isCtorMatchScrutineeV1 (types : Array TypeDeclV1) (tid : TypeIdV1) : Bool :=
+  match shapeOf? types tid with
+  | some (.enum _) | some (.option _) => true
+  | _ => false
 
 mutual
 
@@ -1334,10 +1387,9 @@ private partial def lowerExpr
           let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
           pure (vid, fnResultTid, st2)
   | .match_ scrutinee arms => do
-      -- T4 expression-level match: literal + unique catch-all patterns only
-      -- (constructor/string stay fail closed for T5). Arm values lower in
-      -- separate blocks and jump to a join block carrying the result as a
-      -- single block param (Wire jump-arg / block-param arity).
+      -- T4/T5 expression-level match: integer/Bool literal cases, Enum/Option
+      -- constructor cases (VariantTag → switch UInt32), unique catch-all.
+      -- Arm values lower in separate blocks and jump to a join block param.
       if arms.isEmpty then
         return ← failUnsupported "S1 match expression requires at least one arm"
       let (iB, boolTid) := internShape st.interner .bool
@@ -1379,10 +1431,10 @@ private partial def lowerExpr
         | some (.uint w) =>
             if legalIntegerWidthV1 w.toNat then some w.toNat else none
         | _ => none
-      unless scrutIsBool || scrutUintWidth?.isSome do
-        return ← failUnsupported
-          "S1 match expression scrutinee must be legal UInt or Bool"
-      let mut caseArms : Array (Nat × Bool × SrcExpr) := #[]
+      let scrutIsCtor := isCtorMatchScrutineeV1 st1.interner.types scrutTid
+      -- Partition arms: literal cases | constructor cases | one catch-all.
+      let mut litArms : Array (Nat × Bool × SrcExpr) := #[]
+      let mut ctorArms : Array (UInt32 × Array TypeIdV1 × Array SrcPattern × SrcExpr) := #[]
       let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcExpr) := none
       for arm in arms do
         match arm.pattern with
@@ -1395,22 +1447,22 @@ private partial def lowerExpr
                 unless magnitude < uintExclusiveLimit width do
                   return ← failUnsupported
                     s!"S1 match expression UInt{width} integer pattern is out of range"
-                if caseArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
+                if litArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
                   return ← failUnsupported
                     "S1 match expression has duplicate literal cases"
-                caseArms := caseArms.push (magnitude, false, arm.value)
+                litArms := litArms.push (magnitude, false, arm.value)
             | .bool value =>
                 unless scrutIsBool do
                   return ← failUnsupported
                     "S1 match expression Bool pattern requires a Bool scrutinee"
-                if caseArms.any (fun (v, isBool, _) =>
+                if litArms.any (fun (v, isBool, _) =>
                     isBool && v == (if value then 1 else 0)) then
                   return ← failUnsupported
                     "S1 match expression has duplicate literal cases"
-                caseArms := caseArms.push (if value then 1 else 0, true, arm.value)
+                litArms := litArms.push (if value then 1 else 0, true, arm.value)
             | .string _ =>
                 return ← failUnsupported
-                  "S1 match expression does not support string literal patterns"
+                  "S1 match expression does not support string literal patterns (no String TypeShape)"
         | .wildcard =>
             if defaultArm?.isSome then
               return ← failUnsupported
@@ -1421,17 +1473,26 @@ private partial def lowerExpr
               return ← failUnsupported
                 "S1 match expression has more than one catch-all arm"
             defaultArm? := some (some name, arm.value)
-        | .constructor _ _ =>
-            return ← failUnsupported
-              "S1 match expression does not support constructor patterns"
-      let (defaultBinder?, defaultValue) ← match defaultArm? with
-        | some da => pure da
-        | none =>
-            return ← failUnsupported
-              "S1 match expression on UInt/Bool requires a catch-all arm"
-      -- Catch-all-only: inline the arm value into the current open block
-      -- (structure gate forbids empty switch cases).
-      if caseArms.isEmpty then
+        | .constructor ctor args => do
+            unless scrutIsCtor do
+              return ← failUnsupported
+                "S1 match expression constructor pattern requires Enum or Option scrutinee"
+            let (vIdx, payloads) ←
+              resolveCtorPatternV1 st1.interner ctor scrutTid
+            if ctorArms.any (fun (i, _, _, _) => i == vIdx) then
+              return ← failUnsupported
+                "S1 match expression has duplicate constructor cases"
+            ctorArms := ctorArms.push (vIdx, payloads, args, arm.value)
+      if !litArms.isEmpty && !ctorArms.isEmpty then
+        return ← failUnsupported
+          "S1 match expression cannot mix literal and constructor patterns"
+      -- Catch-all-only: inline (structure gate forbids empty switch cases).
+      if litArms.isEmpty && ctorArms.isEmpty then
+        let (defaultBinder?, defaultValue) ← match defaultArm? with
+          | some da => pure da
+          | none =>
+              return ← failUnsupported
+                "S1 match expression requires at least one case or a catch-all arm"
         let stD := match defaultBinder? with
           | none => st1
           | some name =>
@@ -1441,17 +1502,22 @@ private partial def lowerExpr
           return ← failUnsupported
             "S1 match expression arm type does not match expected type"
         pure (vid, expectedTid, { stR with env := st1.env })
-      else
-        -- Defer join ValueId allocation until the join block is created so
-        -- nested matches (lowered inside arms) receive lower BlockIds and
-        -- earlier block-param ValueIds — matching SPEC §6 BlockId order.
+      else if !litArms.isEmpty then
+        unless scrutIsBool || scrutUintWidth?.isSome do
+          return ← failUnsupported
+            "S1 match expression literal patterns require legal UInt or Bool scrutinee"
+        let (defaultBinder?, defaultValue) ← match defaultArm? with
+          | some da => pure da
+          | none =>
+              return ← failUnsupported
+                "S1 match expression on UInt/Bool requires a catch-all arm"
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
         let savedEnv := st1.env
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
-        for (_, _, armValue) in caseArms do
+        for (_, _, armValue) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
           let (vid, vtid, stB) ←
             lowerExpr armValue expectedTid { stA with env := savedEnv } states fns
@@ -1460,7 +1526,6 @@ private partial def lowerExpr
               "S1 match expression arm type does not match expected type"
           jumpSlots := jumpSlots.push stB.blocks.size
           stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
-        -- Default arm: optional binder aliases the scrutinee for the arm value.
         let defaultId := UInt32.ofNat stA.blocks.size
         let stD0 := match defaultBinder? with
           | none => { stA with env := savedEnv }
@@ -1473,7 +1538,7 @@ private partial def lowerExpr
         jumpSlots := jumpSlots.push stD.blocks.size
         stA := sealCurrentBlock stD (.jump { blockId := 0, args := #[dVid] })
         let switchCases : Array SwitchCaseV1 :=
-          caseArms.mapIdx fun i (value, isBool, _) =>
+          litArms.mapIdx fun i (value, isBool, _) =>
             {
               typeId := scrutTid
               valueBytes :=
@@ -1487,7 +1552,63 @@ private partial def lowerExpr
         let stP := patchSwitch stA scrutIdx switchCases (some {
           blockId := defaultId, args := #[] })
         let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
-        -- Allocate join param now (creation order == BlockId order of params).
+        let joinVid :=
+          UInt32.ofNat (stP.callableParamCount + stP.nextBlockParamOrdinal)
+        let stJoin := {
+          stP with
+          nextBlockParamOrdinal := stP.nextBlockParamOrdinal + 1
+          currentParams := #[{ valueId := joinVid, typeId := expectedTid }]
+          env := savedEnv
+        }
+        pure (joinVid, expectedTid, stJoin)
+      else
+        -- Constructor path: VariantTag → switch on UInt32 variant index.
+        let (iU32, u32Tid) := internShape st1.interner (.uint 32)
+        let stTag0 := { st1 with interner := iU32 }
+        let (stTag, tagVid) := emitValue stTag0 u32Tid (.variantTag scrutVid)
+        let scrutIdx := stTag.blocks.size
+        let st2 := sealCurrentBlock stTag (.switch tagVid #[] none)
+        let savedEnv := st1.env
+        let mut stA := st2
+        let mut caseTargets : Array BlockIdV1 := #[]
+        let mut jumpSlots : Array Nat := #[]
+        for (vIdx, payloads, argPats, armValue) in ctorArms do
+          caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
+          let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
+            { stA with env := savedEnv }
+          let (vid, vtid, stB) ←
+            lowerExpr armValue expectedTid stBound states fns
+          unless vtid == expectedTid do
+            return ← failUnsupported
+              "S1 match expression arm type does not match expected type"
+          jumpSlots := jumpSlots.push stB.blocks.size
+          stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
+        let defaultTarget? : Option JumpTargetV1 ← match defaultArm? with
+          | none => pure none
+          | some (defaultBinder?, defaultValue) => do
+              let defaultId := UInt32.ofNat stA.blocks.size
+              let stD0 := match defaultBinder? with
+                | none => { stA with env := savedEnv }
+                | some name =>
+                    { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
+              let (dVid, dTid, stD) ←
+                lowerExpr defaultValue expectedTid stD0 states fns
+              unless dTid == expectedTid do
+                return ← failUnsupported
+                  "S1 match expression arm type does not match expected type"
+              jumpSlots := jumpSlots.push stD.blocks.size
+              stA := sealCurrentBlock stD (.jump { blockId := 0, args := #[dVid] })
+              pure (some { blockId := defaultId, args := #[] })
+        let switchCases : Array SwitchCaseV1 :=
+          ctorArms.mapIdx fun i (vIdx, _, _, _) =>
+            {
+              typeId := u32Tid
+              valueBytes := encodeU32le vIdx
+              target := { blockId := caseTargets[i]!, args := #[] }
+            }
+        let joinId := UInt32.ofNat stA.blocks.size
+        let stP := patchSwitch stA scrutIdx switchCases defaultTarget?
+        let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
         let joinVid :=
           UInt32.ofNat (stP.callableParamCount + stP.nextBlockParamOrdinal)
         let stJoin := {
@@ -1770,8 +1891,8 @@ private partial def lowerStmt
         return ← failUnsupported "S1 match requires at least one arm"
       let (iB, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := iB }
-      -- Scrutinee: Bool literal, bare place (legal UInt or Bool), or UInt64
-      -- fallback for non-place heads (preserves prior UInt64 match programs).
+      -- Scrutinee: Bool literal, bare place (UInt/Bool/Enum/Option local), or
+      -- UInt64 fallback for non-place heads (legacy UInt match programs).
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
         | .literal (.bool _) =>
@@ -1792,13 +1913,10 @@ private partial def lowerStmt
         | some (.uint w) =>
             if legalIntegerWidthV1 w.toNat then some w.toNat else none
         | _ => none
-      unless scrutIsBool || scrutUintWidth?.isSome do
-        return ← failUnsupported
-          "S1 match scrutinee must be legal UInt or Bool"
-      -- Split arms into literal cases and exactly-one catch-all (wildcard or
-      -- bind); CheckV1 already requires a catch-all for UInt/Bool scrutinee.
-      -- Case magnitudes are Nat (UInt256 range).
-      let mut caseArms : Array (Nat × Bool × SrcBlock) := #[]
+      let scrutIsCtor := isCtorMatchScrutineeV1 st1.interner.types scrutTid
+      let mut litArms : Array (Nat × Bool × SrcBlock) := #[]
+      let mut ctorArms :
+          Array (UInt32 × Array TypeIdV1 × Array SrcPattern × SrcBlock) := #[]
       let mut defaultArm? : Option (Option SourceNameComponentV1 × SrcBlock) := none
       for arm in arms do
         match arm.pattern with
@@ -1811,19 +1929,20 @@ private partial def lowerStmt
                 unless magnitude < uintExclusiveLimit width do
                   return ← failUnsupported
                     s!"S1 match UInt{width} integer literal is out of range"
-                if caseArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
+                if litArms.any (fun (v, isBool, _) => !isBool && v == magnitude) then
                   return ← failUnsupported "S1 match has duplicate literal cases"
-                caseArms := caseArms.push (magnitude, false, arm.body)
+                litArms := litArms.push (magnitude, false, arm.body)
             | .bool value =>
                 unless scrutIsBool do
                   return ← failUnsupported
                     "S1 match Bool literal requires a Bool scrutinee"
-                if caseArms.any (fun (v, isBool, _) =>
+                if litArms.any (fun (v, isBool, _) =>
                     isBool && v == (if value then 1 else 0)) then
                   return ← failUnsupported "S1 match has duplicate literal cases"
-                caseArms := caseArms.push (if value then 1 else 0, true, arm.body)
+                litArms := litArms.push (if value then 1 else 0, true, arm.body)
             | .string _ =>
-                return ← failUnsupported "S1 match does not support string literal patterns"
+                return ← failUnsupported
+                  "S1 match does not support string literal patterns (no String TypeShape)"
         | .wildcard =>
             if defaultArm?.isSome then
               return ← failUnsupported "S1 match has more than one catch-all arm"
@@ -1832,38 +1951,48 @@ private partial def lowerStmt
             if defaultArm?.isSome then
               return ← failUnsupported "S1 match has more than one catch-all arm"
             defaultArm? := some (some name, arm.body)
-        | .constructor _ _ =>
-            return ← failUnsupported "S1 match does not support constructor patterns"
-      let (defaultBinder?, defaultBody) ← match defaultArm? with
-        | some da => pure da
-        | none =>
-            return ← failUnsupported
-              "S1 match on UInt/Bool requires a catch-all arm"
-      -- Case order on the wire follows literal-arm source order. A catch-all-
-      -- only match is straight-line: the binder binds the scrutinee and the
-      -- arm body lowers inline into the current block (no block, no jump;
-      -- the structure gate requires nonempty switch cases, so a switch would
-      -- be invalid here anyway).
-      if caseArms.isEmpty then
+        | .constructor ctor args => do
+            unless scrutIsCtor do
+              return ← failUnsupported
+                "S1 match constructor pattern requires Enum or Option scrutinee"
+            let (vIdx, payloads) ←
+              resolveCtorPatternV1 st1.interner ctor scrutTid
+            if ctorArms.any (fun (i, _, _, _) => i == vIdx) then
+              return ← failUnsupported "S1 match has duplicate constructor cases"
+            ctorArms := ctorArms.push (vIdx, payloads, args, arm.body)
+      if !litArms.isEmpty && !ctorArms.isEmpty then
+        return ← failUnsupported
+          "S1 match cannot mix literal and constructor patterns"
+      -- Catch-all-only: inline binder + body (no switch; empty cases illegal).
+      if litArms.isEmpty && ctorArms.isEmpty then
+        let (defaultBinder?, defaultBody) ← match defaultArm? with
+          | some da => pure da
+          | none =>
+              return ← failUnsupported
+                "S1 match requires at least one case or a catch-all arm"
         let stD := match defaultBinder? with
           | none => st1
           | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
         let (stR, rStatus) ← lowerStmts defaultBody.statements resultTid stD
           states events errors fns
-        -- The catch-all binder and body lets stay scoped to the arm.
         pure ({ stR with env := st1.env }, rStatus)
-      else
+      else if !litArms.isEmpty then
+        unless scrutIsBool || scrutUintWidth?.isSome do
+          return ← failUnsupported
+            "S1 match literal patterns require legal UInt or Bool scrutinee"
+        let (defaultBinder?, defaultBody) ← match defaultArm? with
+          | some da => pure da
+          | none =>
+              return ← failUnsupported
+                "S1 match on UInt/Bool requires a catch-all arm"
         let scrutIdx := st1.blocks.size
         let st2 := sealCurrentBlock st1 (.switch scrutVid #[] none)
-        -- Lower each literal arm body into its own block; record exact case
-        -- targets and jump-back-patch slots as we go. Every arm starts from
-        -- the pre-match env so lets stay scoped to their arm.
         let savedEnv := st1.env
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
         let mut closedCount : Nat := 0
-        for (_, _, body) in caseArms do
+        for (_, _, body) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
           let (stB, status) ← lowerStmts body.statements resultTid
             { stA with env := savedEnv } states events errors fns
@@ -1873,19 +2002,19 @@ private partial def lowerStmt
           | .open_ =>
               jumpSlots := jumpSlots.push stA.blocks.size
               stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
-        -- Default arm: optional binder maps to the scrutinee value.
         let defaultId := UInt32.ofNat stA.blocks.size
         let stD := match defaultBinder? with
           | none => { stA with env := savedEnv }
           | some name => { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
-        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD states events errors fns
+        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD
+          states events errors fns
         stA := stD
         match dStatus with
         | .closed => closedCount := closedCount + 1
         | .open_ =>
             jumpSlots := jumpSlots.push stA.blocks.size
             stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
-        let switchCases : Array SwitchCaseV1 := caseArms.mapIdx fun i (value, isBool, _) =>
+        let switchCases : Array SwitchCaseV1 := litArms.mapIdx fun i (value, isBool, _) =>
           {
             typeId := scrutTid
             valueBytes :=
@@ -1895,9 +2024,7 @@ private partial def lowerStmt
                 encodeNatLeBytes value (width / 8)
             target := { blockId := caseTargets[i]!, args := #[] }
           }
-        if closedCount == caseArms.size + 1 then
-          -- Every arm returned: no join block; only the switch needs the
-          -- final case/default targets.
+        if closedCount == litArms.size + 1 then
           let stP := patchSwitch stA scrutIdx switchCases (some {
             blockId := defaultId, args := #[] })
           pure (stP, .closed)
@@ -1905,6 +2032,64 @@ private partial def lowerStmt
           let joinId := UInt32.ofNat stA.blocks.size
           let stP := patchSwitch stA scrutIdx switchCases (some {
             blockId := defaultId, args := #[] })
+          let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
+          pure ({ stP with env := savedEnv }, .open_)
+      else
+        -- Constructor path: Op.VariantTag → switch on UInt32 tag; arm bodies
+        -- bind payloads via Op.VariantPayload (bind/wildcard sub-patterns).
+        let (iU32, u32Tid) := internShape st1.interner (.uint 32)
+        let stTag0 := { st1 with interner := iU32 }
+        let (stTag, tagVid) := emitValue stTag0 u32Tid (.variantTag scrutVid)
+        let scrutIdx := stTag.blocks.size
+        let st2 := sealCurrentBlock stTag (.switch tagVid #[] none)
+        let savedEnv := st1.env
+        let mut stA := st2
+        let mut caseTargets : Array BlockIdV1 := #[]
+        let mut jumpSlots : Array Nat := #[]
+        let mut closedCount : Nat := 0
+        for (vIdx, payloads, argPats, body) in ctorArms do
+          caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
+          let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
+            { stA with env := savedEnv }
+          let (stB, status) ← lowerStmts body.statements resultTid stBound
+            states events errors fns
+          stA := stB
+          match status with
+          | .closed => closedCount := closedCount + 1
+          | .open_ =>
+              jumpSlots := jumpSlots.push stA.blocks.size
+              stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+        let defaultTarget? : Option JumpTargetV1 ← match defaultArm? with
+          | none => pure none
+          | some (defaultBinder?, defaultBody) => do
+              let defaultId := UInt32.ofNat stA.blocks.size
+              let stD0 := match defaultBinder? with
+                | none => { stA with env := savedEnv }
+                | some name =>
+                    { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
+              let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD0
+                states events errors fns
+              stA := stD
+              match dStatus with
+              | .closed => closedCount := closedCount + 1
+              | .open_ =>
+                  jumpSlots := jumpSlots.push stA.blocks.size
+                  stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+              pure (some { blockId := defaultId, args := #[] })
+        let switchCases : Array SwitchCaseV1 :=
+          ctorArms.mapIdx fun i (vIdx, _, _, _) =>
+            {
+              typeId := u32Tid
+              valueBytes := encodeU32le vIdx
+              target := { blockId := caseTargets[i]!, args := #[] }
+            }
+        let armTotal := ctorArms.size + (if defaultTarget?.isSome then 1 else 0)
+        if closedCount == armTotal then
+          let stP := patchSwitch stA scrutIdx switchCases defaultTarget?
+          pure (stP, .closed)
+        else
+          let joinId := UInt32.ofNat stA.blocks.size
+          let stP := patchSwitch stA scrutIdx switchCases defaultTarget?
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
           pure ({ stP with env := savedEnv }, .open_)
   | .let_ name typeAnn value => do
