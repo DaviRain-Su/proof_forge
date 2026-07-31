@@ -271,6 +271,11 @@ theorem把production raw/result投影到transparent spine并保持`.truncated`/`
 `.badFieldCount`全序。runtime expected/raw不转List；List只用于proof。下一步从root
 `SemanticProgram.Data`九字段payload开始逐段refinement，不应复制完整program decoder。formal状态不变。
 
+root payload第一层现已在拆分后的sole `Wire/CodecV1`闭合u32-length-prefixed bytes：transparent与
+production primitive保持prefix truncation→limit→payload truncation顺序、zero payload与next offset，
+`decodeByteArray`/`decodeString`直接委托；String继续只走既有UTF-8/NFC权威。下一步建立array count
+header/iteration refinement，再进入QualifiedName；不要在proof侧重写String validator。formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

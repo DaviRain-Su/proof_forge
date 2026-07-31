@@ -252,7 +252,9 @@ success、`.truncated`优先与`.badMagic` mismatch，production `consumeMagic`�
 完整program refinement原仍pending；后续tagged-header切片已闭合u32 length/范围、raw ASCII、exact
 expected tag及u16 field count，`decodeTag`/`expectTag`直接委托shared production primitives，两个
 universal theorem保持全部错误相位。root payload/完整program refinement仍pending，因此closed
-invariant theorem与formal TASK/TST状态不变。
+invariant theorem与formal TASK/TST状态不变。后续payload framing切片已在sole `Wire/CodecV1`闭合
+u32-length-prefixed bytes的prefix/limit/exact payload refinement，并让`decodeByteArray`/`decodeString`
+直接委托；array count/QualifiedName与九张root table仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

@@ -163,6 +163,20 @@ normative: false
 - Boundary：root expected tagged header已闭合；payload九字段及其array/record递归refinement仍pending，
   closed carrier kernel validation与formal TASK/TST状态不变。
 
+## 2026-08-01 — proof-validation length-prefixed payload refinement
+
+- Production/Proof：在拆分后的sole `Semantic/Wire/CodecV1`新增transparent/production u32-length-
+  prefixed byte reader，按prefix→maxLen→exact payload顺序返回payload与next offset；`decodeByteArray`与
+  `decodeString`直接委托production primitive，后者继续唯一执行既有UTF-8+NFC validation。
+- Refinement/Error：universal theorem覆盖任意input/offset/maxLen，组合u32与exact-take theorem，保持
+  truncated prefix→limitExceeded→truncated payload全序、zero payload和exact next offset；runtime保持
+  ByteArray单次extract，List仅为proof projection。
+- Tests/Review：固定nonzero-offset success、zero、limit-before-missing-payload、short payload、
+  `0xffffffff`在大maxLen下仍按missing payload截断、offset-past-end及universal theorem；Wire suite通过，
+  blocker review为APPROVE。
+- Boundary：root payload的共同byte/string framing已闭合；String UTF-8/NFC逻辑未复制到proof spine。
+  QualifiedName array及九张root table的递归decoder refinement仍pending，formal状态不变。
+
 ## 2026-07-31 — S1 Normalize 扩面：call/schedule（external sync call + workflow schedule）与首个非均匀 capability 矩阵
 
 - Context/State：formal D1–D4 仍为 0/27 done。承接 shift/bitwise/logical 扩面，本切片把 `call QualifiedId(args)` 与 `schedule QualifiedId(args)` 贯穿 shared core，并以 S2 capability gate 按 target 语义闭合：这是第一次产物支持不是全员同键的扩面。执行模式：共享核心串行（主代理）→ **三个并行 worktree worker**（EVM/Solana 防御性 fail-closed、NEAR schedule→promise）→ 主代理审计集成，Noir lane 主代理串行。

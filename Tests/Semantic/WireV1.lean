@@ -166,6 +166,27 @@ example (input want : TransparentByteSpineV1) (offset fieldCount : Nat) :
       expectTaggedHeaderSpineV1 input offset want fieldCount :=
   expectTaggedHeaderBytesAtV1_refinesSpine input want offset fieldCount
 
+example : readSizedSpineBytesV1 [0xff, 3, 0, 0, 0, 0x10, 0x20, 0x30, 0xee]
+    1 3 = .ok ([0x10, 0x20, 0x30], 8) := by rfl
+
+example : readSizedSpineBytesV1 [0, 0, 0, 0, 0xee] 0 0 = .ok ([], 4) := by rfl
+
+example : readSizedSpineBytesV1 [4, 0, 0, 0] 0 3 = .error .limitExceeded := by rfl
+
+example : readSizedSpineBytesV1 [3, 0, 0, 0, 0x10, 0x20] 0 3 =
+    .error .truncated := by rfl
+
+example : readSizedSpineBytesV1 [0xff, 0xff, 0xff, 0xff] 0 UInt32.size =
+    .error .truncated := by rfl
+
+example : readSizedSpineBytesV1 [0, 0, 0, 0] 1 0 = .error .truncated := by rfl
+
+example (input : TransparentByteSpineV1) (offset maxLen : Nat) :
+    (readSizedBytesAtV1 (ByteArray.mk input.toArray) offset maxLen).map
+        (fun (payload, next) => (payload.data.toList, next)) =
+      readSizedSpineBytesV1 input offset maxLen :=
+  readSizedBytesAtV1_refinesSpine input offset maxLen
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

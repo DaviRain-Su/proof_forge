@@ -320,6 +320,63 @@ theorem takeBytesAtV1_refinesSpine (bytes : TransparentByteSpineV1)
     simp [List.extract_eq_take_drop]
   · rfl
 
+/-- Read a u32-length-prefixed byte payload on the transparent spine. The
+    declared limit is checked before payload bounds, matching production error
+    precedence. -/
+def readSizedSpineBytesV1 (input : TransparentByteSpineV1) (offset maxLen : Nat) :
+    Except SemanticWireErrorV1 (List UInt8 × Nat) :=
+  match readSpineU32leV1 input offset with
+  | .error e => .error e
+  | .ok (lenU, afterLen) =>
+      let len := lenU.toNat
+      if len > maxLen then
+        .error .limitExceeded
+      else
+        match takeSpineBytesV1 input afterLen len with
+        | .error e => .error e
+        | .ok payload => .ok (payload, afterLen + len)
+
+/-- Production u32-length-prefixed byte payload primitive. -/
+def readSizedBytesAtV1 (input : ByteArray) (offset maxLen : Nat) :
+    Except SemanticWireErrorV1 (ByteArray × Nat) :=
+  match readU32leAtV1 input offset with
+  | .error e => .error e
+  | .ok (lenU, afterLen) =>
+      let len := lenU.toNat
+      if len > maxLen then
+        .error .limitExceeded
+      else
+        match takeBytesAtV1 input afterLen len with
+        | .error e => .error e
+        | .ok payload => .ok (payload, afterLen + len)
+
+/-- Length-prefixed byte payload refinement through u32 decode, limit
+    precedence, exact slice, and next-offset calculation. -/
+theorem readSizedBytesAtV1_refinesSpine (input : TransparentByteSpineV1)
+    (offset maxLen : Nat) :
+    (readSizedBytesAtV1 (ByteArray.mk input.toArray) offset maxLen).map
+        (fun (payload, next) => (payload.data.toList, next)) =
+      readSizedSpineBytesV1 input offset maxLen := by
+  unfold readSizedBytesAtV1 readSizedSpineBytesV1
+  rw [readU32leAtV1_refinesSpine]
+  cases hread : readSpineU32leV1 input offset with
+  | error e => rfl
+  | ok pair =>
+    rcases pair with ⟨lenU, afterLen⟩
+    by_cases hv : lenU.toNat > maxLen
+    · simp only [if_pos hv, Except.map]
+    · simp only [if_neg hv]
+      have hr := remainingBytesAtV1_refinesSpine input afterLen
+      unfold takeBytesAtV1 takeSpineBytesV1
+      rw [hr]
+      by_cases ht : lenU.toNat ≤ spineRemainingV1 input afterLen
+      · simp only [if_pos ht, Except.map]
+        congr 1
+        · rw [ByteArray.data_extract, Array.toList_extract]
+          simp [List.extract_eq_take_drop]
+      · simp only [if_neg ht]
+        rfl
+
 /-- ASCII predicate used by the transparent tagged-header spine. -/
 def isAsciiTagSpineBytesV1 (bytes : List UInt8) : Bool :=
   bytes.all fun byte => byte.toNat ≤ 127
@@ -605,22 +662,12 @@ def decodeArray (maxCount : Nat) (decode : Decoder α) : Decoder (Array α) := f
   pure (acc, c)
 
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
-  let (lenU, c) ← decodeU32le c
-  let len := lenU.toNat
-  if len > maxLen then
-    return ← err .limitExceeded
-  unless remaining c ≥ len do
-    return ← err .truncated
-  takeBytes c len
+  let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen
+  pure (payload, ⟨c.input, offset, c.nesting⟩)
 
 def decodeString : Decoder String := fun c => do
-  let (lenU, c) ← decodeU32le c
-  let len := lenU.toNat
-  if len > maxStringBytes then
-    return ← err .limitExceeded
-  unless remaining c ≥ len do
-    return ← err .truncated
-  let (raw, c) ← takeBytes c len
+  let (raw, offset) ← readSizedBytesAtV1 c.input c.offset maxStringBytes
+  let c : Cursor := ⟨c.input, offset, c.nesting⟩
   match String.fromUTF8? raw with
   | none => err .badScalar
   | some s => do
