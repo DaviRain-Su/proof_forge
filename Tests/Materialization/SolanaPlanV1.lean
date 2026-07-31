@@ -1214,6 +1214,108 @@ private unsafe def testArithOps
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "ArithOps IR rebuild must be structure-identical"
 
+/-- Bounded for-loops: pre-header/header/body/exit CFG recovered as Plan
+    `forLoop` with induction temp, init/cond/update/maxIterations, and body
+    stores. Zero-trip and over-bound entries lower; plan-text pins
+    `loop_u64` plus back-edge counter/bound-check (`0x1003`). -/
+private unsafe def testForLoop
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ForLoop" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry addUp(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 4\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  entry scan(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n bounded 2 do\n" ++
+    "      count := count + 1\n" ++
+    "    return count\n\n" ++
+    "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 4 bounded 3 do\n" ++
+    "      count := count + i\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session source "Examples.ForLoop" "<solana-for-loop>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.loopBoundExceededError == loopBoundExceededError)
+    "Plan must carry the canonical loopBoundExceededError policy code"
+  let addUp ← findHandler plan "addUp"
+  -- Plan body: forLoop(varTemp=1, init=param n, cond=i<limit, update=i+1,
+  -- max=8, body=store count+i) then return count.
+  expect (addUp.body == #[
+      .forLoop 1
+        (.param 8)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 8) (.literal 4)))
+        (.checkedAdd (.temp 1) (.literal 1))
+        8
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.temp 1)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "addUp Plan body must recover forLoop with init/cond/update/max and body store"
+  let scan ← findHandler plan "scan"
+  -- Zero-trip still lowers: cond is i < n with i seeded from n.
+  expect (scan.body == #[
+      .forLoop 1
+        (.param 8)
+        (.compare .lt (.temp 1) (.param 8))
+        (.checkedAdd (.temp 1) (.literal 1))
+        2
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.literal 1)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "scan Plan body must lower zero-trip forLoop (n ..< n)"
+  let addUpTight ← findHandler plan "addUpTight"
+  -- Over-bound: range length 4 with bound 3 — still lowers; runtime must
+  -- hit loopBoundExceededError after the 4th body at the back edge.
+  expect (addUpTight.body == #[
+      .forLoop 1
+        (.param 8)
+        (.compare .lt (.temp 1) (.checkedAdd (.param 8) (.literal 4)))
+        (.checkedAdd (.temp 1) (.literal 1))
+        3
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.temp 1)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "addUpTight Plan body must pin maxIterations=3 for the over-bound entry"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let addUpIR ← findHandlerIR ir "addUp"
+  let loopOps := addUpIR.operations.filter fun op =>
+    match op with | .forRegion .. => true | _ => false
+  expect (loopOps.size == 1)
+    s!"addUp IR must contain exactly one for-region, got {loopOps.size}"
+  match loopOps[0]? with
+  | some (Operation.forRegion _ _ _ maxIt _ _ _ boundOps _ _ _) =>
+      expect (maxIt == 8)
+        s!"addUp for-region maxIterations must be 8, got {maxIt}"
+      expect (boundOps.size == 6)
+        s!"addUp boundOps must be the 6-op back-edge check, got {boundOps.size}"
+  | some other =>
+      throw <| IO.userError s!"addUp: expected forRegion, got {repr other}"
+  | none => throw <| IO.userError "addUp: missing for-region"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "ForLoop.sbpf-plan"
+  for fragment in #["loop_u64", "counter=%", "max=8", "max=3", "cond {",
+      "body {", "bound {", "update {", "cmp_lt_u64", "cmp_eq_u64",
+      "checked_add_u64", "program_error 0x1003"] do
+    expect (planText.contains fragment)
+      s!"sbpf-plan must contain '{fragment}'"
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "ForLoop IR rebuild must be structure-identical"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1239,6 +1341,7 @@ unsafe def run : IO Unit := do
   testValidatePlanNegatives session
   testFnLocalCall session
   testArithOps session
+  testForLoop session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

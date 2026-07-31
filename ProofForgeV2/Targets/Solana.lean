@@ -17,8 +17,16 @@ def discriminatorDomain : String := "proof-forge-solana-v1:"
 def layoutDomain : String := "proof-forge-solana-layout-v1:"
 def discriminatorBytes : Nat := 8
 def stateHeaderBytes : Nat := 8
+/-- Policy program_error codes for the plan-only sBPF surface. Disjoint ranges:
+    `0x1001` arithmetic overflow, `0x1002` bare assert failure, `0x1003` static
+    loop-bound exceeded (reference `boundExceeded` at the latch back edge),
+    and `declaredErrorBase + i` for declared program errors. -/
 def arithmeticOverflowError : Nat := 0x1001
 def assertionFailedError : Nat := 0x1002
+/-- Static `for ... bounded N` exceeded: the (N+1)-th body has executed and the
+    back edge is taken (reference `boundExceeded`). Distinct from arithmetic
+    overflow and bare assert. -/
+def loopBoundExceededError : Nat := 0x1003
 
 inductive Endianness where
   | little
@@ -105,6 +113,8 @@ inductive Expr where
   | boolNot (operand : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
+  /-- Plan-level loop induction temporary (bound by `Statement.forLoop`). -/
+  | temp (id : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -123,6 +133,15 @@ inductive Statement where
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  /-- Bounded `for` recovered from a Normalize loop header/latch/exit CFG.
+      `varTemp` is the induction temporary; `initial` seeds it; `cond` is the
+      header predicate (references `.temp varTemp`); `update` is the latch
+      expression (also may reference `.temp varTemp`); `maxIterations` is the
+      static bound from `loopBounds` (reference enforces it at the back edge:
+      the (N+1)-th body executes, then reverts); `body` is the then-arm region
+      ending at the back edge. After the loop, control falls through. -/
+  | forLoop (varTemp : Nat) (initial cond update : Expr) (maxIterations : Nat)
+      (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 structure Handler where
@@ -159,6 +178,7 @@ structure Plan where
   stateLayoutDomain : String
   arithmeticOverflowError : Nat
   assertionFailedError : Nat
+  loopBoundExceededError : Nat
   programName : String
   stateAccount : StateAccount
   events : Array InterfaceBinding
@@ -195,6 +215,21 @@ inductive Operation where
   | ifRegion (condition : Nat) (thenOps elseOps : Array Operation)
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
+  /-- Structured bounded loop matching reference `noteBackEdge` semantics.
+      `varTemp` is the IR induction temporary, seeded by `initial`.
+      `counterTemp` is a completed-iteration counter seeded to 0 before the
+      region (outer `const_u64 0`). Each iteration: evaluate `condOps`→`cond`;
+      while true take `bodyOps`; then at the back edge run `boundOps` which
+      assert `counter ≠ maxIterations` (else `loopBoundExceededError`) and
+      rebind `counterTemp := counterNext` (`counter + 1`); then `updateOps`→
+      `update` rebinds `varTemp`. Bodies 1..N pass the check; the (N+1)-th body
+      runs and then errors; a return inside any body exits before the check.
+      Latch `i + 1` cannot overflow under Normalize (`i < end ≤ UInt64.max`). -/
+  | forRegion (varTemp initial counterTemp : Nat) (maxIterations : Nat)
+      (condOps : Array Operation) (cond : Nat)
+      (bodyOps : Array Operation)
+      (boundOps : Array Operation) (counterNext : Nat)
+      (updateOps : Array Operation) (update : Nat)
   | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
   | checkedMul (destination lhs rhs errorCode : Nat)
   | checkedDiv (destination lhs rhs errorCode : Nat)
@@ -467,26 +502,30 @@ private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool := do
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: Bool literal must be 0x00 or 0x01"
 
+/-- Effect-boundary gate: values defined before `blockEntry` dominate this
+    block (params, block-param slots, earlier pure SSA). Only in-block pure
+    values between `blockEntry` and `segmentStart` are sealed by an effect. -/
 private def currentValueV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= paramCount && index < segmentStart then
+  if index >= blockEntry && index < segmentStart then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
 /-- Match-bind arm readability: the scrutinee of an enclosing switch may be
     referenced by its arm bodies across the (dominating) scrut-block boundary.
-    All other cross-block reads still fail at the effect boundary. -/
+    Dominating pure SSA (`index < blockEntry`) is always readable so loop
+    headers may consume pre-header values (e.g. the exclusive end bound). -/
 private def currentValueWithArmsV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (armReadables : Array ValueIdV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 := do
   let index := id.toNat
-  if index >= paramCount && index < segmentStart && !armReadables.contains id then
+  if index >= blockEntry && index < segmentStart && !armReadables.contains id then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
@@ -641,13 +680,14 @@ private def buildPureFnTableV1
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values paramCount segmentStart root
+  let rootValue ← currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
-  if root.toNat >= paramCount then
+  -- Only walk in-block segment values; dominating SSA is already closed.
+  if root.toNat >= segmentStart then
     stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -663,11 +703,14 @@ private def consumeCurrentSegmentV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
-          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
           stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: expression crosses an effect boundary"
   unless visitedCount == segmentCount do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: dead or reordered value instructions"
@@ -678,15 +721,15 @@ private def consumeCurrentSegmentV1
     least one sink root, mirroring the single-root discipline. -/
 private def consumeSegmentRootsV1
     (values : Array LoweredValueV1)
-    (paramCount segmentStart : Nat)
+    (blockEntry segmentStart : Nat)
     (roots : Array ValueIdV1) : CompileResult Unit := do
   for root in roots do
-    let _ ← currentValueV1 values paramCount segmentStart root
+    let _ ← currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]
   for root in roots do
-    if root.toNat >= paramCount then
+    if root.toNat >= segmentStart then
       stack := stack.push root.toNat
   let mut visitedCount := 0
   while !stack.isEmpty do
@@ -702,11 +745,14 @@ private def consumeSegmentRootsV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
-          unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
+        if dependencyIndex >= segmentStart then
+          unless dependencyIndex < values.size do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: expression crosses an effect boundary"
           stack := stack.push dependencyIndex
+        else if dependencyIndex >= blockEntry then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: expression crosses an effect boundary"
   unless visitedCount == segmentCount do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: dead or reordered value instructions"
@@ -749,25 +795,24 @@ private structure LoweredBlockV1 where
   segmentStart : Nat
 
 /-- Lower one block's instruction sequence (terminator handled by the region
-    walker). Each block starts a fresh effect segment; values from dominating
-    blocks stay referenceable only via params or match-arm scrutinees. -/
+    walker). Each block starts a fresh effect segment; dominating pure SSA
+    (callable params, pre-allocated block-param slots, earlier blocks) remains
+    readable. Block parameters are only legal on loop headers and are slotted
+    before instruction lowering (see `allocateBlockParamSlotsV1`). -/
 private def lowerBlockInstructionsV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (types : SolanaTypeClosureV1)
     (account : StateAccount)
     (pureFns : PureFnTableV1)
-    (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
-  unless block.params.isEmpty do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: block parameters are not supported"
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .solana
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
   let mut values := values0
+  let blockEntry := values0.size
   let mut segmentStart := values0.size
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
@@ -804,8 +849,8 @@ private def lowerBlockInstructionsV1
           isBool := false
         }
     | .binary op lhsId rhsId, some result =>
-        let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
-        let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
+        let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
+        let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
         unless !lhs.isBool && !rhs.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: binary operands must be UInt64"
@@ -840,7 +885,7 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
     | .unary op operandId, some result =>
-        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        let operand ← currentValueWithArmsV1 values blockEntry segmentStart armReadables operandId
         match op with
         | .bitNot =>
             unless !operand.isBool do
@@ -879,7 +924,7 @@ private def lowerBlockInstructionsV1
             s!"unsupported Solana semantic shape: pureCall arity mismatch for pureFn {fnIndex}"
         let mut argValues : Array LoweredValueV1 := #[]
         for argId in argIds do
-          let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          let arg ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
           unless !arg.isBool do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: pureCall arguments must be UInt64"
@@ -903,11 +948,11 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: view callable writes state"
         let field ← findFieldV1 account stateId
-        let stored ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        let stored ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
         unless !stored.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: state store value must be UInt64"
-        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
         body := body.push (.store {
           accountIndex := field.accountIndex
           byteOffset := field.byteOffset
@@ -918,11 +963,11 @@ private def lowerBlockInstructionsV1
         unless errorId.isNone && args.isEmpty do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: assert requires errorId=none and empty args"
-        let cond ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+        let cond ← currentValueWithArmsV1 values blockEntry segmentStart armReadables condId
         unless cond.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: assert condition must be Bool"
-        let value ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        let value ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
         body := body.push (.assert value)
         segmentStart := values.size
     | .emit _effectId eventId argIds, none =>
@@ -931,14 +976,14 @@ private def lowerBlockInstructionsV1
             "unsupported Solana semantic shape: view callable emits an event"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
           unless !root.isBool do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: event arguments must be UInt64"
           argExprs := argExprs.push root.expr
         -- Multi-root effect boundary: every value produced in the current
         -- segment must be reachable from at least one argument tree.
-        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
     | _, _ =>
@@ -955,10 +1000,87 @@ private def decodeSwitchCaseValueV1 (scrutIsBool : Bool) (bytes : ByteArray) :
   else
     decodeUInt64LiteralV1 bytes
 
-/-- Structured emission of the forward-only multi-block CFG. Diamonds
-    (branch/switch) are recovered by following each arm to its exit jump or
-    return; convergent joins continue the region. The fuel bounds recursion
-    to the block count. Returns (statements, values, nextJoin). -/
+/-- Region exit: forward join, path closed, or latch back-edge update. -/
+private inductive RegionExitV1 where
+  | join (blockId : Nat)
+  | closed
+  | latch (update : Expr)
+  deriving Inhabited
+
+private def findLoopBoundV1 (loopBounds : Array LoopBoundV1) (headerId : Nat) :
+    Option LoopBoundV1 :=
+  loopBounds.find? (fun lb => lb.header.toNat == headerId)
+
+private def isLoopHeaderV1 (loopBounds : Array LoopBoundV1) (blockId : Nat) : Bool :=
+  (findLoopBoundV1 loopBounds blockId).isSome
+
+/-- Pre-allocate canonical block-parameter ValueId slots as plan `.temp`
+    placeholders. Normalize places all block params (BlockId order) after
+    callable params and before instruction results; only loop headers may
+    carry the single UInt64 induction parameter. -/
+private def allocateBlockParamSlotsV1
+    (uint64TypeId : TypeIdV1)
+    (loopBounds : Array LoopBoundV1)
+    (blocks : Array BlockV1)
+    (values0 : Array LoweredValueV1) : CompileResult (Array LoweredValueV1) := do
+  let mut values := values0
+  for block in blocks do
+    if block.params.isEmpty then
+      pure ()
+    else
+      unless isLoopHeaderV1 loopBounds block.id.toNat do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: block parameters are only admitted on loop headers"
+      unless block.params.size == 1 do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
+      let some p := block.params[0]? |
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
+      unless p.valueId.toNat == values.size do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: block parameter ValueIds are not canonical"
+      unless p.typeId == uint64TypeId do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop induction parameter must be UInt64"
+      values := values.push {
+        expr := .temp p.valueId.toNat
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+        isBool := false
+      }
+  pure values
+
+/-- Read a jump-arg expression: args may be params, block-param temps, or
+    dominating pure SSA (including the current block's open segment). When the
+    arg is the sole sink of the current segment, consume that segment. -/
+private def readJumpArgExprV1
+    (values : Array LoweredValueV1)
+    (blockEntry segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
+    (argId : ValueIdV1) : CompileResult (Expr × Array LoweredValueV1 × Nat) := do
+  let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
+  unless !root.isBool do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: jump argument must be UInt64"
+  if argId.toNat >= segmentStart then
+    let expr ← consumeCurrentSegmentV1 values blockEntry segmentStart argId
+    pure (expr, values, values.size)
+  else if segmentStart == values.size then
+    pure (root.expr, values, segmentStart)
+  else
+    -- Dominating arg with an open pure segment: leave the segment for a later
+    -- consumer (e.g. pre-header limit used by the loop condition).
+    pure (root.expr, values, segmentStart)
+
+mutual
+/-- Structured emission of multi-block CFGs: forward diamonds (branch/switch)
+    and bounded for-loops recovered from `loopBounds` headers/latches.
+    `enclosingHeaders` is the stack of active loop header ids (innermost last);
+    a jump back to the innermost header ends the body with a latch update.
+    Nested loop headers expand recursively. Returns (statements, values, exit).
+    Mutually recursive with `lowerForLoopV1`. -/
 private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
@@ -967,15 +1089,21 @@ private partial def emitRegionV1
     (account : StateAccount)
     (pureFns : PureFnTableV1)
     (blocks : Array BlockV1)
-    (paramCount : Nat)
+    (loopBounds : Array LoopBoundV1)
+    (enclosingHeaders : Array Nat)
     (armReadables : Array ValueIdV1)
     (fuel : Nat)
     (start : Nat)
     (values0 : Array LoweredValueV1) :
-    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat) := do
+    CompileResult (Array Statement × Array LoweredValueV1 × RegionExitV1) := do
   if fuel == 0 then
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: CFG region exceeds block bound"
+  -- Starting directly on a loop header is only legal when the predecessor
+  -- jump already expanded the loop; landing here otherwise is out of pilot.
+  if isLoopHeaderV1 loopBounds start && !enclosingHeaders.contains start then
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop header must be entered via its pre-header jump"
   let block ← match blocks[start]? with
     | some value => pure value
     | none => throw (.planInvariant .solana
@@ -984,25 +1112,26 @@ private partial def emitRegionV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: block ids are not dense"
   let lowered ← lowerBlockInstructionsV1
-    owner mode types account pureFns paramCount armReadables block values0
+    owner mode types account pureFns armReadables block values0
   let instrs := lowered.statements
   let values := lowered.values
   let segmentStart := lowered.segmentStart
+  let blockEntry := values0.size
   match block.terminator with
   | .return_ (some valueId) =>
       match mode with
       | .initialize =>
           throw <| .planInvariant .solana "initializer cannot return a value"
       | .mutate | .view =>
-          let returned ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+          let returned ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
           unless returned.isBool == expectsBoolReturn do
             throw <| .planInvariant .solana
               (if expectsBoolReturn then
                 "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
                else
                 "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-          pure (instrs.push (.returnValue value), values, none)
+          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+          pure (instrs.push (.returnValue value), values, .closed)
   | .return_ none =>
       unless segmentStart == values.size do
         throw <| .planInvariant .solana
@@ -1010,54 +1139,92 @@ private partial def emitRegionV1
       -- Explicit marker: an early bare `return` inside a branch arm is
       -- otherwise indistinguishable from a fallthrough arm once the join
       -- continuation is emitted after the region.
-      pure (instrs.push .returnNone, values, none)
+      pure (instrs.push .returnNone, values, .closed)
   | .jump target =>
-      unless segmentStart == values.size do
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: block has unconsumed values"
-      pure (instrs, values, some target.blockId.toNat)
+      let tid := target.blockId.toNat
+      -- Latch back-edge: jump to the innermost enclosing loop header.
+      if enclosingHeaders.back? == some tid then
+        unless target.args.size == 1 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: loop latch must pass exactly one induction argument"
+        let (update, values1, _) ←
+          readJumpArgExprV1 values blockEntry segmentStart armReadables target.args[0]!
+        pure (instrs, values1, .latch update)
+      else if let some lb := findLoopBoundV1 loopBounds tid then
+        -- Enter a (possibly nested) bounded for-loop at its pre-header jump.
+        unless target.args.size == 1 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: loop entry must pass exactly one induction argument"
+        let (initial, values1, _) ←
+          readJumpArgExprV1 values blockEntry segmentStart armReadables target.args[0]!
+        let (loopStmt, values2, exitId) ←
+          lowerForLoopV1 owner mode expectsBoolReturn types account pureFns blocks
+            loopBounds enclosingHeaders armReadables (fuel - 1) lb initial values1
+        let (rest, values3, exit) ←
+          emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+            loopBounds enclosingHeaders armReadables (fuel - 1) exitId values2
+        pure (instrs ++ #[loopStmt] ++ rest, values3, exit)
+      else
+        -- Forward join: pure dominating values may remain for successors.
+        pure (instrs, values, .join tid)
   | .branch condId thenT elseT =>
-      let condVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
+      let condVal ← currentValueWithArmsV1 values blockEntry segmentStart armReadables condId
       unless condVal.isBool do
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
-      let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-          armReadables (fuel - 1) thenT.blockId.toNat values
-      match thenNext with
-      | some j =>
+      let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
+      let (thenBody, values1, thenExit) ←
+        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+          loopBounds enclosingHeaders armReadables (fuel - 1) thenT.blockId.toNat values
+      match thenExit with
+      | .latch _ =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: branch then-arm cannot be a raw loop latch"
+      | .closed =>
+          let (elseBody, values2, elseExit) ←
+            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+              loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
+          match elseExit with
+          | .closed =>
+              pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, .closed)
+          | .join j =>
+              let (rest, values3, exit) ←
+                emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+                  loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+              pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
+          | .latch _ =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: branch else-arm cannot be a raw loop latch"
+      | .join j =>
           if elseT.blockId.toNat == j then
-            let (rest, values2, next) ←
-              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-                armReadables (fuel - 1) j values1
-            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
+            let (rest, values2, exit) ←
+              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+                loopBounds enclosingHeaders armReadables (fuel - 1) j values1
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, exit)
           else
-            let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-                armReadables (fuel - 1) elseT.blockId.toNat values1
-            match elseNext with
-            | some j2 =>
+            let (elseBody, values2, elseExit) ←
+              emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+                loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
+            match elseExit with
+            | .join j2 =>
                 unless j == j2 do
                   throw <| .planInvariant .solana
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-                    armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
-            | none =>
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-                    armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
-      | none =>
-          let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-              armReadables (fuel - 1) elseT.blockId.toNat values1
-          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
+                let (rest, values3, exit) ←
+                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+                    loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
+            | .closed =>
+                let (rest, values3, exit) ←
+                  emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+                    loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
+            | .latch _ =>
+                throw <| .planInvariant .solana
+                  "unsupported Solana semantic shape: branch else-arm cannot be a raw loop latch"
   | .switch scrutId cases defaultTarget =>
-      let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
+      let scrutVal ← currentValueWithArmsV1 values blockEntry segmentStart armReadables scrutId
+      let scrut ← consumeCurrentSegmentV1 values blockEntry segmentStart scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .solana
           "unsupported Solana semantic shape: switch must carry a default target")
@@ -1066,51 +1233,141 @@ private partial def emitRegionV1
       let mut valuesA := values
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
-        let (body, values1, armNext) ←
-          emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-            (armReadables.push scrutId) (fuel - 1)
+        let (body, values1, armExit) ←
+          emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+            loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
         valuesA := values1
-        match armNext, joinAcc with
-        | none, _ => pure ()
-        | some j, none => joinAcc := some j
-        | some j, some j0 =>
+        match armExit, joinAcc with
+        | .closed, _ => pure ()
+        | .join j, none => joinAcc := some j
+        | .join j, some j0 =>
             unless j == j0 do
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-          (armReadables.push scrutId) (fuel - 1)
+        | .latch _, _ =>
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: switch arm cannot be a loop latch"
+      let (defaultBody, values2, defaultExit) ←
+        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+          loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
-      match defaultNext, joinAcc with
-      | none, _ => pure ()
-      | some j, none => joinAcc := some j
-      | some j, some j0 =>
+      match defaultExit, joinAcc with
+      | .closed, _ => pure ()
+      | .join j, none => joinAcc := some j
+      | .join j, some j0 =>
           unless j == j0 do
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: switch arms converge on divergent joins"
+      | .latch _, _ =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: switch default cannot be a loop latch"
       match joinAcc with
       | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, .closed)
       | some j =>
-          let (rest, values3, next) ←
-            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks paramCount
-              armReadables (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
+          let (rest, values3, exit) ←
+            emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+              loopBounds enclosingHeaders armReadables (fuel - 1) j values2
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
-        let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+        let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
         unless !root.isBool do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+      let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, .closed)
   | .trap _ =>
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: trap terminators are outside the current pilot"
+
+/-- Recover one bounded for-loop from its `loopBounds` entry: bind the header
+    induction temp from `initial`, lower the header condition, walk the body
+    until the latch back-edge, and return the exit block id (branch else). -/
+private partial def lowerForLoopV1
+    (owner : String)
+    (mode : SemanticCallableModeV1)
+    (expectsBoolReturn : Bool)
+    (types : SolanaTypeClosureV1)
+    (account : StateAccount)
+    (pureFns : PureFnTableV1)
+    (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1)
+    (enclosingHeaders : Array Nat)
+    (armReadables : Array ValueIdV1)
+    (fuel : Nat)
+    (lb : LoopBoundV1)
+    (initial : Expr)
+    (values0 : Array LoweredValueV1) :
+    CompileResult (Statement × Array LoweredValueV1 × Nat) := do
+  if fuel == 0 then
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: CFG region exceeds block bound"
+  let headerId := lb.header.toNat
+  let header ← match blocks[headerId]? with
+    | some value => pure value
+    | none => throw (.planInvariant .solana
+        "unsupported Solana semantic shape: loop header block is missing")
+  unless header.id.toNat == headerId do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop header block id is not dense"
+  unless header.params.size == 1 do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
+  let some induction := header.params[0]? |
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
+  let varTemp := induction.valueId.toNat
+  unless induction.typeId == types.uint64TypeId do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop induction parameter must be UInt64"
+  unless varTemp < values0.size do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop induction temp is not pre-allocated"
+  -- Re-bind the induction slot to the plan temp (identity already `.temp`).
+  let valuesBound := values0.set! varTemp {
+    expr := .temp varTemp
+    depth := 1
+    expandedNodes := 1
+    dependencies := #[]
+    isBool := false
+  }
+  let lowered ← lowerBlockInstructionsV1
+    owner mode types account pureFns armReadables header valuesBound
+  unless lowered.statements.isEmpty do
+    throw <| .planInvariant .solana
+      "unsupported Solana semantic shape: loop header may not contain effectful statements"
+  let values := lowered.values
+  let segmentStart := lowered.segmentStart
+  let blockEntry := valuesBound.size
+  match header.terminator with
+  | .branch condId thenT elseT =>
+      let condVal ← currentValueWithArmsV1 values blockEntry segmentStart armReadables condId
+      unless condVal.isBool do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop condition must be Bool"
+      let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
+      let bodyId := thenT.blockId.toNat
+      let exitId := elseT.blockId.toNat
+      let headers' := enclosingHeaders.push headerId
+      let (bodyStmts, values1, bodyExit) ←
+        emitRegionV1 owner mode expectsBoolReturn types account pureFns blocks
+          loopBounds headers' armReadables (fuel - 1) bodyId values
+      match bodyExit with
+      | .latch update =>
+          pure (.forLoop varTemp initial cond update lb.maxIterations.toNat bodyStmts,
+            values1, exitId)
+      | .join _ | .closed =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: loop body must end at its latch back-edge"
+  | _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: loop header must terminate in a branch"
+end
 
 private def lowerCallableV1
     (owner : String)
@@ -1121,33 +1378,79 @@ private def lowerCallableV1
     (pureFns : PureFnTableV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      callable.invariantSteps.isNone do
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: callable must have an acyclic entry block"
-  unless callable.blocks.all (fun b => b.params.isEmpty) do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: block parameters are not supported"
+      "unsupported Solana semantic shape: callable must enter at block 0 without invariant fuel"
+  -- Loop headers: exactly one UInt64 param and a matching loopBounds row.
+  -- Non-header blocks must remain param-free. Degenerate param'd blocks
+  -- without loopBounds stay fail-closed.
+  for block in callable.blocks do
+    if block.params.isEmpty then
+      pure ()
+    else if isLoopHeaderV1 callable.loopBounds block.id.toNat then
+      unless block.params.size == 1 do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop header must carry exactly one block parameter"
+    else
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: block parameters are only admitted on loop headers"
+  for lb in callable.loopBounds do
+    let headerId := lb.header.toNat
+    let latchId := lb.backEdgeFrom.toNat
+    let some header := callable.blocks[headerId]? |
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: loopBounds header is out of range"
+    unless header.id.toNat == headerId && header.params.size == 1 do
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: loopBounds header is not a single-param loop header"
+    let some latch := callable.blocks[latchId]? |
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: loopBounds latch is out of range"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId.toNat == headerId && target.args.size == 1 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: loop latch must jump back with one induction arg"
+    | _ =>
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: loop latch must be a jump back to its header"
   let (params, initialValues) ← makeParamsV1 owner types.uint64TypeId callable.params
-  let paramCount := params.size
-  let (body0, values0, nextJoin0) ←
+  let valuesPadded ← allocateBlockParamSlotsV1 types.uint64TypeId callable.loopBounds
+    callable.blocks initialValues
+  let (body0, values0, exit0) ←
     emitRegionV1 owner mode expectsBoolReturn types account pureFns callable.blocks
-      paramCount #[] callable.blocks.size 0 initialValues
+      callable.loopBounds #[] #[] callable.blocks.size 0 valuesPadded
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
-  -- in the forward-only CFG, so this terminates within blocks.size folds.
+  -- in the forward-only CFG (loop headers are expanded at their entry jump),
+  -- so this terminates within blocks.size folds.
   let mut body := body0
   let mut values := values0
-  let mut nextJoin := nextJoin0
+  let mut nextJoin : Option Nat :=
+    match exit0 with
+    | .join j => some j
+    | .closed => none
+    | .latch _ => none
+  match exit0 with
+  | .latch _ =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: top-level region cannot end in a loop latch"
+  | _ => pure ()
   for _ in [0:callable.blocks.size] do
     match nextJoin with
     | none => break
     | some j =>
-        let (rest, values1, next1) ←
+        let (rest, values1, exit1) ←
           emitRegionV1 owner mode expectsBoolReturn types account pureFns callable.blocks
-            paramCount #[] callable.blocks.size j values
+            callable.loopBounds #[] #[] callable.blocks.size j values
         body := body ++ rest
         values := values1
-        nextJoin := next1
+        match exit1 with
+        | .join j2 => nextJoin := some j2
+        | .closed => nextJoin := none
+        | .latch _ =>
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: top-level region cannot end in a loop latch"
   match nextJoin with
   | some _ =>
       throw <| .planInvariant .solana
@@ -1263,6 +1566,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
   else
     match expr with
     | .literal .. => some 1
+    | .temp _ => some 1
     | .param dataOffset => if params.any (·.dataOffset == dataOffset) then some 1 else none
     | .stateLoad accountIndex byteOffset =>
         if account.fields.any (fun field =>
@@ -1313,7 +1617,8 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
       | some fn => !fn.resultIsBool
       | none => false
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
-  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad .. => true
+  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad ..
+  | .temp _ => true
 
 /-- Bool-compatible plan expression (compare/boolNot and Bool-returning callFn). -/
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
@@ -1324,7 +1629,7 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
       | none => false
   | .literal _ => true
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
-  | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. => false
+  | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. | .temp _ => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
@@ -1468,6 +1773,24 @@ private partial def checkHandlerStatementsV1
           eventCount eventFieldCounts errorCount errorFieldCounts fns params defaultBody total
         total := td
         closed := allClosed && cd
+    | .forLoop _varTemp initial cond update maxIterations body =>
+        total ← addPlanExprNodes account params fns total initial
+        total ← addPlanExprNodes account params fns total cond
+        total ← addPlanExprNodes account params fns total update
+        total := total + 1
+        -- maxIterations is wire-capped at 4096 by Normalize/structure gates.
+        unless maxIterations <= 4096 do
+          throw <| .planInvariant .solana
+            "handler forLoop maxIterations exceeds the wire ceiling 4096"
+        let (tBody, cBody) ← checkHandlerStatementsV1
+          account isInitializer isView false
+          eventCount eventFieldCounts errorCount errorFieldCounts fns params body total
+        total := tBody
+        -- A loop body that returns/reverts on every path still leaves the
+        -- post-loop fallthrough reachable only when the body is open; the
+        -- loop statement itself never closes the enclosing region.
+        closed := false
+        let _ := cBody
   pure (total, closed)
 
 private def expectedAccess (account : StateAccount) (mode : HandlerMode) : AccountAccess :=
@@ -1528,7 +1851,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       plan.instructionDiscriminatorBytes == discriminatorBytes &&
       plan.stateLayoutDomain == layoutDomain &&
       plan.arithmeticOverflowError == arithmeticOverflowError &&
-      plan.assertionFailedError == assertionFailedError do
+      plan.assertionFailedError == assertionFailedError &&
+      plan.loopBoundExceededError == loopBoundExceededError do
     throw <| .planInvariant .solana "Solana Plan profile/error policies are not canonical"
   unless isIdentifier plan.programName do
     throw <| .planInvariant .solana s!"program name '{plan.programName}' is not a safe identifier"
@@ -1634,6 +1958,7 @@ private def makePlanFromSemanticDataV1
     stateLayoutDomain := layoutDomain
     arithmeticOverflowError
     assertionFailedError
+    loopBoundExceededError
     programName
     stateAccount
     events
@@ -1667,16 +1992,27 @@ private structure LoweredExpr where
   next : Nat
   deriving Inhabited
 
-private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
+/-- Lookup plan-level loop induction temp → IR temp. Missing binding is a
+    plan/IR construction bug (validatePlan admits `.temp` only under forLoop). -/
+private def resolveTempV1 (tempMap : List (Nat × Nat)) (id : Nat) : Nat :=
+  match tempMap.find? (fun p => p.1 == id) with
+  | some (_, irTemp) => irTemp
+  | none => id
+
+private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat))
+    (next : Nat) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
   | .param dataOffset =>
       { operations := #[.loadParam next dataOffset], value := next, next := next + 1 }
   | .stateLoad accountIndex byteOffset =>
       { operations := #[.loadState next accountIndex byteOffset], value := next, next := next + 1 }
+  | .temp id =>
+      let irTemp := resolveTempV1 tempMap id
+      { operations := #[], value := irTemp, next }
   | .checkedAdd lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value overflowError]
@@ -1684,8 +2020,8 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         next := rhs.next + 1
       }
   | .checkedSub lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value overflowError]
@@ -1693,8 +2029,8 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         next := rhs.next + 1
       }
   | .checkedMul lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMul rhs.next lhs.value rhs.value overflowError]
@@ -1702,8 +2038,8 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         next := rhs.next + 1
       }
   | .checkedDiv lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedDiv rhs.next lhs.value rhs.value overflowError]
@@ -1711,8 +2047,8 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         next := rhs.next + 1
       }
   | .checkedMod lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMod rhs.next lhs.value rhs.value overflowError]
@@ -1720,22 +2056,22 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         next := rhs.next + 1
       }
   | .bitNot operand =>
-      let operand := lowerExpr overflowError next operand
+      let operand := lowerExpr overflowError tempMap next operand
       {
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
       }
   | .boolNot operand =>
-      let operand := lowerExpr overflowError next operand
+      let operand := lowerExpr overflowError tempMap next operand
       {
         operations := operand.operations ++ #[.boolNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
       }
   | .compare op lhs rhs =>
-      let lhs := lowerExpr overflowError next lhs
-      let rhs := lowerExpr overflowError lhs.next rhs
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
@@ -1748,7 +2084,7 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         let mut next := next
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let lowered := lowerExpr overflowError next arg
+          let lowered := lowerExpr overflowError tempMap next arg
           operations := operations ++ lowered.operations
           argTemps := argTemps.push lowered.value
           next := lowered.next
@@ -1789,7 +2125,7 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. => false
+      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
@@ -1806,19 +2142,20 @@ private def armOpsWithHardExit (arm : Array Statement)
     operations
 
 private partial def lowerBodyOps
-    (overflowError : Nat) (resultKind : ResultKind) (assertErr : Nat)
+    (overflowError : Nat) (resultKind : ResultKind) (assertErr boundErr : Nat)
+    (tempMap : List (Nat × Nat))
     (next : Nat) (statements : Array Statement) : Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
   for statement in statements do
     match statement with
     | .store store =>
-        let value := lowerExpr overflowError next store.value
+        let value := lowerExpr overflowError tempMap next store.value
         operations := operations ++ value.operations
         operations := operations.push (.storeState store.accountIndex store.byteOffset value.value)
         next := value.next
     | .returnValue value =>
-        let value := lowerExpr overflowError next value
+        let value := lowerExpr overflowError tempMap next value
         operations := operations ++ value.operations
         let returnOp : Operation := match resultKind with
           | .u64 => .setReturnData value.value
@@ -1832,7 +2169,7 @@ private partial def lowerBodyOps
     | .emitEvent eventIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr overflowError next arg
+          let value := lowerExpr overflowError tempMap next arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
@@ -1840,37 +2177,76 @@ private partial def lowerBodyOps
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr overflowError next arg
+          let value := lowerExpr overflowError tempMap next arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
         operations := operations.push (.revertError errorIndex argTemps)
     | .assert condition =>
-        let value := lowerExpr overflowError next condition
+        let value := lowerExpr overflowError tempMap next condition
         operations := operations ++ value.operations
         operations := operations.push (.assert value.value assertErr)
         next := value.next
     | .ifThenElse condition thenBody elseBody =>
-        let value := lowerExpr overflowError next condition
+        let value := lowerExpr overflowError tempMap next condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps overflowError resultKind assertErr value.next thenBody
-        let (elseOps, next2) := lowerBodyOps overflowError resultKind assertErr next1 elseBody
+        let (thenOps, next1) :=
+          lowerBodyOps overflowError resultKind assertErr boundErr tempMap value.next thenBody
+        let (elseOps, next2) :=
+          lowerBodyOps overflowError resultKind assertErr boundErr tempMap next1 elseBody
         operations := operations.push (.ifRegion value.value
           (armOpsWithHardExit thenBody thenOps) (armOpsWithHardExit elseBody elseOps))
         next := next2
     | .switchOn scrutinee cases defaultBody =>
-        let value := lowerExpr overflowError next scrutinee
+        let value := lowerExpr overflowError tempMap next scrutinee
         operations := operations ++ value.operations
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps overflowError resultKind assertErr nextC caseBody
+          let (ops, next1) :=
+            lowerBodyOps overflowError resultKind assertErr boundErr tempMap nextC caseBody
           caseOps := caseOps.push (caseValue, armOpsWithHardExit caseBody ops)
           nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps overflowError resultKind assertErr nextC defaultBody
+        let (defaultOps, nextD) :=
+          lowerBodyOps overflowError resultKind assertErr boundErr tempMap nextC defaultBody
         operations := operations.push (.switchRegion value.value caseOps
           (armOpsWithHardExit defaultBody defaultOps))
         next := nextD
+    | .forLoop varTemp initial cond update maxIterations body =>
+        -- Seed induction from `initial`, allocate completed-iteration counter
+        -- at 0, then bind plan varTemp → induction IR temp.
+        let initL := lowerExpr overflowError tempMap next initial
+        operations := operations ++ initL.operations
+        let irVar := initL.value
+        let counterTemp := initL.next
+        operations := operations.push (.literal counterTemp 0)
+        let tempMap' := (varTemp, irVar) :: tempMap
+        let afterSeed := counterTemp + 1
+        let condL := lowerExpr overflowError tempMap' afterSeed cond
+        let (bodyOps, nextBody) :=
+          lowerBodyOps overflowError resultKind assertErr boundErr tempMap' condL.next body
+        -- Back-edge bound check (reference noteBackEdge): after the body, if
+        -- completed iterations already equal N, revert boundExceeded; else
+        -- increment the counter. Counter ≤ N ≤ 4096 so +1 cannot overflow;
+        -- still use checked_add to stay within the existing opcode set.
+        let litN := nextBody
+        let eqT := nextBody + 1
+        let okT := nextBody + 2
+        let lit1 := nextBody + 3
+        let counterNext := nextBody + 4
+        let boundOps : Array Operation := #[
+          .literal litN (UInt64.ofNat maxIterations),
+          .compare eqT counterTemp litN .eq,
+          .boolNot okT eqT,
+          .assert okT boundErr,
+          .literal lit1 1,
+          .checkedAdd counterNext counterTemp lit1 overflowError
+        ]
+        let updateL := lowerExpr overflowError tempMap' (counterNext + 1) update
+        operations := operations.push (.forRegion irVar irVar counterTemp maxIterations
+          condL.operations condL.value bodyOps boundOps counterNext
+          updateL.operations updateL.value)
+        next := updateL.next
   pure (operations, next)
 
 private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run do
@@ -1887,7 +2263,8 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
   else
     handler.body
   let (bodyOps, _) := lowerBodyOps
-    plan.arithmeticOverflowError handler.resultKind plan.assertionFailedError 0 body
+    plan.arithmeticOverflowError handler.resultKind
+    plan.assertionFailedError plan.loopBoundExceededError [] 0 body
   let mut operations := operations0 ++ bodyOps
   if handler.mode == .initialize then
     operations := operations.push <|
@@ -1915,7 +2292,8 @@ private def tempDestination? : Operation → Option Nat
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
   let resultKind : ResultKind := if fn.resultIsBool then .bool else .u64
   let (bodyOps, _) := lowerBodyOps
-    plan.arithmeticOverflowError resultKind plan.assertionFailedError 0 fn.body
+    plan.arithmeticOverflowError resultKind
+    plan.assertionFailedError plan.loopBoundExceededError [] 0 fn.body
   {
     name := fn.name
     params := fn.params
@@ -1954,7 +2332,7 @@ private partial def validateOperationSequence
     | .compare .. | .assert .. | .zeroState .. | .storeState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError ..
-    | .ifRegion .. | .switchRegion .. | .callFn .. =>
+    | .ifRegion .. | .switchRegion .. | .forRegion .. | .callFn .. =>
         if returned || initialized then
           throw <| .planInvariant .solana "typed Solana IR has an operation after its terminator"
     match operation with
@@ -2003,7 +2381,11 @@ private partial def validateOperationSequence
         unless args.all (· < next - 1) do
           throw <| .planInvariant .solana "typed Solana IR callFn arguments are invalid"
     | .assert condition errorCode =>
-        unless condition < next && errorCode == plan.assertionFailedError do
+        -- Bare assert uses assertionFailedError; for-loop back-edge bound
+        -- checks use loopBoundExceededError (validated further in forRegion).
+        unless condition < next &&
+            (errorCode == plan.assertionFailedError ||
+              errorCode == plan.loopBoundExceededError) do
           throw <| .planInvariant .solana "typed Solana IR assert condition/error is invalid"
     | .zeroState accountIndex byteOffset =>
         unless handler.mode == .initialize && accountIndex == account.index &&
@@ -2057,6 +2439,72 @@ private partial def validateOperationSequence
         let (nd, rd, _) ← validateOperationSequence plan handler fieldOffsets paramOffsets defaultOps nextC
         next := nd
         returned := (allClosed && rd) || returned
+    | .forRegion varTemp initial counterTemp maxIterations condOps cond bodyOps
+          boundOps counterNext updateOps update =>
+        unless varTemp == initial && initial < next && counterTemp < next &&
+            counterTemp != varTemp do
+          throw <| .planInvariant .solana "typed Solana IR for-region induction/counter binding is invalid"
+        unless maxIterations <= 4096 do
+          throw <| .planInvariant .solana "typed Solana IR for-region maxIterations exceeds 4096"
+        let (nCond, rCond, _) ←
+          validateOperationSequence plan handler fieldOffsets paramOffsets condOps next
+        unless !rCond && cond < nCond do
+          throw <| .planInvariant .solana "typed Solana IR for-region condition is invalid"
+        let (nBody, rBody, _) ←
+          validateOperationSequence plan handler fieldOffsets paramOffsets bodyOps nCond
+        unless !rBody do
+          throw <| .planInvariant .solana
+            "typed Solana IR for-region body must not close every path (post-loop fallthrough)"
+        -- Bound-check sequence is fixed: lit N, cmp_eq counter, bool_not, assert
+        -- with loopBoundExceededError, lit 1, checked_add → counterNext.
+        unless boundOps.size == 6 do
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check shape is invalid"
+        let (nBound, rBound, _) ←
+          validateOperationSequence plan handler fieldOffsets paramOffsets boundOps nBody
+        unless !rBound && counterNext < nBound && counterNext + 1 == nBound do
+          throw <| .planInvariant .solana "typed Solana IR for-region counter rebind is invalid"
+        let some op0 := boundOps[0]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op0"
+        let some op1 := boundOps[1]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op1"
+        let some op2 := boundOps[2]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op2"
+        let some op3 := boundOps[3]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op3"
+        let some op4 := boundOps[4]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op4"
+        let some op5 := boundOps[5]? |
+          throw <| .planInvariant .solana "typed Solana IR for-region bound-check missing op5"
+        match op0, op1, op2, op3, op4, op5 with
+        | Operation.literal nLit nVal,
+          Operation.compare eqT cT nT ComparisonOp.eq,
+          Operation.boolNot okT eqSrc,
+          Operation.assert okSrc errCode,
+          Operation.literal oneLit oneVal,
+          Operation.checkedAdd dest lhs rhs errAdd =>
+            unless nLit + 1 == eqT && eqT + 1 == okT && okT + 1 == oneLit &&
+                oneLit + 1 == dest && dest == counterNext do
+              throw <| .planInvariant .solana
+                "typed Solana IR for-region bound-check temps are not dense"
+            unless nVal.toNat == maxIterations && nT == nLit && cT == counterTemp do
+              throw <| .planInvariant .solana
+                "typed Solana IR for-region bound compare is not counter == maxIterations"
+            unless eqSrc == eqT && okSrc == okT &&
+                errCode == plan.loopBoundExceededError do
+              throw <| .planInvariant .solana
+                "typed Solana IR for-region bound assert/error is invalid"
+            unless oneVal == 1 && lhs == counterTemp && rhs == oneLit && dest == counterNext &&
+                errAdd == plan.arithmeticOverflowError do
+              throw <| .planInvariant .solana
+                "typed Solana IR for-region counter increment is invalid"
+        | _, _, _, _, _, _ =>
+            throw <| .planInvariant .solana
+              "typed Solana IR for-region bound-check opcodes are invalid"
+        let (nUpd, rUpd, _) ←
+          validateOperationSequence plan handler fieldOffsets paramOffsets updateOps nBound
+        unless !rUpd && update < nUpd do
+          throw <| .planInvariant .solana "typed Solana IR for-region update is invalid"
+        next := nUpd
   pure (next, returned, initialized)
 
 private def validateHandlerIR (plan : Plan) (handler : HandlerIR) : CompileResult Unit := do
@@ -2128,6 +2576,13 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     | .switchRegion _ cases defaultOps =>
         let nestedOps := cases.foldl (fun acc (_, ops) => acc ++ ops) defaultOps
         for nested in nestedOps do
+          match nested with
+          | .loadState .. | .storeState .. | .emitEvent .. =>
+              throw <| .planInvariant .solana
+                s!"fn IR '{fn.name}' contains a non-pure nested operation"
+          | _ => pure ()
+    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+        for nested in condOps ++ bodyOps ++ boundOps ++ updateOps do
           match nested with
           | .loadState .. | .storeState .. | .emitEvent .. =>
               throw <| .planInvariant .solana
@@ -2299,6 +2754,31 @@ private partial def renderOperation (indent : String)
         output ++ renderOperation (indent ++ "  ") fns events errors fnReturnStyle operation) ""
       s!"{indent}switch %{scrutinee} \{\n" ++ caseText ++
         s!"{indent}default \{\n" ++ defaultText ++ s!"{indent}}\n"
+  | .forRegion varTemp initial counterTemp maxIterations condOps cond bodyOps
+        boundOps counterNext updateOps update =>
+      -- Structured loop_u64 form: induction + completed-iteration counter,
+      -- then cond / body / bound (back-edge check) / update sections.
+      -- Bound check matches reference noteBackEdge: after body N+1,
+      -- counter == N ⇒ program_error 0x1003 (loopBoundExceededError); else
+      -- counter := counter + 1. Latch i+1 overflow is unreachable under
+      -- Normalize (i < end ≤ UInt64.max). Counter +1 is also safe (≤4096).
+      let nested := indent ++ "  "
+      let condText := condOps.foldl (fun output operation =>
+        output ++ renderOperation nested fns events errors fnReturnStyle operation) ""
+      let bodyText := bodyOps.foldl (fun output operation =>
+        output ++ renderOperation nested fns events errors fnReturnStyle operation) ""
+      let boundText := boundOps.foldl (fun output operation =>
+        output ++ renderOperation nested fns events errors fnReturnStyle operation) ""
+      let updateText := updateOps.foldl (fun output operation =>
+        output ++ renderOperation nested fns events errors fnReturnStyle operation) ""
+      s!"{indent}loop_u64 %{varTemp} = %{initial} counter=%{counterTemp} max={maxIterations}\n" ++
+        s!"{indent}cond \{\n" ++ condText ++
+          s!"{nested}; cond_temp %{cond}\n" ++ s!"{indent}}\n" ++
+        s!"{indent}body \{\n" ++ bodyText ++ s!"{indent}}\n" ++
+        s!"{indent}bound \{\n" ++ boundText ++
+          s!"{nested}; counter_next %{counterNext}\n" ++ s!"{indent}}\n" ++
+        s!"{indent}update \{\n" ++ updateText ++
+          s!"{nested}; update_temp %{update}\n" ++ s!"{indent}}\n"
 
 private def renderFnPlan (ir : IR) (index : Nat) (fn : FnIR) : String :=
   let result := if fn.resultIsBool then "bool" else "u64"
