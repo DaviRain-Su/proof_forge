@@ -4299,6 +4299,260 @@ private unsafe def testFreezeRejectsForeignKeys
   | .error e =>
       throw <| IO.userError s!"freeze-e2e: expected unsupported, got {repr e}"
 
+/-- Local LE encoder for multi-width valueBytes pins (matches Wire UInt/Int layout). -/
+private def encodeNatLeBytes (n : Nat) (byteLen : Nat) : ByteArray := Id.run do
+  let mut out := ByteArray.emptyWithCapacity byteLen
+  let mut v := n
+  for _ in [:byteLen] do
+    out := out.push (UInt8.ofNat (v % 256))
+    v := v / 256
+  pure out
+
+private def findAnonUintTid (types : Array TypeDeclV1) (width : Nat) : Option TypeIdV1 :=
+  match types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint w => w.toNat == width | _ => false with
+  | some i => some (UInt32.ofNat i)
+  | none => none
+
+private def findAnonIntTid (types : Array TypeDeclV1) (width : Nat) : Option TypeIdV1 :=
+  match types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .int w => w.toNat == width | _ => false with
+  | some i => some (UInt32.ofNat i)
+  | none => none
+
+/-- T1 multi-width: anonymous UInt{8,16,32,128,256} state + init/entry/view with
+    exact LE literal bytes, same-width arith, and comparison → Bool. -/
+private unsafe def testMultiWidthUIntState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cases : Array (String × Nat × Nat × ByteArray) := #[
+    ("UInt8", 8, 41, encodeNatLeBytes 41 1),
+    ("UInt16", 16, 0x0201, encodeNatLeBytes 0x0201 2),
+    ("UInt32", 32, 0x04030201, encodeNatLeBytes 0x04030201 4),
+    ("UInt128", 128, 0x0102, encodeNatLeBytes 0x0102 16),
+    ("UInt256", 256, 0xabcd, encodeNatLeBytes 0xabcd 32)
+  ]
+  for (tyName, width, lit, expectedBytes) in cases do
+    let label := s!"mw-uint-{width}"
+    let source := wrap s!"MwUint{width}" <|
+      s!"  state count : {tyName}\n" ++
+      s!"  init(initial : {tyName}) do\n" ++
+      "    count := initial\n" ++
+      s!"  entry increment(delta : {tyName}) : {tyName} do\n" ++
+      "    count := count + delta\n" ++
+      "    return count\n" ++
+      s!"  view get() : {tyName} do\n" ++
+      "    return count\n" ++
+      s!"  entry seed() : {tyName} do\n" ++
+      s!"    count := {lit}\n" ++
+      "    return count\n" ++
+      s!"  entry cmp(x : {tyName}) : Bool do\n" ++
+      "    return x < 10\n"
+    let validated ← loadSource session label source
+    let typed := checkProgramTypedResultV1 validated
+    expect typed.ok s!"{label}: CheckV1.ok"
+    expect typed.analysisComplete s!"{label}: analysisComplete"
+    let carrier ← match normalizeProgramV1 validated with
+      | .ok c => pure c
+      | .error e => throw <| IO.userError s!"{label}: normalize: {repr e}"
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    let some tid := findAnonUintTid data.types width |
+      throw <| IO.userError s!"{label}: missing anonymous UInt{width}"
+    let some st0 := data.logicalState[0]? |
+      throw <| IO.userError s!"{label}: missing state"
+    expect (st0.typeId == tid) s!"{label}: state TypeId must be UInt{width}"
+    -- seed entry: literal then store then load then return
+    let some seedC := data.callables.find? (fun c => c.name == some "seed") |
+      throw <| IO.userError s!"{label}: missing seed entry"
+    let some seedBlk := seedC.blocks[0]? |
+      throw <| IO.userError s!"{label}: missing seed block"
+    let some litInstr := seedBlk.instructions[0]? |
+      throw <| IO.userError s!"{label}: missing seed literal"
+    match litInstr.op with
+    | .literal litTid bytes =>
+        expect (litTid == tid && bytes == expectedBytes)
+          s!"{label}: exact UInt{width} LE bytes size={bytes.size}"
+    | _ => throw <| IO.userError s!"{label}: seed expected Op.Literal"
+    -- comparison entry must produce Bool from same-width operands
+    let some cmpC := data.callables.find? (fun c => c.name == some "cmp") |
+      throw <| IO.userError s!"{label}: missing cmp entry"
+    let some cmpBlk := cmpC.blocks[0]? |
+      throw <| IO.userError s!"{label}: missing cmp block"
+    expect (cmpBlk.instructions.any fun instr =>
+        match instr.op with | .binary .lt _ _ => true | _ => false)
+      s!"{label}: cmp must lower binary lt"
+    let some incC := data.callables.find? (fun c => c.name == some "increment") |
+      throw <| IO.userError s!"{label}: missing increment"
+    let some incBlk := incC.blocks[0]? |
+      throw <| IO.userError s!"{label}: missing increment block"
+    expect (incBlk.instructions.any fun instr =>
+        match instr.op with
+        | .binary .add _ _ =>
+            match instr.result with
+            | some r => r.typeId == tid
+            | none => false
+        | _ => false)
+      s!"{label}: add result TypeId must be UInt{width}"
+
+/-- T1 multi-width: positive Int{8..256} entry/view result + exact LE bits. -/
+private unsafe def testMultiWidthIntResults
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let cases : Array (String × Nat × Nat × ByteArray) := #[
+    ("Int8", 8, 127, encodeNatLeBytes 127 1),
+    ("Int16", 16, 300, encodeNatLeBytes 300 2),
+    ("Int32", 32, 1000, encodeNatLeBytes 1000 4),
+    ("Int64", 64, 42, encodeNatLeBytes 42 8),
+    ("Int128", 128, 7, encodeNatLeBytes 7 16),
+    ("Int256", 256, 9, encodeNatLeBytes 9 32)
+  ]
+  for (tyName, width, lit, expectedBytes) in cases do
+    let label := s!"mw-int-{width}"
+    let source := wrap s!"MwInt{width}" <|
+      s!"  entry run() : {tyName} do\n" ++
+      s!"    return {lit}\n" ++
+      s!"  view peek() : {tyName} do\n" ++
+      s!"    return {lit}\n"
+    let validated ← loadSource session label source
+    let typed := checkProgramTypedResultV1 validated
+    expect typed.ok s!"{label}: CheckV1.ok"
+    let carrier ← match normalizeProgramV1 validated with
+      | .ok c => pure c
+      | .error e => throw <| IO.userError s!"{label}: normalize: {repr e}"
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    let some tid := findAnonIntTid data.types width |
+      throw <| IO.userError s!"{label}: missing anonymous Int{width}"
+    let some entryC := data.callables[0]? |
+      throw <| IO.userError s!"{label}: missing entry"
+    expect (entryC.result.typeId == tid) s!"{label}: entry result Int{width}"
+    let some blk := entryC.blocks[0]? |
+      throw <| IO.userError s!"{label}: missing block"
+    let some instr := blk.instructions[0]? |
+      throw <| IO.userError s!"{label}: missing literal"
+    match instr.op with
+    | .literal litTid bytes =>
+        expect (litTid == tid && bytes == expectedBytes)
+          s!"{label}: exact Int{width} positive LE bits"
+    | _ => throw <| IO.userError s!"{label}: expected Op.Literal"
+    -- Int unary neg remains fail-closed (Op.Unary.neg deferred; no Int params in this slice)
+    let negSrc := wrap s!"MwIntNeg{width}" <|
+      s!"  entry run() : {tyName} do\n" ++
+      "    return -1\n"
+    let negValidated ← loadSource session s!"{label}-neg" negSrc
+    let negTyped := checkProgramTypedResultV1 negValidated
+    expect negTyped.ok s!"{label}-neg: CheckV1 accepts Int unary-neg literal"
+    match normalizeProgramV1 negValidated with
+    | .ok _ => throw <| IO.userError s!"{label}-neg: must fail closed (no Op.Unary.neg yet)"
+    | .error (.unsupported detail) =>
+        expect (detail.contains "neg" || detail.contains "Int" || detail.contains "negation")
+          s!"{label}-neg: expected neg/Int detail, got {detail}"
+    | .error e =>
+        throw <| IO.userError s!"{label}-neg: expected unsupported, got {repr e}"
+
+/-- T1 multi-width match scrutinee on UInt8 with exact case valueBytes. -/
+private unsafe def testMultiWidthMatchScrut
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MwMatchU8" <|
+    "  state count : UInt8\n" ++
+    "  entry apply(delta : UInt8) : UInt8 do\n" ++
+    "    match delta with\n" ++
+    "    | 0 => do\n" ++
+    "      return count\n" ++
+    "    | 1 => do\n" ++
+    "      count := count + 1\n" ++
+    "    | _ => do\n" ++
+    "      count := delta\n" ++
+    "    return count\n"
+  let validated ← loadSource session "mw-match-u8" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "mw-match-u8: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"mw-match-u8: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"mw-match-u8: validate: {repr e}"
+  let some tid := findAnonUintTid data.types 8 |
+    throw <| IO.userError "mw-match-u8: missing UInt8"
+  let some entryC := data.callables[0]? |
+    throw <| IO.userError "mw-match-u8: missing entry"
+  let some blk0 := entryC.blocks[0]? |
+    throw <| IO.userError "mw-match-u8: missing scrut block"
+  match blk0.terminator with
+  | .switch _ cases (some _) =>
+      expect (cases.size == 2) s!"mw-match-u8: 2 cases, got {cases.size}"
+      let some c0 := cases[0]? |
+        throw <| IO.userError "mw-match-u8: missing case0"
+      expect (c0.typeId == tid && c0.valueBytes == encodeNatLeBytes 0 1)
+        s!"mw-match-u8: case0 must be UInt8 0, size={c0.valueBytes.size}"
+      let some c1 := cases[1]? |
+        throw <| IO.userError "mw-match-u8: missing case1"
+      expect (c1.typeId == tid && c1.valueBytes == encodeNatLeBytes 1 1)
+        "mw-match-u8: case1 must be UInt8 1"
+  | _ => throw <| IO.userError "mw-match-u8: expected switch"
+
+/-- Mixed-width arithmetic is rejected by CheckV1 before Normalize. -/
+private unsafe def testMixedWidthOperandsTypedNotOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MwMixed" <|
+    "  entry run(a : UInt8, b : UInt64) : UInt64 do\n" ++
+    "    return a + b\n"
+  let validated ← loadSource session "mw-mixed" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok && typed.analysisComplete)
+    "mw-mixed: CheckV1 must reject mixed-width add"
+  match normalizeProgramV1 validated with
+  | .error (.typedNotOk _) => pure ()
+  | .error e => throw <| IO.userError s!"mw-mixed: expected typedNotOk, got {repr e}"
+  | .ok _ => throw <| IO.userError "mw-mixed: must not normalize mixed-width"
+
+/-- UInt32 shift count still shares the sole anonymous UInt32 TypeId with shift lhs. -/
+private unsafe def testMultiWidthShiftUInt32Shared
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MwShiftU32" <|
+    "  entry run(x : UInt32, n : UInt32) : UInt32 do\n" ++
+    "    return x << n\n"
+  let validated ← loadSource session "mw-shift-u32" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "mw-shift-u32: CheckV1.ok"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"mw-shift-u32: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"mw-shift-u32 validate: {repr e}"
+  let uint32Count := data.types.foldl (fun acc t =>
+      acc + (if t.name.isNone && match t.shape with | .uint 32 => true | _ => false
+             then 1 else 0)) 0
+  expect (uint32Count == 1)
+    s!"mw-shift-u32: sole anonymous UInt32, got {uint32Count}"
+
+/-- UInt64 golden LE bytes remain byte-identical after multi-width expansion. -/
+private unsafe def testUInt64LiteralBytesUnchanged
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "U64Compat" <|
+    "  entry run() : UInt64 do\n" ++
+    "    return 72623859790382856\n"
+  let validated ← loadSource session "u64-compat" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"u64-compat: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"u64-compat validate: {repr e}"
+  let some blk := data.callables[0]?.bind (·.blocks[0]?) |
+    throw <| IO.userError "u64-compat: missing block"
+  let some instr := blk.instructions[0]? |
+    throw <| IO.userError "u64-compat: missing instr"
+  let expectedBytes : ByteArray :=
+    ByteArray.mk #[(0x08 : UInt8), 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01]
+  match instr.op with
+  | .literal _ bytes =>
+      expect (bytes == expectedBytes) "u64-compat: golden LE bytes unchanged"
+  | _ => throw <| IO.userError "u64-compat: expected literal"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterHappyPath session
@@ -4352,6 +4606,13 @@ unsafe def run : IO Unit := do
   testMultiSiteProvenanceAttribution session
   testMissingRequirementProducingSite session
   testFreezeRejectsForeignKeys session
+  -- T1 multi-width anonymous integers
+  testMultiWidthUIntState session
+  testMultiWidthIntResults session
+  testMultiWidthMatchScrut session
+  testMixedWidthOperandsTypedNotOk session
+  testMultiWidthShiftUInt32Shared session
+  testUInt64LiteralBytesUnchanged session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

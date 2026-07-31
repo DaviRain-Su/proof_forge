@@ -14,7 +14,8 @@
   Contract:
     * source text → Loader V1 → Typed.CheckV1.ok → NormalizeV1 →
       WireV1 validate / decodeSemanticProgramV1 byte identity / semanticHashV1
-    * Counter-like public UInt64 state + init/entry/view with exact CFG ops
+    * Counter-like public legal-UInt state + init/entry/view with exact CFG ops
+      (UInt64 golden bytes unchanged; multi-width UInt/Int covered in suite)
     * S2 exact ProgramRequirementsV1 freeze (SPEC wire order; engineering
       digests; empty predicates) before encode/hash
     * S2 complete SemanticProvenanceV1 companion: authority is
