@@ -222,12 +222,58 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         modelError "division by zero"
       else
         writeTemp machine destination (left % right)
+  | .bitAnd destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left &&& right)
+  | .bitOr destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left ||| right)
+  | .bitXor destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left ^^^ right)
+  | .shl destination lhs rhs => do
+      -- Match ReferenceV1: count ≥ 64 → invalidShift; result ≥ 2^64 →
+      -- arithmeticOverflow. Nat shift so overflow is exact (Wasm would mask).
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let shift := right.toNat
+      if shift ≥ 64 then
+        modelError "invalid shift"
+      else
+        let shifted := Nat.shiftLeft left.toNat shift
+        if shifted > 18446744073709551615 then
+          modelError "UInt64 shift overflow"
+        else
+          writeTemp machine destination (UInt64.ofNat shifted)
+  | .shr destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let shift := right.toNat
+      if shift ≥ 64 then
+        modelError "invalid shift"
+      else
+        writeTemp machine destination
+          (UInt64.ofNat (Nat.shiftRight left.toNat shift))
   | .bitNot destination source => do
       let value ← readTemp machine source
       writeTemp machine destination (value ^^^ UInt64.ofNat 18446744073709551615)
   | .boolNot destination source => do
       let value ← readTemp machine source
       writeTemp machine destination (if value == 0 then 1 else 0)
+  | .boolAnd destination lhs rhs => do
+      -- Strict: both temps already materialised; bitwise == logical on 0/1.
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination
+        (if left != 0 && right != 0 then 1 else 0)
+  | .boolOr destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination
+        (if left != 0 || right != 0 then 1 else 0)
   | .compare destination lhs rhs op => do
       let left ← readTemp machine lhs
       let right ← readTemp machine rhs
@@ -526,8 +572,15 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .checkedMul _ _ _ => "checkedMul"
     | .checkedDiv _ _ _ => "checkedDiv"
     | .checkedMod _ _ _ => "checkedMod"
+    | .bitAnd _ _ _ => "bitAnd"
+    | .bitOr _ _ _ => "bitOr"
+    | .bitXor _ _ _ => "bitXor"
+    | .shl _ _ _ => "shl"
+    | .shr _ _ _ => "shr"
     | .bitNot _ _ => "bitNot"
     | .boolNot _ _ => "boolNot"
+    | .boolAnd _ _ _ => "boolAnd"
+    | .boolOr _ _ _ => "boolOr"
     | .storeState _ _ => "storeState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ => "setReturnData"
@@ -1681,6 +1734,171 @@ private unsafe def testForLoopProductPath
   expect (files.map (·.contents) == files2.map (·.contents))
     "for-loop: buildFromCapability must be byte-identical on rebuild"
 
+/-- Wave H: shift/bitwise/strict-logical product path.
+    shiftMask: `(x << 2) & 15 | (x >> 1) ^ 3` (precedence bit-and > bit-xor > bit-or);
+    shl2: overflow on 2^63 << 2; bigShift: count ≥ 64 traps; both: strict &&;
+    strictOr: left-true still evaluates the right (div-by-zero).
+    Host: init(0)→shiftMask(20)=9; shl2(2^63) overflow; bigShift(1) invalid;
+    both(1,1)=true; strictOr(1,0) traps division-by-zero.
+    WAT pins i64.shl/shr_u/and/xor/or + ge_u count guard + unreachable. -/
+private unsafe def testShiftBitwiseLogicalProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BitLogic where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+    "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "    return count\n\n" ++
+    "  entry shl2(x : UInt64) : UInt64 do\n" ++
+    "    return x << 2\n\n" ++
+    "  entry bigShift(x : UInt64) : UInt64 do\n" ++
+    "    return x >> (32 + 32)\n\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n\n" ++
+    "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    return a > 0 || (one / b) == one\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-host-bit-logic>" "Examples.BitLogic" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some shiftMask := plan.entries.find? (·.name == "shiftMask") |
+    throw <| IO.userError
+      s!"bit-logic: missing shiftMask entry, got {plan.entries.map (·.name)}"
+  let some strictOr := plan.entries.find? (·.name == "strictOr") |
+    throw <| IO.userError
+      s!"bit-logic: missing strictOr entry, got {plan.entries.map (·.name)}"
+  unless (plan.entries.find? (·.name == "shl2")).isSome do
+    throw <| IO.userError s!"bit-logic: missing shl2 entry, got {plan.entries.map (·.name)}"
+  unless (plan.entries.find? (·.name == "bigShift")).isSome do
+    throw <| IO.userError s!"bit-logic: missing bigShift entry, got {plan.entries.map (·.name)}"
+  unless (plan.entries.find? (·.name == "both")).isSome do
+    throw <| IO.userError s!"bit-logic: missing both entry, got {plan.entries.map (·.name)}"
+  -- Pin shiftMask nesting: ((x << 2) & 15) | ((x >> 1) ^ 3)
+  expect (shiftMask.body == #[
+      .store {
+        fieldIndex := 0
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 0) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 0) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.stateLoad 0)])
+    "bit-logic: shiftMask must lower shl/bitAnd/shr/bitXor/bitOr store then return"
+  -- Pin strictOr: (a > 0) || ((1 / b) == 1) — both sides always present.
+  expect (strictOr.body == #[
+      .returnValue
+        (.boolOr
+          (.compare .gt (.param 0) (.literal 0))
+          (.compare .eq
+            (.checkedDiv (.literal 1) (.param 8))
+            (.literal 1)))])
+    "bit-logic: strictOr must lower gt / checkedDiv / eq / boolOr (no short-circuit)"
+  let some bigShift := plan.entries.find? (·.name == "bigShift") |
+    throw <| IO.userError "bit-logic: missing bigShift entry after plan"
+  -- Computed count 32+32 = 64 reaches invalidShift at runtime (literal 64 is
+  -- rejected by CheckV1 as a source-level constant bound).
+  expect (bigShift.body == #[
+      .returnValue
+        (.shr (.param 0) (.checkedAdd (.literal 32) (.literal 32)))])
+    "bit-logic: bigShift must lower shr of param by checkedAdd of UInt32 counts"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let ir2 ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir == ir2) "bit-logic: IR rebuild must be structure-identical"
+  let shiftMaskIR ← findMethod ir "shiftMask"
+  let shl2IR ← findMethod ir "shl2"
+  let bigShiftIR ← findMethod ir "bigShift"
+  let bothIR ← findMethod ir "both"
+  let strictOrIR ← findMethod ir "strictOr"
+  let maskKinds := operationKinds shiftMaskIR.operations
+  expect (maskKinds.contains "shl" && maskKinds.contains "shr" &&
+      maskKinds.contains "bitAnd" && maskKinds.contains "bitXor" &&
+      maskKinds.contains "bitOr")
+    s!"bit-logic: shiftMask IR must lower shift/bitwise ops, got {maskKinds}"
+  let strictKinds := operationKinds strictOrIR.operations
+  expect (strictKinds.contains "boolOr" && strictKinds.contains "checkedDiv")
+    s!"bit-logic: strictOr IR must lower boolOr + checkedDiv, got {strictKinds}"
+  let bothKinds := operationKinds bothIR.operations
+  expect (bothKinds.contains "boolAnd")
+    s!"bit-logic: both IR must lower boolAnd, got {bothKinds}"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encodePair (a b : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b
+  -- init(0) → shiftMask(20) = ((80 & 15) | (10 ^ 3)) = 0 | 9 = 9
+  let (storage0, _, _) ← requireSuccess "bit-logic init"
+    (execute initializer empty (encodeUInt64LE 0) zero)
+  expect (storedUInt64? storage0 field.key == some 0)
+    "bit-logic init must store seed 0"
+  let (storage1, ret1, _) ← requireSuccess "bit-logic shiftMask(20)"
+    (execute shiftMaskIR storage0 (encodeUInt64LE 20) zero)
+  expect (ret1 == some 9 && storedUInt64? storage1 field.key == some 9)
+    s!"bit-logic: shiftMask(20) must yield 9, got ret={ret1} state={storedUInt64? storage1 field.key}"
+  -- shl2(2^63) overflows (2^65 ≥ 2^64).
+  let highBit := UInt64.ofNat (1 <<< 63)
+  match execute shl2IR storage1 (encodeUInt64LE highBit) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 9)
+        "bit-logic: shl overflow must roll back storage"
+      expect (reason.contains "shift overflow" || reason.contains "overflow")
+        s!"bit-logic: expected shift overflow trap, got {reason}"
+  | .success .. => throw <| IO.userError "bit-logic: shl2(2^63) must trap"
+  -- bigShift: computed count 32+32 = 64 ≥ 64 → invalid shift.
+  match execute bigShiftIR storage1 (encodeUInt64LE 1) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 9)
+        "bit-logic: invalid shift must roll back storage"
+      expect (reason.contains "invalid shift")
+        s!"bit-logic: expected invalid shift trap, got {reason}"
+  | .success .. =>
+      throw <| IO.userError "bit-logic: bigShift (x >> (32+32)) must trap on count ≥ 64"
+  -- both(1,1) → true; both(1,0) → false.
+  let (_, bothT, _) ← requireSuccess "bit-logic both(1,1)"
+    (execute bothIR storage1 (encodePair 1 1) zero)
+  expect (bothT == some 1) s!"bit-logic: both(1,1) must be true, got {bothT}"
+  let (_, bothF, _) ← requireSuccess "bit-logic both(1,0)"
+    (execute bothIR storage1 (encodePair 1 0) zero)
+  expect (bothF == some 0) s!"bit-logic: both(1,0) must be false, got {bothF}"
+  -- strictOr(1, 0): left is true, but right still evaluates one/0 → div-by-zero.
+  match execute strictOrIR storage1 (encodePair 1 0) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 9)
+        "bit-logic: strictOr div-by-zero must roll back storage"
+      expect (reason.contains "division by zero")
+        s!"bit-logic: expected division by zero trap, got {reason}"
+  | .success .. =>
+      throw <| IO.userError
+        "bit-logic: strictOr(1,0) must trap (no short-circuit)"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "bit-logic: missing .wat artifact"
+  expectContains wat.contents "i64.shl" "bit-logic WAT i64.shl"
+  expectContains wat.contents "i64.shr_u" "bit-logic WAT i64.shr_u"
+  expectContains wat.contents "i64.and" "bit-logic WAT i64.and"
+  expectContains wat.contents "i64.xor" "bit-logic WAT i64.xor"
+  expectContains wat.contents "i64.or" "bit-logic WAT i64.or"
+  expectContains wat.contents "i64.ge_u" "bit-logic WAT i64.ge_u count guard"
+  expectContains wat.contents "unreachable" "bit-logic WAT unreachable"
+  let files2 ← liftResult <| Targets.Near.buildFromCapability capability
+  expect (files.map (·.contents) == files2.map (·.contents))
+    "bit-logic: buildFromCapability must be byte-identical on rebuild"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1694,6 +1912,7 @@ unsafe def run : IO Unit := do
   testEmitRevertProductPath session
   testArithOpsProductPath session
   testForLoopProductPath session
+  testShiftBitwiseLogicalProductPath session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
