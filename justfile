@@ -183,11 +183,13 @@ s6-plan-cutover-deletion-gate:
     # Dead public residual carrier deleted.
     fail_if_match "$gate" '^\s*structure ResolvedProgram\b' ProofForgeV2
     # Each implemented target must expose capability-gated public entries only.
+    # planFromCapability lives on the façade; buildFromCapability moved to the
+    # EmitIRV1 submodule with the C2 split — scan the whole target family.
     for tgt in Evm Solana Near Noir; do
       set +e
       pfc="$(rg --glob '*.lean' -n --no-heading '^\s*def planFromCapability\b' "ProofForgeV2/Targets/${tgt}.lean" 2>&1)"
       pfc_ec=$?
-      bfc="$(rg --glob '*.lean' -n --no-heading '^\s*def buildFromCapability\b' "ProofForgeV2/Targets/${tgt}.lean" 2>&1)"
+      bfc="$(rg --glob '*.lean' -n --no-heading '^\s*def buildFromCapability\b' "ProofForgeV2/Targets/${tgt}" 2>&1)"
       bfc_ec=$?
       set -e
       if [[ $pfc_ec -ne 0 ]]; then
@@ -381,14 +383,20 @@ s1-evm-semantic-plan-deletion-gate:
     set -euo pipefail
     source scripts/gate_helpers.sh
     gate="s1-evm-semantic-plan-deletion-gate"
-    source="ProofForgeV2/Targets/Evm.lean"
+    source="ProofForgeV2/Targets/Evm"
+    facade="ProofForgeV2/Targets/Evm.lean"
     fail_if_match "$gate" 'alphaResidualOf' "$source"
     fail_if_match "$gate" 'makePlanFromAlpha' "$source"
     fail_if_match "$gate" 'validateRequirementEnvelope' "$source"
     fail_if_match "$gate" 'Semantic\.deriveRequirements' "$source"
     rg -q 'private def makePlanFromSemanticV1' "$source"
     rg -q 'validateSemanticProgramV1' "$source"
-    rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1 source' "$source"
+    # Capability chain split across the facade and the lowering submodule:
+    # planFromCapability (facade) → materializePlanFromCapabilityV1
+    # (LowerSemanticV1) → semanticV1Of → private makePlanFromSemanticV1.
+    rg -q 'def planFromCapability' "$facade"
+    rg -q 'materializePlanFromCapabilityV1' "$facade"
+    rg -Uq '(?s)def materializePlanFromCapabilityV1.*?semanticV1Of.*?makePlanFromSemanticV1 source' "$source/LowerSemanticV1.lean"
     rg -q 'expandedNodes' "$source"
     rg -q 'consumeCurrentSegmentV1' "$source"
     # checked-arithmetic makers and segment discipline must survive in the
@@ -410,7 +418,8 @@ s1-target-semantic-plan-deletion-gate:
     source scripts/gate_helpers.sh
     gate="s1-target-semantic-plan-deletion-gate"
     for target in Solana Near Noir; do
-      source="ProofForgeV2/Targets/${target}.lean"
+      source="ProofForgeV2/Targets/${target}"
+      facade="ProofForgeV2/Targets/${target}.lean"
       # Per-target residual message names the target (not shared fail_if_match
       # wording); same rg exit-code contract as scripts/gate_helpers.sh.
       for pat in alphaResidualOf makePlanFromAlpha validateRequirementEnvelope 'Semantic\.deriveRequirements'; do
@@ -431,7 +440,12 @@ s1-target-semantic-plan-deletion-gate:
       done
       rg -q 'private def makePlanFromSemanticV1' "$source"
       rg -q 'validateSemanticProgramV1' "$source"
-      rg -Uq '(?s)def planFromCapability .*?CompiledSemanticV1\.semanticV1Of.*?makePlanFromSemanticV1' "$source"
+      # Capability chain split across the facade and the lowering submodule
+      # (same shape as s1-evm): planFromCapability → materializePlanFromCapabilityV1
+      # → semanticV1Of → private makePlanFromSemanticV1.
+      rg -q 'def planFromCapability' "$facade"
+      rg -q 'materializePlanFromCapabilityV1' "$facade"
+      rg -Uq '(?s)def materializePlanFromCapabilityV1.*?semanticV1Of.*?makePlanFromSemanticV1' "$source/LowerSemanticV1.lean"
       rg -q 'expandedNodes' "$source"
       rg -q 'consumeCurrentSegmentV1' "$source"
       # checked-arithmetic bounded expanded-tree cost must survive either inline
