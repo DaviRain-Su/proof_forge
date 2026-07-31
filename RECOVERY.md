@@ -207,14 +207,28 @@ foundation并定义`ReferenceV1` namespace下的现有carriers/admission/machine
 `ReferenceMachineV1.runInvariantCallableV1`现提供formal-compatible lower seam：输入已structure-validated
 `SemanticProgramDataV1`、selected callableId与state，使用callable携带的exact `invariantSteps`执行，
 不依赖/扫描`AdmittedReferenceSliceV1`。既有`evalInvariantReferenceSliceV1`在完成engineering admission、
-StateConforms与ordinal join后委托给该seam。测试固定无关Int64 declaration会使general admission失败但
-selected Bool invariant仍执行true；这不表示Int/Field runtime或formal `evalInvariantV1`已完成。
+StateConforms与ordinal join后委托给该seam。整数运行时完成后，测试改以无关Field declaration固定
+general admission限制不会污染selected UInt/Int invariant；这不表示Field runtime或formal
+`evalInvariantV1`已完成。
 
 后续non-numeric hardening切片已实现Unit唯一合法constructor（index 0、empty args、canonical empty
 bytes），并在storeResult、primitive operands、Assert/Branch/Switch、jump block params、PureCall
 arity/type/canonical bind与callee/root return处防御性重验。Principal不开放general engineering
 admission，但selected invariant可经lower runner执行canonical Eq/Ne；Int/Field运算和完整CheckedCast
-矩阵仍是下一前置阶段。
+矩阵原为下一前置阶段；后续切片已闭合全部六种UInt/Int宽度与四类CheckedCast，Field仍是下一阶段。
+
+fixed-width integer切片使用Lean arbitrary-precision Nat/Int计算后执行目标宽度检查和canonical
+little-endian two's-complement编码。UInt/Int算术、signed div/rem、order、bitwise、checked left shift、
+zero-fill/sign-extending right shift及跨signedness cast均由同一machine执行；`minInt / -1`、negation、
+zero divisor、bad shift和out-of-range cast保留exact standard revert类别。whole-program engineering
+admission现接纳所有Wire合法整数宽度，Field与Principal仍关闭。正式ABI仍不得调用engineering
+admission；后续Field切片已接纳sole BN254 Field，Principal仍关闭。
+
+Field runtime仅接受Wire catalog固定的`proof-forge.field.bn254-fr.v1`与exact modulus。add/sub/mul/neg
+全部modulo p；nonzero division通过固定256轮binary exponentiation计算唯一inverse，zero精确走
+`divisionByZero`。Field mod/order/bit/shift仍由Wire拒绝，runtime保留invalidCore防御。Field admission
+按32-byte leaf计资源；selected lower runner以无关Principal声明固定不扫描whole-program engineering
+admission。下一步应先做formal-compatible closure/defensive gap复核，再定义public evaluator。
 
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer

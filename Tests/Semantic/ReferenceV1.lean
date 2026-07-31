@@ -25,8 +25,8 @@
     4. Emit-then-revert discards overlay/effects; wrong callable
        id/kind/arity/type/noncanonical args → invalidInvocation; entry before
        init / init twice; determinism.
-    5. Admission fail-closed on unsupported Int / view stateStore /
-       view Emit (errors separated from Outcome).
+    5. Admission fail-closed on view stateStore / view Emit (errors separated
+       from Outcome).
     6. Lifecycle + trailing: uninit/alreadyInit + trailing →
        invalidExternalResponse; invalidInvocation + trailing stays
        invalidInvocation.
@@ -49,6 +49,12 @@
        admission while preserving exact carried fuel and result mapping.
    17. Unit Construct and canonical/type revalidation at machine value,
        PureCall, CFG, and return boundaries; Principal canonical equality.
+   18. Complete fixed-width UInt/Int lower runner: all legal widths and
+       canonical boundaries, arithmetic/bitwise/shift semantics, and all four
+       CheckedCast families (including UInt256/Int256), with exact reverts.
+   19. BN254 Field lower runner: canonical boundaries, modular arithmetic,
+       inverse/division, Eq/Ne, exact division-by-zero, whole-program admission,
+       and selected-invariant independence from unrelated Principal support.
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -115,6 +121,12 @@ private def leBytesFromNat (n : Nat) (len : Nat) : ByteArray := Id.run do
   for _ in [:len] do
     out := out.push (UInt8.ofNat (v % 256))
     v := v / 256
+  pure out
+
+private def beBytesToNat (bytes : ByteArray) : Nat := Id.run do
+  let mut out := 0
+  for byte in bytes do
+    out := out * 256 + byte.toNat
   pure out
 
 private def u64Bytes (n : Nat) : ByteArray := leBytesFromNat n 8
@@ -1577,20 +1589,6 @@ private unsafe def testInvalidInvocationAndInitLifecycle
 /-- Admission fail-closed for unsupported shapes/ops (not Outcome), plus the
     now-admitted Commit boundary. -/
 private def testAdmissionUnsupported : IO Unit := do
-  -- Int
-  let typesInt : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .int 64 },
-    { id := 1, name := none, shape := .unit }
-  ]
-  let entryInt := mkEntry 0 "e" #[] 1 #[] (.return_ none)
-  let baseI ← emptyData "AdmInt"
-  let dataI : SemanticProgramDataV1 := {
-    baseI with types := typesInt, callables := #[entryInt]
-  }
-  let cI ← encodeCarrier "adm-int" dataI
-  admitUnsupported "adm-int" cI
-    (fun d => d.toLower.contains "int") "int"
-
   -- Map declarations are admitted when their conservative theoretical shape
   -- fits the Wire byte/work limits.
   let typesAgg : Array TypeDeclV1 := #[
@@ -3151,9 +3149,8 @@ private def testInvariantReferenceSlice : IO Unit := do
   expect (evalInvariantReferenceSliceV1 admitted 0 pre == .returnedTrue)
     "invariant-pure-call: exact carried shared fuel succeeds"
 
-  -- The lower invariant runner is selected-callable scoped, not gated by the
-  -- narrower whole-program engineering admission. An unrelated Int64 type
-  -- rejects general Reference admission but cannot poison this Bool invariant.
+  -- The lower invariant runner is selected-callable scoped. An unrelated
+  -- Int64 declaration cannot poison this Bool invariant.
   let broadTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .int 64 },
@@ -3177,8 +3174,6 @@ private def testInvariantReferenceSlice : IO Unit := do
       callables := #[broadGate, broadRoot]
       invariants := #[{ id := 0, name := "broadTruth", callableId := 1 }]
   }
-  admitUnsupported "invariant-lower-runner-admission" broadCarrier
-    (fun detail => detail.contains "Int64") "unrelated Int64"
   let broadData ← match validateSemanticProgramV1 broadCarrier with
     | .ok data => pure data
     | .error e => throw <| IO.userError s!"invariant-lower-runner validate: {repr e}"
@@ -3230,6 +3225,329 @@ private def testInvariantReferenceSlice : IO Unit := do
   expect (runInvariantCallableV1 principalData 1 pre == .returnedTrue)
     "invariant-principal: canonical equality and Unit Construct must execute"
 
+/-- Complete fixed-width integer semantics through the selected invariant lower runner. -/
+private def testFixedWidthIntegerLowerRunner : IO Unit := do
+  let widths := #[8, 16, 32, 64, 128, 256]
+  let uintId (i : Nat) : TypeIdV1 := UInt32.ofNat (2 + i)
+  let intId (i : Nat) : TypeIdV1 := UInt32.ofNat (8 + i)
+  let bytes (n width : Nat) := leBytesFromNat n (width / 8)
+  let signedBytes (n : Int) (width : Nat) :=
+    let modulus := Nat.pow 2 width
+    bytes (if n < 0 then (n + Int.ofNat modulus).toNat else n.toNat) width
+  let mut types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .unit }
+  ]
+  for i in [:widths.size] do
+    let w := widths[i]!
+    types := types.push { id := uintId i, name := none, shape := .uint (UInt16.ofNat w) }
+  for i in [:widths.size] do
+    let w := widths[i]!
+    types := types.push { id := intId i, name := none, shape := .int (UInt16.ofNat w) }
+  let integerTypes := types
+  -- An unrelated catalog Field proves selection is callable-scoped.
+  types := types.push {
+    id := UInt32.ofNat types.size, name := none, shape := .field bn254FrFieldSpecV1 }
+  let gate := mkEntry 0 "integerGate" #[] 1 #[] (.return_ none)
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  let run (label : String) (is : Array InstructionV1) (expected : InvariantEvalResultV1) : IO Unit := do
+    let root : CallableV1 := {
+      id := 1, kind := .invariant, name := some "integerInvariant", params := #[]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[blk 0 is (.return_ (some (UInt32.ofNat (is.size - 1))))]
+      loopBounds := #[], invariantSteps := some (UInt64.ofNat (is.size + 2))
+    }
+    let base ← emptyData "IntegerRuntime"
+    let carrier ← encodeCarrier label {
+      base with
+      types := types
+      callables := #[gate, root]
+      invariants := #[{ id := 0, name := "integerInvariant", callableId := 1 }]
+    }
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    expect (runInvariantCallableV1 data 1 pre == expected)
+      s!"{label}: expected {repr expected}"
+  let trueResult (label : String) (is : Array InstructionV1) := run label is .returnedTrue
+  let binaryTrue (label : String) (tid : TypeIdV1) (op : BinaryOpV1)
+      (a b expected : ByteArray) : IO Unit :=
+    trueResult label #[
+      instr (some (vd 0 tid)) (.literal tid a),
+      instr (some (vd 1 tid)) (.literal tid b),
+      instr (some (vd 2 tid)) (.binary op 0 1),
+      instr (some (vd 3 tid)) (.literal tid expected),
+      instr (some (vd 4 0)) (.binary .eq 2 3)]
+  let unaryTrue (label : String) (tid : TypeIdV1) (op : UnaryOpV1)
+      (a expected : ByteArray) : IO Unit :=
+    trueResult label #[
+      instr (some (vd 0 tid)) (.literal tid a),
+      instr (some (vd 1 tid)) (.unary op 0),
+      instr (some (vd 2 tid)) (.literal tid expected),
+      instr (some (vd 3 0)) (.binary .eq 1 2)]
+  let binaryRevert (label : String) (tid : TypeIdV1) (op : BinaryOpV1)
+      (a b : ByteArray) : IO Unit :=
+    run label #[instr (some (vd 0 tid)) (.literal tid a),
+      instr (some (vd 1 tid)) (.literal tid b),
+      instr (some (vd 2 tid)) (.binary op 0 1),
+      instr (some (vd 3 0)) (.literal 0 (ByteArray.mk #[1]))] .reverted
+  let shiftTrue (label : String) (tid : TypeIdV1) (op : BinaryOpV1)
+      (a count expected : ByteArray) : IO Unit :=
+    trueResult label #[instr (some (vd 0 tid)) (.literal tid a),
+      instr (some (vd 1 (uintId 2))) (.literal (uintId 2) count),
+      instr (some (vd 2 tid)) (.binary op 0 1),
+      instr (some (vd 3 tid)) (.literal tid expected),
+      instr (some (vd 4 0)) (.binary .eq 2 3)]
+  let shiftRevert (label : String) (tid : TypeIdV1) (op : BinaryOpV1)
+      (a count : ByteArray) : IO Unit :=
+    run label #[instr (some (vd 0 tid)) (.literal tid a),
+      instr (some (vd 1 (uintId 2))) (.literal (uintId 2) count),
+      instr (some (vd 2 tid)) (.binary op 0 1),
+      instr (some (vd 3 0)) (.literal 0 (ByteArray.mk #[1]))] .reverted
+
+  -- Every legal width and the complete canonical boundary set. The final Bool
+  -- is a conjunction, so every literal/equality is semantically observed.
+  let mut canonical : Array InstructionV1 := #[]
+  let mut next : Nat := 0
+  let mut acc : Option ValueIdV1 := none
+  for i in [:widths.size] do
+    let w := widths[i]!
+    let umax := Nat.pow 2 w - 1
+    let imin := -(Int.ofNat (Nat.pow 2 (w - 1)))
+    let imax := Int.ofNat (Nat.pow 2 (w - 1)) - 1
+    let vals : Array (TypeIdV1 × ByteArray) := #[(uintId i, bytes umax w),
+      (intId i, signedBytes imin w), (intId i, signedBytes (-1) w),
+      (intId i, signedBytes 0 w), (intId i, signedBytes 1 w),
+      (intId i, signedBytes imax w)]
+    for pair in vals do
+      let a := UInt32.ofNat next; let b := UInt32.ofNat (next + 1)
+      let eqv := UInt32.ofNat (next + 2)
+      canonical := canonical.push (instr (some (vd a pair.1)) (.literal pair.1 pair.2))
+      canonical := canonical.push (instr (some (vd b pair.1)) (.literal pair.1 pair.2))
+      canonical := canonical.push (instr (some (vd eqv 0)) (.binary .eq a b))
+      next := next + 3
+      match acc with
+      | none => acc := some eqv
+      | some old =>
+          canonical := canonical.push
+            (instr (some (vd (UInt32.ofNat next) 0)) (.binary .and old eqv))
+          acc := some (UInt32.ofNat next); next := next + 1
+  trueResult "integer-canonical-width-table" canonical
+
+  let u8 := uintId 0; let i8 := intId 0; let u256 := uintId 5; let i256 := intId 5
+  binaryRevert "uint-overflow" u8 .add (bytes 255 8) (bytes 1 8)
+  binaryRevert "uint-underflow" u8 .sub (bytes 0 8) (bytes 1 8)
+  binaryTrue "uint-div" u8 .div (bytes 17 8) (bytes 5 8) (bytes 3 8)
+  binaryTrue "uint-mod" u8 .mod (bytes 17 8) (bytes 5 8) (bytes 2 8)
+  binaryTrue "uint-bitxor" u8 .bitXor (bytes 0xaa 8) (bytes 0x0f 8) (bytes 0xa5 8)
+  shiftTrue "uint-shift-zero" u8 .shl (bytes 3 8) (bytes 0 32) (bytes 3 8)
+  shiftTrue "uint-shift-width-minus-one" u8 .shr (bytes 128 8) (bytes 7 32) (bytes 1 8)
+  shiftRevert "uint-shift-width" u8 .shl (bytes 1 8) (bytes 8 32)
+  shiftRevert "uint-shl-overflow" u8 .shl (bytes 128 8) (bytes 1 32)
+
+  binaryTrue "int-add" i8 .add (signedBytes (-5) 8) (signedBytes 3 8) (signedBytes (-2) 8)
+  binaryTrue "int-sub" i8 .sub (signedBytes 5 8) (signedBytes 7 8) (signedBytes (-2) 8)
+  binaryTrue "int-mul" i8 .mul (signedBytes (-6) 8) (signedBytes 7 8) (signedBytes (-42) 8)
+  unaryTrue "int-neg" i8 .neg (signedBytes (-7) 8) (signedBytes 7 8)
+  run "int-min-neg-overflow" #[instr (some (vd 0 i8)) (.literal i8 (signedBytes (-128) 8)),
+    instr (some (vd 1 i8)) (.unary .neg 0),
+    instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[1]))] .reverted
+  binaryTrue "int-trunc-div" i8 .div (signedBytes (-7) 8) (signedBytes 3 8) (signedBytes (-2) 8)
+  binaryTrue "int-dividend-sign-rem" i8 .mod (signedBytes (-7) 8) (signedBytes 3 8) (signedBytes (-1) 8)
+  binaryTrue "int-negative-divisor-div" i8 .div (signedBytes 7 8) (signedBytes (-3) 8) (signedBytes (-2) 8)
+  binaryTrue "int-negative-divisor-rem" i8 .mod (signedBytes 7 8) (signedBytes (-3) 8) (signedBytes 1 8)
+  binaryTrue "int-both-negative-div" i8 .div (signedBytes (-7) 8) (signedBytes (-3) 8) (signedBytes 2 8)
+  binaryTrue "int-both-negative-rem" i8 .mod (signedBytes (-7) 8) (signedBytes (-3) 8) (signedBytes (-1) 8)
+  binaryRevert "int-min-div-minus-one" i8 .div (signedBytes (-128) 8) (signedBytes (-1) 8)
+  binaryTrue "int-min-rem-minus-one" i8 .mod
+    (signedBytes (-128) 8) (signedBytes (-1) 8) (signedBytes 0 8)
+  trueResult "int-signed-lt" #[
+    instr (some (vd 0 i8)) (.literal i8 (signedBytes (-1) 8)),
+    instr (some (vd 1 i8)) (.literal i8 (signedBytes 1 8)),
+    instr (some (vd 2 0)) (.binary .lt 0 1),
+    instr (some (vd 3 0)) (.literal 0 (ByteArray.mk #[1])),
+    instr (some (vd 4 0)) (.binary .eq 2 3)]
+  binaryTrue "int-bitand" i8 .bitAnd (signedBytes (-2) 8) (signedBytes 3 8) (signedBytes 2 8)
+  shiftTrue "int-shl" i8 .shl (signedBytes (-2) 8) (bytes 2 32) (signedBytes (-8) 8)
+  shiftTrue "int-arithmetic-shr" i8 .shr (signedBytes (-3) 8) (bytes 1 32) (signedBytes (-2) 8)
+
+  let castTrue (label : String) (src dst : TypeIdV1) (a expected : ByteArray) :=
+    trueResult label #[instr (some (vd 0 src)) (.literal src a),
+      instr (some (vd 1 dst)) (.checkedCast 0 dst),
+      instr (some (vd 2 dst)) (.literal dst expected),
+      instr (some (vd 3 0)) (.binary .eq 1 2)]
+  let castRevert (label : String) (src dst : TypeIdV1) (a : ByteArray) :=
+    run label #[instr (some (vd 0 src)) (.literal src a),
+      instr (some (vd 1 dst)) (.checkedCast 0 dst),
+      instr (some (vd 2 0)) (.literal 0 (ByteArray.mk #[1]))] .reverted
+  castTrue "cast-uu-widen" u8 u256 (bytes 255 8) (bytes 255 256)
+  castTrue "cast-uu-narrow-boundary" u256 u8 (bytes 255 256) (bytes 255 8)
+  castRevert "cast-uu-out" u256 u8 (bytes 256 256)
+  castTrue "cast-ui-widen" u8 i256 (bytes 255 8) (signedBytes 255 256)
+  castTrue "cast-ui-narrow-boundary" u256 i8 (bytes 127 256) (signedBytes 127 8)
+  castRevert "cast-ui-out" u256 i8 (bytes 128 256)
+  castTrue "cast-iu-widen" i8 u256 (signedBytes 127 8) (bytes 127 256)
+  castRevert "cast-iu-negative" i256 u8 (signedBytes (-1) 256)
+  castTrue "cast-ii-widen" i8 i256 (signedBytes (-128) 8) (signedBytes (-128) 256)
+  castTrue "cast-ii-narrow-boundary" i256 i8 (signedBytes 127 256) (signedBytes 127 8)
+  castRevert "cast-ii-out" i256 i8 (signedBytes 128 256)
+
+  -- A compact, separate fixture without Field exercises the engineering
+  -- whole-program admission and preserves the exact standard revert reason;
+  -- the lower invariant runner intentionally collapses all reverts above.
+  let runWhole (label : String) (is : Array InstructionV1)
+      (code : StandardRevertCodeV1) : IO Unit := do
+    let entryCallable := mkEntry 0 "integerRuntime" #[] 1 is (.return_ none)
+    let base ← emptyData "IntegerWholeProgram"
+    let carrier ← encodeCarrier (label ++ "-whole") {
+      base with types := integerTypes, callables := #[entryCallable]
+    }
+    let admitted ← match admitReferenceProgramSliceV1 carrier with
+      | .ok admitted => pure admitted
+      | .error e => throw <| IO.userError s!"{label}: admission failed: {repr e}"
+    expectRevertedStandard label
+      (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses) code pre
+  let wholeBinary (label : String) (op : BinaryOpV1) (a b : Int)
+      (code : StandardRevertCodeV1) : IO Unit :=
+    runWhole label #[
+      instr (some (vd 0 i8)) (.literal i8 (signedBytes a 8)),
+      instr (some (vd 1 i8)) (.literal i8 (signedBytes b 8)),
+      instr (some (vd 2 i8)) (.binary op 0 1)] code
+  let wholeShift (label : String) (a : Int) (count : Nat)
+      (code : StandardRevertCodeV1) : IO Unit :=
+    runWhole label #[
+      instr (some (vd 0 i8)) (.literal i8 (signedBytes a 8)),
+      instr (some (vd 1 (uintId 2))) (.literal (uintId 2) (bytes count 32)),
+      instr (some (vd 2 i8)) (.binary .shl 0 1)] code
+  let wholeCast (label : String) (src dst : TypeIdV1) (value : ByteArray) : IO Unit :=
+    runWhole label #[
+      instr (some (vd 0 src)) (.literal src value),
+      instr (some (vd 1 dst)) (.checkedCast 0 dst)] .castOutOfRange
+
+  wholeBinary "int-add-below-min-exact" .add (-128) (-1) .arithmeticUnderflow
+  wholeBinary "int-sub-below-min-exact" .sub (-128) 1 .arithmeticUnderflow
+  wholeBinary "int-mul-below-min-exact" .mul (-65) 2 .arithmeticUnderflow
+  wholeBinary "int-add-above-max-exact" .add 127 1 .arithmeticOverflow
+  wholeBinary "int-sub-above-max-exact" .sub 127 (-1) .arithmeticOverflow
+  wholeBinary "int-mul-above-max-exact" .mul 64 2 .arithmeticOverflow
+  wholeBinary "int-div-zero-exact" .div 1 0 .divisionByZero
+  wholeBinary "int-mod-zero-exact" .mod 1 0 .divisionByZero
+  runWhole "uint-mod-zero-exact" #[
+    instr (some (vd 0 u8)) (.literal u8 (bytes 1 8)),
+    instr (some (vd 1 u8)) (.literal u8 (bytes 0 8)),
+    instr (some (vd 2 u8)) (.binary .mod 0 1)] .divisionByZero
+  runWhole "int-neg-min-exact" #[
+    instr (some (vd 0 i8)) (.literal i8 (signedBytes (-128) 8)),
+    instr (some (vd 1 i8)) (.unary .neg 0)] .arithmeticOverflow
+  wholeBinary "int-min-div-minus-one-exact" .div (-128) (-1) .arithmeticOverflow
+  wholeShift "int-shl-below-min-exact" (-65) 1 .arithmeticUnderflow
+  wholeShift "int-shl-above-max-exact" 64 1 .arithmeticOverflow
+  wholeShift "int-shift-width-exact" 1 8 .invalidShift
+  wholeCast "cast-uint-uint-exact" u256 u8 (bytes 256 256)
+  wholeCast "cast-uint-int-exact" u256 i8 (bytes 128 256)
+  wholeCast "cast-int-uint-exact" i256 u8 (signedBytes (-1) 256)
+  wholeCast "cast-int-int-exact" i256 i8 (signedBytes 128 256)
+
+/-- Focused BN254 scalar-field semantics, separate from fixed-width integers. -/
+private def testBn254FieldLowerRunner : IO Unit := do
+  let fieldTid : TypeIdV1 := 2
+  let p := beBytesToNat bn254FrFieldSpecV1.modulusBE
+  let fieldBytes (n : Nat) := leBytesFromNat n bn254FrFieldSpecV1.modulusBE.size
+  let pre : LogicalStateV1 := { initialized := true, canonicalValues := ByteArray.empty }
+  let baseTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .unit },
+    { id := fieldTid, name := none, shape := .field bn254FrFieldSpecV1 }
+  ]
+  let gate := mkEntry 0 "fieldGate" #[] 1 #[] (.return_ none)
+  let runLower (label : String) (is : Array InstructionV1)
+      (expected : InvariantEvalResultV1 := .returnedTrue) : IO Unit := do
+    let root : CallableV1 := {
+      id := 1, kind := .invariant, name := some "fieldInvariant", params := #[]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[blk 0 is (.return_ (some (UInt32.ofNat (is.size - 1))))]
+      loopBounds := #[], invariantSteps := some (UInt64.ofNat (is.size + 2))
+    }
+    let base ← emptyData "Bn254FieldRuntime"
+    -- Principal is deliberately unrelated to the selected invariant. Wire
+    -- validates it, while the lower runner must not require broad admission.
+    let types := baseTypes.push { id := 3, name := none, shape := .principal }
+    let carrier ← encodeCarrier label {
+      base with
+      types := types
+      callables := #[gate, root]
+      invariants := #[{ id := 0, name := "fieldInvariant", callableId := 1 }]
+    }
+    let data ← match validateSemanticProgramV1 carrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}: validate: {repr e}"
+    expect (runInvariantCallableV1 data 1 pre == expected)
+      s!"{label}: expected {repr expected}"
+  let binaryTrue (label : String) (op : BinaryOpV1) (a b expected : Nat) :=
+    runLower label #[
+      instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes a)),
+      instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes b)),
+      instr (some (vd 2 fieldTid)) (.binary op 0 1),
+      instr (some (vd 3 fieldTid)) (.literal fieldTid (fieldBytes expected)),
+      instr (some (vd 4 0)) (.binary .eq 2 3)]
+  let unaryTrue (label : String) (a expected : Nat) :=
+    runLower label #[
+      instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes a)),
+      instr (some (vd 1 fieldTid)) (.unary .neg 0),
+      instr (some (vd 2 fieldTid)) (.literal fieldTid (fieldBytes expected)),
+      instr (some (vd 3 0)) (.binary .eq 1 2)]
+
+  -- The modulus comes only from Wire's catalog object. Observe all three
+  -- canonical boundary values in one conjunction-producing fixture.
+  runLower "field-canonical-0-1-pminus1" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 2 0)) (.binary .eq 0 1),
+    instr (some (vd 3 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 4 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 5 0)) (.binary .eq 3 4),
+    instr (some (vd 6 0)) (.binary .and 2 5),
+    instr (some (vd 7 fieldTid)) (.literal fieldTid (fieldBytes (p - 1))),
+    instr (some (vd 8 fieldTid)) (.literal fieldTid (fieldBytes (p - 1))),
+    instr (some (vd 9 0)) (.binary .eq 7 8),
+    instr (some (vd 10 0)) (.binary .and 6 9)]
+  binaryTrue "field-add-wrap" .add (p - 1) 1 0
+  binaryTrue "field-sub-wrap" .sub 0 1 (p - 1)
+  binaryTrue "field-mul-reduction" .mul (p - 1) (p - 1) 1
+  unaryTrue "field-neg-zero" 0 0
+  unaryTrue "field-neg-one" 1 (p - 1)
+  -- Representative inverse identity: (a / b) * b = a.
+  runLower "field-division-inverse-identity" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 7)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 5)),
+    instr (some (vd 2 fieldTid)) (.binary .div 0 1),
+    instr (some (vd 3 fieldTid)) (.binary .mul 2 1),
+    instr (some (vd 4 0)) (.binary .eq 3 0)]
+  binaryTrue "field-division-by-one" .div (p - 1) 1 (p - 1)
+  runLower "field-ne" #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 1)),
+    instr (some (vd 2 0)) (.binary .ne 0 1)]
+
+  -- Whole-program engineering admission accepts the supported Field-only
+  -- fixture and preserves the exact standard division-by-zero reason.
+  let base ← emptyData "Bn254FieldWholeProgram"
+  let entryCallable := mkEntry 0 "fieldRuntime" #[] 1 #[
+    instr (some (vd 0 fieldTid)) (.literal fieldTid (fieldBytes 7)),
+    instr (some (vd 1 fieldTid)) (.literal fieldTid (fieldBytes 0)),
+    instr (some (vd 2 fieldTid)) (.binary .div 0 1)] (.return_ none)
+  let carrier ← encodeCarrier "field-division-zero-whole" {
+    base with types := baseTypes, callables := #[entryCallable]
+  }
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok a => pure a
+    | .error e => throw <| IO.userError s!"field whole admission failed: {repr e}"
+  expectRevertedStandard "field-division-zero-exact"
+    (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
+    .divisionByZero pre
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -3257,6 +3575,8 @@ unsafe def run : IO Unit := do
   testArrayBytesReferenceSlice
   testVariantReferenceSlice
   testInvariantReferenceSlice
+  testFixedWidthIntegerLowerRunner
+  testBn254FieldLowerRunner
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1

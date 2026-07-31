@@ -15,10 +15,10 @@ import ProofForgeV2.Semantic.WireV1
   not depend on whole-program engineering admission.
 
   Admitted surface:
-    * types: Bool / UInt8 / UInt32 / UInt64 / Unit / Bytes / fixed Array /
+    * types: Bool / all Wire UInt/Int widths / BN254 Field / Unit / Bytes / fixed Array /
       Map / Struct / Option / Enum over acyclic recursively admitted payload types
     * ops: Literal, Constant, StateLoad/Store, Unary/Binary on admitted shapes,
-      CheckedCast (UInt↔UInt), Struct Construct/FieldGet/FieldSet,
+      CheckedCast (UInt/Int combinations), Struct Construct/FieldGet/FieldSet,
       Option/Enum Construct/VariantTag/VariantPayload, PureCall, Assert, Emit,
       ExternalCall, Schedule, Unit/Array Construct, empty Map Construct,
       Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
@@ -31,7 +31,7 @@ import ProofForgeV2.Semantic.WireV1
 
   Rejected at admission (never masquerade as runtime invalidCore; only
   internalInvariant defense if admission is bypassed):
-    Int / Field, recursive Struct/Array/Map/Option/Enum type graphs,
+    Principal, recursive Struct/Array/Map/Option/Enum type graphs,
     nonempty-Map Construct,
     view/pureFn effect-or-state violations, ExternalCall/Schedule Unit args.
 
@@ -170,13 +170,10 @@ private def typeShapeAdmitted (shape : TypeShapeV1) :
     Except ReferenceAdmissionErrorV1 Unit :=
   match shape with
   | .bool => pure ()
-  | .uint 8 | .uint 32 | .uint 64 => pure ()
-  | .uint w =>
-      admitFail s!"unsupported UInt width {w} (admitted: 8/32/64)"
+  | .uint _ | .int _ => pure ()
   | .unit => pure ()
   | .bytes _ => pure ()
-  | .int w => admitFail s!"unsupported Int{w}"
-  | .field _ => admitFail "unsupported Field"
+  | .field _ => pure ()
   | .array _ _ => pure ()
   | .map _ _ => pure ()
   | .option _ => pure ()
@@ -442,8 +439,15 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                   depths := depths.set! tid 1
                   works := works.set! tid 2
                   color := color.set! tid 2
-              | some { shape := .uint width, .. } =>
+              | some { shape := .uint width, .. }
+              | some { shape := .int width, .. } =>
                   let bytes := width.toNat / 8
+                  widths := widths.set! tid bytes
+                  depths := depths.set! tid 1
+                  works := works.set! tid (1 + max 1 bytes)
+                  color := color.set! tid 2
+              | some { shape := .field spec, .. } =>
+                  let bytes := spec.modulusBE.size
                   widths := widths.set! tid bytes
                   depths := depths.set! tid 1
                   works := works.set! tid (1 + max 1 bytes)
@@ -593,9 +597,63 @@ private def uintWidth (data : SemanticProgramDataV1) (tid : TypeIdV1) : Option N
   | some (.uint w) => some w.toNat
   | _ => none
 
+private def intWidth (data : SemanticProgramDataV1) (tid : TypeIdV1) : Option Nat :=
+  match shapeOf data tid with
+  | some (.int w) => some w.toNat
+  | _ => none
+
+private def beBytesToNat (bytes : ByteArray) : Nat := Id.run do
+  let mut value := 0
+  for byte in bytes do
+    value := value * 256 + byte.toNat
+  pure value
+
+private def fieldModulus (data : SemanticProgramDataV1) (tid : TypeIdV1) : Option Nat :=
+  match shapeOf data tid with
+  | some (.field spec) => some (beBytesToNat spec.modulusBE)
+  | _ => none
+
 private def uintByteLen (width : Nat) : Nat := width / 8
 
 private def uintMax (width : Nat) : Nat := Nat.pow 2 width
+
+private def leBytesToInt (bytes : ByteArray) (width : Nat) : Int :=
+  let bits := leBytesToNat bytes
+  let signBoundary := Nat.pow 2 (width - 1)
+  if bits < signBoundary then
+    Int.ofNat bits
+  else
+    Int.ofNat bits - Int.ofNat (uintMax width)
+
+private def intMin (width : Nat) : Int :=
+  -(Int.ofNat (Nat.pow 2 (width - 1)))
+
+private def intMax (width : Nat) : Int :=
+  Int.ofNat (Nat.pow 2 (width - 1)) - 1
+
+private def intInRange (value : Int) (width : Nat) : Bool :=
+  intMin width ≤ value && value ≤ intMax width
+
+private def intToLeBytes (value : Int) (width : Nat) : ByteArray :=
+  let bits :=
+    if value < 0 then
+      (value + Int.ofNat (uintMax width)).toNat
+    else
+      value.toNat
+  natToLeBytes bits (uintByteLen width)
+
+private def fieldPow (base exponent modulus : Nat) : Nat := Id.run do
+  let mut result := 1
+  let mut factor := base % modulus
+  let mut remaining := exponent
+  -- The sole v1 field is 254-bit; use a fixed bound rather than host bigint
+  -- inversion so execution remains deterministic and total.
+  for _ in [:256] do
+    if remaining % 2 == 1 then
+      result := (result * factor) % modulus
+    factor := (factor * factor) % modulus
+    remaining := remaining / 2
+  pure result
 
 private def valueCanonical (data : SemanticProgramDataV1) (v : ReferenceValueV1) : Bool :=
   match validateValueBytesV1 data.types v.typeId v.valueBytes with
@@ -762,82 +820,136 @@ private def evalUnary (data : SemanticProgramDataV1) (op : UnaryOpV1)
         | some 1 => .ok { typeId := resultTypeId, valueBytes := encodeU8 0 }
         | _ => .error (.trapped .invalidCore)
   | .bitNot =>
-      match uintWidth data operand.typeId, uintWidth data resultTypeId with
-      | some w, some w' =>
-          if !(w == w' && operand.typeId == resultTypeId) then
-            .error (.trapped .invalidCore)
-          else
-            let len := uintByteLen w
-            if operand.valueBytes.size != len then
-              .error (.trapped .invalidCore)
+      if !(operand.typeId == resultTypeId && valueCanonical data operand) then
+        .error (.trapped .invalidCore)
+      else
+        let width? :=
+          match uintWidth data operand.typeId with
+          | some w => some w
+          | none => intWidth data operand.typeId
+        match width? with
+        | some w =>
+            let mask := uintMax w - 1
+            let bits := leBytesToNat operand.valueBytes
+            .ok {
+              typeId := resultTypeId
+              valueBytes := natToLeBytes (mask - bits) (uintByteLen w)
+            }
+        | none => .error (.trapped .invalidCore)
+  | .neg =>
+      if !(operand.typeId == resultTypeId && valueCanonical data operand) then
+        .error (.trapped .invalidCore)
+      else
+        match intWidth data operand.typeId with
+        | some w =>
+            let value := leBytesToInt operand.valueBytes w
+            if value == intMin w then
+              .error (.reverted (.standard .arithmeticOverflow))
             else
-              let mask := uintMax w - 1
-              let n := leBytesToNat operand.valueBytes
               .ok {
                 typeId := resultTypeId
-                valueBytes := natToLeBytes (mask - n) len
+                valueBytes := intToLeBytes (-value) w
               }
-      | _, _ => .error (.trapped .invalidCore)
-  | .neg => .error (.trapped .invalidCore)
+        | none =>
+            match fieldModulus data operand.typeId with
+            | some modulus =>
+                let value := leBytesToNat operand.valueBytes
+                .ok {
+                  typeId := resultTypeId
+                  valueBytes := natToLeBytes ((modulus - value) % modulus)
+                    operand.valueBytes.size
+                }
+            | none => .error (.trapped .invalidCore)
 
 private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
     (lhs rhs : ReferenceValueV1) (resultTypeId : TypeIdV1) :
     Except CandidateV1 ReferenceValueV1 :=
   match op with
   | .add | .sub | .mul | .div | .mod =>
-      match uintWidth data lhs.typeId, uintWidth data rhs.typeId,
-            uintWidth data resultTypeId with
-      | some w, some wr, some wres =>
-          if !(w == wr && w == wres && lhs.typeId == rhs.typeId &&
-              lhs.typeId == resultTypeId) then
-            .error (.trapped .invalidCore)
-          else
+      if !(lhs.typeId == rhs.typeId && lhs.typeId == resultTypeId &&
+          valueCanonical data lhs && valueCanonical data rhs) then
+        .error (.trapped .invalidCore)
+      else
+        match uintWidth data lhs.typeId, intWidth data lhs.typeId with
+        | some w, _ =>
             let len := uintByteLen w
-            if !(lhs.valueBytes.size == len && rhs.valueBytes.size == len) then
-              .error (.trapped .invalidCore)
+            let a := leBytesToNat lhs.valueBytes
+            let b := leBytesToNat rhs.valueBytes
+            let maxV := uintMax w
+            match op with
+            | .add =>
+                let value := a + b
+                if value ≥ maxV then
+                  .error (.reverted (.standard .arithmeticOverflow))
+                else
+                  .ok { typeId := resultTypeId, valueBytes := natToLeBytes value len }
+            | .sub =>
+                if a < b then
+                  .error (.reverted (.standard .arithmeticUnderflow))
+                else
+                  .ok { typeId := resultTypeId, valueBytes := natToLeBytes (a - b) len }
+            | .mul =>
+                let value := a * b
+                if value ≥ maxV then
+                  .error (.reverted (.standard .arithmeticOverflow))
+                else
+                  .ok { typeId := resultTypeId, valueBytes := natToLeBytes value len }
+            | .div =>
+                if b == 0 then
+                  .error (.reverted (.standard .divisionByZero))
+                else
+                  .ok { typeId := resultTypeId, valueBytes := natToLeBytes (a / b) len }
+            | .mod =>
+                if b == 0 then
+                  .error (.reverted (.standard .divisionByZero))
+                else
+                  .ok { typeId := resultTypeId, valueBytes := natToLeBytes (a % b) len }
+            | _ => .error (.trapped .internalInvariant)
+        | _, some w =>
+            let a := leBytesToInt lhs.valueBytes w
+            let b := leBytesToInt rhs.valueBytes w
+            if (op == .div || op == .mod) && b == 0 then
+              .error (.reverted (.standard .divisionByZero))
+            else if op == .div && a == intMin w && b == -1 then
+              .error (.reverted (.standard .arithmeticOverflow))
             else
-              let a := leBytesToNat lhs.valueBytes
-              let b := leBytesToNat rhs.valueBytes
-              let maxV := uintMax w
-              match op with
-              | .add =>
-                  let s := a + b
-                  if s ≥ maxV then
-                    .error (.reverted (.standard .arithmeticOverflow))
-                  else
-                    .ok { typeId := resultTypeId, valueBytes := natToLeBytes s len }
-              | .sub =>
-                  if a < b then
-                    .error (.reverted (.standard .arithmeticUnderflow))
-                  else
-                    .ok {
-                      typeId := resultTypeId
-                      valueBytes := natToLeBytes (a - b) len
-                    }
-              | .mul =>
-                  let p := a * b
-                  if p ≥ maxV then
-                    .error (.reverted (.standard .arithmeticOverflow))
-                  else
-                    .ok { typeId := resultTypeId, valueBytes := natToLeBytes p len }
-              | .div =>
-                  if b == 0 then
+              let value :=
+                match op with
+                | .add => a + b
+                | .sub => a - b
+                | .mul => a * b
+                | .div => a.tdiv b
+                | .mod => a.tmod b
+                | _ => 0
+              if value < intMin w then
+                .error (.reverted (.standard .arithmeticUnderflow))
+              else if value > intMax w then
+                .error (.reverted (.standard .arithmeticOverflow))
+              else
+                .ok { typeId := resultTypeId, valueBytes := intToLeBytes value w }
+        | _, _ =>
+            match fieldModulus data lhs.typeId with
+            | some modulus =>
+                if op == .mod then
+                  .error (.trapped .invalidCore)
+                else
+                  let a := leBytesToNat lhs.valueBytes
+                  let b := leBytesToNat rhs.valueBytes
+                  if op == .div && b == 0 then
                     .error (.reverted (.standard .divisionByZero))
                   else
+                    let value :=
+                      match op with
+                      | .add => (a + b) % modulus
+                      | .sub => (a + modulus - b) % modulus
+                      | .mul => (a * b) % modulus
+                      | .div => (a * fieldPow b (modulus - 2) modulus) % modulus
+                      | _ => 0
                     .ok {
                       typeId := resultTypeId
-                      valueBytes := natToLeBytes (a / b) len
+                      valueBytes := natToLeBytes value lhs.valueBytes.size
                     }
-              | .mod =>
-                  if b == 0 then
-                    .error (.reverted (.standard .divisionByZero))
-                  else
-                    .ok {
-                      typeId := resultTypeId
-                      valueBytes := natToLeBytes (a % b) len
-                    }
-              | _ => .error (.trapped .internalInvariant)
-      | _, _, _ => .error (.trapped .invalidCore)
+            | none => .error (.trapped .invalidCore)
   | .eq | .ne =>
       if !(lhs.typeId == rhs.typeId && isBoolType data resultTypeId) then
         .error (.trapped .invalidCore)
@@ -850,13 +962,20 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
           | _ => 0
         .ok { typeId := resultTypeId, valueBytes := encodeU8 bit }
   | .lt | .le | .gt | .ge =>
-      match uintWidth data lhs.typeId, uintWidth data rhs.typeId with
-      | some w, some wr =>
-          if !(w == wr && lhs.typeId == rhs.typeId && isBoolType data resultTypeId) then
-            .error (.trapped .invalidCore)
-          else
-            let a := leBytesToNat lhs.valueBytes
-            let b := leBytesToNat rhs.valueBytes
+      if !(lhs.typeId == rhs.typeId && isBoolType data resultTypeId &&
+          valueCanonical data lhs && valueCanonical data rhs) then
+        .error (.trapped .invalidCore)
+      else
+        let values? : Option (Int × Int) :=
+          match uintWidth data lhs.typeId, intWidth data lhs.typeId with
+          | some _, _ =>
+              some (Int.ofNat (leBytesToNat lhs.valueBytes),
+                Int.ofNat (leBytesToNat rhs.valueBytes))
+          | _, some w =>
+              some (leBytesToInt lhs.valueBytes w, leBytesToInt rhs.valueBytes w)
+          | _, _ => none
+        match values? with
+        | some (a, b) =>
             let flag : Bool :=
               match op with
               | .lt => a < b
@@ -868,7 +987,7 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
               typeId := resultTypeId
               valueBytes := encodeU8 (if flag then 1 else 0)
             }
-      | _, _ => .error (.trapped .invalidCore)
+        | none => .error (.trapped .invalidCore)
   | .and | .or =>
       if !(isBoolType data lhs.typeId && isBoolType data rhs.typeId &&
           isBoolType data resultTypeId) then
@@ -889,13 +1008,16 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
             }
         | _, _ => .error (.trapped .invalidCore)
   | .bitAnd | .bitOr | .bitXor =>
-      match uintWidth data lhs.typeId, uintWidth data rhs.typeId,
-            uintWidth data resultTypeId with
-      | some w, some wr, some wres =>
-          if !(w == wr && w == wres && lhs.typeId == rhs.typeId &&
-              lhs.typeId == resultTypeId) then
-            .error (.trapped .invalidCore)
-          else
+      if !(lhs.typeId == rhs.typeId && lhs.typeId == resultTypeId &&
+          valueCanonical data lhs && valueCanonical data rhs) then
+        .error (.trapped .invalidCore)
+      else
+        let width? :=
+          match uintWidth data lhs.typeId with
+          | some w => some w
+          | none => intWidth data lhs.typeId
+        match width? with
+        | some w =>
             let len := uintByteLen w
             let a := leBytesToNat lhs.valueBytes
             let b := leBytesToNat rhs.valueBytes
@@ -906,58 +1028,82 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
               | .bitXor => Nat.xor a b
               | _ => 0
             .ok { typeId := resultTypeId, valueBytes := natToLeBytes r len }
-      | _, _, _ => .error (.trapped .invalidCore)
+        | none => .error (.trapped .invalidCore)
   | .shl | .shr =>
-      match uintWidth data lhs.typeId, uintWidth data resultTypeId with
-      | some w, some wres =>
-          if !(w == wres && lhs.typeId == resultTypeId) then
-            .error (.trapped .invalidCore)
-          else
-            match uintWidth data rhs.typeId with
-            | some 32 =>
-                let shift := leBytesToNat rhs.valueBytes
-                if shift ≥ w then
-                  .error (.reverted (.standard .invalidShift))
-                else
-                  let len := uintByteLen w
-                  let a := leBytesToNat lhs.valueBytes
-                  let maxV := uintMax w
-                  match op with
-                  | .shl =>
-                      let r := Nat.shiftLeft a shift
-                      if r ≥ maxV then
-                        .error (.reverted (.standard .arithmeticOverflow))
-                      else
-                        .ok {
-                          typeId := resultTypeId
-                          valueBytes := natToLeBytes r len
-                        }
-                  | .shr =>
-                      .ok {
-                        typeId := resultTypeId
-                        valueBytes := natToLeBytes (Nat.shiftRight a shift) len
-                      }
-                  | _ => .error (.trapped .internalInvariant)
-            | _ => .error (.trapped .invalidCore)
-      | _, _ => .error (.trapped .invalidCore)
+      if !(lhs.typeId == resultTypeId && uintWidth data rhs.typeId == some 32 &&
+          valueCanonical data lhs && valueCanonical data rhs) then
+        .error (.trapped .invalidCore)
+      else
+        let shift := leBytesToNat rhs.valueBytes
+        match uintWidth data lhs.typeId, intWidth data lhs.typeId with
+        | some w, _ =>
+            if shift ≥ w then
+              .error (.reverted (.standard .invalidShift))
+            else
+              let a := leBytesToNat lhs.valueBytes
+              match op with
+              | .shl =>
+                  let value := Nat.shiftLeft a shift
+                  if value ≥ uintMax w then
+                    .error (.reverted (.standard .arithmeticOverflow))
+                  else
+                    .ok {
+                      typeId := resultTypeId
+                      valueBytes := natToLeBytes value (uintByteLen w)
+                    }
+              | .shr =>
+                  .ok {
+                    typeId := resultTypeId
+                    valueBytes := natToLeBytes (Nat.shiftRight a shift) (uintByteLen w)
+                  }
+              | _ => .error (.trapped .internalInvariant)
+        | _, some w =>
+            if shift ≥ w then
+              .error (.reverted (.standard .invalidShift))
+            else
+              let a := leBytesToInt lhs.valueBytes w
+              let divisor := Int.ofNat (Nat.pow 2 shift)
+              let value :=
+                match op with
+                | .shl => a * divisor
+                | .shr => a.ediv divisor
+                | _ => 0
+              if value < intMin w then
+                .error (.reverted (.standard .arithmeticUnderflow))
+              else if value > intMax w then
+                .error (.reverted (.standard .arithmeticOverflow))
+              else
+                .ok { typeId := resultTypeId, valueBytes := intToLeBytes value w }
+        | _, _ => .error (.trapped .invalidCore)
 
 private def evalCheckedCast (data : SemanticProgramDataV1) (src : ReferenceValueV1)
     (toType : TypeIdV1) (resultTypeId : TypeIdV1) :
     Except CandidateV1 ReferenceValueV1 :=
   if resultTypeId != toType then
     .error (.trapped .invalidCore)
+  else if !valueCanonical data src then
+    .error (.trapped .invalidCore)
   else
-    match uintWidth data src.typeId, uintWidth data toType with
-    | some _sw, some tw =>
-        let sn := leBytesToNat src.valueBytes
-        if sn ≥ uintMax tw then
+    let value? : Option Int :=
+      match uintWidth data src.typeId, intWidth data src.typeId with
+      | some _, _ => some (Int.ofNat (leBytesToNat src.valueBytes))
+      | _, some sw => some (leBytesToInt src.valueBytes sw)
+      | _, _ => none
+    match value?, uintWidth data toType, intWidth data toType with
+    | some value, some tw, _ =>
+        if value < 0 || value ≥ Int.ofNat (uintMax tw) then
           .error (.reverted (.standard .castOutOfRange))
         else
           .ok {
             typeId := toType
-            valueBytes := natToLeBytes sn (uintByteLen tw)
+            valueBytes := natToLeBytes value.toNat (uintByteLen tw)
           }
-    | _, _ => .error (.trapped .invalidCore)
+    | some value, _, some tw =>
+        if !intInRange value tw then
+          .error (.reverted (.standard .castOutOfRange))
+        else
+          .ok { typeId := toType, valueBytes := intToLeBytes value tw }
+    | _, _, _ => .error (.trapped .invalidCore)
 
 private def evalStructConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
