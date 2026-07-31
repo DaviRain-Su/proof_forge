@@ -1133,6 +1133,87 @@ private unsafe def testFnLocalCall
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "FnCall IR rebuild must be structure-identical"
 
+/-- Wave F: mul/div/mod + unary bitNot/boolNot Plan/IR/render pins. -/
+private unsafe def testArithOps
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "ArithOps" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry scale(factor : UInt64, divisor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / divisor + count % divisor\n" ++
+    "    return count\n\n" ++
+    "  entry bits(x : UInt64) : UInt64 do\n" ++
+    "    return ~x\n\n" ++
+    "  entry neg5(x : UInt64) : Bool do\n" ++
+    "    return !(x > 5)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session source "Examples.ArithOps" "<solana-arith-ops>"
+  let plan ← liftResult <| planSolana compiled
+  let overflow := plan.arithmeticOverflowError
+  -- Plan exprs: scale store is ((count * factor) / divisor) + (count % divisor).
+  let scale ← findHandler plan "scale"
+  expect (scale.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .checkedAdd
+          (.checkedDiv
+            (.checkedMul (.stateLoad 0 8) (.param 8))
+            (.param 16))
+          (.checkedMod (.stateLoad 0 8) (.param 16))
+      },
+      .returnValue (.stateLoad 0 8)])
+    "scale Plan body must lower mul/div/mod into checked expr tree + return load"
+  let bits ← findHandler plan "bits"
+  expect (bits.body == #[.returnValue (.bitNot (.param 8))])
+    "bits Plan body must be return bitNot(param)"
+  let neg5 ← findHandler plan "neg5"
+  expect (neg5.resultKind == .bool &&
+      neg5.body == #[.returnValue (.boolNot (.compare .gt (.param 8) (.literal 5)))])
+    "neg5 Plan body must be return boolNot(gt(param, 5))"
+  -- IR dense temps for scale.
+  let ir ← liftResult <| irSolana compiled
+  let scaleIR ← findHandlerIR ir "scale"
+  expect (scaleIR.operations == #[
+      .loadState 0 0 8,
+      .loadParam 1 8,
+      .checkedMul 2 0 1 overflow,
+      .loadParam 3 16,
+      .checkedDiv 4 2 3 overflow,
+      .loadState 5 0 8,
+      .loadParam 6 16,
+      .checkedMod 7 5 6 overflow,
+      .checkedAdd 8 4 7 overflow,
+      .storeState 0 8 8,
+      .loadState 9 0 8,
+      .setReturnData 9])
+    "scale IR must lower mul/div/mod/add with dense temp numbering"
+  let bitsIR ← findHandlerIR ir "bits"
+  expect (bitsIR.operations == #[
+      .loadParam 0 8,
+      .bitNot 1 0,
+      .setReturnData 1])
+    "bits IR must lower bitNot with dense temps"
+  let neg5IR ← findHandlerIR ir "neg5"
+  expect (neg5IR.operations == #[
+      .loadParam 0 8,
+      .literal 1 5,
+      .compare 2 0 1 .gt,
+      .boolNot 3 2,
+      .setReturnDataBool 3])
+    "neg5 IR must lower compare then boolNot into Bool return"
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "ArithOps.sbpf-plan"
+  for fragment in #["checked_mul_u64", "checked_div_u64", "checked_rem_u64",
+      "bitnot_u64", "bool_not"] do
+    expect (planText.contains fragment)
+      s!"sbpf-plan must contain '{fragment}'"
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "ArithOps IR rebuild must be structure-identical"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1157,6 +1238,7 @@ unsafe def run : IO Unit := do
   testAssertElseRejected session
   testValidatePlanNegatives session
   testFnLocalCall session
+  testArithOps session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

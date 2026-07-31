@@ -98,6 +98,11 @@ inductive Expr where
   | stateLoad (accountIndex byteOffset : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | checkedMul (lhs rhs : Expr)
+  | checkedDiv (lhs rhs : Expr)
+  | checkedMod (lhs rhs : Expr)
+  | bitNot (operand : Expr)
+  | boolNot (operand : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -191,6 +196,11 @@ inductive Operation where
   | switchRegion (scrutinee : Nat) (cases : Array (UInt64 × Array Operation))
       (defaultOps : Array Operation)
   | callFn (fnIndex : Nat) (destination : Nat) (args : Array Nat)
+  | checkedMul (destination lhs rhs errorCode : Nat)
+  | checkedDiv (destination lhs rhs errorCode : Nat)
+  | checkedMod (destination lhs rhs errorCode : Nat)
+  | bitNot (destination source : Nat)
+  | boolNot (destination source : Nat)
   deriving BEq, Inhabited, Repr
 
 structure HandlerIR where
@@ -512,11 +522,55 @@ private def makeCheckedSubValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 .checkedSub lhsId rhsId lhs rhs false
 
+private def makeCheckedMulValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedMul lhsId rhsId lhs rhs false
+
+private def makeCheckedDivValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedDiv lhsId rhsId lhs rhs false
+
+private def makeCheckedModValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .checkedMod lhsId rhsId lhs rhs false
+
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true
+
+/-- Unary plan-value constructor (depth/node accounting for bitNot/boolNot). -/
+private def makeUnaryTreeValueV1
+    (mk : Expr → Expr)
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1)
+    (isBool : Bool) : CompileResult LoweredValueV1 := do
+  let depth := 1 + operand.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
+  if operand.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .solana s!"Solana plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk operand.expr
+    depth
+    expandedNodes := 1 + operand.expandedNodes
+    dependencies := #[operandId]
+    isBool
+  }
+
+private def makeBitNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 .bitNot operandId operand false
+
+private def makeBoolNotValueV1
+    (operandId : ValueIdV1)
+    (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeUnaryTreeValueV1 .boolNot operandId operand true
 
 /-- Pure local-call value: n-ary args, pure expression (not an effect boundary). -/
 private def makeCallFnValueV1
@@ -761,6 +815,15 @@ private def lowerBlockInstructionsV1
         else if op == .sub then
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mul then
+          let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .div then
+          let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
+        else if op == .mod then
+          let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 types.uint64TypeId values result value
         else
           match comparisonOpOfV1 op with
           | some cmpOp =>
@@ -775,7 +838,35 @@ private def lowerBlockInstructionsV1
               values := ← appendResultValueV1 boolTypeId values result value
           | none =>
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: only checked UInt64 add/sub and comparisons are supported"
+                "unsupported Solana semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
+    | .unary op operandId, some result =>
+        let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
+        match op with
+        | .bitNot =>
+            unless !operand.isBool do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: bitNot operand must be UInt64"
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: bitNot result must be UInt64"
+            let value ← makeBitNotValueV1 operandId operand
+            values := ← appendResultValueV1 types.uint64TypeId values result value
+        | .not =>
+            unless operand.isBool do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: boolNot operand must be Bool"
+            let boolTypeId ← match types.boolTypeId with
+              | some value => pure value
+              | none => throw (.planInvariant .solana
+                  "unsupported Solana semantic shape: Bool type is missing for boolNot")
+            unless result.typeId == boolTypeId do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: boolNot result must be Bool"
+            let value ← makeBoolNotValueV1 operandId operand
+            values := ← appendResultValueV1 boolTypeId values result value
+        | .neg =>
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: unary neg is not admitted (checked negation desugars to 0 - x)"
     | .pureCall callableId argIds, some result =>
         -- Pure local call: value-producing, not an effect boundary (like checkedAdd).
         let fnIndex ← match pureFns.byCallableId[callableId.toNat]? with
@@ -1179,7 +1270,9 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
           some 1
         else
           none
-    | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+    | .checkedAdd lhs rhs | .checkedSub lhs rhs
+    | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+    | .compare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available lhs with
@@ -1188,6 +1281,12 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             match planExprNodes? account params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .bitNot operand | .boolNot operand =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? account params fns childDepth available operand with
+        | none => none
+        | some n => some (1 + n)
     | .callFn fnIndex args =>
         match fns[fnIndex]? with
         | none => none
@@ -1205,15 +1304,27 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
                     | some n => walk rest (available - n) (totalNodes + n)
               walk args.toList (nodeBudget - 1) 1
 
-/-- UInt64-compatible plan expression (comparison results and Bool-returning
-    callFn results are not UInt64). -/
+/-- UInt64-compatible plan expression (comparison/boolNot results and
+    Bool-returning callFn results are not UInt64). -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. => false
+  | .compare .. | .boolNot _ => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => !fn.resultIsBool
       | none => false
-  | _ => true
+  | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
+  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad .. => true
+
+/-- Bool-compatible plan expression (compare/boolNot and Bool-returning callFn). -/
+private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
+  | .compare .. | .boolNot _ => true
+  | .callFn fnIndex _ =>
+      match fns[fnIndex]? with
+      | some fn => fn.resultIsBool
+      | none => false
+  | .literal _ => true
+  | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
+  | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
@@ -1327,6 +1438,8 @@ private partial def checkHandlerStatementsV1
         total := total + 1
         closed := true
     | .assert condition =>
+        unless exprIsBoolCompatibleV1 fns condition do
+          throw <| .planInvariant .solana "handler assert condition must be a Bool expression"
         total ← addPlanExprNodes account params fns total condition
     | .ifThenElse condition thenBody elseBody =>
         total ← addPlanExprNodes account params fns total condition
@@ -1579,6 +1692,47 @@ private partial def lowerExpr (overflowError next : Nat) : Expr → LoweredExpr
         value := rhs.next
         next := rhs.next + 1
       }
+  | .checkedMul lhs rhs =>
+      let lhs := lowerExpr overflowError next lhs
+      let rhs := lowerExpr overflowError lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMul rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedDiv lhs rhs =>
+      let lhs := lowerExpr overflowError next lhs
+      let rhs := lowerExpr overflowError lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedDiv rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedMod lhs rhs =>
+      let lhs := lowerExpr overflowError next lhs
+      let rhs := lowerExpr overflowError lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedMod rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .bitNot operand =>
+      let operand := lowerExpr overflowError next operand
+      {
+        operations := operand.operations ++ #[.bitNot operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .boolNot operand =>
+      let operand := lowerExpr overflowError next operand
+      {
+        operations := operand.operations ++ #[.boolNot operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
   | .compare op lhs rhs =>
       let lhs := lowerExpr overflowError next lhs
       let rhs := lowerExpr overflowError lhs.next rhs
@@ -1752,8 +1906,10 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
-      .checkedSub destination .. | .compare destination .. |
-      .callFn _ destination _ => some destination
+      .checkedSub destination .. | .checkedMul destination .. |
+      .checkedDiv destination .. | .checkedMod destination .. |
+      .bitNot destination _ | .boolNot destination _ |
+      .compare destination .. | .callFn _ destination _ => some destination
   | _ => none
 
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
@@ -1793,6 +1949,8 @@ private partial def validateOperationSequence
         halted := true
     | .literal ..
     | .loadParam .. | .loadState .. | .checkedAdd .. | .checkedSub ..
+    | .checkedMul .. | .checkedDiv .. | .checkedMod ..
+    | .bitNot .. | .boolNot ..
     | .compare .. | .assert .. | .zeroState .. | .storeState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError ..
@@ -1816,6 +1974,24 @@ private partial def validateOperationSequence
         unless lhs < next - 1 && rhs < next - 1 &&
             errorCode == plan.arithmeticOverflowError do
           throw <| .planInvariant .solana "typed Solana IR checked-sub operands/error are invalid"
+    | .checkedMul _ lhs rhs errorCode =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR checked-mul operands/error are invalid"
+    | .checkedDiv _ lhs rhs errorCode =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR checked-div operands/error are invalid"
+    | .checkedMod _ lhs rhs errorCode =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR checked-mod operands/error are invalid"
+    | .bitNot _ source =>
+        unless source < next - 1 do
+          throw <| .planInvariant .solana "typed Solana IR bitNot operand is invalid"
+    | .boolNot _ source =>
+        unless source < next - 1 do
+          throw <| .planInvariant .solana "typed Solana IR boolNot operand is invalid"
     | .compare _ lhs rhs _op =>
         unless lhs < next - 1 && rhs < next - 1 do
           throw <| .planInvariant .solana "typed Solana IR compare operands are invalid"
@@ -2066,6 +2242,16 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .checkedSub destination lhs rhs errorCode =>
       s!"{indent}%{destination} = checked_sub_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .checkedMul destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_mul_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .checkedDiv destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_div_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .checkedMod destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_rem_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .bitNot destination source =>
+      s!"{indent}%{destination} = bitnot_u64 %{source}\n"
+  | .boolNot destination source =>
+      s!"{indent}%{destination} = bool_not %{source}\n"
   | .zeroState accountIndex byteOffset =>
       s!"{indent}zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
   | .storeState accountIndex byteOffset value =>
