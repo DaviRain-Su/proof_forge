@@ -96,6 +96,11 @@ inductive Expr where
   | literal (value : UInt64)
   | param (inputIndex : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- Reference to a loop header's induction-variable block param. The slot
+  is the param's index in the callable's seeded block-param order; the
+  relation walker resolves it through the current unrolling's substitution
+  environment (it never reaches rendering). -/
+  | loopParam (slot : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -122,6 +127,15 @@ inductive Statement where
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
+  /-- Bounded counting loop: the induction variable (a `.loopParam slot`
+  block param) starts at `initial`, the body runs while `cond` holds, and
+  `update` computes the next value. The static `bound` caps unrolling at the
+  relation layer; the (bound+1)-th iteration is inadmissible, mirroring the
+  reference machine's boundExceeded revert. Bodies may contain nested
+  regions and loops, returns, and reverts, but no emits (one static event
+  slot cannot bind multiple dynamic occurrences). -/
+  | forLoop (slot : Nat) (bound : UInt32) (initial cond update : Expr)
+      (body : Array Statement)
   deriving BEq, Inhabited, Repr
 
 /-- One independently provable relation. Initializer, mutate, and view methods
@@ -451,6 +465,7 @@ private partial def collectEmitSlots (statements : Array Statement) :
         let caseSlots := cases.foldl (fun acc (_, body) =>
           acc ++ collectEmitSlots body) #[]
         slots ++ caseSlots ++ collectEmitSlots defaultBody
+    | .forLoop _ _ _ _ _ body => slots ++ collectEmitSlots body
     | _ => slots) #[]
 
 /-- Build the canonical public-input envelope. `resultType` is used only for
@@ -731,6 +746,7 @@ private def makeCompareValueV1
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
     (root : ValueIdV1) : CompileResult Expr := do
   let rootValue ← currentValueV1 values paramCount segmentStart root
   let segmentCount := values.size - segmentStart
@@ -752,7 +768,9 @@ private def consumeCurrentSegmentV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
+        -- Block params and arm/loop-whitelisted values are external roots
+        -- (like callable params), not segment-local instructions.
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
           unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: expression crosses an effect boundary"
@@ -768,6 +786,7 @@ private def consumeCurrentSegmentV1
 private def consumeSegmentRootsV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
+    (armReadables : Array ValueIdV1)
     (roots : Array ValueIdV1) : CompileResult Unit := do
   for root in roots do
     let _ ← currentValueV1 values paramCount segmentStart root
@@ -791,7 +810,7 @@ private def consumeSegmentRootsV1
       let value := values[index]!
       for dependency in value.dependencies do
         let dependencyIndex := dependency.toNat
-        if dependencyIndex >= paramCount then
+        if dependencyIndex >= paramCount && !armReadables.contains dependency then
           unless segmentStart <= dependencyIndex && dependencyIndex < values.size do
             throw <| .planInvariant .noir
               "unsupported Noir semantic shape: expression crosses an effect boundary"
@@ -843,9 +862,8 @@ private def lowerBlockInstructionsV1
     (armReadables : Array ValueIdV1)
     (block : BlockV1)
     (values0 : Array LoweredValueV1) : CompileResult LoweredBlockV1 := do
-  unless block.params.isEmpty do
-    throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: block parameters are not supported"
+  -- Block params (loop induction variables) are pre-seeded by lowerCallableV1
+  -- and read through the values array like callable params.
   if block.instructions.size > maxBodyStatements then
     throw <| .planInvariant .noir
       s!"{owner} instruction count exceeds profile limit {maxBodyStatements}"
@@ -946,7 +964,7 @@ private def lowerBlockInstructionsV1
         unless root.kind == .uint64 do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: state store value must be UInt64"
-        let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
+        let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
         body := body.push (.store { fieldIndex := field.sourceId, value })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
@@ -957,7 +975,7 @@ private def lowerBlockInstructionsV1
         unless root.kind == .bool do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: assert condition must be Bool"
-        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart condId
+        let condition ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
         body := body.push (.assert condition)
         segmentStart := values.size
     | .emit effectId eventId argIds, none =>
@@ -973,7 +991,7 @@ private def lowerBlockInstructionsV1
           argExprs := argExprs.push root.expr
         -- Multi-root effect boundary: every value produced in the current
         -- segment must be reachable from at least one argument tree.
-        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+        let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
         body := body.push (.emitEvent effectId.toNat eventId.toNat argExprs)
         segmentStart := values.size
     | .pureCall callableId argIds, some result =>
@@ -1036,12 +1054,13 @@ private partial def emitRegionV1
     (fnSigs : Array FnSigV1)
     (returnKind : Option NoirValueKindV1)
     (blocks : Array BlockV1)
+    (loops : Array LoopBoundV1)
     (paramCount : Nat)
     (armReadables : Array ValueIdV1)
     (fuel : Nat)
     (start : Nat)
     (values0 : Array LoweredValueV1) :
-    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat) := do
+    CompileResult (Array Statement × Array LoweredValueV1 × Option Nat × Option (Array Expr)) := do
   if fuel == 0 then
     throw <| .planInvariant .noir
       "unsupported Noir semantic shape: CFG region exceeds block bound"
@@ -1072,8 +1091,8 @@ private partial def emitRegionV1
           unless root.kind == expectedKind do
             throw <| .planInvariant .noir
               s!"unsupported Noir semantic shape: return value kind is not consistent with the {owner} result type"
-          let value ← consumeCurrentSegmentV1 values paramCount segmentStart valueId
-          pure (instrs.push (.returnValue value), values, none)
+          let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
+          pure (instrs.push (.returnValue value), values, none, none)
   | .return_ none =>
       unless segmentStart == values.size do
         throw <| .planInvariant .noir
@@ -1081,54 +1100,151 @@ private partial def emitRegionV1
       -- Explicit marker: an early bare `return` inside a branch arm is
       -- otherwise indistinguishable from a fallthrough arm once the join
       -- continuation is emitted after the region.
-      pure (instrs.push .returnNone, values, none)
+      pure (instrs.push .returnNone, values, none, none)
   | .jump target =>
-      unless segmentStart == values.size do
-        throw <| .planInvariant .noir
-          "unsupported Noir semantic shape: block has unconsumed values"
-      pure (instrs, values, some target.blockId.toNat)
+      match loops.find? (fun lb => lb.header == target.blockId) with
+      | none =>
+          unless segmentStart == values.size do
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: block has unconsumed values"
+          pure (instrs, values, some target.blockId.toNat, none)
+      | some lb =>
+          if target.blockId.toNat == start then
+            throw <| .planInvariant .noir
+              "unsupported Noir semantic shape: loop header cannot be its own latch"
+          else if target.blockId.toNat < start then
+            -- Back edge: the latch jumps back to the header. The update
+            -- expression travels on the back-edge channel to the enclosing
+            -- loop-entry; it never fires inside a region arm.
+            unless target.args.size == 1 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop latch must carry exactly one argument"
+            let updateId := target.args[0]!
+            let updateRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables updateId
+            unless updateRoot.kind == .uint64 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop update must be UInt64"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables target.args
+            pure (instrs, values, none, some #[updateRoot.expr])
+          else do
+            -- Loop entry: the forward jump into the header carries the
+            -- initial induction value. Everything the loop reads from the
+            -- pre-header (initial value, end expression, enclosing lets)
+            -- stays readable through the loop whitelist.
+            let some header := blocks[target.blockId.toNat]? |
+              throw (.planInvariant .noir
+                "unsupported Noir semantic shape: loop header block is missing")
+            unless header.params.size == 1 && target.args.size == 1 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop header must carry exactly one parameter"
+            let some headerParam := header.params[0]? |
+              throw (.planInvariant .noir
+                "unsupported Noir semantic shape: loop header parameter is missing")
+            unless headerParam.typeId == types.uint64TypeId do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop induction variable must be UInt64"
+            let initId := target.args[0]!
+            let initRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables initId
+            unless initRoot.kind == .uint64 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop initial value must be UInt64"
+            let segmentIds : Array ValueIdV1 :=
+              (List.range (values.size - segmentStart)).toArray.map
+                (fun i => UInt32.ofNat (segmentStart + i))
+            let loopReadables := armReadables ++ segmentIds
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables segmentIds
+            -- The induction placeholder's slot is this header's ordinal
+            -- among all loop headers (BlockId order).
+            let mut slot := 0
+            for blk in blocks do
+              if blk.id < header.id then
+                slot := slot + blk.params.size
+            let headerLowered ← lowerBlockInstructionsV1
+              owner mode types states fnSigs paramCount loopReadables header values
+            unless headerLowered.statements.isEmpty do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop header has side effects"
+            let valuesH := headerLowered.values
+            let hSegment := headerLowered.segmentStart
+            match header.terminator with
+            | .branch condId thenT elseT => do
+                let condRoot ← currentValueWithArmsV1 valuesH paramCount hSegment loopReadables condId
+                unless condRoot.kind == .bool do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop condition must be Bool"
+                let cond ← consumeCurrentSegmentV1 valuesH paramCount hSegment loopReadables condId
+                let (bodyStmts, valuesB, bodyNext, backEdge) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    loopReadables (fuel - 1) thenT.blockId.toNat valuesH
+                unless bodyNext.isNone do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop body escapes past its latch"
+                let some updateExprs := backEdge |
+                  throw (.planInvariant .noir
+                    "unsupported Noir semantic shape: loop body does not reach its latch")
+                unless updateExprs.size == 1 do
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: loop latch must carry exactly one update"
+                let loopStmt := Statement.forLoop slot lb.maxIterations
+                  initRoot.expr cond updateExprs[0]! bodyStmts
+                -- Continue the enclosing walk at the loop exit; the loop
+                -- whitelist stays in scope for post-loop reads of pre-loop
+                -- values, and an enclosing latch may still follow (nesting).
+                let (rest, valuesX, nextX, backX) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
+                    loopReadables (fuel - 1) elseT.blockId.toNat valuesB
+                pure (instrs ++ #[loopStmt] ++ rest, valuesX, nextX, backX)
+            | _ =>
+                throw <| .planInvariant .noir
+                  "unsupported Noir semantic shape: loop header must end in a branch"
   | .branch condId thenT elseT =>
       let condRoot ← currentValueWithArmsV1 values paramCount segmentStart armReadables condId
       unless condRoot.kind == .bool do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: branch condition must be Bool"
-      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart condId
-      let (thenBody, values1, thenNext) ←
-        emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+      let cond ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables condId
+      let (thenBody, values1, thenNext, thenBack) ←
+        emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
           armReadables (fuel - 1) thenT.blockId.toNat values
+      unless thenBack.isNone do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop back edge escapes a branch arm"
       match thenNext with
       | some j =>
           if elseT.blockId.toNat == j then
-            let (rest, values2, next) ←
-              emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+            let (rest, values2, next, back2) ←
+              emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
                 armReadables (fuel - 1) j values1
-            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next)
+            pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, next, back2)
           else
-            let (elseBody, values2, elseNext) ←
-              emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+            let (elseBody, values2, elseNext, elseBack) ←
+              emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
                 armReadables (fuel - 1) elseT.blockId.toNat values1
+            unless elseBack.isNone do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: loop back edge escapes a branch arm"
             match elseNext with
             | some j2 =>
                 unless j == j2 do
                   throw <| .planInvariant .noir
                     "unsupported Noir semantic shape: branch arms converge on divergent joins"
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+                let (rest, values3, next, back3) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
                     armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
             | none =>
-                let (rest, values3, next) ←
-                  emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+                let (rest, values3, next, back3) ←
+                  emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
                     armReadables (fuel - 1) j values2
-                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next)
+                pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, next, back3)
       | none =>
-          let (elseBody, values2, elseNext) ←
-            emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+          let (elseBody, values2, elseNext, elseBack) ←
+            emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
               armReadables (fuel - 1) elseT.blockId.toNat values1
-          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext)
+          pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, elseNext, elseBack)
   | .switch scrutId cases defaultTarget =>
       let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart scrutId
+      let scrut ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables scrutId
       let some defaultT := defaultTarget |
         throw (.planInvariant .noir
           "unsupported Noir semantic shape: switch must carry a default target")
@@ -1138,10 +1254,13 @@ private partial def emitRegionV1
       let mut valuesA := values
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutIsBool switchCase.valueBytes
-        let (body, values1, armNext) ←
-          emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+        let (body, values1, armNext, armBack) ←
+          emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
             (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
+        unless armBack.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop back edge escapes a switch arm"
         caseBodies := caseBodies.push (caseValue, body)
         valuesA := values1
         match armNext, joinAcc with
@@ -1151,10 +1270,13 @@ private partial def emitRegionV1
             unless j == j0 do
               throw <| .planInvariant .noir
                 "unsupported Noir semantic shape: switch arms converge on divergent joins"
-      let (defaultBody, values2, defaultNext) ←
-        emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+      let (defaultBody, values2, defaultNext, defaultBack) ←
+        emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
           (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
+      unless defaultBack.isNone do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop back edge escapes a switch arm"
       match defaultNext, joinAcc with
       | none, _ => pure ()
       | some j, none => joinAcc := some j
@@ -1164,12 +1286,12 @@ private partial def emitRegionV1
               "unsupported Noir semantic shape: switch arms converge on divergent joins"
       match joinAcc with
       | none =>
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none)
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, none, none)
       | some j =>
-          let (rest, values3, next) ←
-            emitRegionV1 owner mode types states fnSigs returnKind blocks paramCount
+          let (rest, values3, next, back3) ←
+            emitRegionV1 owner mode types states fnSigs returnKind blocks loops paramCount
               armReadables (fuel - 1) j values2
-          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next)
+          pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, next, back3)
   | .revert errorId argIds =>
       let mut argExprs : Array Expr := #[]
       for argId in argIds do
@@ -1178,8 +1300,8 @@ private partial def emitRegionV1
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: revert arguments must be UInt64"
         argExprs := argExprs.push root.expr
-      let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-      pure (instrs.push (.revertError errorId.toNat argExprs), values, none)
+      let _ ← consumeSegmentRootsV1 values paramCount segmentStart armReadables argIds
+      pure (instrs.push (.revertError errorId.toNat argExprs), values, none, none)
   | .trap _ =>
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: trap terminators are outside the current pilot"
@@ -1194,20 +1316,74 @@ private def lowerCallableV1
     (returnKind : Option NoirValueKindV1)
     (callable : CallableV1) : CompileResult LoweredCallableV1 := do
   unless callable.entryBlock.toNat == 0 && !callable.blocks.isEmpty &&
-      callable.loopBounds.isEmpty && callable.invariantSteps.isNone do
+      callable.invariantSteps.isNone do
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: callable must have an acyclic entry block"
-  unless callable.blocks.all (fun b => b.params.isEmpty) do
+      "unsupported Noir semantic shape: callable must have an entry block 0"
+  -- Loop pattern: every loopBounds entry must pair a single-param UInt64
+  -- header ending in a branch with a latch jumping back with one argument;
+  -- block parameters may appear only on such headers.
+  for lb in callable.loopBounds do
+    let some header := callable.blocks[lb.header.toNat]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop header block is missing")
+    let some latch := callable.blocks[lb.backEdgeFrom.toNat]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop latch block is missing")
+    unless header.params.size == 1 do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: loop header must carry one UInt64 parameter"
+    let some headerParam := header.params[0]? |
+      throw (.planInvariant .noir
+        "unsupported Noir semantic shape: loop header parameter is missing")
+    unless headerParam.typeId == types.uint64TypeId do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: loop header must carry one UInt64 parameter"
+    match header.terminator with
+    | .branch .. => pure ()
+    | _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop header must end in a branch"
+    match latch.terminator with
+    | .jump target =>
+        unless target.blockId == lb.header && target.args.size == 1 do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop latch must jump back with one argument"
+    | _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: loop latch must jump back to the header"
+  for blk in callable.blocks do
+    unless blk.params.isEmpty ||
+        callable.loopBounds.any (fun lb => lb.header == blk.id) do
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: block parameters are only supported on loop headers"
+  let (params, paramValues) ← makeParamsV1 owner inputOffset types.uint64TypeId callable.params
+  -- Pre-seed the loop-induction placeholder slots in canonical ValueId
+  -- order (callable params, then every block param in BlockId order), so
+  -- instruction results keep appending at their canonical positions.
+  let mut seedValues : Array LoweredValueV1 := #[]
+  for blk in callable.blocks do
+    for paramDef in blk.params do
+      unless paramDef.valueId.toNat == paramValues.size + seedValues.size do
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: block parameter ValueIds are not canonical"
+      seedValues := seedValues.push {
+        expr := .loopParam seedValues.size
+        kind := .uint64
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+      }
+  let initialValues := paramValues ++ seedValues
+  let paramCount := initialValues.size
+  let (body0, values0, nextJoin0, back0) ←
+    emitRegionV1 owner mode types states fnSigs returnKind callable.blocks
+      callable.loopBounds paramCount #[] callable.blocks.size 0 initialValues
+  unless back0.isNone do
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: block parameters are not supported"
-  let (params, initialValues) ← makeParamsV1 owner inputOffset types.uint64TypeId callable.params
-  let paramCount := params.size
-  let (body0, values0, nextJoin0) ←
-    emitRegionV1 owner mode types states fnSigs returnKind callable.blocks paramCount #[]
-      callable.blocks.size 0 initialValues
+      "unsupported Noir semantic shape: loop back edge escapes the callable entry"
   -- Fold trailing join continuations (an arm that returned early leaves the
-  -- remaining open path's join to the caller). Join targets strictly increase
-  -- in the forward-only CFG, so this terminates within blocks.size folds.
+  -- remaining open path's join to the caller). Join targets strictly
+  -- increase outside loop bodies, so this terminates within blocks.size folds.
   let mut body := body0
   let mut values := values0
   let mut nextJoin := nextJoin0
@@ -1215,9 +1391,12 @@ private def lowerCallableV1
     match nextJoin with
     | none => break
     | some j =>
-        let (rest, values1, next1) ←
-          emitRegionV1 owner mode types states fnSigs returnKind callable.blocks paramCount #[]
-            callable.blocks.size j values
+        let (rest, values1, next1, back1) ←
+          emitRegionV1 owner mode types states fnSigs returnKind callable.blocks
+            callable.loopBounds paramCount #[] callable.blocks.size j values
+        unless back1.isNone do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop back edge escapes the callable entry"
         body := body ++ rest
         values := values1
         nextJoin := next1
@@ -1300,6 +1479,7 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
   else
     match expr with
     | .literal .. => some 1
+    | .loopParam _ => some 1
     | .param inputIndex =>
         match inputs[inputIndex]? with
         | some input => if let .parameter .. := input.role then some 1 else none
@@ -1422,6 +1602,18 @@ private partial def checkRelationStatementsV1
         closed := true
     | .assert condition =>
         total ← addPlanExprNodes plan relation total condition
+    | .forLoop _ _ initial cond update body =>
+        total ← addPlanExprNodes plan relation total initial
+        total ← addPlanExprNodes plan relation total cond
+        total ← addPlanExprNodes plan relation total update
+        -- One static event slot cannot bind multiple dynamic occurrences.
+        unless (collectEmitSlots body).isEmpty do
+          throw <| .planInvariant .noir
+            s!"relation '{relation.name}' emits an event inside a loop"
+        total := total + 1
+        let (t, _) ← checkRelationStatementsV1 plan relation isView body total
+        total := t
+        closed := false
     | .ifThenElse condition thenBody elseBody =>
         total ← addPlanExprNodes plan relation total condition
         total := total + 1
@@ -1717,7 +1909,7 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .switchOn _ cases defaultBody =>
           !defaultBody.isEmpty && statementListClosesV1 defaultBody.toList &&
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
-      | .store _ | .assert _ | .emitEvent .. => false
+      | .store _ | .assert _ | .emitEvent .. | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 
@@ -1727,14 +1919,21 @@ mutual
     the call site (circuits have no call instruction); everything else maps
     to the flat temp/constraint form. -/
 private partial def lowerExpr (plan : Plan) (fuel : Nat)
+    (loopEnv : Array (Nat × ValueRef))
     (stateValues : Array ValueRef) (next : Nat) :
     Expr → CompileResult LoweredExpr
   | .literal value => pure { operations := #[], value := .literal value, next }
   | .param inputIndex => pure { operations := #[], value := .input inputIndex, next }
+  | .loopParam slot =>
+      match loopEnv.findSome? (fun (s, ref) => if s == slot then some ref else none) with
+      | some ref => pure { operations := #[], value := ref, next }
+      | none =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loop parameter reference outside its loop"
   | .stateLoad fieldIndex => pure { operations := #[], value := stateValues[fieldIndex]!, next }
   | .checkedAdd lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
@@ -1742,8 +1941,8 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         next := rhs.next + 1
       }
   | .checkedSub lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value]
@@ -1751,8 +1950,8 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         next := rhs.next + 1
       }
   | .checkedMul lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMul rhs.next lhs.value rhs.value]
@@ -1760,8 +1959,8 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         next := rhs.next + 1
       }
   | .checkedDiv lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedDiv rhs.next lhs.value rhs.value]
@@ -1769,8 +1968,8 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         next := rhs.next + 1
       }
   | .checkedMod lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMod rhs.next lhs.value rhs.value]
@@ -1778,22 +1977,22 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         next := rhs.next + 1
       }
   | .bitNot operand => do
-      let operand ← lowerExpr plan fuel stateValues next operand
+      let operand ← lowerExpr plan fuel loopEnv stateValues next operand
       pure {
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
       }
   | .boolNot operand => do
-      let operand ← lowerExpr plan fuel stateValues next operand
+      let operand ← lowerExpr plan fuel loopEnv stateValues next operand
       pure {
         operations := operand.operations ++ #[.boolNot operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
       }
   | .compare op lhs rhs => do
-      let lhs ← lowerExpr plan fuel stateValues next lhs
-      let rhs ← lowerExpr plan fuel stateValues lhs.next rhs
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare op rhs.next lhs.value rhs.value]
@@ -1814,7 +2013,7 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
       let mut next' := next
       let mut argRefs : Array ValueRef := #[]
       for arg in args do
-        let value ← lowerExpr plan fuel stateValues next' arg
+        let value ← lowerExpr plan fuel loopEnv stateValues next' arg
         acc := acc ++ value.operations
         argRefs := argRefs.push value.value
         next' := value.next
@@ -1843,6 +2042,9 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
   | .stateLoad _ =>
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: fn body reads state"
+  | .loopParam _ =>
+      throw <| .planInvariant .noir
+        "unsupported Noir semantic shape: loop induction reference inside an inlined fn"
   | .checkedAdd lhs rhs => do
       let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
       let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
@@ -1966,6 +2168,9 @@ private partial def inlineStmtsV1
       | .emitEvent .. =>
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: fn body emits an event"
+      | .forLoop .. =>
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: loops inside fn bodies are outside the Noir pilot"
       | .assert condition => do
           let value ← lowerExprFn plan fuel depth paramValues stateValues next condition
           inlineStmtsV1 plan fuel depth resultIsBool paramValues stateValues value.next
@@ -2079,28 +2284,48 @@ private def revertAssertions (relation : Relation)
         (.input (inputIndexFor relation (.eventSlot effectId argIndex))) (.literal 0)
   operations.push (.assertConstraint (.literal 0))
 
+/-- Continuation invoked at an open path leaf (a fall-through with no
+    statements left): the default ends initializer paths; a loop body's
+    continuation descends into the next unrolling level. Takes the current
+    state environment, temp counter, path emits, and accumulated ops. -/
+private abbrev OpenLeafV1 :=
+  Array ValueRef → Nat → Array (Nat × Array ValueRef) → Array Operation →
+    CompileResult (Array Operation × Nat)
+
+/-- Default open leaf: only the initializer's implicit fallthrough may reach
+    it; every other relation path must end in a return or declared revert. -/
+private def defaultOpenLeafV1 (plan : Plan) (relation : Relation)
+    (emitSlots : Array (Nat × Nat × Nat)) : OpenLeafV1 :=
+  fun stateValues next pathEmits acc => do
+    unless relation.mode == .initialize do
+      throw <| .planInvariant .noir
+        s!"relation '{relation.name}' path does not end in a return"
+    pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits, next)
+
+mutual
+
 /-- Lower a relation statement list into a complete path constraint sequence
     (path enumeration). A region folds the enclosing continuation into each
     of its open arms, so every walk ends at a leaf — a return marker, a
-    declared revert, or the initializer's implicit fallthrough — which emits
-    its own post-state/result/event-slot assertions. Straight-line walking is
+    declared revert, or the open-leaf continuation — which emits its own
+    post-state/result/event-slot assertions. Straight-line walking is
     tail-recursive; only region arm recursion nests (bounded by statement
     nesting). Path duplication from sequential diamonds is bounded by `fuel`
     and fails closed. -/
 private partial def lowerPathStatementsV1
     (plan : Plan) (relation : Relation) (fuel : Nat)
     (emitSlots : Array (Nat × Nat × Nat))
+    (loopEnv : Array (Nat × ValueRef))
+    (openLeaf : OpenLeafV1)
     (stateValues : Array ValueRef) (next : Nat)
     (pathEmits : Array (Nat × Array ValueRef))
     (acc : Array Operation) (statements : List Statement) :
     CompileResult (Array Operation × Nat) := do
   match statements with
   | [] =>
-      -- Open leaf: only the initializer's implicit fallthrough may reach it.
-      unless relation.mode == .initialize do
-        throw <| .planInvariant .noir
-          s!"relation '{relation.name}' path does not end in a return"
-      pure (acc ++ leafAssertions plan relation emitSlots stateValues none pathEmits, next)
+      -- Open leaf: the continuation decides (initializer fallthrough by
+      -- default, loop-level descent inside loop bodies).
+      openLeaf stateValues next pathEmits acc
   | statement :: rest =>
       if fuel == 0 then
         throw <| .planInvariant .noir
@@ -2108,13 +2333,14 @@ private partial def lowerPathStatementsV1
       let fuel := fuel - 1
       match statement with
       | .store store =>
-          let value ← lowerExpr plan fuel stateValues next store.value
-          lowerPathStatementsV1 plan relation fuel emitSlots
+          let value ← lowerExpr plan fuel loopEnv stateValues next store.value
+          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
             (stateValues.set! store.fieldIndex value.value) value.next pathEmits
             (acc ++ value.operations) rest
       | .assert condition =>
-          let value ← lowerExpr plan fuel stateValues next condition
-          lowerPathStatementsV1 plan relation fuel emitSlots stateValues value.next
+          let value ← lowerExpr plan fuel loopEnv stateValues next condition
+          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+            stateValues value.next
             pathEmits (acc ++ value.operations ++ #[.assertConstraint value.value]) rest
       | .emitEvent effectId _ args =>
           -- Evaluate args into the current path; the slot binding lands at
@@ -2123,17 +2349,18 @@ private partial def lowerPathStatementsV1
           let mut next' := next
           let mut argRefs : Array ValueRef := #[]
           for arg in args do
-            let value ← lowerExpr plan fuel stateValues next' arg
+            let value ← lowerExpr plan fuel loopEnv stateValues next' arg
             acc' := acc' ++ value.operations
             argRefs := argRefs.push value.value
             next' := value.next
-          lowerPathStatementsV1 plan relation fuel emitSlots stateValues next'
+          lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+            stateValues next'
             (pathEmits.push (effectId, argRefs)) acc' rest
       | .returnValue valueExpr =>
           unless rest.isEmpty do
             throw <| .planInvariant .noir
               s!"relation '{relation.name}' has a statement after a return"
-          let value ← lowerExpr plan fuel stateValues next valueExpr
+          let value ← lowerExpr plan fuel loopEnv stateValues next valueExpr
           pure (acc ++ value.operations ++
             leafAssertions plan relation emitSlots stateValues (some value.value) pathEmits,
             value.next)
@@ -2153,12 +2380,12 @@ private partial def lowerPathStatementsV1
           let mut acc' := acc
           let mut next' := next
           for arg in args do
-            let value ← lowerExpr plan fuel stateValues next' arg
+            let value ← lowerExpr plan fuel loopEnv stateValues next' arg
             acc' := acc' ++ value.operations
             next' := value.next
           pure (acc' ++ revertAssertions relation emitSlots, next')
       | .ifThenElse condition thenBody elseBody =>
-          let condition ← lowerExpr plan fuel stateValues next condition
+          let condition ← lowerExpr plan fuel loopEnv stateValues next condition
           -- Emission invariant: a region followed by a continuation always
           -- has at least one open arm (the continuation folds into it).
           if statementListClosesV1 thenBody.toList &&
@@ -2168,9 +2395,9 @@ private partial def lowerPathStatementsV1
           let fold := fun (arm : Array Statement) =>
             if statementListClosesV1 arm.toList then arm.toList else arm.toList ++ rest
           let (thenOps, next1) ← lowerPathStatementsV1 plan relation fuel emitSlots
-            stateValues condition.next pathEmits #[] (fold thenBody)
+            loopEnv openLeaf stateValues condition.next pathEmits #[] (fold thenBody)
           let (elseOps, next2) ← lowerPathStatementsV1 plan relation fuel emitSlots
-            stateValues next1 pathEmits #[] (fold elseBody)
+            loopEnv openLeaf stateValues next1 pathEmits #[] (fold elseBody)
           pure (acc ++ condition.operations ++
             #[.ifRegion condition.value thenOps elseOps], next2)
       | .switchOn scrutineeExpr cases defaultBody =>
@@ -2179,7 +2406,7 @@ private partial def lowerPathStatementsV1
           let scrutIsBool := match scrutineeExpr with
             | .compare .. => true
             | _ => false
-          let scrutinee ← lowerExpr plan fuel stateValues next scrutineeExpr
+          let scrutinee ← lowerExpr plan fuel loopEnv stateValues next scrutineeExpr
           if statementListClosesV1 defaultBody.toList &&
               (cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList) &&
               !rest.isEmpty then
@@ -2191,13 +2418,69 @@ private partial def lowerPathStatementsV1
           let mut nextAcc := scrutinee.next
           for (caseValue, caseBody) in cases do
             let (operations, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
-              stateValues nextAcc pathEmits #[] (fold caseBody)
+              loopEnv openLeaf stateValues nextAcc pathEmits #[] (fold caseBody)
             caseOps := caseOps.push (caseValue, operations)
             nextAcc := next'
           let (defaultOps, next') ← lowerPathStatementsV1 plan relation fuel emitSlots
-            stateValues nextAcc pathEmits #[] (fold defaultBody)
+            loopEnv openLeaf stateValues nextAcc pathEmits #[] (fold defaultBody)
           pure (acc ++ scrutinee.operations ++
             #[.switchRegion scrutinee.value scrutIsBool caseOps defaultOps], next')
+      | .forLoop slot bound initE condE updateE body => do
+          -- One static event slot cannot bind multiple dynamic occurrences.
+          unless (collectEmitSlots body).isEmpty do
+            throw <| .planInvariant .noir
+              s!"relation '{relation.name}' emits an event inside a loop"
+          let init ← lowerExpr plan fuel loopEnv stateValues next initE
+          lowerLoopLevelV1 plan relation fuel emitSlots slot bound condE updateE body
+            0 init.value loopEnv openLeaf stateValues init.next pathEmits
+            (acc ++ init.operations) rest
+
+/-- One unrolling level of a `forLoop`: evaluate the condition against the
+    current induction value, then nest the gated body level (which descends
+    through the update) beside the exit continuation. At the static bound
+    the taken arm is inadmissible, mirroring the reference machine's
+    boundExceeded revert on the back edge after the (bound+1)-th body
+    execution. The exit arm always continues with the post-loop statements
+    from this level's environment. -/
+private partial def lowerLoopLevelV1
+    (plan : Plan) (relation : Relation) (fuel : Nat)
+    (emitSlots : Array (Nat × Nat × Nat))
+    (slot : Nat) (bound : UInt32) (condE updateE : Expr) (body : Array Statement)
+    (level : Nat) (iRef : ValueRef)
+    (loopEnv : Array (Nat × ValueRef))
+    (openLeaf : OpenLeafV1)
+    (stateValues : Array ValueRef) (next : Nat)
+    (pathEmits : Array (Nat × Array ValueRef))
+    (acc : Array Operation) (rest : List Statement) :
+    CompileResult (Array Operation × Nat) := do
+  if fuel == 0 then
+    throw <| .planInvariant .noir
+      s!"relation '{relation.name}' loop unrolling exceeds the operation limit"
+  let fuel := fuel - 1
+  let loopEnvK := (loopEnv.filter (·.1 != slot)).push (slot, iRef)
+  let cond ← lowerExpr plan fuel loopEnvK stateValues next condE
+  -- Exit continuation: walk the post-loop statements from this level's
+  -- environment (reached when the condition first fails).
+  let exitWalk := fun (nx : Nat) =>
+    lowerPathStatementsV1 plan relation fuel emitSlots loopEnv openLeaf
+      stateValues nx pathEmits #[] rest
+  if level ≥ bound.toNat then
+    let (exitOps, exitNext) ← exitWalk cond.next
+    pure (acc ++ cond.operations ++
+      #[.ifRegion cond.value #[.assertConstraint (.literal 0)] exitOps], exitNext)
+  else do
+    -- The body's open leaf evaluates the update and descends one level.
+    let bodyLeaf : OpenLeafV1 := fun sv nx pe ac => do
+      let update ← lowerExpr plan fuel loopEnvK sv nx updateE
+      lowerLoopLevelV1 plan relation fuel emitSlots slot bound condE updateE body
+        (level + 1) update.value loopEnv openLeaf sv update.next pe
+        (ac ++ update.operations) rest
+    let (thenOps, thenNext) ← lowerPathStatementsV1 plan relation fuel emitSlots
+      loopEnvK bodyLeaf stateValues cond.next pathEmits #[] body.toList
+    let (exitOps, exitNext) ← exitWalk thenNext
+    pure (acc ++ cond.operations ++ #[.ifRegion cond.value thenOps exitOps], exitNext)
+
+end
 
 private def lowerRelation (plan : Plan) (relation : Relation) :
     CompileResult RelationIR := do
@@ -2211,8 +2494,10 @@ private def lowerRelation (plan : Plan) (relation : Relation) :
   if !plan.states.isEmpty then
     operations := operations.push <| .assertBool
       (inputIndexFor relation .preInitialized) (relation.mode != .initialize)
+  let emitSlots := collectEmitSlots relation.body
   let (pathOps, next) ← lowerPathStatementsV1 plan relation
-    plan.resourceLimits.maxIrOperations (collectEmitSlots relation.body)
+    plan.resourceLimits.maxIrOperations emitSlots #[]
+    (defaultOpenLeafV1 plan relation emitSlots)
     stateValues 0 #[] #[] relation.body.toList
   pure {
     sourceRelation := relation

@@ -1473,6 +1473,195 @@ private unsafe def checkArithOpsProduct : IO Unit := do
   expect (parityNr.contents.contains ": bool = !")
     "ArithFlow parity .nr must render Bool NOT"
 
+/-- Bounded for loops: the Plan carries a single-param `.forLoop`, and the
+    relation unrolls it into nested predicated if-regions whose deepest
+    taken arm is inadmissible (the boundExceeded mirror). Emits inside loop
+    bodies and loops inside fn bodies fail closed. -/
+private def loopSumSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program LoopSum where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry addUp(n : UInt64) : UInt64 do\n" ++
+  "    let limit : UInt64 := n + 4\n" ++
+  "    for i in n ..< limit bounded 8 do\n" ++
+  "      count := count + i\n" ++
+  "    return count\n\n" ++
+  "  entry scan(n : UInt64) : UInt64 do\n" ++
+  "    for i in n ..< n bounded 2 do\n" ++
+  "      count := count + 1\n" ++
+  "    return count\n\n" ++
+  "  entry addUpTight(n : UInt64) : UInt64 do\n" ++
+  "    for i in n ..< n + 4 bounded 3 do\n" ++
+  "      count := count + i\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private partial def countIfRegionDepth : Array Targets.Noir.Operation → Nat
+  | ops => ops.foldl (fun acc op =>
+      match op with
+      | .ifRegion _ thenOps elseOps =>
+          max acc (max (1 + countIfRegionDepth thenOps) (countIfRegionDepth elseOps))
+      | _ => acc) 0
+
+private unsafe def checkForLoopProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 loopSumSourceText
+    "Examples.LoopSum" "<noir-loop-sum>"
+  let initializer ← findRelation ir "init"
+  let addUp ← findRelation ir "addUp"
+  let scan ← findRelation ir "scan"
+  let addUpTight ← findRelation ir "addUpTight"
+
+  -- Plan pins: addUp lowers to a single forLoop statement + return.
+  let addUpPlan := addUp.sourceRelation
+  expect (addUpPlan.body.size == 2)
+    s!"LoopSum addUp body must be [forLoop, return], got {addUpPlan.body.size}"
+  match addUpPlan.body[0]! with
+  | .forLoop slot bound initial cond update body =>
+      expect (slot == 0 && bound == 8)
+        s!"LoopSum addUp loop must be slot 0 with bound 8, got slot {slot} bound {bound}"
+      expect (initial == .param 2)
+        "LoopSum addUp loop must initialize the induction variable from the parameter"
+      expect (cond == .compare .lt (.loopParam 0) (.checkedAdd (.param 2) (.literal 4)))
+        "LoopSum addUp condition must be i < n + 4"
+      expect (update == .checkedAdd (.loopParam 0) (.literal 1))
+        "LoopSum addUp update must be i + 1"
+      expect (body == #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.loopParam 0) }])
+        "LoopSum addUp body must accumulate the induction variable"
+  | _ => throw <| IO.userError "LoopSum addUp body must start with a forLoop"
+  match addUpPlan.body[1]! with
+  | .returnValue (.stateLoad 0) => pure ()
+  | _ => throw <| IO.userError "LoopSum addUp must return the post-loop state"
+
+  -- IR pins: nested predicated if-regions, bound+1 deep, innermost taken arm
+  -- inadmissible.
+  let top := addUp.operations
+  expect (top.size == 4)
+    s!"LoopSum addUp relation must be [preInitialized, limit, cond, loopRegion], got {top.size}"
+  match top[2]! with
+  | .compare .lt .. => pure ()
+  | _ => throw <| IO.userError "LoopSum addUp first condition must be a lt compare"
+  match top[3]! with
+  | .ifRegion .. => pure ()
+  | _ => throw <| IO.userError "LoopSum addUp must nest its loop in an if-region"
+  expect (countIfRegionDepth top == 9)
+    s!"LoopSum addUp must unroll bound 8 into 9 nested regions, got {countIfRegionDepth top}"
+  -- Walk to the deepest taken arm: it must be the inadmissible bound guard.
+  let findThen := fun (ops : Array Targets.Noir.Operation) =>
+    ops.findSome? fun op => match op with
+      | .ifRegion _ thenOps _ => some thenOps
+      | _ => none
+  let mut cursor := top
+  for _ in [0:8] do
+    match findThen cursor with
+    | some thenOps => cursor := thenOps
+    | none => throw <| IO.userError "LoopSum addUp nesting broke before the bound level"
+  match findThen cursor with
+  | some thenOps =>
+      expect (thenOps == #[.assertConstraint (.literal 0)])
+        "LoopSum addUp deepest taken arm must be inadmissible (boundExceeded)"
+  | none => throw <| IO.userError "LoopSum addUp bound level must be an if-region"
+
+  -- Model: init(0) → addUp(1) = 10 (i ∈ {1,2,3,4}); addUp(6) from 10 → 40;
+  -- scan(7) zero-trip; addUpTight exceeds its bound for any witness.
+  let initOk ← liftModel "LoopSum init inputs" <|
+    statefulInputs initializer false 0 0 0 true 0
+  expectAccept "LoopSum init" initializer initOk
+  let addOk ← liftModel "LoopSum addUp ok inputs" <|
+    statefulInputs addUp true 0 1 10 true 10
+  expectAccept "LoopSum addUp(1) accepts" addUp addOk
+  let addWrong ← liftModel "LoopSum addUp wrong inputs" <|
+    statefulInputs addUp true 0 1 11 true 11
+  expectReject "LoopSum addUp wrong post rejects" addUp addWrong
+  let add6 ← liftModel "LoopSum addUp 6 inputs" <|
+    statefulInputs addUp true 10 6 40 true 40
+  expectAccept "LoopSum addUp(6) from 10 accepts" addUp add6
+  let scanOk ← liftModel "LoopSum scan inputs" <|
+    statefulInputs scan true 5 7 5 true 5
+  expectAccept "LoopSum scan zero-trip accepts" scan scanOk
+  let tightAny ← liftModel "LoopSum tight inputs" <|
+    statefulInputs addUpTight true 0 1 10 true 10
+  expectReject "LoopSum addUpTight beyond the bound is inadmissible" addUpTight tightAny
+  let tightShort ← liftModel "LoopSum tight short inputs" <|
+    statefulInputs addUpTight true 0 1 3 true 3
+  expectReject "LoopSum addUpTight stays inadmissible at any post" addUpTight tightShort
+
+  -- `.nr` surface: nested ifs and the inadmissible bound guard; no explicit
+  -- loop construct exists in the relation source.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 loopSumSourceText
+      "<noir-loop-emit>" "Examples.LoopSum" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some addUpNr := files.find? (fun file =>
+      file.path.endsWith "r1-addUp/src/main.nr") |
+    throw <| IO.userError "LoopSum missing addUp main.nr"
+  expect (addUpNr.contents.contains "if ")
+    "LoopSum addUp .nr must render the unrolled predicated ifs"
+  expect (addUpNr.contents.contains "assert(false)")
+    "LoopSum addUp .nr must render the bound guard as assert(false)"
+
+  -- Emit inside a loop body fails closed (one static slot cannot bind
+  -- multiple dynamic occurrences).
+  let emitSourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program LoopEmit where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  event Hit(x : UInt64)\n\n" ++
+    "  entry bump(n : UInt64) : UInt64 do\n" ++
+    "    for i in n ..< n + 2 bounded 2 do\n" ++
+    "      emit Hit(i)\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  match ← do
+      let session ← Tests.Language.ParserSession.shared
+      let source ← liftResult (← session.selectProgramV1 emitSourceText
+        "<noir-loop-emit-neg>" "Examples.LoopEmit" none)
+      let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      pure (Targets.Noir.planFromCapability capability) with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "LoopEmit must fail closed"
+
+  -- Loops inside fn bodies fail closed at the Noir inline walker.
+  let fnLoopSourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program FnLoop where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  fn loopf(x : UInt64) : UInt64 do\n" ++
+    "    for i in x ..< x + 2 bounded 2 do\n" ++
+    "      assert i > 0\n" ++
+    "    return x\n\n" ++
+    "  entry use(y : UInt64) : UInt64 do\n" ++
+    "    return loopf(y)\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  match ← do
+      let session ← Tests.Language.ParserSession.shared
+      let source ← liftResult (← session.selectProgramV1 fnLoopSourceText
+        "<noir-fn-loop-neg>" "Examples.FnLoop" none)
+      let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      pure (Targets.Noir.planFromCapability capability) with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "FnLoop must fail closed"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -1504,5 +1693,6 @@ unsafe def run : IO Unit := do
   checkEmitRevertProduct
   checkFnLocalCallProduct
   checkArithOpsProduct
+  checkForLoopProduct
 
 end Tests.Materialization.NoirRelationModel
