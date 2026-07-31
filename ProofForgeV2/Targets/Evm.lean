@@ -61,6 +61,21 @@ inductive Expr where
   | bitNot (operand : Expr)
   /-- Logical not on a Bool operand (`Yul iszero`). -/
   | boolNot (operand : Expr)
+  /-- Bitwise and on UInt64 operands (`Yul and`); no failure mode. -/
+  | bitAnd (lhs rhs : Expr)
+  /-- Bitwise or on UInt64 operands (`Yul or`); no failure mode. -/
+  | bitOr (lhs rhs : Expr)
+  /-- Bitwise xor on UInt64 operands (`Yul xor`); no failure mode. -/
+  | bitXor (lhs rhs : Expr)
+  /-- Left shift: UInt64 value, UInt32 count. Yul reverts on count ≥ 64
+  (`invalidShift`) or result ≥ 2^64 (`arithmeticOverflow`). -/
+  | shl (lhs rhs : Expr)
+  /-- Right shift: UInt64 value, UInt32 count. Yul reverts on count ≥ 64. -/
+  | shr (lhs rhs : Expr)
+  /-- Strict Bool and (both sides always evaluate; `Yul and` on 0/1 words). -/
+  | logicalAnd (lhs rhs : Expr)
+  /-- Strict Bool or (both sides always evaluate; `Yul or` on 0/1 words). -/
+  | logicalOr (lhs rhs : Expr)
   /-- Pure local call: `fnIndex` indexes `Plan.fns`; args are UInt64 expressions.
   Result kind is the callee's declared result (UInt64 or Bool). Not an effect
   boundary — stays inside a value segment like checkedAdd. -/
@@ -204,27 +219,41 @@ private structure EvmTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
   boolTypeId : Option TypeIdV1
+  /-- Optional anonymous UInt32: admitted only as shift-count intermediates. -/
+  uint32TypeId : Option TypeIdV1
 
-/-- EVM pilot accepts the anonymous UInt64/Unit/Bool closure currently emitted
-    by the NormalizeV1 public-UInt64 comparison+assert envelope. Valid but richer
+/-- EVM pilot accepts the anonymous UInt64/Unit/Bool/UInt32 closure currently
+    emitted by the NormalizeV1 public-UInt64 envelope. Valid but richer
     SemanticProgramV1 programs fail at the target Plan seam rather than being
     silently erased. Bool is optional (at most one): admitted as body intermediate
-    values and as entry/view results; state/params remain UInt64-only. -/
+    values and as entry/view results. UInt32 is optional (at most one): admitted
+    only as shift-count literals/intermediates. State/params remain UInt64-only. -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 := do
   let mut uint64TypeId : Option TypeIdV1 := none
   let mut unitTypeId : Option TypeIdV1 := none
   let mut boolTypeId : Option TypeIdV1 := none
+  let mut uint32TypeId : Option TypeIdV1 := none
   for decl in types do
     unless decl.name.isNone do
       throw <| .planInvariant .evm
         "unsupported EVM semantic shape: named types are outside the current UInt64 pilot"
     match decl.shape with
     | .uint width =>
-        unless width.toNat == 64 && uint64TypeId.isNone do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: expected one anonymous UInt64 type"
-        uint64TypeId := some decl.id
+        match width.toNat with
+        | 64 =>
+            unless uint64TypeId.isNone do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: expected one anonymous UInt64 type"
+            uint64TypeId := some decl.id
+        | 32 =>
+            unless uint32TypeId.isNone do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: expected at most one anonymous UInt32 type"
+            uint32TypeId := some decl.id
+        | _ =>
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: only anonymous UInt64/UInt32 integer widths are supported"
     | .unit =>
         unless unitTypeId.isNone do
           throw <| .planInvariant .evm
@@ -237,12 +266,17 @@ private def validateEvmTypeClosureV1
         boolTypeId := some decl.id
     | _ =>
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: only UInt64, Unit, and Bool are supported"
+          "unsupported EVM semantic shape: only UInt64, UInt32, Unit, and Bool are supported"
   let resolvedUInt64TypeId ← match uint64TypeId with
     | some value => pure value
     | none => throw (.planInvariant .evm
         "unsupported EVM semantic shape: UInt64 type is missing")
-  pure { uint64TypeId := resolvedUInt64TypeId, unitTypeId, boolTypeId }
+  pure {
+    uint64TypeId := resolvedUInt64TypeId
+    unitTypeId
+    boolTypeId
+    uint32TypeId
+  }
 
 private def makeStorageLayoutV1
     (uint64TypeId : TypeIdV1)
@@ -269,8 +303,9 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
-  /-- Defensive kind bit: true for comparison results and Bool literals only.
-  State loads, params, and checked arithmetic are always false. -/
+  /-- Defensive kind bit: true for comparison/logical results and Bool
+  literals only. State loads, params, UInt32 shift counts, arithmetic,
+  bitwise, and shifts are always false. -/
   isBool : Bool
   deriving Inhabited
 
@@ -335,6 +370,23 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: trailing UInt64 literal bytes"
 
+/-- Shift-count literals are 4-byte LE UInt32 on the wire; widen to UInt64 for
+    the Plan expression surface (values are always < 2^32). -/
+private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 4 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: UInt32 literal must contain exactly 4 bytes"
+  match decodeU32le (start bytes) with
+  | .error _ =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: invalid UInt32 literal"
+  | .ok (value, cursor) =>
+      match finish cursor with
+      | .ok () => pure (UInt64.ofNat value.toNat)
+      | .error _ =>
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: trailing UInt32 literal bytes"
+
 private def currentValueV1
     (values : Array LoweredValueV1)
     (paramCount segmentStart : Nat)
@@ -360,7 +412,11 @@ private def currentValueWithArmsV1
   findValueV1 values id
 
 /-- Shared bounded SSA-tree cost for binary Expr constructors. `isBool` tags
-    comparison results; arithmetic is always UInt64. -/
+    comparison results; arithmetic/bitwise are UInt64 or (shift-count only)
+    UInt32; shifts are UInt64. Operands must be non-Bool. UInt32 arithmetic
+    reuses the UInt64 Yul forms: a true u32 wrap (≥ 2^32) can only flow into a
+    shift count in this envelope, where `lt(k, 64)` reverts as invalidShift
+    (not arithmeticOverflow) — both paths fail closed. -/
 private def makeBinaryTreeValueV1
     (mk : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
@@ -385,8 +441,47 @@ private def makeBinaryTreeValueV1
     isBool
   }
 
+/-- Strict Bool binary: both operands must already be Bool-tagged; result is
+    Bool. Same expanded-tree cost accounting as UInt64 binaries. -/
+private def makeLogicalTreeValueV1
+    (mk : Expr → Expr → Expr)
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.isBool && rhs.isBool do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: logical operands must be Bool"
+  let depth := 1 + max lhs.depth rhs.depth
+  if depth > maxExprDepth then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds depth {maxExprDepth}"
+  if lhs.expandedNodes > maxPlanNodes - 1 then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  let remaining := maxPlanNodes - 1 - lhs.expandedNodes
+  if rhs.expandedNodes > remaining then
+    throw <| .planInvariant .evm s!"EVM plan expression exceeds node limit {maxPlanNodes}"
+  pure {
+    expr := mk lhs.expr rhs.expr
+    depth
+    expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
+    dependencies := #[lhsId, rhsId]
+    isBool := true
+  }
+
+/-- Admit a wire result TypeId for UInt-width arithmetic/bitwise: anonymous
+    UInt64 (ordinary path) or the optional anonymous UInt32 (shift-count
+    intermediates only). Returns the TypeId for `appendResultValueV1`. -/
+private def admitUIntWidthResultTypeV1
+    (types : EvmTypeClosureV1) (resultTypeId : TypeIdV1) : CompileResult TypeIdV1 := do
+  if resultTypeId == types.uint64TypeId then
+    pure resultTypeId
+  else if types.uint32TypeId == some resultTypeId then
+    pure resultTypeId
+  else
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: arithmetic/bitwise result must be UInt64 or UInt32"
+
 /-- Compute expanded tree cost before constructing an EVM Expr node. A shared
-    SSA operand counts once per use, so `add(v,v)` doubles the expanded cost. -/
+    SSA operand counts once per use, so `add(v,v)` doubles the expanded cost.
+    Also admits UInt32-typed shift-count arithmetic (same Plan/Yul forms). -/
 private def makeCheckedAddValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
@@ -423,6 +518,48 @@ private def makeCheckedModValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueV1 .checkedMod lhsId rhsId lhs rhs false
+
+/-- Bitwise and: UInt64/UInt32 operands → same-width result; no failure mode. -/
+private def makeBitAndValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .bitAnd lhsId rhsId lhs rhs false
+
+/-- Bitwise or: UInt64/UInt32 operands → same-width result; no failure mode. -/
+private def makeBitOrValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .bitOr lhsId rhsId lhs rhs false
+
+/-- Bitwise xor: UInt64/UInt32 operands → same-width result; no failure mode. -/
+private def makeBitXorValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .bitXor lhsId rhsId lhs rhs false
+
+/-- Left shift: UInt64 value + UInt32 count → UInt64 (guards in Yul). -/
+private def makeShlValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .shl lhsId rhsId lhs rhs false
+
+/-- Right shift: UInt64 value + UInt32 count → UInt64 (count guard in Yul). -/
+private def makeShrValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeBinaryTreeValueV1 .shr lhsId rhsId lhs rhs false
+
+/-- Strict Bool and: Bool operands → Bool result. -/
+private def makeLogicalAndValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeLogicalTreeValueV1 .logicalAnd lhsId rhsId lhs rhs
+
+/-- Strict Bool or: Bool operands → Bool result. -/
+private def makeLogicalOrValueV1
+    (lhsId rhsId : ValueIdV1)
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
+  makeLogicalTreeValueV1 .logicalOr lhsId rhsId lhs rhs
 
 /-- Shared bounded SSA-tree cost for unary Expr constructors. -/
 private def makeUnaryTreeValueV1
@@ -718,6 +855,16 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
             isBool := false
           }
+        else if types.uint32TypeId == some typeId then
+          -- Shift-count intermediates only; stored as non-Bool UInt64 words.
+          let value ← decodeUInt32LiteralV1 bytes
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+          }
         else
           let boolTid ← match types.boolTypeId with
             | some tid => pure tid
@@ -725,7 +872,7 @@ private def lowerBlockInstructionsV1
                 "unsupported EVM semantic shape: Bool literal requires anonymous Bool type")
           unless typeId == boolTid do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: literal is not UInt64 or Bool"
+              "unsupported EVM semantic shape: literal is not UInt64, UInt32, or Bool"
           let value ← decodeBoolLiteralV1 bytes
           -- Bool words are 0/1 UInt64 literals in the Plan expression surface,
           -- tagged isBool so return/assert/store kind gates remain defensive.
@@ -752,25 +899,70 @@ private def lowerBlockInstructionsV1
         let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
         if op == .add then
+          -- UInt64 ordinary path, or UInt32 shift-count arithmetic (e.g. 32+32).
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
           let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .sub then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
           let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .mul then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
           let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .div then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
           let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 uint64TypeId values result value
+          values := ← appendResultValueV1 widthTid values result value
         else if op == .mod then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
           let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
+        else if op == .bitAnd then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitAndValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
+        else if op == .bitOr then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitOrValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
+        else if op == .bitXor then
+          let widthTid ← admitUIntWidthResultTypeV1 types result.typeId
+          let value ← makeBitXorValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 widthTid values result value
+        else if op == .shl then
+          -- Shift result is always UInt64 (value width); count may be UInt32.
+          let value ← makeShlValueV1 lhsId rhsId lhs rhs
           values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .shr then
+          let value ← makeShrValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 uint64TypeId values result value
+        else if op == .and then
+          let boolTid ← match types.boolTypeId with
+            | some tid => pure tid
+            | none => throw (.planInvariant .evm
+                "unsupported EVM semantic shape: logical and requires anonymous Bool type")
+          unless result.typeId == boolTid do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: logical and result must be Bool"
+          let value ← makeLogicalAndValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 boolTid values result value
+        else if op == .or then
+          let boolTid ← match types.boolTypeId with
+            | some tid => pure tid
+            | none => throw (.planInvariant .evm
+                "unsupported EVM semantic shape: logical or requires anonymous Bool type")
+          unless result.typeId == boolTid do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: logical or result must be Bool"
+          let value ← makeLogicalOrValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 boolTid values result value
         else
           match comparisonOpOfBinaryV1 op with
           | none =>
               throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: only checked UInt64 add/sub/mul/div/mod and comparisons are supported"
+                "unsupported EVM semantic shape: only checked UInt64 arith/bitwise/shift, Bool logical, and comparisons are supported"
           | some cmpOp =>
               let boolTid ← match types.boolTypeId with
                 | some tid => pure tid
@@ -970,6 +1162,21 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"mod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .bitNot operand => s!"not({renderExprNested paramPrefix operand})"
   | .boolNot operand => s!"iszero({renderExprNested paramPrefix operand})"
+  | .bitAnd lhs rhs =>
+      s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .bitOr lhs rhs =>
+      s!"or({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .bitXor lhs rhs =>
+      s!"xor({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  -- Nested form omits count/overflow guards (same discipline as checkedAdd).
+  | .shl lhs rhs =>
+      s!"shl({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
+  | .shr lhs rhs =>
+      s!"shr({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
+  | .logicalAnd lhs rhs =>
+      s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .logicalOr lhs rhs =>
+      s!"or({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .callFn fnIndex args =>
       let argsJoined := String.intercalate ", "
         (args.toList.map (renderExprNested paramPrefix))
@@ -1625,6 +1832,17 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
+    | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
+    | .shl lhs rhs | .shr lhs rhs
+    | .logicalAnd lhs rhs | .logicalOr lhs rhs =>
+        let childDepth := depthLeft - 1
+        let available := nodeBudget - 1
+        match planExprNodes? slots paramCount childDepth available fns lhs with
+        | none => none
+        | some lhsNodes =>
+            match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
+            | none => none
+            | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .bitNot operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
@@ -1644,11 +1862,14 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             if args.size != binding.params.size then
               none
             else
-              -- Args must be UInt64-compatible (no compare / boolNot / Bool-returning callFn).
+              -- Args must be UInt64-compatible (no compare / boolNot / logical /
+              -- Bool-returning callFn).
               let argsOk := args.all fun arg =>
                 match arg with
                 | .compare .. => false
                 | .boolNot .. => false
+                | .logicalAnd .. => false
+                | .logicalOr .. => false
                 | .callFn nestedIdx _ =>
                     match fns[nestedIdx]? with
                     | some nested => !nested.resultIsBool
@@ -1686,9 +1907,10 @@ private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     throw <| .planInvariant .evm "plan store references an unknown storage slot"
   addPlanExprNodes slots paramCount total fns store.value
 
-/-- Structural Bool-producer: comparison is always Bool. Bool literals are
-    surface-encoded as `.literal 0`/`.literal 1` and are accepted only where a
-    Bool kind is required (return/assert). callFn uses the callee result flag. -/
+/-- Structural Bool-producer: comparison and strict logical ops are always Bool.
+    Bool literals are surface-encoded as `.literal 0`/`.literal 1` and are
+    accepted only where a Bool kind is required (return/assert). callFn uses
+    the callee result flag. -/
 private def exprIsCompareV1 : Expr → Bool
   | .compare .. => true
   | _ => false
@@ -1701,6 +1923,8 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
   match expr with
   | .compare .. => true
   | .boolNot .. => true
+  | .logicalAnd .. => true
+  | .logicalOr .. => true
   | .literal value => value == 0 || value == 1
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
@@ -1708,13 +1932,16 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
       | none => false
   | _ => false
 
-/-- UInt64-compatible: everything except comparison, boolNot, and Bool-returning
-    callFn. Literals/params/loads/arithmetic/bitNot remain UInt64, including
-    0/1 which also double as Bool words when resultKind demands it. -/
+/-- UInt64-compatible: everything except comparison, boolNot, logical binaries,
+    and Bool-returning callFn. Literals/params/loads/arithmetic/bitwise/shift/
+    bitNot remain UInt64, including 0/1 which also double as Bool words when
+    resultKind demands it. -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => false
   | .boolNot .. => false
+  | .logicalAnd .. => false
+  | .logicalOr .. => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some binding => !binding.resultIsBool
@@ -2249,6 +2476,61 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := operand.code ++
           s!"{indent}let {name} := iszero({operand.value})\n",
         value := name, next := operand.next + 1 }
+  | .bitAnd lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := and({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .bitOr lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := or({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .bitXor lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := xor({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .shl lhs rhs =>
+      -- Yul `shl(k, x)`: count first. Count ≥ 64 → invalidShift; result ≥ 2^64
+      -- → arithmeticOverflow. Inputs are already UInt64/UInt32-bounded words.
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, 64)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := shl({rhs.value}, {lhs.value})\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := rhs.next + 1 }
+  | .shr lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, 64)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := shr({rhs.value}, {lhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .logicalAnd lhs rhs =>
+      -- Strict: both sides already materialised; 0/1 bitwise and == logical and.
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := and({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .logicalOr lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {name} := or({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
   | .callFn fnIndex args => Id.run do
       let mut code := ""
       let mut next := next

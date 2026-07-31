@@ -1275,6 +1275,112 @@ private unsafe def testArithOps : IO Unit := do
   | .error (.planInvariant .evm _) => pure ()
   | _ => throw <| IO.userError "validatePlan must reject Bool entry returning bitNot"
 
+/-- Wave H: shift / bitwise / strict logical binary Plan lowering and Yul. -/
+private unsafe def testShiftBitwiseLogical : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BitLogic where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+    "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "    return count\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n" ++
+    "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    return a > 0 || (one / b) == one\n" ++
+    "  entry bigShift(x : UInt64) : UInt64 do\n" ++
+    "    return x >> (32 + 32)\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load BitLogic" (← session.selectProgramV1
+    sourceText "<evm-bit-logic>" "Tests.EvmBitLogic" none)
+  let compiled ← liftResult "compile BitLogic" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BitLogic" <| planEvm compiled
+  expect (plan.entries.map (·.name) ==
+      #["shiftMask", "both", "strictOr", "bigShift", "get"])
+    "BitLogic must lower five entries in source order"
+  let shiftMask := plan.entries[0]!
+  -- Precedence: shift > bitAnd > bitXor > bitOr
+  -- ((x << 2) & 15) | ((x >> 1) ^ 3)
+  expect (shiftMask.body == #[
+      .store {
+        slot := 0
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 0) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 0) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.storageLoad 0)])
+    "shiftMask must lower shl/bitAnd/shr/bitXor/bitOr with exact nesting"
+  let both := plan.entries[1]!
+  expect (both.resultKind == .bool)
+    "both must declare a Bool result"
+  expect (both.body == #[
+      .returnValue
+        (.logicalAnd
+          (.compare .gt (.param 0) (.literal 0))
+          (.compare .gt (.param 1) (.literal 0)))])
+    "both must lower a > 0 && b > 0 to logicalAnd over two gt compares"
+  let strictOr := plan.entries[2]!
+  expect (strictOr.resultKind == .bool)
+    "strictOr must declare a Bool result"
+  expect (strictOr.body == #[
+      .returnValue
+        (.logicalOr
+          (.compare .gt (.param 0) (.literal 0))
+          (.compare .eq
+            (.checkedDiv (.literal 1) (.param 1))
+            (.literal 1)))])
+    "strictOr must lower a > 0 || (one / b) == one to logicalOr(gt, eq(div))"
+  let bigShift := plan.entries[3]!
+  -- Computed UInt32 count: only way to reach invalidShift at runtime (CheckV1
+  -- rejects a literal count ≥ 64). Count is checkedAdd of two UInt32 lits.
+  expect (bigShift.body == #[
+      .returnValue
+        (.shr (.param 0) (.checkedAdd (.literal 32) (.literal 32)))])
+    "bigShift must lower x >> (32 + 32) to shr(param, checkedAdd(32, 32))"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BitLogic plan must validate: {e.render}"
+  let output ← liftResult "materialize BitLogic" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BitLogic.yul") |
+    throw <| IO.userError "BitLogic: missing BitLogic.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "shl(")
+    "BitLogic Yul must render shl("
+  expect (yul.contains "shr(")
+    "BitLogic Yul must render shr("
+  expect (yul.contains "and(")
+    "BitLogic Yul must render and("
+  expect (yul.contains "xor(")
+    "BitLogic Yul must render xor("
+  expect (yul.contains "or(")
+    "BitLogic Yul must render or("
+  expect (yul.contains "lt(")
+    "BitLogic Yul must render lt( for the shift-count guard"
+  expect (yul.contains "iszero(lt(")
+    "BitLogic Yul must count-guard with iszero(lt(k, 64)) (covers bigShift=64)"
+  expect (yul.contains "gt(expr")
+    "BitLogic Yul must overflow-guard shl with gt(exprN, 0xffffffffffffffff)"
+  expect (yul.contains "revert(0, 0)")
+    "BitLogic Yul must contain shift/overflow/zero-divisor revert(0, 0) guards"
+  -- bigShift's computed count materialises as add of two 32 literals under the
+  -- ordinary checked-add form; the shift-count guard reverts at runtime.
+  expect (yul.contains "add(")
+    "BitLogic Yul must render add( for the bigShift UInt32 count expression"
+  pure ()
+
 /-- Wave G: bounded for-loop Plan recovery, runtime maxIterations back-edge
     enforcement, and Yul `for` rendering. -/
 private unsafe def testForLoop : IO Unit := do
@@ -1399,6 +1505,7 @@ unsafe def run : IO Unit := do
   testEmitRevertFlow
   testFnLocalCall
   testArithOps
+  testShiftBitwiseLogical
   testForLoop
   testRegionValidationNegatives
   testComparisonNegatives
