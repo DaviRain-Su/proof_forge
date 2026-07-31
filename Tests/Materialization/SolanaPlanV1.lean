@@ -1316,6 +1316,138 @@ private unsafe def testForLoop
   let ir2 ← liftResult <| irSolana compiled
   expect (ir == ir2) "ForLoop IR rebuild must be structure-identical"
 
+/-- Shift / bitwise / strict logical binaries: UInt64 masks, guarded shifts
+    (count ≥ 64 → 0x1004 invalidShift; shl overflow → 0x1001), Bool
+    `bool_and`/`bool_or` with both sides always evaluated, and computed UInt32
+    shift counts (e.g. `x >> (32 + 32)` — the only way invalidShift is reachable
+    at runtime because CheckV1 rejects literal counts ≥ 64). -/
+private unsafe def testShiftBitwiseLogical
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "BitLogic" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry shiftMask(x : UInt64) : UInt64 do\n" ++
+    "    count := (x << 2) & 15 | (x >> 1) ^ 3\n" ++
+    "    return count\n\n" ++
+    "  entry both(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    return a > 0 && b > 0\n\n" ++
+    "  entry strictOr(a : UInt64, b : UInt64) : Bool do\n" ++
+    "    let one : UInt64 := 1\n" ++
+    "    return a > 0 || (one / b) == one\n\n" ++
+    "  entry bigShift(x : UInt64) : UInt64 do\n" ++
+    "    return x >> (32 + 32)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session source "Examples.BitLogic" "<solana-bit-logic>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.invalidShiftError == invalidShiftError)
+    "Plan must carry the canonical invalidShiftError policy code"
+  let shiftMask ← findHandler plan "shiftMask"
+  -- Precedence: & > ^ > | so
+  --   ((x << 2) & 15) | ((x >> 1) ^ 3)
+  expect (shiftMask.body == #[
+      .store {
+        accountIndex := 0
+        byteOffset := 8
+        value := .bitOr
+          (.bitAnd
+            (.shl (.param 8) (.literal 2))
+            (.literal 15))
+          (.bitXor
+            (.shr (.param 8) (.literal 1))
+            (.literal 3))
+      },
+      .returnValue (.stateLoad 0 8)])
+    "shiftMask Plan body must nest shl/bitAnd | shr/bitXor with store + return"
+  let both ← findHandler plan "both"
+  expect (both.resultKind == .bool &&
+      both.body == #[
+        .returnValue (.boolAnd
+          (.compare .gt (.param 8) (.literal 0))
+          (.compare .gt (.param 16) (.literal 0)))])
+    "both Plan body must be return boolAnd(gt(a,0), gt(b,0))"
+  let strictOr ← findHandler plan "strictOr"
+  -- Strict: both sides evaluate; rhs is eq(div(1,b), 1).
+  expect (strictOr.resultKind == .bool &&
+      strictOr.body == #[
+        .returnValue (.boolOr
+          (.compare .gt (.param 8) (.literal 0))
+          (.compare .eq
+            (.checkedDiv (.literal 1) (.param 16))
+            (.literal 1)))])
+    "strictOr Plan body must be return boolOr(gt(a,0), eq(div(1,b), 1))"
+  let bigShift ← findHandler plan "bigShift"
+  -- Computed UInt32 count: (32 + 32) lowers as checkedAdd of two UInt32 lits.
+  expect (bigShift.body == #[
+      .returnValue (.shr (.param 8)
+        (.checkedAdd (.literal 32) (.literal 32)))])
+    "bigShift Plan body must be return shr(param, checkedAdd(32, 32))"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let shiftMaskIR ← findHandlerIR ir "shiftMask"
+  let overflow := plan.arithmeticOverflowError
+  let shiftErr := plan.invalidShiftError
+  -- Dense temps: load x, lit 2, shl, lit 15, bitAnd, load x, lit 1, shr,
+  -- lit 3, bitXor, bitOr, store, load count, set_return_data.
+  expect (shiftMaskIR.operations == #[
+      .loadParam 0 8,
+      .literal 1 2,
+      .checkedShl 2 0 1 shiftErr overflow,
+      .literal 3 15,
+      .bitAnd 4 2 3,
+      .loadParam 5 8,
+      .literal 6 1,
+      .checkedShr 7 5 6 shiftErr,
+      .literal 8 3,
+      .bitXor 9 7 8,
+      .bitOr 10 4 9,
+      .storeState 0 8 10,
+      .loadState 11 0 8,
+      .setReturnData 11])
+    "shiftMask IR must lower shifts/bitwise with dense temps and dual shift guards"
+  let strictOrIR ← findHandlerIR ir "strictOr"
+  expect (strictOrIR.operations == #[
+      .loadParam 0 8,
+      .literal 1 0,
+      .compare 2 0 1 .gt,
+      .literal 3 1,
+      .loadParam 4 16,
+      .checkedDiv 5 3 4 overflow,
+      .literal 6 1,
+      .compare 7 5 6 .eq,
+      .boolOr 8 2 7,
+      .setReturnDataBool 8])
+    "strictOr IR must evaluate both sides then boolOr into Bool return"
+  let bigShiftIR ← findHandlerIR ir "bigShift"
+  expect (bigShiftIR.operations == #[
+      .loadParam 0 8,
+      .literal 1 32,
+      .literal 2 32,
+      .checkedAdd 3 1 2 overflow,
+      .checkedShr 4 0 3 shiftErr,
+      .setReturnData 4])
+    "bigShift IR must lower UInt32 count add then checkedShr with invalidShift"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "BitLogic.sbpf-plan"
+  for fragment in #["bitand_u64", "bitor_u64", "bitxor_u64",
+      "shl_u64", "shr_u64", "bool_and", "bool_or",
+      "program_error 0x1004", "program_error 0x1001",
+      "checked_add_u64"] do
+    expect (planText.contains fragment)
+      s!"sbpf-plan must contain '{fragment}'"
+  -- Dual-else form for shl: invalidShift then arithmeticOverflow.
+  expect (planText.contains
+      "shl_u64 %0, %1 else program_error 0x1004 else program_error 0x1001")
+    "sbpf-plan must render shl with dual program_error guards"
+  expect (planText.contains "shr_u64 %5, %6 else program_error 0x1004")
+    "sbpf-plan must render shr with invalidShift guard"
+  -- Computed-count shift reuses ordinary u64 opcodes; count ≥ 64 → 0x1004.
+  expect (planText.contains "shr_u64 %0, %3 else program_error 0x1004")
+    "sbpf-plan bigShift must render shr with invalidShift on the computed count"
+  let ir2 ← liftResult <| irSolana compiled
+  expect (ir == ir2) "BitLogic IR rebuild must be structure-identical"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1342,6 +1474,7 @@ unsafe def run : IO Unit := do
   testFnLocalCall session
   testArithOps session
   testForLoop session
+  testShiftBitwiseLogical session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1
