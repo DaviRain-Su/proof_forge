@@ -386,6 +386,24 @@ example (c cTag cName cTypes cConstants cState cEvents cErrors cCallables cInvar
     logicalState events errors callables invariants requirements hdepth htag hname htypes
     hconstants hstate hevents herrors hcallables hinvariants hrequirements
 
+example (bytes : ByteArray) (afterMagic afterData : Cursor) (data : SemanticProgramDataV1)
+    (hsize : bytes.size ≤ maxCanonicalProgramBytes)
+    (hmagic : consumeMagic semanticProgramMagicV1 (start bytes) = .ok ((), afterMagic))
+    (hdata : decodeSemanticProgramDataTaggedV1 afterMagic = .ok (data, afterData))
+    (hfinish : finish afterData = .ok ()) :
+    decodeSemanticProgramDataV1 bytes = .ok data :=
+  decodeSemanticProgramDataV1_eq_of_framing bytes afterMagic afterData data
+    hsize hmagic hdata hfinish
+
+example (bytes : ByteArray) (afterMagic afterData : Cursor) (data : SemanticProgramDataV1)
+    (error : SemanticWireErrorV1) (hsize : bytes.size ≤ maxCanonicalProgramBytes)
+    (hmagic : consumeMagic semanticProgramMagicV1 (start bytes) = .ok ((), afterMagic))
+    (hdata : decodeSemanticProgramDataTaggedV1 afterMagic = .ok (data, afterData))
+    (hfinish : finish afterData = .error error) :
+    decodeSemanticProgramDataV1 bytes = .error error :=
+  decodeSemanticProgramDataV1_eq_of_finish_error bytes afterMagic afterData data error
+    hsize hmagic hdata hfinish
+
 example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
     (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
     decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=

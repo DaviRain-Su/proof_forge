@@ -359,6 +359,31 @@ def decodeSemanticProgramDataV1 (bytes : ByteArray) :
   finish c
   pure data
 
+/-- Compose a fully consumed transport carrier through the production size,
+    magic, tagged-root, and finish authorities. -/
+theorem decodeSemanticProgramDataV1_eq_of_framing (bytes : ByteArray)
+    (afterMagic afterData : Cursor) (data : SemanticProgramDataV1)
+    (hsize : bytes.size ≤ maxCanonicalProgramBytes)
+    (hmagic : consumeMagic semanticProgramMagicV1 (start bytes) = .ok ((), afterMagic))
+    (hdata : decodeSemanticProgramDataTaggedV1 afterMagic = .ok (data, afterData))
+    (hfinish : finish afterData = .ok ()) :
+    decodeSemanticProgramDataV1 bytes = .ok data := by
+  simp only [decodeSemanticProgramDataV1, hsize, ↓reduceIte, hmagic, hdata, hfinish,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Once size, magic, and root decode succeed, the production finish error is
+    preserved exactly (including `.trailingBytes`). -/
+theorem decodeSemanticProgramDataV1_eq_of_finish_error (bytes : ByteArray)
+    (afterMagic afterData : Cursor) (data : SemanticProgramDataV1)
+    (error : SemanticWireErrorV1)
+    (hsize : bytes.size ≤ maxCanonicalProgramBytes)
+    (hmagic : consumeMagic semanticProgramMagicV1 (start bytes) = .ok ((), afterMagic))
+    (hdata : decodeSemanticProgramDataTaggedV1 afterMagic = .ok (data, afterData))
+    (hfinish : finish afterData = .error error) :
+    decodeSemanticProgramDataV1 bytes = .error error := by
+  simp only [decodeSemanticProgramDataV1, hsize, ↓reduceIte, hmagic, hdata, hfinish,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Carrier decode: transport decode → structure-gated re-encode → exact bytes.
     Structurally invalid programs fail on the re-encode path (structure error
     or `.nonCanonical`). This is **not** structure-free identity. -/

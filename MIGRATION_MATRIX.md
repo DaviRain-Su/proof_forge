@@ -296,7 +296,8 @@ single-block callables直接消费，不复制nested decoder。canonical Block z
 public decoder composition；canonical empty-params/singleton-Block/empty-loop shape现已闭合，kind/name/
 result/steps仍由真实production decoder决定。root count=4 callables array现可按source order组合四次真实
 Callable decoder；具体kind约束仍不由transport theorem伪造。九字段root body现已提升到public tagged
-decoder，仍不包含magic/finish/structure gate。
+decoder；后续full transport composition又闭合exact size→magic→tagged root→finish success及finish
+error（含trailingBytes）原样传播，structure/re-encode仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

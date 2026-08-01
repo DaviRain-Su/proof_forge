@@ -11751,6 +11751,15 @@ normative: false
 - Boundary：结论止于tagged data decoder，不含magic、finish/trailing、structure或re-encode；formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 full transport framing composition
+
+- Proof：`decodeSemanticProgramDataV1_eq_of_framing`组合exact size gate→production magic→public tagged
+  root→finish success；finish-error theorem原样传播production finish error，包括`.trailingBytes`。
+- Precedence：size上限（含exact limit）保持最先，随后magic/root，最后finish；cursor严格从前一真实decoder
+  result传递。focused build、signature examples与blocker review通过。
+- Boundary：这是structure-free transport theorem；re-encode identity、structure validation、closed carrier
+  及formal TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

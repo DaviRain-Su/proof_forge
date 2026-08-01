@@ -434,6 +434,11 @@ public tagged root fields composition现已接通：九字段body theorem直接�
 所有tables仍锁定`maxTableElements` production decoder，final requirements cursor保留input/offset并恢复
 root parent depth。四-callable result可直接作为`hcallables`；magic、finish与structure仍明确不在该结论内。
 
+full transport framing composition现已闭合：`decodeSemanticProgramDataV1_eq_of_framing`严格按production
+顺序组合exact `bytes.size ≤ maxCanonicalProgramBytes` gate→magic→public tagged root→finish success；
+配套finish-error theorem原样传播任意error，特别是`.trailingBytes`，不重映射。size limit仍先于magic，
+magic/root errors仍由production premise authority拥有。structure gate与re-encode identity仍不在本层。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
