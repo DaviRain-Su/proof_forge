@@ -1732,7 +1732,56 @@ private unsafe def testIsolatedModZero
   expect (planText.contains "else program_error")
     "checked_rem_u64 must carry the fail-closed error branch"
 
+
+/-- T9c-2: Int8 state + Int16 param + Int8 result admitted on Solana plan. -/
+private unsafe def testNarrowIntAbi : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NarrowInt where\n" ++
+    "  state score : Int8\n" ++
+    "  init(s : Int8) do\n" ++
+    "    score := s\n" ++
+    "  entry bump(delta : Int16) : Int8 do\n" ++
+    "    let d : Int8 := 1\n" ++
+    "    score := score + d\n" ++
+    "    assert delta == delta\n" ++
+    "    return score\n" ++
+    "  view peek() : Int8 do\n" ++
+    "    return score\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<solana-narrow-int>" "Tests.SolanaNarrowInt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.stateAccount.fields.map (·.byteWidth) == #[1])
+    "T9c-2: Int8 state byteWidth 1"
+  expect (plan.stateAccount.fields[0]!.isInt)
+    "T9c-2: Int8 state isInt"
+  let bump ← findHandler plan "bump"
+  expect (bump.resultKind == .i8)
+    "T9c-2: bump resultKind i8"
+  expect (bump.params.size == 1 && bump.params[0]!.isInt &&
+      bump.params[0]!.byteWidth == 2)
+    "T9c-2: bump Int16 param"
+  -- Int128 fail closed
+  let wideText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideInt where\n" ++
+    "  entry run(x : Int128) : Int128 do\n" ++
+    "    return x\n"
+  let wideSrc ← liftResult (← session.selectProgramV1
+    wideText "<solana-wide-int>" "Tests.SolanaWideInt" none)
+  match Compiler.compileValidatedSourceV1 wideSrc with
+  | .error _ => pure ()
+  | .ok compiledW =>
+      match planSolana compiledW with
+      | .error _ => pure ()
+      | .ok _ => throw <| IO.userError "Solana plan must reject Int128"
+
 unsafe def run : IO Unit := do
+  testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
   testGuardedCounterIR session

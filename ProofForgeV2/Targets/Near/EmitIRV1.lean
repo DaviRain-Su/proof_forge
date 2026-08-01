@@ -680,9 +680,9 @@ private partial def lowerBodyOps
 private def methodResultByteLen : MethodResultKind → Nat
   | .unit => 8
   | .uint64 | .int64 | .bool => 8
-  | .uint8 => 1
-  | .uint16 => 2
-  | .uint32 => 4
+  | .uint8 | .int8 => 1
+  | .uint16 | .int16 => 2
+  | .uint32 | .int32 => 4
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -1365,6 +1365,9 @@ private def renderResultKindJson : MethodResultKind → String
   | .uint8 => "\"u8-le\""
   | .uint16 => "\"u16-le\""
   | .uint32 => "\"u32-le\""
+  | .int8 => "\"i8-le\""
+  | .int16 => "\"i16-le\""
+  | .int32 => "\"i32-le\""
 
 private def renderMethodJson (method : Method) : String :=
   let returns := renderResultKindJson method.resultKind

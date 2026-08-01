@@ -227,6 +227,9 @@ inductive MethodResultKind where
   | uint8
   | uint16
   | uint32
+  | int8
+  | int16
+  | int32
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -467,6 +470,7 @@ private def validateNearTypeClosureV1
   -- fail closed at type-closure with an explicit container-pilot diagnostic.
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
     pilotUintWidthPolicyNearBody
+    (intPolicy := pilotIntWidthPolicyNarrow)
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
 private def abiByteWidthOfTypeV1
@@ -478,10 +482,15 @@ private def abiByteWidthOfTypeV1
           s!"unsupported NEAR semantic shape: ABI UInt{w} is not admitted"
       pure (byteWidthOfBitWidth w)
   | none =>
-      unless types.int64TypeId == some typeId do
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
-      pure 8
+      match types.intWidthOf typeId with
+      | some w =>
+          unless isAbiIntWidth w do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: ABI Int{w} is not admitted"
+          pure (byteWidthOfBitWidth w)
+      | none =>
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: ABI type must be UInt8/16/32/64 or Int8/16/32/64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
@@ -550,7 +559,7 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    let isInt := types.int64TypeId == some param.typeId
+    let isInt := (types.intWidthOf param.typeId).isSome
     let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
     let bitWidth := bitWidthOfByteWidth byteWidth
     let binding : Param := {
@@ -1014,8 +1023,11 @@ private def lowerBlockInstructionsV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        if types.int64TypeId == some typeId then
-          let value ← decodeInt64LiteralLe nearPlanErr "NEAR" bytes
+        if let some bitWidth := types.intWidthOf typeId then
+          unless isAbiIntWidth bitWidth do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: Int{bitWidth} literal is not admitted"
+          let value ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             kind := .int64
@@ -1063,7 +1075,7 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureFn cannot load state"
         let field ← findFieldV1 layout stateId
-        let isInt := types.int64TypeId == some result.typeId
+        let isInt := (types.intWidthOf result.typeId).isSome
         let bitWidth ←
           if isInt then pure 64
           else match types.uintWidthOf result.typeId with
@@ -1152,10 +1164,10 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: binary operands must share signedness"
           if lhs.kind == .int64 then
-            let wordTid ← match types.int64TypeId with
-              | some tid => pure tid
+            let wordTid ← match types.intWidthOf result.typeId with
+              | some _ => pure result.typeId
               | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
+                  "unsupported NEAR semantic shape: Int type is missing")
             if op == .add then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
@@ -1271,10 +1283,10 @@ private def lowerBlockInstructionsV1
         match op with
         | .bitNot =>
             if operand.kind == .int64 then
-              let wordTid ← match types.int64TypeId with
-                | some tid => pure tid
-                | none => throw (.planInvariant .near
-                    "unsupported NEAR semantic shape: Int64 type is missing for bitNot")
+              let wordTid ← match types.intWidthOf result.typeId with
+              | some _ => pure result.typeId
+              | none => throw (.planInvariant .near
+                  "unsupported NEAR semantic shape: Int type is missing")
               unless result.typeId == wordTid do
                 throw <| .planInvariant .near
                   "unsupported NEAR semantic shape: bitNot result type mismatch"
@@ -1992,13 +2004,20 @@ private def makeEntryV1
         throw <| .planInvariant .near
           s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
     | none =>
-        if types.int64TypeId == some callable.result.typeId then
-          pure (MethodResultKind.int64, some NearValueKindV1.int64)
-        else if types.boolTypeId == some callable.result.typeId then
-          pure (MethodResultKind.bool, some NearValueKindV1.bool)
-        else
-          throw <| .planInvariant .near
-            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+        match types.intWidthOf callable.result.typeId with
+        | some 8 => pure (MethodResultKind.int8, some NearValueKindV1.int64)
+        | some 16 => pure (MethodResultKind.int16, some NearValueKindV1.int64)
+        | some 32 => pure (MethodResultKind.int32, some NearValueKindV1.int64)
+        | some 64 => pure (MethodResultKind.int64, some NearValueKindV1.int64)
+        | some w =>
+            throw <| .planInvariant .near
+              s!"entry '{name}' does not return public Int{w}"
+        | none =>
+          if types.boolTypeId == some callable.result.typeId then
+            pure (MethodResultKind.bool, some NearValueKindV1.bool)
+          else
+            throw <| .planInvariant .near
+              s!"entry '{name}' does not return public UInt8/16/32/64, Int8/16/32/64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

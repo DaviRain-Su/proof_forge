@@ -75,6 +75,10 @@ inductive ResultKind where
   | u8
   | u16
   | u32
+  /-- T9c-2: narrow public Int entry/view results. -/
+  | i8
+  | i16
+  | i32
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -84,6 +88,8 @@ structure StateField where
   byteOffset : Nat
   byteWidth : Nat
   endianness : Endianness
+  /-- T9c-2: signed Int field (layout marker i*-le for narrow widths). -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure StateAccount where
@@ -185,6 +191,16 @@ inductive Expr where
       invalidShift; shifted result exceeding the width mask → overflow. -/
   | narrowShl (bitWidth : Nat) (lhs rhs : Expr)
   | narrowShr (bitWidth : Nat) (lhs rhs : Expr)
+  /-- T9c-2: checked signed arithmetic on Int{8,16,32}; Int64 keeps signedChecked*. -/
+  | narrowSignedCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
+  | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
+  /-- Arithmetic right shift of Int{8,16,32}; count ≥ bitWidth → invalidShift. -/
+  | narrowSar (bitWidth : Nat) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -284,18 +300,31 @@ def validDiscriminator (value : String) : Bool :=
   value.length == 2 * discriminatorBytes && value.toList.all (fun character =>
     "0123456789abcdef".contains character)
 
-/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`). -/
-def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "u8-le"
-  | 2 => "u16-le"
-  | 4 => "u32-le"
-  | _ => "u64-le"
+/-- Layout field type suffix. Unsigned: u*-le. Signed narrow: i8/i16/i32-le;
+    Int64 keeps historical u64-le. -/
+def layoutFieldTypeSuffix (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "i8-le"
+    | 2 => "i16-le"
+    | 4 => "i32-le"
+    | _ => "u64-le"
+  else
+    match byteWidth with
+    | 1 => "u8-le"
+    | 2 => "u16-le"
+    | 4 => "u32-le"
+    | _ => "u64-le"
 
 /-- Instruction-arg type string for discriminator signature and IDL.
-    Int64 keeps historical `"u64"` (ABI identity is not reopened this slice). -/
+    Int64 keeps historical `"u64"`; narrow Int uses i8/i16/i32. -/
 def abiParamTypeString (p : Param) : String :=
-  if p.isInt then "u64"
+  if p.isInt then
+    match p.byteWidth with
+    | 1 => "i8"
+    | 2 => "i16"
+    | 4 => "i32"
+    | _ => "u64"
   else match p.byteWidth with
   | 1 => "u8"
   | 2 => "u16"
@@ -303,7 +332,7 @@ def abiParamTypeString (p : Param) : String :=
   | _ => "u64"
 
 private def layoutFieldSignature (field : StateField) : String :=
-  s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth}"
+  s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth field.isInt}"
 
 private def layoutSignature (fields : Array StateField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
@@ -348,17 +377,17 @@ before any Solana lowering; hand-built/inspection Semantic programs that
 still carry the ops fail closed here with an explicit planInvariant. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Body multi-width admits UInt{8,16,32,64}; state/params admit
-    UInt{8,16,32,64} or Int64 (T8b ABI multi-width). -/
+    Body multi-width admits UInt8/16/32/64; state/params admit
+    UInt8/16/32/64 or Int64 (T8b ABI multi-width). -/
 private abbrev SolanaTypeClosureV1 := PilotTypeClosureV1
 
 private def solanaPlanErr (message : String) : CompileError :=
   .planInvariant .solana message
 
-/-- Solana pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
+/-- Solana pilot accepts anonymous UInt8/16/32/64/Unit/Bool/Int64 under
     `pilotUintWidthPolicySolanaBody` + default `pilotIntWidthPolicyI64`. Body
     multi-width UInt values are allowed; **top-level state and ABI parameters
-    admit UInt{8,16,32,64} or Int64** via `requirePublicUintAbiOrInt64*` (T8b)
+    admit UInt8/16/32/64 or Int64** via `requirePublicUintAbiOrInt64*` (T8b)
     with `allowNonPublic := true` (N1). ArrayState: anonymous **Array** shapes
     are admitted via `pilotContainerStatePolicyArrayOnly` (element/layout gated
     at state planning to fixed-length `Array UInt64 N` leaf slots). UInt128/256
@@ -367,6 +396,7 @@ private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
+    (intPolicy := pilotIntWidthPolicyNarrow)
     (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
@@ -379,10 +409,15 @@ private def abiByteWidthOfTypeV1
           s!"unsupported Solana semantic shape: ABI UInt{w} is not admitted"
       pure (byteWidthOfBitWidth w)
   | none =>
-      unless types.int64TypeId == some typeId do
-        throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
-      pure 8
+      match types.intWidthOf typeId with
+      | some w =>
+          unless isAbiIntWidth w do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: ABI Int{w} is not admitted"
+          pure (byteWidthOfBitWidth w)
+      | none =>
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: ABI type must be UInt8/16/32/64 or Int8/16/32/64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (dataOffset : Nat) : Expr :=
@@ -459,7 +494,7 @@ private def makeStateAccountV1
           }
         stateLeaves := stateLeaves.push leaves
     | none =>
-        -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+        -- T8b: scalar state admits UInt8/16/32/64 / Int64 with byteWidth 1/2/4/8.
         -- 8-byte slot pitch is retained (no packing); exactDataLen/offset unchanged.
         requirePublicUintAbiOrInt64State solanaPlanErr types state
           (allowNonPublic := true)
@@ -472,6 +507,7 @@ private def makeStateAccountV1
           byteOffset := stateHeaderBytes + fields.size * 8
           byteWidth
           endianness := .little
+          isInt := (types.intWidthOf state.typeId).isSome
         }
         stateLeaves := stateLeaves.push #[leafIdx]
   let marker := layoutMarker fields
@@ -541,13 +577,13 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- T8b: ABI params admit UInt{8,16,32,64} / Int64; 8-byte slot pitch retained.
+    -- T8b: ABI params admit UInt8/16/32/64 / Int64; 8-byte slot pitch retained.
     requirePublicUintAbiOrInt64Param solanaPlanErr types owner param
       (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
-    let isInt := types.int64TypeId == some param.typeId
+    let isInt := (types.intWidthOf param.typeId).isSome
     let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
     let bitWidth := bitWidthOfByteWidth byteWidth
     let binding : Param := {
@@ -697,12 +733,12 @@ private def makeBinaryTreeValueV1
   unless isBool || (lhs.bitWidth == rhs.bitWidth && lhs.bitWidth == resultBitWidth) do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: binary operands must share integer width"
-  unless isBool || isSolanaBodyUintWidth resultBitWidth do
+  unless isBool || isInt || isSolanaBodyUintWidth resultBitWidth do
     throw <| .planInvariant .solana
       s!"unsupported Solana semantic shape: width {resultBitWidth} is not an admitted body width"
-  unless isBool || !isInt || resultBitWidth == 64 do
+  unless isBool || !isInt || isAbiIntWidth resultBitWidth do
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: only Int64 is admitted (not narrower/wider Int)"
+      s!"unsupported Solana semantic shape: Int{resultBitWidth} is not an admitted body Int width"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .solana s!"Solana plan expression exceeds depth {maxExprDepth}"
@@ -737,6 +773,19 @@ private def admitUIntWidthResultTypeV1
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: arithmetic/bitwise result must be admitted UInt width"
 
+private def admitIntWidthResultTypeV1
+    (types : SolanaTypeClosureV1) (resultTypeId : TypeIdV1) :
+    CompileResult (TypeIdV1 × Nat) := do
+  match types.intWidthOf resultTypeId with
+  | some w =>
+      unless isAbiIntWidth w do
+        throw <| .planInvariant .solana
+          s!"unsupported Solana semantic shape: signed arithmetic result Int{w} is not admitted"
+      pure (resultTypeId, w)
+  | none =>
+      throw <| .planInvariant .solana
+        "unsupported Solana semantic shape: signed arithmetic result must be admitted Int width"
+
 /-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
     `narrow*` so Emit can attach width overflow/mask guards. -/
 private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
@@ -761,13 +810,29 @@ private def mkShl (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shl l r else .narrowShl w l r
 private def mkShr (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .shr l r else .narrowShr w l r
+private def mkSignedCheckedAdd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedAdd l r else .narrowSignedCheckedAdd w l r
+private def mkSignedCheckedSub (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedSub l r else .narrowSignedCheckedSub w l r
+private def mkSignedCheckedMul (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedMul l r else .narrowSignedCheckedMul w l r
+private def mkSignedCheckedDiv (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedDiv l r else .narrowSignedCheckedDiv w l r
+private def mkSignedCheckedMod (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .signedCheckedMod l r else .narrowSignedCheckedMod w l r
+private def mkSignedCompare (w : Nat) (op : ComparisonOp) (l r : Expr) : Expr :=
+  if w == 64 then .signedCompare op l r else .narrowSignedCompare w op l r
+private def mkCheckedNeg (w : Nat) (o : Expr) : Expr :=
+  if w == 64 then .checkedNeg o else .narrowCheckedNeg w o
+private def mkSar (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .sar l r else .narrowSar w l r
 
 private def makeCheckedAddValueV1
     (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedAdd lhsId rhsId lhs rhs false 64 (isInt := true)
+    makeBinaryTreeValueV1 (mkSignedCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedAdd bitWidth) lhsId rhsId lhs rhs false bitWidth
 
@@ -776,7 +841,7 @@ private def makeCheckedSubValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedSub lhsId rhsId lhs rhs false 64 (isInt := true)
+    makeBinaryTreeValueV1 (mkSignedCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
@@ -785,7 +850,7 @@ private def makeCheckedMulValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedMul lhsId rhsId lhs rhs false 64 (isInt := true)
+    makeBinaryTreeValueV1 (mkSignedCheckedMul bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedMul bitWidth) lhsId rhsId lhs rhs false bitWidth
 
@@ -794,7 +859,7 @@ private def makeCheckedDivValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedDiv lhsId rhsId lhs rhs false 64 (isInt := true)
+    makeBinaryTreeValueV1 (mkSignedCheckedDiv bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedDiv bitWidth) lhsId rhsId lhs rhs false bitWidth
 
@@ -803,7 +868,7 @@ private def makeCheckedModValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   if lhs.isInt || rhs.isInt then
-    makeBinaryTreeValueV1 .signedCheckedMod lhsId rhsId lhs rhs false 64 (isInt := true)
+    makeBinaryTreeValueV1 (mkSignedCheckedMod bitWidth) lhsId rhsId lhs rhs false bitWidth (isInt := true)
   else
     makeBinaryTreeValueV1 (mkCheckedMod bitWidth) lhsId rhsId lhs rhs false bitWidth
 
@@ -909,10 +974,10 @@ private def makeCompareValueV1
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: comparison operands must share signedness"
   if lhs.isInt then
-    unless lhs.bitWidth == 64 do
+    unless isAbiIntWidth lhs.bitWidth do
       throw <| .planInvariant .solana
-        "unsupported Solana semantic shape: only Int64 comparisons are admitted"
-    makeBinaryTreeValueV1 (.signedCompare op) lhsId rhsId lhs rhs true 1
+        s!"unsupported Solana semantic shape: Int{lhs.bitWidth} comparison is not admitted"
+    makeBinaryTreeValueV1 (mkSignedCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
   else
     makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
@@ -958,10 +1023,11 @@ private def makeBoolNotValueV1
 private def makeCheckedNegValueV1
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless operand.isInt && !operand.isBool && operand.bitWidth == 64 do
+  unless operand.isInt && !operand.isBool && isAbiIntWidth operand.bitWidth do
     throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: checkedNeg requires Int64 operand"
-  makeUnaryTreeValueV1 .checkedNeg operandId operand false 64 (isInt := true)
+      "unsupported Solana semantic shape: checkedNeg requires admitted Int width operand"
+  makeUnaryTreeValueV1 (mkCheckedNeg operand.bitWidth) operandId operand false operand.bitWidth
+    (isInt := true)
 
 /-- Pure local-call value: n-ary args, pure expression (not an effect boundary). -/
 private def makeCallFnValueV1
@@ -1016,7 +1082,7 @@ private def buildPureFnTableV1
         unless callable.result.visibility == .public_ do
           throw <| .planInvariant .solana s!"fn '{name}' result is not public"
         let isBool := types.boolTypeId == some callable.result.typeId
-        let isInt := types.int64TypeId == some callable.result.typeId
+        let isInt := (types.intWidthOf callable.result.typeId).isSome
         unless callable.result.typeId == types.uint64TypeId || isBool || isInt do
           throw <| .planInvariant .solana
             s!"fn '{name}' does not return public UInt64, Int64, or Bool"
@@ -1189,8 +1255,11 @@ private def lowerBlockInstructionsV1
             isInt := false
             bitWidth := 64
           }
-        else if types.int64TypeId == some typeId then
-          let value ← decodeInt64LiteralLe solanaPlanErr "Solana" bytes
+        else if let some bitWidth := types.intWidthOf typeId then
+          unless isAbiIntWidth bitWidth do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: Int{bitWidth} literal is not admitted"
+          let value ← decodeIntWidthLiteralLe solanaPlanErr "Solana" bitWidth bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             depth := 1
@@ -1199,7 +1268,7 @@ private def lowerBlockInstructionsV1
             isBool := false
             isUInt32 := false
             isInt := true
-            bitWidth := 64
+            bitWidth
           }
         else if types.boolTypeId == some typeId then
           let bit ← decodeBoolLiteralV1 bytes
@@ -1259,19 +1328,19 @@ private def lowerBlockInstructionsV1
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: state load has no leaf fields"
           let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
-          let isInt := types.int64TypeId == some result.typeId
-          if isInt then
-            unless field.byteWidth == 8 do
+          let intW := types.intWidthOf result.typeId
+          if let some bitWidth := intW then
+            unless field.byteWidth == byteWidthOfBitWidth bitWidth do
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: Int64 state load requires 8-byte field"
+                s!"unsupported Solana semantic shape: Int{bitWidth} state load requires {byteWidthOfBitWidth bitWidth}-byte field"
             values := ← appendResultValueV1 result.typeId values result {
-              expr := .stateLoad field.accountIndex field.byteOffset
+              expr := mkStateLoadExpr bitWidth field.accountIndex field.byteOffset
               depth := 1
               expandedNodes := 1
               dependencies := #[]
               isBool := false
               isInt := true
-              bitWidth := 64
+              bitWidth
             }
           else
             match types.uintWidthOf result.typeId with
@@ -1294,7 +1363,7 @@ private def lowerBlockInstructionsV1
                 }
             | none =>
                 throw <| .planInvariant .solana
-                  "unsupported Solana semantic shape: state load must be UInt{8,16,32,64} or Int64"
+                  "unsupported Solana semantic shape: state load must be UInt8/16/32/64 or Int64"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
@@ -1326,17 +1395,13 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: shift count must be UInt32"
           if lhs.isInt then
-            let resultTid ← match types.int64TypeId with
-              | some tid =>
-                  unless result.typeId == tid do
-                    throw <| .planInvariant .solana
-                      "unsupported Solana semantic shape: Int64 shift result type mismatch"
-                  pure tid
-              | none => throw (.planInvariant .solana
-                  "unsupported Solana semantic shape: Int64 type is missing for shift")
+            let (resultTid, w) ← admitIntWidthResultTypeV1 types result.typeId
+            unless lhs.bitWidth == w do
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: Int shift result width mismatch"
             let value ←
-              if op == .shl then makeShlValueV1 64 lhsId rhsId lhs rhs
-              else makeShrValueV1 64 lhsId rhsId lhs rhs
+              if op == .shl then makeShlValueV1 w lhsId rhsId lhs rhs
+              else makeShrValueV1 w lhsId rhsId lhs rhs
             values := ← appendResultValueV1 resultTid values result value
           else
             let (widthTid, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
@@ -1356,57 +1421,59 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: binary operands must share signedness"
           if lhs.isInt then
-            let wordTid ← match types.int64TypeId with
-              | some tid => pure tid
-              | none => throw (.planInvariant .solana
-                  "unsupported Solana semantic shape: Int64 type is missing")
+            let intBitWidth := lhs.bitWidth
+            unless isAbiIntWidth intBitWidth && rhs.bitWidth == intBitWidth && rhs.isInt do
+              throw <| .planInvariant .solana
+                s!"unsupported Solana semantic shape: Int arithmetic operands must share admitted width"
+            -- Result TypeId is trusted from typed Semantic; width comes from operands.
+            let wordTid := result.typeId
             if op == .add then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: arithmetic result type mismatch"
-              let value ← makeCheckedAddValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeCheckedAddValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .sub then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: arithmetic result type mismatch"
-              let value ← makeCheckedSubValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeCheckedSubValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .mul then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: arithmetic result type mismatch"
-              let value ← makeCheckedMulValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeCheckedMulValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .div then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: arithmetic result type mismatch"
-              let value ← makeCheckedDivValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeCheckedDivValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .mod then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: arithmetic result type mismatch"
-              let value ← makeCheckedModValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeCheckedModValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .bitAnd then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: bitwise result type mismatch"
-              let value ← makeBitAndValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeBitAndValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .bitOr then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: bitwise result type mismatch"
-              let value ← makeBitOrValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeBitOrValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .bitXor then
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: bitwise result type mismatch"
-              let value ← makeBitXorValueV1 64 lhsId rhsId lhs rhs
+              let value ← makeBitXorValueV1 intBitWidth lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else
               match comparisonOpOfV1 op with
@@ -1471,10 +1538,7 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .solana
                 "unsupported Solana semantic shape: bitNot operand must be admitted integer width"
             if operand.isInt then
-              let wordTid ← match types.int64TypeId with
-                | some tid => pure tid
-                | none => throw (.planInvariant .solana
-                    "unsupported Solana semantic shape: Int64 type is missing for bitNot")
+              let (wordTid, intBitWidth) ← admitIntWidthResultTypeV1 types result.typeId
               unless result.typeId == wordTid do
                 throw <| .planInvariant .solana
                   "unsupported Solana semantic shape: bitNot result type mismatch"
@@ -1501,13 +1565,10 @@ private def lowerBlockInstructionsV1
             let value ← makeBoolNotValueV1 operandId operand
             values := ← appendResultValueV1 boolTypeId values result value
         | .neg =>
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .solana
-                  "unsupported Solana semantic shape: Int64 type is missing for neg")
+            let (tid, _) ← admitIntWidthResultTypeV1 types result.typeId
             unless result.typeId == tid do
               throw <| .planInvariant .solana
-                "unsupported Solana semantic shape: checkedNeg result must be Int64"
+                "unsupported Solana semantic shape: checkedNeg result type mismatch"
             let value ← makeCheckedNegValueV1 operandId operand
             values := ← appendResultValueV1 tid values result value
     | .pureCall callableId argIds, some result =>
@@ -1536,10 +1597,8 @@ private def lowerBlockInstructionsV1
             | none => throw (.planInvariant .solana
                 "unsupported Solana semantic shape: Bool type is missing for pureCall result")
           else if resultIsInt then
-            match types.int64TypeId with
-            | some value => pure value
-            | none => throw (.planInvariant .solana
-                "unsupported Solana semantic shape: Int64 type is missing for pureCall result")
+            -- Callee may return any admitted Int width; accept the wire result TypeId.
+            pure result.typeId
           else
             pure types.uint64TypeId
         unless result.typeId == expectedTypeId do
@@ -1586,12 +1645,12 @@ private def lowerBlockInstructionsV1
           unless !stored.isBool && stored.bitWidth == expectedBitWidth do
             throw <| .planInvariant .solana
               s!"unsupported Solana semantic shape: state store value width {stored.bitWidth} must match field bitWidth {expectedBitWidth}"
-          unless !stored.isInt || expectedBitWidth == 64 do
-            throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: Int state store requires 8-byte field"
           unless stored.isInt || isSolanaAbiUintWidth stored.bitWidth do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: state store value must be admitted UInt width or Int64"
+              "unsupported Solana semantic shape: state store value must be admitted UInt/Int width"
+          unless !stored.isInt || isAbiIntWidth stored.bitWidth do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Int state store requires admitted Int width"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           body := body.push (.store {
             accountIndex := field.accountIndex
@@ -1901,7 +1960,7 @@ private partial def emitRegionV1
                 "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
                else
                 "unsupported Solana semantic shape: integer entry/view must not return a Bool value")
-          -- T9a: entry/view may return UInt{8,16,32,64}/Int64/Bool; width must match.
+          -- T9a: entry/view may return UInt8/16/32/64/Int64/Bool; width must match.
           unless expectsBoolReturn || returned.bitWidth == expectedReturnBitWidth do
             throw <| .planInvariant .solana
               s!"unsupported Solana semantic shape: entry/view return bitWidth must be {expectedReturnBitWidth} (or Bool) matching declared result"
@@ -2292,13 +2351,20 @@ private def makeEntryV1
         throw <| .planInvariant .solana
           s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
     | none =>
-        if types.int64TypeId == some callable.result.typeId then
-          pure .i64
-        else if types.boolTypeId == some callable.result.typeId then
-          pure .bool
-        else
-          throw <| .planInvariant .solana
-            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+        match types.intWidthOf callable.result.typeId with
+        | some 8 => pure .i8
+        | some 16 => pure .i16
+        | some 32 => pure .i32
+        | some 64 => pure .i64
+        | some w =>
+            throw <| .planInvariant .solana
+              s!"entry '{name}' does not return public Int{w}"
+        | none =>
+          if types.boolTypeId == some callable.result.typeId then
+            pure .bool
+          else
+            throw <| .planInvariant .solana
+              s!"entry '{name}' does not return public UInt8/16/32/64, Int8/16/32/64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -2311,7 +2377,7 @@ private def makeEntryV1
   let expectsBoolReturn := resultKind == .bool
   let expectedReturnBitWidth : Nat :=
     match resultKind with
-    | .u8 => 8 | .u16 => 16 | .u32 => 32 | .u64 | .i64 => 64 | .bool => 64
+    | .u8 | .i8 => 8 | .u16 | .i16 => 16 | .u32 | .i32 => 32 | .u64 | .i64 => 64 | .bool => 64
   let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
     expectedReturnBitWidth types typeDecls account pureFns callable
   let handler : Handler := {
@@ -2340,10 +2406,10 @@ private def makePureFnV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .solana s!"fn '{name}' result is not public"
   let resultIsBool := types.boolTypeId == some callable.result.typeId
-  let resultIsInt := types.int64TypeId == some callable.result.typeId
+  let resultIsInt := (types.intWidthOf callable.result.typeId).isSome
   unless callable.result.typeId == types.uint64TypeId || resultIsBool || resultIsInt do
     throw <| .planInvariant .solana
-      s!"fn '{name}' does not return public UInt64, Int64, or Bool"
+      s!"fn '{name}' does not return public UInt64, Int8/16/32/64, or Bool"
   -- pureFn bodies use view mode so store/emit fail closed at the lowerer.
   let lowered ← lowerCallableV1 s!"fn '{name}'" .view resultIsBool
     64 types typeDecls account pureFns callable

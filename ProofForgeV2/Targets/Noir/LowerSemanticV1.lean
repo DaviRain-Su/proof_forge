@@ -59,6 +59,11 @@ inductive InputType where
   | u8
   | u16
   | u32
+  /-- T9c-2: signed Int ABI/result native Noir i8/i16/i32/i64. -/
+  | i8
+  | i16
+  | i32
+  | i64
   deriving BEq, Inhabited, Repr
 
 inductive InputRole where
@@ -401,9 +406,16 @@ private def inputTypeOfScalarV1
     (types : NoirTypeClosureV1) (typeId : TypeIdV1) : CompileResult InputType := do
   if types.isField typeId then
     pure .field
-  else if types.int64TypeId == some typeId then
-    pure .u64
   else
+    match types.intWidthOf typeId with
+    | some 8 => pure .i8
+    | some 16 => pure .i16
+    | some 32 => pure .i32
+    | some 64 => pure .i64
+    | some w =>
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: ABI Int{w} is not admitted"
+    | none =>
     match types.uintWidthOf typeId with
     | some 8 => pure .u8
     | some 16 => pure .u16
@@ -431,6 +443,7 @@ private def validateNoirTypeClosureV1
   -- (anonymous Array/Map/Bytes) and Option stay fail closed at type-closure.
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
     pilotUintWidthPolicyNoirBody
+    (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyBn254)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
 
@@ -712,7 +725,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
       requirePublicUintAbiOrInt64OrFieldParam noirPlanErr types owner param
         (allowNonPublic := true)
       let isField := types.isField param.typeId
-      let isInt := types.int64TypeId == some param.typeId
+      let isInt := (types.intWidthOf param.typeId).isSome
       let inputType ← inputTypeOfScalarV1 types param.typeId
       let binding : Param := {
         sourceId := planned.size
@@ -1315,8 +1328,11 @@ private def lowerBlockInstructionsV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        if types.int64TypeId == some typeId then
-          let value ← decodeInt64LiteralLe noirPlanErr "Noir" bytes
+        if let some bitWidth := types.intWidthOf typeId then
+          unless isAbiIntWidth bitWidth do
+            throw <| .planInvariant .noir
+              s!"unsupported Noir semantic shape: Int{bitWidth} literal is not admitted"
+          let value ← decodeIntWidthLiteralLe noirPlanErr "Noir" bitWidth bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             kind := .int64
@@ -1378,7 +1394,7 @@ private def lowerBlockInstructionsV1
               "unsupported Noir semantic shape: scalar state load targets multi-leaf state"
           let some fieldIndex := leaves[0]? |
             throw <| .planInvariant .noir "scalar state load leaf missing"
-          let isInt := types.int64TypeId == some result.typeId
+          let isInt := (types.intWidthOf result.typeId).isSome
           let isField := types.isField result.typeId
           let kind ←
             if isField then pure NoirValueKindV1.field
@@ -2356,9 +2372,16 @@ private def resolveEntryViewResultV1
         throw <| .planInvariant .noir
           s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
     | none =>
-        if types.int64TypeId == some callable.result.typeId then
-          pure (.int64, .u64)
-        else if types.boolTypeId == some callable.result.typeId then
+        match types.intWidthOf callable.result.typeId with
+        | some 8 => pure (.int64, .i8)
+        | some 16 => pure (.int64, .i16)
+        | some 32 => pure (.int64, .i32)
+        | some 64 => pure (.int64, .i64)
+        | some w =>
+            throw <| .planInvariant .noir
+              s!"entry '{name}' does not return public Int{w}"
+        | none =>
+        if types.boolTypeId == some callable.result.typeId then
           pure (.bool, .bool)
         else
           throw <| .planInvariant .noir

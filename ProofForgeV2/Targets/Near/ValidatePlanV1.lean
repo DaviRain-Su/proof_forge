@@ -338,7 +338,9 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     throw <| .planInvariant .near "entry method cannot use initialize mode"
   else unless method.resultKind == .uint64 || method.resultKind == .bool ||
       method.resultKind == .int64 || method.resultKind == .uint8 ||
-      method.resultKind == .uint16 || method.resultKind == .uint32 do
+      method.resultKind == .uint16 || method.resultKind == .uint32 ||
+      method.resultKind == .int8 || method.resultKind == .int16 ||
+      method.resultKind == .int32 do
     throw <| .planInvariant .near
       s!"method '{method.name}' result kind must be UInt8/16/32/64, Int64, or Bool"
   unless method.depositPolicy ==

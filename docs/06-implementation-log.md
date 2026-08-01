@@ -12619,3 +12619,13 @@ normative: false
   表补 Solana SBPF/Mollusk 与 Aleo/Psy source-only 工程事实（formal 仍 pending）。
 - docs/research/12-target-coverage-matrix.md：D-1/D-2 文档缺口标为 MatrixSync 已闭合。
 - 纯 docs；无代码/formal task 状态变更。
+
+## 2026-08-01 — T9c-2：窄 Int（Int8/16/32 body+ABI）Solana/NEAR/Noir
+
+- Envelope：Solana/NEAR/Noir type-closure wording 扩 Int8/16/32/64；`pilotIntWidthPolicyNarrow`
+- Solana：ResultKind i8/i16/i32；state isInt + layout i*-le；Plan narrowSigned*；Emit 映射到既有 signed IR/SBPF；Validate 允窄 Int param
+- NEAR：MethodResultKind int8/16/32；i64 plan surface + 窄 ABI/result；Emit i*-le JSON
+- Noir：InputType i8/i16/i32/i64；int policy narrow；Emit 原生 i* 类型
+- 负向：Int128 仍 fail closed
+- 金样：SolanaPlanV1 testNarrowIntAbi 绿
+- 非 formal；不改 AGENTS.md/MIGRATION_MATRIX.md

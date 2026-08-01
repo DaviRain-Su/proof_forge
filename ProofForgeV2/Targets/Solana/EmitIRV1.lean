@@ -401,6 +401,77 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
         value := rhs.next
         next := rhs.next + 1
       }
+  | .narrowSignedCheckedAdd _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedAdd rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedSub _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedSub rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedMul _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMul rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedDiv _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedDiv rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCheckedMod _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMod rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowSignedCompare _bitWidth op lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCompare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedNeg _bitWidth operand =>
+      let operand := lowerExpr overflowError tempMap next operand
+      {
+        operations := operand.operations ++
+          #[.checkedNeg operand.next operand.value overflowError]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .narrowSar _bitWidth lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSar rhs.next lhs.value rhs.value invalidShiftError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
   | .signedCheckedAdd lhs rhs =>
       let lhs := lowerExpr overflowError tempMap next lhs
       let rhs := lowerExpr overflowError tempMap lhs.next rhs
@@ -558,9 +629,10 @@ private partial def lowerBodyOps
         operations := operations ++ value.operations
         let returnByteLen : Nat :=
           match resultKind with
-          | .u8 => 1 | .u16 => 2 | .u32 => 4 | .u64 | .i64 => 8 | .bool => 1
+          | .u8 | .i8 => 1 | .u16 | .i16 => 2 | .u32 | .i32 => 4 | .u64 | .i64 => 8 | .bool => 1
         let returnOp : Operation := match resultKind with
-          | .u64 | .i64 | .u8 | .u16 | .u32 => .setReturnData returnByteLen value.value
+          | .u64 | .i64 | .u8 | .u16 | .u32 | .i8 | .i16 | .i32 =>
+              .setReturnData returnByteLen value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
         next := value.next
@@ -933,7 +1005,7 @@ private partial def validateOperationSequence
     | .setReturnData byteLen value =>
         let expectedLen : Nat :=
           match handler.resultKind with
-          | .u8 => 1 | .u16 => 2 | .u32 => 4 | .u64 | .i64 => 8 | .bool => 0
+          | .u8 | .i8 => 1 | .u16 | .i16 => 2 | .u32 | .i32 => 4 | .u64 | .i64 => 8 | .bool => 0
         unless handler.mode != .initialize && expectedLen != 0 &&
             byteLen == expectedLen && value < next do
           throw <| .planInvariant .solana "typed Solana IR integer return value is invalid"
@@ -1398,7 +1470,7 @@ private def renderHandlerPlan (ir : IR) (handler : HandlerIR) : String :=
 private def renderPlanText (ir : IR) : String :=
   let account := ir.stateAccount
   let fields := account.fields.foldl (fun output field => output ++
-    s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type={layoutFieldTypeSuffix field.byteWidth}\n") ""
+    s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type={layoutFieldTypeSuffix field.byteWidth field.isInt}\n") ""
   let fnsText := Id.run do
     let mut text := ""
     for index in [0:ir.fns.size] do
@@ -1422,7 +1494,7 @@ private def renderParamsJson (params : Array Param) : String :=
   String.intercalate "," (params.toList.map renderParamJson)
 
 private def renderFieldJson (field : StateField) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"offset\":{field.byteOffset},\"type\":\"{layoutFieldTypeSuffix field.byteWidth}\"}"
+  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"offset\":{field.byteOffset},\"type\":\"{layoutFieldTypeSuffix field.byteWidth field.isInt}\"}"
 
 private def renderHandlerJson (handler : HandlerIR) : String :=
   let access := handler.accountAccess
@@ -1437,6 +1509,9 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
       | .u8 => "\"u8-le\""
       | .u16 => "\"u16-le\""
       | .u32 => "\"u32-le\""
+      | .i8 => "\"i8-le\""
+      | .i16 => "\"i16-le\""
+      | .i32 => "\"i32-le\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson handler.name}\"," ++
     s!"\"discriminator\":\"{handler.discriminator}\"," ++

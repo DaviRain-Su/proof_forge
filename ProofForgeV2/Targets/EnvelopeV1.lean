@@ -527,9 +527,9 @@ def solanaTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Solana"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 widths are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
 
 /-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int T9c).
     Field fail-closed: no native field element. -/
@@ -537,9 +537,9 @@ def nearTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "NEAR"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer types are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 integer types are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
 
 /-- Noir type-closure diagnostic wording (ABI multi-width UInt + Int T9c + Field).
 
@@ -549,9 +549,9 @@ def noirTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Noir"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer widths are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
 
 /-- Psy type-closure diagnostic wording (UInt64/32 + Int64).
 

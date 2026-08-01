@@ -39,12 +39,16 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     | .signedCheckedAdd lhs rhs | .signedCheckedSub lhs rhs
     | .signedCheckedMul lhs rhs | .signedCheckedDiv lhs rhs
     | .signedCheckedMod lhs rhs
+    | .narrowSignedCheckedAdd _ lhs rhs | .narrowSignedCheckedSub _ lhs rhs
+    | .narrowSignedCheckedMul _ lhs rhs | .narrowSignedCheckedDiv _ lhs rhs
+    | .narrowSignedCheckedMod _ lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
     | .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs
-    | .shl lhs rhs | .shr lhs rhs | .sar lhs rhs
+    | .shl lhs rhs | .shr lhs rhs | .sar lhs rhs | .narrowSar _ lhs rhs
     | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs
-    | .compare _ lhs rhs | .signedCompare _ lhs rhs =>
+    | .compare _ lhs rhs | .signedCompare _ lhs rhs
+    | .narrowSignedCompare _ _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available lhs with
@@ -53,7 +57,8 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             match planExprNodes? account params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand | .checkedNeg operand =>
+    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand
+    | .checkedNeg operand | .narrowCheckedNeg _ operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available operand with
@@ -79,7 +84,8 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
 /-- UInt64-compatible plan expression (comparison/boolNot/boolAnd/boolOr results
     and Bool-returning callFn results are not UInt64). -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .signedCompare .. | .boolNot _ | .boolAnd .. | .boolOr .. => false
+  | .compare .. | .signedCompare .. | .narrowSignedCompare ..
+  | .boolNot _ | .boolAnd .. | .boolOr .. => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => !fn.resultIsBool
@@ -89,7 +95,10 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
   | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
-  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
+  | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
+  | .narrowSignedCheckedMul .. | .narrowSignedCheckedDiv ..
+  | .narrowSignedCheckedMod .. | .narrowCheckedNeg ..
+  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar .. | .narrowSar ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .narrowParam ..
@@ -99,7 +108,8 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
     Bool-returning callFn). -/
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .signedCompare .. | .boolNot _ | .boolAnd .. | .boolOr .. => true
+  | .compare .. | .signedCompare .. | .narrowSignedCompare ..
+  | .boolNot _ | .boolAnd .. | .boolOr .. => true
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => fn.resultIsBool
@@ -110,7 +120,10 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
   | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
-  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
+  | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
+  | .narrowSignedCheckedMul .. | .narrowSignedCheckedDiv ..
+  | .narrowSignedCheckedMod .. | .narrowCheckedNeg ..
+  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar .. | .narrowSar ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .narrowParam ..
@@ -203,9 +216,10 @@ def validateParams (owner : String) (params : Array Param) : CompileResult Unit 
       param.byteWidth == 1 || param.byteWidth == 2 ||
       param.byteWidth == 4 || param.byteWidth == 8
     -- Int64 ABI identity remains 8-byte; narrow Int is not admitted.
-    unless !param.isInt || param.byteWidth == 8 do
+    unless !param.isInt || param.byteWidth == 1 || param.byteWidth == 2 ||
+        param.byteWidth == 4 || param.byteWidth == 8 do
       throw <| .planInvariant .solana
-        s!"parameter binding in {owner} marks Int without 8-byte width"
+        s!"parameter binding in {owner} marks Int with invalid byte width"
     unless param.sourceId == index && param.dataOffset == discriminatorBytes + index * 8 &&
         admittedWidth && param.endianness == .little && isIdentifier param.name do
       throw <| .planInvariant .solana

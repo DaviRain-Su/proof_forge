@@ -1493,6 +1493,7 @@ private def renderValue (relation : Relation) : ValueRef → String
       let input := relation.inputs[index]!
       match input.type with
       | .u8 | .u16 | .u32 => s!"({input.name} as u64)"
+      | .i8 | .i16 | .i32 | .i64 => s!"({input.name} as u64)"
       | .u64 | .bool | .field => input.name
   | .literal value => toString value.toNat
   | .temp index => s!"t{index}"
@@ -1530,6 +1531,10 @@ private def narrowInputTypeString? : InputType → Option String
   | .u8 => some "u8"
   | .u16 => some "u16"
   | .u32 => some "u32"
+  | .i8 => some "i8"
+  | .i16 => some "i16"
+  | .i32 => some "i32"
+  | .i64 => some "i64"
   | .u64 | .bool | .field => none
 
 /-- Equality operands for assertEqual. Narrow post-state/public inputs keep
@@ -1727,6 +1732,10 @@ private def renderInputType : InputType → String
   | .u8 => "u8"
   | .u16 => "u16"
   | .u32 => "u32"
+  | .i8 => "i8"
+  | .i16 => "i16"
+  | .i32 => "i32"
+  | .i64 => "i64"
 
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""
