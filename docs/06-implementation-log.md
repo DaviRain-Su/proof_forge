@@ -12313,3 +12313,35 @@ normative: false
 - Verification：focused TypeKeyV1/InvariantABI build通过。
 - Boundary：TypeKey四subphase、named type uniqueness及全部后续structure/encoder/carrier/formal状态
   仍pending。
+
+## 2026-08-01 — ArrayState: anonymous Array/Map/Bytes state + Solana flatten positive
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- NormalizeV1: admit anonymous **Array/Map/Bytes** as state/param types
+  (Option/Unit/Bool state stay fail closed). Index assign chains already lower
+  via `applyNestedUpdateV1` (Array nested open; Map/Bytes nested through
+  element still fail closed). IndexGet/IndexSet on Array state roots work for
+  source programs that typecheck.
+- EnvelopeV1: `PilotContainerStatePolicy` (default none;
+  `pilotContainerStatePolicyArrayOnly`); `PilotTypeClosureV1.containerTypeIds`
+  + `isContainer` / `is…OrContainer` + require helpers; type-closure admits
+  Array/Map/Bytes only when policy flags are set (distinct diagnostics).
+- Solana positive lane (sole): Array-only container policy; fixed-length
+  `Array UInt64 N` (N≥1) flattens to N consecutive 8-byte account slots named
+  `{state}_{i}`; multi-leaf `LoweredValueV1.aggregateLeaves`; StateLoad/Store of
+  all leaves; IndexGet/IndexSet with **compile-time literal** index only
+  (dynamic index fail closed — no Plan select surface); Construct Array UInt64
+  from N scalar args. Map/Bytes state declined on Solana. `ValidatePlanV1`
+  multi-leaf via `stateLeaves` (names/offsets unique; sourceId may repeat).
+- Near/Noir: container policy none (type-closure decline). Psy: non-scalar
+  state declined + construct/index ops declined. EVM off-limits this wave
+  (still declines anonymous Array at type-closure; IndexGet/IndexSet remain a
+  separate future wave).
+- Tests: Normalize suite Array state IndexSet/Get traces; Map/Bytes state
+  declaration admitted; Option state fail closed; ValidatedSourceV1Pipeline
+  type negatives retargeted to Option/Bool; Targets matrix Solana 2-leaf pin +
+  EVM/Near/Noir/Psy decline.
+- Limitations: TypeCheck still treats Map index place as Option and Bytes
+  index place as non-Array/Map (Typed off-limits) so Map/Bytes index *assign*
+  cannot enter product Normalize from source yet — wire/Normalize paths ready.
+  Solana dynamic index closed. No formal Reference↔target differential.

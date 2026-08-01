@@ -5223,6 +5223,119 @@ private unsafe def testAggregateResultFailClosed
   else
     pure ()
 
+/-- ArrayState: anonymous Array UInt64 state + literal index assign/load. -/
+private unsafe def testArrayStateIndexAssign
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ArraySlots" <|
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let validated ← loadSource session "array-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"array-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"array-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"array-state: validate: {repr e}"
+  expect (data.logicalState.size == 1) "array-state: one logical state"
+  let some st0 := data.logicalState[0]? |
+    throw <| IO.userError "array-state: missing state"
+  expect (st0.name == "slots") "array-state: name slots"
+  let hasArray := data.types.any fun d =>
+    match d.shape with | .array _ 2 => true | _ => false
+  expect hasArray "array-state: Array UInt64 2 type present"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "array-state: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "array-state: missing entry block"
+  let hasLoad := blk.instructions.any fun i => match i.op with | .stateLoad _ => true | _ => false
+  let hasIndexSet := blk.instructions.any fun i => match i.op with | .indexSet .. => true | _ => false
+  let hasIndexGet := blk.instructions.any fun i => match i.op with | .indexGet .. => true | _ => false
+  let hasStore := blk.instructions.any fun i => match i.op with | .stateStore .. => true | _ => false
+  expect hasLoad "array-state: StateLoad for index assign root"
+  expect hasIndexSet "array-state: IndexSet"
+  expect hasIndexGet "array-state: IndexGet on return"
+  expect hasStore "array-state: StateStore"
+
+/-- ArrayState: Map state declaration admitted. (Map index *assign* still fails
+    at TypeCheck: place type is Option from IndexGet; Typed is off-limits this
+    wave. Normalize IndexSet for Map remains ready when TypeCheck is fixed.) -/
+private unsafe def testMapStateAdmitted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MapSlots" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  state n : UInt64\n" ++
+    "  init() do\n" ++
+    "    n := 0\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return n\n"
+  let validated ← loadSource session "map-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"map-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-state: validate: {repr e}"
+  expect (data.logicalState.size == 2) "map-state: Map + UInt64 logical states"
+  let hasMap := data.types.any fun d =>
+    match d.shape with | .map _ _ => true | _ => false
+  expect hasMap "map-state: Map type present"
+  expect (data.logicalState.any (·.name == "m")) "map-state: state m present"
+
+/-- ArrayState: Bytes state declaration admitted. (Bytes index place still
+    TypeCheck-gated to Array/Map only; Typed is off-limits this wave. Normalize
+    IndexGet/IndexSet for Bytes remains ready when TypeCheck opens Bytes places.) -/
+private unsafe def testBytesStateAdmitted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BytesSlots" <|
+    "  state b : Bytes 2\n" ++
+    "  state n : UInt64\n" ++
+    "  init() do\n" ++
+    "    n := 0\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return n\n"
+  let validated ← loadSource session "bytes-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"bytes-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bytes-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bytes-state: validate: {repr e}"
+  let hasBytes := data.types.any fun d =>
+    match d.shape with | .bytes 2 => true | _ => false
+  expect hasBytes "bytes-state: Bytes 2 type present"
+  expect (data.logicalState.any (·.name == "b")) "bytes-state: state b present"
+
+/-- ArrayState: Option state remains fail closed at Normalize. -/
+private unsafe def testOptionStateFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "OptState" <|
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "opt-state" source
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "opt-state: expected Option state fail closed"
+  | .error e =>
+      let msg := toString (repr e)
+      expect (msg.contains "Option" || msg.contains "unsupported" ||
+          msg.contains "Array/Map/Bytes" || msg.contains "UInt")
+        s!"opt-state: message should reject Option state, got {msg}"
+
 /-- N3: bare reassignment of immutable let still fails closed. -/
 private unsafe def testImmutableLetReassignFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6173,6 +6286,11 @@ unsafe def run : IO Unit := do
   testAggregateParamOk session
   testAggregateResultFailClosed session
   testImmutableLetReassignFailClosed session
+  -- ArrayState: anonymous Array/Map/Bytes state + index assign; Option closed
+  testArrayStateIndexAssign session
+  testMapStateAdmitted session
+  testBytesStateAdmitted session
+  testOptionStateFailClosed session
   -- T3 aggregate values
   testAggregateTypeInterning session
   testAggregateIllegalMapKey session

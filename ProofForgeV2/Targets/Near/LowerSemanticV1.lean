@@ -459,6 +459,8 @@ private def nearPlanErr (message : String) : CompileError :=
     (wire identity is binary variable-length; not a NEAR account-id string). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
+  -- ArrayState: container policy defaults to none — anonymous Array/Map/Bytes
+  -- fail closed at type-closure with an explicit container-pilot diagnostic.
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
     pilotUintWidthPolicyNearBody
 

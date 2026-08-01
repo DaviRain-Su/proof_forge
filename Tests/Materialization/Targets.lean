@@ -2607,6 +2607,51 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
+  -- ArrayState: fixed Array UInt64 2 state — Solana admits (flatten to 2×8B
+  -- slots named slots_0/slots_1; literal-index IndexGet/IndexSet); EVM/Near/
+  -- Noir/Psy decline container state (EVM IndexGet/IndexSet off-limits wave).
+  let arrayStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrayBox where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrayV1 ← match ← session.selectProgramV1 arrayStateSource
+      "<targets-array-state>" "Examples.ArrayBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrayState select: {e.render}"
+  let arrayCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrayV1
+  let solanaArray ← liftResult <| planSolana arrayCompiled
+  expect (solanaArray.stateAccount.fields.size == 2)
+    s!"ArrayState: Solana flattened 2 leaf slots for Array UInt64 2, got {solanaArray.stateAccount.fields.size}"
+  expect (solanaArray.stateAccount.fields.any fun f => f.name == "slots_0")
+    "ArrayState: Solana leaf name slots_0"
+  expect (solanaArray.stateAccount.fields.any fun f => f.name == "slots_1")
+    "ArrayState: Solana leaf name slots_1"
+  expect (solanaArray.entries.any fun e => e.name == "set0")
+    "ArrayState: Solana plan has set0 entry"
+  for target in [TargetId.evm, TargetId.near, TargetId.noir, TargetId.psy] do
+    match materializeSelected target arrayCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"ArrayState: {target} must decline container state"
+    | .error e =>
+        expect ((e.render).contains "Array" ||
+            (e.render).contains "container" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "IndexGet" ||
+            (e.render).contains "UInt64")
+          s!"ArrayState {target} message must cite container/Array boundary, got {e.render}"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1

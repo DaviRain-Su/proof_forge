@@ -139,21 +139,55 @@ def validateStateAccount (account : StateAccount) : CompileResult Unit := do
     throw <| .planInvariant .solana "state account field count is outside the profile limits"
   unless account.exactDataLen == stateHeaderBytes + account.fields.size * 8 do
     throw <| .planInvariant .solana "state account exact data length does not match its fields"
-  let sourceIds := account.fields.map (·.sourceId)
   let names := account.fields.map (·.name)
   let offsets := account.fields.map (·.byteOffset)
-  if hasDuplicates sourceIds || hasDuplicates names || hasDuplicates offsets then
+  -- ArrayState: multi-leaf fields share one logical `sourceId`; uniqueness is
+  -- required for physical names and offsets. Logical origins are validated via
+  -- `stateLeaves` below (when present) or 1:1 sourceId==index (legacy).
+  if hasDuplicates names || hasDuplicates offsets then
     throw <| .planInvariant .solana "state field origins, names, and offsets must be unique"
   for index in [0:account.fields.size] do
     let field := account.fields[index]!
     let admittedWidth :=
       field.byteWidth == 1 || field.byteWidth == 2 ||
       field.byteWidth == 4 || field.byteWidth == 8
-    unless field.sourceId == index && field.accountIndex == account.index &&
+    unless field.accountIndex == account.index &&
         field.byteOffset == stateHeaderBytes + index * 8 && admittedWidth &&
         field.endianness == .little && isIdentifier field.name do
       throw <| .planInvariant .solana
         "state field layout is not canonical little-endian with admitted ABI byteWidth"
+  if account.stateLeaves.isEmpty then
+    -- Legacy 1:1: each field sourceId equals its physical index.
+    for index in [0:account.fields.size] do
+      let field := account.fields[index]!
+      unless field.sourceId == index do
+        throw <| .planInvariant .solana
+          "state field origins, names, and offsets must be unique"
+  else
+    -- ArrayState multi-leaf: stateLeaves partitions fields; every field index
+    -- appears exactly once; each leaf's sourceId equals its logical state id.
+    unless account.stateLeaves.size > 0 do
+      throw <| .planInvariant .solana "stateLeaves must be nonempty when present"
+    let mut seen : Array Bool := Array.replicate account.fields.size false
+    for sid in [0:account.stateLeaves.size] do
+      let some leaves := account.stateLeaves[sid]? |
+        throw <| .planInvariant .solana "stateLeaves row missing"
+      unless leaves.size ≥ 1 do
+        throw <| .planInvariant .solana "stateLeaves row must be nonempty"
+      for fi in leaves do
+        unless fi < account.fields.size do
+          throw <| .planInvariant .solana "stateLeaves references out-of-range field"
+        let some already := seen[fi]? |
+          throw <| .planInvariant .solana "stateLeaves seen table corrupt"
+        if already then
+          throw <| .planInvariant .solana "stateLeaves field index must be unique"
+        seen := seen.set! fi true
+        let field := account.fields[fi]!
+        unless field.sourceId == sid do
+          throw <| .planInvariant .solana
+            "stateLeaves sourceId must match logical state id"
+    unless seen.all (· == true) do
+      throw <| .planInvariant .solana "stateLeaves must cover every physical field"
 
 def validateParams (owner : String) (params : Array Param) : CompileResult Unit := do
   if params.size > maxParams then

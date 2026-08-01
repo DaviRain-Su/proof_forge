@@ -415,6 +415,8 @@ private def inputTypeOfScalarV1
     Field element; default `pilotPrincipalPolicyNone`). -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
+  -- ArrayState: container policy defaults to none — anonymous Array/Map/Bytes
+  -- fail closed at type-closure with an explicit container-pilot diagnostic.
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
     pilotUintWidthPolicyNoirBody
     (fieldPolicy := pilotFieldPolicyBn254)

@@ -412,7 +412,8 @@ private partial def lowerRegion
     | .constant .. | .construct .. | .fieldGet .. | .indexGet ..
     | .fieldSet .. | .variantTag .. | .variantPayload .. | .indexSet ..
     | .checkedCast .. =>
-        planError "unsupported Psy semantic shape: op is outside the public UInt64/Bool envelope"
+        -- ArrayState: container ops declined (no Array/Map/Bytes state layout).
+        planError "unsupported Psy semantic shape: op is outside the public UInt64/Bool envelope (container IndexGet/IndexSet/Construct declined)"
     -- N5: Psy declines both ContextRead and Commit (policy none).
     | .contextRead .. =>
         planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"
@@ -640,7 +641,7 @@ private def makePlanFromSemanticDataV1
     -- N1: Felt storage is opaque; accept any visibility, UInt64/Int64 type.
     -- N2c: Principal is variable-length u32-prefixed identity — not Felt.
     unless isUInt64Type data state.typeId || isInt64Type data state.typeId do
-      planError "unsupported Psy semantic shape: state must be UInt64 or Int64 (Principal is variable-length identity, not Felt)"
+      planError "unsupported Psy semantic shape: state must be UInt64 or Int64 (Array/Map/Bytes container state and Principal declined)"
     stateFields := stateFields.push state.name
   let mut events : Array PlanEvent := #[]
   for ev in data.events do

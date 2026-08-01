@@ -220,6 +220,31 @@ def pilotNamedAggregateStatePolicyNone : PilotNamedAggregateStatePolicy where
 def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
   admitNamedStructEnum := true
 
+/-- Per-target admission for anonymous container state types (ArrayState wave).
+
+    Default fail-closed (`none`). A positive lane must pin a concrete layout
+    (e.g. Solana: fixed-length `Array UInt64 N` flattened to N consecutive
+    8-byte account slots with literal-index IndexGet/IndexSet). Map/Bytes
+    remain optional; Option container state stays Normalize-closed and is
+    never admitted here. -/
+structure PilotContainerStatePolicy where
+  admitArray : Bool
+  admitMap : Bool
+  admitBytes : Bool
+  deriving BEq, Repr
+
+def pilotContainerStatePolicyNone : PilotContainerStatePolicy where
+  admitArray := false
+  admitMap := false
+  admitBytes := false
+
+/-- Solana ArrayState positive: fixed-length Array only (element shape gated
+    target-locally to UInt64). Map/Bytes stay fail closed this slice. -/
+def pilotContainerStatePolicyArrayOnly : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := false
+  admitBytes := false
+
 /-- Per-target admission for N4 `TypeShapeV1.string` (variable-length NFC UTF-8).
     Default fail-closed. A positive lane must store and byte-compare the full
     wire encoding (`u32le len || UTF-8`, len ≤ maxTypeLengthV1) or a documented
@@ -273,7 +298,9 @@ def pilotContextPolicyAdmit : PilotContextPolicy where
 /-- Anonymous type ids admitted by a pilot type-closure policy.
     UInt64 is required; Unit / Bool / Int64 / Field / Principal / String are
     optional (at most one each). Named Struct/Enum TypeIds appear in
-    `namedTypeIds` when N3 policy admits them. -/
+    `namedTypeIds` when N3 policy admits them. Anonymous container TypeIds
+    (Array/Map/Bytes) appear in `containerTypeIds` when ArrayState policy
+    admits the matching shape. -/
 structure PilotTypeClosureV1 where
   uint64TypeId : TypeIdV1
   unitTypeId : Option TypeIdV1
@@ -298,6 +325,9 @@ structure PilotTypeClosureV1 where
   stringTypeId : Option TypeIdV1 := none
   /-- Named Struct/Enum TypeIds in source order when N3 aggregate policy admits. -/
   namedTypeIds : Array TypeIdV1 := #[]
+  /-- Anonymous Array/Map/Bytes TypeIds in source order when ArrayState policy
+      admits the matching container shape. -/
+  containerTypeIds : Array TypeIdV1 := #[]
   deriving BEq, Repr
 
 /-- Look up an admitted non-64 UInt TypeId by bit width. -/
@@ -409,6 +439,11 @@ def PilotTypeClosureV1.isNamedAggregate
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.namedTypeIds.contains typeId
 
+/-- True when `typeId` is an admitted anonymous Array/Map/Bytes container. -/
+def PilotTypeClosureV1.isContainer
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.containerTypeIds.contains typeId
+
 /-- True when `typeId` is a scalar pilot type or an admitted named aggregate. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamed
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
@@ -418,6 +453,11 @@ def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamed
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64OrFieldOrPrincipalOrNamed typeId || c.isString typeId
+
+/-- Scalar pilot + named aggregate + String + admitted container. -/
+def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrStringOrContainer
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString typeId || c.isContainer typeId
 
 /-- Per-target detail strings that already diverged before EnvelopeV1.
     Common details (named types, one UInt64, duplicate Unit/Bool, missing
@@ -506,18 +546,18 @@ private def duplicateIntDetail (width : Nat) : String :=
   s!"expected at most one anonymous Int{width} type"
 
 /-- Admit a pilot type closure under explicit UInt-, Int-width, Field,
-    Principal, String, and named-aggregate policies.
+    Principal, String, named-aggregate, and container policies.
 
     Rules: require exactly one anonymous UInt64; accept at most one of each
     other admitted UInt width / admitted Int width / Unit / Bool / sole catalog
     Field / Principal / String; named Struct/Enum only when
-    `namedAggregatePolicy.admitNamedStructEnum` (N3); reject all other shapes
-    (including anonymous Array/Map/Option/Bytes). Diagnostics use `mkErr` and
-    `wording`.
+    `namedAggregatePolicy.admitNamedStructEnum` (N3); anonymous Array/Map/Bytes
+    only when `containerPolicy` admits the matching shape (ArrayState);
+    reject Option and all other shapes. Diagnostics use `mkErr` and `wording`.
 
-    Default named-aggregate/String policies are **none** (fail closed); pass
-    `pilotNamedAggregateStatePolicyAdmit` / `pilotStringPolicyAdmit` for
-    positive lanes (EVM). -/
+    Default named-aggregate/String/container policies are **none** (fail closed);
+    pass `pilotNamedAggregateStatePolicyAdmit` / `pilotStringPolicyAdmit` /
+    `pilotContainerStatePolicyArrayOnly` for positive lanes. -/
 def validatePilotTypeClosure
     (mkErr : String → CompileError)
     (wording : PilotTypeClosureWording)
@@ -528,7 +568,9 @@ def validatePilotTypeClosure
     (principalPolicy : PilotPrincipalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy : PilotNamedAggregateStatePolicy :=
       pilotNamedAggregateStatePolicyNone)
-    (stringPolicy : PilotStringPolicy := pilotStringPolicyNone) :
+    (stringPolicy : PilotStringPolicy := pilotStringPolicyNone)
+    (containerPolicy : PilotContainerStatePolicy :=
+      pilotContainerStatePolicyNone) :
     CompileResult PilotTypeClosureV1 := do
   let label := wording.targetLabel
   unless policy.admittedWidths.contains 64 do
@@ -542,6 +584,7 @@ def validatePilotTypeClosure
   let mut principalTypeId : Option TypeIdV1 := none
   let mut stringTypeId : Option TypeIdV1 := none
   let mut namedTypeIds : Array TypeIdV1 := #[]
+  let mut containerTypeIds : Array TypeIdV1 := #[]
   for decl in types do
     match decl.name with
     | some _ =>
@@ -617,6 +660,21 @@ def validatePilotTypeClosure
             throw <| mkErr (shapeMsg label
               "expected at most one anonymous String type")
           stringTypeId := some decl.id
+      | .array _ _ =>
+          unless containerPolicy.admitArray do
+            throw <| mkErr (shapeMsg label
+              "anonymous Array is outside the current container-state pilot")
+          containerTypeIds := containerTypeIds.push decl.id
+      | .map _ _ =>
+          unless containerPolicy.admitMap do
+            throw <| mkErr (shapeMsg label
+              "anonymous Map is outside the current container-state pilot")
+          containerTypeIds := containerTypeIds.push decl.id
+      | .bytes _ =>
+          unless containerPolicy.admitBytes do
+            throw <| mkErr (shapeMsg label
+              "anonymous Bytes is outside the current container-state pilot")
+          containerTypeIds := containerTypeIds.push decl.id
       | _ =>
           throw <| mkErr (shapeMsg label wording.unsupportedShapeDetail)
   let resolvedUInt64TypeId ← match uint64TypeId with
@@ -638,6 +696,7 @@ def validatePilotTypeClosure
     principalTypeId
     stringTypeId
     namedTypeIds
+    containerTypeIds
   }
 
 /-! ### UInt64 state / parameter predicates (visibility policy)
@@ -882,6 +941,40 @@ def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrString param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is an admitted scalar/named/String **or container**
+    (ArrayState) TypeId, and public unless `allowNonPublic`. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrStringOrContainer
+      state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is an admitted scalar/named/String **or container**
+    (ArrayState) TypeId, and public unless `allowNonPublic`. -/
+def requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUInt64OrInt64OrFieldOrPrincipalOrNamedOrStringOrContainer
+      param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

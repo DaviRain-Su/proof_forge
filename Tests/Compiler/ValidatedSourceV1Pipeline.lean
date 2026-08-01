@@ -581,14 +581,16 @@ def run : IO Unit := do
       (itemPrefix.push (.entry (entry runN (ret (var seed)) #[param seed])))
     expectInvalid s!"top {tag}" want (Compiler.compileValidatedSourceV1 bad)
 
-  -- Named types fail CheckV1 resolution; aggregate state still fails UInt-only gate.
+  -- Named types fail CheckV1 resolution; Option/Unit/Bool state stay fail closed
+  -- (Array/Map/Bytes state admitted by ArrayState wave).
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String or named Struct/Enum"),
+    ("Type.Option", .option .bool,
+      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
-    ("Type.Map nested", .array (.option (.map .bool .bool)) 1,
-      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String or named Struct/Enum"),
+    ("Type.Bool state", .bool,
+      "S1 state 'x' requires anonymous UInt/Int/Field/Principal/String, named Struct/Enum, or Array/Map/Bytes"),
     ("Type.illegalMapKey", illegalMapKey, "S1 Map key type is not a legal map key")]
   for (tag, type_, want) in typeCases do
     let bad ← validated moduleName identity demo
