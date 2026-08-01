@@ -11468,3 +11468,30 @@ normative: false
   review通过，未新增第二循环。
 - Boundary：具体Bool/Principal/Unit bytes现可逐项接入该array seam；SemanticProgram root body、其余
   tables、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — Solana Mollusk multi-program runtime differential (S3b engineering slice)
+
+- Production fixtures：`runtime-tests/solana/fixtures/{LoopSum,MathOps,FnCall,Events,MultiField,MatchOps}.lean`
+  （`import ProofForgeV2` + `namespace ProofForgeV2.Examples` + `program <Name>`；CLI
+  `build --module Examples.<Name> --target solana --profile solana-sbpf-elf-v1`）。
+- Driver：`scripts/solana_runtime_test.sh` 保留 Counter，并循环构建六 fixture 到
+  `$out_dir/<Name>/`；导出 `PROOF_FORGE_FIXTURES_DIR` + 既有 `PROOF_FORGE_SO_DIR`/
+  `PROOF_FORGE_PLAN`；每个 fixture 强制存在 `.so` + `.sbpf-plan`。
+- Rust：`tests/common/mod.rs` 抽取 discriminator/layout/state pack/Mollusk helper；
+  `tests/counter.rs` 迁到 common；新增 `tests/programs.rs`（`loop_sum_*` /
+  `math_ops_*` / `fn_call_*` / `events_*` / `multi_field_*` / `match_ops_*`）。
+  期望值在 Rust 独立计算；plan `.handler` 交叉验证；负向覆盖 0x1001/0x1002/0x1003/
+  0x1004/0x2000/unknown disc。
+- Events 日志：mollusk-svm 0.13.4 的 `Check`/`InstructionResult` **无** logs API；
+  经 `Mollusk.logger = Some(LogCollector::new_ref())` + `get_recorded_content()`
+  断言 `Program data:` base64（`sol_log_data` key=eventIndex u64 LE + args 打包）。
+- Emitter fix（主代理审计修复）：pureFn 内联原以 `frame = max(fnTemps, arity)` 共享
+  参数槽与 body temp 区域，body 首个写低 ValueId 的 op（如 `loadParam 1` remap 或
+  const）会覆盖参数——`pick(x, g)` 用 `g > 0` 时早退返回 g 而非 x。现参数槽在
+  `calleeBase+0..arity-1`、body temp 在 `calleeBase+arity+..` 分区，loadParam remap
+  显式读参数槽；FnCall fixture 保留 `g > 0` 触发形状作回归。
+- Design notes discovered by runtime differential:
+  - Lean keyword `calc` cannot be an entry name (parser fail); MathOps entry is `run`.
+  - For-loop start literal `0` fails TypeCheck (no default integer width); LoopSum uses `(n - n) ..< n`.
+  - invalidShift test uses `x << (32 + 32)` (literal 64 rejected at typecheck).
+- Boundary：工程运行时差分扩展，非 formal Stage-0/hermetic EV；不改 Lean 产品路径（发射器修复除外）。

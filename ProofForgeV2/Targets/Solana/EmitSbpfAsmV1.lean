@@ -483,6 +483,10 @@ private structure InlineCtx where
   /-- Inline-instance end label: a fn-level `return` (hard-exit marker)
       jumps here so trailing ops after a one-arm-closed region are skipped. -/
   fnEndLabel : String
+  /-- Absolute base of the callee param slots (calleeBase + 0..arity-1).
+      Body temps live at a disjoint region (calleeBase + arity + ..), so a
+      body op writing temp `t < arity` can never clobber a param slot. -/
+  paramBase : Nat
 
 /-- Allocate `n` consecutive absolute temps from the cursor; returns base. -/
 private def allocTemps (b : AsmBuf) (n : Nat) : AsmBuf × Nat :=
@@ -502,12 +506,14 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .loadParam destination dataOffset =>
       match inlineCtx with
       | some ctx =>
-          -- pureFn param access: remap offset → pre-copied param temp.
+          -- pureFn param access: remap offset → pre-copied param slot.
+          -- The param slot lives at `paramBase + idx`; the destination is a
+          -- body temp at `tempBase + destination` (disjoint regions).
           let some idx := paramIndexByOffset ctx.fn.params dataOffset |
             return ← asmError
               s!"S1b inlined loadParam offset {dataOffset} is not a fn param"
           let b := emit b s!"  ; %{destination} = fn_param[{idx}] (offset {dataOffset})"
-          let b := loadTemp b "r1" tempBase idx
+          let b := loadTemp b "r1" ctx.paramBase idx
           pure (storeTemp b tempBase destination "r1")
       | none =>
           let b := emit b s!"  ; %{destination} = load_u64_le(instruction_data + {dataOffset})"
@@ -712,9 +718,11 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       unless args.size == fn.params.size do
         return ← asmError s!"S1b callFn arity mismatch for {fn.name}"
       let fnTemps := tempCountOf fn.operations
-      -- Frame must cover param slots and all body destinations.
-      let frameSize := Nat.max fnTemps fn.params.size
-      let (b0, calleeBase) := allocTemps b frameSize
+      -- Disjoint regions: param slots at calleeBase+0..arity-1 and body
+      -- temps at calleeBase+arity+0..fnTemps-1. Body ops may write any temp
+      -- 0..n-1; sharing the region with the param slots would let e.g. a
+      -- loadParam remap or literal clobber an argument (S3b regression).
+      let (b0, calleeBase) := allocTemps b (fn.params.size + fnTemps)
       let (b1, endLab) := fresh b0 "fn_end"
       let mut b := emit b1 s!"  ; call {fn.name} → %{destination} (inline base {calleeBase})"
       -- Param copy: caller arg temps → callee param slots 0..arity-1.
@@ -725,8 +733,10 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
         retDestAbs := tempBase + destination
         fn
         fnEndLabel := endLab
+        paramBase := calleeBase
       }
-      b ← emitOperations b ir calleeBase (some ctx) (inlineDepth + 1) fn.operations
+      b ← emitOperations b ir (calleeBase + fn.params.size) (some ctx)
+        (inlineDepth + 1) fn.operations
       pure (emit b s!"{endLab}:")
   | .emitEvent eventIndex args =>
       unless eventIndex < ir.sourcePlan.events.size do

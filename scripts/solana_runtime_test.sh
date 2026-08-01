@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Solana S3a: build Counter ELF (solana-sbpf-elf-v1) and run Mollusk runtime
-# differential tests against ReferenceV1 Counter semantics.
+# Solana S3a+S3b: build Counter ELF + six S1b fixture ELFs (solana-sbpf-elf-v1)
+# and run Mollusk runtime differential tests.
 #
 # Requires:
 #   - lake / Lean toolchain on PATH
@@ -55,6 +55,17 @@ fi
 cli="$root/.lake/build/bin/proof-forge-next"
 out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/solana-runtime}"
 crate_dir="$root/runtime-tests/solana"
+fixtures_src="$root/runtime-tests/solana/fixtures"
+
+# S3b fixture programs (source stem == program name == artifact stem).
+fixtures=(
+  LoopSum
+  MathOps
+  FnCall
+  Events
+  MultiField
+  MatchOps
+)
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
 # Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
@@ -66,44 +77,90 @@ echo "solana-runtime-test: sbpf=$("$sbpf_bin" --version 2>&1 || true)"
 
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); remove and let it create.
 rm -rf "$out_dir"
-mkdir -p "$(dirname "$out_dir")"
+mkdir -p "$out_dir"
 
-echo "solana-runtime-test: build-counter --target solana --profile solana-sbpf-elf-v1 -o $out_dir"
+echo "solana-runtime-test: build-counter --target solana --profile solana-sbpf-elf-v1 -o $out_dir/Counter"
 if ! lake env "$cli" build-counter \
   --target solana \
   --profile solana-sbpf-elf-v1 \
-  -o "$out_dir"; then
+  -o "$out_dir/Counter"; then
   die "proof-forge-next build-counter failed"
 fi
 
 so_path=""
 plan_path=""
-# Prefer top-level Counter.so / Counter.sbpf-plan; also accept nested layouts.
-if [[ -f "$out_dir/Counter.so" ]]; then
-  so_path="$out_dir/Counter.so"
-elif [[ -f "$out_dir/deploy/Counter.so" ]]; then
-  so_path="$out_dir/deploy/Counter.so"
+if [[ -f "$out_dir/Counter/Counter.so" ]]; then
+  so_path="$out_dir/Counter/Counter.so"
+elif [[ -f "$out_dir/Counter/deploy/Counter.so" ]]; then
+  so_path="$out_dir/Counter/deploy/Counter.so"
 else
-  so_path="$(find "$out_dir" -name 'Counter.so' -type f 2>/dev/null | head -n 1 || true)"
+  so_path="$(find "$out_dir/Counter" -name 'Counter.so' -type f 2>/dev/null | head -n 1 || true)"
 fi
-if [[ -f "$out_dir/Counter.sbpf-plan" ]]; then
-  plan_path="$out_dir/Counter.sbpf-plan"
+if [[ -f "$out_dir/Counter/Counter.sbpf-plan" ]]; then
+  plan_path="$out_dir/Counter/Counter.sbpf-plan"
 else
-  plan_path="$(find "$out_dir" -name 'Counter.sbpf-plan' -type f 2>/dev/null | head -n 1 || true)"
+  plan_path="$(find "$out_dir/Counter" -name 'Counter.sbpf-plan' -type f 2>/dev/null | head -n 1 || true)"
 fi
 
-[[ -n "$so_path" && -f "$so_path" ]] || die "Counter.so not found under $out_dir"
-[[ -n "$plan_path" && -f "$plan_path" ]] || die "Counter.sbpf-plan not found under $out_dir"
+[[ -n "$so_path" && -f "$so_path" ]] || die "Counter.so not found under $out_dir/Counter"
+[[ -n "$plan_path" && -f "$plan_path" ]] || die "Counter.sbpf-plan not found under $out_dir/Counter"
 
 so_dir="$(cd "$(dirname "$so_path")" && pwd)"
 plan_path="$(cd "$(dirname "$plan_path")" && pwd)/$(basename "$plan_path")"
 
 echo "solana-runtime-test: Counter.so=$so_path ($(wc -c <"$so_path" | tr -d ' ') bytes)"
 echo "solana-runtime-test: plan=$plan_path"
+
+# Build each S3b fixture under $out_dir/<Name>/.
+for name in "${fixtures[@]}"; do
+  src="$fixtures_src/${name}.lean"
+  [[ -f "$src" ]] || die "fixture source missing: $src"
+  fixture_out="$out_dir/$name"
+  echo "solana-runtime-test: build --source runtime-tests/solana/fixtures/${name}.lean --module Examples.${name} --target solana --profile solana-sbpf-elf-v1 -o $fixture_out"
+  if ! lake env "$cli" build \
+    "runtime-tests/solana/fixtures/${name}.lean" \
+    --module "Examples.${name}" \
+    --target solana \
+    --profile solana-sbpf-elf-v1 \
+    -o "$fixture_out"; then
+    die "proof-forge-next build failed for fixture $name"
+  fi
+
+  fixture_so=""
+  fixture_plan=""
+  if [[ -f "$fixture_out/${name}.so" ]]; then
+    fixture_so="$fixture_out/${name}.so"
+  elif [[ -f "$fixture_out/deploy/${name}.so" ]]; then
+    fixture_so="$fixture_out/deploy/${name}.so"
+  else
+    fixture_so="$(find "$fixture_out" -name "${name}.so" -type f 2>/dev/null | head -n 1 || true)"
+  fi
+  if [[ -f "$fixture_out/${name}.sbpf-plan" ]]; then
+    fixture_plan="$fixture_out/${name}.sbpf-plan"
+  else
+    fixture_plan="$(find "$fixture_out" -name "${name}.sbpf-plan" -type f 2>/dev/null | head -n 1 || true)"
+  fi
+  [[ -n "$fixture_so" && -f "$fixture_so" ]] || die "${name}.so not found under $fixture_out"
+  [[ -n "$fixture_plan" && -f "$fixture_plan" ]] || die "${name}.sbpf-plan not found under $fixture_out"
+
+  # Normalize layout for Rust: PROOF_FORGE_FIXTURES_DIR/<Name>/<Name>.{so,sbpf-plan}
+  # If sbpf stages under deploy/, copy/link into the fixture root for stable env paths.
+  if [[ "$(cd "$(dirname "$fixture_so")" && pwd)" != "$(cd "$fixture_out" && pwd)" ]]; then
+    cp -f "$fixture_so" "$fixture_out/${name}.so"
+  fi
+  if [[ "$(cd "$(dirname "$fixture_plan")" && pwd)" != "$(cd "$fixture_out" && pwd)" ]]; then
+    cp -f "$fixture_plan" "$fixture_out/${name}.sbpf-plan"
+  fi
+  [[ -f "$fixture_out/${name}.so" ]] || die "normalized ${name}.so missing"
+  [[ -f "$fixture_out/${name}.sbpf-plan" ]] || die "normalized ${name}.sbpf-plan missing"
+  echo "solana-runtime-test: ${name}.so=$(wc -c <"$fixture_out/${name}.so" | tr -d ' ') bytes"
+done
+
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
 export PROOF_FORGE_SO_DIR="$so_dir"
 export PROOF_FORGE_PLAN="$plan_path"
+export PROOF_FORGE_FIXTURES_DIR="$out_dir"
 
 if ! (
   cd "$crate_dir"

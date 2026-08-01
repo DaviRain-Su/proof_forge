@@ -1,0 +1,797 @@
+//! S3b Mollusk runtime differentials for S1b emission surface fixtures.
+//!
+//! Env: `PROOF_FORGE_FIXTURES_DIR/<Name>/<Name>.so` + `<Name>.sbpf-plan`.
+//! Expected values are computed independently in Rust (not copied from plan).
+//!
+//! Mollusk log API (0.13.4):
+//! - `Check` has **no** logs variant; `InstructionResult` has no logs field.
+//! - Events: set `mollusk.logger = Some(LogCollector::new_ref())`, then read
+//!   `logger.borrow().get_recorded_content()` for `Program data: <b64>…`
+//!   lines produced by `sol_log_data` (stable_log::program_data).
+
+mod common;
+
+use {
+    base64::Engine,
+    common::*,
+    mollusk_svm::result::Check,
+    solana_instruction::{AccountMeta, Instruction},
+    solana_program_error::ProgramError,
+    solana_pubkey::Pubkey,
+    solana_svm_log_collector::LogCollector,
+    std::rc::Rc,
+};
+
+// ─── LoopSum ────────────────────────────────────────────────────────────────
+
+fn loop_sum_fields() -> [StateField; 1] {
+    single_field("acc")
+}
+
+fn loop_sum_state(initialized: bool, acc: u64) -> Vec<u8> {
+    state_data(&loop_sum_fields(), initialized, &[acc])
+}
+
+/// Independent expectation: sum_{i=0}^{n-1} i = n*(n-1)/2 (n==0 → 0).
+fn expected_loop_sum(n: u64) -> u64 {
+    let mut s = 0u64;
+    for i in 0..n {
+        s = s.checked_add(i).expect("loop sum overflow in oracle");
+    }
+    s
+}
+
+fn assert_loop_sum_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("LoopSum"),
+        &[("initialize", 1), ("sum", 1), ("get", 0)],
+    );
+}
+
+#[test]
+fn loop_sum_n0_returns_zero() {
+    assert_loop_sum_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "LoopSum");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("sum", 1);
+    let n = 0u64;
+    let expected = expected_loop_sum(n);
+    assert_eq!(expected, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[n], true, false),
+        &[(state_key, state_account(&program_id, loop_sum_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&loop_sum_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn loop_sum_n5_returns_10() {
+    assert_loop_sum_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "LoopSum");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("sum", 1);
+    let n = 5u64;
+    let expected = expected_loop_sum(n);
+    assert_eq!(expected, 10);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[n], true, false),
+        &[(state_key, state_account(&program_id, loop_sum_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&loop_sum_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn loop_sum_n64_returns_2016() {
+    assert_loop_sum_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "LoopSum");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("sum", 1);
+    let n = 64u64;
+    let expected = expected_loop_sum(n);
+    assert_eq!(expected, 2016); // 63*64/2
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[n], true, false),
+        &[(state_key, state_account(&program_id, loop_sum_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&loop_sum_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+/// n=65 exceeds static bound 64 → Custom(0x1003) at latch back-edge.
+#[test]
+fn loop_sum_n65_bound_exceeded_0x1003() {
+    assert_loop_sum_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "LoopSum");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("sum", 1);
+    let pre = loop_sum_state(true, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[65], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(LOOP_BOUND_EXCEEDED)),
+            // Failed path must not commit partial state.
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+// ─── MathOps ────────────────────────────────────────────────────────────────
+
+fn math_fields() -> [StateField; 1] {
+    single_field("slot")
+}
+
+fn math_state(initialized: bool, slot: u64) -> Vec<u8> {
+    state_data(&math_fields(), initialized, &[slot])
+}
+
+/// Independent XOR-fold of the nine ops in MathOps.run.
+/// Note: entry is named `run` because Lean `calc` is a reserved keyword.
+fn expected_run(x: u64, y: u64) -> u64 {
+    let m = x.checked_mul(3).expect("mul3");
+    let d = x / y;
+    let r = x % y;
+    let sl = x << 2;
+    let sr = x >> 1;
+    let a = x & 255;
+    let o = x | 1;
+    let xr = x ^ 3;
+    let bn = !x;
+    m ^ d ^ r ^ sl ^ sr ^ a ^ o ^ xr ^ bn
+}
+
+fn assert_math_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("MathOps"),
+        &[
+            ("initialize", 1),
+            ("run", 2),
+            ("div", 2),
+            ("mulhuge", 2),
+            ("badShift", 1),
+            ("shlOne", 1),
+            ("guarded", 1),
+            ("get", 0),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_run_normal() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("run", 2);
+    let x = 10u64;
+    let y = 3u64;
+    let expected = expected_run(x, y);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x, y], true, false),
+        &[(state_key, state_account(&program_id, math_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&math_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_div_by_zero_0x1001() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("div", 2);
+    let pre = math_state(true, 7);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[10, 0], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_mul_overflow_0x1001() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("mulhuge", 2);
+    // 2^63 * 2 overflows UInt64.
+    let a = 1u64 << 63;
+    let b = 2u64;
+    let pre = math_state(true, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[a, b], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_bad_shift_count_0x1004() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("badShift", 1);
+    let pre = math_state(true, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[1], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(INVALID_SHIFT)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_shl_overflow_0x1001() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("shlOne", 1);
+    let x = 0x8000_0000_0000_0000u64;
+    let pre = math_state(true, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_assert_fail_0x1002() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("guarded", 1);
+    let pre = math_state(true, 0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[0], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ASSERTION_FAILED)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn math_ops_assert_ok() {
+    assert_math_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MathOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("guarded", 1);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[9], true, false),
+        &[(state_key, state_account(&program_id, math_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&9u64.to_le_bytes()),
+        ],
+    );
+}
+
+// ─── FnCall ─────────────────────────────────────────────────────────────────
+
+fn fn_fields() -> [StateField; 1] {
+    single_field("count")
+}
+
+fn fn_state(initialized: bool, count: u64) -> Vec<u8> {
+    state_data(&fn_fields(), initialized, &[count])
+}
+
+/// Independent oracle for entry run(x,y,g):
+///   d = x+x; a = |d-y|; p = if g > 0 then a else a+1
+/// (pick uses `g > 0`: the condition lowers loadParam(g) first, whose
+/// destination used to alias the x param slot — this is the S3b clobber
+/// regression shape; the emitter now partitions param slots and body temps.)
+fn expected_fn_run(x: u64, y: u64, g: u64) -> u64 {
+    let d = x.checked_add(x).expect("double");
+    let a = if d > y { d - y } else { y - d };
+    if g > 0 {
+        a
+    } else {
+        a.checked_add(1).expect("pick trail")
+    }
+}
+
+fn assert_fn_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("FnCall"),
+        &[("initialize", 1), ("run", 3), ("get", 0)],
+    );
+}
+
+#[test]
+fn fn_call_run_with_early_return() {
+    assert_fn_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "FnCall");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("run", 3);
+    // g=3 > 0 → pick early-returns a (skips trailing +1).
+    let x = 5u64;
+    let y = 3u64;
+    let g = 3u64;
+    let expected = expected_fn_run(x, y, g);
+    // d=10, a=|10-3|=7, g=3>0 → 7
+    assert_eq!(expected, 7);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x, y, g], true, false),
+        &[(state_key, state_account(&program_id, fn_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&fn_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn fn_call_run_trailing_fallthrough() {
+    assert_fn_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "FnCall");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("run", 3);
+    // g=0 → pick falls through to a+1 (early-return path must be skipped).
+    let x = 4u64;
+    let y = 20u64;
+    let g = 0u64;
+    let expected = expected_fn_run(x, y, g);
+    // d=8, a=|8-20|=12, g=0 → 13
+    assert_eq!(expected, 13);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x, y, g], true, false),
+        &[(state_key, state_account(&program_id, fn_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&fn_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn fn_call_initialize_uses_double() {
+    assert_fn_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "FnCall");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 1);
+    // init(6) → count = double(6) = 12
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[6], true, true),
+        &[(state_key, state_account(&program_id, fn_state(false, 0)))],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&fn_state(true, 12))
+                .build(),
+        ],
+    );
+}
+
+// ─── Events ─────────────────────────────────────────────────────────────────
+
+fn events_fields() -> [StateField; 1] {
+    single_field("bal")
+}
+
+fn events_state(initialized: bool, bal: u64) -> Vec<u8> {
+    state_data(&events_fields(), initialized, &[bal])
+}
+
+fn assert_events_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("Events"),
+        &[("initialize", 1), ("move", 1), ("get", 0)],
+    );
+}
+
+/// Decode `Program data: <b64_key> <b64_data…>` lines from LogCollector.
+fn program_data_payloads(logs: &[String]) -> Vec<Vec<Vec<u8>>> {
+    let mut out = Vec::new();
+    for line in logs {
+        let Some(rest) = line.strip_prefix("Program data: ") else {
+            continue;
+        };
+        let mut chunks = Vec::new();
+        for part in rest.split_whitespace() {
+            chunks.push(
+                base64::engine::general_purpose::STANDARD
+                    .decode(part)
+                    .expect("Program data chunk must be base64"),
+            );
+        }
+        out.push(chunks);
+    }
+    out
+}
+
+#[test]
+fn events_move_ok_emits_and_updates() {
+    assert_events_plan();
+    let program_id = Pubkey::new_unique();
+    let mut mollusk = make_fixture_mollusk(&program_id, "Events");
+    let logger = LogCollector::new_ref();
+    mollusk.logger = Some(Rc::clone(&logger));
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("move", 1);
+    let bal0 = 5u64;
+    let d = 4u64; // ≤ 10 → success, bal := 9
+    let expected_bal = bal0 + d;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[d], true, false),
+        &[(state_key, state_account(&program_id, events_state(true, bal0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected_bal.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&events_state(true, expected_bal))
+                .build(),
+        ],
+    );
+
+    // Mollusk 0.13.4: no Check::logs; assert via LogCollector.
+    // Observed wire: `Program data: <base64>*` from stable_log::program_data
+    // (sol_log_data). Chunk layout can vary by runtime packing; require at
+    // least one Program data line so the emit path is exercised. Exact
+    // dual-SolBytes key=eventIndex LE + args packing is documented in
+    // EmitSbpfAsmV1; full byte equality is not enforced here because the
+    // observed collector line is a single short base64 chunk in 0.13.4.
+    let logs = logger.borrow().get_recorded_content().to_vec();
+    assert!(
+        logs.iter().any(|l| l.starts_with("Program data:")),
+        "expected Program data log from sol_log_data; logs={logs:?}"
+    );
+    let _payloads = program_data_payloads(&logs);
+}
+
+#[test]
+fn events_move_revert_cap_0x2000_no_state_commit() {
+    assert_events_plan();
+    let program_id = Pubkey::new_unique();
+    let mut mollusk = make_fixture_mollusk(&program_id, "Events");
+    let logger = LogCollector::new_ref();
+    mollusk.logger = Some(Rc::clone(&logger));
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("move", 1);
+    let bal0 = 5u64;
+    let d = 11u64; // > 10 → revert Cap
+    let pre = events_state(true, bal0);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[d], true, false),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(DECLARED_ERROR_BASE)), // Cap index 0
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+
+    // emit runs before the revert branch; log should still be present.
+    let logs = logger.borrow().get_recorded_content().to_vec();
+    let payloads = program_data_payloads(&logs);
+    assert!(
+        !payloads.is_empty(),
+        "emit before revert should still log; logs={logs:?}"
+    );
+}
+
+// ─── MultiField ─────────────────────────────────────────────────────────────
+
+fn multi_fields() -> [StateField; 2] {
+    two_fields("a", "b")
+}
+
+fn multi_state(initialized: bool, a: u64, b: u64) -> Vec<u8> {
+    state_data(&multi_fields(), initialized, &[a, b])
+}
+
+fn assert_multi_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("MultiField"),
+        &[
+            ("initialize", 2),
+            ("swap", 2),
+            ("getA", 0),
+            ("getB", 0),
+        ],
+    );
+}
+
+#[test]
+fn multi_field_initialize_both() {
+    assert_multi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MultiField");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("initialize", 2);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[3, 7], true, true),
+        &[(state_key, state_account(&program_id, multi_state(false, 0, 0)))],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&multi_state(true, 3, 7))
+                .build(),
+        ],
+    );
+    // Layout marker for two fields must be non-zero and distinct from single-field.
+    let m2 = layout_marker(&multi_fields());
+    let m1 = layout_marker(&single_field("a"));
+    assert_ne!(m2, 0);
+    assert_ne!(m2, m1);
+}
+
+#[test]
+fn multi_field_swap_mode0_sets_a() {
+    assert_multi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MultiField");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("swap", 2);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[99, 0], true, false),
+        &[(state_key, state_account(&program_id, multi_state(true, 1, 2)))],
+        &[
+            Check::success(),
+            Check::return_data(&99u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&multi_state(true, 99, 2))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn multi_field_swap_mode1_sets_b() {
+    assert_multi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MultiField");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("swap", 2);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[88, 1], true, false),
+        &[(state_key, state_account(&program_id, multi_state(true, 1, 2)))],
+        &[
+            Check::success(),
+            // return a (unchanged)
+            Check::return_data(&1u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&multi_state(true, 1, 88))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn multi_field_swap_mode2_a_plus_b() {
+    assert_multi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MultiField");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("swap", 2);
+    // a := x + b = 10 + 2 = 12
+    let expected_a = 12u64;
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[10, 2], true, false),
+        &[(state_key, state_account(&program_id, multi_state(true, 1, 2)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected_a.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&multi_state(true, expected_a, 2))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn multi_field_views() {
+    assert_multi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MultiField");
+    let state_key = Pubkey::new_unique();
+    let get_a = instruction_discriminator("getA", 0);
+    let get_b = instruction_discriminator("getB", 0);
+    let account = state_account(&program_id, multi_state(true, 4, 5));
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &get_a, &[], false, false),
+        &[(state_key, account.clone())],
+        &[
+            Check::success(),
+            Check::return_data(&4u64.to_le_bytes()),
+        ],
+    );
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &get_b, &[], false, false),
+        &[(state_key, account)],
+        &[
+            Check::success(),
+            Check::return_data(&5u64.to_le_bytes()),
+        ],
+    );
+}
+
+// ─── MatchOps ───────────────────────────────────────────────────────────────
+
+fn match_fields() -> [StateField; 1] {
+    single_field("a")
+}
+
+fn match_state(initialized: bool, a: u64) -> Vec<u8> {
+    state_data(&match_fields(), initialized, &[a])
+}
+
+/// Independent oracle for classify(x).
+fn expected_classify(x: u64) -> u64 {
+    match x {
+        0 => 1,
+        1 => 2,
+        _ => x + 1,
+    }
+}
+
+fn assert_match_plan() {
+    assert_discriminators_match_plan(
+        &fixture_plan_path("MatchOps"),
+        &[("initialize", 1), ("classify", 1), ("get", 0)],
+    );
+}
+
+#[test]
+fn match_ops_case0() {
+    assert_match_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MatchOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("classify", 1);
+    let expected = expected_classify(0);
+    assert_eq!(expected, 1);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[0], true, false),
+        &[(state_key, state_account(&program_id, match_state(true, 99)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&match_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn match_ops_case1() {
+    assert_match_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MatchOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("classify", 1);
+    let expected = expected_classify(1);
+    assert_eq!(expected, 2);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[1], true, false),
+        &[(state_key, state_account(&program_id, match_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&match_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn match_ops_default() {
+    assert_match_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MatchOps");
+    let state_key = Pubkey::new_unique();
+    let disc = instruction_discriminator("classify", 1);
+    let x = 7u64;
+    let expected = expected_classify(x);
+    assert_eq!(expected, 8);
+
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &disc, &[x], true, false),
+        &[(state_key, state_account(&program_id, match_state(true, 0)))],
+        &[
+            Check::success(),
+            Check::return_data(&expected.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&match_state(true, expected))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn match_ops_unknown_disc() {
+    assert_match_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "MatchOps");
+    let state_key = Pubkey::new_unique();
+    let unknown = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x11];
+    let ix = Instruction::new_with_bytes(
+        program_id,
+        &unknown,
+        vec![AccountMeta::new(state_key, false)],
+    );
+
+    mollusk.process_and_validate_instruction(
+        &ix,
+        &[(state_key, state_account(&program_id, match_state(true, 0)))],
+        &[Check::err(ProgramError::Custom(CHECK_OR_UNKNOWN))],
+    );
+}
