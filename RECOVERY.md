@@ -439,6 +439,11 @@ full transport framing composition现已闭合：`decodeSemanticProgramDataV1_eq
 配套finish-error theorem原样传播任意error，特别是`.trailingBytes`，不重映射。size limit仍先于magic，
 magic/root errors仍由production premise authority拥有。structure gate与re-encode identity仍不在本层。
 
+carrier identity composition现已接通：acceptance theorem依次要求真实transport decode、现有
+`encodeSemanticProgramDataV1` success（其内部先运行structure gate）及exact runtime ByteArray BEq=true，
+并返回包含original input bytes的opaque carrier；BEq=false theorem在encode success后exact返回
+`.nonCanonical`。这没有引入structure-free encoder，也不把conditional composition写成formal validity。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

@@ -395,6 +395,28 @@ def decodeSemanticProgramV1 (bytes : ByteArray) :
     return ← err .nonCanonical
   pure ⟨bytes⟩
 
+/-- Compose carrier acceptance through transport decode and the actual
+    structure-gated production encoder returning exact byte identity. -/
+theorem decodeSemanticProgramV1_eq_of_identity (bytes reencoded : ByteArray)
+    (data : SemanticProgramDataV1)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data)
+    (hencode : encodeSemanticProgramDataV1 data = .ok reencoded)
+    (hidentity : (reencoded == bytes) = true) :
+    decodeSemanticProgramV1 bytes = .ok ⟨bytes⟩ := by
+  simp only [decodeSemanticProgramV1, hdecode, hencode, hidentity, ↓reduceIte,
+    Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Preserve the carrier's exact `.nonCanonical` result when the production
+    structure-gated re-encode succeeds but differs from the input bytes. -/
+theorem decodeSemanticProgramV1_eq_of_mismatch (bytes reencoded : ByteArray)
+    (data : SemanticProgramDataV1)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data)
+    (hencode : encodeSemanticProgramDataV1 data = .ok reencoded)
+    (hmismatch : (reencoded == bytes) = false) :
+    decodeSemanticProgramV1 bytes = .error .nonCanonical := by
+  simp only [decodeSemanticProgramV1, hdecode, hencode, hmismatch, Bool.false_eq_true,
+    ↓reduceIte, Bind.bind, Except.bind, err]
+
 /-- Decode + re-encode identity + explicit structure gate. -/
 def validateSemanticProgramV1 (p : SemanticProgramV1) :
     Except SemanticWireErrorV1 SemanticProgramDataV1 := do

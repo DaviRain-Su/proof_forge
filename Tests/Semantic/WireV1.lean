@@ -404,6 +404,20 @@ example (bytes : ByteArray) (afterMagic afterData : Cursor) (data : SemanticProg
   decodeSemanticProgramDataV1_eq_of_finish_error bytes afterMagic afterData data error
     hsize hmagic hdata hfinish
 
+example (bytes reencoded : ByteArray) (data : SemanticProgramDataV1)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data)
+    (hencode : encodeSemanticProgramDataV1 data = .ok reencoded)
+    (hidentity : (reencoded == bytes) = true) :
+    decodeSemanticProgramV1 bytes = .ok ⟨bytes⟩ :=
+  decodeSemanticProgramV1_eq_of_identity bytes reencoded data hdecode hencode hidentity
+
+example (bytes reencoded : ByteArray) (data : SemanticProgramDataV1)
+    (hdecode : decodeSemanticProgramDataV1 bytes = .ok data)
+    (hencode : encodeSemanticProgramDataV1 data = .ok reencoded)
+    (hmismatch : (reencoded == bytes) = false) :
+    decodeSemanticProgramV1 bytes = .error .nonCanonical :=
+  decodeSemanticProgramV1_eq_of_mismatch bytes reencoded data hdecode hencode hmismatch
+
 example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
     (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
     decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=

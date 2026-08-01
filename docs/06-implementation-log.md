@@ -11760,6 +11760,16 @@ normative: false
 - Boundary：这是structure-free transport theorem；re-encode identity、structure validation、closed carrier
   及formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 structure-gated carrier identity composition
+
+- Proof：carrier acceptance组合真实transport decode→现有structure-gated production encoder→runtime
+  ByteArray BEq=true，并返回持有original input bytes的opaque carrier；BEq=false在encoder success后
+  exact映射`.nonCanonical`。
+- Authority：structure validation仍由`encodeSemanticProgramDataV1`内部唯一gate执行；theorem不添加
+  structure-free encoder或将BEq替换为未经证明的propositional equality。focused build、examples与
+  blocker review通过。
+- Boundary：这是conditional control-flow composition；closed concrete carrier与formal TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）
