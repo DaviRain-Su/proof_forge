@@ -11723,6 +11723,34 @@ normative: false
 - Boundary：仍以九个真实field successes为premises；具体entry/pureFn/invariant、root array及formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 canonical single-Block Callable composition
+
+- Proof：`decodeCallableV1_singleBlockV1`组合production empty params、singleton Block与empty loopBounds
+  headers；result/steps分别从真实前置header returned offset开始，Block decoder只执行一次。
+- Reuse：kind/name/result/invariantSteps仍由actual production decoder success约束，同一theorem覆盖
+  canonical entry、pureFn与invariant外形。focused build、signature example与blocker review通过。
+- Boundary：具体各callable bytes及root multi-element iterator/full carrier仍pending；formal TASK/TST
+  状态不变。
+
+## 2026-08-01 — D2-07 four-callable root-array composition
+
+- Proof：通用`decodeArray_fourV1`从真实bounded count=4 header进入sole production iterator，按source
+  order执行四次实际decoder并返回第四cursor；Callable corollary锁定`maxTableElements`与
+  `decodeCallableV1`。
+- Scope：theorem只排序四个supplied callable，不声称其kind；entry/pureFn/two-invariant事实仍来自各自
+  production decode success。focused build、signature examples与blocker review通过。
+- Boundary：root callables field已具备composition，具体root body/full carrier及formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 public tagged-root field composition
+
+- Proof：将SemanticProgram.Data九字段body theorem穿过sole root tagged wrapper；顺序保持qualifiedName→
+  types→constants→logicalState→events→errors→callables→invariants→requirements，四-callable array可
+  直接提供`hcallables`。
+- Cursor：全部table保持production `maxTableElements` authority，final requirements input/offset保留并
+  恢复root parent nesting。focused build、signature example与blocker review通过。
+- Boundary：结论止于tagged data decoder，不含magic、finish/trailing、structure或re-encode；formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

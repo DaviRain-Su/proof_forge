@@ -355,6 +355,37 @@ example (c c' : Cursor) (data : SemanticProgramDataV1)
       .ok (data, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 c data c' hdepth hbody
 
+example (c cTag cName cTypes cConstants cState cEvents cErrors cCallables cInvariants
+    cRequirements : Cursor) (qualifiedName : QualifiedName) (types : Array TypeDeclV1)
+    (constants : Array ConstantV1) (logicalState : Array StateDeclV1)
+    (events : Array EventDeclV1) (errors : Array ErrorDeclV1)
+    (callables : Array CallableV1) (invariants : Array InvariantDeclV1)
+    (requirements : ProgramRequirementsV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "SemanticProgram.Data" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hname : decodeQualifiedName cTag = .ok (qualifiedName, cName))
+    (htypes : decodeArray maxTableElements decodeTypeDeclV1 cName = .ok (types, cTypes))
+    (hconstants : decodeArray maxTableElements decodeConstantV1 cTypes =
+      .ok (constants, cConstants))
+    (hstate : decodeArray maxTableElements decodeStateDeclV1 cConstants =
+      .ok (logicalState, cState))
+    (hevents : decodeArray maxTableElements decodeEventDeclV1 cState = .ok (events, cEvents))
+    (herrors : decodeArray maxTableElements decodeErrorDeclV1 cEvents = .ok (errors, cErrors))
+    (hcallables : decodeArray maxTableElements decodeCallableV1 cErrors =
+      .ok (callables, cCallables))
+    (hinvariants : decodeArray maxTableElements decodeInvariantDeclV1 cCallables =
+      .ok (invariants, cInvariants))
+    (hrequirements : decodeProgramRequirementsV1 cInvariants =
+      .ok (requirements, cRequirements)) :
+    decodeSemanticProgramDataTaggedV1 c = .ok ({
+      qualifiedName, types, constants, logicalState, events, errors,
+      callables, invariants, requirements
+    }, ⟨cRequirements.input, cRequirements.offset, c.nesting⟩) :=
+  decodeSemanticProgramDataTaggedV1_eq_of_fields c cTag cName cTypes cConstants cState
+    cEvents cErrors cCallables cInvariants cRequirements qualifiedName types constants
+    logicalState events errors callables invariants requirements hdepth htag hname htypes
+    hconstants hstate hevents herrors hcallables hinvariants hrequirements
+
 example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
     (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
     decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=
@@ -365,6 +396,17 @@ example (c : Cursor) (offset : Nat) (value : UInt32) (afterElement : Cursor)
     (helement : decodeU32le ⟨c.input, offset, c.nesting⟩ = .ok (value, afterElement)) :
     decodeArray maxArrayElements decodeU32le c = .ok (#[value], afterElement) :=
   decodeArray_oneV1 maxArrayElements decodeU32le c offset value afterElement hcount helement
+
+example (c : Cursor) (offset : Nat) (v0 v1 v2 v3 : UInt32)
+    (c1 c2 c3 c4 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxArrayElements = .ok (4, offset))
+    (h0 : decodeU32le ⟨c.input, offset, c.nesting⟩ = .ok (v0, c1))
+    (h1 : decodeU32le c1 = .ok (v1, c2))
+    (h2 : decodeU32le c2 = .ok (v2, c3))
+    (h3 : decodeU32le c3 = .ok (v3, c4)) :
+    decodeArray maxArrayElements decodeU32le c = .ok (#[v0, v1, v2, v3], c4) :=
+  decodeArray_fourV1 maxArrayElements decodeU32le c offset v0 v1 v2 v3 c1 c2 c3 c4
+    hcount h0 h1 h2 h3
 
 example :
     decodeArray maxTableElements ((fun _ => .error .badScalar) : Decoder UInt32)
@@ -482,6 +524,37 @@ example (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : C
     cLoops cSteps id entryBlock kind name params result blocks loopBounds invariantSteps
     hdepth htag hid hkind hname hparams hresult hentry hblocks hloops hsteps
 
+example (c cTag cId cKind cName cResult cEntry cBlock cSteps : Cursor)
+    (paramsOffset blocksOffset loopsOffset : Nat) (id entryBlock : UInt32)
+    (kind : CallableKindV1) (name : Option String) (result : CallableResultV1)
+    (block : BlockV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : readArrayCountAtV1 cName.input cName.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hresult : decodeCallableResultV1 ⟨cName.input, paramsOffset, cName.nesting⟩ =
+      .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : readArrayCountAtV1 cEntry.input cEntry.offset maxArrayElements =
+      .ok (1, blocksOffset))
+    (hblock : decodeBlockV1 ⟨cEntry.input, blocksOffset, cEntry.nesting⟩ =
+      .ok (block, cBlock))
+    (hloops : readArrayCountAtV1 cBlock.input cBlock.offset maxArrayElements =
+      .ok (0, loopsOffset))
+    (hsteps : decodeOption decodeU64le ⟨cBlock.input, loopsOffset, cBlock.nesting⟩ =
+      .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params := #[], result, entryBlock, blocks := #[block],
+      loopBounds := #[], invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_singleBlockV1 c cTag cId cKind cName cResult cEntry cBlock cSteps
+    paramsOffset blocksOffset loopsOffset id entryBlock kind name result block invariantSteps
+    hdepth htag hid hkind hname hparams hresult hentry hblocks hblock hloops hsteps
+
 example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
     (afterCallables : Cursor)
     (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
@@ -489,6 +562,18 @@ example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
       ⟨c.input, offset, c.nesting⟩ = .ok (callables, afterCallables)) :
     decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
   decodeCallableArrayV1_eq_of_elements c count offset callables afterCallables hcount helements
+
+example (c : Cursor) (offset : Nat) (c0 c1 c2 c3 : CallableV1)
+    (after0 after1 after2 after3 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (4, offset))
+    (h0 : decodeCallableV1 ⟨c.input, offset, c.nesting⟩ = .ok (c0, after0))
+    (h1 : decodeCallableV1 after0 = .ok (c1, after1))
+    (h2 : decodeCallableV1 after1 = .ok (c2, after2))
+    (h3 : decodeCallableV1 after2 = .ok (c3, after3)) :
+    decodeArray maxTableElements decodeCallableV1 c =
+      .ok (#[c0, c1, c2, c3], after3) :=
+  decodeCallableArrayV1_four c offset c0 c1 c2 c3 after0 after1 after2 after3
+    hcount h0 h1 h2 h3
 
 example (c afterMarker afterValue : Cursor) (decode : Decoder UInt32) (value : UInt32)
     (hmarker : decodeU8 c = .ok (1, afterMarker))

@@ -857,6 +857,20 @@ theorem decodeArray_oneV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
     afterElement value (.ok (#[value], afterElement)) helement
   rfl
 
+/-- A count of four executes four production element decoders in source order
+    and returns the fourth cursor. -/
+theorem decodeArray_fourV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (offset : Nat) (v0 v1 v2 v3 : α) (c1 c2 c3 c4 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (4, offset))
+    (h0 : decode ⟨c.input, offset, c.nesting⟩ = .ok (v0, c1))
+    (h1 : decode c1 = .ok (v1, c2))
+    (h2 : decode c2 = .ok (v2, c3))
+    (h3 : decode c3 = .ok (v3, c4)) :
+    decodeArray maxCount decode c = .ok (#[v0, v1, v2, v3], c4) := by
+  apply decodeArray_eq_of_elementsV1 maxCount decode c 4 offset #[v0, v1, v2, v3] c4
+    hcount
+  simp [decodeArrayElementsV1, h0, h1, h2, h3]
+
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
   let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen
   pure (payload, ⟨c.input, offset, c.nesting⟩)
@@ -2204,6 +2218,47 @@ theorem decodeCallableV1_eq_of_fieldsV1
       kind name params result blocks loopBounds invariantSteps htag hid hkind hname hparams
       hresult hentry hblocks hloops hsteps)
 
+/-- Compose the canonical empty-parameter, singleton-block, empty-loop Callable shape. -/
+theorem decodeCallableV1_singleBlockV1
+    (c cTag cId cKind cName cResult cEntry cBlock cSteps : Cursor)
+    (paramsOffset blocksOffset loopsOffset : Nat) (id entryBlock : UInt32)
+    (kind : CallableKindV1) (name : Option String) (result : CallableResultV1)
+    (block : BlockV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : readArrayCountAtV1 cName.input cName.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hresult : decodeCallableResultV1 ⟨cName.input, paramsOffset, cName.nesting⟩ =
+      .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : readArrayCountAtV1 cEntry.input cEntry.offset maxArrayElements =
+      .ok (1, blocksOffset))
+    (hblock : decodeBlockV1 ⟨cEntry.input, blocksOffset, cEntry.nesting⟩ =
+      .ok (block, cBlock))
+    (hloops : readArrayCountAtV1 cBlock.input cBlock.offset maxArrayElements =
+      .ok (0, loopsOffset))
+    (hsteps : decodeOption decodeU64le ⟨cBlock.input, loopsOffset, cBlock.nesting⟩ =
+      .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params := #[], result, entryBlock, blocks := #[block],
+      loopBounds := #[], invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) := by
+  apply decodeCallableV1_eq_of_fieldsV1 c cTag cId cKind cName
+    ⟨cName.input, paramsOffset, cName.nesting⟩ cResult cEntry cBlock
+    ⟨cBlock.input, loopsOffset, cBlock.nesting⟩ cSteps id entryBlock kind name #[] result
+    #[block] #[] invariantSteps hdepth htag hid hkind hname
+  · exact decodeArray_zeroV1 maxArrayElements decodeParameterV1 cName paramsOffset hparams
+  · exact hresult
+  · exact hentry
+  · exact decodeArray_oneV1 maxArrayElements decodeBlockV1 cEntry blocksOffset block cBlock
+      hblocks hblock
+  · exact decodeArray_zeroV1 maxArrayElements decodeLoopBoundV1 cBlock loopsOffset hloops
+  · exact hsteps
+
 /-- Root `callables` field composition through the sole array decoder. -/
 theorem decodeCallableArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
     (callables : Array CallableV1) (afterCallables : Cursor)
@@ -2213,6 +2268,19 @@ theorem decodeCallableArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
     decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
   decodeArray_eq_of_elementsV1 maxTableElements decodeCallableV1 c count offset
     callables afterCallables hcount helements
+
+/-- Four supplied root callables through the sole production iterator. -/
+theorem decodeCallableArrayV1_four (c : Cursor) (offset : Nat)
+    (c0 c1 c2 c3 : CallableV1) (after0 after1 after2 after3 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (4, offset))
+    (h0 : decodeCallableV1 ⟨c.input, offset, c.nesting⟩ = .ok (c0, after0))
+    (h1 : decodeCallableV1 after0 = .ok (c1, after1))
+    (h2 : decodeCallableV1 after1 = .ok (c2, after2))
+    (h3 : decodeCallableV1 after2 = .ok (c3, after3)) :
+    decodeArray maxTableElements decodeCallableV1 c =
+      .ok (#[c0, c1, c2, c3], after3) :=
+  decodeArray_fourV1 maxTableElements decodeCallableV1 c offset c0 c1 c2 c3
+    after0 after1 after2 after3 hcount h0 h1 h2 h3
 
 def encodeInvariantDeclV1 (d : InvariantDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let nameB ← encodeString d.name

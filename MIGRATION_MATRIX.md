@@ -293,7 +293,10 @@ sole sum body并闭合canonical Literal/PureCall及nesting；其余op runtime保
 Instruction body theorem提升为public-decoder corollary；后续Return与Block也完成同级提升，供具体
 single-block callables直接消费，不复制nested decoder。canonical Block zero/one-instruction形状现已
 组合真实双array headers、exact element call count及public Terminator；Callable九字段也已提升为
-public decoder composition，准备接入singleton Block array。
+public decoder composition；canonical empty-params/singleton-Block/empty-loop shape现已闭合，kind/name/
+result/steps仍由真实production decoder决定。root count=4 callables array现可按source order组合四次真实
+Callable decoder；具体kind约束仍不由transport theorem伪造。九字段root body现已提升到public tagged
+decoder，仍不包含magic/finish/structure gate。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

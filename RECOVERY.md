@@ -419,6 +419,21 @@ sole tagged wrapper，严格保持id→kind→name→params→result→entryBloc
 三个array各自继续使用production `maxArrayElements` authority，并保留final steps cursor input/offset、
 恢复Callable parent depth。它仍以真实field successes为premises，不提前声称具体callable已闭合。
 
+canonical single-Block Callable形状现已闭合：`decodeCallableV1_singleBlockV1`用真实count=0 params、
+count=1 Block与count=0 loopBounds headers组合sole zero/singleton iterator；result与steps分别从前一
+header exact returned offset开始。kind/name/result/steps仍是actual production successes，因此同一
+theorem可服务entry gate、literal pureFn与PureCall invariant。下一步组合root多callable iterator run。
+
+root四callable iterator run现已闭合：通用`decodeArray_fourV1`只接受真实bounded count=4 header，
+按source order执行exact四次给定production decoder并返回第四cursor；Callable专用corollary锁定
+`maxTableElements`与`decodeCallableV1`。它只证明四个supplied callable的顺序，不伪造entry/pureFn/
+invariant kinds；具体fixture各项仍由前述public Callable successes提供。下一步接入root body callables field。
+
+public tagged root fields composition现已接通：九字段body theorem直接穿过sole root nesting wrapper，
+保持qualifiedName→types→constants→logicalState→events→errors→callables→invariants→requirements，
+所有tables仍锁定`maxTableElements` production decoder，final requirements cursor保留input/offset并恢复
+root parent depth。四-callable result可直接作为`hcallables`；magic、finish与structure仍明确不在该结论内。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
