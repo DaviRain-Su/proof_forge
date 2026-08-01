@@ -665,3 +665,8 @@ worker；每个callable由members bit保证最多append一次，pending work耗�
 PureFn `truthLeaf`的steps present与member bit一致。call-DAG保留caller→block→instruction顺序，将graph
 build、ready collect与Kahn queue分别抽为fuel worker；canonical graph精确为indegree `#[0,1,0,0]`、
 adjacency `#[#[],#[],#[1],#[]]`、ready `#[2,3]`，Kahn追加1并处理3 members。下一项为closure CFG。
+
+剩余non-fuel closure也已闭合：CFG acyclicity与PureFn op allowlist的source-index loops均机械抽为
+`callables.size` fuel workers，并由done/exhaustion lemmas固定total边界。members 1/2/3的singleton blocks均
+无back edge；唯一reachable PureFn truthLeaf只含允许的Bool literal，invariant roots不进入PureFn-only scan。
+因此`validateInvariantClosurePhasesV1 data.callables = .ok closureMembers`已kernel成立；下一项exact fuel。

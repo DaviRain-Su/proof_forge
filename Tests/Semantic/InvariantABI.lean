@@ -1041,6 +1041,26 @@ theorem invariantClosureDagPhases_data :
     · rfl
     · rfl
 
+/-- The canonical fixture closes the complete non-fuel invariant-closure
+    production prefix: all three closure CFGs are forward-only, the sole
+    reachable PureFn operation is its Bool literal, and invariant roots are
+    outside the PureFn operation allowlist. -/
+theorem invariantClosurePhases_data :
+    validateInvariantClosurePhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosurePhasesV1_eq_ok
+  · exact invariantClosureDagPhases_data
+  · exact (validateInvariantClosurePostDagCanonicalFourV1
+      gate leaf truth falsehood leafBlock truthBlock falsehoodBlock
+      leafInstruction 0 (ByteArray.mk #[1])
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)).1
+  · exact (validateInvariantClosurePostDagCanonicalFourV1
+      gate leaf truth falsehood leafBlock truthBlock falsehoodBlock
+      leafInstruction 0 (ByteArray.mk #[1])
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)).2
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

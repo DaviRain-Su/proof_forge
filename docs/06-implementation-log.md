@@ -12652,6 +12652,14 @@ normative: false
   truth出队后追加leaf 1，最终processed=memberCount=3。
 - Boundary：closure-CFG、PureFn-op、exact/intrinsic fuel、requirements及完整structure仍pending。
 
+## 2026-08-01 — D2-07 canonical non-fuel closure complete
+
+- Production：closure-CFG与PureFn-op source-index scans均机械抽为`callables.size` fuel workers，保持
+  member/kind filters、callable→block→instruction order、错误顺序与exact forbidden-op list。
+- Kernel：members 1/2/3的singleton CFG均无back edge；sole reachable PureFn truthLeaf只含Bool literal；
+  roots 2/3不进入PureFn-only allowlist。完整`validateInvariantClosurePhasesV1`返回exact members成功。
+- Boundary：exact/intrinsic invariant fuel、requirements、完整structure/encoder/carrier/formal状态仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；
