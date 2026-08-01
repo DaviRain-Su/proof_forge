@@ -327,6 +327,8 @@ structure gate现将原有step 0–2原位抽为sole production调用的
 `validateSemanticProgramStructurePreludeV1`，并新增按真实production phase结果组合成功的refinement
 theorem；具体fixture已kernel闭合root shape、table id及shallow refs prelude。后续type/value/signature/
 CFG/requirements phase、完整structure gate、encoder/carrier identity与formal TASK/TST仍pending。
+紧随prelude的`validateTypesStructureV1`现也已对fixture闭合：Bool、Principal、Unit三项均通过sole
+production declaration named-rule与shape/catalog gate。TypeKey四subphase及其后续gate仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

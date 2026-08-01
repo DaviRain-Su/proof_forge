@@ -89,8 +89,10 @@ def checkLegalMapKeyTypeV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
       | .option _ | .array _ _ | .map _ _ | .enum _ | .unit | .field _ | .string =>
           err .badType
 
-/-- Named rule: `name=some` iff shape is struct|enum (SPEC §5). -/
-private def validateTypeDeclNamedRuleV1 (decl : TypeDeclV1) :
+/-- Internal production named rule: `name=some` iff shape is struct|enum
+    (SPEC §5). Exposed as a proof/refinement phase, not as a complete type
+    validator. -/
+def validateTypeDeclNamedRuleV1 (decl : TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   let isNamedShape :=
     match decl.shape with
@@ -101,7 +103,9 @@ private def validateTypeDeclNamedRuleV1 (decl : TypeDeclV1) :
   | none, false => pure ()
   | some _, false | none, true => err .badType
 
-private def validateTypeDeclShapeV1 (decl : TypeDeclV1) (types : Array TypeDeclV1) :
+/-- Internal production declaration-shape/catalog phase consumed by
+    `validateTypesStructureV1`. This is not a standalone acceptance gate. -/
+def validateTypeDeclShapeV1 (decl : TypeDeclV1) (types : Array TypeDeclV1) :
     Except SemanticWireErrorV1 Unit := do
   validateTypeDeclNamedRuleV1 decl
   match decl.shape with

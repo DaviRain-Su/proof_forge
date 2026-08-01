@@ -585,3 +585,7 @@ structure证明现已开始而未越界：原structure gate的root shape、table
 没有第二套validator。production另提供按全部真实phase成功结果组合的refinement theorem；1235-byte
 fixture已kernel证明prelude成功。type/value/signature/CFG/requirements phases及完整structure、encoder/
 carrier identity仍需后续逐片闭合，formal状态不变。
+
+下一production phase `validateTypesStructureV1`已对fixture的三项primitive声明闭合：Bool、Principal、
+Unit逐项通过真实named-rule与shape/catalog authority。TypeKey phases尚未由kernel theorem闭合，不能把
+本切片扩写为完整type/structure acceptance。

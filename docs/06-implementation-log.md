@@ -12303,3 +12303,13 @@ normative: false
 - Verification：StructureV1与InvariantABI focused build通过。
 - Boundary：type/value/signature/CFG/requirements phase、完整structure gate、encoder/carrier identity与
   formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 concrete type-shape structure phase
+
+- Production proof seam：开放sole `validateTypesStructureV1`实际消费的declaration named-rule与
+  shape/catalog phase供refinement；不新增type predicate或validator。
+- Kernel：fixture的Bool、Principal、Unit按source order逐项通过named iff Struct/Enum规则及真实
+  declaration-shape/catalog gate，闭合`validateTypesStructureV1 data.types = .ok ()`。
+- Verification：focused TypeKeyV1/InvariantABI build通过。
+- Boundary：TypeKey四subphase、named type uniqueness及全部后续structure/encoder/carrier/formal状态
+  仍pending。

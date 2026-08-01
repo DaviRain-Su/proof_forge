@@ -637,6 +637,14 @@ theorem structurePrelude_data :
     checkTypeShapeRefs, checkTypeIdInRange, checkCallableIdInRange,
     checkIdEqualsIndex, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- The concrete primitive type table passes the next sole production phase:
+    each declaration obeys the named rule and its exact shape/catalog gate. -/
+theorem typesStructure_data :
+    validateTypesStructureV1 data.types = .ok () := by
+  simp [validateTypesStructureV1, validateTypeDeclShapeV1,
+    validateTypeDeclNamedRuleV1, data, types, boolType, principalType, unitType,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
