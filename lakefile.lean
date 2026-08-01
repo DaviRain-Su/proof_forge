@@ -131,6 +131,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.SolanaPlanV1,
+    `Tests.Targets.SolanaAsmV1,
     `Tests.Product.CounterV1Evm,
     `Tests.CLI.Emit,
     `Tests.CLI.ToolchainPolicy,

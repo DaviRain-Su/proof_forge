@@ -5,6 +5,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
+import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 
 /-!
 # ProofForgeV2.Targets.Solana — public façade
@@ -14,6 +15,8 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 `semanticV1Of` / `validateSemanticProgramV1` comments on the carrier path).
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
+S1a typed-IR → SBPF assembly (`.s` text) lives in `EmitSbpfAsmV1` (additive;
+does not replace `.sbpf-plan` product emit).
 `FinalizeV1` remains a separate submodule.
 -/
 
