@@ -117,7 +117,9 @@ def encodeSourceOrigin (origin : SourceOrigin) : Except SemanticWireErrorV1 Byte
   let nodeB ← encodeNodeId origin.nodeId
   pure (((pathB.append startB).append endB).append nodeB)
 
-private def isAsciiTag (tag : String) : Bool := Id.run do
+/-- ASCII gate shared by production tag encoding/decoding and kernel proof
+    composition. -/
+def isAsciiTagV1 (tag : String) : Bool := Id.run do
   for c in tag.toList do
     unless (c : Char).val ≤ 127 do
       return false
@@ -127,7 +129,7 @@ def encodeTagged (tag : String) (fields : Array ByteArray) :
     Except SemanticWireErrorV1 ByteArray := do
   if tag.isEmpty then
     return ← err .badTag
-  unless isAsciiTag tag do
+  unless isAsciiTagV1 tag do
     return ← err .badTag
   let tagBytes := tag.toUTF8
   unless tagBytes.size ≤ maxTagAsciiBytes do
@@ -645,6 +647,28 @@ def withTaggedNesting (body : Decoder α) : Decoder α := fun c => do
   let (v, c) ← body c
   pure (v, ⟨c.input, c.offset, parent⟩)
 
+/-- Stable unfolding seam for the sole tagged nesting authority. Successful
+    bodies retain their returned input/offset while restoring the parent
+    nesting depth; the limit gate runs before the body. -/
+theorem withTaggedNesting_eqV1 (body : Decoder α) (c : Cursor) :
+    withTaggedNesting body c =
+      if c.nesting < maxNesting then
+        match body ⟨c.input, c.offset, c.nesting + 1⟩ with
+        | .error e => .error e
+        | .ok (v, c') => .ok (v, ⟨c'.input, c'.offset, c.nesting⟩)
+      else
+        .error .limitExceeded := by
+  unfold withTaggedNesting
+  by_cases h : c.nesting < maxNesting
+  · simp only [h, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
+    generalize body ⟨c.input, c.offset, c.nesting + 1⟩ = result
+    cases result with
+    | error e => rfl
+    | ok pair =>
+        cases pair
+        rfl
+  · simp only [h, ↓reduceIte, Bind.bind, Except.bind, err]
+
 def decodeU8 : Decoder UInt8 := takeByte
 
 def decodeU16le : Decoder UInt16 := fun c => do
@@ -811,9 +835,23 @@ def decodeTag : Decoder String := fun c => do
   match String.fromUTF8? raw with
   | none => err .badTag
   | some tag => do
-      unless isAsciiTag tag do
+      unless isAsciiTagV1 tag do
         return ← err .badTag
       pure (tag, c)
+
+/-- Once raw tag framing is established, retain the sole production UTF-8 and
+    ASCII checks and their `.badTag` mapping. -/
+theorem decodeTag_eq_of_readBytesV1 (c : Cursor) (raw : ByteArray) (offset : Nat)
+    (hread : readTagBytesAtV1 c.input c.offset = .ok (raw, offset)) :
+    decodeTag c =
+      match String.fromUTF8? raw with
+      | none => .error .badTag
+      | some tag =>
+          if isAsciiTagV1 tag then
+            .ok (tag, ⟨c.input, offset, c.nesting⟩)
+          else
+            .error .badTag := by
+  simp only [decodeTag, hread, Bind.bind, Pure.pure, Except.bind, Except.pure, err]
 
 def decodeFieldCount (expected : Nat) : Decoder Unit := fun c => do
   let (count, c) ← decodeU16le c

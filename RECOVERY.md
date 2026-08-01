@@ -295,6 +295,11 @@ UTF-8/NFC→name grammar错误顺序及cursor input/offset/nesting均不变，�
 validator。下一步按root `SemanticProgram.Data`字段逐段组合；完整carrier validation与formal TASK/TST
 仍pending。
 
+root types组合前置 seam现已闭合：`withTaggedNesting_eqV1`完整暴露limit gate优先、body error原样传播、
+success保留body返回input/offset并恢复parent nesting；`decodeTag_eq_of_readBytesV1`从真实raw tag reader
+success进入既有UTF-8与String ASCII gate。原private ASCII helper仅原样公开为`isAsciiTagV1`供theorem
+陈述，encoder/decoder继续共享同一实现。下一步组合TypeShape sum与TypeDecl；formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

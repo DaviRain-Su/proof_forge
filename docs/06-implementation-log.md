@@ -11417,3 +11417,13 @@ normative: false
   已 provision/materialize 的 tool root 与 lake 产物，避免第二份 Lean 全量构建）。
 - Boundary：工程运行时差分，非 formal Stage-0/hermetic EV、非完整 Reference↔Mollusk
   property corpus、非 multi-program CPI；S2b ELF 供给与 deployable evidence 不变。
+
+## 2026-08-01 — D2-07 tagged nesting and sum-tag proof seams
+
+- Proof seams：`withTaggedNesting_eqV1`暴露limit-first gate、body error、success cursor的input/offset保留与
+  parent nesting恢复；`decodeTag_eq_of_readBytesV1`由真实raw tag read进入既有UTF-8/ASCII分支。
+- Production：原private String ASCII gate实现不变，仅以`isAsciiTagV1`公开，encoder与decoder仍共享；
+  没有第二套tag/nesting validator。kernel examples固定nesting上限、普通decode与body返回不同
+  input/offset/nesting时的恢复语义；focused build和blocker review通过。
+- Boundary：这是root types/TypeShape组合的共同前置层，不代表任何root table或完整carrier已闭合；
+  `InvariantTheoremV1`及formal TASK/TST仍pending。
