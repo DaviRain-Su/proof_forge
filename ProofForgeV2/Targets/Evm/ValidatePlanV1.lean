@@ -20,24 +20,25 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     none
   else
     match expr with
-    | .literal .. => some 1
+    | .literal .. | .bigLiteral .. => some 1
     | .param wordIndex => if wordIndex < paramCount then some 1 else none
     | .narrowParam bitWidth wordIndex =>
-        if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && wordIndex < paramCount then
+        if isEvmAbiUintWidth bitWidth && bitWidth != 64 && wordIndex < paramCount then
           some 1
         else none
     | .temp _ => some 1
     | .storageLoad slot | .fieldStorageLoad slot =>
         if slots.contains slot then some 1 else none
     | .narrowStorageLoad bitWidth slot =>
-        if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && slots.contains slot then
+        if isEvmAbiUintWidth bitWidth && bitWidth != 64 && slots.contains slot then
           some 1
         else none
     | .indexedStorageLoad baseSlot length index byteWidth =>
         -- Contiguous range baseSlot .. baseSlot+length-1 must all be planned
-        -- slots; length ≥ 1; byteWidth ∈ {1,2,4,8}.
+        -- slots; length ≥ 1; byteWidth ∈ {1,2,4,8,16,32}.
         if length == 0 then none
-        else if !(byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8) then
+        else if !(byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8 ||
+            byteWidth == 16 || byteWidth == 32) then
           none
         else
           let rangeOk := Id.run do
@@ -164,7 +165,7 @@ private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
 
 private def validAbiByteWidth (byteWidth : Nat) : Bool :=
   byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8 ||
-    byteWidth == 32
+    byteWidth == 16 || byteWidth == 32
 
 private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (store : Store) : CompileResult Nat := do
@@ -256,7 +257,7 @@ private partial def checkPlanStatementsV1
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
-        | .uint64 | .uint32 | .uint16 | .uint8 | .int64 | .field =>
+        | .uint64 | .uint32 | .uint16 | .uint8 | .uint128 | .uint256 | .int64 | .field =>
             unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind integer/Field is inconsistent with Bool return expression"

@@ -66,10 +66,24 @@ private def encodeMutability : Mutability → UInt8
 private def encodeResultKind : ResultKind → UInt8
   | .uint64 => 0 | .bool => 1 | .int64 => 2 | .field => 3
   | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
+  | .uint128 => 7 | .uint256 => 8
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with
   | .literal value => pure ((encodeU8 0).append (encodeU64le value))
+  | .bigLiteral value =>
+      -- Tag 49: u32le length + little-endian value bytes (minimal width ≤ 32).
+      let mut bs : Array UInt8 := #[]
+      let mut n := value
+      if n == 0 then
+        bs := #[0]
+      else
+        for _ in [:32] do
+          if n == 0 then break
+          bs := bs.push (UInt8.ofNat (n % 256))
+          n := n / 256
+      let len := bs.size
+      pure (((encodeU8 49).append (← encodeNatAsU32le len)).append (ByteArray.mk bs))
   | .param wordIndex => pure ((encodeU8 1).append (← encodeNatAsU32le wordIndex))
   | .temp tempIndex => pure ((encodeU8 2).append (← encodeNatAsU32le tempIndex))
   | .storageLoad slot => pure ((encodeU8 3).append (← encodeNatAsU32le slot))

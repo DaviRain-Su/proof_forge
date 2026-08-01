@@ -1821,29 +1821,6 @@ private unsafe def testAbiMultiWidthStateParam : IO Unit := do
   expect (abi.contains "\"type\":\"uint64\"")
     "AbiMw ABI result remains uint64"
 
-/-- T8b-EVM: UInt128 state remains fail-closed (not in ABI admission set). -/
-private unsafe def testUInt128StateRejected : IO Unit := do
-  let session ← Tests.Language.ParserSession.shared
-  let sourceText :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program U128State where\n" ++
-    "  state big : UInt128\n" ++
-    "  entry run(x : UInt64) : UInt64 do\n" ++
-    "    return x\n"
-  let source ← liftResult "load U128State" (← session.selectProgramV1
-    sourceText "<evm-u128-state>" "Tests.EvmU128State" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planEvm compiled with
-      | .error e =>
-          expect (e.render.contains "UInt" || e.render.contains "width" ||
-              e.render.contains "state" || e.render.contains "supported")
-            s!"UInt128 state must fail at EVM plan, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "EVM plan must reject UInt128 state"
-
 /-- T8b-EVM: Int8 param fail closed (Int is Int64-only on ABI). -/
 private unsafe def testInt8ParamRejected : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1865,6 +1842,7 @@ private unsafe def testInt8ParamRejected : IO Unit := do
             s!"Int8 param must fail at EVM plan, got {e.render}"
       | .ok _ =>
           throw <| IO.userError "EVM plan must reject Int8 param"
+
 
 /-- T9a-EVM: entry/view may return UInt8/16/32; ABI outputs and resultKind match. -/
 private unsafe def testNarrowResultAdmitted : IO Unit := do
@@ -1896,27 +1874,75 @@ private unsafe def testNarrowResultAdmitted : IO Unit := do
       abi.contains "\"type\":\"uint32\"")
     "T9a: EVM ABI must declare uint8/16/32 outputs"
 
-/-- T9a-EVM: UInt128 entry result remains fail closed. -/
-private unsafe def testUInt128ResultRejected : IO Unit := do
+
+/-- T9b-EVM: UInt128/256 state + param + body + result admitted. -/
+private unsafe def testWideUintProduct : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideUint where\n" ++
+    "  state a : UInt128\n" ++
+    "  state b : UInt256\n\n" ++
+    "  init(x : UInt128, y : UInt256) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n\n" ++
+    "  entry add128(delta : UInt128) : UInt128 do\n" ++
+    "    a := a + delta\n" ++
+    "    return a\n\n" ++
+    "  entry add256(delta : UInt256) : UInt256 do\n" ++
+    "    b := b + delta\n" ++
+    "    return b\n\n" ++
+    "  view get128() : UInt128 do\n" ++
+    "    return a\n\n" ++
+    "  view get256() : UInt256 do\n" ++
+    "    return b\n"
+  let source ← liftResult "load WideUint" (← session.selectProgramV1
+    sourceText "<evm-wide-uint>" "Tests.EvmWideUint" none)
+  let compiled ← liftResult "compile WideUint"
+    (Compiler.compileValidatedSourceV1 source)
+  let plan ← liftResult "plan WideUint" (planEvm compiled)
+  expect (plan.storageLayout.size == 2 &&
+      plan.storageLayout[0]!.byteWidth == 16 &&
+      plan.storageLayout[1]!.byteWidth == 32)
+    "T9b: UInt128/256 state byteWidth must be 16/32"
+  expect (plan.entries.map (·.resultKind) ==
+      #[.uint128, .uint256, .uint128, .uint256])
+    "T9b: entry/view resultKinds must be uint128/256"
+  let add128 := plan.entries.find? (·.name == "add128")
+  expect (match add128 with
+    | some e => e.params.size == 1 && e.params[0]!.byteWidth == 16
+    | none => false)
+    "T9b: add128 param byteWidth 16"
+  let output ← liftResult "materialize WideUint" <|
+    materializeSelected TargetId.evm compiled
+  let abi ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "WideUint missing abi"
+  expect (abi.contains "\"type\":\"uint128\"" && abi.contains "\"type\":\"uint256\"")
+    "T9b: ABI must declare uint128/uint256"
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "WideUint missing yul"
+  expect (yul.contains "0xffffffffffffffffffffffffffffffff")
+    "T9b: Yul must emit UInt128 mask"
+
+/-- T9b-EVM: UInt128 entry result admitted (was fail-closed under T9a). -/
+private unsafe def testUInt128ResultAdmitted : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program U128Result where\n" ++
-    "  entry run(x : UInt64) : UInt128 do\n" ++
-    "    return 0\n"
+    "  entry run(x : UInt128) : UInt128 do\n" ++
+    "    return x\n"
   let source ← liftResult "load U128Result" (← session.selectProgramV1
-    sourceText "<evm-u128-result>" "Tests.EvmU128Result" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planEvm compiled with
-      | .error e =>
-          expect (e.render.contains "UInt" || e.render.contains "return" ||
-              e.render.contains "result" || e.render.contains "supported")
-            s!"UInt128 entry result must fail at EVM plan, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "EVM plan must reject UInt128 entry result"
+    sourceText "<evm-u128-result>" "Tests.EvmU128Result2" none)
+  let compiled ← liftResult "compile U128Result"
+    (Compiler.compileValidatedSourceV1 source)
+  let plan ← liftResult "plan U128Result" (planEvm compiled)
+  expect (plan.entries.map (·.resultKind) == #[.uint128])
+    "T9b: UInt128 entry resultKind"
 
 /-- Unit/void entry (`entry run() do`, no result type) fails closed at the EVM
     Plan seam: makeEntryV1 rejects non-UInt64/Bool entry results. -/
@@ -2536,10 +2562,10 @@ unsafe def run : IO Unit := do
   testBodyUInt8OverflowPlan
   testBodyMultiWidthShift
   testAbiMultiWidthStateParam
-  testUInt128StateRejected
+  testWideUintProduct
   testInt8ParamRejected
   testNarrowResultAdmitted
-  testUInt128ResultRejected
+  testUInt128ResultAdmitted
   testVoidEntryRejected
   testMultipleEvents
   testZeroArgRevert

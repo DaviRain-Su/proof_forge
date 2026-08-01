@@ -96,10 +96,11 @@ structure PilotUintWidthPolicy where
 def pilotUintWidthPolicyU64U32 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32]
 
-/-- EVM body multi-width policy: UInt64 + UInt32 + UInt8 + UInt16.
-    UInt128/256 remain fail-closed at the EVM Plan seam. -/
+/-- EVM body+ABI multi-width policy (T9b): UInt{8,16,32,64,128,256}.
+    UInt256 is a full EVM word; UInt128 is the low 128 bits. Other targets keep
+    their own policies (UInt128/256 fail closed there). -/
 def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8, 16]
+  admittedWidths := #[64, 32, 8, 16, 128, 256]
 
 /-- Solana body multi-width policy: same admitted set as EVM body
     (`{64, 32, 8, 16}`). Return ABI stays UInt64/Bool/Int64; state/param ABI
@@ -378,8 +379,11 @@ def PilotTypeClosureV1.isUInt64OrInt64
 def isAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
-/-- EVM **ABI** UInt widths — alias of `isAbiUintWidth` (historical name). -/
-def isEvmAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+/-- EVM **ABI** UInt widths (T9b): `{8,16,32,64,128,256}`. Shared
+    `isAbiUintWidth` stays `{8,16,32,64}` so Solana/NEAR/Noir keep fail-closed
+    on UInt128/256. -/
+def isEvmAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
 /-- Solana **ABI** UInt widths — alias of `isAbiUintWidth`. -/
 def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
@@ -427,6 +431,18 @@ def PilotTypeClosureV1.isUInt64OrInt64OrField
 def PilotTypeClosureV1.isUintAbiOrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUintAbiOrInt64 typeId || c.isField typeId
+
+/-- EVM ABI UInt{8,16,32,64,128,256} or Int64 (T9b). -/
+def PilotTypeClosureV1.isEvmUintAbiOrInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isEvmAbiUintWidth w
+  | none => c.int64TypeId == some typeId
+
+/-- EVM ABI UInt widths + Int64 + Field (T9b). -/
+def PilotTypeClosureV1.isEvmUintAbiOrInt64OrField
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isEvmUintAbiOrInt64 typeId || c.isField typeId
 
 /-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
@@ -797,6 +813,37 @@ def requirePublicUInt64OrInt64Param
     | none =>
         throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
 
+/-- Fail unless `state` is EVM-admitted UInt{8,16,32,64,128,256}, Int64, or Field
+    (T9b), and public unless `allowNonPublic`. -/
+def requirePublicEvmUintAbiOrInt64OrFieldState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isEvmUintAbiOrInt64OrField state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is EVM-admitted UInt{8,16,32,64,128,256}, Int64, or Field. -/
+def requirePublicEvmUintAbiOrInt64OrFieldParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isEvmUintAbiOrInt64OrField param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
 /-- Fail unless `state` is UInt{8,16,32,64} or Int64 (EVM ABI multi-width), and
     public unless `allowNonPublic`. Message keeps the historical `UInt64` token
     so existing "not public UInt64" substring negatives still match. -/
@@ -1063,9 +1110,25 @@ def decodeBoolLiteralBit
     throw <| mkErr (shapeMsg targetLabel invalidDetail)
   pure (b != 0)
 
-/-- Decode a little-endian anonymous UInt literal of `bitWidth` bits
-    (`bitWidth ∈ {8,16,32,64}`) into a UInt64 Plan word (zero-extended).
-    Full-consume: exact `bitWidth/8` bytes. -/
+/-- LE fold of `bytes` into `Nat` (arbitrary admitted width). -/
+def decodeUIntLeBytesToNat
+    (mkErr : String → CompileError)
+    (targetLabel : String)
+    (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult Nat := do
+  let byteLen := bitWidth / 8
+  unless bytes.size == byteLen do
+    throw <| mkErr (shapeMsg targetLabel
+      s!"UInt{bitWidth} literal must contain exactly {byteLen} bytes")
+  let mut n : Nat := 0
+  let mut place : Nat := 1
+  for i in [:byteLen] do
+    n := n + (bytes.get! i).toNat * place
+    place := place * 256
+  pure n
+
+/-- Decode a little-endian UInt{8,16,32,64} literal into a UInt64 Plan word.
+    UInt128/256 must use `decodeUIntWideLiteralLe` (Nat carrier). -/
 def decodeUIntWidthLiteralLe
     (mkErr : String → CompileError)
     (targetLabel : String)
@@ -1074,22 +1137,25 @@ def decodeUIntWidthLiteralLe
   unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 64 do
     throw <| mkErr (shapeMsg targetLabel
       s!"UInt{bitWidth} literal width is not supported")
-  let byteLen := bitWidth / 8
-  unless bytes.size == byteLen do
-    throw <| mkErr (shapeMsg targetLabel
-      s!"UInt{bitWidth} literal must contain exactly {byteLen} bytes")
   if bitWidth == 64 then
     decodeUInt64LiteralLe mkErr targetLabel bytes
   else if bitWidth == 32 then
     decodeUInt32LiteralLe mkErr targetLabel bytes
   else
-    -- 8 / 16: hand LE fold (Wire has no decodeU16/U8 public path).
-    let mut n : Nat := 0
-    let mut place : Nat := 1
-    for i in [:byteLen] do
-      n := n + (bytes.get! i).toNat * place
-      place := place * 256
+    let n ← decodeUIntLeBytesToNat mkErr targetLabel bitWidth bytes
     pure (UInt64.ofNat n)
+
+/-- Decode UInt{8..256} LE valueBytes into `Nat` (EVM T9b wide literals). -/
+def decodeUIntWideLiteralLe
+    (mkErr : String → CompileError)
+    (targetLabel : String)
+    (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult Nat := do
+  unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 64 ||
+      bitWidth == 128 || bitWidth == 256 do
+    throw <| mkErr (shapeMsg targetLabel
+      s!"UInt{bitWidth} literal width is not supported")
+  decodeUIntLeBytesToNat mkErr targetLabel bitWidth bytes
 
 /-- Decode an 8-byte little-endian Int64 two's-complement wire literal into a
     UInt64 Plan word that carries the same bit pattern. Callers treat the word

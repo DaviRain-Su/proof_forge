@@ -66,6 +66,9 @@ and keep hand-built Plan goldens byte-identical. Narrow body widths
 emit width-correct overflow/shift/mask guards without rewriting UInt64 paths. -/
 inductive Expr where
   | literal (value : UInt64)
+  /-- Full-word (or multi-limb) literal for UInt128/256 (T9b). Yul renders as
+      decimal Nat; values may exceed UInt64. -/
+  | bigLiteral (value : Nat)
   | param (wordIndex : Nat)
   /-- Named induction temporary for bounded `for` loops. Renders as `t{tempIndex}`
   and is mutated by the loop update step. -/
@@ -106,7 +109,7 @@ inductive Expr where
   Result kind is the callee's declared result (UInt64 or Bool). Not an effect
   boundary — stays inside a value segment like checkedAdd. -/
   | callFn (fnIndex : Nat) (args : Array Expr)
-  /-- Checked add at `bitWidth ∈ {8,16,32}` (body multi-width). -/
+  /-- Checked add at non-64 admitted width (T8b/T9b: `{8,16,32,128,256}`). -/
   | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
@@ -133,11 +136,11 @@ inductive Expr where
   | checkedNeg (operand : Expr)
   /-- Arithmetic right shift of Int64; count is UInt32; reverts on count ≥ 64. -/
   | sar (lhs rhs : Expr)
-  /-- Storage load of a narrow UInt value (`bitWidth ∈ {8,16,32}`); Yul masks
-  after `sload`. UInt64/Int64 keep historical `storageLoad`. -/
+  /-- Storage load of a non-64 UInt value; Yul masks after `sload` (UInt256 mask is
+  full-word no-op). UInt64/Int64 keep historical `storageLoad`. -/
   | narrowStorageLoad (bitWidth : Nat) (slot : Nat)
-  /-- ABI param load of a narrow UInt value (`bitWidth ∈ {8,16,32}`); Yul masks
-  after `calldataload`/`mload`. UInt64/Int64 keep historical `param`. -/
+  /-- ABI param load of a non-64 UInt value; Yul masks after calldataload/mload.
+  UInt64/Int64 keep historical `param`. -/
   | narrowParam (bitWidth : Nat) (wordIndex : Nat)
   /-- Exact mod-p Field arithmetic (bn254 Fr via ADDMOD/MULMOD). No overflow
   assert; div reverts on zero divisor (Fermat inv via `pow(b, p-2, p)`). -/
@@ -218,6 +221,9 @@ inductive ResultKind where
   | uint8
   | uint16
   | uint32
+  /-- T9b: wide public UInt entry/view results (ABI `uint128`/`uint256`). -/
+  | uint128
+  | uint256
   deriving BEq, Inhabited, Repr
 
 /-- Solidity ABI type string for a plan Param (selector + `.abi.json`). -/
@@ -227,6 +233,7 @@ def abiParamTypeString (p : Param) : String :=
   | 1 => "uint8"
   | 2 => "uint16"
   | 4 => "uint32"
+  | 16 => "uint128"
   | 32 => "uint256"
   | _ => "uint64"
 
@@ -315,9 +322,10 @@ private def evmPlanErr (message : String) : CompileError :=
     (T8b + N2b-EVM), **named aggregates admit UInt64/Int64 leaves only**
     via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), and **Array state** flattens to contiguous
-    scalar slots (element UInt{8,16,32,64}). UInt128/256 and non-64 Int fail
-    closed. N2c: Principal remains fail-closed (wire identity is
-    variable-length u32-prefixed; not a 20-byte EVM address). -/
+    scalar slots (element UInt{8,16,32,64,128,256}). non-64 Int fail closed.
+    T9b admits UInt128/256 on scalar state/param/body/result. N2c: Principal
+    remains fail-closed (wire identity is variable-length u32-prefixed; not a
+    20-byte EVM address). -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
@@ -354,7 +362,7 @@ private def abiByteWidthOfTypeV1
     | none =>
         unless types.int64TypeId == some typeId do
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: ABI type must be UInt{8,16,32,64}, Int64, or Field"
+            "unsupported EVM semantic shape: ABI type must be UInt8/16/32/64/128/256, Int64, or Field"
         pure 8
 
 private structure LoweredValueV1 where
@@ -670,7 +678,7 @@ private def makeStorageLayoutV1
       else
         -- T8b + N2b-EVM: scalar state admits UInt{8,16,32,64}/Int64/Field
         -- (byteWidth 1/2/4/8/32).
-        requirePublicUintAbiOrInt64OrFieldState evmPlanErr types state
+        requirePublicEvmUintAbiOrInt64OrFieldState evmPlanErr types state
           (allowNonPublic := true)
         let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
         let slot := bindings.size
@@ -734,7 +742,7 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
         nextWord := nextWord + 1
       values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
     else
-      requirePublicUintAbiOrInt64OrFieldParam
+      requirePublicEvmUintAbiOrInt64OrFieldParam
         evmPlanErr types owner param (allowNonPublic := true)
       let isInt := types.int64TypeId == some param.typeId
       let isField := types.isField param.typeId
@@ -1563,9 +1571,14 @@ private def lowerBlockInstructionsV1
     | .literal typeId bytes, some result =>
         match types.uintWidthOf typeId with
         | some bitWidth => do
-            let value ← decodeUIntWidthLiteralLe evmPlanErr "EVM" bitWidth bytes
+            unless isEvmBodyUintWidth bitWidth do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: UInt{bitWidth} literal is not admitted"
+            let n ← decodeUIntWideLiteralLe evmPlanErr "EVM" bitWidth bytes
+            let expr : Expr :=
+              if bitWidth ≤ 64 then .literal (UInt64.ofNat n) else .bigLiteral n
             values := ← appendResultValueV1 typeId values result {
-              expr := .literal value
+              expr
               depth := 1
               expandedNodes := 1
               dependencies := #[]
@@ -2719,6 +2732,16 @@ private partial def emitJobV1
                       returned.bitWidth == 8 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be UInt8"
+              | .uint128 =>
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 128 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt128"
+              | .uint256 =>
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 256 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt256"
               | .int64 =>
                   unless !returned.isBool && returned.isInt && !returned.isField &&
                       returned.bitWidth == 64 do
@@ -3082,16 +3105,18 @@ private def makeEntryV1
     throw <| .planInvariant .evm s!"entry name '{name}' is not an EVM ABI identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .evm
-      s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
+      s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
   let resultKind : ResultKind ←
     match types.uintWidthOf callable.result.typeId with
     | some 8 => pure .uint8
     | some 16 => pure .uint16
     | some 32 => pure .uint32
     | some 64 => pure .uint64
+    | some 128 => pure .uint128
+    | some 256 => pure .uint256
     | some _ =>
         throw <| .planInvariant .evm
-          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
     | none =>
         if types.int64TypeId == some callable.result.typeId then
           pure .int64
@@ -3101,7 +3126,7 @@ private def makeEntryV1
           pure .field
         else
           throw <| .planInvariant .evm
-            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, or Field"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view

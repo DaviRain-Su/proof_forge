@@ -30,6 +30,8 @@ private def yulUintMask (bitWidth : Nat) : String :=
   | 16 => "0xffff"
   | 32 => "0xffffffff"
   | 64 => "0xffffffffffffffff"
+  | 128 => "0xffffffffffffffffffffffffffffffff"
+  | 256 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   | _ => "0xffffffffffffffff"
 
 /-- Exact bn254 Fr modulus as a Yul hex literal (SPEC `bn254FrModulusBEV1`). -/
@@ -53,6 +55,7 @@ private def bn254FrFermatExpYulV1 : String :=
     loop-invariant subtrees with the statement form. -/
 private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .literal value => toString value
+  | .bigLiteral value => toString value
   | .param wordIndex => s!"{paramPrefix}{wordIndex}"
   | .narrowParam bitWidth wordIndex =>
       s!"and({paramPrefix}{wordIndex}, {yulUintMask bitWidth})"
@@ -180,6 +183,9 @@ private structure RenderedExpr where
 
 private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr → RenderedExpr
   | .literal value =>
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := {value}\n", value := name, next := next + 1 }
+  | .bigLiteral value =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := {value}\n", value := name, next := next + 1 }
   | .param wordIndex =>
@@ -950,6 +956,8 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   | .uint8 => "uint8"
   | .uint16 => "uint16"
   | .uint32 => "uint32"
+  | .uint128 => "uint128"
+  | .uint256 => "uint256"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with

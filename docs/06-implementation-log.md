@@ -12521,3 +12521,12 @@ normative: false
 - 金样：EvmSmoke/NearHostModel/NoirRelationModel/SolanaAsm；Solana Mollusk fixture `NarrowResult`
 - 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md
 
+## 2026-08-01 — T9b：EVM UInt128/256 ABI（state/param + body）
+
+- Envelope：`pilotUintWidthPolicyEvmBody`/`isEvmAbiUintWidth` 扩 {128,256}；`decodeUIntWideLiteralLe`；EVM-only `requirePublicEvmUintAbiOrInt64OrField*`
+- EVM Plan：`bigLiteral`；ResultKind uint128/256；state/param byteWidth 16/32；narrow* 路径服务 128/256 掩码
+- Yul：UInt128/256 掩码；ABI `uint128`/`uint256`；PlanSchema tag 49
+- 负向：Solana/NEAR/Noir 仍 fail closed（共享 isAbiUintWidth 未扩）
+- 金样：EvmSmoke WideUint + UInt128 result；shard-targets 绿
+- 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md
+
