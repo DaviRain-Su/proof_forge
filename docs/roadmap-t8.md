@@ -56,11 +56,11 @@ KV 值长=byteWidth；narrowParam/StateLoad + Store.byteWidth；WAT i32.load8_u/
 storage_write exact length；near-abi.json `u8-le/…`。Body 多宽仍 T8c。
 NearHostModel AbiMw + UInt128/Int8 负向；shard-targets 绿。CI 隔离验证中。
 
-### [in_progress] T8b-Noir：Noir state/param UInt8/16/32 ABI
-- 参照 T8b-Solana 模式；Noir 已开 Field state/param——窄 UInt 与 Field 并存
-- 工作面：`Noir/LowerSemanticV1.lean` 准入（现有 `requirePublicUInt64OrInt64OrField*` → 加窄 UInt）、
-  Noir 类型映射（u8/u16/u32）、relation IR 约束宽度、IDL 同步；负向 UInt128/窄结果 fail closed
-- 测试：NoirRelationModel goldens + 产品正/负
+### [merged] T8b-Noir：Noir state/param UInt8/16/32 ABI（2026-08-01, be812b0d4）
+参照 T8b-NEAR：`requirePublicUintAbiOrInt64OrField*` + `pilotUintWidthPolicyNoirAbi`；
+`InputType` 增 u8/u16/u32；与 Field 并存；窄载入 zero-extend 到 UInt64 body temps；
+emit 原生 Noir 类型 + assertEqual 窄宽 cast；UInt128/Int8/窄结果 fail closed。
+Body 多宽仍 T8d。NoirRelationModel goldens；shard-targets 绿。CI 隔离验证中。
 
 ### [pending] T8c：NEAR body 多宽 UInt8/16/32
 - 镜像 T8a（Solana body 多宽）：EnvelopeV1 `pilotUintWidthPolicyNearBody` + narrow* Plan/IR ops + Wasm 发射守卫
@@ -84,3 +84,4 @@ T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI �
 | 2026-08-01 | T8b-EVM | merged dd8a00280, CI 绿 |
 | 2026-08-01 | T8b-Solana | merged acc7eb514, 隔离 CI 验证中 |
 | 2026-08-01 | T8b-NEAR | merged 7b897fdaf, 隔离 CI 已 dispatch（ci-verify-t8b-near） |
+| 2026-08-01 | T8b-Noir | merged be812b0d4, 隔离 CI 已 dispatch（ci-verify-t8b-noir） |
