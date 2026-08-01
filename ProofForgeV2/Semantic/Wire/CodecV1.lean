@@ -1482,6 +1482,19 @@ theorem decodeValueDefV1_eq_of_bodyV1 (c : Cursor) (value : ValueDefV1) (c' : Cu
   unfold decodeValueDefV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose ValueDef production fields directly through its nesting wrapper. -/
+theorem decodeValueDefV1_eq_of_fieldsV1 (c afterTag afterValue afterType : Cursor)
+    (valueId typeId : UInt32) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "ValueDef" 2 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hvalue : decodeU32le afterTag = .ok (valueId, afterValue))
+    (htype : decodeU32le afterValue = .ok (typeId, afterType)) :
+    decodeValueDefV1 c =
+      .ok ({ valueId, typeId }, ⟨afterType.input, afterType.offset, c.nesting⟩) :=
+  decodeValueDefV1_eq_of_bodyV1 c { valueId, typeId } afterType hdepth
+    (decodeValueDefBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩
+      afterTag afterValue afterType valueId typeId htag hvalue htype)
+
 def encodeBlockParameterV1 (p : BlockParameterV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "BlockParameter" #[encodeU32le p.valueId, encodeU32le p.typeId]
 
@@ -1761,6 +1774,37 @@ theorem decodeSemanticOpV1_eq_of_bodyV1 (c : Cursor) (op : SemanticOpV1) (c' : C
   unfold decodeSemanticOpV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose a Literal branch directly through the SemanticOp nesting wrapper. -/
+theorem decodeSemanticOpV1_literal
+    (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
+    (valueBytes : ByteArray) (hdepth : c.nesting < maxNesting)
+    (htag : decodeTag ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ("Op.Literal", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (htype : decodeU32le afterFields = .ok (typeId, afterType))
+    (hbytes : decodeByteArray maxCanonicalProgramBytes afterType =
+      .ok (valueBytes, afterBytes)) :
+    decodeSemanticOpV1 c = .ok (.literal typeId valueBytes,
+      ⟨afterBytes.input, afterBytes.offset, c.nesting⟩) :=
+  decodeSemanticOpV1_eq_of_bodyV1 c (.literal typeId valueBytes) afterBytes hdepth
+    (decodeSemanticOpBodyV1_literal ⟨c.input, c.offset, c.nesting + 1⟩ afterTag
+      afterFields afterType afterBytes typeId valueBytes htag hfields htype hbytes)
+
+/-- Compose a PureCall branch directly through the SemanticOp nesting wrapper. -/
+theorem decodeSemanticOpV1_pureCall
+    (c afterTag afterFields afterCallable afterArgs : Cursor) (callableId : UInt32)
+    (args : Array UInt32) (hdepth : c.nesting < maxNesting)
+    (htag : decodeTag ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ("Op.PureCall", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hcallable : decodeU32le afterFields = .ok (callableId, afterCallable))
+    (hargs : decodeArray maxArrayElements decodeU32le afterCallable = .ok (args, afterArgs)) :
+    decodeSemanticOpV1 c = .ok (.pureCall callableId args,
+      ⟨afterArgs.input, afterArgs.offset, c.nesting⟩) :=
+  decodeSemanticOpV1_eq_of_bodyV1 c (.pureCall callableId args) afterArgs hdepth
+    (decodeSemanticOpBodyV1_pureCall ⟨c.input, c.offset, c.nesting + 1⟩ afterTag
+      afterFields afterCallable afterArgs callableId args htag hfields hcallable hargs)
+
 def encodeInstructionV1 (i : InstructionV1) : Except SemanticWireErrorV1 ByteArray := do
   let resultB ← encodeOption encodeValueDefV1 i.result
   let opB ← encodeSemanticOpV1 i.op
@@ -1792,6 +1836,20 @@ theorem decodeInstructionV1_eq_of_bodyV1 (c : Cursor) (instruction : Instruction
     decodeInstructionV1 c = .ok (instruction, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeInstructionV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Compose Instruction production fields directly through its nesting wrapper. -/
+theorem decodeInstructionV1_eq_of_fieldsV1 (c afterTag afterResult afterOp : Cursor)
+    (result : Option ValueDefV1) (op : SemanticOpV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Instruction" 2 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hresult : decodeOption decodeValueDefV1 afterTag = .ok (result, afterResult))
+    (hop : decodeSemanticOpV1 afterResult = .ok (op, afterOp)) :
+    decodeInstructionV1 c = .ok ({ result, op },
+      ⟨afterOp.input, afterOp.offset, c.nesting⟩) :=
+  decodeInstructionV1_eq_of_bodyV1 c { result, op } afterOp hdepth
+    (decodeInstructionBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩
+      afterTag afterResult afterOp result op htag hresult hop)
 
 def encodeJumpTargetV1 (t : JumpTargetV1) : Except SemanticWireErrorV1 ByteArray := do
   let argsB ← encodeValueIdArray t.args

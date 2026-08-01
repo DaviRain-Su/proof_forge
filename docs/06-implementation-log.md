@@ -11657,6 +11657,15 @@ normative: false
 - Boundary：这是transport iteration composition；具体nested element、完整callables/root carrier及formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 public nested-decoder composition
+
+- Proof：将ValueDef fields、canonical Literal/PureCall branches及Instruction fields的既有body theorem
+  分别与sole tagged-nesting theorem组合，导出public decoder success corollaries；不增加runtime定义。
+- Cursor：每层从parent+1执行真实production premises，保留最终body input/offset并恢复parent nesting；
+  arbitrary cursor参数受相邻真实decoder equality约束。focused build、signature examples与blocker review通过。
+- Boundary：这些是向上拼接Block/Callable的transport corollary，不证明结构引用或完整carrier；formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

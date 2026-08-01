@@ -289,7 +289,8 @@ Terminator原仍待闭合；后续Block scaffold切片已固定header→id→par
 Return的tag→field-count→Option ValueId与nesting；其余五分支runtime保持、proof按需pending。后续
 ValueDef/Instruction切片又闭合各自sole record body、字段顺序及nesting。后续SemanticOp切片机械抽取
 sole sum body并闭合canonical Literal/PureCall及nesting；其余op runtime保持、proof按需pending。向上
-组合首片又从sole production iterator导出singleton array success，供单instruction/block直接复用。
+组合先从sole production iterator导出singleton array success，随后将ValueDef、Literal/PureCall与
+Instruction body theorem提升为public-decoder corollary，供具体Block证明直接消费。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

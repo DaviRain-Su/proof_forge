@@ -398,6 +398,12 @@ production body，全部既有op与unknown-tag行为保持；Literal严格线程
 并原样返回element完整cursor；没有第二iterator或专用Instruction/Block循环。该seam将直接服务一个
 instruction的leaf/root block和每个callable的单block array；多callable root仍复用通用succ theorem。
 
+public nested-record composition现已接通：ValueDef、canonical Literal/PureCall及Instruction新增的
+corollaries只组合各既有body theorem与sole `withTaggedNesting` theorem，不改runtime；premises仍是
+真实header/scalar/option/bounded payload/array decoder equalities。每层以parent+1进入、保留最终body
+input/offset并恢复该层parent depth。后续Block证明可直接消费public Instruction/Terminator success，
+无需再次手工展开nested wrapper。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
