@@ -232,6 +232,10 @@ private partial def step (machine : Machine) :
       let left ← readValue machine lhs
       let right ← readValue machine rhs
       writeTemp machine destination (evalComparison op left right)
+  -- Field ops are admitted by the Plan/IR emitter; the pure Lean relation
+  -- model does not interpret 254-bit Field arithmetic (Nargo/backend only).
+  | .fieldAdd .. | .fieldSub .. | .fieldMul .. | .fieldDiv .. | .fieldNeg .. =>
+      modelError "Field arithmetic is outside the pure Lean relation model"
   | .assertEqual lhs rhs => do
       let left ← readComparable machine lhs
       let right ← readComparable machine rhs
@@ -288,9 +292,10 @@ private def validateInputTypes (relation : Targets.Noir.RelationIR)
     let expected := relation.sourceRelation.inputs[index]!.type
     let actual := inputs[index]!
     match expected, actual with
-    | .u64, .u64 _ | .bool, .bool _ => pure ()
+    | .u64, .u64 _ | .bool, .bool _ | .field, .u64 _ => pure ()
     | .u64, .bool _ => return ← modelError s!"input {index} must be UInt64"
     | .bool, .u64 _ => return ← modelError s!"input {index} must be Bool"
+    | .field, .bool _ => return ← modelError s!"input {index} must be Field"
 
 /-- Pure deterministic interpreter for target-owned typed relation operations.
 It checks a caller-supplied relation witness/public-input assignment only. It
@@ -424,9 +429,10 @@ private def bindInputs (relation : Targets.Noir.RelationIR)
       | some value => pure value
       | none => modelError s!"no model value for input '{binding.name}'"
     match binding.type, value with
-    | .u64, .u64 _ | .bool, .bool _ => values := values.push value
+    | .u64, .u64 _ | .bool, .bool _ | .field, .u64 _ => values := values.push value
     | .u64, .bool _ => return ← modelError s!"input '{binding.name}' must be UInt64"
     | .bool, .u64 _ => return ← modelError s!"input '{binding.name}' must be Bool"
+    | .field, .bool _ => return ← modelError s!"input '{binding.name}' must be Field"
   return values
 
 private def statefulInputs (relation : Targets.Noir.RelationIR)

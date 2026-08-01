@@ -1,5 +1,6 @@
 import Tests.Materialization.BuildSelectionV1
 import Tests.Materialization.TargetRegistryV1
+import Tests.Materialization.RegistryRootV1
 import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
@@ -20,6 +21,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.BuildSelectionV1.run
   IO.eprintln "CP run"
   Tests.Materialization.TargetRegistryV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.RegistryRootV1.run
   IO.eprintln "CP run"
   Tests.Materialization.RequirementResolverV1.run
   IO.eprintln "CP run"

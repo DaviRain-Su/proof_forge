@@ -119,15 +119,14 @@ private unsafe def testForeignContributions
     let (validated, ids) ← inferSource session label (wrap (fixtureProgramName label) body)
     expect (ids == expectedIds) s!"{label}: contribution ids {ids}"
     expectFreezeIds label validated frozenIds
-  -- Non-disclosure foreign keys still reject (CAP promotion deferred).
+  -- N2b: Field type contribution is infer-only and freeze-skipped (exact
+  -- modular arithmetic is covered by value.checked-arithmetic when ops appear).
   let (fieldValidated, fieldIds) ← inferSource session "field"
     (wrap (fixtureProgramName "field")
       "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n")
   expect (fieldIds == #["value.field.bn254-fr"])
     s!"field: contribution ids {fieldIds}"
-  expectFreezeReject "field"
-    "S2 semantic requirements freeze rejects non-catalog key 'value.field.bn254-fr'"
-    fieldValidated
+  expectFreezeIds "field" fieldValidated #[]
 
   -- Wave I: call/schedule contributions are catalog members and freeze.
   let callCases : Array (String × String × Array String × Array String) := #[

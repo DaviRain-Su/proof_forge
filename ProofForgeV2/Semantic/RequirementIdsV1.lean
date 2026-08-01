@@ -34,11 +34,12 @@
     No engineering digest is minted for these ids today. They appear as
     contribution identities from ProgramV1 visibility/type surfaces.
     Members: `inferOnlyRequirementIdsV1`.
-    N1 freeze policy (`RequirementsV1.freezeProgramRequirementsV1`):
+    N1/N2b freeze policy (`RequirementsV1.freezeProgramRequirementsV1`):
       * disclosure.private-state / commitment-state / private-witness /
         commitment — **skipped** (not frozen, not rejected); product disclosure
         is sole CheckV1/DisclosureCheck authority.
-      * value.field.bn254-fr — still **rejected** as non-catalog.
+      * value.field.bn254-fr — **skipped** (N2b; Field arithmetic is exact
+        modular and covered by `value.checked-arithmetic`; no new S2 key).
 
   KNOWN DUAL MEANING — `disclosure.commitment`
     The same UTF-8 id string is carried by:
@@ -118,11 +119,11 @@ def inferDisclosurePrivateStateIdV1 : String := "disclosure.private-state"
     Skipped at S2 freeze (N1); not cataloged. -/
 def inferDisclosureCommitmentStateIdV1 : String := "disclosure.commitment-state"
 
-/-- Infer-only: bn254 Fr Field type contribution (not S2 catalog; freeze rejects). -/
+/-- Infer-only: bn254 Fr Field type contribution (not S2 catalog; freeze-skipped N2b). -/
 def inferValueFieldBn254FrIdV1 : String := "value.field.bn254-fr"
 
 /-- Closed infer-only contribution ids (not in S2 catalog).
-    Disclosure ids are freeze-skipped (N1); field bn254 is freeze-rejected. -/
+    Disclosure ids are freeze-skipped (N1); field bn254 is freeze-skipped (N2b). -/
 def inferOnlyRequirementIdsV1 : Array String :=
   #[inferDisclosurePrivateWitnessIdV1, inferDisclosureCommitmentIdV1,
     inferDisclosurePrivateStateIdV1, inferDisclosureCommitmentStateIdV1,

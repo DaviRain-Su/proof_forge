@@ -235,7 +235,7 @@ private unsafe def testUnaryTypeGates (session : Language.Loader.ParserSession) 
     "  const negBad : UInt64 := -b\n" ++
     "  const notBad : UInt64 := !x\n" ++
     "  const bitNotBad : UInt64 := ~b\n"
-  expectConstDiag session "neg-bool" body "negBad" "integer type"
+  expectConstDiag session "neg-bool" body "negBad" "integer or Field type"
   expectConstDiag session "not-int" body "notBad" "Bool"
   expectConstDiag session "bitnot-bool" body "bitNotBad" "integer type"
 

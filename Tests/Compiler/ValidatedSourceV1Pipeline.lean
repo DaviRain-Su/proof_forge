@@ -584,11 +584,11 @@ def run : IO Unit := do
   -- Named types fail CheckV1 resolution; aggregate state still fails UInt-only gate.
   let typeCases : Array (String × TypeV1 × String) := #[
     ("Type.Named", .named x, "name 'x' resolved to state but expected type"),
-    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt/Int type"),
+    ("Type.Map", .map .bool .bool, "S1 state 'x' requires anonymous UInt/Int/Field type"),
     ("Type.Named nested", .option (.array (.named x) 1),
       "name 'x' resolved to state but expected type"),
     ("Type.Map nested", .array (.option (.map .bool .bool)) 1,
-      "S1 state 'x' requires anonymous UInt/Int type"),
+      "S1 state 'x' requires anonymous UInt/Int/Field type"),
     ("Type.illegalMapKey", illegalMapKey, "S1 Map key type is not a legal map key")]
   for (tag, type_, want) in typeCases do
     let bad ← validated moduleName identity demo

@@ -26,9 +26,15 @@ inductive Operation where
   | checkedMul (destination : Nat) (lhs rhs : ValueRef)
   | checkedDiv (destination : Nat) (lhs rhs : ValueRef)
   | checkedMod (destination : Nat) (lhs rhs : ValueRef)
+  /-- Exact mod-p Field arithmetic (Noir native Field = bn254 Fr). -/
+  | fieldAdd (destination : Nat) (lhs rhs : ValueRef)
+  | fieldSub (destination : Nat) (lhs rhs : ValueRef)
+  | fieldMul (destination : Nat) (lhs rhs : ValueRef)
+  | fieldDiv (destination : Nat) (lhs rhs : ValueRef)
   | bitNot (destination : Nat) (source : ValueRef)
   | boolNot (destination : Nat) (source : ValueRef)
   | checkedNeg (destination : Nat) (source : ValueRef)
+  | fieldNeg (destination : Nat) (source : ValueRef)
   | signedCompare (op : ComparisonOp) (destination : Nat) (lhs rhs : ValueRef)
   | bitAnd (destination : Nat) (lhs rhs : ValueRef)
   | bitOr (destination : Nat) (lhs rhs : ValueRef)
@@ -198,6 +204,42 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         value := .temp rhs.next
         next := rhs.next + 1
       }
+  | .fieldAdd lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldAdd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldSub lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldSub rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldMul lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldMul rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldDiv lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldDiv rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
   | .bitNot operand => do
       let operand ← lowerExpr plan fuel loopEnv stateValues next operand
       pure {
@@ -316,6 +358,13 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         value := .temp operand.next
         next := operand.next + 1
       }
+  | .fieldNeg operand => do
+      let operand ← lowerExpr plan fuel loopEnv stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.fieldNeg operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
   | .callFn fnIndex args => do
       let some fn := plan.fns.find? (fun binding => binding.callableId == fnIndex) |
         throw <| .planInvariant .noir
@@ -404,6 +453,42 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
       pure {
         operations := lhs.operations ++ rhs.operations ++
           #[.checkedMod rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldAdd lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldAdd rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldSub lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldSub rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldMul lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldMul rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .fieldDiv lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.fieldDiv rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
       }
@@ -514,6 +599,13 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
       let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
       pure {
         operations := operand.operations ++ #[.checkedNeg operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
+  | .fieldNeg operand => do
+      let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.fieldNeg operand.next operand.value]
         value := .temp operand.next
         next := operand.next + 1
       }
@@ -1083,6 +1175,10 @@ private partial def collectLiveTempsV1 (relationName : String)
     | .checkedMul destination lhs rhs
     | .checkedDiv destination lhs rhs
     | .checkedMod destination lhs rhs
+    | .fieldAdd destination lhs rhs
+    | .fieldSub destination lhs rhs
+    | .fieldMul destination lhs rhs
+    | .fieldDiv destination lhs rhs
     | .bitAnd destination lhs rhs
     | .bitOr destination lhs rhs
     | .bitXor destination lhs rhs
@@ -1096,7 +1192,8 @@ private partial def collectLiveTempsV1 (relationName : String)
         live := addLiveTemp (addLiveTemp live lhs) rhs
     | .bitNot destination source
     | .boolNot destination source
-    | .checkedNeg destination source =>
+    | .checkedNeg destination source
+    | .fieldNeg destination source =>
         unless live.contains destination do
           throw <| .planInvariant .noir
             s!"relation '{relationName}' contains dead unary arithmetic whose value would not be constrained"
@@ -1213,6 +1310,17 @@ private partial def renderOperation (relation : Relation) (indent : String) :
   | .checkedMod destination lhs rhs =>
       s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
         s!"{indent}let t{destination}: u64 = {renderValue relation lhs} % {renderValue relation rhs};\n"
+  | .fieldAdd destination lhs rhs =>
+      -- Native Noir Field = bn254 Fr; modular add (no overflow assert).
+      s!"{indent}let t{destination}: Field = {renderValue relation lhs} + {renderValue relation rhs};\n"
+  | .fieldSub destination lhs rhs =>
+      s!"{indent}let t{destination}: Field = {renderValue relation lhs} - {renderValue relation rhs};\n"
+  | .fieldMul destination lhs rhs =>
+      s!"{indent}let t{destination}: Field = {renderValue relation lhs} * {renderValue relation rhs};\n"
+  | .fieldDiv destination lhs rhs =>
+      -- Div-by-zero is a circuit failure (assert non-zero before inverse).
+      s!"{indent}assert({renderValue relation rhs} != 0);\n" ++
+        s!"{indent}let t{destination}: Field = {renderValue relation lhs} / {renderValue relation rhs};\n"
   | .bitNot destination source =>
       s!"{indent}let t{destination}: u64 = !{renderValue relation source};\n"
   | .boolNot destination source =>
@@ -1240,6 +1348,8 @@ private partial def renderOperation (relation : Relation) (indent : String) :
   | .checkedNeg destination source =>
       s!"{indent}assert({renderValue relation source} != 9223372036854775808);\n" ++
         s!"{indent}let t{destination}: u64 = (0 as u64).wrapping_sub({renderValue relation source});\n"
+  | .fieldNeg destination source =>
+      s!"{indent}let t{destination}: Field = -{renderValue relation source};\n"
   | .assertConstraint condition =>
       s!"{indent}assert({renderAssertCondition relation condition});\n"
   | .ifRegion condition thenOps elseOps =>
@@ -1306,9 +1416,14 @@ private partial def renderOperation (relation : Relation) (indent : String) :
         s!"{indent}  {renderValue relation defaultValue}\n" ++
         s!"{indent}}};\n"
 
+private def renderInputType : InputType → String
+  | .u64 => "u64"
+  | .bool => "bool"
+  | .field => "Field"
+
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""
-  let type := if input.type == .u64 then "u64" else "bool"
+  let type := renderInputType input.type
   s!"{input.name}: {visibility}{type}"
 
 private def renderSource (relation : RelationIR) : String :=
@@ -1346,7 +1461,7 @@ private def renderInputJson (input : InputBinding) : String :=
     | .callArgSlot callIndex argIndex => ("call-arg-slot", s!"[{callIndex},{argIndex}]")
     | .scheduleArgSlot scheduleIndex argIndex =>
         ("schedule-arg-slot", s!"[{scheduleIndex},{argIndex}]")
-  let type := if input.type == .u64 then "u64" else "bool"
+  let type := renderInputType input.type
   "{" ++
     s!"\"name\":\"{Targets.escapeJson input.name}\"," ++
     s!"\"sourceName\":\"{Targets.escapeJson input.sourceName}\"," ++

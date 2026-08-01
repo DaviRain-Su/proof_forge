@@ -1519,9 +1519,11 @@ private def noirDescriptorEngineeringReprBaseline : String :=
 
 /-- Independent single-semantic-carrier Accumulator Noir planHash golden.
     Wave C: init relation bodies now carry the explicit `.returnNone`
-    bare-return marker, which is part of the planHash preimage. -/
+    bare-return marker, which is part of the planHash preimage.
+    N2b: StateField/Param gain `inputType` (u64/bool/field); UInt64 programs
+    pin `.u64` and rehash the preimage. -/
 private def accumulatorPlanHashBaseline : String :=
-  "580bfbb85bf05a86954544180aa8a3c6772e27dd7af66452f413cd88ecc5f6ec"
+  "a304a1e078f7e62c51b3ccf41eafa9fb8ceb8260bc12215df28fbc19a652ee95"
 
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do
@@ -2496,5 +2498,51 @@ unsafe def run : IO Unit := do
       expect ((e.render).contains "private/commitment parameter" ||
           (e.render).contains "not representable")
         s!"N1 priv-param Noir message must cite parameter boundary, got {e.render}"
+
+  -- N2b: Field bn254_fr product pin — Noir admits (native Field = bn254 Fr);
+  -- EVM/Solana/NEAR/Psy fail closed at Plan type-closure.
+  let fieldSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program FieldMix where\n" ++
+    "  state acc : Field bn254_fr\n\n" ++
+    "  init(initial : Field bn254_fr) do\n" ++
+    "    acc := initial\n\n" ++
+    "  entry bump(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n\n" ++
+    "  entry neg(x : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return -x\n\n" ++
+    "  entry eq(a : Field bn254_fr, b : Field bn254_fr) : Bool do\n" ++
+    "    return a == b\n\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return acc\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let fieldV1 ← match ← session.selectProgramV1 fieldSource
+      "<targets-n2b-field>" "Examples.FieldMix" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N2b field select: {e.render}"
+  let fieldCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fieldV1
+  let noirField ← liftResult <| planNoir fieldCompiled
+  expect (noirField.relations.any fun r => r.name == "bump")
+    "N2b field: Noir plan must include bump relation"
+  expect (noirField.relations.any fun r => r.name == "neg")
+    "N2b field: Noir plan must include neg relation"
+  -- At least one Field-typed input appears on the bump relation.
+  let some bumpRel := noirField.relations.find? (·.name == "bump") |
+    throw <| IO.userError "N2b field: missing bump relation"
+  expect (bumpRel.inputs.any fun i => i.type == Targets.Noir.InputType.field)
+    "N2b field: Noir bump relation must carry Field-typed inputs"
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy] do
+    match materializeSelected target fieldCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N2b field: {target} must fail closed on Field"
+    | .error e =>
+        expect ((e.render).contains "Field" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "mod-p" ||
+            (e.render).contains "bn254")
+          s!"N2b field {target} message must cite Field boundary, got {e.render}"
 
 end Tests.Materialization

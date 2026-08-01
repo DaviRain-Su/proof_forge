@@ -120,6 +120,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Language.Loader,
     `Tests.Materialization.BuildSelectionV1,
     `Tests.Materialization.TargetRegistryV1,
+    `Tests.Materialization.RegistryRootV1,
     `Tests.Materialization.RequirementResolverV1,
     `Tests.Materialization.OutputEnvelopeV1,
     `Tests.Materialization.EngineeringFinalizationV1,

@@ -4590,19 +4590,95 @@ private unsafe def testInt64StateArithNeg
   let hasAdd := bumpBlk.instructions.any fun instr =>
     match instr.op with | .binary .add _ _ => true | _ => false
   expect hasAdd "int64-state: Op.Binary.add present for Int64"
-  -- Field/Principal remain fail-closed at Normalize intern boundary.
-  let fieldSrc := wrap "FieldClosed" <|
-    "  state f : Field bn254_fr\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    return 0\n"
-  let fieldValidated ← loadSource session "field-closed" fieldSrc
-  match normalizeProgramV1 fieldValidated with
-  | .ok _ => throw <| IO.userError "field-closed: Field state must fail closed"
-  | .error (.unsupported detail) =>
-      expect (detail.contains "Field" || detail.contains "state" ||
-          detail.contains "UInt" || detail.contains "Int")
-        s!"field-closed: detail={detail}"
-  | .error e => throw <| IO.userError s!"field-closed: {repr e}"
+
+/-- Wave N2b: Field bn254_fr state/params, arith (+-*/), unary neg, eq;
+    Field mod and ordering fail closed. No source Field literals. -/
+private unsafe def testFieldBn254Normalize
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "FieldProg" <|
+    "  state acc : Field bn254_fr\n" ++
+    "  init(initial : Field bn254_fr) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  entry mix(a : Field bn254_fr, b : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    let s : Field bn254_fr := a - b\n" ++
+    "    let p : Field bn254_fr := a * b\n" ++
+    "    let q : Field bn254_fr := a / b\n" ++
+    "    return s + p + q\n" ++
+    "  entry neg(x : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return -x\n" ++
+    "  entry eq(a : Field bn254_fr, b : Field bn254_fr) : Bool do\n" ++
+    "    return a == b\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return acc\n"
+  let validated ← loadSource session "field-bn254" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"field-bn254: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"field-bn254: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"field-bn254: validate: {repr e}"
+  let fieldTid? := data.types.findSome? fun decl =>
+    match decl.name, decl.shape with
+    | none, .field spec =>
+        if spec.id.value == bn254FrFieldIdV1 &&
+            spec.modulusBE == bn254FrModulusBEV1 then some decl.id
+        else none
+    | _, _ => none
+  let fieldTid ← match fieldTid? with
+    | some tid => pure tid
+    | none => throw <| IO.userError "field-bn254: missing anonymous Field bn254-fr"
+  let some st0 := data.logicalState[0]? |
+    throw <| IO.userError "field-bn254: missing state"
+  expect (st0.typeId == fieldTid) "field-bn254: state is Field"
+  -- entry neg: Op.Unary.neg on Field
+  let some negC := data.callables.find? (fun c => c.name == some "neg") |
+    throw <| IO.userError "field-bn254: missing entry neg"
+  let some blk := negC.blocks[0]? |
+    throw <| IO.userError "field-bn254: missing neg block"
+  let hasUnaryNeg := blk.instructions.any fun instr =>
+    match instr.op with | .unary .neg _ => true | _ => false
+  expect hasUnaryNeg "field-bn254: Op.Unary.neg present for -x"
+  -- entry mix: add/sub/mul/div on Field
+  let some mixC := data.callables.find? (fun c => c.name == some "mix") |
+    throw <| IO.userError "field-bn254: missing entry mix"
+  let some mixBlk := mixC.blocks[0]? |
+    throw <| IO.userError "field-bn254: missing mix block"
+  let hasSub := mixBlk.instructions.any fun instr =>
+    match instr.op with | .binary .sub _ _ => true | _ => false
+  let hasMul := mixBlk.instructions.any fun instr =>
+    match instr.op with | .binary .mul _ _ => true | _ => false
+  let hasDiv := mixBlk.instructions.any fun instr =>
+    match instr.op with | .binary .div _ _ => true | _ => false
+  expect hasSub "field-bn254: Op.Binary.sub present"
+  expect hasMul "field-bn254: Op.Binary.mul present"
+  expect hasDiv "field-bn254: Op.Binary.div present"
+  -- entry eq: equality
+  let some eqC := data.callables.find? (fun c => c.name == some "eq") |
+    throw <| IO.userError "field-bn254: missing entry eq"
+  let some eqBlk := eqC.blocks[0]? |
+    throw <| IO.userError "field-bn254: missing eq block"
+  let hasEq := eqBlk.instructions.any fun instr =>
+    match instr.op with | .binary .eq _ _ => true | _ => false
+  expect hasEq "field-bn254: Op.Binary.eq present"
+  -- Field mod fails closed (TypeCheck or Normalize)
+  let modSrc := wrap "FieldMod" <|
+    "  entry rem(a : Field bn254_fr, b : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    return a % b\n"
+  let modValidated ← loadSource session "field-mod" modSrc
+  let modTyped := checkProgramTypedResultV1 modValidated
+  expect (!modTyped.ok) "field-mod: TypeCheck rejects Field mod"
+  -- Field ordering fails closed
+  let ordSrc := wrap "FieldOrd" <|
+    "  entry lt(a : Field bn254_fr, b : Field bn254_fr) : Bool do\n" ++
+    "    return a < b\n"
+  let ordValidated ← loadSource session "field-ord" ordSrc
+  let ordTyped := checkProgramTypedResultV1 ordValidated
+  expect (!ordTyped.ok) "field-ord: TypeCheck rejects Field ordering"
 
 /-- T1 multi-width match scrutinee on UInt8 with exact case valueBytes. -/
 private unsafe def testMultiWidthMatchScrut
@@ -5604,6 +5680,7 @@ unsafe def run : IO Unit := do
   testMultiWidthUIntState session
   testMultiWidthIntResults session
   testInt64StateArithNeg session
+  testFieldBn254Normalize session
   testMultiWidthMatchScrut session
   testMixedWidthOperandsTypedNotOk session
   testMultiWidthShiftUInt32Shared session

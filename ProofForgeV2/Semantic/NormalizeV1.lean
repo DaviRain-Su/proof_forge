@@ -14,8 +14,9 @@
 
   Supported S1/S2 surface (everything else fails closed at this boundary):
     * declarations: public primitive state/params/event/error fields
-      (anonymous legal UInt or Int widths {8,16,32,64,128,256} for state/
-      params; event/error fields stay legal UInt), init, entry, view
+      (anonymous legal UInt or Int widths {8,16,32,64,128,256} or sole catalog
+      Field bn254_fr for state/params; event/error fields stay legal UInt),
+      init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none); bare `assert` with a Bool condition
       (assert-else still fails closed); `if cond then B (else B)?` lowered to
@@ -29,22 +30,24 @@
     * expressions: bare place (param or state name), expected-type integer
       literals (legal UInt/Int widths, LE valueBytes of width/8; Int negatives
       enter as `unary neg (integer literal)` folded to two's-complement LE
-      including intMin), Bool literal, checked binary add/sub/mul/div/mod and
-      bitwise and/or/xor on same-width legal UInt/Int, shifts (lhs legal
-      UInt/Int, count UInt32; Int `>>` is arithmetic), and the six same-width
-      UInt/Int comparisons plus strict logical and/or producing Bool; integer
-      width is supplied by the enclosing typed context (or by the lhs place
-      for comparisons). Unary `-` on UInt desugars to `0 - x`; on Int emits
-      `Op.Unary.neg` (intMin overflow is a runtime revert). Field unary neg
-      remains fail closed. call/schedule args and for endpoints stay UInt64
+      including intMin; **no Field source literal** — Field values enter via
+      params/state), Bool literal, checked binary add/sub/mul/div/mod and
+      bitwise and/or/xor on same-width legal UInt/Int, Field add/sub/mul/div
+      (exact mod-p; `mod` on Field fails closed matching Reference
+      `.invalidCore`), shifts (lhs legal UInt/Int, count UInt32; Int `>>` is
+      arithmetic), six same-width UInt/Int comparisons plus Field `==`/`!=`
+      (ordering on Field fails closed), and strict logical and/or producing
+      Bool. Unary `-` on UInt desugars to `0 - x`; on Int/Field emits
+      `Op.Unary.neg` (intMin overflow is a runtime revert; Field neg =
+      `(p - v) % p`). call/schedule args and for endpoints stay UInt64
       in this slice
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
       anonymous legal UInt/Int, Unit, Bool, Principal, Bytes, Array, Map,
       Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
       interned on first actual use after named registration. State/parameter
-      positions admit public legal-UInt/Int (named/aggregate state fail closed);
-      entry/view/fn results stay legal UInt/Int/Unit/Bool. Local `let` may
-      hold named/aggregate values
+      positions admit public legal-UInt/Int/Field (named/aggregate state fail
+      closed); entry/view/fn results stay legal UInt/Int/Unit/Bool/Field.
+      Local `let` may hold named/aggregate values
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
       `Option.some` / `Option.none` constructors → `Op.Construct`; field places
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
@@ -84,7 +87,7 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * Field `Op.Unary.neg` and Field arithmetic,
+    * Field source literals, Field ordering comparisons, Field `mod`,
       non-UInt64 call/schedule args and for endpoints, named/aggregate state,
       nonempty Map construction, nested field/index assign chains,
       ContextRead/Commit, match string patterns (no String TypeShape),
@@ -502,7 +505,7 @@ private def requireAnonymousUIntTypeId
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
-/-- Require anonymous legal UInt or Int width (state / params / fn params). -/
+/-- Require anonymous legal UInt or Int width (legacy integer-only sites). -/
 private def requireAnonymousIntegerTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -512,6 +515,30 @@ private def requireAnonymousIntegerTypeId
       else failUnsupported s!"S1 {context} requires legal UInt/Int width"
   | some _ =>
       failUnsupported s!"S1 {context} requires anonymous UInt/Int type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
+
+/-- Sole catalog Field shape (bn254-fr) recognition. -/
+private def isAnonBn254Field
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match anonShapeOf? types typeId with
+  | some (.field spec) =>
+      fieldSpecEq spec bn254FrFieldSpecV1
+  | _ => false
+
+/-- Require anonymous legal UInt/Int or sole catalog Field (state / params). -/
+private def requireAnonymousIntegerOrFieldTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.uint w) | some (.int w) =>
+      if legalIntegerWidthV1 w.toNat then pure ()
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Field type"
+  | some (.field spec) =>
+      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
+      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+  | some _ =>
+      failUnsupported s!"S1 {context} requires anonymous UInt/Int/Field type"
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
@@ -525,20 +552,24 @@ private def requireUInt64TypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
-/-- Require anonymous scalar at entry/view/fn results: legal UInt/Int, Unit, Bool. -/
+/-- Require anonymous scalar at entry/view/fn results: legal UInt/Int, Unit,
+    Bool, or sole catalog Field. -/
 private def requireScalarResultTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
   match anonShapeOf? types typeId with
   | some (.uint w) =>
       if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool type"
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field type"
   | some (.int w) =>
       if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool type"
+      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field type"
   | some .unit | some .bool => pure ()
+  | some (.field spec) =>
+      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
+      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
   | some _ =>
-      failUnsupported s!"S1 {context} requires UInt/Int/Unit/Bool type"
+      failUnsupported s!"S1 {context} requires UInt/Int/Unit/Bool/Field type"
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
@@ -565,6 +596,23 @@ private def requireExpectedIntegerWidth
       else failUnsupported s!"S1 {context} requires expected legal UInt/Int type"
   | some _ =>
       failUnsupported s!"S1 {context} requires expected legal UInt/Int type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
+
+/-- Require anonymous legal UInt/Int or sole catalog Field expected type
+    (binary arithmetic). Field `mod` is rejected separately. -/
+private def requireExpectedIntegerOrFieldWidth
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.uint w) | some (.int w) =>
+      if legalIntegerWidthV1 w.toNat then pure ()
+      else failUnsupported s!"S1 {context} requires expected legal UInt/Int/Field type"
+  | some (.field spec) =>
+      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
+      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+  | some _ =>
+      failUnsupported s!"S1 {context} requires expected legal UInt/Int/Field type"
   | none =>
       failUnsupported s!"S1 {context} references missing expected TypeId {typeId}"
 
@@ -1231,9 +1279,24 @@ private partial def lowerExpr
         else none
       match arithOp? with
       | some semanticOp => do
-        -- Same-width legal UInt or Int (ReferenceMachineV1 int paths own
-        -- two's-complement overflow / intMin/-1 / div-zero semantics).
-        requireExpectedIntegerWidth st.interner.types expectedTid "binary arithmetic/bitwise"
+        -- Same-width legal UInt/Int or sole catalog Field.
+        -- UInt/Int: ReferenceMachineV1 overflow / intMin/-1 / div-zero.
+        -- Field: exact mod-p add/sub/mul/div; `mod` fails closed (invalidCore).
+        -- Bitwise stays integer-only (requireExpectedIntegerWidth).
+        let isBitwise :=
+          semanticOp == BinaryOpV1.bitAnd ||
+          semanticOp == BinaryOpV1.bitOr ||
+          semanticOp == BinaryOpV1.bitXor
+        if isBitwise then
+          requireExpectedIntegerWidth st.interner.types expectedTid
+            "binary arithmetic/bitwise"
+        else do
+          requireExpectedIntegerOrFieldWidth st.interner.types expectedTid
+            "binary arithmetic"
+          if semanticOp == BinaryOpV1.mod &&
+              isAnonBn254Field st.interner.types expectedTid then
+            return ← failUnsupported
+              "S1 Field does not support mod (remainder); use div"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
         let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
         let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states fns
@@ -1279,24 +1342,46 @@ private partial def lowerExpr
         | none =>
         match cmpOp? with
         | some semanticOp => do
-            -- Comparison operands are same-width legal UInt/Int; result is Bool.
-            -- Operand width is inferred from the lhs place (TypeCheck order).
+            -- Equality: same-type serializable operands (UInt/Int/Field/Bool…).
+            -- Ordering: same-width legal UInt/Int only (Field ordering fail closed).
+            -- Operand type is inferred from the lhs place (TypeCheck order).
             let (iBool, boolTid) := internShape st.interner .bool
             unless boolTid == expectedTid do
               return ← failUnsupported
                 "S1 comparison requires an enclosing Bool expected type"
             let stB := { st with interner := iBool }
             let (iOp, opTid) ← synthComparisonOperandTypeV1 lhs stB states
-            requireExpectedIntegerWidth iOp.types opTid "comparison"
+            let isEq :=
+              semanticOp == BinaryOpV1.eq || semanticOp == BinaryOpV1.ne
+            if isEq then
+              -- Equality: admit integer or Field (and Bool via other paths).
+              match anonShapeOf? iOp.types opTid with
+              | some (.uint w) | some (.int w) =>
+                  unless legalIntegerWidthV1 w.toNat do
+                    return ← failUnsupported
+                      "S1 equality requires legal UInt/Int/Field operands"
+              | some (.field spec) =>
+                  unless fieldSpecEq spec bn254FrFieldSpecV1 do
+                    return ← failUnsupported
+                      "S1 equality requires sole catalog Field bn254_fr"
+              | some .bool => pure ()
+              | _ =>
+                  return ← failUnsupported
+                    "S1 equality requires UInt/Int/Bool/Field operands"
+            else
+              requireExpectedIntegerWidth iOp.types opTid "ordering comparison"
+              if isAnonBn254Field iOp.types opTid then
+                return ← failUnsupported
+                  "S1 Field does not support ordering comparisons"
             let st0 := { stB with interner := iOp }
             let (lVid, lTid, st1) ← lowerExpr lhs opTid st0 states fns
             unless lTid == opTid do
               return ← failUnsupported
-                "S1 comparison requires same-width integer operands"
+                "S1 comparison requires same-type operands"
             let (rVid, rTid, st2) ← lowerExpr rhs opTid st1 states fns
             unless rTid == opTid do
               return ← failUnsupported
-                "S1 comparison requires same-width integer operands"
+                "S1 comparison requires same-type operands"
             let (st3, vid) := emitValue st2 boolTid (.binary semanticOp lVid rVid)
             pure (vid, boolTid, st3)
         | none =>
@@ -1365,7 +1450,7 @@ private partial def lowerExpr
           -- Int: emit Op.Unary.neg (Reference reverts on intMin). Fold
           -- `unary neg (integer literal)` to two's-complement LE bytes so
           -- intMin is representable (positive Int literal max is 2^(w-1)-1).
-          -- Field unary neg remains fail closed.
+          -- Field: emit Op.Unary.neg (Reference: (p - v) % p).
           match anonShapeOf? st.interner.types expectedTid with
           | some (.uint w) => do
               unless legalIntegerWidthV1 w.toNat do
@@ -1403,9 +1488,21 @@ private partial def lowerExpr
                   let (st2, vid) :=
                     emitValue st1 expectedTid (.unary .neg oVid)
                   pure (vid, expectedTid, st2)
+          | some (.field spec) => do
+              unless fieldSpecEq spec bn254FrFieldSpecV1 do
+                return ← failUnsupported
+                  "S1 unary Field negation requires sole catalog Field bn254_fr"
+              let (oVid, oTid, st1) ←
+                lowerExpr operand expectedTid st states fns
+              unless oTid == expectedTid do
+                return ← failUnsupported
+                  "S1 unary Field negation requires a Field operand"
+              let (st2, vid) :=
+                emitValue st1 expectedTid (.unary .neg oVid)
+              pure (vid, expectedTid, st2)
           | _ =>
               failUnsupported
-                "S1 unary checked negation requires expected legal UInt/Int type"
+                "S1 unary checked negation requires expected legal UInt/Int/Field type"
       | .bitNot => do
           requireExpectedIntegerWidth st.interner.types expectedTid "unary bit-not"
           let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
@@ -2310,7 +2407,8 @@ private def lowerParams
   for p in ps do
     let (interner', tid) ← internSourceType interner p.type_
     interner := interner'
-    requireAnonymousIntegerTypeId interner.types tid s!"parameter '{raw p.name}'"
+    requireAnonymousIntegerOrFieldTypeId interner.types tid
+      s!"parameter '{raw p.name}'"
     out := out.push {
       valueId := UInt32.ofNat i
       name := raw p.name
@@ -2363,13 +2461,14 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 1: complete state/event/error tables (source order among those
   -- items only). Event/error fields stay public legal-UInt in this envelope.
-  -- State rows admit legal UInt/Int and retain visibility (N1).
+  -- State rows admit legal UInt/Int/Field and retain visibility (N1/N2b).
   for item in program.items do
     match item with
     | .state s =>
         let (interner', tid) ← internSourceType interner s.type_
         interner := interner'
-        requireAnonymousIntegerTypeId interner.types tid s!"state '{raw s.name}'"
+        requireAnonymousIntegerOrFieldTypeId interner.types tid
+          s!"state '{raw s.name}'"
         let sid := UInt32.ofNat stateRows.size
         stateRows := stateRows.push {
           id := sid
@@ -2424,8 +2523,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
   -- the unified source order of init/entry/view/fn items (the same order
-  -- pass 2 lowers them). Fn params stay public legal-UInt/Int; results are
-  -- public legal UInt/Int/Unit/Bool.
+  -- pass 2 lowers them). Fn params stay public legal-UInt/Int/Field; results
+  -- are public legal UInt/Int/Unit/Bool/Field.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
   for item in program.items do
@@ -2438,7 +2537,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 fn '{raw d.name}' param '{raw p.name}' must be public"
           let (interner', tid) ← internSourceType interner p.type_
           interner := interner'
-          requireAnonymousIntegerTypeId interner.types tid
+          requireAnonymousIntegerOrFieldTypeId interner.types tid
             s!"fn '{raw d.name}' param '{raw p.name}'"
           paramTids := paramTids.push tid
         let (interner', resultTid) ← internSourceType interner d.result

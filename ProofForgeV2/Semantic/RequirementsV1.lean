@@ -37,7 +37,9 @@
   private/commitment state and params can open the product chain without a CAP
   catalog expansion. Product disclosure remains sole authority of
   CheckV1/DisclosureCheck (PF-VIS-001) before Normalize. Other non-catalog
-  contributions (e.g. `value.field.bn254-fr`) still fail closed. Formal
+  Field type contribution (`value.field.bn254-fr`) is freeze-skipped (N2b;
+  covered by `value.checked-arithmetic`). Other non-catalog keys still fail
+  closed. Formal
   TASK-D2-05 / RequirementRef / predicate merge / contribution origins remain
   pending.
 -/
@@ -148,18 +150,26 @@ private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
   id == inferDisclosurePrivateStateIdV1 ||
   id == inferDisclosureCommitmentStateIdV1
 
+/-- Infer-only Field type contribution. Field arithmetic is exact modular
+    (no overflow); product arithmetic is covered by the existing S2 key
+    `value.checked-arithmetic`. No new S2 catalog entry is minted for
+    `value.field.bn254-fr` — skip at freeze (N2b). -/
+private def isSkippedInferFieldIdV1 (id : String) : Bool :=
+  id == inferValueFieldBn254FrIdV1
+
 /-- Freeze exact ProgramRequirementsV1 from the sole ProgramV1 contribution
-    analysis. Infer-only disclosure contribution ids are skipped (see module
-    doc). Other unknown contribution identities fail closed before any request
-    is minted; contribution duplicates have already been removed first-seen by
-    the analysis, while final requests are sorted by canonical wire key. -/
+    analysis. Infer-only disclosure and Field type contribution ids are
+    skipped (see module doc). Other unknown contribution identities fail
+    closed before any request is minted; contribution duplicates have already
+    been removed first-seen by the analysis, while final requests are sorted
+    by canonical wire key. -/
 def freezeProgramRequirementsV1 (program : ProgramV1) :
     Except String ProgramRequirementsV1 := do
   let contributions := inferRequirementContributionsV1 program
   let mut items : Array RequirementRequestV1 := #[]
   for contribution in contributions do
     let id := RequirementContributionV1.idOf contribution
-    if isSkippedInferDisclosureIdV1 id then
+    if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id then
       pure ()
     else do
       unless isS2CatalogIdV1 id do

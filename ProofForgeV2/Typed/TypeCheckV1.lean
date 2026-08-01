@@ -229,6 +229,15 @@ def isIntegerType : TypeV1 → Bool
   | .uint _ | .int _ => true
   | _ => false
 
+/-- Sole Phase-1 Field catalog spelling (`Field bn254_fr`). -/
+def isFieldType : TypeV1 → Bool
+  | .field id => id.raw == "bn254_fr"
+  | _ => false
+
+/-- Integer or Field (bn254_fr) — numeric surface for arithmetic and unary neg. -/
+def isNumericType (t : TypeV1) : Bool :=
+  isIntegerType t || isFieldType t
+
 def stringPatternDiagnosticDraft : TypedDiagnosticDraftV1 :=
   make .sourceInvalid
     "string patterns are not supported (String is not a TypeV1)"
@@ -809,7 +818,22 @@ mutual
     | .unary op operand =>
         let (opPath?, pathDs) := resolveDirect exprPath? "Expr.Unary" "operand"
         match op with
-        | .neg | .bitNot =>
+        | .neg =>
+            -- Integer or Field (bn254_fr); Field maps to Op.Unary.neg mod p.
+            let opRes := typeCheckExprDrafts scope tables none #[] opPath? operand
+            let (resType, drafts) :=
+              if isNumericType opRes.type then
+                (opRes.type, pathDs ++ opRes.drafts)
+              else
+                (opRes.type, pathDs ++ opRes.drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "integer or Field type"
+                    (typeName opRes.type))
+                  opPath? #[]])
+            let (type_, drafts) :=
+              checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+            resultDraft type_ drafts
+        | .bitNot =>
+            -- Bitwise not remains integer-only (Field has no bitNot).
             let opRes := typeCheckExprDrafts scope tables none #[] opPath? operand
             let (resType, drafts) :=
               if isIntegerType opRes.type then
@@ -837,7 +861,39 @@ mutual
         let (lp?, pathDs1) := resolveDirect exprPath? "Expr.Binary" "lhs"
         let (rp?, pathDs2) := resolveDirect exprPath? "Expr.Binary" "rhs"
         let pathDs := pathDs1 ++ pathDs2
-        if isArithmeticOp op || isBitwiseOp op then
+        if isArithmeticOp op then
+          -- Integer: full add/sub/mul/div/mod. Field bn254_fr: add/sub/mul/div
+          -- only (mod → invalidCore / fail closed at Normalize; reject here).
+          let lhsExpected? :=
+            expected?.filter fun t => isIntegerType t || isFieldType t
+          let lhsRes := typeCheckExprDrafts scope tables lhsExpected? expectedRelated lp? lhs
+          let (drafts, lhsType) :=
+            if isNumericType lhsRes.type then
+              if isFieldType lhsRes.type && op == .mod then
+                (pathDs ++ lhsRes.drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "integer type"
+                    "Field mod (no field remainder)")
+                  lp? #[]], lhsRes.type)
+              else
+                (pathDs ++ lhsRes.drafts, lhsRes.type)
+            else
+              (pathDs ++ lhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "integer or Field type"
+                  (typeName lhsRes.type))
+                lp? #[]], lhsRes.type)
+          let rhsRes := typeCheckExprDrafts scope tables (some lhsType) #[] rp? rhs
+          let (drafts, resType) :=
+            if lhsType == rhsRes.type then
+              (drafts ++ rhsRes.drafts, lhsType)
+            else
+              (drafts ++ rhsRes.drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft (typeName lhsType) (typeName rhsRes.type))
+                rp? #[]], lhsType)
+          let (type_, drafts) :=
+            checkExpectedDraft resType expected? exprPath? expectedRelated drafts
+          resultDraft type_ drafts
+        else if isBitwiseOp op then
+          -- Bitwise remains integer-only.
           let lhsExpected? := expected?.filter isIntegerType
           let lhsRes := typeCheckExprDrafts scope tables lhsExpected? expectedRelated lp? lhs
           let (drafts, lhsType) :=

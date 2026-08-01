@@ -11598,3 +11598,22 @@ normative: false
   input/offset并恢复parent depth。focused build、kernel signature examples与blocker review通过。
 - Boundary：Instruction/Terminator仅作为真实decoder success premise，未声称nested branch已闭合；
   canonical Return、Instruction/Op、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — M3a engineering registry root codec + digest
+
+- Production：新增 `ProofForgeV2/Targets/RegistryRootV1.lean`（encode-only）。对 public
+  `TargetRegistryV1` 的 stored order（TargetId ASCII ascending）做 length-framed 根编码：
+  `u32le(count)` + 每行 `String(targetId)` + 六轴 `toWire` 字符串 + `u32le(profileCount)` +
+  profile id 串 + `String(defaultProfile | "none")`；`String = u32le(utf8Len)||utf8`。
+  Digest：`domainSeparatedSha256("pf.registry-root.engineering.v1", rootBytes)`，API 为
+  `encodeEngineeringRegistryRootBytesV1` / `engineeringRegistryRootDigestV1`（故意不使用
+  formal/product 名 `registryDigest`，也不写入 formal JCS 域 `proof-forge.target-registry.v1`，
+  以保持 `TargetRegistryV1` deletion gate）。不 mint BuildIdentity、不进入 selection/capability/
+  artifacts。
+- Tests：`Tests/Materialization/RegistryRootV1.lean` 固定 10-target seed root 字节 golden
+  （1578 B，hex pin）与 digest golden
+  `sha256:2fb02f2808ac84e160314cb51a0065dcd57df9cd1fe11a66d4d6f16f5cbec615`；determinism
+  （双 build / unsorted create 归一）；tamper 矩阵（10×6 axes + implemented profile/default +
+  registration-count）；encode-only surface 反射。已挂 `Tests/Shards/Targets`。
+- Boundary：**工程** registry root digest 切片；**不是** formal TASK-D3-02 / formal registry
+  root / SupportClaim / reachable BuildIdentity / OutputSetV1。formal status 不变。
