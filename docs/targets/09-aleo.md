@@ -68,3 +68,8 @@ Leo4 AST/printer golden → compiler parse/typecheck → local proof execution �
 ## 10. 不支持、风险与成熟度退出
 
 当前不实现。准入条件：冻结 Leo 4 patch/profile、完成 record 与 mapping 两条最小闭环、证明 disclosure/custody/finalization requirements 可精确推导。Aleo 不能复用 NoirPlan 或 PsyPlan。
+
+### 工程成熟度（C-2 / 2026-08-02）
+
+产品路径已有 target-owned Plan/IR/source package 与 B-1c coverage 钉（Field FAIL-CLOSED）。
+**C-2 研究结论（`docs/research/15-aleo-psy-compiler-vm.md`）**：**不**在本波次升格真实 `leo` 编译验收门；无 Tool Lock pin 与 skip/fail-closed CI 门。成熟度声明保持 **source-only**，不得写成 compiler/VM 验收完成。

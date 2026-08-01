@@ -115,7 +115,7 @@ normative: false
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
 | **C-1** | NEAR Wasm 运行时差分 | **已闭合(NearWasmAcceptance 工程切片)**：产品 path 物化 Counter/DualField（多字段 public UInt64 KV；named Struct 仍 NEAR Plan FC）/LoopSum → `.wat` → 主机 `wat2wasm` + `wasm-interp --dummy-import-func`（或 wasmtime compile / wasmer validate）实例化；工具缺席干净 skip；**非** NEAR sandbox receipt / Reference↔Wasm formal 差分 | NearWasmAcceptance ✅ |
-| **C-2** | Aleo/Psy compiler/VM 验收研究 | Aleo/Psy 成熟度 `source-only`，无 compiler/VM 验收（Aleo 有 leo compiler？Psy 有 psy-vm？需研究） | AleoPsyResearch |
+| **C-2** | Aleo/Psy compiler/VM 验收研究 | **已闭合（2026-08-02，RPT-015）**：**不**升格验收门。树内无 pinned `leo` / psy-vm Tool Lock 资产与 CI 编译/证明门；Aleo Field≠bn254、Psy Felt=Goldilocks 仍 FAIL-CLOSED。成熟度保持 **source-only** Plan/IR/source package。跟进需独立 Tool Lock + gate ID | AleoPsyResearch ✅ |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 
 ### D 组：文档/checkpoint 同步缺口

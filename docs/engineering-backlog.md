@@ -243,7 +243,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **C-1** | NEAR 真实 Wasm 运行时差分（对标 Mollusk/EvmSolc） | **done**（2026-08-02：`672e6115d` NearWasmAcceptance wat2wasm+wasm-interp；工具缺席 skip；非 sandbox/formal Reference↔Wasm） |
-| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | pending |
+| **C-2** | Aleo/Psy compiler/VM 可用性研究与是否升格验收 | **done**（2026-08-02：RPT-015 不升格门；Aleo/Psy 保持 source-only；矩阵 C-2 行 + research README 已登记） |
 | **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；工程 Anvil smoke 可保留） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | pending |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | ongoing |

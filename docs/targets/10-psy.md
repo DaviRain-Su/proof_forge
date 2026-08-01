@@ -68,3 +68,8 @@ PsyPlan {
 ## 10. 不支持、风险与成熟度退出
 
 Psy 不在 Phase 1 implementation scope。离开 research 的条件：稳定一手规格、可获取且许可明确的工具链、完整 live MWE、状态/证明/finalization 语义无未决冲突。此前不得宣称 supported，也不得将它归入 Noir circuit family。
+
+### 工程成熟度（C-2 / 2026-08-02）
+
+树内为 target-owned Plan/IR/source 面；Psy Felt=Goldilocks 对 catalog bn254 **FAIL-CLOSED**。
+**C-2 研究结论（`docs/research/15-aleo-psy-compiler-vm.md`）**：**不**升格 psy-vm / prover 验收门；无受支持工具链 pin。成熟度保持 **source-only / research**，不得写成 VM 或证明完成。
