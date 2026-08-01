@@ -335,6 +335,11 @@ canonical empty ProgramRequirements composition现已闭合：原anonymous body�
 ProgramRequirements tag→items array线程，wrapper恢复parent nesting。items为空时直接复用
 `decodeArray_zeroV1`，不需要RequirementRequest decoder执行。
 
+canonical public logicalState composition现已闭合：Visibility与StateDecl anonymous bodies机械抽为sole
+production bodies；public visibility theorem固定tag→zero field-count，StateDecl theorem固定
+tag→id→name→typeId→visibility并正确恢复两层nesting。`decodeStateDeclArrayV1_eq_of_elements`锁定root
+`maxTableElements` table。private/commitment runtime仍保留，仅branch proof按需pending。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

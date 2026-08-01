@@ -11525,3 +11525,13 @@ normative: false
   decoder。focused Wire build与signature examples通过。
 - Boundary：empty requirements transport composition已就绪；非空requirements、logicalState/callables/
   invariants、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 public logicalState composition
+
+- Production：机械抽取sole `decodeVisibilityBodyV1`与`decodeStateDeclBodyV1`，public decoders仍各由一次
+  `withTaggedNesting`包装；runtime private/commitment branches保持不变。
+- Proof：public Visibility固定tag→zero field-count；StateDecl固定tag→id→name→typeId→visibility，并在
+  nested Visibility与StateDecl frames各自恢复parent depth。root array corollary复用真实
+  `maxTableElements` header与sole iterator。focused build、signature examples与blocker review通过。
+- Boundary：当前canonical public state已具备composition；private/commitment branch theorem、callables、
+  invariants、完整carrier与formal TASK/TST仍pending。

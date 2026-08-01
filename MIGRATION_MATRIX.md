@@ -274,7 +274,8 @@ sole `decodeSemanticProgramDataBodyV1`与单一tagged wrapper，正式transport 
 exact field-order与nesting success composition。后续zero-table切片证明真实bounded count=0时立即返回
 post-header cursor且绝不调用element decoder，可统一复用到各空root table。后续requirements切片机械抽取
 sole production body，并组合tag→items array→parent nesting；canonical empty requirements现可复用zero array
-theorem，非空root字段仍pending。
+theorem。后续logicalState切片机械抽取Visibility/StateDecl sole bodies，组合public visibility与
+StateDecl tag→id→name→typeId→visibility、nested depth及root bounded array；private/commitment proof仍按需。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

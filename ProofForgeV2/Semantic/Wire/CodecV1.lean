@@ -933,7 +933,8 @@ def encodeVisibilityV1 : VisibilityV1 → Except SemanticWireErrorV1 ByteArray
   | .private_ => encodeNullary "Visibility.Private"
   | .commitment => encodeNullary "Visibility.Commitment"
 
-def decodeVisibilityV1 : Decoder VisibilityV1 := withTaggedNesting fun c => do
+/-- Sole production body for the Visibility tagged sum. -/
+def decodeVisibilityBodyV1 : Decoder VisibilityV1 := fun c => do
   let (tag, c) ← decodeTag c
   let ((), c) ← decodeFieldCount 0 c
   match tag with
@@ -941,6 +942,27 @@ def decodeVisibilityV1 : Decoder VisibilityV1 := withTaggedNesting fun c => do
   | "Visibility.Private" => pure (.private_, c)
   | "Visibility.Commitment" => pure (.commitment, c)
   | _ => err .badTag
+
+def decodeVisibilityV1 : Decoder VisibilityV1 :=
+  withTaggedNesting decodeVisibilityBodyV1
+
+/-- Public Visibility branch through the actual tag and field-count decoders. -/
+theorem decodeVisibilityBodyV1_public (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Visibility.Public", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeVisibilityBodyV1 c = .ok (.public_, afterFields) := by
+  simp only [decodeVisibilityBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful Visibility body through tagged nesting. -/
+theorem decodeVisibilityV1_eq_of_bodyV1 (c : Cursor) (visibility : VisibilityV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeVisibilityBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (visibility, c')) :
+    decodeVisibilityV1 c =
+      .ok (visibility, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeVisibilityV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeFieldSpecV1 (spec : FieldSpecV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB ← encodeSchemaId spec.id
@@ -1160,13 +1182,47 @@ def encodeStateDeclV1 (d : StateDeclV1) : Except SemanticWireErrorV1 ByteArray :
   let visB ← encodeVisibilityV1 d.visibility
   encodeTagged "StateDecl" #[idB, nameB, typeB, visB]
 
-def decodeStateDeclV1 : Decoder StateDeclV1 := withTaggedNesting fun c => do
+/-- Sole production body for a StateDecl tagged record. -/
+def decodeStateDeclBodyV1 : Decoder StateDeclV1 := fun c => do
   let ((), c) ← expectTag "StateDecl" 4 c
   let (id, c) ← decodeU32le c
   let (name, c) ← decodeString c
   let (typeId, c) ← decodeU32le c
   let (visibility, c) ← decodeVisibilityV1 c
   pure ({ id, name, typeId, visibility }, c)
+
+def decodeStateDeclV1 : Decoder StateDeclV1 :=
+  withTaggedNesting decodeStateDeclBodyV1
+
+/-- Compose StateDecl from its actual production field decoders. -/
+theorem decodeStateDeclBodyV1_eq_of_fields (c afterTag afterId afterName afterType afterVis : Cursor)
+    (id typeId : UInt32) (name : String) (visibility : VisibilityV1)
+    (htag : expectTag "StateDecl" 4 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeString afterId = .ok (name, afterName))
+    (htype : decodeU32le afterName = .ok (typeId, afterType))
+    (hvis : decodeVisibilityV1 afterType = .ok (visibility, afterVis)) :
+    decodeStateDeclBodyV1 c = .ok ({ id, name, typeId, visibility }, afterVis) := by
+  simp only [decodeStateDeclBodyV1, htag, hid, hname, htype, hvis, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful StateDecl body through tagged nesting. -/
+theorem decodeStateDeclV1_eq_of_bodyV1 (c : Cursor) (state : StateDeclV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeStateDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (state, c')) :
+    decodeStateDeclV1 c = .ok (state, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeStateDeclV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Root `logicalState` field composition through the sole array decoder. -/
+theorem decodeStateDeclArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
+    (states : Array StateDeclV1) (afterStates : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeStateDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (states, afterStates)) :
+    decodeArray maxTableElements decodeStateDeclV1 c = .ok (states, afterStates) :=
+  decodeArray_eq_of_elementsV1 maxTableElements decodeStateDeclV1 c count offset
+    states afterStates hcount helements
 
 def encodeInterfaceFieldV1 (f : InterfaceFieldV1) : Except SemanticWireErrorV1 ByteArray := do
   let nameB ← encodeString f.name

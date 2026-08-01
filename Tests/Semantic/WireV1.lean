@@ -380,6 +380,44 @@ example (c c' : Cursor) (requirements : ProgramRequirementsV1)
       .ok (requirements, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeProgramRequirementsV1_eq_of_bodyV1 c requirements c' hdepth hbody
 
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Visibility.Public", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeVisibilityBodyV1 c = .ok (.public_, afterFields) :=
+  decodeVisibilityBodyV1_public c afterTag afterFields htag hfields
+
+example (c c' : Cursor) (visibility : VisibilityV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeVisibilityBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (visibility, c')) :
+    decodeVisibilityV1 c = .ok (visibility, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeVisibilityV1_eq_of_bodyV1 c visibility c' hdepth hbody
+
+example (c afterTag afterId afterName afterType afterVis : Cursor)
+    (id typeId : UInt32) (name : String) (visibility : VisibilityV1)
+    (htag : expectTag "StateDecl" 4 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeString afterId = .ok (name, afterName))
+    (htype : decodeU32le afterName = .ok (typeId, afterType))
+    (hvis : decodeVisibilityV1 afterType = .ok (visibility, afterVis)) :
+    decodeStateDeclBodyV1 c = .ok ({ id, name, typeId, visibility }, afterVis) :=
+  decodeStateDeclBodyV1_eq_of_fields c afterTag afterId afterName afterType afterVis
+    id typeId name visibility htag hid hname htype hvis
+
+example (c c' : Cursor) (state : StateDeclV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeStateDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (state, c')) :
+    decodeStateDeclV1 c = .ok (state, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeStateDeclV1_eq_of_bodyV1 c state c' hdepth hbody
+
+example (c : Cursor) (count offset : Nat) (states : Array StateDeclV1)
+    (afterStates : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeStateDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (states, afterStates)) :
+    decodeArray maxTableElements decodeStateDeclV1 c = .ok (states, afterStates) :=
+  decodeStateDeclArrayV1_eq_of_elements c count offset states afterStates hcount helements
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
