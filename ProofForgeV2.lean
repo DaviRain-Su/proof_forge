@@ -70,6 +70,7 @@ import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.LockedToolchainV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
+import ProofForgeV2.Materialization.OutputSetV1
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4

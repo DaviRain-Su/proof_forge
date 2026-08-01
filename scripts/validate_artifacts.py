@@ -173,6 +173,105 @@ def exact_physical_closure(
         raise SystemExit(f"{tag}: missing directory '{missing_dirs[0]}'")
 
 
+_HEX64 = re.compile(r"[0-9a-f]{64}")
+_ENGINEERING_OUTPUT_SCHEMA = "proof-forge.output.v1"
+_ENGINEERING_OUTPUT_REQUIRED_KEYS = (
+    "schemaVersion",
+    "target",
+    "codegenProfile",
+    "artifactProgramName",
+    "sourceHash",
+    "semanticHash",
+    "buildIdentityDigest",
+    "supportClaimDigest",
+    "engineeringRegistryRootDigest",
+    "outputSetDigest",
+    "deployable",
+    "files",
+)
+
+
+def _require_hex64(manifest: dict, key: str, label: str) -> None:
+    value = manifest.get(key, "")
+    if not isinstance(value, str) or not _HEX64.fullmatch(value):
+        raise SystemExit(f"{label}: invalid {key}")
+
+
+def validate_engineering_output_manifest(manifest: dict, *, label: str) -> None:
+    """Validate engineering proof-forge.output.v1 field surface (not formal)."""
+    if not isinstance(manifest, dict):
+        raise SystemExit(f"{label}: manifest must be an object")
+    if set(manifest.keys()) != set(_ENGINEERING_OUTPUT_REQUIRED_KEYS):
+        raise SystemExit(
+            f"{label}: unexpected manifest keys {sorted(manifest.keys())}; "
+            f"want {sorted(_ENGINEERING_OUTPUT_REQUIRED_KEYS)}"
+        )
+    if manifest["schemaVersion"] != _ENGINEERING_OUTPUT_SCHEMA:
+        raise SystemExit(
+            f"{label}: schemaVersion must be {_ENGINEERING_OUTPUT_SCHEMA!r}, "
+            f"got {manifest['schemaVersion']!r}"
+        )
+    for key in (
+        "sourceHash",
+        "semanticHash",
+        "buildIdentityDigest",
+        "supportClaimDigest",
+        "engineeringRegistryRootDigest",
+        "outputSetDigest",
+    ):
+        _require_hex64(manifest, key, label)
+    if not isinstance(manifest["target"], str) or not manifest["target"]:
+        raise SystemExit(f"{label}: invalid target")
+    if not isinstance(manifest["codegenProfile"], str) or not manifest["codegenProfile"]:
+        raise SystemExit(f"{label}: invalid codegenProfile")
+    if (
+        not isinstance(manifest["artifactProgramName"], str)
+        or not manifest["artifactProgramName"]
+    ):
+        raise SystemExit(f"{label}: invalid artifactProgramName")
+    if not isinstance(manifest["deployable"], bool):
+        raise SystemExit(f"{label}: deployable must be bool")
+    if not isinstance(manifest["files"], list) or not all(
+        isinstance(p, str) and p for p in manifest["files"]
+    ):
+        raise SystemExit(f"{label}: files must be a non-empty list of strings")
+    if not manifest["files"]:
+        raise SystemExit(f"{label}: files must be non-empty")
+    if len(set(manifest["files"])) != len(manifest["files"]):
+        raise SystemExit(f"{label}: files list has duplicates")
+    if "manifest.json" in manifest["files"] or "evidence.json" in manifest["files"]:
+        raise SystemExit(f"{label}: sidecars must not appear in files")
+
+
+def _require_engineering_output_manifest(
+    manifest: dict,
+    *,
+    target: str,
+    codegen_profile: str,
+    artifact_program_name: str,
+    deployable: bool,
+    files: list[str],
+    label: str,
+) -> None:
+    validate_engineering_output_manifest(manifest, label=label)
+    expected = {
+        "schemaVersion": _ENGINEERING_OUTPUT_SCHEMA,
+        "target": target,
+        "codegenProfile": codegen_profile,
+        "artifactProgramName": artifact_program_name,
+        "sourceHash": manifest["sourceHash"],
+        "semanticHash": manifest["semanticHash"],
+        "buildIdentityDigest": manifest["buildIdentityDigest"],
+        "supportClaimDigest": manifest["supportClaimDigest"],
+        "engineeringRegistryRootDigest": manifest["engineeringRegistryRootDigest"],
+        "outputSetDigest": manifest["outputSetDigest"],
+        "deployable": deployable,
+        "files": files,
+    }
+    if manifest != expected:
+        raise SystemExit(f"{label}: manifest is invalid: {manifest}")
+
+
 def load_manifest(root: Path, target: str) -> dict:
     path = root / target / "manifest.json"
     if not path.is_file() or path.is_symlink():
@@ -180,6 +279,7 @@ def load_manifest(root: Path, target: str) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest["target"] != target:
         raise SystemExit(f"target mismatch in {path}")
+    validate_engineering_output_manifest(manifest, label=target)
     expected_files = set(manifest["files"]) | {"manifest.json", "evidence.json"}
     exact_physical_closure(root / target, expected_files, label=target)
     return manifest
@@ -191,21 +291,23 @@ def validate_evm_accumulator(root: Path) -> dict:
     if not manifest_path.is_file() or manifest_path.is_symlink():
         raise SystemExit(f"missing {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    expected_files = {
+    expected_files = [
         "Accumulator.yul",
         "Accumulator.abi.json",
         "Accumulator.bin",
-    }
-    if manifest["target"] != "evm" or manifest["deployable"] is not True:
-        raise SystemExit("Accumulator EVM manifest is not deployable")
-    if set(manifest["files"]) != expected_files or len(manifest["files"]) != len(expected_files):
-        raise SystemExit(f"Accumulator manifest file set is invalid: {manifest['files']}")
-    for digest_name in ("sourceHash", "semanticHash"):
-        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
-            raise SystemExit(f"Accumulator manifest has invalid {digest_name}")
+    ]
+    _require_engineering_output_manifest(
+        manifest,
+        target="evm",
+        codegen_profile="evm-yul-solc-0.8.34-v1",
+        artifact_program_name="Accumulator",
+        deployable=True,
+        files=expected_files,
+        label="Accumulator EVM",
+    )
     exact_physical_closure(
         output,
-        expected_files | {"manifest.json", "evidence.json"},
+        set(expected_files) | {"manifest.json", "evidence.json"},
         label="evm-accumulator",
     )
     binary = (output / "Accumulator.bin").read_text(encoding="ascii").strip()
@@ -266,20 +368,15 @@ def validate_solana_accumulator(root: Path, evm_manifest: dict) -> dict:
         )
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for digest_name in ("sourceHash", "semanticHash"):
-        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
-            raise SystemExit(f"Solana Accumulator manifest has invalid {digest_name}")
-    expected_manifest = {
-        "schemaVersion": "proof-forge-output/v2alpha1",
-        "target": "solana",
-        "codegenProfile": "solana-sbpf-plan-v1",
-        "sourceHash": manifest["sourceHash"],
-        "semanticHash": manifest["semanticHash"],
-        "deployable": False,
-        "files": ["Accumulator.sbpf-plan", "Accumulator.idl.json"],
-    }
-    if manifest != expected_manifest:
-        raise SystemExit(f"Solana Accumulator manifest is invalid: {manifest}")
+    _require_engineering_output_manifest(
+        manifest,
+        target="solana",
+        codegen_profile="solana-sbpf-plan-v1",
+        artifact_program_name="Accumulator",
+        deployable=False,
+        files=["Accumulator.sbpf-plan", "Accumulator.idl.json"],
+        label="Solana Accumulator",
+    )
     for digest_name in ("sourceHash", "semanticHash"):
         if manifest[digest_name] != evm_manifest[digest_name]:
             raise SystemExit(
@@ -462,24 +559,19 @@ def validate_near_accumulator(
     exact_physical_closure(output, expected_names, label="near-accumulator")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for digest_name in ("sourceHash", "semanticHash"):
-        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
-            raise SystemExit(f"NEAR Accumulator manifest has invalid {digest_name}")
-    expected_manifest = {
-        "schemaVersion": "proof-forge-output/v2alpha1",
-        "target": "near",
-        "codegenProfile": "near-wasm-raw-u64-v1",
-        "sourceHash": manifest["sourceHash"],
-        "semanticHash": manifest["semanticHash"],
-        "deployable": True,
-        "files": [
+    _require_engineering_output_manifest(
+        manifest,
+        target="near",
+        codegen_profile="near-wasm-raw-u64-v1",
+        artifact_program_name="Accumulator",
+        deployable=True,
+        files=[
             "Accumulator.wat",
             "Accumulator.near-abi.json",
             "Accumulator.wasm",
         ],
-    }
-    if manifest != expected_manifest:
-        raise SystemExit(f"NEAR Accumulator manifest is invalid: {manifest}")
+        label="NEAR Accumulator",
+    )
     for other_name, other_manifest in (
         ("EVM", evm_manifest),
         ("Solana", solana_manifest),
@@ -684,20 +776,15 @@ def validate_noir_bundle(
         raise SystemExit(f"Noir source-only bundle contains proof-stage artifacts: {forbidden}")
 
     manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
-    for digest_name in ("sourceHash", "semanticHash"):
-        if not re.fullmatch(r"[0-9a-f]{64}", manifest.get(digest_name, "")):
-            raise SystemExit(f"Noir {program} manifest has invalid {digest_name}")
-    expected_manifest = {
-        "schemaVersion": "proof-forge-output/v2alpha1",
-        "target": "noir",
-        "codegenProfile": "noir-source-u64-relations-v1",
-        "sourceHash": manifest["sourceHash"],
-        "semanticHash": manifest["semanticHash"],
-        "deployable": False,
-        "files": logical_files,
-    }
-    if manifest != expected_manifest:
-        raise SystemExit(f"Noir {program} manifest is invalid: {manifest}")
+    _require_engineering_output_manifest(
+        manifest,
+        target="noir",
+        codegen_profile="noir-source-u64-relations-v1",
+        artifact_program_name=program,
+        deployable=False,
+        files=logical_files,
+        label=f"Noir {program}",
+    )
     for peer_name, peer_manifest in peer_manifests:
         for digest_name in ("sourceHash", "semanticHash"):
             if manifest[digest_name] != peer_manifest[digest_name]:

@@ -72,7 +72,7 @@ private def writeSidecars (staging : FilePath) (evidence manifest : String) : IO
   IO.FS.writeFile (staging / "manifest.json") manifest
 
 private def minimalSidecars : String × String :=
-  ("{\"note\":\"test-evidence\"}\n", "{\"schemaVersion\":\"proof-forge-output/v2alpha1\"}\n")
+  ("{\"note\":\"test-evidence\"}\n", "{\"schemaVersion\":\"proof-forge.output.v1\"}\n")
 
 /-- Flat Solana product emit + production closure on published tree. -/
 private unsafe def testFlatSolanaPositive : IO Unit := do
@@ -149,8 +149,8 @@ private unsafe def testManifestLastPublishedClosure : IO Unit := do
   let manifest ← IO.FS.readFile (outDir / "manifest.json")
   expect (evidence.startsWith "{") "evidence is JSON object"
   expect (manifest.startsWith "{") "manifest is JSON object"
-  expect ((manifest.splitOn "proof-forge-output/v2alpha1").length > 1)
-    "manifest schema v2alpha1 preserved"
+  expect ((manifest.splitOn "proof-forge.output.v1").length > 1)
+    "manifest schema proof-forge.output.v1 preserved"
   expect ((manifest.splitOn "evidence.json").length == 1)
     "evidence sidecar not in manifest.files"
   -- No leftover staging next to destination.

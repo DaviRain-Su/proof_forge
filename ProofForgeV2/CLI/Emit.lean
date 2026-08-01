@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
+import ProofForgeV2.Materialization.OutputSetV1
 import ProofForgeV2.Compiler.Pipeline
 
 namespace ProofForgeV2.CLI
@@ -97,34 +98,6 @@ private def validateMaterializedCarrier
       throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate artifact path '{file.path}'"
     paths := paths.push file.path
 
-/-- Private legacy-engineering on-disk v2alpha1 field bag (CLI publisher only).
-    Not a public product carrier; exact wire bytes match pre-S7a `manifestJson`. -/
-private structure LegacyOutputManifestV2Alpha1 where
-  schemaVersion : String := "proof-forge-output/v2alpha1"
-  target : TargetId
-  codegenProfile : CodegenProfileId
-  sourceHash : String
-  semanticHash : String
-  deployable : Bool
-  files : Array String
-
-/-- Private legacy-engineering renderer — byte-identical to pre-S7a public
-    `Targets.manifestJson` for `proof-forge-output/v2alpha1`. -/
-private def renderLegacyManifestJsonV2Alpha1 (manifest : LegacyOutputManifestV2Alpha1) :
-    String :=
-  let files := String.intercalate "," <|
-    manifest.files.toList.map fun path => s!"\"{Targets.escapeJson path}\""
-  let deployable := if manifest.deployable then "true" else "false"
-  "{\n" ++
-    s!"  \"schemaVersion\": \"{manifest.schemaVersion}\",\n" ++
-    s!"  \"target\": \"{manifest.target}\",\n" ++
-    s!"  \"codegenProfile\": \"{Targets.escapeJson manifest.codegenProfile.toString}\",\n" ++
-    s!"  \"sourceHash\": \"{manifest.sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{manifest.semanticHash}\",\n" ++
-    s!"  \"deployable\": {deployable},\n" ++
-    s!"  \"files\": [{files}]\n" ++
-    "}\n"
-
 /-- CLI emit receipt (stdout / tests). Not formal OutputManifest / OutputSetV1. -/
 structure EmitReceiptV1 where
   target : TargetId
@@ -156,20 +129,21 @@ def validateFinalizedExtraPathsForPublishV1
       throw <| IO.userError s!"PF-OUTPUT-PATH: duplicate finalized artifact path '{file}'"
     paths := paths.push file
 
-/-- Publisher-only staging render (D3/S7b + S7c).
+/-- Publisher-only staging render (D3/S7b + S7c + M3c OutputSet).
 
-    Owns base-file writes, dual-defense extra-path checks, private v2alpha1
-    manifest/evidence rendering from finalized-carrier fields only. Finalization
-    authority (tools, deployability, notes) is sole Registry
-    `finalizeMaterializedArtifactsV1` → target adapters → `FinalizedArtifactsV1`.
-    Write order: base → finalize extras → evidence.json → manifest.json (last) →
-    exact disk-closure validation before destination race recheck/rename. -/
+    Owns base-file writes, dual-defense extra-path checks, sole
+    `mintEngineeringOutputSetV1` + engineering `proof-forge.output.v1`
+    manifest/evidence rendering. Finalization authority (tools, deployability,
+    notes) is sole Registry `finalizeMaterializedArtifactsV1` → target adapters
+    → `FinalizedArtifactsV1`. Write order: base → finalize extras → mint
+    OutputSet → evidence.json → manifest.json (last) → exact disk-closure
+    validation before destination race recheck/rename. Not formal OutputSetV1. -/
 private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
     (compiled : CompiledSemanticV1) (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EmitReceiptV1 := do
-  let selection := Targets.ResolvedEngineeringBuildV1.selectionOf capability
-  let sourceHash ← digestHexForOutputV1 "source" (CompiledSemanticV1.sourceDigestOf compiled)
-  let semanticHash ← digestHexForOutputV1 "semantic" (CompiledSemanticV1.semanticDigestOf compiled)
+  -- Dual-defense: compiled digests still gate before any disk write.
+  let _ ← digestHexForOutputV1 "source" (CompiledSemanticV1.sourceDigestOf compiled)
+  let _ ← digestHexForOutputV1 "semantic" (CompiledSemanticV1.semanticDigestOf compiled)
   for file in MaterializedArtifactsV1.filesOf artifacts do
     writeFileCreatingParent (stagingDir / file.path) file.contents
   let finalized ← Targets.finalizeMaterializedArtifactsV1 capability artifacts stagingDir
@@ -178,37 +152,32 @@ private def renderIntoStaging (capability : Targets.ResolvedEngineeringBuildV1)
   -- Dual-defense: safety + uniqueness vs base + uniqueness among extras.
   validateFinalizedExtraPathsForPublishV1 basePaths
     (FinalizedArtifactsV1.extraFilesOf finalized)
-  let manifest : LegacyOutputManifestV2Alpha1 := {
-    target := MaterializedArtifactsV1.targetIdOf artifacts
-    codegenProfile := MaterializedArtifactsV1.codegenProfileIdOf artifacts
-    sourceHash
-    semanticHash
-    deployable := FinalizedArtifactsV1.deployableOf finalized
-    files := basePaths ++ FinalizedArtifactsV1.extraFilesOf finalized
-  }
-  let deployable := if manifest.deployable then "true" else "false"
-  let evidence := "{\n" ++
-    s!"  \"target\": \"{selection.targetId}\",\n" ++
-    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
-    s!"  \"deployable\": {deployable},\n" ++
-    s!"  \"note\": \"{Targets.escapeJson (FinalizedArtifactsV1.evidenceNoteOf finalized)}\"\n" ++
-    "}\n"
+  let outputSet ← match mintEngineeringOutputSetV1 finalized with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError error.render
+  let evidence ← match renderEngineeringOutputSetEvidenceV1 outputSet with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"PF-OUTPUT-MANIFEST: evidence render failed: {error}"
+  let manifest ← match renderEngineeringOutputSetManifestV1 outputSet with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"PF-OUTPUT-MANIFEST: output-set manifest render failed: {error}"
   -- S7c: evidence before manifest; manifest is the last file write.
   IO.FS.writeFile (stagingDir / "evidence.json") evidence
-  IO.FS.writeFile (stagingDir / "manifest.json") (renderLegacyManifestJsonV2Alpha1 manifest)
+  IO.FS.writeFile (stagingDir / "manifest.json") manifest
   -- Exact disk closure after manifest and before destination race recheck/rename.
   validateEngineeringDiskClosureV1 finalized stagingDir
   return {
-    target := manifest.target
-    codegenProfile := manifest.codegenProfile
-    deployable := manifest.deployable
+    target := EngineeringOutputSetV1.targetIdOf outputSet
+    codegenProfile := EngineeringOutputSetV1.codegenProfileOf outputSet
+    deployable := EngineeringOutputSetV1.deployableOf outputSet
   }
 
 /-- Product emit path: private engineering capability only.
-    Source/semantic hash fields are derived from the single non-alpha compiled
-    carrier for the private v2alpha1 renderer. No public `(selection, compiled)`
-    overload. Formal OutputSetV1 remains pending. -/
+    Mints engineering `EngineeringOutputSetV1` after finalization and publishes
+    `proof-forge.output.v1` manifest + evidence sidecars. No public
+    `(selection, compiled)` overload. Not formal OutputSetV1. -/
 def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     (outputDir : FilePath) : IO EmitReceiptV1 := do
   let compiled := Targets.ResolvedEngineeringBuildV1.compiledOf capability

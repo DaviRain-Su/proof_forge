@@ -1,9 +1,12 @@
 import ProofForgeV2.Targets.Evm.ValidatePlanV1
+import ProofForgeV2.Targets.Evm.ValidateIRV1
 
 /-!
 # Evm EmitIRV1 — Plan → IR (Yul + ABI) emission
 
 Target-owned Yul/ABI renderer and capability-internal `lower`/`emitFromIR`.
+`lower` runs `validatePlan` then structural `validateEvmTargetIRV1` so invalid
+IR never reaches emit/finalize (M4 engineering slice; not formal TargetIR).
 -/
 
 namespace ProofForgeV2.Targets.Evm
@@ -750,12 +753,24 @@ private def renderAbi (plan : Plan) : String :=
   let items := constructor ++ entries ++ events ++ errors
   "[\n  " ++ String.intercalate ",\n  " items.toList ++ "\n]\n"
 
+/-- Public IR structural gate (Yul+ABI text). Thin wrapper over
+    `validateEvmTargetIRV1` for the typed `IR` carrier. -/
+def validateIR (ir : IR) : CompileResult Unit :=
+  validateEvmTargetIRV1 ir.objectName ir.yul ir.abi
+
 private def lower (plan : Plan) : CompileResult IR := do
   validatePlan plan
-  return { objectName := plan.objectName, yul := renderYul plan, abi := renderAbi plan }
+  let ir : IR := {
+    objectName := plan.objectName
+    yul := renderYul plan
+    abi := renderAbi plan
+  }
+  validateIR ir
+  return ir
 
-private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) :=
-  .ok #[
+private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
+  validateIR ir
+  return #[
     { path := s!"{ir.objectName}.yul", mediaType := "text/yul", contents := ir.yul },
     { path := s!"{ir.objectName}.abi.json", mediaType := "application/json", contents := ir.abi }
   ]
@@ -763,14 +778,15 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) :=
 
 /-- Capability-gated public IR inspection (S6 repair). Input must be
     `ResolvedEngineeringBuildV1`; returns typed TargetIR without emitting files.
-    Not a residual Plan→IR bypass. -/
+    Not a residual Plan→IR bypass. Chain: materialize → validatePlan → render →
+    validateIR. -/
 def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult IR := do
   let plan ← materializePlanFromCapabilityV1 capability
-  validatePlan plan
   lower plan
 
 /-- Capability-gated public materialize entry. Sole path from the retained
-    SemanticProgramV1-native EVM Plan body to emitted files for this target. -/
+    SemanticProgramV1-native EVM Plan body to emitted files for this target.
+    Chain: irFromCapability (includes validateIR) → emitFromIR (re-checks IR). -/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability

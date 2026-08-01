@@ -11739,3 +11739,47 @@ normative: false
 - 测试：`Tests/Targets/SolanaAsmV1` 窄宽金样 + UInt128 fail closed；fixture
   `runtime-tests/solana/fixtures/NarrowGates.lean` + Mollusk `narrow_gates_*`；`solana_runtime_test.sh`
   纳入第七 fixture。非 formal D2/D4。
+
+## 2026-08-01 — M4 EVM Plan schema/digest + TargetIR structural validation
+
+- Engineering slice only (not formal TASK-D4 / formal TargetIR / formal Anvil differential).
+- New `ProofForgeV2/Targets/Evm/PlanSchemaV1.lean`: length-framed encode-only Plan preimage
+  + `domainSeparatedSha256("pf.evm-plan.engineering.v1", …)` digest
+  (`encodeEngineeringEvmPlanBytesV1` / `engineeringEvmPlanDigestV1`); fixed field order;
+  recursive Expr/Statement u8 tags; no map iteration.
+- New `ProofForgeV2/Targets/Evm/ValidateIRV1.lean`: bounded structural Yul/ABI checks
+  (balanced braces/brackets, string hygiene, required `renderYul` fragments, size caps);
+  `validateEvmTargetIRV1` fail-closed.
+- `EmitIRV1.lower` / `emitFromIR` wire `validateIR` so invalid IR never emits/finalizes;
+  `planFromCapability`/`validatePlan` semantics unchanged (digest complementary).
+- Anvil: existing `scripts/smoke_evm.sh` remains the full runtime harness; new
+  `scripts/evm_anvil_differential.sh` skips exit 0 when anvil/cast unavailable (CI-safe
+  scaffold; never fabricates results). Not formal Reference↔Anvil closure.
+- Tests: `Tests/Materialization/EvmPlanSchemaV1` (determinism, tamper matrix, product-path
+  recompute, IR ±, wire presence); registered in Tests/Fast/Shards/Targets/lakefile.
+
+## 2026-08-01 — M3c engineering OutputSet carrier + CLI publisher cutover
+
+- Production：
+  * `Materialization/OutputSetV1.lean`：private-ctor `EngineeringOutputSetV1`
+    （target/profile/artifactProgramName/files/source+semantic digests/
+    engineeringRegistryRootDigest/supportClaimDigest/buildIdentityDigest/
+    deployable/evidenceNote/outputSetDigest）；sole mint
+    `mintEngineeringOutputSetV1(FinalizedArtifactsV1)`；
+    outputSetDigest = `domainSeparatedSha256("pf.output-set.engineering.v1",
+    length-framed preimage)`；on-disk renderers
+    `renderEngineeringOutputSetManifestV1` / `renderEngineeringOutputSetEvidenceV1`
+    （schema `"proof-forge.output.v1"`）。命名刻意避开 s7 禁止符（非 public
+    `OutputSet`/`makeOutput`/`manifestJson`/`validateOutputSet`）。
+  * `CLI/Emit.lean`：删除 private `LegacyOutputManifestV2Alpha1` +
+    `renderLegacyManifestJsonV2Alpha1`；publisher 在 finalize 后 sole mint
+    OutputSet，写 evidence.json → manifest.json（S7c 写序不变），再
+    `validateEngineeringDiskClosureV1`。sidecar 叶名仍为 evidence/manifest
+    （S7c expected leaves 不变）。
+  * Registry 无 OutputSet seam（mint 在 Materialization；CLI 消费）。
+- Tests：`Tests/Materialization/OutputSetV1.lean`（domain/schema、mint determinism、
+  tamper、product emit recompute、sole-mint/forbidden-name）；`OutputEnvelopeV1`
+  golden 切到 `proof-forge.output.v1`；`scripts/validate_artifacts.py` 统一
+  engineering output schema 校验。已挂 Fast / full / shard-targets / lakefile。
+- Boundary：**工程** OutputSet 切片；**不是** formal TASK-D3-05 / formal OutputSetV1 /
+  hermetic publish / formal BuildIdentity。formal status 不变。

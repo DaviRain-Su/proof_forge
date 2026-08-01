@@ -4,6 +4,8 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Evm.LowerSemanticV1
 import ProofForgeV2.Targets.Evm.ValidatePlanV1
+import ProofForgeV2.Targets.Evm.PlanSchemaV1
+import ProofForgeV2.Targets.Evm.ValidateIRV1
 import ProofForgeV2.Targets.Evm.EmitIRV1
 
 /-!
@@ -12,8 +14,11 @@ import ProofForgeV2.Targets.Evm.EmitIRV1
 Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 (`materializePlanFromCapabilityV1` → private `makePlanFromSemanticV1`, with
 `semanticV1Of` / `validateSemanticProgramV1` comments on the carrier path).
-Plan canonicity lives in `ValidatePlanV1`. Yul/ABI emission and
-`irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
+Plan canonicity lives in `ValidatePlanV1`. Engineering Plan schema/digest
+lives in `PlanSchemaV1` (`encodeEngineeringEvmPlanBytesV1` /
+`engineeringEvmPlanDigestV1`). Yul/ABI emission and
+`irFromCapability`/`buildFromCapability` live in `EmitIRV1`, with structural
+IR validation from `ValidateIRV1` gated inside `lower`/`emitFromIR`.
 `FinalizeV1` / `Keccak` remain separate submodules.
 -/
 

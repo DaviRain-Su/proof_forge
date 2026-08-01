@@ -11,10 +11,11 @@
   strings are derived only at transitional rendering boundaries; they are not
   stored as a second identity truth.
 
-  Not formal OutputSetV1 / proof-forge.output.v1 / formal BuildIdentity /
-  formal SupportClaim / hermetic output. No public constructor, caller
-  overrides, Inhabited instance, or partial carrier on failure. Engineering
-  BuildIdentity is in-memory only (not on-disk manifest; M3c).
+  Not formal OutputSetV1 / formal BuildIdentity / formal SupportClaim /
+  hermetic output. No public constructor, caller overrides, Inhabited
+  instance, or partial carrier on failure. Engineering BuildIdentity is
+  bound into MaterializedArtifactsV1 and published via M3c
+  `EngineeringOutputSetV1` (engineering `proof-forge.output.v1` only).
 -/
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Targets.EngineeringBuildV1

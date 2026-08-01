@@ -123,6 +123,8 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.RegistryRootV1,
     `Tests.Materialization.RequirementResolverV1,
     `Tests.Materialization.IdentityChainV1,
+    `Tests.Materialization.EvmPlanSchemaV1,
+    `Tests.Materialization.OutputSetV1,
     `Tests.Materialization.OutputEnvelopeV1,
     `Tests.Materialization.EngineeringFinalizationV1,
     `Tests.Materialization.EngineeringDiskClosureV1,

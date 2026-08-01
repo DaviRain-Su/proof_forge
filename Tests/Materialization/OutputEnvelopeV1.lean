@@ -132,7 +132,7 @@ private unsafe def testFourTargetCarrierBinding : IO Unit := do
     expect (files.map (·.contents) == (MaterializedArtifactsV1.filesOf b).map (·.contents))
       s!"{tid} deterministic file bytes"
 
-/-- Emit path: capability-only, receipt fields, exact on-disk v2alpha1 + evidence. -/
+/-- Emit path: capability-only, receipt fields, exact on-disk proof-forge.output.v1 + evidence. -/
 private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   let compiled ← compileCounter
   let sourceHash ← liftResult "derive source hash"
@@ -153,40 +153,44 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfPlanV1)
     "emit receipt profile"
   expect (receipt.deployable == false) "solana plan-only is non-deployable"
-  -- Exact golden private-renderer manifest (solana finalize adds no extras).
-  let filesJson := String.intercalate "," <|
-    carrierPaths.toList.map fun path => s!"\"{path}\""
-  let expectedManifest :=
-    "{\n" ++
-    "  \"schemaVersion\": \"proof-forge-output/v2alpha1\",\n" ++
-    "  \"target\": \"solana\",\n" ++
-    "  \"codegenProfile\": \"solana-sbpf-plan-v1\",\n" ++
-    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
-    "  \"deployable\": false,\n" ++
-    s!"  \"files\": [{filesJson}]\n" ++
-    "}\n"
+  -- Recompute engineering OutputSet from product finalize (solana plan: no extras).
+  let stagingScratch := FilePath.mk "build/v2/output-envelope-solana-scratch"
+  if ← stagingScratch.pathExists then IO.FS.removeDirAll stagingScratch
+  IO.FS.createDirAll stagingScratch
+  for file in MaterializedArtifactsV1.filesOf carrier do
+    IO.FS.writeFile (stagingScratch / file.path) file.contents
+  let finalized ← Targets.finalizeMaterializedArtifactsV1 capability carrier stagingScratch
+  let outputSet ← liftResult "mint output set" (mintEngineeringOutputSetV1 finalized)
+  let expectedManifest ← match renderEngineeringOutputSetManifestV1 outputSet with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render manifest: {e}"
+  let expectedEvidence ← match renderEngineeringOutputSetEvidenceV1 outputSet with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"render evidence: {e}"
   let json ← IO.FS.readFile (outDir / "manifest.json")
   expect (json == expectedManifest)
-    s!"exact v2alpha1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
-  -- Structural pins (keys, files list, deployable) for clarity if golden drifts.
-  expect ((json.splitOn "\"schemaVersion\": \"proof-forge-output/v2alpha1\"").length > 1)
-    "on-disk schemaVersion v2alpha1 preserved"
+    s!"exact proof-forge.output.v1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
+  expect ((json.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
+    "on-disk schemaVersion proof-forge.output.v1"
   expect ((json.splitOn "\"files\": [\"Counter.sbpf-plan\",\"Counter.idl.json\"]").length > 1)
     "on-disk files array exact carrier path order"
   expect ((json.splitOn "\"deployable\": false").length > 1)
     "on-disk deployable false"
-  let expectedEvidence :=
-    "{\n" ++
-    "  \"target\": \"solana\",\n" ++
-    s!"  \"sourceHash\": \"{sourceHash}\",\n" ++
-    s!"  \"semanticHash\": \"{semanticHash}\",\n" ++
-    "  \"deployable\": false,\n" ++
-    "  \"note\": \"no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable\"\n" ++
-    "}\n"
+  expect ((json.splitOn "\"artifactProgramName\": \"Counter\"").length > 1)
+    "on-disk artifactProgramName"
+  expect ((json.splitOn "\"buildIdentityDigest\":").length > 1)
+    "on-disk buildIdentityDigest present"
+  expect ((json.splitOn "\"outputSetDigest\":").length > 1)
+    "on-disk outputSetDigest present"
   let evidence ← IO.FS.readFile (outDir / "evidence.json")
   expect (evidence == expectedEvidence)
     s!"exact evidence.json byte identity:\n---got---\n{evidence}\n---want---\n{expectedEvidence}"
+  -- Evidence still carries source/semantic hex for tool-note continuity.
+  expect ((evidence.splitOn s!"\"sourceHash\": \"{sourceHash}\"").length > 1)
+    "evidence sourceHash"
+  expect ((evidence.splitOn s!"\"semanticHash\": \"{semanticHash}\"").length > 1)
+    "evidence semanticHash"
+  if ← stagingScratch.pathExists then IO.FS.removeDirAll stagingScratch
 
 /-- Mint helpers that take capability+files reject unsafe/duplicate/empty paths
     without returning a partial carrier (package-visible mint). -/

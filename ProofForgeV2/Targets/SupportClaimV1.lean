@@ -23,8 +23,9 @@
   * Domain is `pf.support-claim.engineering.v1` (engineering-only suffix).
   * Field name for the root anchor is `engineeringRegistryRootDigest`
     (engineering-prefixed; not the formal root-digest product API name).
-  * No predicate implication, evidence grade, ProfileSupportIndex, or on-disk
-    manifest wiring (M3c).
+  * No predicate implication, evidence grade, or ProfileSupportIndex.
+  * M3c publishes `claimDigest` via engineering `EngineeringOutputSetV1`
+    (`proof-forge.output.v1`); not formal OutputSetV1.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1

@@ -1,0 +1,232 @@
+/-
+  M4 engineering EVM Plan schema/digest + TargetIR structural validation suite.
+  **Not** formal TASK-D4 / formal TargetIR / formal Anvil differential.
+-/
+import ProofForgeV2
+import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.Diagnostic
+import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Language.Loader
+import ProofForgeV2.Targets.Evm
+import ProofForgeV2.Targets.Evm.PlanSchemaV1
+import ProofForgeV2.Targets.Evm.ValidateIRV1
+import ProofForgeV2.Targets.BuildSelectionV1
+import Tests.Language.ParserSession
+
+namespace Tests.Materialization.EvmPlanSchemaV1
+
+open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
+open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.Evm
+
+private def expect (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw <| IO.userError message
+
+private def liftResult (label : String) (result : CompileResult α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"{label}: {error.render}"
+
+private def liftExcept (label : String) (result : Except String α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error e => throw <| IO.userError s!"{label}: {e}"
+
+private def digestWire (d : Digest) : IO String :=
+  liftExcept "renderDigest" (renderDigest d)
+
+private def expectDigestDiff (label : String) (base alt : Digest) : IO Unit :=
+  expect (!(base.bytes == alt.bytes)) s!"{label}: digest must change"
+
+private def minimalPlan : Plan := {
+  objectName := "Mut"
+  runtimeObjectName := "__proof_forge_runtime"
+  storageLayout := #[{ sourceId := 0, name := "count", slot := 0 }]
+  events := #[]
+  errors := #[]
+  constructor := some {
+    params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+    stores := #[{ slot := 0, value := .param 0 }]
+  }
+  entries := #[{
+    name := "get"
+    selector := Targets.Evm.Keccak.selector "get" #[]
+    params := #[]
+    mutability := .view
+    body := #[.returnValue (.storageLoad 0)]
+  }]
+  fns := #[]
+}
+
+private unsafe def compileCounter : IO CompiledSemanticV1 := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load Counter" (← session.selectProgramV1
+    Examples.counterSourceText "<evm-plan-schema-counter>"
+    Examples.counterModuleNameV1 none)
+  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+
+private unsafe def planCounter : IO Plan := do
+  let compiled ← compileCounter
+  let selection ← liftResult "select evm" (resolveBuildSelectionV1 TargetId.evm none)
+  let capability ← liftResult "resolve"
+    (Targets.resolveEngineeringRequirementsV1 selection compiled)
+  liftResult "plan" (planFromCapability capability)
+
+private def testDomain : IO Unit := do
+  expect (engineeringEvmPlanDomainV1 == "pf.evm-plan.engineering.v1") "domain"
+  expect (engineeringEvmPlanDomainV1.endsWith ".engineering.v1") "suffix"
+  match validateProfileIdValue engineeringEvmPlanDomainV1 with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"domain grammar: {e}"
+
+private def testMinimalPlanDeterminism : IO Unit := do
+  match validatePlan minimalPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"minimal plan: {e.render}"
+  let b1 ← liftExcept "e1" (encodeEngineeringEvmPlanBytesV1 minimalPlan)
+  let b2 ← liftExcept "e2" (encodeEngineeringEvmPlanBytesV1 minimalPlan)
+  expect (b1 == b2) "encode determinism"
+  expect (b1.size > 0) "nonempty"
+  let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 minimalPlan)
+  let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 minimalPlan)
+  expect (d1.algorithm == .sha256 && d1.bytes.size == 32) "sha256"
+  expect (d1.bytes == d2.bytes) "digest determinism"
+  let w ← digestWire d1
+  expect (w.startsWith "sha256:") "wire prefix"
+
+private def testTamperMatrix : IO Unit := do
+  let base ← liftExcept "base" (engineeringEvmPlanDigestV1 minimalPlan)
+  expectDigestDiff "objectName" base
+    (← liftExcept "n" (engineeringEvmPlanDigestV1 { minimalPlan with objectName := "MutX" }))
+  expectDigestDiff "runtime" base
+    (← liftExcept "r" (engineeringEvmPlanDigestV1 { minimalPlan with runtimeObjectName := "__rt_x" }))
+  expectDigestDiff "storage" base
+    (← liftExcept "s" (engineeringEvmPlanDigestV1 {
+      minimalPlan with storageLayout := #[{ sourceId := 0, name := "total", slot := 0 }] }))
+  expectDigestDiff "entry" base
+    (← liftExcept "e" (engineeringEvmPlanDigestV1 {
+      minimalPlan with entries := #[{
+        minimalPlan.entries[0]! with body := #[.returnValue (.literal 0)] }] }))
+  expectDigestDiff "ctor" base
+    (← liftExcept "c" (engineeringEvmPlanDigestV1 {
+      minimalPlan with constructor := some {
+        params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+        stores := #[{ slot := 0, value := .literal 7 }] } }))
+  expectDigestDiff "mut" base
+    (← liftExcept "m" (engineeringEvmPlanDigestV1 {
+      minimalPlan with entries := #[{
+        minimalPlan.entries[0]! with mutability := .nonpayable }] }))
+  expectDigestDiff "no ctor" base
+    (← liftExcept "nc" (engineeringEvmPlanDigestV1 { minimalPlan with constructor := none }))
+  expectDigestDiff "event" base
+    (← liftExcept "ev" (engineeringEvmPlanDigestV1 {
+      minimalPlan with events := #[{ name := "Moved", fieldCount := 1 }] }))
+
+private unsafe def testProductPathRecompute : IO Unit := do
+  let plan ← planCounter
+  expect (plan.objectName == "Counter") "Counter name"
+  let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 plan)
+  let bytes ← liftExcept "enc" (encodeEngineeringEvmPlanBytesV1 plan)
+  let recomputed ← liftExcept "dom"
+    (domainSeparatedSha256 engineeringEvmPlanDomainV1 bytes)
+  expect (d1.bytes == recomputed.bytes) "recompute"
+  let plan2 ← planCounter
+  let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 plan2)
+  expect (d1.bytes == d2.bytes) "two mints"
+  let b1 ← liftExcept "b1" (encodeEngineeringEvmPlanBytesV1 plan)
+  let b2 ← liftExcept "b2" (encodeEngineeringEvmPlanBytesV1 plan2)
+  expect (b1 == b2) "bytes equal"
+
+private unsafe def testIrValidationPositive : IO Unit := do
+  let compiled ← compileCounter
+  let selection ← liftResult "sel" (resolveBuildSelectionV1 TargetId.evm none)
+  let capability ← liftResult "cap"
+    (Targets.resolveEngineeringRequirementsV1 selection compiled)
+  let ir ← liftResult "ir" (irFromCapability capability)
+  match validateIR ir with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"product IR: {e.render}"
+  match validateEvmTargetIRV1 ir.objectName ir.yul ir.abi with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"parts: {e.render}"
+  expect (ir.objectName == "Counter") "name"
+  let files ← liftResult "build" (buildFromCapability capability)
+  expect (files.size == 2) "two files"
+  expect (files.any (·.path.endsWith ".yul")) "yul"
+  expect (files.any (·.path.endsWith ".abi.json")) "abi"
+
+private def testIrValidationNegatives : IO Unit := do
+  let goodName := "Mut"
+  let goodYul :=
+    "object \"Mut\" {\n  code {\n  }\n  object \"__proof_forge_runtime\" {\n    code {\n" ++
+    "      if callvalue() { revert(0, 0) }\n" ++
+    "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
+    "      switch shr(224, calldataload(0))\n" ++
+    "      default { revert(0, 0) }\n    }\n  }\n}\n"
+  let goodAbi := "[]\n"
+  match validateEvmTargetIRV1 goodName goodYul goodAbi with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"scaffold: {e.render}"
+  match validateEvmTargetIRV1 "" goodYul goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "empty name"
+  match validateEvmTargetIRV1 goodName "" goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "empty yul"
+  match validateEvmTargetIRV1 goodName goodYul "" with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "empty abi"
+  match validateEvmTargetIRV1 "Other" goodYul goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "name mismatch"
+  let noSwitch := goodYul.replace "switch shr(224, calldataload(0))\n" ""
+  match validateEvmTargetIRV1 goodName noSwitch goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "missing switch"
+  match validateEvmTargetIRV1 goodName (goodYul ++ "{\n") goodAbi with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "unbalanced"
+  match validateEvmTargetIRV1 goodName goodYul "{\"type\":\"function\"}" with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "non-array abi"
+  match validateEvmTargetIRV1 goodName goodYul "[{}" with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "abi brackets"
+  let badIr : IR := { objectName := goodName, yul := noSwitch, abi := goodAbi }
+  match validateIR badIr with
+  | .error (.planInvariant .evm _) => pure ()
+  | _ => throw <| IO.userError "validateIR reject"
+
+private def testWirePresence : IO Unit := do
+  let hits ← IO.Process.output {
+    cmd := "rg"
+    args := #["-n", "validateIR|validateEvmTargetIRV1",
+      "ProofForgeV2/Targets/Evm/EmitIRV1.lean"]
+  }
+  expect (hits.exitCode == 0 && hits.stdout.contains "validateIR")
+    s!"wire: {hits.stdout}"
+  let schema ← IO.Process.output {
+    cmd := "rg"
+    args := #["-n",
+      "^def encodeEngineeringEvmPlanBytesV1\\b|^def engineeringEvmPlanDigestV1\\b|^def engineeringEvmPlanDomainV1\\b",
+      "ProofForgeV2/Targets/Evm/PlanSchemaV1.lean"]
+  }
+  expect (schema.exitCode == 0 &&
+      schema.stdout.contains "encodeEngineeringEvmPlanBytesV1" &&
+      schema.stdout.contains "engineeringEvmPlanDigestV1")
+    s!"schema surface: {schema.stdout}"
+
+unsafe def run : IO Unit := do
+  testDomain
+  testMinimalPlanDeterminism
+  testTamperMatrix
+  testProductPathRecompute
+  testIrValidationPositive
+  testIrValidationNegatives
+  testWirePresence
+  IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
+
+end Tests.Materialization.EvmPlanSchemaV1

@@ -25,7 +25,8 @@
   * Field name for the registry root anchor is `engineeringRegistryRootDigest`
     (engineering-prefixed; not the formal root-digest product API name).
   * Mint name is `mintEngineeringBuildIdentityV1` (engineering-prefixed sole mint).
-  * Not wired into on-disk manifests yet (M3c OutputSetV1).
+  * M3c publishes `identityDigest` via engineering `EngineeringOutputSetV1`
+    (`proof-forge.output.v1`); not formal OutputSetV1.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.TargetIdentityV1
