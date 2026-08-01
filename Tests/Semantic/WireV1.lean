@@ -466,6 +466,27 @@ example (c afterMarker afterValue : Cursor) (decode : Decoder UInt32) (value : U
     decodeOption decode c = .ok (some value, afterValue) :=
   decodeOption_someV1 decode c afterMarker afterValue value hmarker hvalue
 
+example (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU64leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU64leV1 bytes offset :=
+  readU64leAtV1_refinesSpine bytes offset
+
+example : readSpineU64leV1 [0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff] 0 =
+    .ok (UInt64.ofNat 18446744073709551615, 8) := by rfl
+
+example (c : Cursor) (value : UInt64) (offset : Nat)
+    (hread : readU64leAtV1 c.input c.offset = .ok (value, offset)) :
+    decodeU64le c = .ok (value, ⟨c.input, offset, c.nesting⟩) :=
+  decodeU64le_eq_of_readV1 c value offset hread
+
+example (c afterMarker : Cursor) (value : UInt64) (offset : Nat)
+    (hmarker : decodeU8 c = .ok (1, afterMarker))
+    (hread : readU64leAtV1 afterMarker.input afterMarker.offset = .ok (value, offset)) :
+    decodeOption decodeU64le c =
+      .ok (some value, ⟨afterMarker.input, offset, afterMarker.nesting⟩) :=
+  decodeOption_someV1 decodeU64le c afterMarker
+    ⟨afterMarker.input, offset, afterMarker.nesting⟩ value hmarker
+    (decodeU64le_eq_of_readV1 afterMarker value offset hread)
+
 example (c afterTag afterFields : Cursor)
     (htag : decodeTag c = .ok ("Callable.Entry", afterTag))
     (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :

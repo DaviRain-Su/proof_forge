@@ -283,6 +283,72 @@ theorem readU32leAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Na
       | ok b2 =>
         rw [readByteAtV1_refinesSpine]
 
+/-- Read one little-endian u64 from the transparent proof spine. -/
+def readSpineU64leV1 (bytes : TransparentByteSpineV1) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt64 × Nat) := do
+  let b0 ← readSpineByteV1 bytes offset
+  let b1 ← readSpineByteV1 bytes (offset + 1)
+  let b2 ← readSpineByteV1 bytes (offset + 2)
+  let b3 ← readSpineByteV1 bytes (offset + 3)
+  let b4 ← readSpineByteV1 bytes (offset + 4)
+  let b5 ← readSpineByteV1 bytes (offset + 5)
+  let b6 ← readSpineByteV1 bytes (offset + 6)
+  let b7 ← readSpineByteV1 bytes (offset + 7)
+  let value := b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+    b3.toNat * 16777216 + b4.toNat * 4294967296 + b5.toNat * 1099511627776 +
+    b6.toNat * 281474976710656 + b7.toNat * 72057594037927936
+  pure (UInt64.ofNat value, offset + 8)
+
+/-- Production offset primitive for one little-endian u64. -/
+def readU64leAtV1 (bytes : ByteArray) (offset : Nat) :
+    Except SemanticWireErrorV1 (UInt64 × Nat) := do
+  let b0 ← readByteAtV1 bytes offset
+  let b1 ← readByteAtV1 bytes (offset + 1)
+  let b2 ← readByteAtV1 bytes (offset + 2)
+  let b3 ← readByteAtV1 bytes (offset + 3)
+  let b4 ← readByteAtV1 bytes (offset + 4)
+  let b5 ← readByteAtV1 bytes (offset + 5)
+  let b6 ← readByteAtV1 bytes (offset + 6)
+  let b7 ← readByteAtV1 bytes (offset + 7)
+  let value := b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+    b3.toNat * 16777216 + b4.toNat * 4294967296 + b5.toNat * 1099511627776 +
+    b6.toNat * 281474976710656 + b7.toNat * 72057594037927936
+  pure (UInt64.ofNat value, offset + 8)
+
+/-- Little-endian u64 refinement, including truncation after any byte. -/
+theorem readU64leAtV1_refinesSpine (bytes : TransparentByteSpineV1) (offset : Nat) :
+    readU64leAtV1 (ByteArray.mk bytes.toArray) offset = readSpineU64leV1 bytes offset := by
+  unfold readU64leAtV1 readSpineU64leV1
+  rw [readByteAtV1_refinesSpine]
+  cases h0 : readSpineByteV1 bytes offset with
+  | error e => rfl
+  | ok b0 =>
+    rw [readByteAtV1_refinesSpine]
+    cases h1 : readSpineByteV1 bytes (offset + 1) with
+    | error e => rfl
+    | ok b1 =>
+      rw [readByteAtV1_refinesSpine]
+      cases h2 : readSpineByteV1 bytes (offset + 2) with
+      | error e => rfl
+      | ok b2 =>
+        rw [readByteAtV1_refinesSpine]
+        cases h3 : readSpineByteV1 bytes (offset + 3) with
+        | error e => rfl
+        | ok b3 =>
+          rw [readByteAtV1_refinesSpine]
+          cases h4 : readSpineByteV1 bytes (offset + 4) with
+          | error e => rfl
+          | ok b4 =>
+            rw [readByteAtV1_refinesSpine]
+            cases h5 : readSpineByteV1 bytes (offset + 5) with
+            | error e => rfl
+            | ok b5 =>
+              rw [readByteAtV1_refinesSpine]
+              cases h6 : readSpineByteV1 bytes (offset + 6) with
+              | error e => rfl
+              | ok b6 =>
+                rw [readByteAtV1_refinesSpine]
+
 /-- Take exactly `count` bytes from the transparent proof spine. Unlike bare
     `List.take`, a short input fails closed with the production wire error. -/
 def takeSpineBytesV1 (bytes : TransparentByteSpineV1) (offset count : Nat) :
@@ -680,15 +746,14 @@ def decodeU32le : Decoder UInt32 := fun c => do
   pure (value, ⟨c.input, offset, c.nesting⟩)
 
 def decodeU64le : Decoder UInt64 := fun c => do
-  let mut n : Nat := 0
-  let mut place : Nat := 1
-  let mut c := c
-  for _ in [:8] do
-    let (b, c') ← takeByte c
-    c := c'
-    n := n + b.toNat * place
-    place := place * 256
-  pure (UInt64.ofNat n, c)
+  let (value, offset) ← readU64leAtV1 c.input c.offset
+  pure (value, ⟨c.input, offset, c.nesting⟩)
+
+/-- Compose u64 decoding through the sole production offset reader. -/
+theorem decodeU64le_eq_of_readV1 (c : Cursor) (value : UInt64) (offset : Nat)
+    (hread : readU64leAtV1 c.input c.offset = .ok (value, offset)) :
+    decodeU64le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeU64le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 def decodeBool : Decoder Bool := fun c => do
   let (m, c) ← decodeU8 c

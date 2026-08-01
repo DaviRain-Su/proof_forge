@@ -282,7 +282,9 @@ loopBounds→invariantSteps、nesting与root bounded array；各nested callable�
 后续CallableKind切片补通用production `Option.some` composition，并机械抽取sole kind body；canonical
 entry/pureFn/invariant三分支现可由真实tag→zero field-count及nesting组合，initializer/view runtime分支
 保持但proof按需pending。后续CallableResult切片又组合exact tag→typeId→visibility及parent nesting，
-可覆盖canonical public results而不提前声称TypeId结构合法。Block、Instruction/Op与Terminator仍待闭合。
+可覆盖canonical public results而不提前声称TypeId结构合法。后续u64切片闭合transparent/production
+reader universal refinement、decoder composition及Option.some invariantSteps。Block、Instruction/Op与
+Terminator仍待闭合。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

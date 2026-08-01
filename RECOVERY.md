@@ -363,6 +363,12 @@ Visibility decoder，wrapper保留body input/offset并恢复parent depth。该tr
 public result，但TypeId引用合法性仍由structure gate负责。empty params/loopBounds可直接复用zero-array；
 下一步组合optional name/steps，再进入Block与fixture所需terminator/instruction/op。
 
+optional invariantSteps的u64 blocker现已闭合：新增transparent `readSpineU64leV1`与sole production
+`readU64leAtV1`，八个little-endian byte及任一位置truncation有universal refinement；production
+`decodeU64le`直接委托该reader，保留input/nesting并采用reader exact offset。既有`decodeOption_someV1`
+现可组合marker 1→u64 payload，all-0xff边界固定为UInt64 max；none仍复用既有marker-0 theorem。
+optional name同理复用String production seam。下一步进入Block/Terminator/Instruction/Op。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

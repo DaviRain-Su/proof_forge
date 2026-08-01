@@ -11577,3 +11577,14 @@ normative: false
   build、kernel signature examples与blocker review通过。
 - Boundary：这是transport composition，不提前证明TypeId引用或callable signature结构合法；optional
   name/steps、Block、Terminator、Instruction/Op、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 u64 and optional invariant-steps composition
+
+- Production：新增与既有u16/u32同构的sole `readU64leAtV1`，`decodeU64le`由旧八次`takeByte`
+  command loop改为直接委托该production offset reader；little-endian数值、八字节success cursor及任一
+  truncation错误语义保持。
+- Proof：transparent `readSpineU64leV1`与production reader具备universal refinement；decoder theorem
+  保留input/nesting并采用exact returned offset，再经既有`decodeOption_someV1`组合marker 1与payload。
+  all-0xff kernel example固定UInt64 max；focused build、Wire engineering suite与blocker review通过。
+- Boundary：optional none仍复用marker-0 theorem，name some复用String seam；这只闭合transport decoder，
+  不证明invariant step上限或closure metadata。Block/Terminator/Instruction/Op与formal TASK/TST仍pending。
