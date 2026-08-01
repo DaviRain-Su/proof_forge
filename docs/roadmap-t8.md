@@ -97,7 +97,7 @@ literal + bigLiteral；ResultKind uint128/256；Yul 掩码 + ABI；PlanSchema ta
 Solana/NEAR/Noir 保持 fail closed。EvmSmoke WideUint 绿；shard-targets 绿。
 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256）。
 
-### [pending] T9c：窄 Int（Int8/16/32 body + ABI）
+### [in_progress] T9c：窄 Int（Int8/16/32 body + ABI）
 - 当前 Int64-only（pilotIntWidthPolicyI64）；TypeCheck/Normalize 已开 Int 窄宽（T1）
 - 工作面：Envelope Int 策略扩展；signed 语义（符号扩展、signed overflow min/max 检测、toward-zero div/rem、arsh 算术右移）；四 target
 - 注意与 UInt 窄宽的区分（isInt 标志 + 宽度）；金样 + 负向（Int128/256 保持 fail closed）
