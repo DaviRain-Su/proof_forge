@@ -12619,6 +12619,13 @@ normative: false
 - Boundary：四个generic callable CFG已闭合，但global ContextRead catalog、invariant closure/fuel、
   requirements、完整structure/encoder/carrier identity与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete generic `.cfg` phase
+
+- Production：`validateGenericCfgPhasesV1`依次运行全部source-order callable CFG authority，再运行原private
+  global ContextRead catalog；structure gate消费该exact seam，错误phase与precedence不变。
+- Kernel：canonical fixture四个callable结果与无ContextRead catalog成功组合为完整generic `.cfg` success。
+- Boundary：五项invariant closure、exact/intrinsic fuel、requirements、完整structure及formal状态仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

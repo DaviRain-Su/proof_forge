@@ -994,6 +994,18 @@ theorem falsehoodCfg_data :
       · rfl
   · rfl
 
+/-- All four source-order callable validators plus the global ContextRead
+    catalog close the complete generic production `.cfg` phase. -/
+theorem genericCfgPhases_data :
+    validateGenericCfgPhasesV1 data = .ok () := by
+  apply validateGenericCfgPhasesV1_four_eq_ok data gate leaf truth falsehood
+  · rfl
+  · exact gateCfg_data
+  · exact leafCfg_data
+  · exact truthCfg_data
+  · exact falsehoodCfg_data
+  · rfl
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

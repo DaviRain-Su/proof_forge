@@ -634,3 +634,8 @@ defs/effects/loops与`return none`；`truthLeaf`和`falsehood`各以single Bool 
 `validateCallableCfgShape`仍按a–j顺序运行；reachability/defSites/defTypes各只由production phase构造一次，
 singleton dominator reachable/unreachable fixed point均由kernel定理固定。global ContextRead catalog尚未组合，
 其后的invariant closure/fuel、requirements、完整structure/encoder/carrier/formal状态仍pending。
+
+generic `.cfg` production phase现也已闭合：新seam原样执行四个source-order callable validator，再执行
+原private global ContextRead catalog；fixture无ContextRead，故catalog保持empty seen table并成功。structure
+gate仍消费同一phase，mixed callable/catalog error precedence由既有WireV1回归固定。下一片进入五项
+invariant closure restrictions；fuel、requirements及完整structure仍pending。
