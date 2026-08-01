@@ -10,6 +10,7 @@ import ProofForgeV2.Source.AstProgramItemV1
 import ProofForgeV2.Source.AstProgramV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstPatternV1
+import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Source.WireV1
@@ -26,6 +27,7 @@ open ProofForgeV2.Source.AstSpineV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
+open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.NodeTraversalV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -263,6 +265,8 @@ def resolveLocalCall (tables : TypedDeclTablesV1) (scope : Scope)
   else if scope.params.contains callee then
     emitLocated (localAsFunctionDiagnosticDraft callee "parameter") sitePath #[]
   else if tables.fn.find? callee |>.isSome then pure ()
+  -- N5: intrinsic `commit(_)` when no user `fn commit` shadows it.
+  else if isCommitCalleeNameV1 callee then pure ()
   else
     match findFirstMatchingKind tables callee with
     | some (kind, ord) =>
@@ -275,10 +279,14 @@ mutual
   partial def resolvePlace (tables : TypedDeclTablesV1) (scope : Scope)
       (placePath : NormalizedSyntacticPathV1) : PlaceV1 → M Unit
     | .name n => resolveValueName tables scope placePath n
-    | .field base _ => do
-        match ← directOrInternal placePath "Place.Field" "base" with
-        | none => pure ()
-        | some bp => resolvePlace tables scope bp base
+    | .field base field => do
+        -- N5: sole ContextRead surface `context.unixTimeSeconds` is not a
+        -- value-name root; skip base resolution for the exact spelling only.
+        if isContextUnixTimeSecondsPlaceV1 (.field base field) then pure ()
+        else
+          match ← directOrInternal placePath "Place.Field" "base" with
+          | none => pure ()
+          | some bp => resolvePlace tables scope bp base
     | .index base idx => do
         match ← directOrInternal placePath "Place.Index" "base" with
         | none => pure ()

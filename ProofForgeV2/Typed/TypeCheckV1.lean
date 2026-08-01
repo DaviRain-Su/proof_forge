@@ -51,6 +51,7 @@ import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.AstSpineV1
+import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.QualifiedNameV1
@@ -70,6 +71,7 @@ open ProofForgeV2.Source.AstSupportV1
 open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.AstPatternV1
 open ProofForgeV2.Source.AstSpineV1
+open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.NodeTraversalV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -656,35 +658,40 @@ mutual
                 (s!"unknown name '{renderSourceNameComponentV1 name}'"))
               placePath? #[]]
     | .field base field =>
-        let (bp?, pathDs) := resolveDirect placePath? "Place.Field" "base"
-        let baseRes := typeCheckPlaceDrafts scope tables bp? base
-        if !baseRes.drafts.isEmpty then
-          resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
+        -- N5: sole ContextRead surface types as UInt64 (wire catalog shape).
+        -- Enclosing `typeCheckExpr` applies the expected-type check.
+        if isContextUnixTimeSecondsPlaceV1 (.field base field) then
+          resultDraft (.uint 64) #[] none
         else
-          match baseRes.type with
-          | .named structName =>
-              match tables.struct.find? structName with
-              | some structDecl =>
-                  match structDecl.2.fields.find? (fun f => f.name == field) with
-                  | some fieldDecl =>
-                      let origin? := structFieldPath? tables structName field
-                      resultDraft fieldDecl.type_ pathDs origin?
-                  | none =>
-                      let related :=
-                        optRelatedPath (itemPathForNamed? tables .struct structName)
-                      resultDraft .unit (pathDs ++ #[locateDraft
-                        (expectedActualDiagnosticDraft
-                          (s!"field '{renderSourceNameComponentV1 field}' of {typeName baseRes.type}")
-                          (typeName baseRes.type))
-                        placePath? related])
-              | none =>
-                  resultDraft .unit (pathDs ++ #[locateDraft
-                    (expectedActualDiagnosticDraft "struct type" (typeName baseRes.type))
-                    placePath? #[]])
-          | other =>
-              resultDraft .unit (pathDs ++ #[locateDraft
-                (expectedActualDiagnosticDraft "struct type" (typeName other))
-                placePath? #[]])
+          let (bp?, pathDs) := resolveDirect placePath? "Place.Field" "base"
+          let baseRes := typeCheckPlaceDrafts scope tables bp? base
+          if !baseRes.drafts.isEmpty then
+            resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
+          else
+            match baseRes.type with
+            | .named structName =>
+                match tables.struct.find? structName with
+                | some structDecl =>
+                    match structDecl.2.fields.find? (fun f => f.name == field) with
+                    | some fieldDecl =>
+                        let origin? := structFieldPath? tables structName field
+                        resultDraft fieldDecl.type_ pathDs origin?
+                    | none =>
+                        let related :=
+                          optRelatedPath (itemPathForNamed? tables .struct structName)
+                        resultDraft .unit (pathDs ++ #[locateDraft
+                          (expectedActualDiagnosticDraft
+                            (s!"field '{renderSourceNameComponentV1 field}' of {typeName baseRes.type}")
+                            (typeName baseRes.type))
+                          placePath? related])
+                | none =>
+                    resultDraft .unit (pathDs ++ #[locateDraft
+                      (expectedActualDiagnosticDraft "struct type" (typeName baseRes.type))
+                      placePath? #[]])
+            | other =>
+                resultDraft .unit (pathDs ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "struct type" (typeName other))
+                  placePath? #[]])
     | .index base idx =>
         let (bp?, pathDs1) := resolveDirect placePath? "Place.Index" "base"
         let (ip?, pathDs2) := resolveDirect placePath? "Place.Index" "index"
@@ -1065,7 +1072,34 @@ mutual
               checkExpectedDraft resType expected? exprPath? expectedRelated drafts
             resultDraft type_ drafts
     | .localCall callee args =>
-        match resolveLocalCallType scope tables callee with
+        -- N5: intrinsic `commit(x)` when no user `fn commit` — result type =
+        -- operand type (label-only identity; disclosure is a separate phase).
+        let noLocalShadow :=
+          match isLocalOrParam scope callee with
+          | some _ => false
+          | none => true
+        let noUserFn := (tables.fn.find? callee).isNone
+        let intrinsicCommit :=
+          isCommitCalleeNameV1 callee && noLocalShadow && noUserFn
+        if intrinsicCommit then
+          if args.size != 1 then
+            resultDraft (expected?.getD .unit)
+              #[locateDraft
+                (expectedActualDiagnosticDraft "1 arguments" s!"{args.size} arguments")
+                exprPath? #[]]
+          else
+            match args[0]? with
+            | none =>
+                resultDraft (expected?.getD .unit)
+                  #[locateDraft
+                    (internalDiagnosticDraft "commit missing argument")
+                    exprPath? #[]]
+            | some arg0 =>
+                let (ap?, pathDs) := resolveChild exprPath? "Expr.LocalCall" "args" 0
+                -- Operand type is free; result must match expected if present.
+                let ar := typeCheckExprDrafts scope tables expected? expectedRelated ap? arg0
+                resultDraft ar.type (pathDs ++ ar.drafts) none
+        else match resolveLocalCallType scope tables callee with
         | .error diag =>
             let (argDrafts, pathDs) := args.zipIdx.foldl
               (fun (acc, pds) (arg, i) =>

@@ -411,8 +411,13 @@ private partial def lowerRegion
         ls := { ls with stmts := ls.stmts.push (.schedule comps argExprs) }
     | .constant .. | .construct .. | .fieldGet .. | .indexGet ..
     | .fieldSet .. | .variantTag .. | .variantPayload .. | .indexSet ..
-    | .checkedCast .. | .contextRead .. | .commit .. =>
+    | .checkedCast .. =>
         planError "unsupported Psy semantic shape: op is outside the public UInt64/Bool envelope"
+    -- N5: Psy declines both ContextRead and Commit (policy none).
+    | .contextRead .. =>
+        planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"
+    | .commit .. =>
+        planError "unsupported Psy semantic shape: Commit is not admitted by pilot context policy"
   match block.terminator with
   | .jump target =>
       if isActiveHeader loops target.blockId then

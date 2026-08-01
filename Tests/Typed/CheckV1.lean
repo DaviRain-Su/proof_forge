@@ -5917,11 +5917,141 @@ private unsafe def testNestedConstructorPattern
       match validateSemanticProgramV1 sem with
       | .ok _ => pure ()
       | .error e => throw <| IO.userError s!"nest-ctor: structure {repr e}"
+  | .error e => throw <| IO.userError s!"nest-ctor: normalize {repr e}"
+
+/-- N5: ContextRead sole key `context.unixTimeSeconds` in entry + wire requirement. -/
+private unsafe def testContextUnixTimeSeconds
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CtxTime" <|
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n"
+  let validated ← loadSource session "ctx-time" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"ctx-time: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"ctx-time: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"ctx-time: structure {repr e}"
+      | .ok data => do
+          let hasCtx := data.callables.any (fun c =>
+            c.blocks.any (fun b =>
+              b.instructions.any (fun i =>
+                match i.op with
+                | .contextRead key => key == unixTimeSecondsContextKeyV1
+                | _ => false)))
+          expect hasCtx "ctx-time: Op.ContextRead present"
+          let hasReq := data.requirements.items.any (fun r =>
+            r.id == unixTimeSecondsContextRequirementIdV1)
+          expect hasReq "ctx-time: context.unix-time-seconds requirement row"
+          -- UTF-8 order: context.* before state/value when present
+          expect (data.requirements.items.size ≥ 1) "ctx-time: at least one requirement"
+
+/-- N5: Commit identity on public UInt64 into commitment state
+    (return of commitment is a public sink and correctly PF-VIS-001). -/
+private unsafe def testCommitIdentityPublic
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CommitPub" <|
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry wrap(x : UInt64) : UInt64 do\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return x\n"
+  let validated ← loadSource session "commit-pub" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"commit-pub: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"commit-pub: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"commit-pub: structure {repr e}"
+      | .ok data => do
+          let hasCommit := data.callables.any (fun c =>
+            c.blocks.any (fun b =>
+              b.instructions.any (fun i =>
+                match i.op with | .commit _ => true | _ => false)))
+          expect hasCommit "commit-pub: Op.Commit present"
+          let hasReq := data.requirements.items.any (fun r =>
+            r.id == commitmentDisclosureRequirementIdV1)
+          expect hasReq "commit-pub: disclosure.commitment requirement row"
+
+/-- N5: Commit declassifies private param to commitment (assign to commitment state). -/
+private unsafe def testCommitPrivateToCommitmentState
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CommitPriv" <|
+    "  state commitment note : UInt64\n" ++
+    "  init() do\n" ++
+    "    note := 0\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    note := commit(x)\n" ++
+    "    return 1\n"
+  let validated ← loadSource session "commit-priv" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"commit-priv: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"commit-priv: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"commit-priv: structure {repr e}"
+      | .ok data => do
+          let hasCommit := data.callables.any (fun c =>
+            c.blocks.any (fun b =>
+              b.instructions.any (fun i =>
+                match i.op with | .commit _ => true | _ => false)))
+          expect hasCommit "commit-priv: Op.Commit present"
+
+/-- N5: ContextRead inside pureFn fails closed at Normalize. -/
+private unsafe def testContextReadInPureFnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CtxFn" <|
+    "  fn peek() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return peek()\n"
+  let validated ← loadSource session "ctx-fn" source
+  let typed := checkProgramTypedResultV1 validated
+  -- EffectCheck does not yet track context.read; TypeCheck admits the surface.
+  -- Normalize is the fail-closed boundary for pureFn ContextRead.
+  expect typed.ok s!"ctx-fn: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "ctx-fn: expected Normalize fail closed for pureFn ContextRead"
   | .error (.unsupported detail) =>
-      -- Nested constructor may still be partial; document fail closed.
-      expect (detail.contains "nested" || detail.contains "constructor")
-        s!"nest-ctor unsupported: {detail}"
-  | .error e => throw <| IO.userError s!"nest-ctor: {repr e}"
+      expect (detail.contains "ContextRead" || detail.contains "pureFn")
+        s!"ctx-fn: unexpected detail {detail}"
+  | .error e => throw <| IO.userError s!"ctx-fn: unexpected error {repr e}"
+
+/-- N5: Commit + ContextRead together keep UTF-8 requirement order. -/
+private unsafe def testContextAndCommitRequirementOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CtxCommit" <|
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry both(x : UInt64) : UInt64 do\n" ++
+    "    let t : UInt64 := context.unixTimeSeconds\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return t\n"
+  let validated ← loadSource session "ctx-commit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"ctx-commit: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"ctx-commit: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"ctx-commit: structure {repr e}"
+      | .ok data => do
+          let ids := data.requirements.items.map (·.id)
+          expect (ids.contains unixTimeSecondsContextRequirementIdV1)
+            "ctx-commit: context requirement"
+          expect (ids.contains commitmentDisclosureRequirementIdV1)
+            "ctx-commit: commit requirement"
+          -- UTF-8: "context..." < "disclosure..." < "value..."
+          let ctxIdx := ids.findIdx? (· == unixTimeSecondsContextRequirementIdV1)
+          let cmIdx := ids.findIdx? (· == commitmentDisclosureRequirementIdV1)
+          match ctxIdx, cmIdx with
+          | some i, some j => expect (i < j) "ctx-commit: context before disclosure in wire order"
+          | _, _ => throw <| IO.userError "ctx-commit: missing requirement indices"
 
 /-- N4: for-body nested if + nested for — loopBounds exact coverage. -/
 private unsafe def testNestedLoopsAndIfInLoopState
@@ -5981,6 +6111,11 @@ unsafe def run : IO Unit := do
   testMatchConstructorPatternOnEnumParam session
   testStringStateLiteralEqMatch session
   testNestedConstructorPattern session
+  testContextUnixTimeSeconds session
+  testCommitIdentityPublic session
+  testCommitPrivateToCommitmentState session
+  testContextReadInPureFnFailClosed session
+  testContextAndCommitRequirementOrder session
   testNestedLoopsAndIfInLoopState session
   testEmitRevertMultiBlock session
   testEmitRequirementsWireOrder session

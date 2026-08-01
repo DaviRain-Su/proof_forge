@@ -1437,6 +1437,28 @@ private def lowerBlockInstructionsV1
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: workflow schedules are outside the Solana pilot envelope (CPI requires a 32-byte program id the current UInt64 envelope cannot express)"
+    -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
+    | .commit valueId, some result => do
+        unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Commit is not admitted by pilot context policy"
+        let operand ← findValueV1 values valueId
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := operand.expr
+          depth := operand.depth + 1
+          expandedNodes := operand.expandedNodes + 1
+          dependencies := operand.dependencies.push valueId
+          isBool := operand.isBool
+          isUInt32 := operand.isUInt32
+          isInt := operand.isInt
+          bitWidth := operand.bitWidth
+        }
+    | .contextRead key, some _ =>
+        unless key == unixTimeSecondsContextKeyV1 do
+          throw <| .planInvariant .solana
+            s!"unsupported Solana semantic shape: unknown ContextRead key '{key.value}'"
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: ContextRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .solana
           "unsupported Solana semantic shape: instruction op/result is outside the current UInt64 pilot"

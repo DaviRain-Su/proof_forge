@@ -342,9 +342,10 @@ private def requestSupportedExact
     sole mint always feeds retained SemanticProgramV1 requirements instead.
     Phase order after uniqueness:
     1. strictly ascending request ids (SPEC/S2 wire order) → `PF-REQ-UNSUPPORTED`;
-    2. per-row known S2 catalog id → `PF-REQ-UNSUPPORTED` (before predicates);
-    3. empty predicates only → `PF-REQ-PRECONDITION` for nonempty (known S2 only);
-    4. version / digest / exact support row match → `PF-REQ-UNSUPPORTED`.
+    2. N5 wire-owned ContextRead/Commit exact rows accepted without support matrix;
+    3. per-row known S2 catalog id → `PF-REQ-UNSUPPORTED` (before predicates);
+    4. empty predicates only → `PF-REQ-PRECONDITION` for nonempty (known S2 only);
+    5. version / digest / exact support row match → `PF-REQ-UNSUPPORTED`.
     Duplicate request id → `PF-REQ-UNSUPPORTED`. No predicate implication. -/
 def inspectResolveRequestsV1
     (supported : Array RequirementRequestV1)
@@ -364,28 +365,52 @@ def inspectResolveRequestsV1
     throw <| .unsupportedRequirementV1
       "requirement requests must be in SPEC wire order (strictly ascending ids)"
   for item in items do
-    -- Known S2 catalog membership before predicates so non-catalog + nonempty
-    -- predicates report PF-REQ-UNSUPPORTED (unknown class), not PRECONDITION.
-    unless isS2CatalogIdV1 item.id do
-      throw <| .unsupportedRequirementV1
-        s!"unknown requirement id '{item.id}'"
-    unless item.predicates.isEmpty do
-      throw <| .requirementPrecondition
-        s!"requirement '{item.id}' predicates must be empty (no implication)"
-    unless item.version == s2RequirementVersionV1 do
-      throw <| .unsupportedRequirementV1
-        s!"requirement '{item.id}' version is not supported"
-    let expectedDigest ← match engineeringRequirementDigestV1 item.id with
-      | .ok d => pure d
-      | .error e =>
-          throw <| .unsupportedRequirementV1
-            s!"requirement '{item.id}' digest unavailable: {e}"
-    unless item.digest == expectedDigest do
-      throw <| .unsupportedRequirementV1
-        s!"requirement '{item.id}' digest is not supported"
-    unless requestSupportedExact supported item do
-      throw <| .unsupportedRequirementV1
-        s!"no exact engineering support for requirement '{item.id}'"
+    -- N5: wire-owned ContextRead/Commit exact rows are structure-gate binders
+    -- (domains `pf.context-read-requirement.v1` / `pf.commit-requirement.v1`),
+    -- not S2 engineering catalog members. Accept the exact mint only; do not
+    -- require target support-matrix membership. Other non-S2 ids still fail.
+    if item.id == unixTimeSecondsContextRequirementIdV1 ||
+        item.id == commitmentDisclosureRequirementIdV1 then
+      let expected ←
+        if item.id == unixTimeSecondsContextRequirementIdV1 then
+          match unixTimeSecondsContextRequirementV1 with
+          | .ok r => pure r
+          | .error e =>
+              throw <| .unsupportedRequirementV1
+                s!"ContextRead requirement row unavailable: {e}"
+        else
+          match commitmentDisclosureRequirementV1 with
+          | .ok r => pure r
+          | .error e =>
+              throw <| .unsupportedRequirementV1
+                s!"Commit requirement row unavailable: {e}"
+      unless item == expected do
+        throw <| .unsupportedRequirementV1
+          s!"requirement '{item.id}' is not the exact wire-owned row"
+      pure ()
+    else do
+      -- Known S2 catalog membership before predicates so non-catalog + nonempty
+      -- predicates report PF-REQ-UNSUPPORTED (unknown class), not PRECONDITION.
+      unless isS2CatalogIdV1 item.id do
+        throw <| .unsupportedRequirementV1
+          s!"unknown requirement id '{item.id}'"
+      unless item.predicates.isEmpty do
+        throw <| .requirementPrecondition
+          s!"requirement '{item.id}' predicates must be empty (no implication)"
+      unless item.version == s2RequirementVersionV1 do
+        throw <| .unsupportedRequirementV1
+          s!"requirement '{item.id}' version is not supported"
+      let expectedDigest ← match engineeringRequirementDigestV1 item.id with
+        | .ok d => pure d
+        | .error e =>
+            throw <| .unsupportedRequirementV1
+              s!"requirement '{item.id}' digest unavailable: {e}"
+      unless item.digest == expectedDigest do
+        throw <| .unsupportedRequirementV1
+          s!"requirement '{item.id}' digest is not supported"
+      unless requestSupportedExact supported item do
+        throw <| .unsupportedRequirementV1
+          s!"no exact engineering support for requirement '{item.id}'"
   pure ()
 
 /-- DI request-resolution inspection over a seed + selection identity.

@@ -1355,6 +1355,25 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values stableCount segmentStart argIds
         body := body.push (.promiseAccount receiver method argExprs)
         segmentStart := values.size
+    -- N5: Commit = identity passthrough; ContextRead declined (no clock ABI).
+    | .commit valueId, some result => do
+        unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Commit is not admitted by pilot context policy"
+        let operand ← findValueV1 values valueId
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := operand.expr
+          kind := operand.kind
+          depth := operand.depth + 1
+          expandedNodes := operand.expandedNodes + 1
+          dependencies := operand.dependencies.push valueId
+        }
+    | .contextRead key, some _ =>
+        unless key == unixTimeSecondsContextKeyV1 do
+          throw <| .planInvariant .near
+            s!"unsupported NEAR semantic shape: unknown ContextRead key '{key.value}'"
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: ContextRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: instruction op/result is outside the current UInt64 pilot"

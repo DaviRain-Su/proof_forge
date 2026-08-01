@@ -72,9 +72,13 @@
 
   Out of scope for this module:
     * authority.* / state-custody.* analysis
-    * disclosure.commit effect or commit operator (no AST surface)
     * deleting alpha Semantic visibility/requirement inference
     * B7b3d located CheckV1 composition
+
+  N5 engineering: intrinsic `commit(x)` is the sole private→commitment
+  declassification operator (result label = commitment; operand is not
+  mayFlow-checked against commitment). `context.unixTimeSeconds` is public_
+  (invocation-start snapshot).
 -/
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Source.AstDeclV1
@@ -85,6 +89,7 @@ import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.NodeTraversalV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -98,6 +103,7 @@ namespace ProofForgeV2.Typed.DisclosureCheckV1
 open ProofForgeV2.Core.DiagnosticV1
 open ProofForgeV2.Source.AstDeclV1
 open ProofForgeV2.Source.AstPatternV1
+open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
@@ -394,33 +400,49 @@ mutual
         let rv ← exprVisibility tables scope pc rp? rhs
         pure (joinVisibilityEvidence lv rv)
     | .localCall callee args => do
-        -- Explicit sinks: each arg flows into the corresponding ParamV1.visibility
-        -- when the callee resolves to a top-level `fn` (locals/params shadow).
-        -- Arity mismatch is type-phase territory: walk args for nested sinks only.
-        -- Successful call result is public_ (fn returns are public sinks).
-        match resolveCalleeFnDecl tables scope callee with
-        | some decl =>
-            if decl.params.size == args.size then
-              for ((param, arg), i) in (decl.params.zip args).zipIdx do
-                let ap? ← match exprPath? with
-                  | none => pure none
-                  | some ep => childOrFail ep "Expr.LocalCall" "args" i
-                let v ← exprVisibility tables scope pc ap? arg
-                let paramPath? := fnParamPath? tables decl.name i
-                emitFlowUnderPc pc v param.visibility ap? (optPathArray paramPath?)
-            else
+        -- N5: intrinsic `commit(x)` is the sole private→commitment declassification
+        -- operator. Walk the operand for nested sinks but do **not** mayFlow-check
+        -- the operand into commitment; result label is always commitment (causes
+        -- retained from the operand). User `fn commit` still takes the ordinary path.
+        if isCommitCalleeNameV1 callee &&
+            (resolveCalleeFnDecl tables scope callee).isNone &&
+            args.size == 1 then
+          match args[0]? with
+          | none => pure (evidenceWithLabel .commitment)
+          | some arg0 =>
+              let ap? ← match exprPath? with
+                | none => pure none
+                | some ep => childOrFail ep "Expr.LocalCall" "args" 0
+              let v ← exprVisibility tables scope pc ap? arg0
+              pure { label := .commitment, causes := v.causes }
+        else
+          -- Explicit sinks: each arg flows into the corresponding ParamV1.visibility
+          -- when the callee resolves to a top-level `fn` (locals/params shadow).
+          -- Arity mismatch is type-phase territory: walk args for nested sinks only.
+          -- Successful call result is public_ (fn returns are public sinks).
+          match resolveCalleeFnDecl tables scope callee with
+          | some decl =>
+              if decl.params.size == args.size then
+                for ((param, arg), i) in (decl.params.zip args).zipIdx do
+                  let ap? ← match exprPath? with
+                    | none => pure none
+                    | some ep => childOrFail ep "Expr.LocalCall" "args" i
+                  let v ← exprVisibility tables scope pc ap? arg
+                  let paramPath? := fnParamPath? tables decl.name i
+                  emitFlowUnderPc pc v param.visibility ap? (optPathArray paramPath?)
+              else
+                for (a, i) in args.zipIdx do
+                  let ap? ← match exprPath? with
+                    | none => pure none
+                    | some ep => childOrFail ep "Expr.LocalCall" "args" i
+                  let _ ← exprVisibility tables scope pc ap? a
+          | none =>
               for (a, i) in args.zipIdx do
                 let ap? ← match exprPath? with
                   | none => pure none
                   | some ep => childOrFail ep "Expr.LocalCall" "args" i
                 let _ ← exprVisibility tables scope pc ap? a
-        | none =>
-            for (a, i) in args.zipIdx do
-              let ap? ← match exprPath? with
-                | none => pure none
-                | some ep => childOrFail ep "Expr.LocalCall" "args" i
-              let _ ← exprVisibility tables scope pc ap? a
-        pure publicEvidence
+          pure publicEvidence
     | .match_ scrutinee arms => do
         -- Expression match: result = join(scrutControl, join of arm values) so
         -- the scrutinee control-taints the result (decl causes + scrutinee Expr
@@ -452,11 +474,15 @@ mutual
       (pc : VisibilityEvidence) (placePath? : Option NormalizedSyntacticPathV1) :
       PlaceV1 → WalkM VisibilityEvidence
     | .name n => pure (lookupName tables scope n)
-    | .field base _ => do
-        let bp? ← match placePath? with
-          | none => pure none
-          | some pp => directOrFail pp "Place.Field" "base"
-        placeRValueVisibility tables scope pc bp? base
+    | .field base field => do
+        -- N5: context.unixTimeSeconds is a public invocation-start snapshot.
+        if isContextUnixTimeSecondsPlaceV1 (.field base field) then
+          pure publicEvidence
+        else do
+          let bp? ← match placePath? with
+            | none => pure none
+            | some pp => directOrFail pp "Place.Field" "base"
+          placeRValueVisibility tables scope pc bp? base
     | .index base idx => do
         let bp? ← match placePath? with
           | none => pure none

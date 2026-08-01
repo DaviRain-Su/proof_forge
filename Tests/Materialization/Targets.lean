@@ -2624,5 +2624,70 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
+  -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
+  -- commitment state). Noir declines (public relation slots cannot hold
+  -- commitment labels). Psy declines. ContextRead declined on every Phase-1
+  -- target (PlanSchema / host clock ABI frozen this slice).
+  let commitSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CommitSeal where\n" ++
+    "  state commitment sealed : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let commitV1 ← match ← session.selectProgramV1 commitSource
+      "<targets-n5-commit>" "Examples.CommitSeal" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N5 commit select: {e.render}"
+  let commitCompiled ← liftResult <| Compiler.compileValidatedSourceV1 commitV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near] do
+    match materializeSelected target commitCompiled with
+    | .ok _ => pure ()
+    | .error e =>
+        throw <| IO.userError s!"N5 commit: {target} must admit Commit identity, got {e.render}"
+  for target in [TargetId.noir, TargetId.psy] do
+    match materializeSelected target commitCompiled with
+    | .ok _ => throw <| IO.userError s!"N5 commit: {target} must decline Commit"
+    | .error e =>
+        expect ((e.render).contains "Commit" || (e.render).contains "commit" ||
+            (e.render).contains "commitment" ||
+            (e.render).contains "unsupported" || (e.render).contains "pilot" ||
+            (e.render).contains "public")
+          s!"N5 commit {target} message must cite Commit/commitment boundary, got {e.render}"
+
+  let ctxSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxTime where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ctxV1 ← match ← session.selectProgramV1 ctxSource
+      "<targets-n5-context>" "Examples.CtxTime" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N5 context select: {e.render}"
+  let ctxCompiled ← liftResult <| Compiler.compileValidatedSourceV1 ctxV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    match materializeSelected target ctxCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
+    | .error e =>
+        expect ((e.render).contains "ContextRead" ||
+            (e.render).contains "context" ||
+            (e.render).contains "unix-time" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"N5 context {target} message must cite ContextRead boundary, got {e.render}"
+
 
 end Tests.Materialization

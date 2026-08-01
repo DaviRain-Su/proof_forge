@@ -1312,6 +1312,17 @@ private def lowerBlockInstructionsV1
           expandedNodes := expanded
           dependencies := argIds
         }
+    -- N5: Noir declines Commit (commitment labels have no relation-slot
+    -- representation under N1 public-input policy) and ContextRead (no clock).
+    | .commit .., some _ =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: Commit is not admitted by pilot context policy (commitment labels are not representable as public relation slots)"
+    | .contextRead key, some _ =>
+        unless key == unixTimeSecondsContextKeyV1 do
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: unknown ContextRead key '{key.value}'"
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: ContextRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"

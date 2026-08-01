@@ -2011,6 +2011,35 @@ private def lowerBlockInstructionsV1
     | .indexSet .., some _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: IndexSet is outside the EVM named-aggregate pilot (no Array/Map/Bytes state)"
+    -- N5: Op.Commit is label-only identity — reuse the operand's Plan value
+    -- (no new Expr tag; PlanSchema/ValidatePlan stay frozen). Cryptographic
+    -- commitment realization is a later capability.
+    | .commit valueId, some result => do
+        unless pilotContextPolicyCommitIdentity.admitCommitIdentity do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Commit is not admitted by pilot context policy"
+        let operand ← findValueV1 values valueId
+        -- Wire gate already enforces result.typeId == type(operand); bind the
+        -- same Plan surface under the result ValueId (identity passthrough).
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := operand.expr
+          depth := operand.depth + 1
+          expandedNodes := operand.expandedNodes + 1
+          dependencies := operand.dependencies.push valueId
+          isBool := operand.isBool
+          isInt := operand.isInt
+          bitWidth := operand.bitWidth
+          aggregateLeaves := operand.aggregateLeaves
+          aggregateLeafIsInt := operand.aggregateLeafIsInt
+        }
+    | .contextRead key, some _ =>
+        -- N5: sole wire key would map to Yul `timestamp()`, but PlanSchema/
+        -- ValidatePlan are frozen against new Expr tags in this slice.
+        unless key == unixTimeSecondsContextKeyV1 do
+          throw <| .planInvariant .evm
+            s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: ContextRead (unix-time-seconds) is not admitted by pilot context policy (PlanSchema frozen; Yul timestamp deferred)"
     | _, _ =>
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: instruction op/result is outside the current UInt64 pilot"

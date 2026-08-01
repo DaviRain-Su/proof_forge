@@ -12051,3 +12051,42 @@ normative: false
   docs-check通过；无`native_decide`、recursion-limit提高、axiom、cast或第二decoder。
 - Boundary：四个callables及后续root字段、finish、structure-gated encoder/carrier closed theorem、
   `evalInvariantV1`/`InvariantTheoremV1`与formal TASK/TST仍pending。
+
+## 2026-08-01 — N5 ContextRead/Commit engineering slice
+
+- Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).
+- Catalog (already Wire-owned, sole authority):
+  * ContextRead key `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64;
+    requirement `context.unix-time-seconds@1.0.0` empty predicates, digest domain
+    `pf.context-read-requirement.v1`. Caller/authorizers/randomness deferred
+    (fail closed at catalog/key gate).
+  * Commit: label-only identity (exact TypeId + canonical valueBytes; no hash/salt);
+    requirement `disclosure.commitment@1.0.0`, digest domain `pf.commit-requirement.v1`.
+    Cryptographic commitment realization remains target capability/materialization.
+- Source surface (no new AST wire tags): place `context.unixTimeSeconds` and bare
+  local-call `commit(x)` when no user `fn commit` shadows. Shared recognizers in
+  `Source/ContextCommitSurfaceV1.lean`. NameResolution/TypeCheck/Disclosure admit
+  them; Commit is sole private→commitment declassification (result label =
+  commitment). EffectCheck still does not track context/disclosure bits —
+  Normalize fail-closes ContextRead/Commit in pureFn (init/entry/view only).
+- NormalizeV1: lowers both ops; merges wire-owned requirement rows into S2 freeze
+  result (UTF-8 id order). RequirementsInfer skips (wire-owned, not S2 catalog).
+- EnvelopeV1: `PilotContextPolicy` (default none; `pilotContextPolicyCommitIdentity`
+  for Commit identity only; `pilotContextPolicyAdmit` reserved).
+- Per-target lanes:
+  * EVM/Solana/NEAR: Commit = Plan identity passthrough (no new Expr/PlanSchema
+    tag; PlanSchema/ValidatePlan stay frozen). ContextRead declined
+    (PlanSchema frozen against Yul `timestamp()`; no host clock ABI).
+  * Noir: declines both (commitment labels not representable as public relation
+    slots; no clock input).
+  * Psy: declines both (policy none).
+- RequirementResolverV1: accepts exact wire-owned ContextRead/Commit rows without
+  S2 support-matrix membership (structure-gate binders; not formal CAP support).
+- Tests: NormalizeV1 suite (context/commit/order/pureFn fail closed);
+  Targets N5 Commit admit (EVM/Solana/NEAR) + decline matrix; ContextRead decline
+  on all Phase-1 targets. Reference/Wire suites unchanged (pre-existing runtime
+  gates).
+- Boundary: not EVM Yul `timestamp()` Plan Expr (PlanSchema off-limits this
+  worker); not formal ContextRead requirement-to-result CAP binding; not
+  caller/authorizers/randomness; formal TASK/TST status unchanged.
+

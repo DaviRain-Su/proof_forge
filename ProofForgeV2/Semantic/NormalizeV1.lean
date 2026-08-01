@@ -78,6 +78,11 @@
       * statements: immutable `let` bindings lower to environment entries
       (the RHS evaluates once; reassignment via `assign` fails closed except
       field/index update of an immutable local which rebinds the name)
+    * N5 ContextRead/Commit (init/entry/view only; pureFn fail closed):
+      place `context.unixTimeSeconds` → `Op.ContextRead` sole wire key
+      `proof-forge.context.unix-time-seconds.v1` (UInt64); bare local-call
+      `commit(x)` (no user `fn commit`) → `Op.Commit` label-only identity.
+      Wire-owned requirement rows are merged after S2 freeze (UTF-8 id order).
     * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
       before encode/hash; companion provenance only via
       `normalizeProgramWithProvenanceV1` (source+path+spans rebuild inventory;
@@ -101,11 +106,13 @@
       non-UInt64 call/schedule args and for endpoints,
       anonymous Array/Map/Option/Bytes/Unit/Bool as state or param types,
       aggregate entry/view/fn results, nonempty Map construction,
-      ContextRead/Commit, multi-arm same outer constructor with competing
-      nested patterns (still fail closed as duplicate constructor cases),
+      multi-arm same outer constructor with competing nested patterns
+      (still fail closed as duplicate constructor cases),
       param-root field/index assign, true mutable locals (field/index
       rebind of immutable let only), Int event/error fields (stay UInt-only),
-      String event/error fields (stay UInt-only this slice)
+      String event/error fields (stay UInt-only this slice),
+      ContextRead keys other than `context.unixTimeSeconds`, Commit/ContextRead
+      inside pureFn (fail closed; init/entry/view only)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -123,6 +130,7 @@ import ProofForgeV2.Source.AstSpineDeclV1
 import ProofForgeV2.Source.AstSpineV1
 import ProofForgeV2.Source.AstSupportV1
 import ProofForgeV2.Source.AstV1
+import ProofForgeV2.Source.ContextCommitSurfaceV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.QualifiedNameV1
@@ -143,6 +151,7 @@ open ProofForgeV2.Source.AstProgramItemV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.AstSpineDeclV1
 open ProofForgeV2.Source.AstSupportV1
+open ProofForgeV2.Source.ContextCommitSurfaceV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -774,6 +783,12 @@ structure BodyStateV1 where
   nextEffectId : UInt32
   env : LocalEnvV1
   interner : TypeInternerV1
+  /-- N5: true for init/entry/view; false for pureFn (ContextRead/Commit fail closed). -/
+  allowContextCommit : Bool := false
+  /-- N5: any Op.ContextRead emitted in this program (for wire requirement merge). -/
+  usedContextRead : Bool := false
+  /-- N5: any Op.Commit emitted in this program (for wire requirement merge). -/
+  usedCommit : Bool := false
 
 /-- Wire ceiling for a static loop bound (`maxIterations ≤ 4096`). -/
 private def maxWireLoopBoundV1 : UInt32 := 4096
@@ -1332,20 +1347,32 @@ private partial def lowerPlace
               let (st1, vid) := emitValue st tid (.stateLoad sid)
               pure (vid, tid, st1)
   | .field base fieldName => do
-      let (baseVid, baseTid, st1) ← lowerPlace base st states fns
-      match shapeOf? st1.interner.types baseTid with
-      | some (.struct fields) =>
-          match findStructFieldIndex fields (raw fieldName) with
-          | none =>
-              failUnsupported
-                s!"S1 field '{raw fieldName}' not found on struct"
-          | some (idx, fieldTid) =>
-              let (st2, vid) :=
-                emitValue st1 fieldTid
-                  (.fieldGet baseVid (UInt32.ofNat idx))
-              pure (vid, fieldTid, st2)
-      | _ =>
-          failUnsupported "S1 field place requires a struct base"
+      -- N5: sole ContextRead surface `context.unixTimeSeconds` → Op.ContextRead
+      -- with anonymous UInt64 result (wire catalog sole key).
+      if isContextUnixTimeSecondsPlaceV1 (.field base fieldName) then
+        unless st.allowContextCommit do
+          return ← failUnsupported
+            "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
+        let (iU64, u64Tid) := internShape st.interner (.uint 64)
+        let st0 := { st with interner := iU64, usedContextRead := true }
+        let (st1, vid) :=
+          emitValue st0 u64Tid (.contextRead unixTimeSecondsContextKeyV1)
+        pure (vid, u64Tid, st1)
+      else do
+        let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+        match shapeOf? st1.interner.types baseTid with
+        | some (.struct fields) =>
+            match findStructFieldIndex fields (raw fieldName) with
+            | none =>
+                failUnsupported
+                  s!"S1 field '{raw fieldName}' not found on struct"
+            | some (idx, fieldTid) =>
+                let (st2, vid) :=
+                  emitValue st1 fieldTid
+                    (.fieldGet baseVid (UInt32.ofNat idx))
+                pure (vid, fieldTid, st2)
+        | _ =>
+            failUnsupported "S1 field place requires a struct base"
   | .index base idxExpr => do
       let (baseVid, baseTid, st1) ← lowerPlace base st states fns
       match shapeOf? st1.interner.types baseTid with
@@ -1812,20 +1839,41 @@ private partial def lowerExpr
           pure (vid, boolTid, st2)
   | .localCall callee args => do
       let key := raw callee
-      match fnLookup fns key with
-      | none =>
-          failUnsupported s!"S1 localCall '{key}' is not a declared fn"
-      | some (callableId, paramTids, fnResultTid) => do
-          unless fnResultTid == expectedTid do
-            return ← failUnsupported
-              s!"S1 localCall '{key}' result type does not match the enclosing expected type"
-          unless args.size == paramTids.size do
-            return ← failUnsupported
-              s!"S1 localCall '{key}' expects {paramTids.size} arguments, got {args.size}"
-          let (argIds, st') ← lowerArgs args paramTids st states fns
-            s!"S1 localCall '{key}' argument type mismatch"
-          let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
-          pure (vid, fnResultTid, st2)
+      -- N5: intrinsic `commit(x)` → Op.Commit (label-only identity).
+      -- User `fn commit` still wins via the ordinary fnLookup path.
+      if isCommitCalleeNameV1 callee && match fnLookup fns key with | none => true | some _ => false then
+        unless st.allowContextCommit do
+          return ← failUnsupported
+            "S1 Commit is not admitted in pureFn (init/entry/view only)"
+        unless args.size == 1 do
+          return ← failUnsupported
+            s!"S1 commit expects 1 argument, got {args.size}"
+        match args[0]? with
+        | none =>
+            failUnsupported "S1 commit missing argument"
+        | some arg0 => do
+            let (aVid, aTid, st1) ← lowerExpr arg0 expectedTid st states fns
+            unless aTid == expectedTid do
+              return ← failUnsupported
+                "S1 commit operand type does not match the enclosing expected type"
+            let st1 := { st1 with usedCommit := true }
+            let (st2, vid) := emitValue st1 expectedTid (.commit aVid)
+            pure (vid, expectedTid, st2)
+      else
+        match fnLookup fns key with
+        | none =>
+            failUnsupported s!"S1 localCall '{key}' is not a declared fn"
+        | some (callableId, paramTids, fnResultTid) => do
+            unless fnResultTid == expectedTid do
+              return ← failUnsupported
+                s!"S1 localCall '{key}' result type does not match the enclosing expected type"
+            unless args.size == paramTids.size do
+              return ← failUnsupported
+                s!"S1 localCall '{key}' expects {paramTids.size} arguments, got {args.size}"
+            let (argIds, st') ← lowerArgs args paramTids st states fns
+              s!"S1 localCall '{key}' argument type mismatch"
+            let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
+            pure (vid, fnResultTid, st2)
   | .match_ scrutinee arms => do
       -- T4/T5 expression-level match: integer/Bool literal cases, Enum/Option
       -- constructor cases (VariantTag → switch UInt32), unique catch-all.
@@ -2553,12 +2601,17 @@ private partial def lowerStmt
 
 end
 
+/-- Lower one callable body. Returns blocks, loopBounds, interner, and N5
+    ContextRead/Commit usage flags for program-wide wire requirement merge. -/
 private def lowerBlock
     (body : SrcBlock) (params : Array ParameterV1) (resultTid : TypeIdV1)
     (interner : TypeInternerV1) (states : StateTableV1)
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
-    (allowImplicitReturnNone : Bool) :
-    Except NormalizeErrorV1 (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1) := do
+    (allowImplicitReturnNone : Bool)
+    (allowContextCommit : Bool)
+    (usedContextRead0 usedCommit0 : Bool) :
+    Except NormalizeErrorV1
+      (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1 × Bool × Bool) := do
   let mut env := emptyEnv
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
@@ -2575,6 +2628,9 @@ private def lowerBlock
     nextEffectId := 0
     env := env
     interner := interner
+    allowContextCommit := allowContextCommit
+    usedContextRead := usedContextRead0
+    usedCommit := usedCommit0
   }
   let (st', status) ← lowerStmts body.statements resultTid st states events errors fns
   -- Canonical ascending (header, backEdgeFrom) loop-bound order.
@@ -2582,7 +2638,9 @@ private def lowerBlock
     (stF.blocks,
       stF.loopBounds.qsort (fun a b =>
         a.header < b.header || (a.header == b.header && a.backEdgeFrom < b.backEdgeFrom)),
-      stF.interner)
+      stF.interner,
+      stF.usedContextRead,
+      stF.usedCommit)
   match status with
   | .closed =>
       -- Body ended in return on every path; the trailing open block (if any
@@ -2631,6 +2689,46 @@ private def mkCallable
     loopBounds
     invariantSteps := none
   }
+
+/-- Insert a requirement row into a UTF-8 id-ordered array (stable for equal
+    keys: new row after existing with the same id so wire exact-match still
+    finds it). Local to N5 wire-owned merge; does not invent a second freeze. -/
+private def insertRequirementSortedV1
+    (items : Array RequirementRequestV1) (row : RequirementRequestV1) :
+    Array RequirementRequestV1 := Id.run do
+  let mut out : Array RequirementRequestV1 := #[]
+  let mut inserted := false
+  for item in items do
+    if !inserted then
+      match compareByteArrayLex item.id.toUTF8 row.id.toUTF8 with
+      | .gt =>
+          out := out.push row
+          out := out.push item
+          inserted := true
+      | .lt | .eq =>
+          out := out.push item
+    else
+      out := out.push item
+  if !inserted then
+    out := out.push row
+  pure out
+
+/-- Merge wire-owned ContextRead/Commit exact rows into the S2 freeze result.
+    Only when the corresponding ops were emitted; empty predicates, exact
+    SemVer 1.0.0, domain-separated digests from Wire ModelV1. -/
+private def mergeWireOwnedRequirementsV1
+    (s2 : ProgramRequirementsV1) (usedContextRead usedCommit : Bool) :
+    Except NormalizeErrorV1 ProgramRequirementsV1 := do
+  let mut items := s2.items
+  if usedContextRead then
+    match unixTimeSecondsContextRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"ContextRead requirement row: {e}"
+  if usedCommit then
+    match commitmentDisclosureRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"Commit requirement row: {e}"
+  pure { items }
 
 /-- Core lowering after Typed CheckV1 has succeeded.
 
@@ -2752,6 +2850,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- Pass 2: lower supported callables; reject unsupported item kinds.
   let mut callables : Array CallableV1 := #[]
   let mut callableId : Nat := 0
+  let mut usedContextRead := false
+  let mut usedCommit := false
   for item in program.items do
     match item with
     | .state _ => pure ()
@@ -2760,9 +2860,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (blocks, loopBounds, interner''') ←
-          lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable true
+        let (blocks, loopBounds, interner''', ctx, cm) ←
+          lowerBlock d.body params unitTid interner stateTable eventTable errorTable fnTable
+            true true usedContextRead usedCommit
         interner := interner'''
+        usedContextRead := ctx
+        usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
           { typeId := unitTid, visibility := VisibilityV1.public_ } blocks loopBounds)
@@ -2773,9 +2876,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
-        let (blocks, loopBounds, interner''') ←
-          lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable false
+        let (blocks, loopBounds, interner''', ctx, cm) ←
+          lowerBlock e.body params resultTid interner stateTable eventTable errorTable fnTable
+            false true usedContextRead usedCommit
         interner := interner'''
+        usedContextRead := ctx
+        usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
@@ -2786,9 +2892,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
         requireScalarResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (blocks, loopBounds, interner''') ←
-          lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable false
+        let (blocks, loopBounds, interner''', ctx, cm) ←
+          lowerBlock v.body params resultTid interner stateTable eventTable errorTable fnTable
+            false true usedContextRead usedCommit
         interner := interner'''
+        usedContextRead := ctx
+        usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
@@ -2807,10 +2916,14 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         requireScalarResultTypeId interner.types resultTid s!"fn '{raw d.name}' result"
         -- Fn purity: the body resolves bare places against an empty state
         -- table, so any state name fails closed (fn effects are revert-only).
+        -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
         let emptyStates : StateTableV1 := ⟨#[]⟩
-        let (blocks, loopBounds, interner''') ←
-          lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable false
+        let (blocks, loopBounds, interner''', ctx, cm) ←
+          lowerBlock d.body params resultTid interner emptyStates eventTable errorTable fnTable
+            false false usedContextRead usedCommit
         interner := interner'''
+        usedContextRead := ctx
+        usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)
@@ -2833,9 +2946,12 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
       interner := interner'
 
   -- S2: freeze exact ProgramRequirementsV1 before encode/hash.
-  let requirements ← match freezeProgramRequirementsV1 program with
+  let s2Reqs ← match freezeProgramRequirementsV1 program with
     | .ok r => pure r
     | .error detail => failUnsupported s!"S2 requirements freeze: {detail}"
+  -- N5: merge wire-owned ContextRead/Commit exact rows (non-S2 digest domains)
+  -- when those ops were emitted. Sort by UTF-8 id so structure gate order holds.
+  let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextRead usedCommit
   pure {
     qualifiedName := qn
     types := interner.types

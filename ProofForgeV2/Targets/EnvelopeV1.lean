@@ -208,6 +208,42 @@ def pilotStringPolicyNone : PilotStringPolicy where
 def pilotStringPolicyAdmit : PilotStringPolicy where
   admitString := true
 
+/-- Per-target admission for N5 ContextRead / Commit ops.
+
+    Default fail-closed (`none`). A positive lane must:
+    * ContextRead: only the sole wire key
+      `proof-forge.context.unix-time-seconds.v1` (anonymous UInt64 result;
+      immutable invocation-start Unix epoch seconds snapshot). Other SPEC keys
+      (caller/authorizers/randomness) stay fail closed.
+    * Commit: label-only identity (exact TypeId + canonical valueBytes;
+      no hash/salt). Cryptographic commitment realization is a later target
+      capability.
+
+    N5 engineering: every Phase-1 target uses `none` for ContextRead
+    (PlanSchema/ValidatePlan frozen against EVM `timestamp()` Expr tags; no
+    host clock ABI on Solana/NEAR/Noir/Psy). Commit is admitted as **identity
+    passthrough** on EVM/Solana/NEAR (operand Expr reused; no Plan Expr node).
+    Noir declines Commit (N1 public relation slots cannot represent commitment
+    labels). Psy keeps both closed. -/
+structure PilotContextPolicy where
+  admitContextUnixTimeSeconds : Bool
+  admitCommitIdentity : Bool
+  deriving BEq, Repr
+
+def pilotContextPolicyNone : PilotContextPolicy where
+  admitContextUnixTimeSeconds := false
+  admitCommitIdentity := false
+
+/-- Commit identity only (no ContextRead). Used by EVM/Solana/NEAR/Noir N5. -/
+def pilotContextPolicyCommitIdentity : PilotContextPolicy where
+  admitContextUnixTimeSeconds := false
+  admitCommitIdentity := true
+
+/-- Full ContextRead + Commit (reserved for a future PlanSchema unfreeze). -/
+def pilotContextPolicyAdmit : PilotContextPolicy where
+  admitContextUnixTimeSeconds := true
+  admitCommitIdentity := true
+
 /-- Anonymous type ids admitted by a pilot type-closure policy.
     UInt64 is required; Unit / Bool / Int64 / Field / Principal / String are
     optional (at most one each). Named Struct/Enum TypeIds appear in
