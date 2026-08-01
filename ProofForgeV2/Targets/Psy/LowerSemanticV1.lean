@@ -549,7 +549,7 @@ private def lowerCallable
   for p in callable.params do
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId then pure false
-      else planError "unsupported Psy semantic shape: callable parameter is outside the public UInt64/Bool envelope"
+      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Bool envelope"
     params := params.push { sourceIndex := paramIndex, name := p.name, isBool }
     paramIndex := paramIndex + 1
   let mut env0 : ValueEnv := default
@@ -585,8 +585,9 @@ private def makePlanFromSemanticDataV1
     (sourceHash semanticHash : String) : CompileResult Plan := do
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
+    -- N1: Felt storage is opaque; accept any visibility, UInt64 type.
     unless isUInt64Type data state.typeId do
-      planError "unsupported Psy semantic shape: state must be public UInt64"
+      planError "unsupported Psy semantic shape: state must be UInt64"
     stateFields := stateFields.push state.name
   let mut events : Array PlanEvent := #[]
   for ev in data.events do

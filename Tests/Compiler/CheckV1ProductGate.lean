@@ -286,14 +286,21 @@ def runAst : IO Unit := do
     "PF-SRC-INVALID: S1 normalizer does not support statements after return"
     (Compiler.compileValidatedSourceV1 after)
 
-  -- Private state unused: CheckV1 may succeed; product compile fails at Normalize.
+  -- Private state unused: CheckV1 may succeed; product compile now succeeds
+  -- (N1 opened private/commitment state) and the retained semantic carries
+  -- the private visibility.
   let priv ← validated moduleQ identity demo #[
     .state (mkState count (.uint 64) .private_),
     .entry (mkEntry runN (ret (var seed)) #[param seed])]
   let _ ← expectOk "private-unused-checkV1" (Typed.checkV1 priv)
-  expectRender "private-unused-normalize-gate"
-    "PF-SRC-INVALID: S1 normalizer supports only public state, got non-public 'count'"
+  let privCompiled ← expectOk "private-unused-compile"
     (Compiler.compileValidatedSourceV1 priv)
+  let privData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of privCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"private-unused retained carrier: {repr e}"
+  expect (privData.logicalState[0]?.map (·.visibility) == some .private_)
+    "private-unused: retained state must carry private visibility"
 
   -- UInt64 literal-only entry succeeds through the sole Normalize-first product
   -- path; retained SemanticProgramV1 contains the exact Op.Literal bytes.
@@ -377,9 +384,17 @@ private unsafe def runSource
       "<checkv1-product-private>" moduleName none with
   | .ok source =>
       let _ ← expectOk "private-unused-source-checkV1" (Typed.checkV1 source)
-      expectRender "private-unused-source"
-        "PF-SRC-INVALID: S1 normalizer supports only public state, got non-public 'secret'"
+      -- N1: private state now compiles; the retained carrier carries the
+      -- private visibility and the product path succeeds.
+      let compiled ← expectOk "private-unused-source-compile"
         (Compiler.compileValidatedSourceV1 source)
+      match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          (Compiler.CompiledSemanticV1.semanticV1Of compiled) with
+      | .ok data =>
+          expect (data.logicalState[0]?.map (·.visibility) == some .private_)
+            "private-unused-source: retained state must carry private visibility"
+      | .error e =>
+          throw <| IO.userError s!"private-unused-source retained carrier: {repr e}"
   | .error error => throw <| IO.userError s!"private-unused-source load: {error.render}"
 
   let typeOnlySource :=

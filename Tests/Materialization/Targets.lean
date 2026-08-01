@@ -2380,4 +2380,121 @@ unsafe def run : IO Unit := do
   expect emittedFiles.isEmpty
     "EVM product negative: files accumulator must stay empty"
 
+  -- N1: private state write-only + public return compiles and materializes on
+  -- EVM/Solana/NEAR/Psy; Noir declines at Plan (relation slots are public inputs).
+  let privateStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrivWrite where\n" ++
+    "  state count : UInt64\n" ++
+    "  state private secret : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "    secret := 0\n\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    secret := secret + d\n" ++
+    "    count := count + d\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let privStateV1 ← match ← session.selectProgramV1 privateStateSource
+      "<targets-n1-priv-state>" "Examples.PrivWrite" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N1 priv-state select: {e.render}"
+  let privStateCompiled ← liftResult <| Compiler.compileValidatedSourceV1 privStateV1
+  let privStateData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of privStateCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"N1 priv-state semantic: {repr e}"
+  expect (privStateData.logicalState.size == 2)
+    "N1 priv-state: two logical states"
+  expect (privStateData.logicalState.any fun s =>
+      s.name == "secret" && s.visibility == .private_)
+    "N1 priv-state: secret retains private visibility"
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo] do
+    let out ← liftResult <| materializeSelected target privStateCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"N1 priv-state: {target} must materialize"
+  match materializeSelected TargetId.noir privStateCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "N1 priv-state: Noir must decline private state at Plan"
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT" || (e.render).contains "plan")
+        s!"N1 priv-state Noir must be planInvariant, got {e.render}"
+      expect ((e.render).contains "private/commitment state" ||
+          (e.render).contains "not representable")
+        s!"N1 priv-state Noir message must cite private/commitment boundary, got {e.render}"
+
+  -- N1: commitment state public→commitment write + public return materializes
+  -- on accepting targets (lattice: public→commitment OK).
+  let commitmentStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CommMark where\n" ++
+    "  state commitment sealed : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n\n" ++
+    "  entry mark(x : UInt64) : UInt64 do\n" ++
+    "    sealed := x\n" ++
+    "    return x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let commStateV1 ← match ← session.selectProgramV1 commitmentStateSource
+      "<targets-n1-comm-state>" "Examples.CommMark" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N1 comm-state select: {e.render}"
+  let commStateCompiled ← liftResult <| Compiler.compileValidatedSourceV1 commStateV1
+  let commStateData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of commStateCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"N1 comm-state semantic: {repr e}"
+  expect (commStateData.logicalState.any fun s =>
+      s.name == "sealed" && s.visibility == .commitment)
+    "N1 comm-state: sealed retains commitment visibility"
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo] do
+    let out ← liftResult <| materializeSelected target commStateCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"N1 comm-state: {target} must materialize"
+  match materializeSelected TargetId.noir commStateCompiled with
+  | .ok _ =>
+      throw <| IO.userError "N1 comm-state: Noir must decline commitment state at Plan"
+  | .error e =>
+      expect ((e.render).contains "private/commitment state" ||
+          (e.render).contains "not representable")
+        s!"N1 comm-state Noir message must cite boundary, got {e.render}"
+
+  -- N1: unused private param (no public sink) compiles + materializes on EVM.
+  let privateParamSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrivParam where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry increment(delta : UInt64, private witness : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let privParamV1 ← match ← session.selectProgramV1 privateParamSource
+      "<targets-n1-priv-param>" "Examples.PrivParam" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"N1 priv-param select: {e.render}"
+  let privParamCompiled ← liftResult <| Compiler.compileValidatedSourceV1 privParamV1
+  let evmPrivParam ← liftResult <| materializeSelected TargetId.evm privParamCompiled
+  expect (!(MaterializedArtifactsV1.filesOf evmPrivParam).isEmpty)
+    "N1 priv-param: EVM must materialize unused private param"
+  match materializeSelected TargetId.noir privParamCompiled with
+  | .ok _ =>
+      throw <| IO.userError "N1 priv-param: Noir must decline private param at Plan"
+  | .error e =>
+      expect ((e.render).contains "private/commitment parameter" ||
+          (e.render).contains "not representable")
+        s!"N1 priv-param Noir message must cite parameter boundary, got {e.render}"
+
 end Tests.Materialization

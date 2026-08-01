@@ -10,7 +10,8 @@ materializer (EVM / Solana / NEAR / Noir) currently reimplements:
 * ASCII identifier grammar (cap is target-local)
 * generic array duplicate scan
 * anonymous UInt64 / optional UInt32 / Unit / Bool type-closure admission
-* public-UInt64 state/parameter type+visibility predicates
+* UInt64 state/parameter type predicates with per-target visibility policy
+  (`allowNonPublic` — EVM/Solana/NEAR accept private/commitment; Noir declines)
 * LE wire literal decoders (UInt64 / UInt32-via-`decodeU32le` / Bool bit)
 
 ## What stays target-local
@@ -246,33 +247,57 @@ def validatePilotTypeClosure
     otherUintByWidth
   }
 
-/-! ### Public-UInt64 state / parameter predicates
+/-! ### UInt64 state / parameter predicates (visibility policy)
 
-    Type+visibility messages are identical across the four targets (no label
-    substitution). Identifier grammar and identifier **phrasing** stay with the
-    caller: EVM says "EVM ABI identifier"; Solana/NEAR/Noir say "safe
-    identifier". Callers compose `requirePublicUInt64*` with
-    `isAsciiIdentifier` + a target-local message. -/
+    Type messages are identical across the four targets (no label substitution).
+    Identifier grammar and identifier **phrasing** stay with the caller: EVM
+    says "EVM ABI identifier"; Solana/NEAR/Noir say "safe identifier". Callers
+    compose `requirePublicUInt64*` with `isAsciiIdentifier` + a target-local
+    message.
 
-/-- Fail unless `state` is public UInt64 under `uint64TypeId`.
-    Message: `state '{name}' is not public UInt64`. -/
+    **Visibility policy (N1):**
+    * `allowNonPublic = true` — accept public/private/commitment (physical
+      storage/calldata is inherently opaque; product disclosure is sole
+      CheckV1/DisclosureCheck authority). Used by EVM / Solana / NEAR.
+    * `allowNonPublic = false` — require `.public_` (default). Used by Noir:
+      relation state/param slots are public inputs, so private/commitment would
+      leak into the verifier. Pass `nonPublicMsg` for a clear Noir-local
+      decline message. -/
+
+/-- Fail unless `state` is UInt64 under `uint64TypeId`, and public unless
+    `allowNonPublic`. Default message when type fails or (visibility fails and
+    no `nonPublicMsg`): `state '{name}' is not public UInt64`. -/
 def requirePublicUInt64State
     (mkErr : String → CompileError)
     (uint64TypeId : TypeIdV1)
-    (state : StateDeclV1) : CompileResult Unit := do
-  unless state.typeId == uint64TypeId && state.visibility == .public_ do
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless state.typeId == uint64TypeId do
     throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
 
-/-- Fail unless `param` is public UInt64 under `uint64TypeId`.
-    Message: `parameter '{name}' in {owner} is not public UInt64`.
+/-- Fail unless `param` is UInt64 under `uint64TypeId`, and public unless
+    `allowNonPublic`. Message: `parameter '{name}' in {owner} is not public
+    UInt64` (or `nonPublicMsg` when provided for a visibility decline).
     `owner` is the target-local owner string (e.g. `"entry 'inc'"`). -/
 def requirePublicUInt64Param
     (mkErr : String → CompileError)
     (uint64TypeId : TypeIdV1)
     (owner : String)
-    (param : ParameterV1) : CompileResult Unit := do
-  unless param.typeId == uint64TypeId && param.visibility == .public_ do
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless param.typeId == uint64TypeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
 
 /-! ### LE literal decoders
 

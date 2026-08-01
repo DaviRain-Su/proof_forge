@@ -572,7 +572,7 @@ private partial def lowerCallable
   for p in callable.params do
     let isBool ← if isBoolType data p.typeId then pure true
       else if isUInt64Type data p.typeId then pure false
-      else planError "Aleo callable parameter is outside the public UInt64/Bool envelope"
+      else planError "Aleo callable parameter is outside the UInt64/Bool envelope"
     params := params.push { sourceIndex := paramIndex, name := p.name, isBool }
     paramIndex := paramIndex + 1
   -- Seed the value env with callable params (source-indexed), then walk the
@@ -629,8 +629,9 @@ private def makePlanFromSemanticDataV1
   -- State fields (public UInt64 only in this envelope).
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
+    -- N1: Aleo mappings are naturally private; accept any visibility, UInt64 type.
     unless isUInt64Type data state.typeId do
-      planError "Aleo state must be public UInt64"
+      planError "Aleo state must be UInt64"
     stateFields := stateFields.push state.name
   -- Callable names in wire order (pureCall callee resolution).
   let fnNames := data.callables.filterMap fun c =>

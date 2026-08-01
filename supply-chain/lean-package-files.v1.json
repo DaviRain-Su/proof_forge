@@ -181,9 +181,9 @@
       "sha256": "7d0d4911fae19e97ec4f987c56f598584595bb7c531e96c065cbb0e6b5572552"
     },
     {
-      "bytes": 128134,
+      "bytes": 128159,
       "path": "ProofForgeV2/Semantic/NormalizeV1.lean",
-      "sha256": "66c7cdcd6cad57e5735e05e352d5fc011a14bedc0167413b95d77184b067328d"
+      "sha256": "bb044fb7704a677eb88c6efe69531f34d1fd6f5967a43e43094832b8f9818bcb"
     },
     {
       "bytes": 75245,
@@ -201,14 +201,14 @@
       "sha256": "fc6d80d41e00c7cdab1f37fec9485e8a6f60ce0e8b4c188c516dd404fcc0cc7d"
     },
     {
-      "bytes": 6086,
+      "bytes": 6542,
       "path": "ProofForgeV2/Semantic/RequirementIdsV1.lean",
-      "sha256": "608777e7807fa7aed2fcb67e1d56bee5b747fc71f8d48d561034844fefb4a53d"
+      "sha256": "890e2f30d677294678d676815547b0ff49333c14bcea5c6f368af91b4a354037"
     },
     {
-      "bytes": 5921,
+      "bytes": 7061,
       "path": "ProofForgeV2/Semantic/RequirementsV1.lean",
-      "sha256": "7a3992d862fe3ff2470b90eef5147ebc675b1f1e1d359825f658a7f2e20191ae"
+      "sha256": "bf4fc39f10b88b994cd0c20b7d4e33fba827dfe0dfbff1eeb83d6f474ccbae55"
     },
     {
       "bytes": 21809,
@@ -501,9 +501,9 @@
       "sha256": "11797d0fc08a7dfef09577900ec7554e1c4cba693bd75c552636f353e7b81a0d"
     },
     {
-      "bytes": 29894,
+      "bytes": 29964,
       "path": "ProofForgeV2/Targets/Aleo/LowerSemanticV1.lean",
-      "sha256": "ce09917fcb5de37610f4a22524ea44b2400455004f2e6e98989ecc423f4543bb"
+      "sha256": "882cb1fa1e01c4625b4637fd2a56bef4f2c41291ccb9bda7eb32984c2ed0be9a"
     },
     {
       "bytes": 5399,
@@ -536,9 +536,9 @@
       "sha256": "0ae9fea56c0f177d4aa7cd100aad087a29b91f58eb8a389503ab96bb0393c22b"
     },
     {
-      "bytes": 16122,
+      "bytes": 17432,
       "path": "ProofForgeV2/Targets/EnvelopeV1.lean",
-      "sha256": "745216d2da760dc43e4f349078d312e34a4c620f5609b78c5038f9086ed7800a"
+      "sha256": "52a2f19ee99f02501217c824d5117b06a4b2f956ccdd13743edce339fbe7426e"
     },
     {
       "bytes": 1621,
@@ -561,9 +561,9 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 87258,
+      "bytes": 87418,
       "path": "ProofForgeV2/Targets/Evm/LowerSemanticV1.lean",
-      "sha256": "5c4028c3ad3f29f49e65b3de69855161e07060dcbb2b2a26368f9d55cba0ac54"
+      "sha256": "95ce13da85f6ed5b53ccb506cc7cdb5876b7c4c2e511842f13c73a15d379281f"
     },
     {
       "bytes": 22018,
@@ -586,9 +586,9 @@
       "sha256": "a8ba882f8e4f923fe349cd706ee3172fb4be73ddbce603115709e8e0dbb2b6c5"
     },
     {
-      "bytes": 83201,
+      "bytes": 83257,
       "path": "ProofForgeV2/Targets/Near/LowerSemanticV1.lean",
-      "sha256": "b102bb65cfef9225fe317a78cb4946be17cf10bf8d2b0db9fe19636d3f0710ab"
+      "sha256": "9127eb6b4ebd4b17d5a6eccd9b07734082fde4eee26b44e77d59370e829a7719"
     },
     {
       "bytes": 20337,
@@ -611,9 +611,9 @@
       "sha256": "7750e755d58f53f9bbc9c7b9494b2ef4036ac7368a21fc1a64c822b80e21f8bd"
     },
     {
-      "bytes": 81677,
+      "bytes": 82369,
       "path": "ProofForgeV2/Targets/Noir/LowerSemanticV1.lean",
-      "sha256": "f2bdfb6d9e7149041bbb77c51b893132fc70c94fdca666fa87813156e96cb455"
+      "sha256": "19f1a349be47bc41ed90abd316ce4896815fb4e740a74461ef58c626d5939d9e"
     },
     {
       "bytes": 14724,
@@ -636,9 +636,9 @@
       "sha256": "3c8e0eeed131a4fa36283a007017276cafba1eb114ecf3ceef348e07a4104641"
     },
     {
-      "bytes": 29656,
+      "bytes": 29713,
       "path": "ProofForgeV2/Targets/Psy/LowerSemanticV1.lean",
-      "sha256": "b6d70597eb88fb4f12b40114a7ec8714eb282050e7eeaef23a41e326ae10080e"
+      "sha256": "43d8200b61199647ce2a048d9a5956d5eaf76c9f0bf6d490f0a3ae5f9a213483"
     },
     {
       "bytes": 5010,
@@ -676,9 +676,9 @@
       "sha256": "558e479444fa0c4c5e3eea687310aac78d398f8bd773144ab7a92e278b64a1d2"
     },
     {
-      "bytes": 76764,
+      "bytes": 76858,
       "path": "ProofForgeV2/Targets/Solana/LowerSemanticV1.lean",
-      "sha256": "050819b485629e389008d1b9ea4cca6fd59a85dc2f97753f14db1001be5dc2f4"
+      "sha256": "f059d12dff47913cbffe30621f4f99370529ccca45c281cf8d9b5c107fc205c8"
     },
     {
       "bytes": 18515,

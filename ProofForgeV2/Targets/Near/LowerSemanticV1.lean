@@ -409,7 +409,7 @@ private def makeStorageLayoutV1
   for state in states do
     unless state.id.toNat == fields.size do
       throw <| .planInvariant .near "semantic state ids must match declaration order"
-    requirePublicUInt64State nearPlanErr uint64TypeId state
+    requirePublicUInt64State nearPlanErr uint64TypeId state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
     fields := fields.push {
@@ -450,6 +450,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
       throw <| .planInvariant .near
         s!"semantic parameter ValueIds in {owner} must match declaration order"
     requirePublicUInt64Param nearPlanErr uint64TypeId owner param
+      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"

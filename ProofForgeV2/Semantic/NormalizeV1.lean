@@ -80,7 +80,7 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * Int/Field `Op.Unary.neg`, Int arithmetic/shift, private/commitment state,
+    * Int/Field `Op.Unary.neg`, Int arithmetic/shift,
       non-UInt64 call/schedule args and for endpoints, named/aggregate state,
       nonempty Map construction, nested field/index assign chains,
       ContextRead/Commit, match string patterns (no String TypeShape),
@@ -2285,9 +2285,11 @@ private def mkCallable
 
   Passes over ProgramV1 items (not NameResolution tables):
   0. Register source-order named Struct/Enum TypeDecls (contiguous prefix).
-  1. Collect/validate all public legal-UInt states into a complete logicalState
-     table (IDs are source-order among state decls, independent of callable
-     position).
+  1. Collect/validate all legal-UInt states (public/private/commitment) into a
+     complete logicalState table (IDs are source-order among state decls,
+     independent of callable position). Visibility is retained via
+     `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
+     before this lowering (not by the state table gate).
   2. Lower init/entry/view bodies against that complete table.
 -/
 def lowerProgramDataV1 (source : ValidatedSourceV1) :
@@ -2305,12 +2307,10 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 1: complete state/event/error tables (source order among those
   -- items only). Event/error fields stay public legal-UInt in this envelope.
+  -- State rows retain public/private/commitment visibility (N1).
   for item in program.items do
     match item with
     | .state s =>
-        unless s.visibility == ProofForgeV2.Source.AstV1.VisibilityV1.public_ do
-          return ← failUnsupported
-            s!"S1 normalizer supports only public state, got non-public '{raw s.name}'"
         let (interner', tid) ← internSourceType interner s.type_
         interner := interner'
         requireAnonymousUIntTypeId interner.types tid s!"state '{raw s.name}'"
@@ -2319,7 +2319,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           id := sid
           name := raw s.name
           typeId := tid
-          visibility := VisibilityV1.public_
+          visibility := mapVisibility s.visibility
         }
         stateTable := {
           rows := stateTable.rows.push (raw s.name, sid, tid)

@@ -308,7 +308,7 @@ private def makeStateAccountV1
   for state in states do
     unless state.id.toNat == fields.size do
       throw <| .planInvariant .solana "semantic state ids must match declaration order"
-    requirePublicUInt64State solanaPlanErr uint64TypeId state
+    requirePublicUInt64State solanaPlanErr uint64TypeId state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
     fields := fields.push {
@@ -357,6 +357,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
     requirePublicUInt64Param solanaPlanErr uint64TypeId owner param
+      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
@@ -609,9 +610,10 @@ private def buildPureFnTableV1
           throw <| .planInvariant .solana
             s!"fn '{name}' does not return public UInt64 or Bool"
         for param in callable.params do
-          unless param.typeId == types.uint64TypeId && param.visibility == .public_ do
+          -- N1: pureFn params may be private/commitment; type stays UInt64.
+          unless param.typeId == types.uint64TypeId do
             throw <| .planInvariant .solana
-              s!"fn '{name}' parameters must be public UInt64"
+              s!"fn '{name}' parameters must be UInt64"
         byCallableId := byCallableId.set! i (some paramCounts.size)
         paramCounts := paramCounts.push callable.params.size
         resultIsBool := resultIsBool.push isBool

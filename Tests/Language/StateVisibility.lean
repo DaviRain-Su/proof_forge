@@ -29,7 +29,7 @@ private def publicSource (progName statePrefix : String) : String :=
   "end Tests.Language.StateVisibilityFixture\n"
 
 /-- Private/commitment: unused non-public state + public param return so
-    CheckV1/disclosure stays clean while product compile fails at Normalize. -/
+    CheckV1/disclosure stays clean while product compile retains visibility. -/
 private def nonPublicSource (progName statePrefix : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -117,8 +117,9 @@ unsafe def run : IO Unit := do
       semanticDefault.requirements.items.map (·.id) == #["state.persistent"])
     "public/default state must freeze only state.persistent"
 
-  -- Private / commitment: AST + CheckV1 + RequirementsInfer retained; full
-  -- product compile fails closed at Normalize S1 (no alpha-only path).
+  -- Private / commitment: AST + CheckV1 + RequirementsInfer retained; N1 product
+  -- compile succeeds and Semantic state rows keep visibility (disclosure keys
+  -- are freeze-skipped; only state.persistent is frozen).
   match Typed.checkV1 privVis with
   | .ok _ => pure ()
   | .error e => throw <| IO.userError s!"private CheckV1: {e.render}"
@@ -135,19 +136,29 @@ unsafe def run : IO Unit := do
   expect (commIds == #["state.persistent", "disclosure.commitment-state"])
     "commitment state must contribute state-specific disclosure"
 
-  match Compiler.compileValidatedSourceV1 privVis with
-  | .error (.invalidProgram msg) =>
-      expect (msg == "S1 normalizer supports only public state, got non-public 'value'")
-        s!"private compile must fail at Normalize gate, got {msg}"
-  | .error e => throw <| IO.userError s!"private compile wrong error: {e.render}"
-  | .ok _ => throw <| IO.userError "private state must not full-compile past Normalize S1"
-
-  match Compiler.compileValidatedSourceV1 commVis with
-  | .error (.invalidProgram msg) =>
-      expect (msg == "S1 normalizer supports only public state, got non-public 'value'")
-        s!"commitment compile must fail at Normalize gate, got {msg}"
-  | .error e => throw <| IO.userError s!"commitment compile wrong error: {e.render}"
-  | .ok _ => throw <| IO.userError "commitment state must not full-compile past Normalize S1"
+  let compiledPriv ← match Compiler.compileValidatedSourceV1 privVis with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"private compile must succeed (N1): {e.render}"
+  let compiledComm ← match Compiler.compileValidatedSourceV1 commVis with
+    | .ok value => pure value
+    | .error e => throw <| IO.userError s!"commitment compile must succeed (N1): {e.render}"
+  let semanticPriv ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiledPriv) with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"private semantic: {repr error}"
+  let semanticComm ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+      (Compiler.CompiledSemanticV1.semanticV1Of compiledComm) with
+    | .ok data => pure data
+    | .error error => throw <| IO.userError s!"commitment semantic: {repr error}"
+  expect (semanticPriv.logicalState.map (·.visibility) ==
+        #[ProofForgeV2.Semantic.WireV1.VisibilityV1.private_])
+    "private Semantic state declarations must retain private visibility"
+  expect (semanticComm.logicalState.map (·.visibility) ==
+        #[ProofForgeV2.Semantic.WireV1.VisibilityV1.commitment])
+    "commitment Semantic state declarations must retain commitment visibility"
+  expect (semanticPriv.requirements.items.map (·.id) == #["state.persistent"] &&
+      semanticComm.requirements.items.map (·.id) == #["state.persistent"])
+    "private/commitment state freezes only state.persistent (disclosure keys skipped)"
 
   let parserEnv ← parserEnvironment
   expectParserReject "escaped visibility keyword" <|

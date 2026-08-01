@@ -30,16 +30,20 @@
     Bound only by `WireV1.commitmentDisclosureRequirementV1`.
     Not part of the S2 freeze catalog.
 
-  Infer-only contributions (RequirementsInferV1; S2 freeze rejects)
+  Infer-only contributions (RequirementsInferV1)
     No engineering digest is minted for these ids today. They appear as
-    contribution identities from ProgramV1 visibility/type surfaces and are
-    rejected by `RequirementsV1.freezeProgramRequirementsV1` as non-catalog.
+    contribution identities from ProgramV1 visibility/type surfaces.
     Members: `inferOnlyRequirementIdsV1`.
+    N1 freeze policy (`RequirementsV1.freezeProgramRequirementsV1`):
+      * disclosure.private-state / commitment-state / private-witness /
+        commitment — **skipped** (not frozen, not rejected); product disclosure
+        is sole CheckV1/DisclosureCheck authority.
+      * value.field.bn254-fr — still **rejected** as non-catalog.
 
   KNOWN DUAL MEANING — `disclosure.commitment`
     The same UTF-8 id string is carried by:
       * `inferDisclosureCommitmentIdV1` — param-visibility contribution from
-        RequirementsInferV1; rejected at S2 freeze (not in catalog).
+        RequirementsInferV1; skipped at S2 freeze (not in catalog).
       * `wireCommitmentDisclosureIdV1` — exact Commit-op requirement row in
         WireV1 under domain `pf.commit-requirement.v1`.
     This is intentional and safe today because the infer contribution never
@@ -97,24 +101,28 @@ def wireOwnedRequirementIdsV1 : Array String :=
 
 /-! ### Infer-only contribution ids (S2 freeze rejects; no engineering digest) -/
 
-/-- Infer-only: private param / witness disclosure contribution. -/
+/-- Infer-only: private param / witness disclosure contribution.
+    Skipped at S2 freeze (N1); not cataloged. -/
 def inferDisclosurePrivateWitnessIdV1 : String := "disclosure.private-witness"
 
 /-- Infer-only: commitment-visibility param contribution.
     Same spelling as `wireCommitmentDisclosureIdV1` — dual meaning; see
-    module doc. Rejected by S2 freeze. -/
+    module doc. Skipped at S2 freeze (N1). -/
 def inferDisclosureCommitmentIdV1 : String := "disclosure.commitment"
 
-/-- Infer-only: private state disclosure contribution. -/
+/-- Infer-only: private state disclosure contribution.
+    Skipped at S2 freeze (N1); not cataloged. -/
 def inferDisclosurePrivateStateIdV1 : String := "disclosure.private-state"
 
-/-- Infer-only: commitment-visibility state disclosure contribution. -/
+/-- Infer-only: commitment-visibility state disclosure contribution.
+    Skipped at S2 freeze (N1); not cataloged. -/
 def inferDisclosureCommitmentStateIdV1 : String := "disclosure.commitment-state"
 
-/-- Infer-only: bn254 Fr Field type contribution (not S2 catalog). -/
+/-- Infer-only: bn254 Fr Field type contribution (not S2 catalog; freeze rejects). -/
 def inferValueFieldBn254FrIdV1 : String := "value.field.bn254-fr"
 
-/-- Closed infer-only contribution ids (not in S2 catalog; freeze rejects). -/
+/-- Closed infer-only contribution ids (not in S2 catalog).
+    Disclosure ids are freeze-skipped (N1); field bn254 is freeze-rejected. -/
 def inferOnlyRequirementIdsV1 : Array String :=
   #[inferDisclosurePrivateWitnessIdV1, inferDisclosureCommitmentIdV1,
     inferDisclosurePrivateStateIdV1, inferDisclosureCommitmentStateIdV1,

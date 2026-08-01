@@ -348,7 +348,12 @@ private def makeStatesV1
   for state in states do
     unless state.id.toNat == planned.size do
       throw <| .planInvariant .noir "semantic state ids must match declaration order"
+    -- N1: Noir relation state slots are public inputs — private/commitment
+    -- state is not representable without a later witness-input redesign.
     requirePublicUInt64State noirPlanErr uint64TypeId state
+      (allowNonPublic := false)
+      (nonPublicMsg := some
+        "unsupported Noir semantic shape: private/commitment state is not representable (relation state slots are public inputs)")
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
     planned := planned.push { sourceId := state.id.toNat, name := state.name }
@@ -375,7 +380,12 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .noir
         s!"semantic parameter ValueIds in {owner} must match declaration order"
+    -- N1: Noir binds params as public inputs — private/commitment params
+    -- would leak into verifier-visible data.
     requirePublicUInt64Param noirPlanErr uint64TypeId owner param
+      (allowNonPublic := false)
+      (nonPublicMsg := some
+        s!"unsupported Noir semantic shape: private/commitment parameter '{param.name}' in {owner} is not representable (relation parameter slots are public inputs)")
     unless isIdentifier param.name do
       throw <| .planInvariant .noir
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"

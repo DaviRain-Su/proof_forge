@@ -31,7 +31,13 @@
     6. value.bool
     7. value.checked-arithmetic
 
-  A non-catalog contribution fails closed; no partial table is returned. Formal
+  Infer-only disclosure contribution ids (`disclosure.private-state`,
+  `disclosure.commitment-state`, `disclosure.private-witness`,
+  `disclosure.commitment`) are **skipped** (not rejected, not frozen) so that
+  private/commitment state and params can open the product chain without a CAP
+  catalog expansion. Product disclosure remains sole authority of
+  CheckV1/DisclosureCheck (PF-VIS-001) before Normalize. Other non-catalog
+  contributions (e.g. `value.field.bn254-fr`) still fail closed. Formal
   TASK-D2-05 / RequirementRef / predicate merge / contribution origins remain
   pending.
 -/
@@ -45,6 +51,7 @@ import ProofForgeV2.Typed.RequirementsInferV1
 namespace ProofForgeV2.Semantic.RequirementsV1
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Semantic.RequirementIdsV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -131,19 +138,33 @@ private def sortRequirementRequestsV1 (items : Array RequirementRequestV1) :
     out := next
   pure out
 
+/-- Infer-only disclosure ids that CheckV1/DisclosureCheck already enforces.
+    Skipped at freeze (N1) so private/commitment state/params do not invent
+    non-catalog S2 rows or block the product chain. CAP catalog promotion of
+    these ids remains a later formal decision. -/
+private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
+  id == inferDisclosurePrivateWitnessIdV1 ||
+  id == inferDisclosureCommitmentIdV1 ||
+  id == inferDisclosurePrivateStateIdV1 ||
+  id == inferDisclosureCommitmentStateIdV1
+
 /-- Freeze exact ProgramRequirementsV1 from the sole ProgramV1 contribution
-    analysis. Unknown contribution identities fail closed before any request is
-    minted; contribution duplicates have already been removed first-seen by the
-    analysis, while final requests are sorted by canonical wire key. -/
+    analysis. Infer-only disclosure contribution ids are skipped (see module
+    doc). Other unknown contribution identities fail closed before any request
+    is minted; contribution duplicates have already been removed first-seen by
+    the analysis, while final requests are sorted by canonical wire key. -/
 def freezeProgramRequirementsV1 (program : ProgramV1) :
     Except String ProgramRequirementsV1 := do
   let contributions := inferRequirementContributionsV1 program
   let mut items : Array RequirementRequestV1 := #[]
   for contribution in contributions do
     let id := RequirementContributionV1.idOf contribution
-    unless isS2CatalogIdV1 id do
-      throw s!"S2 semantic requirements freeze rejects non-catalog key '{id}'"
-    items := items.push (← mkS2RequirementRequestV1 id)
+    if isSkippedInferDisclosureIdV1 id then
+      pure ()
+    else do
+      unless isS2CatalogIdV1 id do
+        throw s!"S2 semantic requirements freeze rejects non-catalog key '{id}'"
+      items := items.push (← mkS2RequirementRequestV1 id)
   pure { items := ← sortRequirementRequestsV1 items }
 
 /-- Freeze from a validated source unit. -/

@@ -276,19 +276,34 @@ def run : IO Unit := do
   -- The dual-carrier parity seam is deleted: Normalize requirements and
   -- CompiledSemanticV1 digests are now the only product identities.
 
-  -- Decisive Normalize-gate negatives (CheckV1 ok, Normalize rejects, no alpha path).
+  -- N1: private/commitment unused state + public param return compile through
+  -- Normalize and retain Semantic visibility (disclosure keys freeze-skipped).
   let privateUnused ← validated moduleName identity demo #[
     .state (state x (.uint 64) .private_),
     .entry (entry runN (ret (var seed)) #[param seed])]
-  expectInvalid "private state normalize gate"
-    "S1 normalizer supports only public state, got non-public 'x'"
-    (Compiler.compileValidatedSourceV1 privateUnused)
+  let privateCompiled ← compileOk "private state N1 product compile" privateUnused
+  let privateData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of privateCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"private state retained carrier: {repr e}"
+  expect (privateData.logicalState.map (·.visibility) ==
+      #[ProofForgeV2.Semantic.WireV1.VisibilityV1.private_])
+    "private state must retain private visibility on Semantic carrier"
+  expect (privateData.requirements.items.map (·.id) == #["state.persistent"])
+    "private state freezes only state.persistent"
   let commitmentUnused ← validated moduleName identity demo #[
     .state (state x (.uint 64) .commitment),
     .entry (entry runN (ret (var seed)) #[param seed])]
-  expectInvalid "commitment state normalize gate"
-    "S1 normalizer supports only public state, got non-public 'x'"
-    (Compiler.compileValidatedSourceV1 commitmentUnused)
+  let commitmentCompiled ← compileOk "commitment state N1 product compile" commitmentUnused
+  let commitmentData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of commitmentCompiled) with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"commitment state retained carrier: {repr e}"
+  expect (commitmentData.logicalState.map (·.visibility) ==
+      #[ProofForgeV2.Semantic.WireV1.VisibilityV1.commitment])
+    "commitment state must retain commitment visibility on Semantic carrier"
+  expect (commitmentData.requirements.items.map (·.id) == #["state.persistent"])
+    "commitment state freezes only state.persistent"
   let fnLocalClean ← validated moduleName identity demo #[
     ProgramItemV1.fn {
       name := x

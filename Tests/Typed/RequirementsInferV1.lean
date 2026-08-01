@@ -91,37 +91,43 @@ private unsafe def testCounterLike
 
 private unsafe def testForeignContributions
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let cases : Array (String × String × Array String × String) := #[
+  -- N1: private/commitment state+params are legal product surfaces; their
+  -- infer-only disclosure ids are SKIPPED at freeze (never frozen, never
+  -- rejected) — product disclosure is CheckV1/DisclosureCheck sole authority.
+  let skipCases : Array (String × String × Array String × Array String) := #[
     ("private-state",
       "  state private value : UInt64\n  entry ping() : UInt64 do\n    return 0\n",
       #["state.persistent", "disclosure.private-state"],
-      "disclosure.private-state"),
+      #["state.persistent"]),
     ("commitment-state",
       "  state commitment value : UInt64\n  entry ping() : UInt64 do\n    return 0\n",
       #["state.persistent", "disclosure.commitment-state"],
-      "disclosure.commitment-state"),
+      #["state.persistent"]),
     ("private-param",
       "  entry run(private secret : UInt64) : UInt64 do\n    return 0\n",
       #["disclosure.private-witness"],
-      "disclosure.private-witness"),
+      #[]),
     ("commitment-param",
       "  entry run(commitment secret : UInt64) : UInt64 do\n    return 0\n",
       #["disclosure.commitment"],
-      "disclosure.commitment"),
-    ("field",
-      "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n",
-      #["value.field.bn254-fr"],
-      "value.field.bn254-fr")]
-  for testCase in cases do
+      #[])]
+  for testCase in skipCases do
     let label := testCase.1
     let body := testCase.2.1
     let expectedIds := testCase.2.2.1
-    let firstForeign := testCase.2.2.2
+    let frozenIds := testCase.2.2.2
     let (validated, ids) ← inferSource session label (wrap (fixtureProgramName label) body)
     expect (ids == expectedIds) s!"{label}: contribution ids {ids}"
-    expectFreezeReject label
-      s!"S2 semantic requirements freeze rejects non-catalog key '{firstForeign}'"
-      validated
+    expectFreezeIds label validated frozenIds
+  -- Non-disclosure foreign keys still reject (CAP promotion deferred).
+  let (fieldValidated, fieldIds) ← inferSource session "field"
+    (wrap (fixtureProgramName "field")
+      "  entry run(x : Field bn254_fr) : Field bn254_fr do\n    return x\n")
+  expect (fieldIds == #["value.field.bn254-fr"])
+    s!"field: contribution ids {fieldIds}"
+  expectFreezeReject "field"
+    "S2 semantic requirements freeze rejects non-catalog key 'value.field.bn254-fr'"
+    fieldValidated
 
   -- Wave I: call/schedule contributions are catalog members and freeze.
   let callCases : Array (String × String × Array String × Array String) := #[

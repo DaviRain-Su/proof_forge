@@ -227,7 +227,9 @@ private def evmPlanErr (message : String) : CompileError :=
 /-- EVM pilot admits anonymous UInt{8,16,32,64} + Unit + Bool under
     `pilotUintWidthPolicyEvmBody`. Body multi-width values (lets, arith,
     comparisons, shifts) are allowed; **state and ABI parameters stay
-    public UInt64** via `requirePublicUInt64*`. UInt128/256/Int fail closed. -/
+    UInt64** via `requirePublicUInt64*` with `allowNonPublic := true` (N1:
+    physical storage/calldata is opaque; product disclosure is CheckV1).
+    UInt128/256/Int fail closed. -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
@@ -242,7 +244,7 @@ private def makeStorageLayoutV1
   for state in states do
     unless state.id.toNat == layout.size do
       throw <| .planInvariant .evm "semantic state ids must match declaration order"
-    requirePublicUInt64State evmPlanErr uint64TypeId state
+    requirePublicUInt64State evmPlanErr uint64TypeId state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
     layout := layout.push {
@@ -276,6 +278,7 @@ private def makeParamsV1 (owner : String) (uint64TypeId : TypeIdV1)
       throw <| .planInvariant .evm
         s!"semantic parameter ValueIds in {owner} must match declaration order"
     requirePublicUInt64Param evmPlanErr uint64TypeId owner param
+      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .evm
         s!"parameter name '{param.name}' in {owner} is not an EVM ABI identifier"

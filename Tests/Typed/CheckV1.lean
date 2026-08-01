@@ -2374,15 +2374,89 @@ private unsafe def testFnIdentitySupported
       | .error e => throw <| IO.userError s!"fn-identity: validate: {repr e}"
   | .error e => throw <| IO.userError s!"fn-identity: normalize must now succeed, got {repr e}"
 
-private unsafe def testUnsupportedPrivateState
+/-- N1: private state normalizes and retains Semantic visibility. -/
+private unsafe def testPrivateStateVisibilityMapped
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "PrivState" <|
     "  state private secret : UInt64\n" ++
     "  entry ping(x : UInt64) : UInt64 do\n" ++
     "    return x\n"
-  expectUnsupportedAfterCheckOk session "priv" source
-    (fun d => d.contains "public" || d.contains "private" || d.contains "non-public")
-    "public/non-public state"
+  let validated ← loadSource session "priv-state-map" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "priv-state-map: CheckV1.ok"
+  expect typed.analysisComplete "priv-state-map: CheckV1.analysisComplete"
+  match normalizeProgramV1 validated with
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .ok data =>
+          expect (data.logicalState.size == 1) "priv-state-map: one state"
+          let some st := data.logicalState[0]? |
+            throw <| IO.userError "priv-state-map: missing state"
+          expect (st.name == "secret" && st.visibility == .private_)
+            s!"priv-state-map: expected private secret, got name={st.name} vis={repr st.visibility}"
+          expect (data.requirements.items.map (·.id) == #["state.persistent"])
+            s!"priv-state-map: expected only state.persistent, got {data.requirements.items.map (·.id)}"
+      | .error e => throw <| IO.userError s!"priv-state-map: validate: {repr e}"
+  | .error e => throw <| IO.userError s!"priv-state-map: normalize must succeed (N1), got {repr e}"
+
+/-- N1: commitment state normalizes and retains Semantic visibility.
+    Lattice: public→commitment assign OK; commitment→public return is PF-VIS-001. -/
+private unsafe def testCommitmentStateVisibilityMapped
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CommState" <|
+    "  state commitment sealed : UInt64\n" ++
+    "  entry mark(x : UInt64) : UInt64 do\n" ++
+    "    sealed := x\n" ++
+    "    return x\n"
+  let validated ← loadSource session "comm-state-map" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "comm-state-map: CheckV1.ok"
+  match normalizeProgramV1 validated with
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .ok data =>
+          let some st := data.logicalState[0]? |
+            throw <| IO.userError "comm-state-map: missing state"
+          expect (st.name == "sealed" && st.visibility == .commitment)
+            s!"comm-state-map: expected commitment sealed, got name={st.name} vis={repr st.visibility}"
+          expect (data.requirements.items.map (·.id) == #["state.persistent"])
+            s!"comm-state-map: expected only state.persistent, got {data.requirements.items.map (·.id)}"
+      | .error e => throw <| IO.userError s!"comm-state-map: validate: {repr e}"
+  | .error e => throw <| IO.userError s!"comm-state-map: normalize must succeed (N1), got {repr e}"
+
+/-- N1: private state write + public result from public data only. -/
+private unsafe def testPrivateStateWriteOnly
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "PrivWrite" <|
+    "  state count : UInt64\n" ++
+    "  state private secret : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "    secret := 0\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    secret := secret + d\n" ++
+    "    count := count + d\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "priv-write" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok "priv-write: CheckV1.ok"
+  match normalizeProgramV1 validated with
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .ok data =>
+          expect (data.logicalState.size == 2) "priv-write: two states"
+          let some st0 := data.logicalState[0]? |
+            throw <| IO.userError "priv-write: missing state0"
+          let some st1 := data.logicalState[1]? |
+            throw <| IO.userError "priv-write: missing state1"
+          expect (st0.name == "count" && st0.visibility == .public_)
+            "priv-write: count public"
+          expect (st1.name == "secret" && st1.visibility == .private_)
+            "priv-write: secret private"
+      | .error e => throw <| IO.userError s!"priv-write: validate: {repr e}"
+  | .error e => throw <| IO.userError s!"priv-write: normalize must succeed, got {repr e}"
 
 private unsafe def testUnsupportedParamShadowsStateAssign
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -4223,35 +4297,33 @@ private unsafe def testMissingRequirementProducingSite
       throw <| IO.userError
         "missing-req-site: carried requirement without source site was accepted"
 
-/-- S2: freezeProgramRequirementsV1 rejects non-catalog contribution keys. -/
+/-- S2 freeze: disclosure infer-only keys are skipped (N1); other foreign keys reject. -/
 private unsafe def testFreezeRejectsForeignKeys
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- private state contributes disclosure.private-state (foreign to S2 catalog)
+  -- private state: disclosure.private-state skipped; freezes state.persistent only
   let privateStateSrc := wrap "FreezePrivState" <|
     "  state private secret : UInt64\n" ++
     "  entry ping(x : UInt64) : UInt64 do\n" ++
     "    return x\n"
   let privState ← loadSource session "freeze-priv-state" privateStateSrc
   match freezeProgramRequirementsV1 privState.program with
-  | .ok _ =>
-      throw <| IO.userError "freeze-priv-state: expected non-catalog rejection"
+  | .ok frozen =>
+      expect (frozen.items.map (·.id) == #["state.persistent"])
+        s!"freeze-priv-state: expected state.persistent only, got {frozen.items.map (·.id)}"
   | .error detail =>
-      expect (detail ==
-          "S2 semantic requirements freeze rejects non-catalog key 'disclosure.private-state'")
-        s!"freeze-priv-state detail: {detail}"
-  -- unused private param contributes disclosure.private-witness
+      throw <| IO.userError s!"freeze-priv-state: expected skip+freeze, got {detail}"
+  -- unused private param: disclosure.private-witness skipped; empty freeze OK
   let privateParamSrc := wrap "FreezePrivParam" <|
     "  entry run(private secret : UInt64) : UInt64 do\n" ++
     "    return 0\n"
   let privParam ← loadSource session "freeze-priv-param" privateParamSrc
   match freezeProgramRequirementsV1 privParam.program with
-  | .ok _ =>
-      throw <| IO.userError "freeze-priv-param: expected non-catalog rejection"
+  | .ok frozen =>
+      expect frozen.items.isEmpty
+        s!"freeze-priv-param: expected empty freeze (witness skipped), got {frozen.items.map (·.id)}"
   | .error detail =>
-      expect (detail ==
-          "S2 semantic requirements freeze rejects non-catalog key 'disclosure.private-witness'")
-        s!"freeze-priv-param detail: {detail}"
-  -- Bool result contributes catalog value.bool and now freezes.
+      throw <| IO.userError s!"freeze-priv-param: expected skip+freeze, got {detail}"
+  -- Bool result contributes catalog value.bool and freezes.
   let boolSrc := wrap "FreezeBool" <|
     "  entry run() : Bool do\n" ++
     "    return true\n"
@@ -4262,7 +4334,7 @@ private unsafe def testFreezeRejectsForeignKeys
         s!"freeze-bool: expected catalog value.bool freeze, got {frozen.items.map (·.id)}"
   | .error detail =>
       throw <| IO.userError s!"freeze-bool: expected catalog freeze, got {detail}"
-  -- emit contributes catalog effect.event and now freezes.
+  -- emit contributes catalog effect.event and freezes.
   let emitSrc := wrap "FreezeEmit" <|
     "  event Tick()\n" ++
     "  entry run() : Unit do\n" ++
@@ -4275,7 +4347,7 @@ private unsafe def testFreezeRejectsForeignKeys
         s!"freeze-emit: expected catalog effect.event freeze, got {frozen.items.map (·.id)}"
   | .error detail =>
       throw <| IO.userError s!"freeze-emit: expected catalog freeze, got {detail}"
-  -- End-to-end: CheckV1-ok Counter-like with unused private param hits freeze via normalize
+  -- End-to-end: unused private param normalizes (witness key skipped at freeze)
   let e2eSrc := wrap "FreezeE2EPrivParam" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
@@ -4290,15 +4362,23 @@ private unsafe def testFreezeRejectsForeignKeys
   expect typed.ok "freeze-e2e: CheckV1.ok"
   expect typed.analysisComplete "freeze-e2e: CheckV1.analysisComplete"
   match normalizeProgramV1 e2e with
-  | .ok _ =>
-      throw <| IO.userError "freeze-e2e: expected unsupported (foreign freeze)"
-  | .error (.unsupported detail) =>
-      expect (detail.contains
-          "S2 semantic requirements freeze rejects non-catalog key 'disclosure.private-witness'" ||
-          detail.contains "disclosure.private-witness")
-        s!"freeze-e2e detail: {detail}"
+  | .ok carrier =>
+      match validateSemanticProgramV1 carrier with
+      | .ok data =>
+          let some entryC := data.callables.find? (·.kind == .entry) |
+            throw <| IO.userError "freeze-e2e: missing entry"
+          expect (entryC.params.size == 2) "freeze-e2e: two params"
+          let some w := entryC.params[1]? |
+            throw <| IO.userError "freeze-e2e: missing witness param"
+          expect (w.name == "witness" && w.visibility == .private_)
+            s!"freeze-e2e: witness private, got name={w.name} vis={repr w.visibility}"
+          -- Catalog keys only (no disclosure.private-witness row).
+          expect (data.requirements.items.map (·.id) ==
+              #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"])
+            s!"freeze-e2e reqs: {data.requirements.items.map (·.id)}"
+      | .error e => throw <| IO.userError s!"freeze-e2e: validate: {repr e}"
   | .error e =>
-      throw <| IO.userError s!"freeze-e2e: expected unsupported, got {repr e}"
+      throw <| IO.userError s!"freeze-e2e: normalize must succeed (N1), got {repr e}"
 
 /-- Local LE encoder for multi-width valueBytes pins (matches Wire UInt/Int layout). -/
 private def encodeNatLeBytes (n : Nat) (byteLen : Nat) : ByteArray := Id.run do
@@ -5436,7 +5516,9 @@ unsafe def run : IO Unit := do
   testUInt64LiteralProvenance session
   testUInt64SubtractionProvenance session
   testFnIdentitySupported session
-  testUnsupportedPrivateState session
+  testPrivateStateVisibilityMapped session
+  testCommitmentStateVisibilityMapped session
+  testPrivateStateWriteOnly session
   testUnsupportedBoolState session
   testUnsupportedBoolParam session
   testUnsupportedAssertElse session
