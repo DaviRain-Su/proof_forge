@@ -8,6 +8,12 @@ import ProofForgeV2.Semantic.ReferenceMachineV1
   defined by the lower InvariantFoundationV1 module under this same namespace.
   This façade owns evalInvariantV1 / InvariantTheoremV1 and depends on the
   lower machine without creating a cycle back through the public façade.
+
+  N5b note (engineering): invariant callables cannot contain `Op.ContextRead`
+  or `Op.Commit` (Wire structure gate on roots and reachable pureFn closure).
+  `evalInvariantV1` therefore never supplies invocation context and never
+  steps those ops; ContextRead/Commit product step semantics live solely on
+  `stepReferenceSliceV1` for init/entry/view roots.
 -/
 
 namespace ProofForgeV2.Semantic.InvariantABI

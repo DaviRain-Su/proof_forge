@@ -62,6 +62,12 @@
        construct/fieldGet/fieldSet, Enum construct + constructor-pattern match
        (VariantTag/Payload), expression-match join block-params, expression
        match on Enum constructors, and Principal admission fail-closed.
+   22. N5b ContextRead/Commit product step: Normalize `context.unixTimeSeconds`
+       + bare `commit(x)` → admit → `stepReferenceSliceV1` with explicit
+       context input; init/entry/view identity; missing context
+       `invalidInvocation`; Commit+StateStore success publishes; assert-fail
+       after ContextRead/Commit+store rolls back pre-state (label-only Commit
+       never publishes alone).
 
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (no carrier bypass).
@@ -1851,6 +1857,79 @@ private def testContextReadReferenceSlice : IO Unit := do
     (stepReferenceSliceV1 admitted initialized
       (invWithContext 2 #[] context) trailingResp)
     .invalidExternalResponse initialized
+
+  -- N5b rollback pins: ContextRead / Commit never publish overlay; assert-fail
+  -- after either op discards provisional state stores and keeps pre byte-for-byte.
+  let rollbackTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 64 },
+    { id := 1, name := none, shape := .bool },
+    { id := 2, name := none, shape := .unit }
+  ]
+  let rollbackState : Array StateDeclV1 := #[
+    { id := 0, name := "count", typeId := 0, visibility := .public_ }
+  ]
+  let contextThenAssert := mkEntry 0 "ctxThenAssert" #[] 2
+    #[
+      instr (some (vd 0 0)) (.contextRead key),
+      instr (some (vd 1 1)) (.literal 1 (ByteArray.mk #[0])),
+      instr none (.assert_ 1 none #[])
+    ]
+    (.return_ none)
+  let commitStoreThenAssert := mkEntry 0 "commitStoreAssert" #[] 2
+    #[
+      instr (some (vd 0 0)) (.literal 0 (u64Bytes 99)),
+      instr (some (vd 1 0)) (.commit 0),
+      instr none (.stateStore 0 1),
+      instr (some (vd 2 1)) (.literal 1 (ByteArray.mk #[0])),
+      instr none (.assert_ 2 none #[])
+    ]
+    (.return_ none)
+  let commitStoreOk := mkEntry 0 "commitStoreOk" #[] 2
+    #[
+      instr (some (vd 0 0)) (.literal 0 (u64Bytes 42)),
+      instr (some (vd 1 0)) (.commit 0),
+      instr none (.stateStore 0 1)
+    ]
+    (.return_ none)
+  let rbBase ← emptyData "ContextCommitRollback"
+  let rbCtxCarrier ← encodeCarrier "ctx-then-assert" {
+    rbBase with
+      types := rollbackTypes
+      logicalState := rollbackState
+      callables := #[contextThenAssert]
+      requirements := { items := #[requirement] }
+  }
+  let rbCtxAdmitted ← admitOk "ctx-then-assert" rbCtxCarrier
+  let rbPre : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 7) }
+  expectRevertedStandard "context-read-then-assert-rollback"
+    (stepReferenceSliceV1 rbCtxAdmitted rbPre
+      (invWithContext 0 #[] context) emptyResponses)
+    .assertionFailed rbPre
+  let rbCmCarrier ← encodeCarrier "commit-store-assert" {
+    rbBase with
+      types := rollbackTypes
+      logicalState := rollbackState
+      callables := #[commitStoreThenAssert]
+      requirements := { items := #[commitRequirement] }
+  }
+  let rbCmAdmitted ← admitOk "commit-store-assert" rbCmCarrier
+  expectRevertedStandard "commit-store-then-assert-rollback"
+    (stepReferenceSliceV1 rbCmAdmitted rbPre (inv 0 #[]) emptyResponses)
+    .assertionFailed rbPre
+  let rbOkCarrier ← encodeCarrier "commit-store-ok" {
+    rbBase with
+      types := rollbackTypes
+      logicalState := rollbackState
+      callables := #[commitStoreOk]
+      requirements := { items := #[commitRequirement] }
+  }
+  let rbOkAdmitted ← admitOk "commit-store-ok" rbOkCarrier
+  let rbPost : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 42) }
+  expectReturned "commit-identity-store-publishes-on-return"
+    (stepReferenceSliceV1 rbOkAdmitted rbPre (inv 0 #[]) emptyResponses)
+    rbPost none #[]
 
 /-- Unit return shape: return_ none ok; return_ (some unit) → invalidCore. -/
 private def testUnitReturnShape : IO Unit := do
@@ -4009,6 +4088,172 @@ private def testBn254FieldLowerRunner : IO Unit := do
     (stepReferenceSliceV1 admitted pre (inv 0 #[]) emptyResponses)
     .divisionByZero pre
 
+/-- N5b product path: Normalize `context.unixTimeSeconds` / bare `commit(x)`
+    → admit → `stepReferenceSliceV1` with explicit context input.
+    Pins init/entry/view identity, missing-context gate, Commit+store publish,
+    and assert-fail rollback after ContextRead / Commit+store. -/
+private unsafe def testContextCommitNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let key := unixTimeSecondsContextKeyV1
+  let clock : Nat := 1700000000
+  -- Sole ContextRead surface: entry returns the invocation context value.
+  let ctxSrc := wrap "CtxNormRef" <|
+    "  entry now() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n" ++
+    "  view peekNow() : UInt64 do\n" ++
+    "    return context.unixTimeSeconds\n"
+  let ctxVal ← loadSource session "ctx-norm-ref" ctxSrc
+  let ctxCarrier ← match normalizeProgramV1 ctxVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ctx-norm-ref: normalize: {repr e}"
+  let ctxData ← match validateSemanticProgramV1 ctxCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ctx-norm-ref: validate: {repr e}"
+  let ctxAdmitted ← admitOk "ctx-norm-ref" ctxCarrier
+  let some u64Tid := findAnonUint ctxData.types 64 |
+    throw <| IO.userError "ctx-norm-ref: missing UInt64"
+  expect (ctxData.requirements.items.any fun r =>
+      r.id == unixTimeSecondsContextRequirementIdV1)
+    "ctx-norm-ref: context requirement row"
+  let hasCtxOp := ctxData.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i =>
+        match i.op with
+        | .contextRead k => k == key
+        | _ => false
+  expect hasCtxOp "ctx-norm-ref: Op.ContextRead present"
+  -- No initializer → initial state already initialized with empty slots.
+  let ctxPre ← match initialLogicalStateV1 ctxCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ctx-norm-ref: initial: {repr e}"
+  expect ctxPre.initialized "ctx-norm-ref: no-init program starts initialized"
+  let clockVal := refU64 u64Tid clock
+  let ctxRows : Array ContextInputV1 := #[{ key, value := clockVal }]
+  expectReturned "ctx-norm-entry-now"
+    (stepReferenceSliceV1 ctxAdmitted ctxPre
+      (invWithContext 0 #[] ctxRows) emptyResponses)
+    ctxPre (some clockVal) #[]
+  expectReturned "ctx-norm-view-peek"
+    (stepReferenceSliceV1 ctxAdmitted ctxPre
+      (invWithContext 1 #[] ctxRows) emptyResponses)
+    ctxPre (some clockVal) #[]
+  expectTrapped "ctx-norm-missing-context"
+    (stepReferenceSliceV1 ctxAdmitted ctxPre (inv 0 #[]) emptyResponses)
+    .invalidInvocation ctxPre
+  -- Deterministic repeat with same context snapshot.
+  let again :=
+    stepReferenceSliceV1 ctxAdmitted ctxPre
+      (invWithContext 0 #[] ctxRows) emptyResponses
+  expectReturned "ctx-norm-det" again ctxPre (some clockVal) #[]
+
+  -- Commit identity: store commit(x) into commitment state; return public x.
+  let cmSrc := wrap "CommitNormRef" <|
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry wrap(x : UInt64) : UInt64 do\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return x\n" ++
+    "  view getSealed() : UInt64 do\n" ++
+    "    return 0\n"
+  -- view cannot return commitment; keep a public constant view for lifecycle.
+  -- (sealed is only written; product view of commitment would be PF-VIS-001.)
+  let cmVal ← loadSource session "commit-norm-ref" cmSrc
+  let cmCarrier ← match normalizeProgramV1 cmVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"commit-norm-ref: normalize: {repr e}"
+  let cmData ← match validateSemanticProgramV1 cmCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"commit-norm-ref: validate: {repr e}"
+  let cmAdmitted ← admitOk "commit-norm-ref" cmCarrier
+  let some cmU64 := findAnonUint cmData.types 64 |
+    throw <| IO.userError "commit-norm-ref: missing UInt64"
+  expect (cmData.requirements.items.any fun r =>
+      r.id == commitmentDisclosureRequirementIdV1)
+    "commit-norm-ref: disclosure.commitment requirement"
+  let hasCommitOp := cmData.callables.any fun c =>
+    c.blocks.any fun b =>
+      b.instructions.any fun i =>
+        match i.op with | .commit _ => true | _ => false
+  expect hasCommitOp "commit-norm-ref: Op.Commit present"
+  expect (cmData.callables.size == 3) "commit-norm-ref: init/entry/view"
+  let cmInitial ← match initialLogicalStateV1 cmCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"commit-norm-ref: initial: {repr e}"
+  let cmAfterInit :=
+    stepReferenceSliceV1 cmAdmitted cmInitial (inv 0 #[]) emptyResponses
+  let cmZero : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 0) }
+  expectReturned "commit-norm-init" cmAfterInit cmZero none #[]
+  let cmWrap :=
+    stepReferenceSliceV1 cmAdmitted cmZero (inv 1 #[refU64 cmU64 42]) emptyResponses
+  let cmSealed : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (u64Bytes 42) }
+  expectReturned "commit-norm-wrap" cmWrap cmSealed (some (refU64 cmU64 42)) #[]
+
+  -- Combined ContextRead + Commit, then assert-fail rollback on a later entry.
+  let bothSrc := wrap "CtxCommitNormRef" <|
+    "  state public count : UInt64\n" ++
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "    sealed := 0\n" ++
+    "  entry stamp(x : UInt64) : UInt64 do\n" ++
+    "    let t : UInt64 := context.unixTimeSeconds\n" ++
+    "    sealed := commit(x)\n" ++
+    "    count := t\n" ++
+    "    return x\n" ++
+    "  entry boom(x : UInt64) : UInt64 do\n" ++
+    "    let t : UInt64 := context.unixTimeSeconds\n" ++
+    "    sealed := commit(x)\n" ++
+    "    count := t\n" ++
+    "    assert false\n" ++
+    "    return x\n"
+  let bothVal ← loadSource session "ctx-commit-norm-ref" bothSrc
+  let bothCarrier ← match normalizeProgramV1 bothVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"ctx-commit-norm-ref: normalize: {repr e}"
+  let bothData ← match validateSemanticProgramV1 bothCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"ctx-commit-norm-ref: validate: {repr e}"
+  let bothAdmitted ← admitOk "ctx-commit-norm-ref" bothCarrier
+  let some bothU64 := findAnonUint bothData.types 64 |
+    throw <| IO.userError "ctx-commit-norm-ref: missing UInt64"
+  expect (bothData.logicalState.size == 2) "ctx-commit-norm-ref: two states"
+  let bothInitial ← match initialLogicalStateV1 bothCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ctx-commit-norm-ref: initial: {repr e}"
+  let bothAfterInit :=
+    stepReferenceSliceV1 bothAdmitted bothInitial (inv 0 #[]) emptyResponses
+  -- State order = source order: count then sealed.
+  let bothZero : LogicalStateV1 :=
+    { initialized := true
+      canonicalValues :=
+        (stateSlot (u64Bytes 0)).append (stateSlot (u64Bytes 0)) }
+  expectReturned "ctx-commit-norm-init" bothAfterInit bothZero none #[]
+  let bothCtx : Array ContextInputV1 :=
+    #[{ key, value := refU64 bothU64 clock }]
+  let stamped :=
+    stepReferenceSliceV1 bothAdmitted bothZero
+      (invWithContext 1 #[refU64 bothU64 7] bothCtx) emptyResponses
+  let bothStamped : LogicalStateV1 :=
+    { initialized := true
+      canonicalValues :=
+        (stateSlot (u64Bytes clock)).append (stateSlot (u64Bytes 7)) }
+  expectReturned "ctx-commit-norm-stamp" stamped bothStamped
+    (some (refU64 bothU64 7)) #[]
+  -- boom: ContextRead + Commit + stores then assert false → pre preserved.
+  let boom :=
+    stepReferenceSliceV1 bothAdmitted bothStamped
+      (invWithContext 2 #[refU64 bothU64 99] bothCtx) emptyResponses
+  expectRevertedStandard "ctx-commit-norm-boom-rollback" boom
+    .assertionFailed bothStamped
+  -- Missing context on stamp is invalidInvocation even after successful init.
+  expectTrapped "ctx-commit-norm-stamp-missing-ctx"
+    (stepReferenceSliceV1 bothAdmitted bothStamped
+      (inv 1 #[refU64 bothU64 1]) emptyResponses)
+    .invalidInvocation bothStamped
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -4046,6 +4291,8 @@ unsafe def run : IO Unit := do
   testExprMatchNormalizeReference session
   testExprMatchEnumNormalizeReference session
   testPrincipalNormalizeAdmissionRejected session
+  -- N5b: ContextRead/Commit product step semantics
+  testContextCommitNormalizeReference session
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1

@@ -12152,3 +12152,30 @@ normative: false
 - NoirRelationModel：host step 窄宽 ops + `checkNarrowBodyProduct`（UInt8 state add Plan/IR/source）。
 - Boundary：工程切片；**不是** formal D2/D4；Field 路径未改。
 
+## 2026-08-01 — N5b ContextRead/Commit Reference step semantics + product traces
+
+- Engineering slice only (not formal TASK-D2-07 / TST-SEM-002/003).
+- Context: N5 opened sole Normalize surface `context.unixTimeSeconds` →
+  `Op.ContextRead` key `proof-forge.context.unix-time-seconds.v1` (UInt64) and
+  bare `commit(x)` → `Op.Commit` label-only identity; targets decline ContextRead
+  and only admit Commit passthrough on EVM/Solana/NEAR. Pre-existing Reference
+  machine already stepped both ops; N5b pins the product Normalize→Reference
+  path and explicit rollback contract.
+- Step contract (`ReferenceMachineV1` / public `ReferenceV1` façade):
+  * ContextRead reads immutable per-invocation `InvocationV1.context` snapshot
+    after exact selected-root PureCall-closure key/type/canonical gate
+    (missing/extra/wrong type → `invalidInvocation` before lifecycle/responses).
+  * Commit is label-only identity (exact TypeId + canonical valueBytes; no
+    hash/salt/re-encode); does not publish overlay/effects alone.
+  * Only `.returned` publishes overlay/effects; assert-fail / revert / trap after
+    ContextRead or Commit+StateStore discard provisional overlay (pre
+    byte-for-byte). Invariant roots/closure still forbid both ops at Wire gate;
+    `evalInvariantV1` uses empty context.
+- Tests: hand-built ContextRead suite extended with ContextRead→assert and
+  Commit+store→assert rollback + Commit+store success publish; new Normalize
+  product path `testContextCommitNormalizeReference` (entry/view clock, missing
+  context, Commit wrap into commitment state, combined stamp/boom rollback);
+  Normalize structure suite cross-ref note; InvariantABI header N5b boundary.
+- Boundary: not formal `step` / CAP binding / target ContextRead Plan Expr;
+  cryptographic commitment realization remains target-owned; pureFn ContextRead/
+  Commit remain Normalize fail-closed.

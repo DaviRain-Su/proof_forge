@@ -13,6 +13,10 @@
     * exact definitional InvariantTheoremV1 proposition shape
     * deterministic repeat
 
+  N5b: invariant fixtures remain free of `Op.ContextRead` / `Op.Commit`
+  (Wire structure forbids them on roots and reachable pureFn closure).
+  Product ContextRead/Commit step traces live in `Tests.Semantic.ReferenceV1`.
+
   Hand fixtures always pass through `encodeSemanticProgramDataV1` then
   `decodeSemanticProgramV1` (structure-gated carrier; no bypass).
 -/

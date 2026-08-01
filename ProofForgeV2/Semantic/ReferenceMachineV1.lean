@@ -44,6 +44,29 @@ import ProofForgeV2.Semantic.WireV1
     * only `.returned` commits overlay/effects; init success sets
       `initialized=true`; revert/trap return pre byte-for-byte
 
+  N5b ContextRead / Commit step contract (engineering; product surface via N5
+  Normalize `context.unixTimeSeconds` / bare `commit(x)`):
+    * ContextRead: sole admitted wire key
+      `proof-forge.context.unix-time-seconds.v1` → anonymous UInt64. Invocation
+      gate collects the exact key/result-TypeId set reachable from the selected
+      root through static PureCall edges; supplied `InvocationV1.context` must
+      be strict key-ascending, exact membership, TypeId match, and canonical
+      valueBytes, else `invalidInvocation` (before lifecycle and responses).
+      Runtime looks up the immutable Machine-level context snapshot (not
+      copied into PureCall frames); missing/TypeId mismatch after the gate is
+      `internalInvariant`. Context never enters overlay or ordered effects.
+    * Commit: label-only identity (SPEC wire). Result binds the operand's
+      exact TypeId and canonical valueBytes unchanged; no hash, salt, or
+      re-encode; no overlay/effect mutation. Cryptographic commitment
+      realization remains target capability/materialization.
+    * Rollback: ContextRead and Commit do not publish state. Any provisional
+      StateStore after Commit, or any ContextRead on a path that later
+      assert-fails / reverts / traps, discards the overlay with the standard
+      terminal rule — pre-state byte-for-byte, zero committed effects.
+    * Invariant roots and reachable pureFn closure still forbid ContextRead
+      and Commit at the Wire structure gate; `runInvariantCallableV1` uses an
+      empty context array.
+
   No `partial` / `unsafe` / `IO`. Does not import alpha Core.Semantics /
   SemanticIR or the upper InvariantABI façade. Does not export formal `step`.
 -/

@@ -5919,7 +5919,9 @@ private unsafe def testNestedConstructorPattern
       | .error e => throw <| IO.userError s!"nest-ctor: structure {repr e}"
   | .error e => throw <| IO.userError s!"nest-ctor: normalize {repr e}"
 
-/-- N5: ContextRead sole key `context.unixTimeSeconds` in entry + wire requirement. -/
+/-- N5: ContextRead sole key `context.unixTimeSeconds` in entry + wire requirement.
+    N5b step traces (explicit InvocationV1.context → returned UInt64) live in
+    `Tests.Semantic.ReferenceV1.testContextCommitNormalizeReference`. -/
 private unsafe def testContextUnixTimeSeconds
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "CtxTime" <|
