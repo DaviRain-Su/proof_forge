@@ -1016,6 +1016,31 @@ theorem genericCfgPhases_data :
   · exact falsehoodCfg_data
   · rfl
 
+/-- Direct root restrictions, exact membership, and PureFn metadata agreement
+    close the production invariant-closure prefix. -/
+theorem invariantClosureMembershipPhases_data :
+    validateInvariantClosureMembershipPhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosureMembershipPhasesV1_eq_ok
+  · rfl
+  · exact computeInvariantClosureMembership_data
+  · apply validatePureFnInvariantClosureMembershipFourV1
+      gate leaf truth falsehood 3 <;> rfl
+
+/-- The public production DAG prefix consumes that exact membership. Its
+    actual graph builder yields indegree #[0,1,0,0], caller adjacency
+    #[#[],#[],#[1],#[]], and three members; source-index ready collection is
+    #[2,3], after which Kahn appends leaf 1 and processes all three members. -/
+theorem invariantClosureDagPhases_data :
+    validateInvariantClosureDagPhasesV1 data.callables =
+      .ok closureMembers := by
+  apply validateInvariantClosureDagPhasesV1_eq_ok
+  · exact invariantClosureMembershipPhases_data
+  · apply validateInvariantClosureDagCanonicalFourV1
+    · rfl
+    · rfl
+    · rfl
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

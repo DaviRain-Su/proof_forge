@@ -660,3 +660,8 @@ closure首个kernel结果现已闭合：production worklist `while`机械抽取�
 worker；每个callable由members bit保证最多append一次，pending work耗尽fuel时fail-closed。canonical roots
 先seed `#[2,3]`，truth发现pure leaf 1，最终exact members为`#[false,true,true,true]`。额外tight-fuel
 回归固定多root、duplicate call及reachable PureFn cycle下恰好处理四项；metadata/DAG/CFG/op closure仍pending。
+
+紧随membership的两项closure gate现已闭合。metadata source-index scan改为等价total worker并确认唯一
+PureFn `truthLeaf`的steps present与member bit一致。call-DAG保留caller→block→instruction顺序，将graph
+build、ready collect与Kahn queue分别抽为fuel worker；canonical graph精确为indegree `#[0,1,0,0]`、
+adjacency `#[#[],#[],#[1],#[]]`、ready `#[2,3]`，Kahn追加1并处理3 members。下一项为closure CFG。
