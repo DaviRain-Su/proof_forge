@@ -6432,6 +6432,47 @@ private unsafe def testNestedConstructorPattern
       | .error e => throw <| IO.userError s!"nest-ctor: structure {repr e}"
   | .error e => throw <| IO.userError s!"nest-ctor: normalize {repr e}"
 
+/-- N-7: two-level nested constructor + bind payload extraction. -/
+private unsafe def testNestedCtorDepth2Bind
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "NestDepth2" <|
+    "  enum L3 where\n" ++
+    "    | C(UInt64)\n" ++
+    "    | X\n" ++
+    "  enum L2 where\n" ++
+    "    | B(L3)\n" ++
+    "    | Y\n" ++
+    "  enum L1 where\n" ++
+    "    | A(L2)\n" ++
+    "    | Z\n" ++
+    "  entry run(x : L1) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | L1.A(L2.B(L3.C(v))) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "nest-depth2" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"nest-depth2: CheckV1 {typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"nest-depth2: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"nest-depth2: validate: {repr e}"
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "nest-depth2: missing entry"
+  let payloadCount := entryC.blocks.foldl (fun acc blk =>
+    acc + blk.instructions.foldl (fun a instr =>
+      match instr.op with | .variantPayload _ _ _ => a + 1 | _ => a) 0) 0
+  -- Outer A payload, then B payload, then C payload (bind v).
+  expect (payloadCount ≥ 3)
+    s!"nest-depth2: expected ≥3 VariantPayload, got {payloadCount}"
+  let tagCount := entryC.blocks.foldl (fun acc blk =>
+    acc + blk.instructions.foldl (fun a instr =>
+      match instr.op with | .variantTag _ => a + 1 | _ => a) 0) 0
+  expect (tagCount ≥ 1) s!"nest-depth2: VariantTag present, got {tagCount}"
+
 /-- N-A2: multi-arm same outer ctor with nested constructor discrimination. -/
 private unsafe def testMultiArmSameOuterNestedCtor
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6838,6 +6879,7 @@ unsafe def run : IO Unit := do
   testMatchConstructorPatternOnEnumParam session
   testStringStateLiteralEqMatch session
   testNestedConstructorPattern session
+  testNestedCtorDepth2Bind session
   testContextUnixTimeSeconds session
   testContextCaller session
   testCommitIdentityPublic session
@@ -6938,6 +6980,7 @@ unsafe def run : IO Unit := do
   testStmtMatchOptionLikeEnum session
   testNestedCtorPatternFailClosed session
   testStringStateLiteralEqMatch session
+  testNestedCtorDepth2Bind session
   -- N-A2 multi-arm same outer constructor
   testMultiArmSameOuterNestedCtor session
   testMultiArmSameOuterNestedLit session
