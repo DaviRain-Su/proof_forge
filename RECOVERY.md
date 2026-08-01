@@ -14,9 +14,19 @@ ValidatedSourceV1
 
 当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
 structure-valid `SemanticProgramV1`，并直接构造四个 target Plan；产品编译、resolver 与 artifact
-identity 已不再持有 alpha carrier。D3 侧已有工程 registry/SupportClaim/BuildIdentity/Materialized/
-Finalized/disk-closure，但 **formal** `registryDigest` / SupportClaim / BuildIdentity / `OutputSetV1`
-与完整 Phase-1 语言/runtime DoD 仍未闭合。这是迁移中的工程纵切面，不是目标链已经完成。
+identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
+Materialized/Finalized/disk-closure 与部分 planDigest 绑定，但 **formal** `registryDigest` /
+SupportClaim / 可达 BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
+仍未闭合。这是迁移中的工程纵切面，不是目标链已经完成。
+
+### D3-E1 产品决策（2026-08-02）
+
+**正式-layout `registryDigest` / registry root codec 不进入当前产品路径。**
+工程 sole authority 保持 frozen `TargetRegistryV1` membership/default/profile（无 root digest
+字段；inspection-only engineering digests 不得充当 product selection / capability / artifacts
+身份）。在 formal D3 TASK 与 codec 冻结前，**不**把工程 registry 伪装成 formal registry root；
+也不在 CLI/publisher 暴露伪 `registryDigest`。该边界为 **永久工程-only**，直到显式 formal
+切片重新打开产品面。
 
 **日常工程队列**（非 formal）：[`docs/engineering-backlog.md`](docs/engineering-backlog.md)。
 
