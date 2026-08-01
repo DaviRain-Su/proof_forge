@@ -68,7 +68,7 @@ body temps + narrowChecked*/narrowBit*/narrowShl/Shr；EmitIR/WAT 高位 shr_u �
 NearHostModel + `testNarrowBodyProductPath`；UInt32 count 用 narrowCheckedAdd 32。
 shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t8c-near-body）。
 
-### [pending] T8d：Noir body 多宽 UInt8/16/32
+### [in_progress] T8d：Noir body 多宽 UInt8/16/32
 - 镜像 T8a；与 Field 算术路径交叉要小心（narrow* 只作用于 UInt）
 
 ### [pending] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet
