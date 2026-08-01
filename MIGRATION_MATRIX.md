@@ -295,7 +295,8 @@ single-block callables直接消费，不复制nested decoder。canonical Block z
 组合真实双array headers、exact element call count及public Terminator；Callable九字段也已提升为
 public decoder composition；canonical empty-params/singleton-Block/empty-loop shape现已闭合，kind/name/
 result/steps仍由真实production decoder决定。root count=4 callables array现可按source order组合四次真实
-Callable decoder；具体kind约束仍不由transport theorem伪造。
+Callable decoder；具体kind约束仍不由transport theorem伪造。九字段root body现已提升到public tagged
+decoder，仍不包含magic/finish/structure gate。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

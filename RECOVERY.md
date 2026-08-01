@@ -429,6 +429,11 @@ root四callable iterator run现已闭合：通用`decodeArray_fourV1`只接受�
 `maxTableElements`与`decodeCallableV1`。它只证明四个supplied callable的顺序，不伪造entry/pureFn/
 invariant kinds；具体fixture各项仍由前述public Callable successes提供。下一步接入root body callables field。
 
+public tagged root fields composition现已接通：九字段body theorem直接穿过sole root nesting wrapper，
+保持qualifiedName→types→constants→logicalState→events→errors→callables→invariants→requirements，
+所有tables仍锁定`maxTableElements` production decoder，final requirements cursor保留input/offset并恢复
+root parent depth。四-callable result可直接作为`hcallables`；magic、finish与structure仍明确不在该结论内。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

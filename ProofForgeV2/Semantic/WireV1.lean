@@ -309,6 +309,45 @@ theorem decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 (c : Cursor)
   unfold decodeSemanticProgramDataTaggedV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose all nine root fields directly through the tagged root decoder. -/
+theorem decodeSemanticProgramDataTaggedV1_eq_of_fields
+    (c cTag cName cTypes cConstants cState cEvents cErrors cCallables cInvariants
+      cRequirements : Cursor)
+    (qualifiedName : QualifiedName) (types : Array TypeDeclV1)
+    (constants : Array ConstantV1) (logicalState : Array StateDeclV1)
+    (events : Array EventDeclV1) (errors : Array ErrorDeclV1)
+    (callables : Array CallableV1) (invariants : Array InvariantDeclV1)
+    (requirements : ProgramRequirementsV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "SemanticProgram.Data" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hname : decodeQualifiedName cTag = .ok (qualifiedName, cName))
+    (htypes : decodeArray maxTableElements decodeTypeDeclV1 cName = .ok (types, cTypes))
+    (hconstants : decodeArray maxTableElements decodeConstantV1 cTypes =
+      .ok (constants, cConstants))
+    (hstate : decodeArray maxTableElements decodeStateDeclV1 cConstants =
+      .ok (logicalState, cState))
+    (hevents : decodeArray maxTableElements decodeEventDeclV1 cState = .ok (events, cEvents))
+    (herrors : decodeArray maxTableElements decodeErrorDeclV1 cEvents = .ok (errors, cErrors))
+    (hcallables : decodeArray maxTableElements decodeCallableV1 cErrors =
+      .ok (callables, cCallables))
+    (hinvariants : decodeArray maxTableElements decodeInvariantDeclV1 cCallables =
+      .ok (invariants, cInvariants))
+    (hrequirements : decodeProgramRequirementsV1 cInvariants =
+      .ok (requirements, cRequirements)) :
+    decodeSemanticProgramDataTaggedV1 c = .ok ({
+      qualifiedName, types, constants, logicalState, events, errors,
+      callables, invariants, requirements
+    }, ⟨cRequirements.input, cRequirements.offset, c.nesting⟩) :=
+  decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 c {
+    qualifiedName, types, constants, logicalState, events, errors,
+    callables, invariants, requirements
+  } cRequirements hdepth
+    (decodeSemanticProgramDataBodyV1_eq_of_fields
+      ⟨c.input, c.offset, c.nesting + 1⟩ cTag cName cTypes cConstants cState cEvents
+      cErrors cCallables cInvariants cRequirements qualifiedName types constants logicalState
+      events errors callables invariants requirements htag hname htypes hconstants hstate hevents
+      herrors hcallables hinvariants hrequirements)
+
 /-- Transport decode only: magic/tags/limits/nesting/trailing. No structure gate. -/
 def decodeSemanticProgramDataV1 (bytes : ByteArray) :
     Except SemanticWireErrorV1 SemanticProgramDataV1 := do

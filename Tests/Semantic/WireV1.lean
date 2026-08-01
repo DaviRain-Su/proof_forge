@@ -355,6 +355,37 @@ example (c c' : Cursor) (data : SemanticProgramDataV1)
       .ok (data, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 c data c' hdepth hbody
 
+example (c cTag cName cTypes cConstants cState cEvents cErrors cCallables cInvariants
+    cRequirements : Cursor) (qualifiedName : QualifiedName) (types : Array TypeDeclV1)
+    (constants : Array ConstantV1) (logicalState : Array StateDeclV1)
+    (events : Array EventDeclV1) (errors : Array ErrorDeclV1)
+    (callables : Array CallableV1) (invariants : Array InvariantDeclV1)
+    (requirements : ProgramRequirementsV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "SemanticProgram.Data" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hname : decodeQualifiedName cTag = .ok (qualifiedName, cName))
+    (htypes : decodeArray maxTableElements decodeTypeDeclV1 cName = .ok (types, cTypes))
+    (hconstants : decodeArray maxTableElements decodeConstantV1 cTypes =
+      .ok (constants, cConstants))
+    (hstate : decodeArray maxTableElements decodeStateDeclV1 cConstants =
+      .ok (logicalState, cState))
+    (hevents : decodeArray maxTableElements decodeEventDeclV1 cState = .ok (events, cEvents))
+    (herrors : decodeArray maxTableElements decodeErrorDeclV1 cEvents = .ok (errors, cErrors))
+    (hcallables : decodeArray maxTableElements decodeCallableV1 cErrors =
+      .ok (callables, cCallables))
+    (hinvariants : decodeArray maxTableElements decodeInvariantDeclV1 cCallables =
+      .ok (invariants, cInvariants))
+    (hrequirements : decodeProgramRequirementsV1 cInvariants =
+      .ok (requirements, cRequirements)) :
+    decodeSemanticProgramDataTaggedV1 c = .ok ({
+      qualifiedName, types, constants, logicalState, events, errors,
+      callables, invariants, requirements
+    }, ⟨cRequirements.input, cRequirements.offset, c.nesting⟩) :=
+  decodeSemanticProgramDataTaggedV1_eq_of_fields c cTag cName cTypes cConstants cState
+    cEvents cErrors cCallables cInvariants cRequirements qualifiedName types constants
+    logicalState events errors callables invariants requirements hdepth htag hname htypes
+    hconstants hstate hevents herrors hcallables hinvariants hrequirements
+
 example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
     (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
     decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=
