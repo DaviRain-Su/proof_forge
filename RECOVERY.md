@@ -300,6 +300,11 @@ success保留body返回input/offset并恢复parent nesting；`decodeTag_eq_of_re
 success进入既有UTF-8与String ASCII gate。原private ASCII helper仅原样公开为`isAsciiTagV1`供theorem
 陈述，encoder/decoder继续共享同一实现。下一步组合TypeShape sum与TypeDecl；formal状态不变。
 
+TypeShape组合前置层现已完成：原anonymous production sum body仅机械抽为
+`decodeTypeShapeBodyV1`，public `decodeTypeShapeV1`仍exactly由一次`withTaggedNesting`包装；12个tag分支、
+field count、payload顺序与错误相位不变。`decodeFieldCount_eq_of_readU16leV1`从真实u16 success暴露
+exact offset与`.badFieldCount` mismatch。下一步组合nullary Bool/Principal/Unit与TypeDecl；formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

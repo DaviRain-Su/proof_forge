@@ -267,6 +267,18 @@ example (c : Cursor) (raw : ByteArray) (offset : Nat)
             .error .badTag :=
   decodeTag_eq_of_readBytesV1 c raw offset hread
 
+example (c : Cursor) (expected : Nat) (count : UInt16) (offset : Nat)
+    (hread : readU16leAtV1 c.input c.offset = .ok (count, offset)) :
+    decodeFieldCount expected c =
+      if count.toNat == expected then
+        .ok ((), ⟨c.input, offset, c.nesting⟩)
+      else
+        .error .badFieldCount :=
+  decodeFieldCount_eq_of_readU16leV1 expected c count offset hread
+
+example :
+    decodeTypeShapeV1 ⟨ByteArray.empty, 0, maxNesting⟩ = .error .limitExceeded := by rfl
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

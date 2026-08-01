@@ -11427,3 +11427,14 @@ normative: false
   input/offset/nesting时的恢复语义；focused build和blocker review通过。
 - Boundary：这是root types/TypeShape组合的共同前置层，不代表任何root table或完整carrier已闭合；
   `InvariantTheoremV1`及formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 TypeShape body and field-count proof seams
+
+- Production：将`decodeTypeShapeV1`原anonymous body机械命名为sole `decodeTypeShapeBodyV1`，public
+  decoder仍为一次`withTaggedNesting`包装；Bool/UInt/Int/Principal/Unit/Bytes/Array/Map/Option/Field/
+  Struct/Enum十二分支及顺序无变化。
+- Proof：`decodeFieldCount_eq_of_readU16leV1`从真实shared u16 reader success进入既有equal/mismatch
+  gate，保留exact cursor及`.badFieldCount`。kernel theorem reuse和nesting-limit example通过，blocker
+  review批准。
+- Boundary：本切片只提供root types组合前置层；nullary shape/TypeDecl/root types array与完整carrier
+  尚未组合，formal TASK/TST状态不变。

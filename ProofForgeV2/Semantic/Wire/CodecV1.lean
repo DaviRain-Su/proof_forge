@@ -859,6 +859,19 @@ def decodeFieldCount (expected : Nat) : Decoder Unit := fun c => do
     return ← err .badFieldCount
   pure ((), c)
 
+/-- Field-count composition through the shared u16 reader, preserving exact
+    mismatch and cursor behavior. -/
+theorem decodeFieldCount_eq_of_readU16leV1 (expected : Nat) (c : Cursor)
+    (count : UInt16) (offset : Nat)
+    (hread : readU16leAtV1 c.input c.offset = .ok (count, offset)) :
+    decodeFieldCount expected c =
+      if count.toNat == expected then
+        .ok ((), ⟨c.input, offset, c.nesting⟩)
+      else
+        .error .badFieldCount := by
+  simp only [decodeFieldCount, decodeU16le, hread, Bind.bind, Pure.pure,
+    Except.bind, Except.pure, err]
+
 def expectTag (want : String) (fieldCount : Nat) : Decoder Unit := fun c => do
   let offset ← expectTaggedHeaderBytesAtV1 c.input c.offset want.toUTF8 fieldCount
   pure ((), ⟨c.input, offset, c.nesting⟩)
@@ -941,7 +954,8 @@ def encodeTypeShapeV1 : TypeShapeV1 → Except SemanticWireErrorV1 ByteArray
       let variantsB ← encodeArray encodeEnumVariantV1 variants
       encodeTagged "Type.Enum" #[variantsB]
 
-def decodeTypeShapeV1 : Decoder TypeShapeV1 := withTaggedNesting fun c => do
+/-- Sole production body for the TypeShape tagged sum. -/
+def decodeTypeShapeBodyV1 : Decoder TypeShapeV1 := fun c => do
   let (tag, c) ← decodeTag c
   match tag with
   | "Type.Bool" => do
@@ -992,6 +1006,9 @@ def decodeTypeShapeV1 : Decoder TypeShapeV1 := withTaggedNesting fun c => do
       let (variants, c) ← decodeArray maxArrayElements decodeEnumVariantV1 c
       pure (.enum variants, c)
   | _ => err .badTag
+
+def decodeTypeShapeV1 : Decoder TypeShapeV1 :=
+  withTaggedNesting decodeTypeShapeBodyV1
 
 def encodeTypeDeclV1 (d : TypeDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id
