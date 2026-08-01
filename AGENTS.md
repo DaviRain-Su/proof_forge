@@ -25,14 +25,16 @@
 | Recovery authority | [`RECOVERY.md`](RECOVERY.md) |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
-| Phase 1 targets | `evm`, `solana`, `near`, `noir` |
+| Phase 1 targets | `evm`, `solana`, `near`, `noir`, `aleo`, `psy` |
 | Design-only targets | `cosmwasm`, `soroban`, `icp`, `openvm` |
 
 `docs/04-task-breakdown.md` 与既有 evidence ledger 继续保存 D0/D1 release-qualification
 历史，但不再生成日常产品工作的完成条件。恢复期间禁止新增 `D1-PA-*`、资格协议、
 custody 服务或 formal-evidence ceremony。
 
-成熟度声明仍必须准确：EVM 已有 `solc` bytecode 与 Anvil Counter/overflow 验证；NEAR
+成熟度声明仍必须准确：EVM 已有 `solc` bytecode、**EvmSolc 真实 solc 编译验收门**
+（M4 PlanSchema/ValidateIR + 产品 Yul 过 `solc --strict-assembly`，solc 缺席干净跳过）
+与历史 Anvil Counter/overflow smoke（formal Reference↔Anvil closure 仍缺）；NEAR
 只有 raw-u64 Counter/Accumulator 的 `wat2wasm` 结构验证；Solana 已有真实 SBPF 汇编
 发射（`EmitSbpfAsmV1` 完整 Operation 表面）+ 锁定 `sbpf`（blueshift-gg/sbpf 0.2.2
 pinned d835bc6e，cargo-git source-build 供给，Tool Lock v4）汇编成 Solana ELF `.so`
@@ -40,8 +42,9 @@ pinned d835bc6e，cargo-git source-build 供给，Tool Lock v4）汇编成 Solan
 运行时差分**（`runtime-tests/solana` + `scripts/solana_runtime_test.sh`：Counter +
 七 fixture LoopSum/MathOps/FnCall/Events/MultiField/MatchOps/NarrowGates 覆盖 S1b
 发射面与 body 多宽 UInt8/16/32；非 formal Stage-0/hermetic）；**T8 已铺四 target**：
-state/param UInt8/16/32 ABI + body 多宽（UInt128/256 与窄结果仍 fail closed）；Noir 只有 target-owned Plan/typed relation
-IR 与 source packages。
+state/param UInt8/16/32 ABI + body 多宽（UInt128/256 与窄结果仍 fail closed）；Noir 只有
+target-owned Plan/typed relation IR 与 source packages；Aleo/Psy 均为 source-only
+（target-owned Plan/IR/source packages，无 compiler/VM 验收门）。
 不得把静态制品写成部署、运行或证明完成。
 
 ## Mandatory Reading Order

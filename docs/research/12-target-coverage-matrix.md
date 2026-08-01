@@ -121,8 +121,8 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | Phase 1 targets 表 | AGENTS.md 列 4 个（evm/solana/near/noir），实际 6 个 implemented（漏 aleo/psy） | MatrixSync |
-| **D-2** | 成熟度声明 | 仍写"EVM Anvil Counter 验证"——EvmSolc 已升级到 solc 编译验收，应更新 | MatrixSync |
+| **D-1** | Phase 1 targets 表 | **已闭合（MatrixSync）**：AGENTS.md Phase 1 targets = 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；Design-only = `cosmwasm`/`soroban`/`icp`/`openvm`；`MIGRATION_MATRIX` D3-02 seed 同步为 6+4 | MatrixSync |
+| **D-2** | 成熟度声明 | **已闭合（MatrixSync）**：AGENTS 成熟度声明写明 EvmSolc 真实 solc 验收 + 历史 Anvil smoke；NEAR wat2wasm；Solana SBPF+Mollusk；Noir/Aleo/Psy source-only；coverage §2 验收矩阵与之一致 | MatrixSync |
 
 ## 4. Wave 队列（按优先级 + 可并行性）
 

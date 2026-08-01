@@ -12590,3 +12590,14 @@ normative: false
 - Tests：`Tests/Materialization/Aleo` 增 Field/named Struct/Array/Commit/ContextRead 钉。
 - 矩阵 ALEO 列与 B-1c 已更新（GAP→FAIL-CLOSED 或 Commit→LOWERED）；source-only 成熟度不变。
 - 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md/RECOVERY.md；不碰 off-limits target。
+
+## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
+
+- AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；
+  Design-only 保持 `cosmwasm`/`soroban`/`icp`/`openvm`。
+- AGENTS.md 成熟度声明：EVM 写明 EvmSolc 真实 solc 编译验收（M4）+ 历史 Anvil smoke；NEAR
+  wat2wasm 结构；Solana SBPF+ELF+Mollusk；Noir/Aleo/Psy source-only。
+- MIGRATION_MATRIX：D3-02 registry seed 4+6 → 6+4；D3/S5 support index 四行 → 七行；共享 consumer
+  表补 Solana SBPF/Mollusk 与 Aleo/Psy source-only 工程事实（formal 仍 pending）。
+- docs/research/12-target-coverage-matrix.md：D-1/D-2 文档缺口标为 MatrixSync 已闭合。
+- 纯 docs；无代码/formal task 状态变更。
