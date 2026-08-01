@@ -1,5 +1,8 @@
 import ProofForgeV2.Targets.Evm
 import ProofForgeV2.Targets.Evm.PlanSchemaV1
+import ProofForgeV2.Targets.Solana.PlanSchemaV1
+import ProofForgeV2.Targets.Near.PlanSchemaV1
+import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
@@ -57,9 +60,9 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
       else
         return none
 
-/-- M4: bind engineering Plan digest into identity.
-    EVM recomputes `engineeringEvmPlanDigestV1` from the capability Plan;
-    other targets bind `engineeringAbsentPlanDigestV1` (no Plan schema yet). -/
+/-- M4/T9d: bind engineering Plan digest into identity.
+    EVM/Solana/NEAR/Noir recompute target Plan schema digests; design-only
+    targets bind `engineeringAbsentPlanDigestV1`. -/
 private def planDigestForCapabilityV1
     (capability : ResolvedEngineeringBuildV1) : CompileResult Digest := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
@@ -70,6 +73,24 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: EVM plan digest failed: {e}"
+  | .solana =>
+      let plan ← Solana.planFromCapability capability
+      match Solana.engineeringSolanaPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: Solana plan digest failed: {e}"
+  | .near =>
+      let plan ← Near.planFromCapability capability
+      match Near.engineeringNearPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: NEAR plan digest failed: {e}"
+  | .noir =>
+      let plan ← Noir.planFromCapability capability
+      match Noir.engineeringNoirPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: Noir plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with

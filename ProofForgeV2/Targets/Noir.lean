@@ -4,6 +4,7 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Noir.LowerSemanticV1
 import ProofForgeV2.Targets.Noir.ValidatePlanV1
+import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.EmitIRV1
 
 /-!

@@ -12629,3 +12629,12 @@ normative: false
 - 负向：Int128 仍 fail closed
 - 金样：SolanaPlanV1 testNarrowIntAbi 绿
 - 非 formal；不改 AGENTS.md/MIGRATION_MATRIX.md
+
+## 2026-08-01 — T9d：M5 planDigest 绑 Solana/NEAR/Noir identity
+
+- 新增 `Targets/{Solana,Near,Noir}/PlanSchemaV1`：domain-separated engineering Plan digest
+  （`pf.solana-plan.engineering.v1` / `pf.near-plan.engineering.v1` / `pf.noir-plan.engineering.v1`）
+- `Registry.planDigestForCapabilityV1` 四 Phase-1 target 均从 capability Plan 重算 digest；
+  Aleo/Psy 仍 `engineeringAbsentPlanDigestV1`
+- IdentityChain 金样：evm/solana/near/noir 分别对照 engineering*PlanDigestV1
+- 非 formal OutputSetV1/BuildIdentity；不改 AGENTS.md/MIGRATION_MATRIX.md

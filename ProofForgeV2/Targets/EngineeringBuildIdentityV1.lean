@@ -54,7 +54,7 @@ structure EngineeringBuildIdentityV1 where
   engineeringRegistryRootDigest : Digest
   supportClaimDigest : Digest
   /-- Target Plan engineering digest (M4). EVM uses
-      `engineeringEvmPlanDigestV1`; other targets bind
+      `engineeringEvmPlanDigestV1`; Aleo/Psy bind
       `engineeringAbsentPlanDigestV1` so the identity chain always carries a
       plan slot without inventing fake Plan schemas. -/
   planDigest : Digest
@@ -176,7 +176,7 @@ def engineeringBuildIdentityDigestV1
     planDigest
   domainSeparatedSha256 engineeringBuildIdentityDomainV1 bytes
 
-/-- Domain for targets that have no engineering Plan schema yet (non-EVM M4). -/
+/-- Domain for targets that have no engineering Plan schema yet (design-only). -/
 def engineeringAbsentPlanDomainV1 : String :=
   "pf.plan.engineering.absent.v1"
 

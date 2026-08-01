@@ -378,9 +378,11 @@ private def validateInputTypes (relation : Targets.Noir.RelationIR)
     let actual := inputs[index]!
     match expected, actual with
     | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _
+    | .i8, .u64 _ | .i16, .u64 _ | .i32, .u64 _ | .i64, .u64 _
     | .bool, .bool _ | .field, .u64 _ => pure ()
-    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ =>
-        return ← modelError s!"input {index} must be UInt"
+    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _
+    | .i8, .bool _ | .i16, .bool _ | .i32, .bool _ | .i64, .bool _ =>
+        return ← modelError s!"input {index} must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input {index} must be Bool"
     | .field, .bool _ => return ← modelError s!"input {index} must be Field"
 
@@ -517,9 +519,11 @@ private def bindInputs (relation : Targets.Noir.RelationIR)
       | none => modelError s!"no model value for input '{binding.name}'"
     match binding.type, value with
     | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _
+    | .i8, .u64 _ | .i16, .u64 _ | .i32, .u64 _ | .i64, .u64 _
     | .bool, .bool _ | .field, .u64 _ => values := values.push value
-    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ =>
-        return ← modelError s!"input '{binding.name}' must be UInt"
+    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _
+    | .i8, .bool _ | .i16, .bool _ | .i32, .bool _ | .i64, .bool _ =>
+        return ← modelError s!"input '{binding.name}' must be UInt/Int"
     | .bool, .u64 _ => return ← modelError s!"input '{binding.name}' must be Bool"
     | .field, .bool _ => return ← modelError s!"input '{binding.name}' must be Field"
   return values
@@ -2571,13 +2575,6 @@ private unsafe def checkNarrowAbiNegatives : IO Unit := do
       "    big := 0\n\n" ++
       "  entry ping(x : UInt64) : UInt64 do\n" ++
       "    return x\n"),
-    ("int8-param", "Examples.Int8Param",
-      "program Int8Param where\n" ++
-      "  state count : UInt64\n\n" ++
-      "  init(i : UInt64) do\n" ++
-      "    count := i\n\n" ++
-      "  entry ping(x : Int8) : UInt64 do\n" ++
-      "    return count\n"),
     ("uint128-result", "Examples.U128Result",
       "program U128Result where\n" ++
       "  state count : UInt64\n\n" ++

@@ -2824,7 +2824,8 @@ private unsafe def testNarrowBodyProductPath
   expectContains watFile.contents "i32.store8" "narrow-body WAT store8"
   expectContains watFile.contents "i32.load8_u" "narrow-body WAT load8_u"
 
-/-- T8b-NEAR negatives: UInt128 state, Int8 param, narrow entry result fail closed. -/
+/-- T8b-NEAR negatives: UInt128 state/result fail closed (Int8 param admitted
+    by T9c-2, moved to testInt8ParamAdmitted). -/
 private unsafe def testNarrowAbiNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
   let cases : Array (String × String × String) := #[
@@ -2835,13 +2836,6 @@ private unsafe def testNarrowAbiNegatives
       "    big := 0\n\n" ++
       "  entry ping(x : UInt64) : UInt64 do\n" ++
       "    return x\n"),
-    ("int8-param", "Examples.Int8Param",
-      "program Int8Param where\n" ++
-      "  state count : UInt64\n\n" ++
-      "  init(i : UInt64) do\n" ++
-      "    count := i\n\n" ++
-      "  entry ping(x : Int8) : UInt64 do\n" ++
-      "    return count\n"),
     ("uint128-result", "Examples.U128Result",
       "program U128Result where\n" ++
       "  state count : UInt64\n\n" ++
@@ -3252,8 +3246,10 @@ private unsafe def testUInt128StateRejected (session : Language.Loader.ParserSes
               throw <| IO.userError "UInt128 state must fail closed at NEAR plan"
 
 /-- T8b-NEAR: Int8 param remains fail-closed (narrow Int not on ABI surface). -/
-private unsafe def testInt8ParamRejected (session : Language.Loader.ParserSession) :
+private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSession) :
     IO Unit := do
+  -- T9c-2 opened narrow Int8/16/32 ABI params on NEAR; this was a T8b-NEAR
+  -- negative (Int8 fail-closed) and is now a positive (Int8 admitted).
   let sourceText :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3267,20 +3263,19 @@ private unsafe def testInt8ParamRejected (session : Language.Loader.ParserSessio
     "end ProofForgeV2.Examples\n"
   let source ← liftResult (← session.selectProgramV1
     sourceText "<near-host-i8>" "Examples.Int8Param" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error _ => pure ()
-  | .ok compiled =>
-      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
-      match Targets.resolveEngineeringRequirementsV1 selection compiled with
-      | .error _ => pure ()
-      | .ok capability =>
-          match Targets.Near.planFromCapability capability with
-          | .error e =>
-              expect (e.render.contains "UInt64" || e.render.contains "not public" ||
-                  e.render.contains "unsupported")
-                s!"Int8 param must fail closed, got {e.render}"
-          | .ok _ =>
-              throw <| IO.userError "Int8 param must fail closed at NEAR plan"
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .error e => throw <| IO.userError s!"Int8 param compile failed: {e.render}"
+    | .ok c => pure c
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← match Targets.resolveEngineeringRequirementsV1 selection compiled with
+    | .error e => throw <| IO.userError s!"Int8 param resolve failed: {e.render}"
+    | .ok cap => pure cap
+  match Targets.Near.planFromCapability capability with
+  | .error e =>
+      throw <| IO.userError s!"Int8 param must be admitted on NEAR (T9c-2), got {e.render}"
+  | .ok plan =>
+      expect (plan.entries.any fun e => e.name == "set")
+        "Int8 param: NEAR plan has set entry"
 
 unsafe def run : IO Unit := do
   runCheckedSubFast
@@ -3307,7 +3302,7 @@ unsafe def run : IO Unit := do
   testBoolNotHostExecution session
   testAbiMultiWidthStateParam session
   testUInt128StateRejected session
-  testInt8ParamRejected session
+  testInt8ParamAdmitted session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)
