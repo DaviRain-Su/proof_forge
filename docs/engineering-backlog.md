@@ -218,9 +218,9 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **T9a–T9c-2** | 窄结果 / EVM UInt128·256 / 窄 Int 四 target | **done**（roadmap merged） |
-| **T9d** | NEAR/Solana/Noir `planDigest` 绑 BuildIdentity/OutputSet（镜像 M4） | in_progress |
+| **T9d** | NEAR/Solana/Noir `planDigest` 绑 BuildIdentity/OutputSet（镜像 M4） | **done**（`c3626725f` / roadmap 2026-08-01） |
 | **T9e** | Solana/NEAR UInt128/256 多字算术（先设计后实现，可拆） | pending |
-| **T9-0** | MIGRATION_MATRIX 深度对齐 | pending（= DOC-1） |
+| **T9-0** | 控制面/文档对齐 | **partial**（DOC-1/4/5 done；Matrix 长表扫除仍待） |
 
 ---
 
@@ -228,9 +228,9 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 文件边界 | 状态 |
 |---|---|---|---|
-| **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | pending |
-| **B-1b** | Noir named 聚合 | Noir/** | **done**（矩阵） |
-| **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（矩阵） |
+| **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
+| **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
+| **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
 | **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | pending |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | pending |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | pending |
@@ -308,16 +308,14 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 ## 推荐击杀顺序（产品开发）
 
 ```text
-0. BUILD-1/2/6（小改 justfile，立刻改善日常循环）
-1. DOC-1 / T9-0 + DOC-4/5（控制面与 dossier 对齐，避免假状态）
-2. T9d 收尾 →（可选）T9e 设计
-3. Normalize 串行：N-A2 → N-A1 → N-A4 → N-1/N-A3/N-BYTES → N-2 → N-3 → N-4 …
+0. ~~DOC-1/4/5 + T9d + B-1a/b/c~~（2026-08-01/02 已合入 main）
+1. **BUILD-1/2/6**（justfile 小改：shard 并行、worker 移出默认 build、test-shard）— 立刻改善循环
+2. **Normalize 串行主轴**（Wave 2 当前）：N-A2 → N-A1 → N-A4 → N-1/N-A3/N-BYTES → N-2 → N-3 → N-4 …
    （每切片：测试 RED → 实现 → 四 target fail-closed 或 lower → Reference 跟进）
-4. 并行 leaf：B-1a NearAggregate、B-1d/e 钉边界、C-1 NearWasm（文件不重叠）
-5. 语言面够用后：APP-1 PrivateSum4 回归 + NS-1 Token 试金石（非 IBC）
-6. Wave 3 D3-E* 在“sole Normalize 主面够用”后收紧 identity/output
-7. Wave 4 EVM-first completion；EXT-CRYPTO / NS-2+ 仅在 Token 证明模型后
-8. 需要“全集闭包”时再开 DOC-SPEC-AUDIT（不要假装本文件已是闭包）
+3. 并行 leaf：B-1d/e 钉 Map/Bytes/Option 边界、**C-1** NearWasm runtime（文件不重叠）
+4. **T9e** 仅在需要宽整数跨 Solana/NEAR 时开设计（大切片，勿插队）
+5. 语言面够用后：APP-1 PrivateSum4 + NS-1 Token 试金石（非 IBC）
+6. Wave 3 D3-E* / Wave 4 EVM-first；EXT-CRYPTO 在 Token 之后
 ```
 
 **切片纪律**（继承 roadmap-t8 / AGENTS）：
@@ -337,3 +335,4 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | 2026-08-01 | 初版：汇总 RECOVERY/Matrix/RPT-011/012/roadmap-t8 + 构建观测 |
 | 2026-08-01 | 二次汇总：诚实范围声明、文档宇宙分层、PRD FR/DoD 工程解读、IBC/Token 北极星、NFR 性能/资源、DOC-SPEC-AUDIT、dossier/index 债；明确“工程最可用队列 ≠ 全文档闭包” |
 | 2026-08-01 | DOC-1/4/5 落地：RECOVERY 当前路径改进程内 Loader；index/document-status/targets dossiers+README；Matrix D1-02/06 CLI 句；research 11/12 链 backlog |
+| 2026-08-02 | 与 main 对齐：T9d / NearAggregate / NoirAggregate / AleoCoverage 标 done；推荐序改为 BUILD → Normalize 串行 |
