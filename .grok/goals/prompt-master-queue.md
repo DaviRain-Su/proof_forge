@@ -16,16 +16,11 @@
 > 从指定 ID 续跑（上一会话结束后）：
 >
 > ```text
-> /goal @.grok/goals/prompt-master-queue.md starting at C-2 --budget 8000000
+> /goal @.grok/goals/prompt-master-queue.md starting at D3-E4 --budget 8000000
 > ```
 >
-> **C-2 专用收口（tree 上已有 Goal-owned research WIP 时优先）：**
->
-> ```text
-> /goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
-> ```
->
-> （历史：N-2 已 done；`prompt-n-2-finish.md` 仅作归档入口，勿重做 N-2。）
+> **历史收口入口（勿重做已 done）：** `prompt-c-2-finish.md`（C-2 done）、
+> `prompt-n-2-finish.md`（N-2 done）。
 
 ---
 
@@ -182,8 +177,7 @@ NEXT: <id or EMPTY>
 ## 当前队列事实（执行时以 backlog 为准）
 
 典型已 done（须全部进 DONE_IDS，**勿漏**）：BUILD-1..9、DOC-1..5、DOC-DEDUP、DOC-SPEC-AUDIT、N-A1、N-A2、N-A3、N-A4、N-1、B-1a..e、T9a–e、T9-0（控制面）、**DOC-T9-0 仅在矩阵 commit 后**、**SKEPTIC-1 仅在三缺口真闭后**。
-**C-2 在 commit 前必须保持 pending**（即使聊天里有 `15-aleo-psy-compiler-vm.md` WIP）。
-从 **第一个仍 pending** 起（当前 **C-2**，用 `prompt-c-2-finish.md` 或 `starting at C-2`）**继续 drain**。
+从 **第一个仍 pending / 可做** 起（当前常见 **D3-E4**；**C-5** 为 ongoing 不阻塞后续）**继续 drain**。
 N-2 脏树若路径均在 N-2 allowlist → **Goal 拥有该 WIP**，禁止当「他人 WIP」停机。
 
 ### PROGRESS 计数规则

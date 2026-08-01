@@ -45,14 +45,14 @@
 | 33 | `B-3` | target | **done** |
 | 34 | `B-ctx` | target | **done** |
 | 35 | `C-1` | target | **done** |
-| 36 | `C-2` | docs | **NEXT** pending — Goal-owned WIP may exist under `docs/research/15-aleo-psy-compiler-vm.md` |
-| 37 | `C-4` | target | pending |
-| 38 | `C-5` | target | ongoing (fixture growth) |
+| 36 | `C-2` | docs | **done** |
+| 37 | `C-4` | target | **done** |
+| 38 | `C-5` | target | **ongoing** (fixture inventory; expand on new LOWERED) |
 | 39 | `T9e` | width | **done** |
-| 40 | `D3-E1` | d3 | pending |
-| 41 | `D3-E2` | d3 | pending |
-| 42 | `D3-E3` | d3 | pending |
-| 43 | `D3-E4` | d3 | pending |
+| 40 | `D3-E1` | d3 | **done** |
+| 41 | `D3-E2` | d3 | **done** |
+| 42 | `D3-E3` | d3 | **done** |
+| 43 | `D3-E4` | d3 | **NEXT** pending |
 | 44 | `D3-E5` | d3 | pending |
 | 45 | `D3-E6` | d3 | pending / product decision |
 | 46 | `D4-E1` | d4 | pending |

@@ -28,23 +28,17 @@ Live status authority = [`docs/engineering-backlog.md`](../../docs/engineering-b
 
 | 状态 | 说明 |
 |---|---|
-| **已 commit 过的主轴** | N-1…N-8、N-A*、N-BYTES、R-1…R-3、B-1d/e、B-3、B-ctx、C-1、T-3、SKEPTIC-1、DOC-* 等见 backlog `done` |
-| **NEXT** | **`C-2`** Aleo/Psy compiler/VM research（**勿**升格验收门） |
-| **Goal-owned WIP 可能存在** | `docs/research/15-aleo-psy-compiler-vm.md` untracked — **只许 Goal 收口 commit** |
+| **已 commit 过的主轴** | N-*、R-1…R-3、B-*、C-1/C-2/C-4、T-3、D3-E1…E3、SKEPTIC-1、DOC-* 等见 backlog `done` |
+| **NEXT** | **`D3-E4`** formal `OutputSetV1` 工程对齐 / transitional 残留（见 backlog） |
+| **ongoing** | **C-5** Mollusk fixtures — inventory only; expand when Solana LOWERED grows |
 
-**在 Goal 内收口 C-2 再 drain：**
-
-```text
-/goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
-```
-
-或：
+**从 D3-E4 续 drain：**
 
 ```text
-/goal @.grok/goals/prompt-master-queue.md starting at C-2 --budget 8000000
+/goal @.grok/goals/prompt-master-queue.md starting at D3-E4 --budget 8000000
 ```
 
-**禁止**在普通聊天回合里把 C-2/后续切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。聊天侧最多留下 Goal-owned WIP，不得宣称切片完成。
+**禁止**在普通聊天回合里把切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。
 
 **默认模式是 `drain`**：Goal **在内部连续消项**，直到：
 
