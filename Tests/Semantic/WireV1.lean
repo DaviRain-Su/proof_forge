@@ -445,6 +445,21 @@ example (c : Cursor) (count offset : Nat) (invariants : Array InvariantDeclV1)
   decodeInvariantDeclArrayV1_eq_of_elements c count offset invariants afterInvariants
     hcount helements
 
+example (c c' : Cursor) (callable : CallableV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (callable, c')) :
+    decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_bodyV1 c callable c' hdepth hbody
+
+example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
+    (afterCallables : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeCallableV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (callables, afterCallables)) :
+    decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
+  decodeCallableArrayV1_eq_of_elements c count offset callables afterCallables hcount helements
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

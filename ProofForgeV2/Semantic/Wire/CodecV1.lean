@@ -1701,7 +1701,8 @@ def encodeCallableV1 (c : CallableV1) : Except SemanticWireErrorV1 ByteArray := 
     encodeU32le c.entryBlock, blocksB, loopB, stepsB
   ]
 
-def decodeCallableV1 : Decoder CallableV1 := withTaggedNesting fun c => do
+/-- Sole production body for a Callable tagged record. -/
+def decodeCallableBodyV1 : Decoder CallableV1 := fun c => do
   let ((), c) ← expectTag "Callable" 9 c
   let (id, c) ← decodeU32le c
   let (kind, c) ← decodeCallableKindV1 c
@@ -1713,6 +1714,51 @@ def decodeCallableV1 : Decoder CallableV1 := withTaggedNesting fun c => do
   let (loopBounds, c) ← decodeArray maxArrayElements decodeLoopBoundV1 c
   let (invariantSteps, c) ← decodeOption decodeU64le c
   pure ({ id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps }, c)
+
+def decodeCallableV1 : Decoder CallableV1 :=
+  withTaggedNesting decodeCallableBodyV1
+
+/-- Compose Callable from its actual production field decoders in exact wire order. -/
+theorem decodeCallableBodyV1_eq_of_fields
+    (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : Cursor)
+    (id entryBlock : UInt32) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1) (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1) (invariantSteps : Option UInt64)
+    (htag : expectTag "Callable" 9 c = .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : decodeArray maxArrayElements decodeParameterV1 cName = .ok (params, cParams))
+    (hresult : decodeCallableResultV1 cParams = .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : decodeArray maxArrayElements decodeBlockV1 cEntry = .ok (blocks, cBlocks))
+    (hloops : decodeArray maxArrayElements decodeLoopBoundV1 cBlocks =
+      .ok (loopBounds, cLoops))
+    (hsteps : decodeOption decodeU64le cLoops = .ok (invariantSteps, cSteps)) :
+    decodeCallableBodyV1 c = .ok ({
+      id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+    }, cSteps) := by
+  simp only [decodeCallableBodyV1, htag, hid, hkind, hname, hparams, hresult,
+    hentry, hblocks, hloops, hsteps, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful Callable body through tagged nesting. -/
+theorem decodeCallableV1_eq_of_bodyV1 (c : Cursor) (callable : CallableV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (callable, c')) :
+    decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeCallableV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Root `callables` field composition through the sole array decoder. -/
+theorem decodeCallableArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
+    (callables : Array CallableV1) (afterCallables : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeCallableV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (callables, afterCallables)) :
+    decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
+  decodeArray_eq_of_elementsV1 maxTableElements decodeCallableV1 c count offset
+    callables afterCallables hcount helements
 
 def encodeInvariantDeclV1 (d : InvariantDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let nameB ← encodeString d.name

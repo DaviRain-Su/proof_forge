@@ -277,6 +277,8 @@ sole production body，并组合tag→items array→parent nesting；canonical e
 theorem。后续logicalState切片机械抽取Visibility/StateDecl sole bodies，组合public visibility与
 StateDecl tag→id→name→typeId→visibility、nested depth及root bounded array；private/commitment proof仍按需。
 后续InvariantDecl切片同样组合tag→id→name→callableId、nesting与root bounded array。
+后续Callable scaffold切片机械抽取sole九字段body，固定id→kind→name→params→result→entryBlock→blocks→
+loopBounds→invariantSteps、nesting与root bounded array；各nested callable字段proof仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

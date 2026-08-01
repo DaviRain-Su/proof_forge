@@ -11544,3 +11544,14 @@ normative: false
   corollary复用真实`maxTableElements` count与sole iterator。focused build与signature examples通过。
 - Boundary：callableId引用合法性仍属于structure gate；CallableV1、完整root/carrier与formal TASK/TST
   仍pending。
+
+## 2026-08-01 — D2-07 Callable root proof scaffold
+
+- Production：将Callable原anonymous decoder机械抽为sole `decodeCallableBodyV1`，public decoder仍由一次
+  `withTaggedNesting`包装；九字段顺序固定为id/kind/name/params/result/entryBlock/blocks/loopBounds/
+  invariantSteps，各原有限额不变。
+- Proof：body theorem线程九个真实production field equality，wrapper恢复parent nesting，root callables
+  corollary复用真实`maxTableElements` count与sole iterator。focused build、signature examples与blocker
+  review通过。
+- Boundary：这是scaffold；Block/Instruction/Op、callable kind/result等nested proof、完整carrier与formal
+  TASK/TST仍pending。

@@ -345,6 +345,11 @@ theorem固定tag→id→name→callableId，wrapper恢复parent nesting；root a
 `maxTableElements` header与sole iterator。callableId的structure join仍由后续structure gate负责，transport
 proof不提前验证引用。
 
+root callables scaffold现已闭合：Callable anonymous body机械抽为sole production body，九字段顺序固定为
+id→kind→name→params→result→entryBlock→blocks→loopBounds→invariantSteps，public decoder仍仅一层
+tagged nesting；root array corollary锁定`maxTableElements`。本切片只接受nested production decoder
+success premise，不宣称Block/Instruction/Op已完成proof。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
