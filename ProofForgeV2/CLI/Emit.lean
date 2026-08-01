@@ -274,9 +274,20 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     removePathIfPresent staging
     throw error
 
+/-- One SPEC-CLI `--resource-limit <stage>.<field>=<n>` override (D3-E5).
+Stage/field use CLI spelling (`compiler-core`, `wall-ms`, …). -/
+structure ResourceLimitOverrideV1 where
+  stage : String
+  field : String
+  value : UInt64
+  deriving BEq, Repr, Inhabited
+
 /-- Full build/check option bag (CLI internal + test-facing parse).
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
-at product path: `build/v2` and `.`). `json` selects PF-JCS stdout. -/
+at product path: `build/v2` and `.`). `json` selects PF-JCS stdout.
+D3-E5: `resourceLimits` / `minimumEvidence` / proof-bundle pair are parsed and
+validated fail-closed before source open; enforcement of wall clocks is still
+NFR/RES-1 (effective limits are carried for observation + hard-max reject). -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -287,7 +298,17 @@ structure BuildOptions where
   programName : Option String := none
   root : Option String := none
   json : Bool := false
+  resourceLimits : Array ResourceLimitOverrideV1 := #[]
+  minimumEvidence : Option String := none
+  proofBundle : Option String := none
+  proofBundleDigest : Option String := none
   deriving Repr
+
+/-- Product command kind for post-parse resource/evidence flag validation. -/
+inductive CliBuildCommandKindV1 where
+  | check
+  | build
+  deriving DecidableEq, Repr
 
 /-- Selection-relevant CLI flags exposed for focused tests. -/
 structure BuildSelectionCliFlags where
@@ -325,9 +346,128 @@ private def parseProfileExcept (value : String) : Except String CodegenProfileId
   | some profile => .ok profile
   | none => .error s!"unknown profile '{value}'"
 
+/-- CLI stage spelling → hard ResourceProfileV1 (SPEC-CLI / SPEC-COMMON-001). -/
+def hardResourceProfileForCliStageV1 (stage : String) : Except String ResourceProfileV1 :=
+  match stage with
+  | "frontend" => pure hardFrontendProfile
+  | "compiler-core" => pure hardCoreProfile
+  | "external-tool" => pure hardToolProfile
+  | "artifact-output" => pure hardOutputProfile
+  | _ => throw s!"unknown resource-limit stage '{stage}'"
+
+/-- Field spelling → hard max for the stage profile (0 means only 0 is legal). -/
+def hardMaxForResourceFieldV1 (profile : ResourceProfileV1) (field : String) :
+    Except String UInt64 :=
+  match field with
+  | "wall-ms" => pure profile.maxWallMillis
+  | "memory-bytes" => pure profile.maxAggregateMemoryBytes
+  | "processes" => pure (UInt64.ofNat profile.maxProcesses.toNat)
+  | "protocol-bytes" => pure profile.maxProtocolBytes
+  | "stderr-bytes" => pure profile.maxStderrBytes
+  | "published-bytes" => pure profile.maxPublishedBytes
+  | _ => throw s!"unknown resource-limit field '{field}'"
+
+/-- Parse `stage.field=n` (unsigned decimal). Fail closed on shape / zero / over hard max. -/
+def parseResourceLimitSpecV1 (spec : String) : Except String ResourceLimitOverrideV1 := do
+  let eqParts := spec.splitOn "="
+  unless eqParts.length == 2 do
+    throw s!"invalid --resource-limit '{spec}' (want stage.field=n)"
+  let lhs := eqParts[0]!
+  let rhs := eqParts[1]!
+  let dotParts := lhs.splitOn "."
+  unless dotParts.length == 2 do
+    throw s!"invalid --resource-limit '{spec}' (want stage.field=n)"
+  let stage := dotParts[0]!
+  let field := dotParts[1]!
+  unless stage.length > 0 && field.length > 0 do
+    throw s!"invalid --resource-limit '{spec}' (empty stage or field)"
+  unless rhs.length > 0 do
+    throw s!"invalid --resource-limit '{spec}' (empty value)"
+  -- Unsigned decimal only; reject signs, underscores, exponents, hex.
+  for c in rhs.toList do
+    unless c.isDigit do
+      throw s!"invalid --resource-limit value '{rhs}' (unsigned decimal required)"
+  let n ← match rhs.toNat? with
+    | some n => pure n
+    | none => throw s!"invalid --resource-limit value '{rhs}' (unsigned decimal required)"
+  unless n > 0 do
+    throw s!"resource-limit value must be a positive integer"
+  unless n < 2 ^ 64 do
+    throw s!"resource-limit value overflows UInt64"
+  let hard ← hardResourceProfileForCliStageV1 stage
+  let hardMax ← hardMaxForResourceFieldV1 hard field
+  if hardMax == 0 then
+    throw s!"resource-limit {stage}.{field} hard maximum is 0; override rejected"
+  unless n ≤ hardMax.toNat do
+    throw s!"resource-limit {stage}.{field}={n} exceeds hard maximum {hardMax.toNat}"
+  pure { stage, field, value := UInt64.ofNat n }
+
+/-- Closed SPEC-CLI `--minimum-evidence` grades (engineering accept list). -/
+def isValidMinimumEvidenceGradeV1 (grade : String) : Bool :=
+  grade == "specified" ||
+  grade == "artifact_validated" ||
+  grade == "local_runtime" ||
+  grade == "network_or_proof_validated"
+
+/-- Exact SPEC-COMMON-001 lowercase SHA-256 wire: `sha256:` + 64 hex digits. -/
+def isValidProofBundleDigestWireV1 (wire : String) : Bool :=
+  let cs := wire.toList
+  let pfx := ("sha256:").toList
+  if !pfx.isPrefixOf cs then false
+  else
+    let hexChars := cs.drop pfx.length
+    if hexChars.length != 64 then false
+    else
+      hexChars.all fun c =>
+        ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
+
+/-- Post-parse validation for check vs build (SPEC-CLI resource/evidence/proof-bundle).
+Runs before source open / materialize. Does not enforce wall clocks (RES-1). -/
+def validateBuildOptionsCliV1
+    (kind : CliBuildCommandKindV1) (options : BuildOptions) :
+    Except String BuildOptions := do
+  -- Resource limits: stage allowlist by command; no duplicate (stage,field).
+  let mut seen : Array (String × String) := #[]
+  for lim in options.resourceLimits do
+    match kind with
+    | .check =>
+        if lim.stage == "external-tool" || lim.stage == "artifact-output" then
+          throw s!"check rejects --resource-limit stage '{lim.stage}'"
+    | .build => pure ()
+    -- Re-validate against hard profiles (parser already did; belt-and-braces).
+    let _ ← hardResourceProfileForCliStageV1 lim.stage
+    let key := (lim.stage, lim.field)
+    if seen.any (· == key) then
+      throw s!"duplicate --resource-limit {lim.stage}.{lim.field}"
+    seen := seen.push key
+  -- minimum-evidence: build only
+  match options.minimumEvidence with
+  | none => pure ()
+  | some grade =>
+      match kind with
+      | .check => throw "--minimum-evidence is not accepted on check"
+      | .build =>
+          unless isValidMinimumEvidenceGradeV1 grade do
+            throw s!"unknown --minimum-evidence grade '{grade}'"
+  -- proof-bundle pair
+  match options.proofBundle, options.proofBundleDigest with
+  | none, none => pure ()
+  | some _, none => throw "--proof-bundle requires --proof-bundle-digest"
+  | none, some _ => throw "--proof-bundle-digest requires --proof-bundle"
+  | some dir, some dig =>
+      if dir.isEmpty then throw "--proof-bundle path must be nonempty"
+      unless isValidProofBundleDigestWireV1 dig do
+        throw "invalid --proof-bundle-digest (want sha256:<64 lowercase hex>)"
+      -- Engineering product path: proof references are not yet a shipped product
+      -- surface (INV-1). Providing the pair is still parsed, then fail closed
+      -- here so Counter-like programs cannot silently ignore it.
+      throw "proof-bundle is not accepted: source proof references are not enabled on the product path"
+  pure options
+
 /-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
-`--json` is a bare flag. Duplicate selection and common flags fail closed. -/
+`--json` is a bare flag. Duplicate selection and common flags fail closed.
+D3-E5: `--resource-limit` (repeatable), `--minimum-evidence`, proof-bundle pair. -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
     Except String BuildOptions := do
   match args with
@@ -356,6 +496,23 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
   | "--json" :: rest =>
       if options.json then throw "duplicate --json"
       parseBuildArgsExcept rest { options with json := true }
+  | "--resource-limit" :: value :: rest =>
+      if value.startsWith "-" then throw "missing --resource-limit value"
+      let lim ← parseResourceLimitSpecV1 value
+      parseBuildArgsExcept rest
+        { options with resourceLimits := options.resourceLimits.push lim }
+  | "--minimum-evidence" :: value :: rest =>
+      if options.minimumEvidence.isSome then throw "duplicate --minimum-evidence"
+      if value.startsWith "-" then throw "missing --minimum-evidence value"
+      parseBuildArgsExcept rest { options with minimumEvidence := some value }
+  | "--proof-bundle" :: value :: rest =>
+      if options.proofBundle.isSome then throw "duplicate --proof-bundle"
+      if value.startsWith "-" then throw "missing --proof-bundle value"
+      parseBuildArgsExcept rest { options with proofBundle := some value }
+  | "--proof-bundle-digest" :: value :: rest =>
+      if options.proofBundleDigest.isSome then throw "duplicate --proof-bundle-digest"
+      if value.startsWith "-" then throw "missing --proof-bundle-digest value"
+      parseBuildArgsExcept rest { options with proofBundleDigest := some value }
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"
@@ -713,10 +870,19 @@ def renderCheckOkHumanV1
   | none, _ => pure ()
   pure (String.intercalate "\n" lines.toList)
 
+/-- Render one resource-limit override as PF-JCS object for check/build observation. -/
+private def renderResourceLimitJsonV1 (lim : ResourceLimitOverrideV1) : PfJson :=
+  PfJson.object #[
+    ("stage", .string lim.stage),
+    ("field", .string lim.field),
+    ("value", .int (Int.ofNat lim.value.toNat))
+  ]
+
 /-- Product check success JSON (`proof-forge.cli.check.v1`). -/
 def renderCheckOkJsonV1
     (programName : String) (sourceDigest semanticDigest : Digest)
-    (target? : Option TargetId) (profile? : Option CodegenProfileId) :
+    (target? : Option TargetId) (profile? : Option CodegenProfileId)
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[]) :
     CompileResult String := do
   let sourceWire ← digestWireCompile "source" sourceDigest
   let semanticWire ← digestWireCompile "semantic" semanticDigest
@@ -728,6 +894,7 @@ def renderCheckOkJsonV1
     match profile? with
     | some pid => PfJson.string pid.toString
     | none => PfJson.null
+  let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.check.v1"),
@@ -736,7 +903,8 @@ def renderCheckOkJsonV1
       ("sourceDigest", .string sourceWire),
       ("semanticDigest", .string semanticWire),
       ("target", targetJson),
-      ("codegenProfile", profileJson)
+      ("codegenProfile", profileJson),
+      ("resourceLimits", limitsJson)
     ]
 
 /-- Product build success human body (includes selected profile). -/
@@ -744,13 +912,24 @@ def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
   s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
 
 /-- Product build success JSON (`proof-forge.cli.build.v1`). -/
-def renderBuildOkJsonV1 (receipt : EmitReceiptV1) : CompileResult String :=
+def renderBuildOkJsonV1
+    (receipt : EmitReceiptV1)
+    (resourceLimits : Array ResourceLimitOverrideV1 := #[])
+    (minimumEvidence : Option String := none) :
+    CompileResult String :=
+  let limitsJson := PfJson.array (resourceLimits.map renderResourceLimitJsonV1)
+  let evidenceJson :=
+    match minimumEvidence with
+    | some g => PfJson.string g
+    | none => PfJson.null
   renderCliJsonV1 <|
     PfJson.object #[
       ("schema", .string "proof-forge.cli.build.v1"),
       ("target", .string receipt.target.toString),
       ("codegenProfile", .string receipt.codegenProfile.toString),
-      ("deployable", .bool receipt.deployable)
+      ("deployable", .bool receipt.deployable),
+      ("resourceLimits", limitsJson),
+      ("minimumEvidence", evidenceJson)
     ]
 
 -- ---------------------------------------------------------------------------
@@ -1220,9 +1399,11 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
         | [] => pure .usage
   | "check" :: rest =>
       let options ← parseBuildArgsExcept rest
+      let options ← validateBuildOptionsCliV1 .check options
       pure (.check options)
   | "build" :: rest =>
       let options ← parseBuildArgsExcept rest
+      let options ← validateBuildOptionsCliV1 .build options
       pure (.build options)
   | _ => pure .usage
 

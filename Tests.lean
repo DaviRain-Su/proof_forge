@@ -124,6 +124,7 @@ import Tests.CLI.ToolchainPolicy
 import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.CLI.DiagnosticsV1
+import Tests.CLI.ResourceFlagsV1
 
 
 unsafe def main : IO Unit := do
@@ -252,4 +253,5 @@ unsafe def main : IO Unit := do
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
   Tests.CLI.DiagnosticsV1.run
+  Tests.CLI.ResourceFlagsV1.run
   IO.println "proof-forge-next-tests: ok"

@@ -25,12 +25,15 @@ private def usage : String :=
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
-  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
+  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  --network is not supported (no network registry); it is a usage error.\n" ++
+  "  --resource-limit is a lower-only override (stage.field=n); check rejects external-tool/artifact-output.\n" ++
+  "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
+  "  --proof-bundle pair is fail-closed until product proof references are enabled.\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 manifest + evidence identity chain.\n" ++
@@ -189,7 +192,8 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
       let receipt ← emitProgram capability outputPath
       if options.json then
-        IO.println (← liftCompileResult (renderBuildOkJsonV1 receipt))
+        IO.println (← liftCompileResult
+          (renderBuildOkJsonV1 receipt options.resourceLimits options.minimumEvidence))
       else
         IO.println (renderBuildOkHumanV1 receipt)
 
@@ -227,7 +231,8 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
       let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
       if options.json then
         IO.println (← liftCompileResult
-          (renderCheckOkJsonV1 programName sourceDigest semanticDigest target? profile?))
+          (renderCheckOkJsonV1 programName sourceDigest semanticDigest target? profile?
+            options.resourceLimits))
       else
         IO.println (← liftCompileResult
           (renderCheckOkHumanV1 programName sourceDigest semanticDigest target? profile?))
