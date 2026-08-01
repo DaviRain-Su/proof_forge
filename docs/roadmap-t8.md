@@ -41,12 +41,11 @@ StorageBinding/Param/Store.byteWidth；selector `uint8/16/32`；Yul `and` 掩码
 discriminator 签名 `u8/16/32`（64 位含 Int64 保持 `u64`）；layout marker `u8-le` 等；IDL 同步；
 NarrowAbi 运行时 fixture（34 测试）。CI 隔离验证中。
 
-### [pending] T8b-NEAR：NEAR state/param UInt8/16/32 ABI
-- 参照 T8b-Solana 模式；NEAR 是 host key-value state + 方法参数编码（u64-LE args）
-- 工作面：`Near/LowerSemanticV1.lean` 准入（`requirePublicUInt64OrInt64*` → UInt8/16/32）、
-  state key 布局/值编码 byteWidth、方法 args 编码宽度、signature/ABI 标识、Wasm 发射
-  （i32/i64 装载、掩码）、IDL 同步；负向 UInt128/窄结果 fail closed
-- 测试：NearHostModel goldens + 产品正/负；无运行时 harness（NEAR 无本地执行）——金样为准
+### [merged] T8b-NEAR：NEAR state/param UInt8/16/32 ABI（2026-08-01, 7b897fdaf）
+参照 T8b-Solana：`requirePublicUintAbiOrInt64*`；param 8B pitch + 窄值低位；
+KV 值长=byteWidth；narrowParam/StateLoad + Store.byteWidth；WAT i32.load8_u/… +
+storage_write exact length；near-abi.json `u8-le/…`。Body 多宽仍 T8c。
+NearHostModel AbiMw + UInt128/Int8 负向；shard-targets 绿。CI 隔离验证中。
 
 ### [pending] T8b-Noir：Noir state/param UInt8/16/32 ABI
 - 参照 T8b-Solana 模式；Noir 已开 Field state/param——窄 UInt 与 Field 并存
@@ -75,3 +74,4 @@ T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI �
 |---|---|---|
 | 2026-08-01 | T8b-EVM | merged dd8a00280, CI 绿 |
 | 2026-08-01 | T8b-Solana | merged acc7eb514, 隔离 CI 验证中 |
+| 2026-08-01 | T8b-NEAR | merged 7b897fdaf, 隔离 CI 已 dispatch（ci-verify-t8b-near） |
