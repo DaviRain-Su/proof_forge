@@ -2,9 +2,11 @@ name: CI
 
 # ProofForge V2 portable CI (Linux).
 #
-# Required lanes for branch protection:
-#   docs         - documentation control-plane check
-#   source-core  - Lean build, unit tests, ProgramV1/target negative gates
+# Required lanes for branch protection (BUILD-4 independent fail isolation):
+#   docs            - documentation control-plane check
+#   lean-product    - Lean build, unit tests, product-negative, deletion gates
+#   target-smoke    - target-cli-positive + target-negative (tool root)
+#   solana-runtime  - Mollusk runtime differential
 #
 # Manual audit lane:
 #   linux-tool-root - explicit toolchain lock/provision/materialize inspection.
@@ -42,8 +44,10 @@ jobs:
       - name: Whitespace / conflict markers
         run: git diff --check
 
-  source-core:
-    name: source-core
+  # Shared Lean/tool setup is duplicated across lean-product / target-smoke /
+  # solana-runtime so each job can fail independently (BUILD-4).
+  lean-product:
+    name: lean-product
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -62,11 +66,6 @@ jobs:
           scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      # The product tests materialize real targets (EVM solc bytecode, NEAR
-      # wasm, Solana plan, Noir source). The capability-gated materializers
-      # resolve these locked external tools at runtime, so the ordinary CI
-      # source-core job provisions and materializes the Linux tool root
-      # exactly like the manual linux-tool-root audit lane.
       - name: Select linux tool root
         run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
 
@@ -93,21 +92,66 @@ jobs:
           path: |
             .lake/build
             .lake/packages
-          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          key: ${{ runner.os }}-lake-v2-lean-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
           restore-keys: |
             ${{ runner.os }}-lake-v2-
 
-      # Lake does not garbage-collect olean artifacts of deleted modules, so a
-      # restored cache can carry orphans that break import-closure gates.
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Portable source-core gate
-        run: just ci
+      - name: Lean product gate (no target CLI smoke)
+        run: just ci-lean-product
+
+  target-smoke:
+    name: target-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Select linux tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
+
+      - name: Provision linux external assets
+        run: just toolchains-provision-external
+
+      - name: Materialize linux tool root
+        run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
+
+      - name: Verify linux tool root
+        run: just toolchains-verify-external
+
+      - name: Cache Lake build products
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-target-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
+
+      - name: Target CLI positive/negative smoke
+        run: just ci-target-smoke
 
   # BUILD-4: Solana Mollusk runtime is a separate job so Lean product CI failures
   # surface without waiting on Rust, and Solana failures do not hide Lean green.
-  # Shares the same tool-root materialization pattern as source-core.
   solana-runtime:
     name: solana-runtime
     runs-on: ubuntu-latest
