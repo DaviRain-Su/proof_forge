@@ -384,7 +384,8 @@ private unsafe def testToolFailureZeroPublish : IO Unit := do
   let outDir := FilePath.mk "build/v2/finalization-tool-fail"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let result ← runProductCliWithToolRoot "/definitely/missing-s7b-tool-root" #[
-    "build-counter", "--target", "evm", "-o", outDir.toString
+    "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+    "--target", "evm", "-o", outDir.toString
   ]
   expect (result.exitCode != 0) "missing solc must fail closed"
   let combined := result.stdout ++ result.stderr
@@ -398,7 +399,8 @@ private unsafe def testNearToolFailureZeroPublish : IO Unit := do
   let outDir := FilePath.mk "build/v2/finalization-near-tool-fail"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let result ← runProductCliWithToolRoot "/definitely/missing-s7b-near-tool-root" #[
-    "build-counter", "--target", "near", "-o", outDir.toString
+    "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+    "--target", "near", "-o", outDir.toString
   ]
   expect (result.exitCode != 0) "missing wat2wasm must fail closed"
   let combined := result.stdout ++ result.stderr

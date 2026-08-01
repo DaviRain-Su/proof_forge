@@ -1,7 +1,32 @@
+/-
+  ProofForgeV2.CLI.Emit — product emit + pure CLI command surface.
+
+  Product commands (C1):
+    list-targets [--all] [--json]
+    inspect <target> [--json]
+    check <source.lean> --module <Name> [--root] [--program] [--target]
+      [--profile] [--language-version] [--json]
+    build <source.lean> --module <Name> --target <t> [-o <dir>]
+      [--program] [--root] [--profile] [--language-version] [--json]
+
+  Stable JSON uses sole PF-JCS (`renderPfJcs` / `PfJson`). Schemas:
+    proof-forge.cli.list-targets.v1
+    proof-forge.cli.inspect.v1
+    proof-forge.cli.check.v1
+    proof-forge.cli.build.v1
+
+  Deleted product commands: `build-counter`, `describe-target` (use
+  `build Examples/Counter.lean --module Examples.Counter` and `inspect`).
+  `--network` remains a usage error (no network registry).
+  Engineering only — not formal CLI / OutputSetV1 / SupportClaim completion.
+-/
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.RequirementResolverV1
+import ProofForgeV2.Targets.RegistryRootV1
+import ProofForgeV2.Targets.SupportClaimV1
+import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
@@ -16,6 +41,9 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.RequirementResolverV1
+open ProofForgeV2.Targets.RegistryRootV1
+open ProofForgeV2.Targets.SupportClaimV1
+open ProofForgeV2.Targets.EngineeringBuildIdentityV1
 
 private def writeFileCreatingParent (path : FilePath) (contents : String) : IO Unit := do
   if let some parent := path.parent then
@@ -224,9 +252,9 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
     removePathIfPresent staging
     throw error
 
-/-- Full build/build-counter option bag (CLI internal + test-facing parse).
+/-- Full build/check option bag (CLI internal + test-facing parse).
 `output`/`root` are `Option` so duplicate flags are detectable (defaults applied
-at product path: `build/v2` and `.`). -/
+at product path: `build/v2` and `.`). `json` selects PF-JCS stdout. -/
 structure BuildOptions where
   source : Option String := none
   target : Option TargetId := none
@@ -236,6 +264,7 @@ structure BuildOptions where
   moduleName : Option String := none
   programName : Option String := none
   root : Option String := none
+  json : Bool := false
   deriving Repr
 
 /-- Selection-relevant CLI flags exposed for focused tests. -/
@@ -244,12 +273,19 @@ structure BuildSelectionCliFlags where
   profile : Option CodegenProfileId := none
   deriving BEq, Repr
 
-/-- Typed product CLI command surface. `CLI.run` matches only this enum. -/
+/-- Parsed `list-targets` trailing flags. -/
+structure ListTargetsOptions where
+  includeDesignOnly : Bool := false
+  json : Bool := false
+  deriving BEq, Repr
+
+/-- Typed product CLI command surface. `CLI.run` matches only this enum.
+Deleted: `build-counter`, `describe-target` (use build + inspect). -/
 inductive CliCommandV1 where
-  | listTargets (includeDesignOnly : Bool)
-  | describeTarget (target : String)
+  | listTargets (options : ListTargetsOptions)
+  | inspect (target : String) (json : Bool)
+  | check (options : BuildOptions)
   | build (options : BuildOptions)
-  | buildCounter (options : BuildOptions)
   | usage
   deriving Repr
 
@@ -263,9 +299,9 @@ private def parseProfileExcept (value : String) : Except String CodegenProfileId
   | some profile => .ok profile
   | none => .error s!"unknown profile '{value}'"
 
-/-- Shared build/build-counter argument parser (pure Except).
+/-- Shared build/check argument parser (pure Except).
 `--network` and any other unknown dashed option fail as usage errors.
-Duplicate selection and common flags fail closed with stable messages. -/
+`--json` is a bare flag. Duplicate selection and common flags fail closed. -/
 partial def parseBuildArgsExcept (args : List String) (options : BuildOptions := {}) :
     Except String BuildOptions := do
   match args with
@@ -291,6 +327,9 @@ partial def parseBuildArgsExcept (args : List String) (options : BuildOptions :=
   | "--root" :: value :: rest =>
       if options.root.isSome then throw "duplicate --root"
       parseBuildArgsExcept rest { options with root := some value }
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseBuildArgsExcept rest { options with json := true }
   | value :: rest =>
       if value.startsWith "-" then
         throw s!"unknown option '{value}'"
@@ -305,7 +344,7 @@ def parseBuildArgs (args : List String) (options : BuildOptions := {}) : IO Buil
   | .ok opts => pure opts
   | .error msg => throw <| IO.userError msg
 
-/-- Test-facing parse of build/build-counter args for selection fields. -/
+/-- Test-facing parse of build/check args for selection fields. -/
 def parseBuildSelectionCliFlags (args : List String) : IO BuildSelectionCliFlags := do
   let options ← parseBuildArgs args
   pure { target := options.target, profile := options.profile }
@@ -348,25 +387,82 @@ def listTargetLinesWithSeedV1
 def listTargetLines (includeDesignOnly : Bool) : CompileResult (Array String) :=
   listTargetLinesWithSeedV1 initialTargetRegistryV1Result includeDesignOnly
 
-/-- Parse `list-targets` trailing args (pure). -/
-def parseListTargetsArgsExcept (args : List String) : Except String Bool :=
+/-- Parse `list-targets` trailing args (pure). Accepts `--all` / `--json` any order. -/
+partial def parseListTargetsArgsExcept
+    (args : List String) (options : ListTargetsOptions := {}) :
+    Except String ListTargetsOptions := do
   match args with
-  | [] => .ok false
-  | ["--all"] => .ok true
+  | [] => pure options
+  | "--all" :: rest =>
+      if options.includeDesignOnly then throw "duplicate --all"
+      parseListTargetsArgsExcept rest { options with includeDesignOnly := true }
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseListTargetsArgsExcept rest { options with json := true }
   | other =>
       .error s!"unknown list-targets argument '{String.intercalate " " other}'"
 
-def parseListTargetsArgs (args : List String) : IO Bool :=
+def parseListTargetsArgs (args : List String) : IO ListTargetsOptions :=
   match parseListTargetsArgsExcept args with
   | .ok b => pure b
   | .error msg => throw <| IO.userError msg
 
-/-- Format exact S2 request identities for describe-target product text. -/
+/-- Parse trailing args that only allow optional `--json`. -/
+def parseJsonOnlyArgsExcept (args : List String) : Except String Bool :=
+  match args with
+  | [] => .ok false
+  | ["--json"] => .ok true
+  | other =>
+      .error s!"unknown argument '{String.intercalate " " other}'"
+
+/-- Format exact S2 request identities for inspect/describe product text. -/
 private def formatS2RequirementIds (ids : Array String) : String :=
   let body := String.intercalate ", " ids.toList
   s!"#[{body}]"
 
-/-- Implemented-registration describe join (shared by product describe + tests).
+private def formatProfileList (profiles : Array CodegenProfileId) : String :=
+  let body := String.intercalate ", " (profiles.map (·.toString)).toList
+  s!"#[{body}]"
+
+private def digestWireExcept (label : String) (digest : Digest) : Except String String :=
+  match renderDigest digest with
+  | .ok value => pure value
+  | .error error => throw s!"{label} digest render failed: {error}"
+
+private def digestWireCompile (label : String) (digest : Digest) : CompileResult String :=
+  match digestWireExcept label digest with
+  | .ok value => pure value
+  | .error error => throw <| .registryInvalid error
+
+/-- Render PF-JCS or surface a stable registry-invalid product error. -/
+def renderCliJsonV1 (value : PfJson) : CompileResult String :=
+  match renderPfJcs value with
+  | .ok text => pure text
+  | .error error => throw <| .registryInvalid s!"cli json render failed: {error}"
+
+/-- Product list-targets JSON (`proof-forge.cli.list-targets.v1`). -/
+def listTargetsJsonInRegistry
+    (includeDesignOnly : Bool) (registry : TargetRegistryV1) : CompileResult String := do
+  let regs :=
+    if includeDesignOnly then TargetRegistryV1.registrationsOf registry
+    else implementedRegistrationsInRegistry registry
+  let targets := regs.map fun reg =>
+    PfJson.object #[
+      ("id", .string reg.targetId.toString),
+      ("maturity", .string reg.maturityLabel)
+    ]
+  renderCliJsonV1 <|
+    PfJson.object #[
+      ("schema", .string "proof-forge.cli.list-targets.v1"),
+      ("includeAll", .bool includeDesignOnly),
+      ("targets", .array targets)
+    ]
+
+def listTargetsJson (includeDesignOnly : Bool) : CompileResult String := do
+  let registry ← initialTargetRegistryV1Result
+  listTargetsJsonInRegistry includeDesignOnly registry
+
+/-- Implemented-registration describe join (shared by product inspect + tests).
 Checks residual descriptor `targetId` and `codegenProfile` against the
 registration row, then derives exact supported S2 request identities from the
 frozen engineering support index. `TargetDescriptor` carries no requirement
@@ -391,7 +487,7 @@ def describeImplementedJoin
   let s2Ids ← supportedS2RequestIdsForRegistrationV1 reg
   pure s!"target={reg.targetId}\nprofile={profile}\nrequirements={formatS2RequirementIds s2Ids}"
 
-/-- Describe a registration row (product join path for residual descriptors). -/
+/-- Legacy three-line describe body (tests + inspect prefix for implemented rows). -/
 def describeRegistrationText (reg : TargetRegistrationDataV1) : CompileResult String := do
   if reg.implemented then
     match Targets.descriptorForKind? reg.kind with
@@ -413,28 +509,218 @@ def describeTargetWithSeedV1
   let target ← match TargetId.parse? value with
     | some target => pure target
     | none => throw <| .unknownTarget value
-  -- Single lookup on the bound registry (no second seed bind / no double lookup).
   match registrationInRegistry? registry target with
   | none => throw <| .unknownTarget value
   | some reg => describeRegistrationText reg
 
-/-- Product `describe-target` body — binds frozen TargetRegistryV1 seed. -/
+/-- Inspection-only three-line describe helper (not a product CLI command). -/
 def describeTargetText (value : String) : CompileResult String :=
   describeTargetWithSeedV1 initialTargetRegistryV1Result value
+
+/-- Support-claim digest for an implemented (target, default profile) pair. -/
+private def supportClaimDigestForRegistrationV1
+    (registry : TargetRegistryV1) (reg : TargetRegistrationDataV1) :
+    CompileResult String := do
+  unless reg.implemented do
+    throw <| .registryInvalid
+      "supportClaimDigestForRegistrationV1 requires an implemented registration"
+  let profile ← match reg.defaultProfile with
+    | some p => pure p
+    | none =>
+        throw <| .registryInvalid
+          s!"implemented target '{reg.targetId}' is missing a registered default profile"
+  let supportIndex ← initialStaticRequirementSupportIndexV1Result
+  let claims ← match mintEngineeringSupportClaimsV1 registry supportIndex with
+    | .ok value => pure value
+    | .error e => throw <| .registryInvalid s!"engineering support claim mint failed: {e}"
+  let claim ← match findEngineeringSupportClaimV1 claims reg.targetId profile with
+    | some c => pure c
+    | none =>
+        throw <| .registryInvalid
+          s!"no engineering support claim for target '{reg.targetId}' profile '{profile}'"
+  digestWireCompile "supportClaim" (EngineeringSupportClaimV1.claimDigestOf claim)
+
+/-- Product `inspect` human body — registry descriptor + identity chain summary.
+Covers former describe-target fields plus profiles, maturity, status, registry
+root digest, support-claim digest (implemented default profile), and the
+engineering build-identity domain shape (no mint without a compiled program). -/
+def inspectRegistrationText
+    (registry : TargetRegistryV1) (reg : TargetRegistrationDataV1) :
+    CompileResult String := do
+  let rootDigest ← match engineeringRegistryRootDigestV1 registry with
+    | .ok d => digestWireCompile "registryRoot" d
+    | .error e => throw <| .registryInvalid s!"registry root digest failed: {e}"
+  let domain := engineeringBuildIdentityDomainV1
+  if reg.implemented then
+    match Targets.descriptorForKind? reg.kind with
+    | none =>
+        throw <| .registryInvalid
+          s!"implemented target '{reg.targetId}' has no residual descriptor"
+    | some descriptor =>
+        let base ← describeImplementedJoin reg descriptor
+        let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
+        pure <|
+          base ++
+          s!"\nprofiles={formatProfileList reg.profiles}" ++
+          s!"\nstatus=implemented" ++
+          s!"\nmaturity={reg.maturityLabel}" ++
+          s!"\nregistryRootDigest={rootDigest}" ++
+          s!"\nsupportClaimDigest={claimDigest}" ++
+          s!"\nbuildIdentityDomain={domain}"
+  else
+    pure <|
+      s!"target={reg.targetId}" ++
+      s!"\nstatus=research-only" ++
+      s!"\nmaturity={reg.maturityLabel}" ++
+      s!"\nprofiles={formatProfileList reg.profiles}" ++
+      s!"\nregistryRootDigest={rootDigest}" ++
+      s!"\nbuildIdentityDomain={domain}"
+
+/-- Product `inspect` JSON (`proof-forge.cli.inspect.v1`). -/
+def inspectRegistrationJson
+    (registry : TargetRegistryV1) (reg : TargetRegistrationDataV1) :
+    CompileResult String := do
+  let rootDigest ← match engineeringRegistryRootDigestV1 registry with
+    | .ok d => digestWireCompile "registryRoot" d
+    | .error e => throw <| .registryInvalid s!"registry root digest failed: {e}"
+  let profiles := (reg.profiles.map fun p => PfJson.string p.toString)
+  if reg.implemented then
+    match Targets.descriptorForKind? reg.kind with
+    | none =>
+        throw <| .registryInvalid
+          s!"implemented target '{reg.targetId}' has no residual descriptor"
+    | some descriptor =>
+        -- Join checks keep inspect fail-closed on descriptor drift.
+        let _ ← describeImplementedJoin reg descriptor
+        let profile ← match reg.defaultProfile with
+          | some p => pure p
+          | none =>
+              throw <| .registryInvalid
+                s!"implemented target '{reg.targetId}' is missing a registered default profile"
+        let s2Ids ← supportedS2RequestIdsForRegistrationV1 reg
+        let claimDigest ← supportClaimDigestForRegistrationV1 registry reg
+        let reqJson := s2Ids.map PfJson.string
+        renderCliJsonV1 <|
+          PfJson.object #[
+            ("schema", .string "proof-forge.cli.inspect.v1"),
+            ("target", .string reg.targetId.toString),
+            ("defaultProfile", .string profile.toString),
+            ("profiles", .array profiles),
+            ("requirements", .array reqJson),
+            ("implemented", .bool true),
+            ("maturity", .string reg.maturityLabel),
+            ("registryRootDigest", .string rootDigest),
+            ("supportClaimDigest", .string claimDigest),
+            ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)
+          ]
+  else
+    renderCliJsonV1 <|
+      PfJson.object #[
+        ("schema", .string "proof-forge.cli.inspect.v1"),
+        ("target", .string reg.targetId.toString),
+        ("defaultProfile", .null),
+        ("profiles", .array profiles),
+        ("requirements", .null),
+        ("implemented", .bool false),
+        ("maturity", .string reg.maturityLabel),
+        ("registryRootDigest", .string rootDigest),
+        ("supportClaimDigest", .null),
+        ("buildIdentityDomain", .string engineeringBuildIdentityDomainV1)
+      ]
+
+def inspectTargetWithSeedV1
+    (seed : CompileResult TargetRegistryV1) (value : String) (json : Bool) :
+    CompileResult String := do
+  let registry ← seed
+  let target ← match TargetId.parse? value with
+    | some target => pure target
+    | none => throw <| .unknownTarget value
+  match registrationInRegistry? registry target with
+  | none => throw <| .unknownTarget value
+  | some reg =>
+      if json then inspectRegistrationJson registry reg
+      else inspectRegistrationText registry reg
+
+/-- Product `inspect` body — binds frozen TargetRegistryV1 seed. -/
+def inspectTargetText (value : String) (json : Bool := false) : CompileResult String :=
+  inspectTargetWithSeedV1 initialTargetRegistryV1Result value json
+
+/-- Product check success human body. -/
+def renderCheckOkHumanV1
+    (programName : String) (sourceDigest semanticDigest : Digest)
+    (target? : Option TargetId) (profile? : Option CodegenProfileId) :
+    CompileResult String := do
+  let sourceWire ← digestWireCompile "source" sourceDigest
+  let semanticWire ← digestWireCompile "semantic" semanticDigest
+  let mut lines :=
+    #["ok",
+      s!"program={programName}",
+      s!"sourceDigest={sourceWire}",
+      s!"semanticDigest={semanticWire}"]
+  match target?, profile? with
+  | some tid, some pid =>
+      lines := lines.push s!"target={tid}"
+      lines := lines.push s!"profile={pid}"
+  | some tid, none =>
+      lines := lines.push s!"target={tid}"
+  | none, _ => pure ()
+  pure (String.intercalate "\n" lines.toList)
+
+/-- Product check success JSON (`proof-forge.cli.check.v1`). -/
+def renderCheckOkJsonV1
+    (programName : String) (sourceDigest semanticDigest : Digest)
+    (target? : Option TargetId) (profile? : Option CodegenProfileId) :
+    CompileResult String := do
+  let sourceWire ← digestWireCompile "source" sourceDigest
+  let semanticWire ← digestWireCompile "semantic" semanticDigest
+  let targetJson :=
+    match target? with
+    | some tid => PfJson.string tid.toString
+    | none => PfJson.null
+  let profileJson :=
+    match profile? with
+    | some pid => PfJson.string pid.toString
+    | none => PfJson.null
+  renderCliJsonV1 <|
+    PfJson.object #[
+      ("schema", .string "proof-forge.cli.check.v1"),
+      ("ok", .bool true),
+      ("program", .string programName),
+      ("sourceDigest", .string sourceWire),
+      ("semanticDigest", .string semanticWire),
+      ("target", targetJson),
+      ("codegenProfile", profileJson)
+    ]
+
+/-- Product build success human body (includes selected profile). -/
+def renderBuildOkHumanV1 (receipt : EmitReceiptV1) : String :=
+  s!"built target={receipt.target} profile={receipt.codegenProfile} deployable={receipt.deployable}"
+
+/-- Product build success JSON (`proof-forge.cli.build.v1`). -/
+def renderBuildOkJsonV1 (receipt : EmitReceiptV1) : CompileResult String :=
+  renderCliJsonV1 <|
+    PfJson.object #[
+      ("schema", .string "proof-forge.cli.build.v1"),
+      ("target", .string receipt.target.toString),
+      ("codegenProfile", .string receipt.codegenProfile.toString),
+      ("deployable", .bool receipt.deployable)
+    ]
 
 /-- Argument parser only (no seed bind). Used after seed preflight succeeds. -/
 def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
   match args with
   | "list-targets" :: rest =>
-      let includeAll ← parseListTargetsArgsExcept rest
-      pure (.listTargets includeAll)
-  | ["describe-target", target] => pure (.describeTarget target)
+      let options ← parseListTargetsArgsExcept rest
+      pure (.listTargets options)
+  | "inspect" :: target :: rest =>
+      let json ← parseJsonOnlyArgsExcept rest
+      pure (.inspect target json)
+  | "check" :: rest =>
+      let options ← parseBuildArgsExcept rest
+      pure (.check options)
   | "build" :: rest =>
       let options ← parseBuildArgsExcept rest
       pure (.build options)
-  | "build-counter" :: rest =>
-      let options ← parseBuildArgsExcept rest
-      pure (.buildCounter options)
   | _ => pure .usage
 
 /-- Product CLI preflight: **seed first**, then parse.

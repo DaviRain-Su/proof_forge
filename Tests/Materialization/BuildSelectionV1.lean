@@ -444,21 +444,23 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         expect (msg == (CompileError.registryInvalid "sentinel").render)
           s!"{label}: got {msg}"
     | Except.ok _ => throw <| IO.userError s!"{label}: sentinel seed must fail before parse"
-  expectSeedFirst "build-counter EVM" ["build-counter", "--target", "EVM"]
-  expectSeedFirst "build-counter bad profile"
-    ["build-counter", "--target", "evm", "--profile", "!!!bad"]
-  expectSeedFirst "build-counter dup target"
-    ["build-counter", "--target", "evm", "--target", "near"]
+  expectSeedFirst "build EVM" ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "EVM"]
+  expectSeedFirst "build bad profile"
+    ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "evm", "--profile", "!!!bad"]
+  expectSeedFirst "build dup target"
+    ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "evm", "--target", "near"]
   expectSeedFirst "list-targets" ["list-targets"]
-  expectSeedFirst "describe 1evm" ["describe-target", "1evm"]
+  expectSeedFirst "inspect 1evm" ["inspect", "1evm"]
   match ProofForgeV2.CLI.parseProductCliCommandV1
-      ["build-counter", "--target", "evm", "--network", "local"] with
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--network", "local"] with
   | Except.error msg =>
       expect (hasSubstr msg "unknown option '--network'")
         "success seed preserves --network usage"
   | Except.ok _ => throw <| IO.userError "product preflight must reject --network"
   match ProofForgeV2.CLI.parseProductCliCommandV1
-      ["build-counter", "--target", "evm", "--target", "near"] with
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--target", "near"] with
   | Except.error msg =>
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
@@ -482,40 +484,58 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "soroban\tresearch-only"])
     s!"list-targets --all canonical TargetId order, got {allList}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets"] with
-  | .ok (.listTargets false) => pure ()
+  | .ok (.listTargets opts) =>
+      expect (!opts.includeDesignOnly && !opts.json) "parse list-targets default"
   | other => throw <| IO.userError s!"parse list-targets default: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets", "--all"] with
-  | .ok (.listTargets true) => pure ()
+  | .ok (.listTargets opts) =>
+      expect (opts.includeDesignOnly && !opts.json) "parse list-targets --all"
   | other => throw <| IO.userError s!"parse list-targets --all: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets", "--json"] with
+  | .ok (.listTargets opts) =>
+      expect (!opts.includeDesignOnly && opts.json) "parse list-targets --json"
+  | other => throw <| IO.userError s!"parse list-targets --json: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets", "--all", "--json"] with
+  | .ok (.listTargets opts) =>
+      expect (opts.includeDesignOnly && opts.json) "parse list-targets --all --json"
+  | other => throw <| IO.userError s!"parse list-targets combo: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets", "--bogus"] with
   | .error msg =>
       expect (hasSubstr msg "unknown list-targets argument") "bad list-targets args"
-  | .ok _ => throw <| IO.userError "list-targets --json must fail"
-  match ProofForgeV2.CLI.parseCliCommandV1 ["describe-target", "evm"] with
-  | .ok (.describeTarget "evm") => pure ()
-  | other => throw <| IO.userError s!"parse describe: {repr other}"
+  | .ok _ => throw <| IO.userError "list-targets --bogus must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm"] with
+  | .ok (.inspect "evm" false) => pure ()
+  | other => throw <| IO.userError s!"parse inspect: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm", "--json"] with
+  | .ok (.inspect "evm" true) => pure ()
+  | other => throw <| IO.userError s!"parse inspect --json: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm"] with
-  | .ok (.buildCounter opts) =>
-      expect (opts.target == some TargetId.evm) "dispatcher build-counter target"
-      expect opts.profile.isNone "dispatcher build-counter default profile"
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm"] with
+  | .ok (.build opts) =>
+      expect (opts.target == some TargetId.evm) "dispatcher build target"
+      expect opts.profile.isNone "dispatcher build default profile"
       expect opts.languageVersion.isNone "dispatcher omitted language version"
-  | other => throw <| IO.userError s!"parse build-counter default: {repr other}"
+      expect (!opts.json) "dispatcher build default json off"
+  | other => throw <| IO.userError s!"parse build default: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm", "--language-version", "1.0.0"] with
-  | .ok (.buildCounter opts) =>
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--language-version", "1.0.0"] with
+  | .ok (.build opts) =>
       expect (opts.languageVersion == some "1.0.0")
         "dispatcher explicit language version"
   | other => throw <| IO.userError s!"parse explicit language version: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm", "--profile", "evm-yul-solc-0.8.34-v1"] with
-  | .ok (.buildCounter opts) =>
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--profile", "evm-yul-solc-0.8.34-v1"] with
+  | .ok (.build opts) =>
       expect (opts.profile == some CodegenProfileId.evmYulSolc0834V1)
         "dispatcher explicit profile"
-  | other => throw <| IO.userError s!"parse build-counter explicit: {repr other}"
+  | other => throw <| IO.userError s!"parse build explicit profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm", "--profile", "near-wasm-raw-u64-v1"] with
-  | .ok (.buildCounter opts) =>
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--profile", "near-wasm-raw-u64-v1"] with
+  | .ok (.build opts) =>
       match opts.target with
       | some tid =>
           expectErrorCode (resolveBuildSelectionV1 tid opts.profile)
@@ -523,8 +543,9 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       | none => throw <| IO.userError "cross profile missing target"
   | other => throw <| IO.userError s!"parse cross profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "openvm"] with
-  | .ok (.buildCounter opts) =>
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "openvm"] with
+  | .ok (.build opts) =>
       match opts.target with
       | some tid =>
           expectErrorCode (resolveBuildSelectionV1 tid opts.profile)
@@ -532,7 +553,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       | none => throw <| IO.userError "design-only missing target"
   | other => throw <| IO.userError s!"parse design-only: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm", "--network", "local"] with
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--network", "local"] with
   | .error msg =>
       expect (hasSubstr msg "unknown option '--network'") "dispatcher --network usage"
   | .ok _ => throw <| IO.userError "--network must be usage error"
@@ -551,9 +573,16 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --language-version") "duplicate --language-version message"
   | .ok _ => throw <| IO.userError "duplicate --language-version must fail"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build-counter", "--target", "evm", "--target", "near"] with
+      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+        "--target", "evm", "--target", "near"] with
   | .error msg => expect (msg == "duplicate --target") "dispatcher duplicate --target"
   | .ok _ => throw <| IO.userError "dispatcher must reject duplicate --target"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["check", "Examples/Counter.lean", "--module", "Examples.Counter", "--json"] with
+  | .ok (.check opts) =>
+      expect opts.json "dispatcher check --json"
+      expect (opts.source == some "Examples/Counter.lean") "dispatcher check source"
+  | other => throw <| IO.userError s!"parse check: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1 [] with
   | .ok .usage => pure ()
   | other => throw <| IO.userError s!"empty args → usage: {repr other}"
@@ -583,31 +612,47 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (product.codegenProfile == evmDefault.codegenProfile)
         "forged catalog cannot influence product frozen resolver"
   | .error e => throw <| IO.userError s!"forged catalog should validate: {e.render}"
-  match ProofForgeV2.CLI.describeTargetText "evm" with
+  match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
       expect (text.startsWith "target=evm\nprofile=evm-yul-solc-0.8.34-v1\n")
-        s!"describe implemented evm, got {text}"
-      expect (hasSubstr text "requirements=") "describe implemented includes requirements"
+        s!"inspect implemented evm, got {text}"
+      expect (hasSubstr text "requirements=") "inspect implemented includes requirements"
       expect (hasSubstr text "failure.atomic-rollback")
-        "describe S2 ids from engineering support index"
-      expect (hasSubstr text "state.persistent") "describe includes state.persistent"
+        "inspect S2 ids from engineering support index"
+      expect (hasSubstr text "state.persistent") "inspect includes state.persistent"
       expect (hasSubstr text "value.checked-arithmetic")
-        "describe includes value.checked-arithmetic"
+        "inspect includes value.checked-arithmetic"
+      expect (hasSubstr text "registryRootDigest=sha256:")
+        "inspect includes registry root digest"
+      expect (hasSubstr text "supportClaimDigest=sha256:")
+        "inspect includes support claim digest"
+      expect (hasSubstr text "buildIdentityDomain=pf.build-identity.engineering.v1")
+        "inspect includes build identity domain"
       expect (!hasSubstr text "privateWitness")
-        "describe must not surface residual alpha privateWitness"
+        "inspect must not surface residual alpha privateWitness"
       expect (!hasSubstr text "ProgramRequirement")
-        "describe uses S2 request identities, not alpha Repr"
-  | .error e => throw <| IO.userError s!"describe evm: {e.render}"
+        "inspect uses S2 request identities, not alpha Repr"
+  | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
+  match ProofForgeV2.CLI.inspectTargetText "aleo" with
+  | .ok text =>
+      expect (hasSubstr text "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\n")
+        s!"inspect aleo prefix, got {text}"
+      expect (hasSubstr text
+          "requirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
+        s!"inspect aleo requirements, got {text}"
+      expect (hasSubstr text "status=implemented") "aleo is implemented source-only"
+  | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
+  -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
       expect (text ==
           "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
-        s!"describe design-only, got {text}"
-  | .error e => throw <| IO.userError s!"describe aleo: {e.render}"
-  expectErrorCode (ProofForgeV2.CLI.describeTargetText "ghost-target")
-    "PF-TARGET-UNKNOWN" "describe unknown grammar-valid target"
-  expectErrorCode (ProofForgeV2.CLI.describeTargetText "EVM")
-    "PF-TARGET-UNKNOWN" "describe rejects case-mismatched target"
+        s!"describe helper exact, got {text}"
+  | .error e => throw <| IO.userError s!"describe helper aleo: {e.render}"
+  expectErrorCode (ProofForgeV2.CLI.inspectTargetText "ghost-target")
+    "PF-TARGET-UNKNOWN" "inspect unknown grammar-valid target"
+  expectErrorCode (ProofForgeV2.CLI.inspectTargetText "EVM")
+    "PF-TARGET-UNKNOWN" "inspect rejects case-mismatched target"
   let implReg := mkEvmReg
     #[CodegenProfileId.evmYulSolc0834V1]
     (some CodegenProfileId.evmYulSolc0834V1)

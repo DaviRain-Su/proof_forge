@@ -819,6 +819,30 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   expect (manifest.target == TargetId.evm) "CLI emit via capability"
   expect (manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "CLI emit profile"
+  match ProofForgeV2.CLI.inspectTargetText "evm" with
+  | .ok text =>
+      let expectedIds := String.intercalate ", "
+        ((s2CatalogIdsWireOrderV1.filter fun id =>
+          id != "effect.asynchronous-workflow" &&
+            id != "effect.synchronous-call").toList)
+      expect
+        (hasSubstr text
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
+        s!"inspect exact S2 prefix, got {text}"
+      expect (hasSubstr text "registryRootDigest=sha256:")
+        "inspect includes registry root"
+      expect (hasSubstr text "supportClaimDigest=sha256:")
+        "inspect includes support claim"
+  | .error e => throw <| IO.userError e.render
+  match ProofForgeV2.CLI.inspectTargetText "noir" with
+  | .ok text =>
+      expect (hasSubstr text "failure.atomic-rollback") "noir inspect S2"
+      expect (!hasSubstr text "privateWitness")
+        "noir inspect must not surface privateWitness"
+      expect (!hasSubstr text "ProgramRequirement")
+        "noir inspect uses S2 ids"
+  | .error e => throw <| IO.userError e.render
+  -- Pure three-line helper remains exact for S2 wire-order pinning.
   match ProofForgeV2.CLI.describeTargetText "evm" with
   | .ok text =>
       let expectedIds := String.intercalate ", "
@@ -828,15 +852,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
       expect
         (text ==
           s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
-        s!"describe-target exact S2 stdout, got {text}"
-  | .error e => throw <| IO.userError e.render
-  match ProofForgeV2.CLI.describeTargetText "noir" with
-  | .ok text =>
-      expect (hasSubstr text "failure.atomic-rollback") "noir describe S2"
-      expect (!hasSubstr text "privateWitness")
-        "noir describe must not surface privateWitness"
-      expect (!hasSubstr text "ProgramRequirement")
-        "noir describe uses S2 ids"
+        s!"describe helper exact S2, got {text}"
   | .error e => throw <| IO.userError e.render
 
 private def testDescriptorParityNegatives : IO Unit := do

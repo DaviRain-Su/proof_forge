@@ -199,7 +199,8 @@ private unsafe def testDestinationSymlinkNoClobberToolFail : IO Unit := do
   let result ← IO.Process.output {
     cmd := "lake"
     args := #["env", ".lake/build/bin/proof-forge-next",
-      "build-counter", "--target", "evm", "-o", toolFailOut.toString]
+      "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      "--target", "evm", "-o", toolFailOut.toString]
     env := #[("PROOF_FORGE_TOOL_ROOT", "/definitely/missing-s7c-tool-root")]
     inheritEnv := true
   }

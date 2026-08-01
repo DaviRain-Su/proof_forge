@@ -11857,3 +11857,26 @@ normative: false
   ValidatedSource message update for Map state gate.
 - Boundary: not full multi-target aggregate ABI; not formal Reference↔target
   differential; not Array/Map state; formal status unchanged.
+
+## 2026-08-01 — C1 product CLI surface (check/inspect/json/profile)
+
+- Engineering CLI cutover only (not formal CLI / D3 completion).
+- Commands:
+  * `list-targets [--all] [--json]` — human lines byte-identical without `--json`
+  * `inspect <target> [--json]` — subsumes describe-target + registry root /
+    support-claim digests + build-identity domain + profiles/maturity/status
+  * `check <source.lean> --module <Name> … [--target] [--profile] [--json]` —
+    same Loader source authority as build; no artifacts; optional capability resolve
+  * `build … [--profile] [--json]` — profile already flowed via
+    `resolveBuildSelectionV1` into OutputSet `codegenProfile`; success stdout now
+    includes `profile=…`; `--json` PF-JCS summary
+- Deleted product commands: `build-counter`, `describe-target` (usage fallback).
+  Consumers migrated to `build Examples/Counter.lean --module Examples.Counter`
+  and `inspect` (justfile target-cli-positive/negative/s7c/toolchain/output-security,
+  `scripts/solana_runtime_test.sh`, `scripts/program_v1_source_bounds`, CLI +
+  Materialization tests). `--network` remains usage error.
+- Stable JSON via sole PF-JCS (`proof-forge.cli.{list-targets,inspect,check,build}.v1`).
+- Tests: `Tests/CLI/DiagnosticsV1` extended (check/inspect/json/profile/deleted-cmds);
+  BuildSelection/RequirementResolver/Finalization/DiskClosure consumers updated.
+- Boundary: engineering product surface; not formal registry root/SupportClaim/
+  BuildIdentity/OutputSetV1 completion.

@@ -2,7 +2,6 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
-import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Frontend.ProtocolV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -17,17 +16,21 @@ open ProofForgeV2.Frontend.ProtocolV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Compiler
 
 private def usage : String :=
   "ProofForge V2 alpha\n\n" ++
   "Usage:\n" ++
-  "  proof-forge-next list-targets [--all]\n" ++
-  "  proof-forge-next describe-target <target>\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>]\n" ++
-  "  proof-forge-next build-counter --target <target> [-o <dir>] [--profile <id>] [--language-version <semver>]\n"
-
-/-- Stable project-relative path for the built-in Counter diagnostic origins. -/
-private def counterLogicalSourcePath : String := "Examples/Counter.lean"
+  "  proof-forge-next list-targets [--all] [--json]\n" ++
+  "  proof-forge-next inspect <target> [--json]\n" ++
+  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
+  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--json]\n" ++
+  "\n" ++
+  "Notes:\n" ++
+  "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
+  "  --network is not supported (no network registry); it is a usage error.\n" ++
+  "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
+  "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
 
 /-- CLI usage/config failure: plain stderr and exit 2, not a diagnostic bundle. -/
 private def failUsage (message : String) : IO α := do
@@ -81,50 +84,6 @@ private def resolveProjectRoot (value : String) : IO FilePath := do
         | .error _ => failUsage "relative --root is not canonical"
       pure (cwd / FilePath.mk rendered)
 
-private partial def absolutePathChain (path : FilePath) : List FilePath :=
-  match path.parent with
-  | none => [path]
-  | some parent =>
-      if parent == path then [path]
-      else absolutePathChain parent ++ [path]
-
-/-- Validate the physical compiler location without following a caller-provided
-    symlink. This is an engineering pin, not a formal executable digest. -/
-private def checkedCompilerBinDir : IO FilePath := do
-  let appPath := ← IO.appPath
-  unless appPath.isAbsolute do
-    failUsage "compiler executable path is not absolute"
-  for component in absolutePathChain appPath do
-    let metadata ← try component.symlinkMetadata
-      catch _ => failUsage "compiler executable path metadata is unavailable"
-    if metadata.type == .symlink then
-      failUsage "compiler executable path contains a symbolic link"
-  let appMetadata ← try appPath.symlinkMetadata
-    catch _ => failUsage "compiler executable metadata is unavailable"
-  unless appMetadata.type == .file do
-    failUsage "compiler executable is not a regular file"
-  match appPath.parent with
-  | some parent => pure parent
-  | none => failUsage "compiler executable has no package bin directory"
-
-private def builtInSourceRoot : IO FilePath := do
-  let binDir ← checkedCompilerBinDir
-  unless binDir.fileName == some "bin" do
-    failUsage "built-in Counter source is unavailable in this installation"
-  let buildDir ← match binDir.parent with
-    | some parent => pure parent
-    | none => failUsage "built-in Counter source is unavailable in this installation"
-  unless buildDir.fileName == some "build" do
-    failUsage "built-in Counter source is unavailable in this installation"
-  let lakeDir ← match buildDir.parent with
-    | some parent => pure parent
-    | none => failUsage "built-in Counter source is unavailable in this installation"
-  unless lakeDir.fileName == some ".lake" do
-    failUsage "built-in Counter source is unavailable in this installation"
-  match lakeDir.parent with
-  | some root => pure root
-  | none => failUsage "built-in Counter source is unavailable in this installation"
-
 private def sourceStartOrigin (sourcePath : ProjectRelativePath) : DiagnosticOriginV1 := {
   sourcePath
   startByte := 0
@@ -174,7 +133,8 @@ private def resolveLanguageVersionForCli (requested : Option String) : IO SemVer
 
 /-- Build argv selection. An ID absent from the frozen target catalog is a
 usage/config error; registered design-only targets and profile-selection
-failures remain typed product-selection errors. -/
+failures remain typed product-selection errors. `--profile` selects a
+registered profile for the target via `resolveBuildSelectionV1`. -/
 private def resolveBuildSelectionForCli (options : BuildOptions) : IO ResolvedBuildSelectionV1 := do
   let target ← match options.target with
     | some target => pure target
@@ -184,9 +144,23 @@ private def resolveBuildSelectionForCli (options : BuildOptions) : IO ResolvedBu
   | .error (.unknownTarget input) => failUsage s!"unknown target '{input}'"
   | .error error => throw <| IO.userError error.render
 
+/-- Optional selection for `check`: target may be omitted; profile requires target. -/
+private def resolveOptionalSelectionForCheck
+    (options : BuildOptions) : IO (Option ResolvedBuildSelectionV1) := do
+  match options.target with
+  | none =>
+      if options.profile.isSome then
+        failUsage "--profile requires --target"
+      pure none
+  | some target =>
+      match resolveBuildSelectionV1 target options.profile with
+      | .ok selection => pure (some selection)
+      | .error (.unknownTarget input) => failUsage s!"unknown target '{input}'"
+      | .error error => throw <| IO.userError error.render
+
 private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   let selection ← resolveBuildSelectionForCli options
-  let languageVersion ← resolveLanguageVersionForCli options.languageVersion
+  let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
   let source ← match options.source with
     | some source => pure source
     | none => failUsage "source file is required"
@@ -202,40 +176,68 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   | .ok compiled =>
       -- Product phase: in-process Loader read → located compile → exact
       -- requirement capability → emit/finalize/disk closure.
+      -- Selected codegen profile is bound by selection and flows into the
+      -- capability / OutputSet `codegenProfile` field.
       let capability ← liftCompileResult
         (Targets.resolveEngineeringRequirementsV1 selection compiled)
       let requestedOutput := FilePath.mk (options.output.getD "build/v2")
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-      let manifest ← emitProgram capability outputPath
-      IO.println s!"built target={manifest.target} deployable={manifest.deployable}"
+      let receipt ← emitProgram capability outputPath
+      if options.json then
+        IO.println (← liftCompileResult (renderBuildOkJsonV1 receipt))
+      else
+        IO.println (renderBuildOkHumanV1 receipt)
 
-private unsafe def buildCounter (options : BuildOptions) : IO Unit := do
-  let selection ← resolveBuildSelectionForCli options
-  let languageVersion ← resolveLanguageVersionForCli options.languageVersion
-  let root ← builtInSourceRoot
-  let sourcePath ← validateSourceArgument counterLogicalSourcePath
+/-- Product validation without materialization. Same source authority as build.
+Optional `--target`/`--profile` also resolve the engineering requirement
+capability (fail closed) without writing artifacts. -/
+private unsafe def checkSource (options : BuildOptions) : IO Unit := do
+  if options.output.isSome then
+    failUsage "check does not write artifacts; omit -o/--output"
+  let selection? ← resolveOptionalSelectionForCheck options
+  let _languageVersion ← resolveLanguageVersionForCli options.languageVersion
+  let source ← match options.source with
+    | some source => pure source
+    | none => failUsage "source file is required"
+  let moduleName ← match options.moduleName with
+    | some moduleName => pure moduleName
+    | none => failUsage "--module is required for canonical ProgramV1 identity"
+  let sourcePath ← validateSourceArgument source
+  let root ← resolveProjectRoot (options.root.getD ".")
   let (sourceProgram, origins) ←
-    loadSourceProduct root sourcePath Examples.counterModuleNameV1 none
+    loadSourceProduct root sourcePath moduleName options.programName
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
-      -- Resolver before output staging.
-      let capability ← liftCompileResult
-        (Targets.resolveEngineeringRequirementsV1 selection compiled)
-      let requestedOutput := FilePath.mk (options.output.getD "build/v2")
-      let outputDir :=
-        if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
-      let manifest ← emitProgram capability outputDir
-      IO.println s!"built Counter target={manifest.target} deployable={manifest.deployable}"
+      let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf
+      let profile? := selection?.map ResolvedBuildSelectionV1.codegenProfileOf
+      match selection? with
+      | some selection =>
+          let _capability ← liftCompileResult
+            (Targets.resolveEngineeringRequirementsV1 selection compiled)
+          pure ()
+      | none => pure ()
+      let programName := CompiledSemanticV1.artifactProgramNameOf compiled
+      let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
+      let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
+      if options.json then
+        IO.println (← liftCompileResult
+          (renderCheckOkJsonV1 programName sourceDigest semanticDigest target? profile?))
+      else
+        IO.println (← liftCompileResult
+          (renderCheckOkHumanV1 programName sourceDigest semanticDigest target? profile?))
 
-private def listTargets (includeDesignOnly : Bool) : IO Unit := do
-  let lines ← liftCompileResult (listTargetLines includeDesignOnly)
-  for line in lines do
-    IO.println line
+private def listTargets (options : ListTargetsOptions) : IO Unit := do
+  if options.json then
+    IO.println (← liftCompileResult (listTargetsJson options.includeDesignOnly))
+  else
+    let lines ← liftCompileResult (listTargetLines options.includeDesignOnly)
+    for line in lines do
+      IO.println line
 
-private def describeTarget (value : String) : IO Unit := do
-  IO.println (← liftCompileResult (describeTargetText value))
+private def inspectTarget (value : String) (json : Bool) : IO Unit := do
+  IO.println (← liftCompileResult (inspectTargetText value json))
 
 /-- Product CLI entry. Sole dispatcher: `parseProductCliCommandV1` =
 seed-first preflight (`parseCliCommandWithSeedV1` on frozen seed) then
@@ -245,10 +247,10 @@ unsafe def run (args : List String) : IO Unit := do
   | .error msg => failUsage msg
   | .ok command =>
       match command with
-      | .listTargets includeDesignOnly => listTargets includeDesignOnly
-      | .describeTarget target => describeTarget target
+      | .listTargets options => listTargets options
+      | .inspect target json => inspectTarget target json
+      | .check options => checkSource options
       | .build options => buildSource options
-      | .buildCounter options => buildCounter options
       | .usage => failUsage usage
 
 end ProofForgeV2.CLI

@@ -81,12 +81,12 @@ echo "solana-runtime-test: sbpf=$("$sbpf_bin" --version 2>&1 || true)"
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-echo "solana-runtime-test: build-counter --target solana --profile solana-sbpf-elf-v1 -o $out_dir/Counter"
-if ! lake env "$cli" build-counter \
+echo "solana-runtime-test: build Examples/Counter.lean --module Examples.Counter --target solana --profile solana-sbpf-elf-v1 -o $out_dir/Counter"
+if ! lake env "$cli" build Examples/Counter.lean --module Examples.Counter \
   --target solana \
   --profile solana-sbpf-elf-v1 \
   -o "$out_dir/Counter"; then
-  die "proof-forge-next build-counter failed"
+  die "proof-forge-next build Counter failed"
 fi
 
 so_path=""
