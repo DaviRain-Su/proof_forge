@@ -623,6 +623,16 @@ def data : SemanticProgramDataV1 := {
   requirements := { items := #[] }
 }
 
+/-- Exact production invariant-closure membership in callable source order. -/
+def closureMembers : Array Bool := #[false, true, true, true]
+
+theorem computeInvariantClosureMembership_data :
+    invariantClosureMembershipResultV1 data.callables = .ok closureMembers := by
+  simp [invariantClosureMembershipResultV1, closureMembers, data, gate, entryGate,
+    leaf, leafBlock, leafInstruction, boolLiteral, truth, invariantCallable,
+    truthInstruction, instruction, valueDef, falsehood, falsehoodInstruction]
+  rfl
+
 /-- The concrete fixture closes the sole production structure prelude: root
     shape, contiguous table IDs, and shallow declaration references. This is
     intentionally not a claim that the later type/value/CFG/requirement gates

@@ -12635,6 +12635,14 @@ normative: false
 - Verification：WireV1与InvariantABI engineering suites通过；本片仅重构proof boundary，canonical
   closure/fuel success仍pending。
 
+## 2026-08-01 — D2-07 canonical closure membership
+
+- Production：dynamic membership worklist抽为`callables.size` fuel的total worker；每项由members bit最多入队
+  一次，fuel不足且仍有pending work时`.badCfg`，root/call/instruction source order不变。
+- Kernel：roots 2/3 seed后，truth发现truthLeaf 1，得到exact `#[false,true,true,true]`。
+- Regression：四member tight-fuel case覆盖two roots、duplicate static calls和reachable two-PureFn cycle。
+- Boundary：metadata、call-DAG、closure-CFG、PureFn-op、fuel及完整structure仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

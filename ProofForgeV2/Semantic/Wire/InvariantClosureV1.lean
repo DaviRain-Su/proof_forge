@@ -33,13 +33,62 @@ private def validateInvariantRootDirectOpsV1
           | _ => pure ()
   pure ()
 
+@[simp] private def computeInvariantClosureMembershipWorkerV1
+    (callables : Array CallableV1) (cursor : Nat) (members : Array Bool)
+    (worklist : Array Nat) : Nat → Except SemanticWireErrorV1 (Array Bool)
+  | 0 =>
+      if cursor < worklist.size then err .badCfg else pure members
+  | fuel + 1 => do
+      if cursor < worklist.size then
+        let callerIndex := worklist[cursor]!
+        let mut nextMembers := members
+        let mut nextWorklist := worklist
+        match callables[callerIndex]? with
+        | none => return ← err .badCfg
+        | some caller =>
+            for block in caller.blocks do
+              for instr in block.instructions do
+                match instr.op with
+                | .pureCall calleeId _ =>
+                    let calleeIndex := calleeId.toNat
+                    match callables[calleeIndex]? with
+                    | none => return ← err .badCfg
+                    | some callee =>
+                        unless callee.kind == .pureFn do
+                          return ← err .badCfg
+                        unless nextMembers[calleeIndex]! do
+                          nextMembers := nextMembers.set! calleeIndex true
+                          nextWorklist := nextWorklist.push calleeIndex
+                | _ => pure ()
+        computeInvariantClosureMembershipWorkerV1 callables (cursor + 1)
+          nextMembers nextWorklist fuel
+      else
+        pure members
+
+private theorem computeInvariantClosureMembershipWorkerDoneV1
+    (callables : Array CallableV1) (cursor fuel : Nat)
+    (members : Array Bool) (worklist : Array Nat)
+    (hDone : ¬ cursor < worklist.size) :
+    computeInvariantClosureMembershipWorkerV1 callables cursor members worklist fuel =
+      .ok members := by
+  cases fuel <;> simp [computeInvariantClosureMembershipWorkerV1, hDone] <;> rfl
+
+private theorem computeInvariantClosureMembershipWorkerExhaustedV1
+    (callables : Array CallableV1) (cursor : Nat)
+    (members : Array Bool) (worklist : Array Nat)
+    (hWork : cursor < worklist.size) :
+    computeInvariantClosureMembershipWorkerV1 callables cursor members worklist 0 =
+      .error .badCfg := by
+  simp [computeInvariantClosureMembershipWorkerV1, hWork]
+  rfl
+
 /-- Compute exact transitive invariant-closure membership over `Op.PureCall`
     edges (SPEC §8). Generic CFG/op typing has already proved every edge is
     in-range and targets a pureFn; this helper rechecks those facts fail-closed.
     Each callable enters the worklist at most once, so traversal is bounded by
     callables plus PureCall instructions even when a cycle is present. The
     reachable call-graph DAG validator consumes this membership next. -/
-private def computeInvariantClosureMembershipV1
+def invariantClosureMembershipResultV1
     (callables : Array CallableV1) :
     Except SemanticWireErrorV1 (Array Bool) := do
   let mut members := Array.mk (List.replicate callables.size false)
@@ -51,28 +100,8 @@ private def computeInvariantClosureMembershipV1
         if callable.kind == .invariant then
           members := members.set! index true
           worklist := worklist.push index
-  let mut cursor : Nat := 0
-  while cursor < worklist.size do
-    let callerIndex := worklist[cursor]!
-    cursor := cursor + 1
-    match callables[callerIndex]? with
-    | none => return ← err .badCfg
-    | some caller =>
-        for block in caller.blocks do
-          for instr in block.instructions do
-            match instr.op with
-            | .pureCall calleeId _ =>
-                let calleeIndex := calleeId.toNat
-                match callables[calleeIndex]? with
-                | none => return ← err .badCfg
-                | some callee =>
-                    unless callee.kind == .pureFn do
-                      return ← err .badCfg
-                    unless members[calleeIndex]! do
-                      members := members.set! calleeIndex true
-                      worklist := worklist.push calleeIndex
-            | _ => pure ()
-  pure members
+  computeInvariantClosureMembershipWorkerV1 callables 0 members worklist
+    callables.size
 
 /-- A pureFn carries invariant fuel metadata iff it is transitively reachable
     from an invariant root through `Op.PureCall` (SPEC §8). Presence is checked
@@ -294,7 +323,7 @@ private def validateInvariantStepsIntrinsicCeilingV1
 def validateInvariantClosurePhasesV1 (callables : Array CallableV1) :
     Except SemanticWireErrorV1 (Array Bool) := do
   validateInvariantRootDirectOpsV1 callables
-  let members ← computeInvariantClosureMembershipV1 callables
+  let members ← invariantClosureMembershipResultV1 callables
   validatePureFnInvariantClosureMembershipWithMembersV1 callables members
   validateInvariantClosureCallGraphDagWithMembersV1 callables members
   validateInvariantClosureCfgAcyclicWithMembersV1 callables members
@@ -317,7 +346,7 @@ def validateInvariantFuelPhasesV1 (callables : Array CallableV1)
 theorem validateInvariantClosurePhasesV1_eq_ok
     (callables : Array CallableV1) (members : Array Bool)
     (hRoot : validateInvariantRootDirectOpsV1 callables = .ok ())
-    (hMembers : computeInvariantClosureMembershipV1 callables = .ok members)
+    (hMembers : invariantClosureMembershipResultV1 callables = .ok members)
     (hMetadata : validatePureFnInvariantClosureMembershipWithMembersV1
       callables members = .ok ())
     (hDag : validateInvariantClosureCallGraphDagWithMembersV1

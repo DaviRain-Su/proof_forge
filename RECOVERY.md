@@ -645,3 +645,8 @@ invariant closure restrictions；fuel、requirements及完整structure仍pending
 closure-CFG、PureFn-op及exact-fuel checker；不再由五个downstream phase重复计算。phase/error顺序不变，
 fuel proof seam对members长度fail-closed，并由完整composition theorem固定它必须来自closure结果。
 本片仅准备proof boundary，尚未声称canonical closure/fuel成功。
+
+closure首个kernel结果现已闭合：production worklist `while`机械抽取为以`callables.size`为fuel的total
+worker；每个callable由members bit保证最多append一次，pending work耗尽fuel时fail-closed。canonical roots
+先seed `#[2,3]`，truth发现pure leaf 1，最终exact members为`#[false,true,true,true]`。额外tight-fuel
+回归固定多root、duplicate call及reachable PureFn cycle下恰好处理四项；metadata/DAG/CFG/op closure仍pending。
