@@ -403,6 +403,105 @@ private partial def step (input : ByteArray) (deposit : Deposit)
   | .bitNot destination source => do
       let value ← readTemp machine source
       writeTemp machine destination (value ^^^ UInt64.ofNat 18446744073709551615)
+  | .narrowCheckedAdd bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedAdd bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let sum := left.toNat + right.toNat
+      let limit := Nat.pow 2 bitWidth
+      if sum ≥ limit then
+        modelError s!"UInt{bitWidth} addition overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat sum)
+  | .narrowCheckedSub bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedSub bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if left < right then
+        modelError s!"UInt{bitWidth} subtraction underflow"
+      else
+        writeTemp machine destination (left - right)
+  | .narrowCheckedMul bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedMul bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let product := left.toNat * right.toNat
+      let limit := Nat.pow 2 bitWidth
+      if product ≥ limit then
+        modelError s!"UInt{bitWidth} multiplication overflow"
+      else
+        writeTemp machine destination (UInt64.ofNat product)
+  | .narrowCheckedDiv bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedDiv bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if right == 0 then
+        modelError "division by zero"
+      else
+        writeTemp machine destination (left / right)
+  | .narrowCheckedMod bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowCheckedMod bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      if right == 0 then
+        modelError "division by zero"
+      else
+        writeTemp machine destination (left % right)
+  | .narrowBitAnd bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitAnd bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left &&& right)
+  | .narrowBitOr bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitOr bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left ||| right)
+  | .narrowBitXor bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitXor bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      writeTemp machine destination (left ^^^ right)
+  | .narrowBitNot bitWidth destination source => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowBitNot bitWidth {bitWidth} is not admitted"
+      let value ← readTemp machine source
+      let mask := UInt64.ofNat ((Nat.pow 2 bitWidth) - 1)
+      writeTemp machine destination ((value ^^^ UInt64.ofNat 18446744073709551615) &&& mask)
+  | .narrowShl bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let shift := right.toNat
+      if shift ≥ 64 then
+        modelError "invalid shift"
+      else
+        let shifted := Nat.shiftLeft left.toNat shift
+        let limit := Nat.pow 2 bitWidth
+        if shifted ≥ limit then
+          modelError s!"UInt{bitWidth} shift overflow"
+        else
+          writeTemp machine destination (UInt64.ofNat shifted)
+  | .narrowShr bitWidth destination lhs rhs => do
+      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+        modelError s!"narrowShr bitWidth {bitWidth} is not admitted"
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let shift := right.toNat
+      if shift ≥ 64 then
+        modelError "invalid shift"
+      else
+        writeTemp machine destination
+          (UInt64.ofNat (Nat.shiftRight left.toNat shift))
   | .boolNot destination source => do
       let value ← readTemp machine source
       writeTemp machine destination (if value == 0 then 1 else 0)
@@ -759,6 +858,17 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .shl _ _ _ => "shl"
     | .shr _ _ _ => "shr"
     | .bitNot _ _ => "bitNot"
+    | .narrowCheckedAdd _ _ _ _ => "narrowCheckedAdd"
+    | .narrowCheckedSub _ _ _ _ => "narrowCheckedSub"
+    | .narrowCheckedMul _ _ _ _ => "narrowCheckedMul"
+    | .narrowCheckedDiv _ _ _ _ => "narrowCheckedDiv"
+    | .narrowCheckedMod _ _ _ _ => "narrowCheckedMod"
+    | .narrowBitAnd _ _ _ _ => "narrowBitAnd"
+    | .narrowBitOr _ _ _ _ => "narrowBitOr"
+    | .narrowBitXor _ _ _ _ => "narrowBitXor"
+    | .narrowBitNot _ _ _ => "narrowBitNot"
+    | .narrowShl _ _ _ _ => "narrowShl"
+    | .narrowShr _ _ _ _ => "narrowShr"
     | .boolNot _ _ => "boolNot"
     | .boolAnd _ _ _ => "boolAnd"
     | .boolOr _ _ _ => "boolOr"
@@ -1995,10 +2105,11 @@ private unsafe def testShiftBitwiseLogicalProductPath
     throw <| IO.userError "bit-logic: missing bigShift entry after plan"
   -- Computed count 32+32 = 64 reaches invalidShift at runtime (literal 64 is
   -- rejected by CheckV1 as a source-level constant bound).
+  -- T8c: UInt32 count composition uses narrowCheckedAdd 32 (body multi-width).
   expect (bigShift.body == #[
       .returnValue
-        (.shr (.param 0) (.checkedAdd (.literal 32) (.literal 32)))])
-    "bit-logic: bigShift must lower shr of param by checkedAdd of UInt32 counts"
+        (.shr (.param 0) (.narrowCheckedAdd 32 (.literal 32) (.literal 32)))])
+    "bit-logic: bigShift must lower shr of param by narrowCheckedAdd 32 of UInt32 counts"
   let ir ← liftResult <| Targets.Near.irFromCapability capability
   let ir2 ← liftResult <| Targets.Near.irFromCapability capability
   expect (ir == ir2) "bit-logic: IR rebuild must be structure-identical"
@@ -2629,6 +2740,90 @@ private unsafe def testNarrowAbiProductPath
   expect (!u64Abi.contents.contains "\"type\":\"u8-le\"")
     "u64-only: ABI must not introduce u8-le"
 
+/-- T8c-NEAR: UInt8 state body multi-width add — success path + overflow trap;
+    WAT evidence of high-bit `shr_u` guard after narrow add. -/
+private unsafe def testNarrowBodyProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowBody where\n" ++
+    "  state a : UInt8\n\n" ++
+    "  init(x : UInt8) do\n" ++
+    "    a := x\n\n" ++
+    "  entry bump(delta : UInt8) : UInt64 do\n" ++
+    "    a := a + delta\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-narrow-body>" "Examples.NarrowBody" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "narrow-body: missing bump entry"
+  -- Store narrowCheckedAdd of narrowStateLoad + narrowParam.
+  let bumpOk :=
+    match bump.body[0]? with
+    | some (Targets.Near.Statement.store store) =>
+        match store.value with
+        | Targets.Near.Expr.narrowCheckedAdd 8
+            (Targets.Near.Expr.narrowStateLoad 8 0)
+            (Targets.Near.Expr.narrowParam 8 0) =>
+              store.fieldIndex == 0 && store.byteWidth == 1
+        | _ => false
+    | _ => false
+  expect bumpOk
+    "narrow-body: bump must lower UInt8 add as narrowCheckedAdd 8"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let bumpIR ← findMethod ir "bump"
+  let kinds := operationKinds bumpIR.operations
+  expect (kinds.contains "narrowCheckedAdd" &&
+      kinds.contains "narrowLoadState" && kinds.contains "narrowLoadParam" &&
+      kinds.contains "narrowStoreState")
+    s!"narrow-body: IR must lower narrow add/load/store, got {kinds}"
+  let initIR ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "narrow-body init" <|
+    execute initIR empty (encodeUInt64LE 200) zero
+  let aKey := ir.keys[1]!
+  expect (match storageLookup? storage0 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 200
+    | none => false)
+    "narrow-body: field a must be 200 after init"
+  -- 200 + 50 = 250 fits UInt8.
+  let (storage1, ret, _) ← requireSuccess "narrow-body bump(50)" <|
+    execute bumpIR storage0 (encodeUInt64LE 50) zero
+  expect (ret == some 0)
+    "narrow-body: bump must return UInt64 0"
+  expect (match storageLookup? storage1 aKey.key with
+    | some bytes => bytes.size == 1 && bytes[0]!.toNat == 250
+    | none => false)
+    "narrow-body: bump(50) must store 250"
+  -- 250 + 10 = 260 overflows UInt8 → trap + storage rollback.
+  match execute bumpIR storage1 (encodeUInt64LE 10) zero with
+  | .trapped rolled _ =>
+      expect (match storageLookup? rolled aKey.key with
+        | some bytes => bytes.size == 1 && bytes[0]!.toNat == 250
+        | none => false)
+        "narrow-body: UInt8 overflow must roll back storage"
+  | .success .. =>
+      throw <| IO.userError "narrow-body: 250+10 must trap on UInt8 overflow"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "narrow-body: missing .wat artifact"
+  expectContains watFile.contents "i64.shr_u" "narrow-body WAT shr_u high-bit guard"
+  expectContains watFile.contents "i64.add" "narrow-body WAT i64.add"
+  expectContains watFile.contents "i32.store8" "narrow-body WAT store8"
+  expectContains watFile.contents "i32.load8_u" "narrow-body WAT load8_u"
+
 /-- T8b-NEAR negatives: UInt128 state, Int8 param, narrow entry result fail closed. -/
 private unsafe def testNarrowAbiNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -3152,6 +3347,8 @@ unsafe def run : IO Unit := do
   -- T8b-NEAR: state/param UInt{8,16,32} ABI multi-width.
   testNarrowAbiProductPath session
   testNarrowAbiNegatives session
+  -- T8c-NEAR: body multi-width UInt8 add success + overflow.
+  testNarrowBodyProductPath session
   IO.println "Tests.Materialization.NearHostModel: ok"
 
 end Tests.Materialization.NearHostModel

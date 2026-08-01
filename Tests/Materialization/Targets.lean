@@ -1263,6 +1263,7 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
   | some (stmt : Targets.Near.Statement) =>
       match stmt with
       | .returnValue (.shr _ (.checkedAdd ..)) => pure ()
+      | .returnValue (.shr _ (.narrowCheckedAdd 32 ..)) => pure ()
       | _ => throw <| IO.userError "NEAR bigShift must keep a computed count"
   | none => throw <| IO.userError "NEAR bigShift body is empty"
 

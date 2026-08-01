@@ -24,6 +24,12 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
       match fns[fnIndex]? with
       | some fn => !fn.resultIsBool
       | none => false
+  -- Narrow body ops produce UInt{8,16,32} temps (still i64 storage); pureCall
+  -- args require UInt64/Int64, so treat narrow results as non-UInt64-compatible.
+  | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
+  | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
+  | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
+  | .narrowShl .. | .narrowShr .. => false
   | _ => true
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
@@ -58,6 +64,11 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .checkedMul lhs rhs => binaryNodes lhs rhs
     | .checkedDiv lhs rhs => binaryNodes lhs rhs
     | .checkedMod lhs rhs => binaryNodes lhs rhs
+    | .narrowCheckedAdd _ lhs rhs | .narrowCheckedSub _ lhs rhs
+    | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
+    | .narrowCheckedMod _ lhs rhs
+    | .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs
+    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs => binaryNodes lhs rhs
     | .signedCheckedAdd lhs rhs => binaryNodes lhs rhs
     | .signedCheckedSub lhs rhs => binaryNodes lhs rhs
     | .signedCheckedMul lhs rhs => binaryNodes lhs rhs
@@ -70,7 +81,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .shl lhs rhs => binaryNodes lhs rhs
     | .shr lhs rhs => binaryNodes lhs rhs
     | .sar lhs rhs => binaryNodes lhs rhs
-    | .bitNot operand => unaryNodes operand
+    | .bitNot operand | .narrowBitNot _ operand => unaryNodes operand
     | .boolNot operand => unaryNodes operand
     | .checkedNeg operand => unaryNodes operand
     | .boolAnd lhs rhs => binaryNodes lhs rhs

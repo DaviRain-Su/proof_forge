@@ -153,6 +153,18 @@ inductive Expr where
   | checkedNeg (operand : Expr)
   | sar (lhs rhs : Expr)
   | bitNot (operand : Expr)
+  /-- Narrow body checked arithmetic (`bitWidth ∈ {8,16,32}`); UInt64 keeps historical. -/
+  | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitAnd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitOr (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitXor (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowBitNot (bitWidth : Nat) (operand : Expr)
+  | narrowShl (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowShr (bitWidth : Nat) (lhs rhs : Expr)
   | boolNot (operand : Expr)
   /-- Strict Bool AND on 0/1 words (both sides always evaluate). -/
   | boolAnd (lhs rhs : Expr)
@@ -404,16 +416,35 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 
 /-- Value kinds admitted in the NEAR pilot value table. Bool is admitted for
 comparison/logical/literal temps, assert conditions, and entry/view return
-values. UInt32 is admitted only as a shift-count temp (zero-extended into the
-i64 plan surface). Top-level state/params admit UInt{8,16,32,64}|Int64 (T8b);
-body arithmetic remains UInt64/Int64/UInt32-shift (T8c opens body multi-width).
-Initializer result stays Unit. -/
+values. Body multi-width (T8c) admits UInt{8,16,32,64} temps; UInt32 also
+covers shift-count temps (zero-extended into the i64 plan surface). Top-level
+state/params admit UInt{8,16,32,64}|Int64 (T8b). Initializer result stays Unit. -/
 private inductive NearValueKindV1 where
   | uint64
   | uint32
+  | uint16
+  | uint8
   | bool
   | int64
   deriving BEq, Inhabited, Repr
+
+/-- Map admitted body UInt width to plan value kind. -/
+private def uintKindOfWidthV1 (w : Nat) : Option NearValueKindV1 :=
+  match w with
+  | 8 => some .uint8
+  | 16 => some .uint16
+  | 32 => some .uint32
+  | 64 => some .uint64
+  | _ => none
+
+/-- Inverse of `uintKindOfWidthV1` for store/width gates. -/
+private def widthOfUintKindV1 (k : NearValueKindV1) : Option Nat :=
+  match k with
+  | .uint8 => some 8
+  | .uint16 => some 16
+  | .uint32 => some 32
+  | .uint64 => some 64
+  | .bool | .int64 => none
 
 /-- NEAR pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Bool/UInt32 optional; state/params admit UInt{8,16,32,64}|Int64 (T8b). -/
@@ -423,14 +454,13 @@ private def nearPlanErr (message : String) : CompileError :=
   .planInvariant .near message
 
 /-- NEAR pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
-    `pilotUintWidthPolicyNearAbi` so T8b ABI multi-width state/params may
-    appear. Body multi-width arithmetic remains fail closed until T8c.
-    N2c: Principal remains fail-closed (wire identity is binary variable-length;
-    not a NEAR account-id string). -/
+    `pilotUintWidthPolicyNearBody` (T8c body multi-width + T8b ABI multi-width).
+    UInt128/256 and non-64 Int fail closed. N2c: Principal remains fail-closed
+    (wire identity is binary variable-length; not a NEAR account-id string). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
-    pilotUintWidthPolicyNearAbi
+    pilotUintWidthPolicyNearBody
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
 private def abiByteWidthOfTypeV1
@@ -525,10 +555,18 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
       endianness := .little
     }
     planned := planned.push binding
+    let kind ←
+      if isInt then pure NearValueKindV1.int64
+      else match uintKindOfWidthV1 bitWidth with
+        | some k => pure k
+        | none =>
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: ABI UInt{bitWidth} is not admitted"
     values := values.push {
-      -- Body multi-width is T8c; zero-extend narrow ABI params into UInt64 temps.
+      -- T8c: narrow ABI params retain semantic width for body arithmetic;
+      -- IR loads still zero-extend into i64 temps.
       expr := mkParamExpr bitWidth binding.inputOffset
-      kind := if isInt then .int64 else .uint64
+      kind
       depth := 1
       expandedNodes := 1
       dependencies := #[]
@@ -629,56 +667,91 @@ private def makeBinaryTreeValueV1
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
   makeBinaryTreeValueKindsV1 mk .uint64 .uint64 kind lhsId rhsId lhs rhs
 
+/-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
+    `narrow*` so Emit can attach width overflow/mask guards. -/
+private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedAdd l r else .narrowCheckedAdd w l r
+private def mkCheckedSub (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedSub l r else .narrowCheckedSub w l r
+private def mkCheckedMul (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMul l r else .narrowCheckedMul w l r
+private def mkCheckedDiv (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedDiv l r else .narrowCheckedDiv w l r
+private def mkCheckedMod (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .checkedMod l r else .narrowCheckedMod w l r
+private def mkBitAnd (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitAnd l r else .narrowBitAnd w l r
+private def mkBitOr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitOr l r else .narrowBitOr w l r
+private def mkBitXor (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .bitXor l r else .narrowBitXor w l r
+private def mkBitNot (w : Nat) (o : Expr) : Expr :=
+  if w == 64 then .bitNot o else .narrowBitNot w o
+private def mkShl (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shl l r else .narrowShl w l r
+private def mkShr (w : Nat) (l r : Expr) : Expr :=
+  if w == 64 then .shr l r else .narrowShr w l r
+
 private def makeCheckedAddValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .checkedAdd l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkCheckedAdd bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeCheckedSubValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .checkedSub l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkCheckedSub bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeCheckedMulValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .checkedMul l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkCheckedMul bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeCheckedDivValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .checkedDiv l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkCheckedDiv bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeCheckedModValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .checkedMod l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkCheckedMod bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeBitAndValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .bitAnd l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkBitAnd bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeBitOrValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .bitOr l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkBitOr bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeBitXorValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .bitXor l r) .uint64 lhsId rhsId lhs rhs
+  makeBinaryTreeValueKindsV1 (mkBitXor bitWidth) kind kind kind lhsId rhsId lhs rhs
 
 private def makeShlValueV1
+    (lhsKind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueKindsV1 (fun l r => .shl l r) .uint64 .uint32 .uint64
+  makeBinaryTreeValueKindsV1 (mkShl bitWidth) lhsKind .uint32 lhsKind
     lhsId rhsId lhs rhs
 
 private def makeShrValueV1
+    (lhsKind : NearValueKindV1) (bitWidth : Nat)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueKindsV1 (fun l r => .shr l r) .uint64 .uint32 .uint64
+  makeBinaryTreeValueKindsV1 (mkShr bitWidth) lhsKind .uint32 lhsKind
     lhsId rhsId lhs rhs
 
 private def makeBoolAndValueV1
@@ -715,9 +788,10 @@ private def makeUnaryTreeValueV1
   }
 
 private def makeBitNotValueV1
+    (kind : NearValueKindV1) (bitWidth : Nat)
     (operandId : ValueIdV1)
     (operand : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeUnaryTreeValueV1 (fun o => .bitNot o) .uint64 .uint64 operandId operand
+  makeUnaryTreeValueV1 (mkBitNot bitWidth) kind kind operandId operand
 
 private def makeBoolNotValueV1
     (operandId : ValueIdV1)
@@ -727,8 +801,34 @@ private def makeBoolNotValueV1
 private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueV1 (fun l r => .compare op l r) .bool lhsId rhsId lhs rhs
+    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
+  unless lhs.kind == rhs.kind do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: comparison operand kinds do not match"
+  unless (widthOfUintKindV1 lhs.kind).isSome do
+    throw <| .planInvariant .near
+      "unsupported NEAR semantic shape: unsigned comparison requires UInt operands"
+  makeBinaryTreeValueKindsV1 (fun l r => .compare op l r) lhs.kind rhs.kind .bool
+    lhsId rhsId lhs rhs
+
+/-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
+    `(typeId, kind, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
+private def admitUIntWidthResultTypeV1
+    (types : NearTypeClosureV1) (resultTypeId : TypeIdV1) :
+    CompileResult (TypeIdV1 × NearValueKindV1 × Nat) := do
+  match types.uintWidthOf resultTypeId with
+  | some w =>
+      unless isNearBodyUintWidth w do
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
+      match uintKindOfWidthV1 w with
+      | some k => pure (resultTypeId, k, w)
+      | none =>
+          throw <| .planInvariant .near
+            s!"unsupported NEAR semantic shape: arithmetic/bitwise result UInt{w} is not admitted"
+  | none =>
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: arithmetic/bitwise result must be admitted UInt width"
 
 private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
@@ -908,16 +1008,7 @@ private def lowerBlockInstructionsV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        if typeId == types.uint64TypeId then
-          let value ← decodeUInt64LiteralV1 bytes
-          values := ← appendResultValueV1 types.uint64TypeId values result {
-            expr := .literal value
-            kind := .uint64
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-          }
-        else if types.int64TypeId == some typeId then
+        if types.int64TypeId == some typeId then
           let value ← decodeInt64LiteralLe nearPlanErr "NEAR" bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
@@ -926,13 +1017,19 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
-        else if types.uint32TypeId == some typeId then
-          -- Shift-count surface: 4-byte LE UInt32, zero-extended into the
-          -- plan literal / i64 temp word.
-          let value ← decodeUInt32LiteralV1 bytes
+        else if let some bitWidth := types.uintWidthOf typeId then
+          unless isNearBodyUintWidth bitWidth do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: UInt{bitWidth} literal is not admitted"
+          let kind ← match uintKindOfWidthV1 bitWidth with
+            | some k => pure k
+            | none =>
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: UInt{bitWidth} literal is not admitted"
+          let value ← decodeUIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
-            kind := .uint32
+            kind
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -942,7 +1039,7 @@ private def lowerBlockInstructionsV1
             | some tid =>
                 unless typeId == tid do
                   throw <| .planInvariant .near
-                    "unsupported NEAR semantic shape: literal is not UInt64, Int64, UInt32, or Bool"
+                    "unsupported NEAR semantic shape: literal is not admitted UInt width, Int64, or Bool"
                 pure tid
             | none =>
                 throw <| .planInvariant .near
@@ -975,11 +1072,18 @@ private def lowerBlockInstructionsV1
         unless field.byteWidth == byteWidthOfBitWidth bitWidth do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: state load width does not match field layout"
+        let kind ←
+          if isInt then pure NearValueKindV1.int64
+          else match uintKindOfWidthV1 bitWidth with
+            | some k => pure k
+            | none =>
+                throw <| .planInvariant .near
+                  s!"unsupported NEAR semantic shape: state load UInt{bitWidth} is not admitted"
         values := ← appendResultValueV1 result.typeId values result {
-          -- T8b: narrow ABI loads zero-extend into UInt64 body temps (T8c opens
-          -- body multi-width arithmetic on the narrow TypeId itself).
+          -- T8c: narrow ABI loads retain semantic width for body arithmetic;
+          -- IR still zero-extends into i64 temps.
           expr := mkStateLoadExpr bitWidth field.sourceId
-          kind := if isInt then .int64 else .uint64
+          kind
           depth := 1
           expandedNodes := 1
           dependencies := #[]
@@ -987,218 +1091,199 @@ private def lowerBlockInstructionsV1
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values stableCount segmentStart armReadables rhsId
-        -- UInt32 arithmetic is admitted only as shift-count composition
-        -- (e.g. `x >> (32 + 32)`). Same plan/IR opcodes as UInt64; the
-        -- host/WAT overflow guards are UInt64-wide, which is a conservative
-        -- superset for the small counts Normalize produces in this envelope.
-        if (op == .add || op == .sub || op == .mul || op == .div || op == .mod ||
-            op == .bitAnd || op == .bitOr || op == .bitXor) &&
-            lhs.kind == .uint32 && rhs.kind == .uint32 then
-          let u32TypeId ← match types.uint32TypeId with
+        if op == .and || op == .or then
+          let boolTypeId ← match types.boolTypeId with
             | some tid => pure tid
             | none =>
                 throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: UInt32 type is missing for shift-count arithmetic"
-          unless result.typeId == u32TypeId do
+                  "unsupported NEAR semantic shape: Bool type is missing for logical op"
+          unless result.typeId == boolTypeId do
             throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: UInt32 binary result type mismatch"
-          let value ← match op with
-            | .add =>
-                makeBinaryTreeValueKindsV1 (fun l r => .checkedAdd l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .sub =>
-                makeBinaryTreeValueKindsV1 (fun l r => .checkedSub l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .mul =>
-                makeBinaryTreeValueKindsV1 (fun l r => .checkedMul l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .div =>
-                makeBinaryTreeValueKindsV1 (fun l r => .checkedDiv l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .mod =>
-                makeBinaryTreeValueKindsV1 (fun l r => .checkedMod l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .bitAnd =>
-                makeBinaryTreeValueKindsV1 (fun l r => .bitAnd l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .bitOr =>
-                makeBinaryTreeValueKindsV1 (fun l r => .bitOr l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | .bitXor =>
-                makeBinaryTreeValueKindsV1 (fun l r => .bitXor l r)
-                  .uint32 .uint32 .uint32 lhsId rhsId lhs rhs
-            | _ =>
-                throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: unexpected UInt32 binary op"
-          values := ← appendResultValueV1 u32TypeId values result value
-        else if op == .add then
-          if lhs.kind == .int64 || rhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
-            unless result.typeId == tid do
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int64 add result type mismatch"
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedAdd l r)
-              .int64 .int64 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeCheckedAddValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .sub then
-          if lhs.kind == .int64 || rhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
-            unless result.typeId == tid do
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int64 sub result type mismatch"
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedSub l r)
-              .int64 .int64 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeCheckedSubValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .mul then
-          if lhs.kind == .int64 || rhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
-            unless result.typeId == tid do
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int64 mul result type mismatch"
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMul l r)
-              .int64 .int64 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeCheckedMulValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .div then
-          if lhs.kind == .int64 || rhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
-            unless result.typeId == tid do
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int64 div result type mismatch"
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedDiv l r)
-              .int64 .int64 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeCheckedDivValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .mod then
-          if lhs.kind == .int64 || rhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
-              | none => throw (.planInvariant .near
-                  "unsupported NEAR semantic shape: Int64 type is missing")
-            unless result.typeId == tid do
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: Int64 mod result type mismatch"
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMod l r)
-              .int64 .int64 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeCheckedModValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .bitAnd then
-          let wordKind := if lhs.kind == .int64 then NearValueKindV1.int64 else .uint64
-          let wordTid := if wordKind == .int64 then
-            types.int64TypeId.getD types.uint64TypeId else types.uint64TypeId
-          let value ← makeBinaryTreeValueKindsV1 (fun l r => .bitAnd l r)
-            wordKind wordKind wordKind lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 wordTid values result value
-        else if op == .bitOr then
-          let wordKind := if lhs.kind == .int64 then NearValueKindV1.int64 else .uint64
-          let wordTid := if wordKind == .int64 then
-            types.int64TypeId.getD types.uint64TypeId else types.uint64TypeId
-          let value ← makeBinaryTreeValueKindsV1 (fun l r => .bitOr l r)
-            wordKind wordKind wordKind lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 wordTid values result value
-        else if op == .bitXor then
-          let wordKind := if lhs.kind == .int64 then NearValueKindV1.int64 else .uint64
-          let wordTid := if wordKind == .int64 then
-            types.int64TypeId.getD types.uint64TypeId else types.uint64TypeId
-          let value ← makeBinaryTreeValueKindsV1 (fun l r => .bitXor l r)
-            wordKind wordKind wordKind lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 wordTid values result value
-        else if op == .shl then
-          let wordKind := if lhs.kind == .int64 then NearValueKindV1.int64 else .uint64
-          let wordTid := if wordKind == .int64 then
-            types.int64TypeId.getD types.uint64TypeId else types.uint64TypeId
-          let value ← makeShlValueV1 lhsId rhsId lhs rhs
-          let value := { value with kind := wordKind }
-          values := ← appendResultValueV1 wordTid values result value
-        else if op == .shr then
+              "unsupported NEAR semantic shape: logical result must be Bool"
+          let value ←
+            if op == .and then makeBoolAndValueV1 lhsId rhsId lhs rhs
+            else makeBoolOrValueV1 lhsId rhsId lhs rhs
+          values := ← appendResultValueV1 boolTypeId values result value
+        else if op == .shl || op == .shr then
+          -- Shifts: admitted body UInt/Int64 operand, UInt32 count; result matches lhs.
+          unless (widthOfUintKindV1 lhs.kind).isSome || lhs.kind == .int64 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: shift operand must be admitted integer width"
+          unless rhs.kind == .uint32 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: shift count must be UInt32"
           if lhs.kind == .int64 then
-            let tid ← match types.int64TypeId with
-              | some t => pure t
+            let resultTid ← match types.int64TypeId with
+              | some tid =>
+                  unless result.typeId == tid do
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: Int64 shift result type mismatch"
+                  pure tid
+              | none => throw (.planInvariant .near
+                  "unsupported NEAR semantic shape: Int64 type is missing for shift")
+            if op == .shl then
+              let value ← makeShlValueV1 .int64 64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 resultTid values result value
+            else
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .sar l r)
+                .int64 .uint32 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 resultTid values result value
+          else
+            let (widthTid, kind, bitWidth) ← admitUIntWidthResultTypeV1 types result.typeId
+            unless kind == lhs.kind do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: shift result width mismatch"
+            let value ←
+              if op == .shl then makeShlValueV1 kind bitWidth lhsId rhsId lhs rhs
+              else makeShrValueV1 kind bitWidth lhsId rhsId lhs rhs
+            values := ← appendResultValueV1 widthTid values result value
+        else
+          -- Body multi-width UInt arithmetic / bitwise / comparison, or Int64.
+          unless lhs.kind != .bool && rhs.kind != .bool do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: binary operands must be integer"
+          unless (lhs.kind == .int64) == (rhs.kind == .int64) do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: binary operands must share signedness"
+          if lhs.kind == .int64 then
+            let wordTid ← match types.int64TypeId with
+              | some tid => pure tid
               | none => throw (.planInvariant .near
                   "unsupported NEAR semantic shape: Int64 type is missing")
-            let value ← makeBinaryTreeValueKindsV1 (fun l r => .sar l r)
-              .int64 .uint32 .int64 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 tid values result value
-          else
-            let value ← makeShrValueV1 lhsId rhsId lhs rhs
-            values := ← appendResultValueV1 types.uint64TypeId values result value
-        else if op == .and then
-          let boolTypeId ← match types.boolTypeId with
-            | some tid => pure tid
-            | none =>
+            if op == .add then
+              unless result.typeId == wordTid do
                 throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: Bool type is missing for logical and"
-          unless result.typeId == boolTypeId do
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: logical and result must be Bool"
-          let value ← makeBoolAndValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 boolTypeId values result value
-        else if op == .or then
-          let boolTypeId ← match types.boolTypeId with
-            | some tid => pure tid
-            | none =>
+                  "unsupported NEAR semantic shape: arithmetic result type mismatch"
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedAdd l r)
+                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .sub then
+              unless result.typeId == wordTid do
                 throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: Bool type is missing for logical or"
-          unless result.typeId == boolTypeId do
-            throw <| .planInvariant .near
-              "unsupported NEAR semantic shape: logical or result must be Bool"
-          let value ← makeBoolOrValueV1 lhsId rhsId lhs rhs
-          values := ← appendResultValueV1 boolTypeId values result value
-        else
-          match comparisonOpOfBinaryV1 op with
-          | some cmpOp =>
-              let boolTypeId ← match types.boolTypeId with
-                | some tid => pure tid
-                | none =>
+                  "unsupported NEAR semantic shape: arithmetic result type mismatch"
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedSub l r)
+                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .mul then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: arithmetic result type mismatch"
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMul l r)
+                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .div then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: arithmetic result type mismatch"
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedDiv l r)
+                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .mod then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: arithmetic result type mismatch"
+              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMod l r)
+                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else if op == .bitAnd || op == .bitOr || op == .bitXor then
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: bitwise result type mismatch"
+              let value ←
+                if op == .bitAnd then
+                  makeBinaryTreeValueKindsV1 (fun l r => .bitAnd l r)
+                    .int64 .int64 .int64 lhsId rhsId lhs rhs
+                else if op == .bitOr then
+                  makeBinaryTreeValueKindsV1 (fun l r => .bitOr l r)
+                    .int64 .int64 .int64 lhsId rhsId lhs rhs
+                else
+                  makeBinaryTreeValueKindsV1 (fun l r => .bitXor l r)
+                    .int64 .int64 .int64 lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 wordTid values result value
+            else
+              match comparisonOpOfBinaryV1 op with
+              | some cmpOp =>
+                  let boolTypeId ← match types.boolTypeId with
+                    | some tid => pure tid
+                    | none =>
+                        throw <| .planInvariant .near
+                          "unsupported NEAR semantic shape: Bool type is missing for comparison"
+                  unless result.typeId == boolTypeId do
                     throw <| .planInvariant .near
-                      "unsupported NEAR semantic shape: Bool type is missing for comparison"
-              unless result.typeId == boolTypeId do
-                throw <| .planInvariant .near
-                  "unsupported NEAR semantic shape: comparison result must be Bool"
-              if lhs.kind == .int64 || rhs.kind == .int64 then
-                let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCompare cmpOp l r)
-                  .int64 .int64 .bool lhsId rhsId lhs rhs
-                values := ← appendResultValueV1 boolTypeId values result value
-              else
-                let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
-                values := ← appendResultValueV1 boolTypeId values result value
-          | none =>
+                      "unsupported NEAR semantic shape: comparison result must be Bool"
+                  let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCompare cmpOp l r)
+                    .int64 .int64 .bool lhsId rhsId lhs rhs
+                  values := ← appendResultValueV1 boolTypeId values result value
+              | none =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: only checked Int64 arith/bitwise and comparisons are supported"
+          else
+            -- Unsigned body multi-width path (UInt8/16/32/64).
+            unless lhs.kind == rhs.kind do
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: only checked UInt64/Int64 arithmetic, bitwise, shift, comparison, and strict logical ops are supported"
+                "unsupported NEAR semantic shape: binary operands must share admitted UInt width"
+            let some bitWidth := widthOfUintKindV1 lhs.kind |
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: binary operands must be admitted UInt width"
+            unless isNearBodyUintWidth bitWidth do
+              throw <| .planInvariant .near
+                s!"unsupported NEAR semantic shape: UInt{bitWidth} is not an admitted body width"
+            if op == .add || op == .sub || op == .mul || op == .div ||
+                op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
+              let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
+              unless kind == lhs.kind && w == bitWidth do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: arithmetic/bitwise result width mismatch"
+              let value ←
+                if op == .add then makeCheckedAddValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .sub then makeCheckedSubValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .mul then makeCheckedMulValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .div then makeCheckedDivValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .mod then makeCheckedModValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .bitAnd then makeBitAndValueV1 kind w lhsId rhsId lhs rhs
+                else if op == .bitOr then makeBitOrValueV1 kind w lhsId rhsId lhs rhs
+                else makeBitXorValueV1 kind w lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 widthTid values result value
+            else
+              match comparisonOpOfBinaryV1 op with
+              | some cmpOp =>
+                  let boolTypeId ← match types.boolTypeId with
+                    | some tid => pure tid
+                    | none =>
+                        throw <| .planInvariant .near
+                          "unsupported NEAR semantic shape: Bool type is missing for comparison"
+                  unless result.typeId == boolTypeId do
+                    throw <| .planInvariant .near
+                      "unsupported NEAR semantic shape: comparison result must be Bool"
+                  let value ← makeCompareValueV1 cmpOp lhsId rhsId lhs rhs
+                  values := ← appendResultValueV1 boolTypeId values result value
+              | none =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: only checked multi-width UInt arith/bitwise, shift, Bool logical, and comparisons are supported"
     | .unary op operandId, some result =>
         let operand ← currentValueWithArmsV1 values stableCount segmentStart armReadables operandId
         match op with
         | .bitNot =>
-            let wordKind := if operand.kind == .int64 then NearValueKindV1.int64 else .uint64
-            let wordTid := if wordKind == .int64 then
-              types.int64TypeId.getD types.uint64TypeId else types.uint64TypeId
-            let value ← makeBitNotValueV1 operandId operand
-            let value := { value with kind := wordKind }
-            values := ← appendResultValueV1 wordTid values result value
+            if operand.kind == .int64 then
+              let wordTid ← match types.int64TypeId with
+                | some tid => pure tid
+                | none => throw (.planInvariant .near
+                    "unsupported NEAR semantic shape: Int64 type is missing for bitNot")
+              unless result.typeId == wordTid do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: bitNot result type mismatch"
+              let value ← makeBitNotValueV1 .int64 64 operandId operand
+              values := ← appendResultValueV1 wordTid values result value
+            else
+              let some bitWidth := widthOfUintKindV1 operand.kind |
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: bitNot operand must be admitted integer width"
+              let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
+              unless kind == operand.kind && w == bitWidth do
+                throw <| .planInvariant .near
+                  "unsupported NEAR semantic shape: bitNot result width mismatch"
+              let value ← makeBitNotValueV1 kind w operandId operand
+              values := ← appendResultValueV1 widthTid values result value
         | .not =>
             let boolTypeId ← match types.boolTypeId with
               | some tid => pure tid
@@ -1251,9 +1336,9 @@ private def lowerBlockInstructionsV1
               | none =>
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: Bool type is missing for pureCall result"
-          | .uint32 =>
+          | .uint32 | .uint16 | .uint8 =>
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: pureCall result cannot be UInt32"
+                "unsupported NEAR semantic shape: pureCall result cannot be narrow UInt"
         unless result.typeId == expectedTypeId do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureCall result type does not match the callee"
@@ -1277,14 +1362,22 @@ private def lowerBlockInstructionsV1
             "unsupported NEAR semantic shape: pureFn cannot store state"
         let field ← findFieldV1 layout stateId
         let root ← currentValueWithArmsV1 values stableCount segmentStart armReadables valueId
-        -- Narrow ABI loads zero-extend into UInt64/Int64 temps; store writes
-        -- the low `field.byteWidth` bytes (T8b). Body multi-width is T8c.
-        unless root.kind == .uint64 || root.kind == .int64 do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: state store value must be UInt64 or Int64"
-        unless root.kind != .int64 || field.byteWidth == 8 do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: Int state store requires 8-byte field"
+        let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
+        -- T8c: store value width must match field layout (narrow body temps OK).
+        if root.kind == .int64 then
+          unless field.byteWidth == 8 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: Int state store requires 8-byte field"
+        else
+          let some valueWidth := widthOfUintKindV1 root.kind |
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
+          unless valueWidth == expectedBitWidth do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
+          unless isNearAbiUintWidth valueWidth do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: state store value must be admitted UInt width or Int64"
         let value ← consumeCurrentSegmentV1 values stableCount segmentStart valueId
         body := body.push (.store {
           fieldIndex := field.sourceId
@@ -1520,6 +1613,8 @@ private partial def emitRegionV1
               match expectedKind with
               | .uint64 => "UInt64"
               | .uint32 => "UInt32"
+              | .uint16 => "UInt16"
+              | .uint8 => "UInt8"
               | .bool => "Bool"
               | .int64 => "Int64"
             throw <| .planInvariant .near

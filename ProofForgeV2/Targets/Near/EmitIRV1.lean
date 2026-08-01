@@ -76,6 +76,20 @@ inductive Operation where
   /-- Count guard (≥ 64 → trap) then i64.shr_u. -/
   | shr (destination lhs rhs : Nat)
   | bitNot (destination source : Nat)
+  /-- Narrow body checked arithmetic (`bitWidth ∈ {8,16,32}`); UInt64 keeps historical. -/
+  | narrowCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMul (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedDiv (bitWidth destination lhs rhs : Nat)
+  | narrowCheckedMod (bitWidth destination lhs rhs : Nat)
+  | narrowBitAnd (bitWidth destination lhs rhs : Nat)
+  | narrowBitOr (bitWidth destination lhs rhs : Nat)
+  | narrowBitXor (bitWidth destination lhs rhs : Nat)
+  | narrowBitNot (bitWidth destination source : Nat)
+  /-- Count ≥ 64 trap; shl; high bits above bitWidth must be 0. -/
+  | narrowShl (bitWidth destination lhs rhs : Nat)
+  /-- Count ≥ 64 trap; shr_u. -/
+  | narrowShr (bitWidth destination lhs rhs : Nat)
   | boolNot (destination source : Nat)
   /-- Strict Bool AND: i64.and on 0/1 words. -/
   | boolAnd (destination lhs rhs : Nat)
@@ -300,6 +314,104 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         operations := operand.operations ++ #[.bitNot operand.next operand.value]
         value := operand.next
         next := operand.next + 1
+      }
+  | .narrowCheckedAdd bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedSub bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMul bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedDiv bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitAnd bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitOr bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitXor bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowBitNot bitWidth operand =>
+      let operand := lowerExpr keys next paramAsTemp localEnv operand
+      {
+        operations := operand.operations ++
+          #[.narrowBitNot bitWidth operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .narrowShl bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .narrowShr bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
       }
   | .boolNot operand =>
       let operand := lowerExpr keys next paramAsTemp localEnv operand
@@ -980,6 +1092,45 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .bitNot destination source =>
       s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{source}) (i64.const -1)))\n"
+  | .narrowCheckedAdd bitWidth destination lhs rhs =>
+      -- i64.add then high bits above bitWidth must be zero.
+      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedSub _bitWidth destination lhs rhs =>
+      -- Underflow guard identical to UInt64; result auto in-range for UInt.
+      s!"{indent}(if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedMul bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowCheckedDiv _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowCheckedMod _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitAnd _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitOr _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.or (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitXor _bitWidth destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.xor (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .narrowBitNot bitWidth destination source =>
+      let mask :=
+        match bitWidth with
+        | 8 => "255"
+        | 16 => "65535"
+        | 32 => "4294967295"
+        | _ => "18446744073709551615"
+      s!"{indent}(local.set $t{destination} (i64.and (i64.xor (local.get $t{source}) (i64.const -1)) (i64.const {mask})))\n"
+  | .narrowShl bitWidth destination lhs rhs =>
+      -- Count ≥ 64 trap; shl; high bits above bitWidth must be 0.
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shl (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowShr _bitWidth destination lhs rhs =>
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .boolNot destination source =>
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u (i64.eqz (local.get $t{source}))))\n"
   | .boolAnd destination lhs rhs =>

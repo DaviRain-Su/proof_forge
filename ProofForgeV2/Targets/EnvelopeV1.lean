@@ -109,9 +109,15 @@ def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
 /-- NEAR type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
-    so top-level state/param types may appear. Body arithmetic remains the
-    historical UInt64/UInt32-shift pilot (T8c); narrow body ops stay fail closed. -/
+    so top-level state/param types may appear. Superseded for full plan
+    admission by `pilotUintWidthPolicyNearBody` (T8c); kept as named ABI alias. -/
 def pilotUintWidthPolicyNearAbi : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
+/-- NEAR body multi-width policy (T8c): same admitted set as EVM/Solana body
+    (`{64, 32, 8, 16}`). State/param ABI multi-width remains via
+    `requirePublicUintAbiOrInt64*` (T8b); UInt128/256 fail closed at the Plan seam. -/
+def pilotUintWidthPolicyNearBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
 /-- Noir type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
@@ -121,10 +127,13 @@ def pilotUintWidthPolicyNearAbi : PilotUintWidthPolicy where
 def pilotUintWidthPolicyNoirAbi : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
-/-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana body).
-    Distinct from the historical `{64,32}` default used by NEAR/Noir body. -/
+/-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana/NEAR body).
+    Distinct from the historical `{64,32}` default still used by Noir body (T8d). -/
 def isPilotBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
+
+/-- NEAR body UInt width gate (alias of `isPilotBodyUintWidth`). -/
+def isNearBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
 
 
 /-- Per-target admission set for anonymous Int widths.
@@ -331,7 +340,7 @@ def isEvmAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 /-- Solana **ABI** UInt widths — alias of `isAbiUintWidth`. -/
 def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
-/-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth`. -/
+/-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth` (`{8,16,32,64}`). -/
 def isNearAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 /-- Noir **ABI** UInt widths — alias of `isAbiUintWidth`. -/

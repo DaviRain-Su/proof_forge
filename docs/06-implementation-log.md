@@ -12118,3 +12118,13 @@ normative: false
 - Tests: NoirRelationModel `checkNarrowAbiProduct` + `checkNarrowAbiNegatives`;
   Counter UInt64 regression. shard-targets green.
 - Boundary: not formal D4; not body multi-width (T8d); not Nargo proof.
+
+## 2026-08-01 — T8c NEAR body multi-width UInt8/16/32
+
+- Envelope：新增 `pilotUintWidthPolicyNearBody`（admitted `{64,32,8,16}`，与 EVM/Solana body 同集合）与 `isNearBodyUintWidth`。
+- Near LowerSemanticV1：type-closure 切到 NearBody；`NearValueKindV1` 扩 `uint8`/`uint16`；`uintKindOfWidthV1`/`widthOfUintKindV1`/`admitUIntWidthResultTypeV1`；Plan Expr `narrowChecked*`/`narrowBit*`/`narrowShl`/`narrowShr`；width-dispatch mk*；param/stateLoad 保留语义宽度；同宽 UInt body 算术/位运算/移位/比较；store 要求 field 宽度匹配。
+- EmitIRV1：Operation 窄宽 body 族；Plan→IR lower；WAT 高位 `i64.shr_u` 守卫（add/mul/shl）、sub 下溢、div/mod 零除、bitNot 后 AND 掩码、count≥64 仍 trap。
+- ValidatePlanV1：Expr 节点计数覆盖 narrow*。
+- NearHostModel：host 执行窄宽 ops + `testNarrowBodyProductPath`（UInt8 state add 成功/溢出回滚 + WAT 守卫）；T8b ABI 测试保持。
+- Boundary：工程切片；**不是** formal D2/D4；Noir body 仍 T8d。
+
