@@ -91,7 +91,7 @@ set_return_data 1/2/4 + SBPF stxb/h/w；NEAR value_return 长度 + u8-le ABI；N
 原生 result InputType。UInt128 结果 fail closed。NarrowResult Mollusk 三测绿。
 shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t9a-narrow-result）。
 
-### [pending] T9b：EVM UInt128/256 ABI（state/param + body）
+### [in_progress] T9b：EVM UInt128/256 ABI（state/param + body）
 - EVM 256 位字天然：UInt256 = 原生字、UInt128 = 低 128 位；storage slot-per-field 保持
 - 工作面：Envelope EVM 策略扩 {128,256}（或专用）；literal 解码 16/32 字节；checked add/sub/mul/div/mod 256 位溢出守卫（Yul gt/lt 而非 64 位掩码）；shl/shr 大宽；state/param byteWidth 16/32；IDL
 - 负向：Solana/NEAR/Noir 对 UInt128/256 保持 fail closed（本切片只做 EVM）
