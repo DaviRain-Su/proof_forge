@@ -458,6 +458,30 @@ example (c c' : Cursor) (callable : CallableV1)
     decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeCallableV1_eq_of_bodyV1 c callable c' hdepth hbody
 
+example (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : Cursor)
+    (id entryBlock : UInt32) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1) (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : decodeArray maxArrayElements decodeParameterV1 cName = .ok (params, cParams))
+    (hresult : decodeCallableResultV1 cParams = .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : decodeArray maxArrayElements decodeBlockV1 cEntry = .ok (blocks, cBlocks))
+    (hloops : decodeArray maxArrayElements decodeLoopBoundV1 cBlocks =
+      .ok (loopBounds, cLoops))
+    (hsteps : decodeOption decodeU64le cLoops = .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_fieldsV1 c cTag cId cKind cName cParams cResult cEntry cBlocks
+    cLoops cSteps id entryBlock kind name params result blocks loopBounds invariantSteps
+    hdepth htag hid hkind hname hparams hresult hentry hblocks hloops hsteps
+
 example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
     (afterCallables : Cursor)
     (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
@@ -644,6 +668,74 @@ example (c afterTag afterResult afterOp : Cursor) (result : Option ValueDefV1)
       ⟨afterOp.input, afterOp.offset, c.nesting⟩) :=
   decodeInstructionV1_eq_of_fieldsV1 c afterTag afterResult afterOp result op
     hdepth htag hresult hop
+
+example (c afterTag afterFields afterValue : Cursor) (value : Option UInt32)
+    (hdepth : c.nesting < maxNesting)
+    (htag : decodeTag ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorV1 c = .ok (.return_ value,
+      ⟨afterValue.input, afterValue.offset, c.nesting⟩) :=
+  decodeTerminatorV1_return c afterTag afterFields afterValue value
+    hdepth htag hfields hvalue
+
+example (c afterTag afterId afterParams afterInstructions afterTerminator : Cursor)
+    (id : UInt32) (params : Array BlockParameterV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : decodeArray maxArrayElements decodeBlockParameterV1 afterId =
+      .ok (params, afterParams))
+    (hinstructions : decodeArray maxArrayElements decodeInstructionV1 afterParams =
+      .ok (instructions, afterInstructions))
+    (hterminator : decodeTerminatorV1 afterInstructions =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params, instructions, terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_eq_of_fieldsV1 c afterTag afterId afterParams afterInstructions
+    afterTerminator id params instructions terminator hdepth htag hid hparams
+    hinstructions hterminator
+
+example (c afterTag afterId afterTerminator : Cursor) (paramsOffset instructionsOffset : Nat)
+    (id : UInt32) (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (0, instructionsOffset))
+    (hterminator : decodeTerminatorV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_emptyV1 c afterTag afterId afterTerminator paramsOffset instructionsOffset
+    id terminator hdepth htag hid hparams hinstructions hterminator
+
+example (c afterTag afterId afterInstruction afterTerminator : Cursor)
+    (paramsOffset instructionsOffset : Nat) (id : UInt32) (instruction : InstructionV1)
+    (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (1, instructionsOffset))
+    (hinstruction : decodeInstructionV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (instruction, afterInstruction))
+    (hterminator : decodeTerminatorV1 afterInstruction =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[instruction], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_oneInstructionV1 c afterTag afterId afterInstruction afterTerminator
+    paramsOffset instructionsOffset id instruction terminator hdepth htag hid hparams
+    hinstructions hinstruction hterminator
 
 example (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
     (valueBytes : ByteArray)

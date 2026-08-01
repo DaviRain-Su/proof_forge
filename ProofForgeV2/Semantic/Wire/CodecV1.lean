@@ -1968,6 +1968,19 @@ theorem decodeTerminatorV1_eq_of_bodyV1 (c : Cursor) (terminator : TerminatorV1)
   unfold decodeTerminatorV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose a Return branch directly through the Terminator nesting wrapper. -/
+theorem decodeTerminatorV1_return (c afterTag afterFields afterValue : Cursor)
+    (value : Option UInt32) (hdepth : c.nesting < maxNesting)
+    (htag : decodeTag ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorV1 c = .ok (.return_ value,
+      ⟨afterValue.input, afterValue.offset, c.nesting⟩) :=
+  decodeTerminatorV1_eq_of_bodyV1 c (.return_ value) afterValue hdepth
+    (decodeTerminatorBodyV1_return ⟨c.input, c.offset, c.nesting + 1⟩
+      afterTag afterFields afterValue value htag hfields hvalue)
+
 def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let paramsB ← encodeArray encodeBlockParameterV1 b.params
   let instrB ← encodeArray encodeInstructionV1 b.instructions
@@ -2010,6 +2023,83 @@ theorem decodeBlockV1_eq_of_bodyV1 (c : Cursor) (block : BlockV1) (c' : Cursor)
     decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeBlockV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Compose Block production fields directly through its nesting wrapper. -/
+theorem decodeBlockV1_eq_of_fieldsV1
+    (c afterTag afterId afterParams afterInstructions afterTerminator : Cursor)
+    (id : UInt32) (params : Array BlockParameterV1)
+    (instructions : Array InstructionV1) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : decodeArray maxArrayElements decodeBlockParameterV1 afterId =
+      .ok (params, afterParams))
+    (hinstructions : decodeArray maxArrayElements decodeInstructionV1 afterParams =
+      .ok (instructions, afterInstructions))
+    (hterminator : decodeTerminatorV1 afterInstructions =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params, instructions, terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_eq_of_bodyV1 c { id, params, instructions, terminator }
+    afterTerminator hdepth
+    (decodeBlockBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩ afterTag
+      afterId afterParams afterInstructions afterTerminator id params instructions terminator
+      htag hid hparams hinstructions hterminator)
+
+/-- Compose the canonical empty-parameter, empty-instruction Block shape. -/
+theorem decodeBlockV1_emptyV1
+    (c afterTag afterId afterTerminator : Cursor) (paramsOffset instructionsOffset : Nat)
+    (id : UInt32) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (0, instructionsOffset))
+    (hterminator : decodeTerminatorV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) := by
+  apply decodeBlockV1_eq_of_fieldsV1 c afterTag afterId
+    ⟨afterId.input, paramsOffset, afterId.nesting⟩
+    ⟨afterId.input, instructionsOffset, afterId.nesting⟩ afterTerminator id #[] #[]
+    terminator hdepth htag hid
+  · exact decodeArray_zeroV1 maxArrayElements decodeBlockParameterV1 afterId paramsOffset hparams
+  · exact decodeArray_zeroV1 maxArrayElements decodeInstructionV1
+      ⟨afterId.input, paramsOffset, afterId.nesting⟩ instructionsOffset hinstructions
+  · exact hterminator
+
+/-- Compose the canonical empty-parameter, singleton-instruction Block shape. -/
+theorem decodeBlockV1_oneInstructionV1
+    (c afterTag afterId afterInstruction afterTerminator : Cursor)
+    (paramsOffset instructionsOffset : Nat) (id : UInt32) (instruction : InstructionV1)
+    (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (1, instructionsOffset))
+    (hinstruction : decodeInstructionV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (instruction, afterInstruction))
+    (hterminator : decodeTerminatorV1 afterInstruction =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[instruction], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) := by
+  apply decodeBlockV1_eq_of_fieldsV1 c afterTag afterId
+    ⟨afterId.input, paramsOffset, afterId.nesting⟩ afterInstruction afterTerminator id #[]
+    #[instruction] terminator hdepth htag hid
+  · exact decodeArray_zeroV1 maxArrayElements decodeBlockParameterV1 afterId paramsOffset hparams
+  · exact decodeArray_oneV1 maxArrayElements decodeInstructionV1
+      ⟨afterId.input, paramsOffset, afterId.nesting⟩ instructionsOffset instruction
+      afterInstruction hinstructions hinstruction
+  · exact hterminator
 
 def encodeLoopBoundV1 (lb : LoopBoundV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "LoopBound"
@@ -2083,6 +2173,36 @@ theorem decodeCallableV1_eq_of_bodyV1 (c : Cursor) (callable : CallableV1) (c' :
     decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) := by
   unfold decodeCallableV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Compose all Callable production fields directly through its nesting wrapper. -/
+theorem decodeCallableV1_eq_of_fieldsV1
+    (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : Cursor)
+    (id entryBlock : UInt32) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1) (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : decodeArray maxArrayElements decodeParameterV1 cName = .ok (params, cParams))
+    (hresult : decodeCallableResultV1 cParams = .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : decodeArray maxArrayElements decodeBlockV1 cEntry = .ok (blocks, cBlocks))
+    (hloops : decodeArray maxArrayElements decodeLoopBoundV1 cBlocks =
+      .ok (loopBounds, cLoops))
+    (hsteps : decodeOption decodeU64le cLoops = .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_bodyV1 c {
+    id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+  } cSteps hdepth
+    (decodeCallableBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩
+      cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps id entryBlock
+      kind name params result blocks loopBounds invariantSteps htag hid hkind hname hparams
+      hresult hentry hblocks hloops hsteps)
 
 /-- Root `callables` field composition through the sole array decoder. -/
 theorem decodeCallableArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)

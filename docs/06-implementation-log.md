@@ -11694,6 +11694,35 @@ normative: false
 - Boundary：这些是向上拼接Block/Callable的transport corollary，不证明结构引用或完整carrier；formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 public Return and Block composition
+
+- Proof：将canonical Return及Block fields body theorem分别穿过sole tagged wrapper，导出public decoder
+  success；Return保持tag→count→Option ValueId，Block保持header→id→bounded params→bounded
+  instructions→Terminator。
+- Cursor：保留最终nested decoder input/offset并恢复各层parent nesting；所有nested limits/error authority
+  仍由真实production premises拥有。focused build、signature examples与blocker review通过。
+- Boundary：没有新增runtime或声称nested decoder errors；下一步组合具体三种single-block callables，
+  formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 canonical zero/one-instruction Blocks
+
+- Proof：`decodeBlockV1_emptyV1`组合真实empty params与empty instructions headers；
+  `decodeBlockV1_oneInstructionV1`组合empty params与singleton Instruction。两个theorem均从production
+  count reader returned offset构造下一cursor，再消费public Terminator success。
+- Authority：zero array不调用element，singleton只调用一次真实Instruction；Block字段顺序、bounded
+  headers、nested limits与final cursor均不变。focused build、signature examples与blocker review通过。
+- Boundary：entry/literal/PureCall所需Block shapes已就绪；具体Callable与root carrier、formal TASK/TST
+  仍pending。
+
+## 2026-08-01 — D2-07 public Callable composition
+
+- Proof：将既有Callable九字段body theorem穿过sole tagged wrapper，导出public decoder success；字段顺序
+  固定为id→kind→name→params→result→entryBlock→blocks→loopBounds→invariantSteps。
+- Authority：params/blocks/loopBounds继续使用各自production `maxArrayElements` decoder；final steps cursor
+  的input/offset保留并恢复Callable parent depth。focused build、signature example与blocker review通过。
+- Boundary：仍以九个真实field successes为premises；具体entry/pureFn/invariant、root array及formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）
