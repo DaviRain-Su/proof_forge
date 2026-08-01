@@ -56,7 +56,7 @@ KV 值长=byteWidth；narrowParam/StateLoad + Store.byteWidth；WAT i32.load8_u/
 storage_write exact length；near-abi.json `u8-le/…`。Body 多宽仍 T8c。
 NearHostModel AbiMw + UInt128/Int8 负向；shard-targets 绿。CI 隔离验证中。
 
-### [pending] T8b-Noir：Noir state/param UInt8/16/32 ABI
+### [in_progress] T8b-Noir：Noir state/param UInt8/16/32 ABI
 - 参照 T8b-Solana 模式；Noir 已开 Field state/param——窄 UInt 与 Field 并存
 - 工作面：`Noir/LowerSemanticV1.lean` 准入（现有 `requirePublicUInt64OrInt64OrField*` → 加窄 UInt）、
   Noir 类型映射（u8/u16/u32）、relation IR 约束宽度、IDL 同步；负向 UInt128/窄结果 fail closed
