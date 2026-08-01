@@ -62,9 +62,11 @@ NearHostModel AbiMw + UInt128/Int8 负向；shard-targets 绿。CI 隔离验证�
 emit 原生 Noir 类型 + assertEqual 窄宽 cast；UInt128/Int8/窄结果 fail closed。
 Body 多宽仍 T8d。NoirRelationModel goldens；shard-targets 绿。CI 隔离验证中。
 
-### [in_progress] T8c：NEAR body 多宽 UInt8/16/32
-- 镜像 T8a（Solana body 多宽）：EnvelopeV1 `pilotUintWidthPolicyNearBody` + narrow* Plan/IR ops + Wasm 发射守卫
-- 注意与既有 UInt32 shift-count 路径并存
+### [merged] T8c：NEAR body 多宽 UInt8/16/32（2026-08-01, 451a452b3）
+镜像 T8a：Envelope `pilotUintWidthPolicyNearBody`；LowerSemantic UInt{8,16,32,64}
+body temps + narrowChecked*/narrowBit*/narrowShl/Shr；EmitIR/WAT 高位 shr_u 守卫；
+NearHostModel + `testNarrowBodyProductPath`；UInt32 count 用 narrowCheckedAdd 32。
+shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t8c-near-body）。
 
 ### [pending] T8d：Noir body 多宽 UInt8/16/32
 - 镜像 T8a；与 Field 算术路径交叉要小心（narrow* 只作用于 UInt）
@@ -85,3 +87,4 @@ T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI �
 | 2026-08-01 | T8b-Solana | merged acc7eb514, 隔离 CI 验证中 |
 | 2026-08-01 | T8b-NEAR | merged 7b897fdaf, 隔离 CI 已 dispatch（ci-verify-t8b-near） |
 | 2026-08-01 | T8b-Noir | merged be812b0d4, 隔离 CI 已 dispatch（ci-verify-t8b-noir） |
+| 2026-08-01 | T8c | merged 451a452b3, 隔离 CI 已 dispatch（ci-verify-t8c-near-body） |
