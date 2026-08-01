@@ -131,8 +131,9 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - Tests：`testWideUintProduct` + body/result admit；shard-targets 绿
 - 隔离 CI 已 dispatch（ci-verify-t9e-solana）。非 formal。
 
-### [pending] T9e-NEAR：NEAR UInt128/256（多字算术）
+### [in_progress] T9e-NEAR：NEAR UInt128/256（多字算术）
 - 镜像 T9e-Solana；WAT i64 软件多字 + host model
+- 认领：Grok Build coordinator fire
 
 ### [partial] T9-0：控制面/文档对齐（主代理；不进调度）
 - **2026-08-01 已做**：RECOVERY 当前 CLI 路径；docs/index + document-status；四 target dossier +
