@@ -252,6 +252,19 @@ def PilotTypeClosureV1.isUInt64OrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == c.uint64TypeId || c.int64TypeId == some typeId
 
+/-- Admitted EVM **ABI** UInt widths for state/param: `{8,16,32,64}`.
+    Distinct from body multi-width only by documentation — same set today;
+    UInt128/256 stay fail closed. Int narrow widths are **not** admitted. -/
+def isEvmAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+/-- True when `typeId` is admitted UInt{8,16,32,64} or Int64 (EVM ABI surface). -/
+def PilotTypeClosureV1.isUintAbiOrInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isEvmAbiUintWidth w
+  | none => c.int64TypeId == some typeId
+
 /-- True when `typeId` is the admitted sole catalog Field (bn254 Fr). -/
 def PilotTypeClosureV1.isField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
@@ -569,6 +582,39 @@ def requirePublicUInt64OrInt64Param
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUInt64OrInt64 param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is UInt{8,16,32,64} or Int64 (EVM ABI multi-width), and
+    public unless `allowNonPublic`. Message keeps the historical `UInt64` token
+    so existing "not public UInt64" substring negatives still match. -/
+def requirePublicUintAbiOrInt64State
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUintAbiOrInt64 state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is UInt{8,16,32,64} or Int64 (EVM ABI multi-width), and
+    public unless `allowNonPublic`. Message keeps the historical `UInt64` token. -/
+def requirePublicUintAbiOrInt64Param
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUintAbiOrInt64 param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

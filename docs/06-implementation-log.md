@@ -11909,3 +11909,26 @@ normative: false
 - Review/Verification：blocker-only review APPROVE；聚焦Codec/InvariantABI build通过。
 - Boundary：仅outer framing closed；qualifiedName、九字段payload、finish、structure-gated encoder、
   carrier identity、`InvariantTheoremV1`及formal TASK/TST仍pending。
+## 2026-08-01 — T8b-EVM state/param UInt8/16/32 multi-width ABI
+
+- Production：
+  * `EnvelopeV1`：`isEvmAbiUintWidth` + `PilotTypeClosureV1.isUintAbiOrInt64` +
+    `requirePublicUintAbiOrInt64State/Param`（admit UInt{8,16,32,64}+Int64；
+    历史 `requirePublicUInt64OrInt64*` 仍供 Solana/NEAR；Field/Principal 不变；
+    body 策略 `pilotUintWidthPolicyEvmBody` 不变）。
+  * `Evm/LowerSemanticV1`：`StorageBinding.byteWidth` / `Param.byteWidth` /
+    `Store.byteWidth`（默认 8）；`Expr.narrowStorageLoad` / `narrowParam`
+    （bitWidth ∈ {8,16,32}；UInt64/Int64 走历史构造器）；`abiParamTypeString`；
+    layout/params 门禁改 ABI multi-width；stateLoad/store 按 slot byteWidth 分派；
+    selector = `Keccak.selector name (params.map abiParamTypeString)`。
+  * `Evm/EmitIRV1`：窄 param `and(calldataload/mload, mask)`；窄 sload
+    `and(sload, mask)`；窄 sstore 值掩码；ABI JSON `uint8/16/32`。
+  * `Evm/ValidatePlanV1`：byteWidth ∈ {1,2,4,8}；Int 强制 byteWidth=8；
+    narrowStorageLoad/narrowParam bitWidth ∈ {8,16,32}；selector 用
+    `abiParamTypeString`。
+  * `Evm/PlanSchemaV1`：binding/param/store 编 byteWidth；Expr tags 40/41。
+- Tests：`EvmSmoke` 正向 `AbiMw`（UInt8/16/32 state+param、selector 变化、Yul 掩码、
+  ABI 类型）；负向 UInt128 state / Int8 param / UInt8 entry result；原 UInt8 state
+  拒绝例退役。`EvmPlanSchemaV1`/shard-targets 全绿。
+- Boundary：结果宽度/event/error/revert 参数仍 UInt64/Bool/Int64；UInt128/256 与
+  窄 Int ABI 继续 fail closed；**不是** formal D4。targets: EVM state/param UInt8/16/32 ABI multi-width (T8b-EVM))

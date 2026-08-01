@@ -21,15 +21,21 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
-/-- Target-owned binding from a semantic state identity to an EVM storage slot. -/
+/-- Target-owned binding from a semantic state identity to an EVM storage slot.
+    `byteWidth ∈ {1,2,4,8}` is the physical storage width (narrow values live
+    in the low bytes of a 32-byte slot). Default 8 keeps historical UInt64/Int64
+    Plan literals byte-identical at the structure level. -/
 structure StorageBinding where
   sourceId : Nat
   name : String
   slot : Nat
+  /-- Physical width in bytes: UInt8→1, UInt16→2, UInt32→4, UInt64/Int64→8. -/
+  byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned ABI word binding. `sourceId` is retained only for traceability;
-all lowering after plan construction uses `wordIndex`. -/
+all lowering after plan construction uses `wordIndex`. Each param still occupies
+one 32-byte ABI word; narrow values sit in the low bytes. -/
 structure Param where
   sourceId : Nat
   name : String
@@ -37,6 +43,9 @@ structure Param where
   /-- True when the ABI word is Int64 (selector/`int64`); default false keeps
       historical UInt64 Plan literals byte-identical. -/
   isInt : Bool := false
+  /-- Physical ABI value width in bytes: UInt8→1 … UInt64/Int64→8. `isInt`
+      implies `byteWidth = 8`. -/
+  byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 /-- Comparison ops over integer operands. Result is a Bool word (0/1) in Yul;
@@ -122,11 +131,20 @@ inductive Expr where
   | checkedNeg (operand : Expr)
   /-- Arithmetic right shift of Int64; count is UInt32; reverts on count ≥ 64. -/
   | sar (lhs rhs : Expr)
+  /-- Storage load of a narrow UInt value (`bitWidth ∈ {8,16,32}`); Yul masks
+  after `sload`. UInt64/Int64 keep historical `storageLoad`. -/
+  | narrowStorageLoad (bitWidth : Nat) (slot : Nat)
+  /-- ABI param load of a narrow UInt value (`bitWidth ∈ {8,16,32}`); Yul masks
+  after `calldataload`/`mload`. UInt64/Int64 keep historical `param`. -/
+  | narrowParam (bitWidth : Nat) (wordIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
   slot : Nat
   value : Expr
+  /-- Physical width in bytes for the stored value (mask before `sstore`).
+  Default 8 keeps historical UInt64/Int64 stores byte-identical at structure. -/
+  byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -164,13 +182,28 @@ inductive Mutability where
   | view
   deriving BEq, Inhabited, Repr
 
-/-- Declared ABI result kind for an entry/view. State/params admit UInt64 or
-Int64; Bool remains result-only (and body intermediate). -/
+/-- Declared ABI result kind for an entry/view. Results stay UInt64/Bool/Int64
+(result multi-width is out of scope); state/params admit UInt{8,16,32,64} or
+Int64. -/
 inductive ResultKind where
   | uint64
   | bool
   | int64
   deriving BEq, Inhabited, Repr
+
+/-- Solidity ABI type string for a plan Param (selector + `.abi.json`). -/
+def abiParamTypeString (p : Param) : String :=
+  if p.isInt then "int64"
+  else match p.byteWidth with
+  | 1 => "uint8"
+  | 2 => "uint16"
+  | 4 => "uint32"
+  | _ => "uint64"
+
+/-- Bit width ↔ byte width for admitted ABI UInt widths. -/
+def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
+
+def byteWidthOfBitWidth (bitWidth : Nat) : Nat := bitWidth / 8
 
 structure Entry where
   name : String
@@ -238,8 +271,9 @@ def validSelector (selector : String) : Bool :=
     "0123456789abcdef".contains character)
 
 /-- EVM pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool + UInt8/16/32 optional; Int64 optional; state/params admit UInt64,
-    Int64, or named Struct/Enum (N3 flatten-to-leaf storage). -/
+    Bool + UInt8/16/32 optional; Int64 optional. Top-level scalar state/params
+    admit UInt{8,16,32,64} or Int64 (T8b ABI multi-width); named Struct/Enum
+    state/params are flattened to UInt64/Int64 ABI/storage leaves (N3). -/
 private abbrev EvmTypeClosureV1 := PilotTypeClosureV1
 
 private def evmPlanErr (message : String) : CompileError :=
@@ -248,10 +282,11 @@ private def evmPlanErr (message : String) : CompileError :=
 /-- EVM pilot admits anonymous UInt{8,16,32,64} + Int64 + Unit + Bool under
     `pilotUintWidthPolicyEvmBody` + default `pilotIntWidthPolicyI64`, plus
     **named Struct/Enum** (`pilotNamedAggregateStatePolicyAdmit`, N3). Body
-    multi-width UInt values and Int64 values are allowed; **state and ABI
-    parameters admit UInt64, Int64, or named aggregate** via
-    `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
-    `allowNonPublic := true`. UInt128/256 and non-64 Int fail closed.
+    multi-width UInt values and Int64 values are allowed; **top-level scalar
+    state and ABI parameters admit UInt{8,16,32,64} or Int64** via
+    `requirePublicUintAbiOrInt64*` (T8b), and **named aggregates admit
+    UInt64/Int64 leaves only** via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*`
+    with `allowNonPublic := true` (N3). UInt128/256 and non-64 Int fail closed.
     N2c: Principal remains fail-closed (wire identity is variable-length
     u32-prefixed; not a 20-byte EVM address). -/
 private def validateEvmTypeClosureV1
@@ -271,6 +306,22 @@ private structure EvmLowerLayoutV1 where
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
   deriving Inhabited
+
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8).
+    Named aggregates must NOT be passed here (their leaves are 64-bit words). -/
+private def abiByteWidthOfTypeV1
+    (types : EvmTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
+  match types.uintWidthOf typeId with
+  | some w =>
+      unless isEvmAbiUintWidth w do
+        throw <| .planInvariant .evm
+          s!"unsupported EVM semantic shape: ABI UInt{w} is not admitted"
+      pure (byteWidthOfBitWidth w)
+  | none =>
+      unless types.int64TypeId == some typeId do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
+      pure 8
 
 private structure LoweredValueV1 where
   expr : Expr
@@ -446,26 +497,50 @@ private def makeStorageLayoutV1
   for state in states do
     unless state.id.toNat == stateLeaves.size do
       throw <| .planInvariant .evm "semantic state ids must match declaration order"
-    requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
-      (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
-    let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
-    if leafSpecs.isEmpty then
-      throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
-    if bindings.size + leafSpecs.size > maxStorageBindings then
-      throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
-    let mut leaves : Array Nat := #[]
-    for (leafName, _) in leafSpecs do
+    if types.isNamedAggregate state.typeId then
+      -- N3: flatten named Struct/Enum state to 64-bit leaf slots.
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
+        (allowNonPublic := true)
+      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+      if leafSpecs.isEmpty then
+        throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
+      if bindings.size + leafSpecs.size > maxStorageBindings then
+        throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
+      let mut leaves : Array Nat := #[]
+      for (leafName, _) in leafSpecs do
+        let slot := bindings.size
+        bindings := bindings.push {
+          sourceId := slot
+          name := leafName
+          slot
+          -- N3 aggregate leaves stay 64-bit words.
+          byteWidth := 8
+        }
+        leaves := leaves.push slot
+      stateLeaves := stateLeaves.push leaves
+    else
+      -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+      requirePublicUintAbiOrInt64State evmPlanErr types state (allowNonPublic := true)
+      let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
       let slot := bindings.size
       bindings := bindings.push {
         sourceId := slot
-        name := leafName
+        name := state.name
         slot
+        byteWidth
       }
-      leaves := leaves.push slot
-    stateLeaves := stateLeaves.push leaves
+      stateLeaves := stateLeaves.push #[slot]
   pure { bindings, stateLeaves, typeDecls }
+
+/-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
+private def mkParamExpr (bitWidth : Nat) (wordIndex : Nat) : Expr :=
+  if bitWidth == 64 then .param wordIndex else .narrowParam bitWidth wordIndex
+
+/-- Width-dispatch for storage loads: UInt64/Int64 keep historical `storageLoad`. -/
+private def mkStorageLoadExpr (bitWidth : Nat) (slot : Nat) : Expr :=
+  if bitWidth == 64 then .storageLoad slot else .narrowStorageLoad bitWidth slot
 
 private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -480,12 +555,12 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
     unless param.valueId.toNat == values.size do
       throw <| .planInvariant .evm
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam evmPlanErr types owner param
-      (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .evm
         s!"parameter name '{param.name}' in {owner} is not an EVM ABI identifier"
     if types.isNamedAggregate param.typeId then
+      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedParam
+        evmPlanErr types owner param (allowNonPublic := true)
       let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types param.typeId param.name
       if nextWord + leafSpecs.size > maxParams then
         throw <| .planInvariant .evm
@@ -502,28 +577,35 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
           name := leafName
           wordIndex := nextWord
           isInt
+          -- N3 aggregate leaves stay 64-bit ABI words.
+          byteWidth := 8
         }
         leafExprs := leafExprs.push (.param nextWord)
         leafIsInt := leafIsInt.push isInt
         nextWord := nextWord + 1
       values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
     else
+      requirePublicUintAbiOrInt64Param
+        evmPlanErr types owner param (allowNonPublic := true)
       let isInt := types.int64TypeId == some param.typeId
+      let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
+      let bitWidth := bitWidthOfByteWidth byteWidth
       let binding : Param := {
         sourceId := nextWord
         name := param.name
         wordIndex := nextWord
         isInt
+        byteWidth
       }
       planned := planned.push binding
       values := values.push {
-        expr := .param binding.wordIndex
+        expr := mkParamExpr bitWidth binding.wordIndex
         depth := 1
         expandedNodes := 1
         dependencies := #[]
         isBool := false
         isInt
-        bitWidth := 64
+        bitWidth
       }
       nextWord := nextWord + 1
   return (planned, values)
@@ -589,9 +671,9 @@ private def currentValueWithArmsV1
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-/-- Admitted body UInt widths for EVM Yul (state/ABI remain 64-only). -/
+/-- Admitted body UInt widths for EVM Yul (same set as ABI after T8b). -/
 private def isEvmBodyUintWidth (w : Nat) : Bool :=
-  w == 8 || w == 16 || w == 32 || w == 64
+  isEvmAbiUintWidth w
 
 /-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
     be non-Bool and share `bitWidth` (+ signedness for non-Bool results).
@@ -1231,31 +1313,61 @@ private def lowerBlockInstructionsV1
             "unsupported EVM semantic shape: pureFn body loads storage"
         let leaves ← findStateLeavesV1 layout stateId
         if types.isNamedAggregate result.typeId then
-          unless leaves.size > 0 do
+          -- N3 aggregate load; per-leaf isInt restored from the flatten specs
+          -- (the base N3 lowering marked every leaf UInt64, losing Int64 flags).
+          let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
+          unless specs.size == leaves.size do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: aggregate state load has no leaves"
+              "unsupported EVM semantic shape: aggregate state load leaf count mismatch"
           let mut leafExprs : Array Expr := #[]
           let mut leafIsInt : Array Bool := #[]
-          for slot in leaves do
+          for i in [0:leaves.size] do
+            let some slot := leaves[i]? |
+              throw <| .planInvariant .evm "aggregate state load slot missing"
+            let some (_, isInt) := specs[i]? |
+              throw <| .planInvariant .evm "aggregate state load spec missing"
             leafExprs := leafExprs.push (.storageLoad slot)
-            leafIsInt := leafIsInt.push false
+            leafIsInt := leafIsInt.push isInt
           let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
         else
           let binding ← findStorageV1 layout stateId
+          let expectedBitWidth := bitWidthOfByteWidth binding.byteWidth
           let isInt := types.int64TypeId == some result.typeId
-          unless result.typeId == uint64TypeId || isInt do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: state load result must be UInt64 or Int64"
-          values := ← appendResultValueV1 result.typeId values result {
-            expr := .storageLoad binding.slot
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-            isBool := false
-            isInt
-            bitWidth := 64
-          }
+          if isInt then
+            unless binding.byteWidth == 8 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Int64 state load requires 8-byte slot"
+            values := ← appendResultValueV1 result.typeId values result {
+              expr := .storageLoad binding.slot
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              isInt := true
+              bitWidth := 64
+            }
+          else
+            match types.uintWidthOf result.typeId with
+            | some bitWidth =>
+                unless bitWidth == expectedBitWidth do
+                  throw <| .planInvariant .evm
+                    s!"unsupported EVM semantic shape: state load result UInt{bitWidth} does not match storage byteWidth {binding.byteWidth}"
+                unless isEvmAbiUintWidth bitWidth do
+                  throw <| .planInvariant .evm
+                    s!"unsupported EVM semantic shape: state load result UInt{bitWidth} is not admitted"
+                values := ← appendResultValueV1 result.typeId values result {
+                  expr := mkStorageLoadExpr bitWidth binding.slot
+                  depth := 1
+                  expandedNodes := 1
+                  dependencies := #[]
+                  isBool := false
+                  isInt := false
+                  bitWidth
+                }
+            | none =>
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: state load result must be UInt{8,16,32,64} or Int64"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values paramCount segmentStart armReadables rhsId
@@ -1463,16 +1575,28 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .evm "aggregate store leaf slot missing"
             let some expr := leafExprs[i]? |
               throw <| .planInvariant .evm "aggregate store leaf expr missing"
-            body := body.push (.store { slot, value := expr })
+            -- N3 aggregate leaves stay 64-bit storage words.
+            body := body.push (.store { slot, value := expr, byteWidth := 8 })
         else
-          unless !stored.isBool && stored.bitWidth == 64 do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: state store value must be UInt64 or Int64"
           unless leaves.size == 1 do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: scalar store targets multi-leaf state"
           let binding ← findStorageV1 layout stateId
-          body := body.push (.store { slot := binding.slot, value := stored.expr })
+          let expectedBitWidth := bitWidthOfByteWidth binding.byteWidth
+          unless !stored.isBool && stored.bitWidth == expectedBitWidth do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: state store value width {stored.bitWidth} must match storage bitWidth {expectedBitWidth}"
+          unless !stored.isInt || expectedBitWidth == 64 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Int state store requires 8-byte slot"
+          unless stored.isInt || isEvmAbiUintWidth stored.bitWidth do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: state store value must be admitted UInt width or Int64"
+          body := body.push (.store {
+            slot := binding.slot
+            value := stored.expr
+            byteWidth := binding.byteWidth
+          })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>
         unless errorId.isNone && args.isEmpty do
@@ -2410,7 +2534,7 @@ private def makeEntryV1
   pure {
     name
     selector := Keccak.selector name
-      (lowered.params.map fun p => if p.isInt then "int64" else "uint64")
+      (lowered.params.map abiParamTypeString)
     params := lowered.params
     mutability
     body := lowered.body

@@ -1729,28 +1729,164 @@ private unsafe def testBodyMultiWidthShift : IO Unit := do
   expect (yul.contains "lt(" && yul.contains "8")
     "BodyShift Yul must guard shift count against width 8"
 
-/-- T7-EVM: UInt8 state is still rejected (ABI/storage remain UInt64-only). -/
-private unsafe def testUInt8StateRejected : IO Unit := do
+/-- T8b-EVM: UInt8/16/32 state + param ABI multi-width product path.
+    Keep every value live through a store/return so segment consumption
+    does not see dead lets. Entry result stays UInt64 (out of T8b scope). -/
+private unsafe def testAbiMultiWidthStateParam : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program U8State where\n" ++
+    "program AbiMw where\n" ++
     "  state flag : UInt8\n" ++
+    "  state score : UInt16\n" ++
+    "  state ticks : UInt32\n" ++
+    "  init(f : UInt8, s : UInt16, t : UInt32) do\n" ++
+    "    flag := f\n" ++
+    "    score := s\n" ++
+    "    ticks := t\n" ++
+    "  entry bump(delta : UInt8) : UInt64 do\n" ++
+    "    flag := flag + delta\n" ++
+    "    score := score + 1\n" ++
+    "    ticks := ticks + 1\n" ++
+    "    return 1\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 1\n"
+  let source ← liftResult "load AbiMw" (← session.selectProgramV1
+    sourceText "<evm-abi-mw>" "Tests.EvmAbiMw" none)
+  let compiled ← liftResult "compile AbiMw" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan AbiMw" <| planEvm compiled
+  expect (plan.storageLayout.map (·.name) == #["flag", "score", "ticks"])
+    "AbiMw storage names"
+  expect (plan.storageLayout.map (·.byteWidth) == #[1, 2, 4])
+    "AbiMw storage byteWidth UInt8/16/32 → 1/2/4"
+  match plan.constructor with
+  | none => throw <| IO.userError "AbiMw must have constructor"
+  | some ctor =>
+      expect (ctor.params.map (·.byteWidth) == #[1, 2, 4])
+        "AbiMw constructor params byteWidth 1/2/4"
+  let bump := plan.entries[0]!
+  expect (bump.params.size == 1 && bump.params[0]!.byteWidth == 1)
+    "AbiMw bump param is UInt8 (byteWidth 1)"
+  expect (bump.params[0]!.name == "delta")
+    "AbiMw bump param name"
+  let expectedSel := Targets.Evm.Keccak.selector "bump" #["uint8"]
+  expect (bump.selector == expectedSel)
+    s!"AbiMw selector must be keccak(bump(uint8))={expectedSel}, got {bump.selector}"
+  -- Plan body must use narrow storage load/param constructors for UInt8 add.
+  let hasNarrowU8Store :=
+    bump.body.any fun s =>
+      match s with
+      | .store st =>
+          st.byteWidth == 1 &&
+            match st.value with
+            | .narrowCheckedAdd 8 (.narrowStorageLoad 8 0) (.narrowParam 8 0) => true
+            | .narrowCheckedAdd 8 _ _ => true
+            | _ => false
+      | _ => false
+  expect hasNarrowU8Store
+    "AbiMw plan must lower UInt8 state/param add to narrow forms"
+  let hasNarrowU16Store :=
+    bump.body.any fun s =>
+      match s with
+      | .store st => st.byteWidth == 2
+      | _ => false
+  let hasNarrowU32Store :=
+    bump.body.any fun s =>
+      match s with
+      | .store st => st.byteWidth == 4
+      | _ => false
+  expect (hasNarrowU16Store && hasNarrowU32Store)
+    "AbiMw plan must store UInt16/UInt32 slots with matching byteWidth"
+  let output ← liftResult "materialize AbiMw" <| materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "AbiMw missing yul"
+  expect (yul.contains "and(calldataload(")
+    "AbiMw Yul must mask narrow entry calldata with and(calldataload(...), mask)"
+  expect (yul.contains "0xff" && yul.contains "0xffff" && yul.contains "0xffffffff")
+    "AbiMw Yul must emit UInt8/16/32 masks"
+  expect (yul.contains "and(sload(")
+    "AbiMw Yul must mask narrow sload"
+  expect (yul.contains s!"case 0x{expectedSel}")
+    s!"AbiMw Yul must use updated selector case 0x{expectedSel}"
+  let abi ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "AbiMw missing abi"
+  expect (abi.contains "\"type\":\"uint8\"")
+    "AbiMw ABI must expose uint8 for narrow param"
+  expect (abi.contains "\"type\":\"uint16\"" && abi.contains "\"type\":\"uint32\"")
+    "AbiMw ABI constructor must expose uint16/uint32"
+  expect (abi.contains "\"type\":\"uint64\"")
+    "AbiMw ABI result remains uint64"
+
+/-- T8b-EVM: UInt128 state remains fail-closed (not in ABI admission set). -/
+private unsafe def testUInt128StateRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U128State where\n" ++
+    "  state big : UInt128\n" ++
     "  entry run(x : UInt64) : UInt64 do\n" ++
     "    return x\n"
-  let source ← liftResult "load U8State" (← session.selectProgramV1
-    sourceText "<evm-u8-state>" "Tests.EvmU8State" none)
+  let source ← liftResult "load U128State" (← session.selectProgramV1
+    sourceText "<evm-u128-state>" "Tests.EvmU128State" none)
   match Compiler.compileValidatedSourceV1 source with
   | .error _ => pure ()
   | .ok compiled =>
       match planEvm compiled with
       | .error e =>
-          expect (e.render.contains "UInt64" || e.render.contains "public" ||
-              e.render.contains "state")
-            s!"UInt8 state must fail at EVM plan with UInt64/state detail, got {e.render}"
+          expect (e.render.contains "UInt" || e.render.contains "width" ||
+              e.render.contains "state" || e.render.contains "supported")
+            s!"UInt128 state must fail at EVM plan, got {e.render}"
       | .ok _ =>
-          throw <| IO.userError "EVM plan must reject UInt8 state (ABI/storage UInt64-only)"
+          throw <| IO.userError "EVM plan must reject UInt128 state"
+
+/-- T8b-EVM: Int8 param fail closed (Int is Int64-only on ABI). -/
+private unsafe def testInt8ParamRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I8Param where\n" ++
+    "  entry run(x : Int8) : UInt64 do\n" ++
+    "    return 0\n"
+  let source ← liftResult "load I8Param" (← session.selectProgramV1
+    sourceText "<evm-i8-param>" "Tests.EvmI8Param" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "Int" || e.render.contains "width" ||
+              e.render.contains "parameter" || e.render.contains "supported")
+            s!"Int8 param must fail at EVM plan, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "EVM plan must reject Int8 param"
+
+/-- T8b-EVM: entry result UInt8 remains fail closed (result multi-width out of scope). -/
+private unsafe def testUInt8ResultRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8Result where\n" ++
+    "  entry run(x : UInt8) : UInt8 do\n" ++
+    "    return x\n"
+  let source ← liftResult "load U8Result" (← session.selectProgramV1
+    sourceText "<evm-u8-result>" "Tests.EvmU8Result" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect (e.render.contains "UInt64" || e.render.contains "return" ||
+              e.render.contains "result" || e.render.contains "Bool")
+            s!"UInt8 entry result must fail at EVM plan, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "EVM plan must reject UInt8 entry result"
 
 /-- Unit/void entry (`entry run() do`, no result type) fails closed at the EVM
     Plan seam: makeEntryV1 rejects non-UInt64/Bool entry results. -/
@@ -2045,7 +2181,10 @@ unsafe def run : IO Unit := do
   testBodyMultiWidthUInt
   testBodyUInt8OverflowPlan
   testBodyMultiWidthShift
-  testUInt8StateRejected
+  testAbiMultiWidthStateParam
+  testUInt128StateRejected
+  testInt8ParamRejected
+  testUInt8ResultRejected
   testVoidEntryRejected
   testMultipleEvents
   testZeroArgRevert

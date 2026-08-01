@@ -22,8 +22,16 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     match expr with
     | .literal .. => some 1
     | .param wordIndex => if wordIndex < paramCount then some 1 else none
+    | .narrowParam bitWidth wordIndex =>
+        if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && wordIndex < paramCount then
+          some 1
+        else none
     | .temp _ => some 1
     | .storageLoad slot => if slots.contains slot then some 1 else none
+    | .narrowStorageLoad bitWidth slot =>
+        if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && slots.contains slot then
+          some 1
+        else none
     | .checkedAdd lhs rhs | .narrowCheckedAdd _ lhs rhs
     | .add lhs rhs
     | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs
@@ -103,10 +111,16 @@ private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
       throw <| .planInvariant .evm
         s!"plan expression has a dangling reference or exceeds depth {maxExprDepth}/node limit {maxPlanNodes}"
 
+private def validAbiByteWidth (byteWidth : Nat) : Bool :=
+  byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8
+
 private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (store : Store) : CompileResult Nat := do
   unless slots.contains store.slot do
     throw <| .planInvariant .evm "plan store references an unknown storage slot"
+  unless validAbiByteWidth store.byteWidth do
+    throw <| .planInvariant .evm
+      s!"plan store byteWidth {store.byteWidth} is not an admitted ABI width"
   addPlanExprNodes slots paramCount total fns store.value
 
 /-- Structural Bool-producer: comparison and strict logical ops are always Bool.
@@ -308,6 +322,9 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   for binding in plan.storageLayout do
     unless isIdentifier binding.name do
       throw <| .planInvariant .evm s!"storage name '{binding.name}' is not a safe identifier"
+    unless validAbiByteWidth binding.byteWidth do
+      throw <| .planInvariant .evm
+        s!"storage '{binding.name}' byteWidth {binding.byteWidth} is not an admitted ABI width"
   let stateIds := plan.storageLayout.map (·.sourceId)
   let stateNames := plan.storageLayout.map (·.name)
   let slots := plan.storageLayout.map (·.slot)
@@ -356,6 +373,12 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           s!"fn '{fn.name}' ABI words and semantic origins must be canonical"
       unless isIdentifier fn.params[index]!.name do
         throw <| .planInvariant .evm s!"fn '{fn.name}' parameter name is not a safe ABI identifier"
+      unless validAbiByteWidth fn.params[index]!.byteWidth do
+        throw <| .planInvariant .evm
+          s!"fn '{fn.name}' parameter byteWidth is not an admitted ABI width"
+      unless !fn.params[index]!.isInt || fn.params[index]!.byteWidth == 8 do
+        throw <| .planInvariant .evm
+          s!"fn '{fn.name}' Int64 parameter must have byteWidth 8"
     let sourceIds := fn.params.map (·.sourceId)
     let names := fn.params.map (·.name)
     let words := fn.params.map (·.wordIndex)
@@ -375,6 +398,13 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         throw <| .planInvariant .evm "constructor ABI words and semantic origins must be canonical"
       unless isIdentifier constructor.params[index]!.name do
         throw <| .planInvariant .evm "constructor parameter name is not a safe ABI identifier"
+      unless validAbiByteWidth constructor.params[index]!.byteWidth do
+        throw <| .planInvariant .evm
+          "constructor parameter byteWidth is not an admitted ABI width"
+      unless !constructor.params[index]!.isInt ||
+          constructor.params[index]!.byteWidth == 8 do
+        throw <| .planInvariant .evm
+          "constructor Int64 parameter must have byteWidth 8"
     let sourceIds := constructor.params.map (·.sourceId)
     let names := constructor.params.map (·.name)
     let words := constructor.params.map (·.wordIndex)
@@ -405,6 +435,12 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
           s!"entry '{entry.name}' ABI words and semantic origins must be canonical"
       unless isIdentifier entry.params[index]!.name do
         throw <| .planInvariant .evm s!"entry '{entry.name}' parameter name is not a safe ABI identifier"
+      unless validAbiByteWidth entry.params[index]!.byteWidth do
+        throw <| .planInvariant .evm
+          s!"entry '{entry.name}' parameter byteWidth is not an admitted ABI width"
+      unless !entry.params[index]!.isInt || entry.params[index]!.byteWidth == 8 do
+        throw <| .planInvariant .evm
+          s!"entry '{entry.name}' Int64 parameter must have byteWidth 8"
   let entryNames := plan.entries.map (·.name)
   let selectors := plan.entries.map (·.selector)
   if hasDuplicates entryNames then
@@ -413,7 +449,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     throw <| .planInvariant .evm "entry selectors collide"
   for entry in plan.entries do
     let expectedSelector := Keccak.selector entry.name
-      (entry.params.map fun p => if p.isInt then "int64" else "uint64")
+      (entry.params.map abiParamTypeString)
     unless entry.selector == expectedSelector do
       throw <| .planInvariant .evm
         s!"entry '{entry.name}' selector is not bound to its canonical ABI signature"

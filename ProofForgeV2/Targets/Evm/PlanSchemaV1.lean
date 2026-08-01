@@ -137,12 +137,18 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
         (← encodeExpr lhs)).append (← encodeExpr rhs))
   | .checkedNeg operand => pure ((encodeU8 38).append (← encodeExpr operand))
   | .sar lhs rhs => pure (((encodeU8 39).append (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowStorageLoad bitWidth slot =>
+      pure (((encodeU8 40).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le slot))
+  | .narrowParam bitWidth wordIndex =>
+      pure (((encodeU8 41).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le wordIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
   | .store operation =>
-      pure (((encodeU8 0).append (← encodeNatAsU32le operation.slot)).append
-        (← encodeExpr operation.value))
+      pure ((((encodeU8 0).append (← encodeNatAsU32le operation.slot)).append
+        (← encodeNatAsU32le operation.byteWidth)).append (← encodeExpr operation.value))
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
   | .returnNone => pure (encodeU8 2)
   | .assert condition => pure ((encodeU8 3).append (← encodeExpr condition))
@@ -191,6 +197,7 @@ private def encodeParam (p : Param) : Except String ByteArray := do
   out := out.append (← encodeString p.name)
   out := out.append (← encodeNatAsU32le p.wordIndex)
   out := out.append (encodeBool p.isInt)
+  out := out.append (← encodeNatAsU32le p.byteWidth)
   pure out
 
 private def encodeParams (params : Array Param) : Except String ByteArray := do
@@ -203,7 +210,12 @@ private def encodeStorageBinding (b : StorageBinding) : Except String ByteArray 
   out := out.append (← encodeNatAsU32le b.sourceId)
   out := out.append (← encodeString b.name)
   out := out.append (← encodeNatAsU32le b.slot)
+  out := out.append (← encodeNatAsU32le b.byteWidth)
   pure out
+
+private def encodeStore (s : Store) : Except String ByteArray := do
+  pure (((← encodeNatAsU32le s.slot).append (← encodeNatAsU32le s.byteWidth)).append
+    (← encodeExpr s.value))
 
 private def encodeInterfaceBinding (b : InterfaceBinding) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -215,9 +227,6 @@ private def encodeStatements (stmts : Array Statement) : Except String ByteArray
   let mut out ← encodeNatAsU32le stmts.size
   for s in stmts do out := out.append (← encodeStatement s)
   pure out
-
-private def encodeStore (s : Store) : Except String ByteArray := do
-  pure ((← encodeNatAsU32le s.slot).append (← encodeExpr s.value))
 
 private def encodeConstructor (c : Constructor) : Except String ByteArray := do
   let mut out ← encodeParams c.params

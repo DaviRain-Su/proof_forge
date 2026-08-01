@@ -39,8 +39,12 @@ private def yulUintMask (bitWidth : Nat) : String :=
 private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .literal value => toString value
   | .param wordIndex => s!"{paramPrefix}{wordIndex}"
+  | .narrowParam bitWidth wordIndex =>
+      s!"and({paramPrefix}{wordIndex}, {yulUintMask bitWidth})"
   | .temp tempIndex => s!"t{tempIndex}"
   | .storageLoad slot => s!"sload({slot})"
+  | .narrowStorageLoad bitWidth slot =>
+      s!"and(sload({slot}), {yulUintMask bitWidth})"
   | .checkedAdd lhs rhs | .narrowCheckedAdd _ lhs rhs | .add lhs rhs =>
       s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs =>
@@ -124,6 +128,11 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
   | .param wordIndex =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := {paramPrefix}{wordIndex}\n", value := name, next := next + 1 }
+  | .narrowParam bitWidth wordIndex =>
+      let name := s!"expr{next}"
+      let mask := yulUintMask bitWidth
+      { code := s!"{indent}let {name} := and({paramPrefix}{wordIndex}, {mask})\n",
+        value := name, next := next + 1 }
   | .temp tempIndex =>
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := t{tempIndex}\n", value := name, next := next + 1 }
@@ -131,6 +140,11 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := sload({slot})\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
+  | .narrowStorageLoad bitWidth slot =>
+      let name := s!"expr{next}"
+      let mask := yulUintMask bitWidth
+      { code := s!"{indent}let {name} := and(sload({slot}), {mask})\n",
         value := name, next := next + 1 }
   | .checkedAdd lhs rhs =>
       let lhs := renderExpr indent paramPrefix next lhs
@@ -476,12 +490,22 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := code ++ s!"{indent}let {name} := pf_fn{fnIndex}({argsJoined})\n",
         value := name, next := next + 1 }
 
+/-- Mask a stored word to `byteWidth` low bytes before `sstore` (narrow ABI). -/
+private def renderMaskedSstore (indent : String) (slot : Nat) (value : String)
+    (byteWidth : Nat) : String :=
+  if byteWidth == 8 then
+    s!"{indent}sstore({slot}, {value})\n"
+  else
+    let mask := yulUintMask (byteWidth * 8)
+    s!"{indent}sstore({slot}, and({value}, {mask}))\n"
+
 private def renderStores (indent paramPrefix : String) (stores : Array Store) : String := Id.run do
   let mut output := ""
   let mut next := 0
   for store in stores do
     let rendered := renderExpr indent paramPrefix next store.value
-    output := output ++ rendered.code ++ s!"{indent}sstore({store.slot}, {rendered.value})\n"
+    output := output ++ rendered.code ++
+      renderMaskedSstore indent store.slot rendered.value store.byteWidth
     next := rendered.next
   return output
 
@@ -529,7 +553,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
     match statement with
     | .store store =>
         let rendered := renderExpr indent paramPrefix next store.value
-        output := output ++ rendered.code ++ s!"{indent}sstore({store.slot}, {rendered.value})\n"
+        output := output ++ rendered.code ++
+          renderMaskedSstore indent store.slot rendered.value store.byteWidth
         next := rendered.next
     | .assert condition =>
         let rendered := renderExpr indent paramPrefix next condition
@@ -669,9 +694,15 @@ private def renderConstructor (plan : Plan) : String := Id.run do
   if argumentBytes > 0 then
     output := output ++ s!"    codecopy(0, programSize, {argumentBytes})\n"
   for param in constructor.params do
-    output := output ++
-      s!"    let ctor_arg{param.wordIndex} := mload({param.wordIndex * 32})\n" ++
-      s!"    if gt(ctor_arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+    let raw := s!"mload({param.wordIndex * 32})"
+    if param.byteWidth == 8 then
+      output := output ++
+        s!"    let ctor_arg{param.wordIndex} := {raw}\n" ++
+        s!"    if gt(ctor_arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+    else
+      let mask := yulUintMask (param.byteWidth * 8)
+      output := output ++
+        s!"    let ctor_arg{param.wordIndex} := and({raw}, {mask})\n"
   -- Store-only constructors keep body empty for byte-identical Yul via stores.
   output := output ++
     (if constructor.body.isEmpty then
@@ -689,9 +720,15 @@ private def renderEntry (plan : Plan) (entry : Entry) : String := Id.run do
     s!"        if iszero(eq(calldatasize(), {calldataBytes})) \{ revert(0, 0) }\n"
   for param in entry.params do
     let offset := 4 + param.wordIndex * 32
-    output := output ++
-      s!"        let arg{param.wordIndex} := calldataload({offset})\n" ++
-      s!"        if gt(arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+    let raw := s!"calldataload({offset})"
+    if param.byteWidth == 8 then
+      output := output ++
+        s!"        let arg{param.wordIndex} := {raw}\n" ++
+        s!"        if gt(arg{param.wordIndex}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+    else
+      let mask := yulUintMask (param.byteWidth * 8)
+      output := output ++
+        s!"        let arg{param.wordIndex} := and({raw}, {mask})\n"
   output := output ++
     (renderBody "        " "arg" 0 plan.events plan.errors none entry.body).code
   return output ++ "      }\n"
@@ -713,7 +750,7 @@ private def renderYul (plan : Plan) : String :=
     "    }\n  }\n}\n"
 
 private def renderParamJson (param : Param) : String :=
-  let ty := if param.isInt then "int64" else "uint64"
+  let ty := abiParamTypeString param
   s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{ty}\"}"
 
 private def renderParamsJson (params : Array Param) : String :=
