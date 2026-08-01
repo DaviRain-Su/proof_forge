@@ -653,6 +653,74 @@ theorem typeKeyNamedPrefix_data :
   simp [validateNamedPrefixRankV1, data, types, boolType, principalType,
     unitType, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+private def boolTypeShapeBytes : ByteArray :=
+  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0]
+
+private def principalTypeShapeBytes : ByteArray :=
+  ByteArray.mk #[14, 0, 0, 0, 84, 121, 112, 101, 46, 80, 114, 105, 110, 99,
+    105, 112, 97, 108, 0, 0]
+
+private def unitTypeShapeBytes : ByteArray :=
+  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0]
+
+private theorem encodeTypeShape_bool_fixture :
+    encodeTypeShapeV1 (.bool : TypeShapeV1) = .ok boolTypeShapeBytes := by
+  change encodeNullary "Type.Bool" = .ok boolTypeShapeBytes
+  rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
+  congr 1
+
+private theorem encodeTypeShape_principal_fixture :
+    encodeTypeShapeV1 (.principal : TypeShapeV1) = .ok principalTypeShapeBytes := by
+  change encodeNullary "Type.Principal" = .ok principalTypeShapeBytes
+  rw [encodeNullary_eq_okV1 "Type.Principal" (by decide) (by decide) (by decide)]
+  congr 1
+
+private theorem encodeTypeShape_unit_fixture :
+    encodeTypeShapeV1 (.unit : TypeShapeV1) = .ok unitTypeShapeBytes := by
+  change encodeNullary "Type.Unit" = .ok unitTypeShapeBytes
+  rw [encodeNullary_eq_okV1 "Type.Unit" (by decide) (by decide) (by decide)]
+  congr 1
+
+private theorem compare_bool_principal_fixture :
+    compareByteArrayLex boolTypeShapeBytes principalTypeShapeBytes = .lt := by
+  rw [compareByteArrayLex]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+private theorem compare_principal_unit_fixture :
+    compareByteArrayLex principalTypeShapeBytes unitTypeShapeBytes = .gt := by
+  rw [compareByteArrayLex]
+  apply compareByteArrayLexLoopV1_eq_gt
+  · decide
+  · decide
+
+private theorem compare_bool_unit_fixture :
+    compareByteArrayLex boolTypeShapeBytes unitTypeShapeBytes = .lt := by
+  rw [compareByteArrayLex]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 2 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 3 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 4 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 5 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
+  apply compareByteArrayLexLoopV1_eq_lt
+  · decide
+  · decide
+
+/-- The three distinct primitive declarations pass the exact production
+    TypeShape encoding and bounded byte-comparison uniqueness path. -/
+theorem typeKeyPrimitiveLeaf_data :
+    validatePrimitiveAnonymousTypeKeyUniquenessV1 data.types = .ok () := by
+  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1, data, types, boolType,
+    principalType, unitType, encodeTypeShape_bool_fixture,
+    encodeTypeShape_principal_fixture, encodeTypeShape_unit_fixture,
+    compare_bool_principal_fixture, compare_bool_unit_fixture,
+    compare_principal_unit_fixture, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

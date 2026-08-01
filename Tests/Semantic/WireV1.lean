@@ -2471,6 +2471,28 @@ private def testPrimitiveAnonymousTypeKeyUniqueness : IO Unit := do
   expectDuplicate "PrimitiveTypeKeyN6Bytes" "N6 duplicate Bytes length" (.bytes 8)
   expectDuplicate "PrimitiveTypeKeyN7Field" "N7 duplicate exact FieldSpec"
     (.field bn254FrFieldSpecV1)
+  let smallNonAdjacent ← programWithTypes "PrimitiveTypeKeySmallNonAdjacent" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .bool }
+  ]
+  expectCfgErrCode "small-table path checks non-adjacent source pair"
+    .nonCanonical smallNonAdjacent
+  let smallTailDuplicate ← programWithTypes "PrimitiveTypeKeySmallTailDuplicate" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .principal }
+  ]
+  expectCfgErrCode "small-table path checks final source pair"
+    .nonCanonical smallTailDuplicate
+  let qsortBoundary ← programWithTypes "PrimitiveTypeKeyQsortBoundary" #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .unit },
+    { id := 3, name := none, shape := .bool }
+  ]
+  expectCfgErrCode "four-key path retains qsort duplicate rejection"
+    .nonCanonical qsortBoundary
   -- Table id/index validation precedes every type graph check.
   let n8 ← programWithTypes "PrimitiveTypeKeyN8TableIdFirst" #[
     { id := 0, name := none, shape := .bool },

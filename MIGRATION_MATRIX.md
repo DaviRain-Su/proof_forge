@@ -331,6 +331,9 @@ CFG/requirements phase、完整structure gate、encoder/carrier identity与forma
 production declaration named-rule与shape/catalog gate。TypeKey四subphase及其后续gate仍pending。
 TypeKey首个`namedPrefix` subphase现已对全anonymous fixture闭合；尚未跨越到需要真实TypeShape
 encoding/sort authority的`primitiveLeaf`，后续recursive/namedBody及完整TypeKey seam仍pending。
+`primitiveLeaf`现经sole `encodeTypeShapeV1`固定Bool/Principal/Unit exact bytes，并由sole unsigned-byte
+comparator闭合三组distinct比较。production对≤3 keys使用最多三次pair scan，>3仍保留原qsort路径；
+fixture theorem已闭合该subphase。recursive/namedBody与完整TypeKey仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

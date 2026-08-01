@@ -174,14 +174,18 @@ def validateNamedPrefixRankV1
 /-- Leaf primitive anonymous TypeKeys are structurally interned (SPEC §5):
     Bool, width-specific UInt/Int, Principal, Unit, length-specific Bytes, and
     the exact catalog Field shape each have at most one TypeId. Their existing
-    canonical TypeShape wire is injective for this leaf subset, so a private
-    byte sort detects duplicates without changing public table order. This is
+    canonical TypeShape wire is injective for this leaf subset, so an
+    exhaustive pair scan for at most three keys, otherwise a private byte sort
+    plus adjacent comparison, detects duplicates without changing public table
+    order. This is
     the `primitiveLeaf` subphase of `validateTypeKeyPhasesV1`, ordered before
     the `recursiveAnonymous` subphase; both report the same public
     `.nonCanonical` wire error while the phase seam makes precedence
     observable. Full anonymous rank/reachability remains pending. Runs only
     after every declaration shape/catalog check succeeds. -/
-private def validatePrimitiveAnonymousTypeKeyUniquenessV1
+-- Internal production primitive-leaf TypeKey subphase exposed for refinement.
+-- The complete TypeKey gate remains `validateTypeKeyPhasesV1`.
+def validatePrimitiveAnonymousTypeKeyUniquenessV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
   let mut keys : Array ByteArray := #[]
   for decl in types do
@@ -194,6 +198,18 @@ private def validatePrimitiveAnonymousTypeKeyUniquenessV1
   -- sorting work, this keeps the minimal closed proof subject on transparent
   -- collection operations only.
   if keys.size ≤ 1 then return
+  -- Keep the small-table path transparent and allocation-free: at most three
+  -- unordered pairs are checked with the same production byte comparator.
+  -- All keys have already been encoded, preserving encoding-error precedence.
+  if keys.size ≤ 3 then
+    if compareByteArrayLex keys[0]! keys[1]! == .eq then
+      return ← err .nonCanonical
+    if keys.size == 3 then
+      if compareByteArrayLex keys[0]! keys[2]! == .eq then
+        return ← err .nonCanonical
+      if compareByteArrayLex keys[1]! keys[2]! == .eq then
+        return ← err .nonCanonical
+    return
   let sorted := keys.qsort fun left right =>
     compareByteArrayLex left right == .lt
   let mut index : Nat := 1

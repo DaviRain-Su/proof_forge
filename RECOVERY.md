@@ -593,3 +593,10 @@ Unit逐项通过真实named-rule与shape/catalog authority。TypeKey phases尚�
 TypeKey按phase顺序继续：全anonymous三项已证明sole `validateNamedPrefixRankV1`成功。下一阻塞点是
 `primitiveLeaf`内部真实TypeShape encoding + private qsort/adjacent comparison；不得用第二套shape key、
 opaque digest或提高recursion depth绕过。recursive/namedBody尚未越序组合，完整TypeKey仍pending。
+
+`primitiveLeaf`阻塞现已透明闭合：`encodeNullary_eq_okV1`仅refine sole tagged encoder成功framing；
+production lex comparator的原local recursion被机械命名并提供equal-step/lt/gt refinement。为避开Lean
+4.31 opaque qsort，sole primitive phase在全部keys编码完成后对≤3 keys作最多三组同comparator pair scan，
+>3 keys原qsort+adjacent路径不变；3-key non-adjacent duplicate及4-key qsort boundary均有回归。
+fixture的Bool/Principal/Unit exact encoded bytes及三组distinct比较已kernel闭合。下一片为
+`recursiveAnonymous`，完整TypeKey仍pending。

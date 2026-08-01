@@ -144,6 +144,24 @@ def encodeTagged (tag : String) (fields : Array ByteArray) :
 def encodeNullary (tag : String) : Except SemanticWireErrorV1 ByteArray :=
   encodeTagged tag #[]
 
+/-- Successful nullary encoding through the sole production tagged encoder.
+    The result merely exposes that encoder's exact successful framing for
+    refinement proofs. -/
+theorem encodeNullary_eq_okV1 (tag : String)
+    (hnonempty : tag.isEmpty = false)
+    (hascii : isAsciiTagV1 tag = true)
+    (hlimit : tag.toUTF8.size ≤ maxTagAsciiBytes) :
+    encodeNullary tag =
+      .ok (((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+        (encodeU16le 0)) := by
+  have hu32 : tag.toUTF8.size ≤ UInt32.size - 1 :=
+    Nat.le_trans hlimit (by decide)
+  have hlimit' : tag.utf8ByteSize ≤ maxTagAsciiBytes := by simpa using hlimit
+  have hu32' : tag.utf8ByteSize ≤ UInt32.size - 1 := by simpa using hu32
+  have hu32'' : tag.utf8ByteSize ≤ 4294967295 := by omega
+  simp [encodeNullary, encodeTagged, encodeNatAsU32le, encodeNatAsU16le,
+    hnonempty, hascii, hlimit', hu32'', Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-! ### Primitive decode cursor -/
 
 /-- Decode cursor. Fields are public within the WireV1 module family so

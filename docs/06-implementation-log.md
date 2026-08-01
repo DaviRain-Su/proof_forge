@@ -12471,3 +12471,15 @@ normative: false
   nested Array/element non-UInt fail closed; no formal Reference↔EVM
   differential; formal D2/D4 still pending.
 
+## 2026-08-01 — D2-07 concrete TypeKey primitive-leaf phase
+
+- Production：所有primitive keys仍先由sole `encodeTypeShapeV1`完成；≤3 keys随后用sole
+  `compareByteArrayLex`检查最多三组pair，>3 keys保持原qsort+adjacent路径。错误仍仅`.nonCanonical`，
+  encoding-error precedence不变。
+- Refinement：新增generic nullary-tag successful framing theorem；lex comparator原local recursion机械
+  命名并提供equal-step/lt/gt refinement，不引入第二comparator或shape-key authority。
+- Kernel：Bool/Principal/Unit精确TypeShape bytes及Bool<Principal、Bool<Unit、Principal>Unit三组比较
+  闭合，得到`validatePrimitiveAnonymousTypeKeyUniquenessV1 data.types = .ok ()`。
+- Regression：三keyfixtures分别固定small path的`(0,2)`与最终`(1,2)` pair；四keyduplicate固定保留
+  qsort boundary。
+- Boundary：recursiveAnonymous/namedBody、完整TypeKey/structure/encoder/carrier/formal状态仍pending。

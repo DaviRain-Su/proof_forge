@@ -424,20 +424,49 @@ def mapCommon (r : Except String α) : Except SemanticWireErrorV1 α :=
   | .ok v => .ok v
   | .error _ => .error .badScalar
 
+/-- Internal production loop for unsigned byte-array lexicographic order.
+    Naming the existing recursion exposes a refinement seam; the public
+    comparator remains the sole ordering authority. -/
+def compareByteArrayLexLoopV1 (left right : ByteArray) (n i : Nat) : Ordering :=
+  if i < n then
+    let bl := left.get! i
+    let br := right.get! i
+    if bl.toNat < br.toNat then .lt
+    else if bl.toNat > br.toNat then .gt
+    else compareByteArrayLexLoopV1 left right n (i + 1)
+  else if left.size < right.size then .lt
+  else if left.size > right.size then .gt
+  else .eq
+termination_by n - i
+decreasing_by omega
+
+/-- Refine one equal-byte step of the sole production lexicographic loop. -/
+theorem compareByteArrayLexLoopV1_eq_next (left right : ByteArray) (n i : Nat)
+    (hi : i < n) (heq : left.get! i = right.get! i) :
+    compareByteArrayLexLoopV1 left right n i =
+      compareByteArrayLexLoopV1 left right n (i + 1) := by
+  rw [compareByteArrayLexLoopV1.eq_def]
+  simp [hi, heq]
+
+/-- Refine a less-than byte step of the sole production lexicographic loop. -/
+theorem compareByteArrayLexLoopV1_eq_lt (left right : ByteArray) (n i : Nat)
+    (hi : i < n) (hlt : (left.get! i).toNat < (right.get! i).toNat) :
+    compareByteArrayLexLoopV1 left right n i = .lt := by
+  rw [compareByteArrayLexLoopV1.eq_def]
+  simp [hi, hlt]
+
+/-- Refine a greater-than byte step of the sole production lexicographic loop. -/
+theorem compareByteArrayLexLoopV1_eq_gt (left right : ByteArray) (n i : Nat)
+    (hi : i < n) (hgt : (left.get! i).toNat > (right.get! i).toNat) :
+    compareByteArrayLexLoopV1 left right n i = .gt := by
+  have hnot : ¬(left.get! i).toNat < (right.get! i).toNat :=
+    Nat.not_lt.mpr (Nat.le_of_lt hgt)
+  rw [compareByteArrayLexLoopV1.eq_def]
+  simp [hi, hnot, hgt]
+
 /-- Unsigned lexicographic order on raw bytes (prefix, then length). -/
 def compareByteArrayLex (left right : ByteArray) : Ordering :=
-  let n := Nat.min left.size right.size
-  let rec loop (i : Nat) : Ordering :=
-    if i < n then
-      let bl := left.get! i
-      let br := right.get! i
-      if bl.toNat < br.toNat then .lt
-      else if bl.toNat > br.toNat then .gt
-      else loop (i + 1)
-    else if left.size < right.size then .lt
-    else if left.size > right.size then .gt
-    else .eq
-  loop 0
+  compareByteArrayLexLoopV1 left right (Nat.min left.size right.size) 0
 
 /-- Internal WireV1 table id==index helper (not a public contract). -/
 def checkIdEqualsIndex (id : UInt32) (index : Nat) :
