@@ -2804,6 +2804,141 @@ private unsafe def checkCommitmentStateClosed : IO Unit := do
           (e.render).contains "not representable")
         s!"CommMark Noir decline must cite commitment boundary, got {e.render}"
 
+/-- NoirAggregate: named Struct state + construct/fieldGet/fieldSet pin.
+    Flattened leaf public inputs `p_x`/`p_y`; setX rebinds p_x; getX asserts
+    result against p_x. Circuit-native field access is leaf constraints. -/
+private def pointBoxSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program PointBox where\n" ++
+  "  struct Point where\n" ++
+  "    x : UInt64\n" ++
+  "    y : UInt64\n" ++
+  "  state p : Point\n\n" ++
+  "  init() do\n" ++
+  "    p := Point.new(0, 0)\n\n" ++
+  "  entry setX(v : UInt64) : UInt64 do\n" ++
+  "    p.x := v\n" ++
+  "    return p.x\n\n" ++
+  "  view getX() : UInt64 do\n" ++
+  "    return p.x\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkNamedAggregateProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 pointBoxSourceText
+    "Examples.PointBox" "<noir-point-box>"
+  expect (ir.sourcePlan.states.size == 2)
+    s!"PointBox must flatten Point to 2 state leaves, got {ir.sourcePlan.states.size}"
+  expect (ir.sourcePlan.states.any fun f => f.name == "p_x" && f.inputType == .u64)
+    "PointBox leaf p_x must be u64"
+  expect (ir.sourcePlan.states.any fun f => f.name == "p_y" && f.inputType == .u64)
+    "PointBox leaf p_y must be u64"
+  let initializer ← findRelation ir "init"
+  let setX ← findRelation ir "setX"
+  let getX ← findRelation ir "getX"
+  -- init: pre/post for both leaves (p_x, p_y) + lifecycle flags.
+  let initPre := initializer.sourceRelation.inputs.filter fun b =>
+    match b.role with | .preState _ => true | _ => false
+  let initPost := initializer.sourceRelation.inputs.filter fun b =>
+    match b.role with | .postState _ => true | _ => false
+  expect (initPre.size == 0)
+    "init has no pre-state (initialize mode seeds post only)"
+  expect (initPost.size == 2)
+    s!"init must bind two post-state leaves, got {initPost.size}"
+  -- setX: pre+post both leaves, param v, result.
+  let setPre := setX.sourceRelation.inputs.filter fun b =>
+    match b.role with | .preState _ => true | _ => false
+  let setPost := setX.sourceRelation.inputs.filter fun b =>
+    match b.role with | .postState _ => true | _ => false
+  expect (setPre.size == 2 && setPost.size == 2)
+    s!"setX must bind two pre and two post state leaves, got pre={setPre.size} post={setPost.size}"
+  -- Model: setX(7) from p=(0,0) → post p_x=7, p_y=0, result=7.
+  -- Use stateful multi-state inputs via role walk.
+  let setInputs ← liftModel "PointBox setX inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in setX.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 0)  -- p_x
+      | .preState 1 => values := values.push (.u64 0)  -- p_y
+      | .parameter _ => values := values.push (.u64 7)
+      | .postState 0 => values := values.push (.u64 7)  -- p_x updated
+      | .postState 1 => values := values.push (.u64 0)  -- p_y unchanged
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 7)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "PointBox setX(7) from (0,0) accepts" setX setInputs
+  let getInputs ← liftModel "PointBox getX inputs" do
+    let mut values : Array ModelValue := #[]
+    for input in getX.sourceRelation.inputs do
+      match input.role with
+      | .preInitialized => values := values.push (.bool true)
+      | .preState 0 => values := values.push (.u64 7)
+      | .preState 1 => values := values.push (.u64 0)
+      | .postState 0 => values := values.push (.u64 7)
+      | .postState 1 => values := values.push (.u64 0)
+      | .postInitialized => values := values.push (.bool true)
+      | .result => values := values.push (.u64 7)
+      | _ => values := values.push (.u64 0)
+    pure values
+  expectAccept "PointBox getX returns p_x" getX getInputs
+  -- .nr surface: leaf public inputs named p_x / p_y.
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 pointBoxSourceText
+      "<noir-point-box-emit>" "Examples.PointBox" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some setNr := files.find? (fun file =>
+      file.path.endsWith "r1-setX/src/main.nr") |
+    throw <| IO.userError "PointBox missing setX main.nr"
+  expect (setNr.contents.contains "pre_s0: pub u64" &&
+      setNr.contents.contains "pre_s1: pub u64")
+    "PointBox setX .nr must declare both pre-state leaf public inputs"
+  expect (setNr.contents.contains "post_s0: pub u64" &&
+      setNr.contents.contains "post_s1: pub u64")
+    "PointBox setX .nr must declare both post-state leaf public inputs"
+
+/-- Array/Map/Bytes/Option state remain fail-closed on Noir (container policy none). -/
+private unsafe def checkContainerStateFailClosed : IO Unit := do
+  let arrayText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrayBox where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 arrayText
+    "<noir-array-state>" "Examples.ArrayBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Noir.planFromCapability capability with
+  | .ok _ =>
+      throw <| IO.userError
+        "ArrayBox: Noir must fail closed on Array state"
+  | .error e =>
+      expect ((e.render).contains "Array" ||
+          (e.render).contains "container" ||
+          (e.render).contains "unsupported" ||
+          (e.render).contains "pilot")
+        s!"ArrayBox Noir decline must cite container/Array boundary, got {e.render}"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2850,5 +2985,7 @@ unsafe def run : IO Unit := do
   checkNarrowAbiProduct
   checkNarrowResultProduct
   checkNarrowAbiNegatives
+  checkNamedAggregateProduct
+  checkContainerStateFailClosed
 
 end Tests.Materialization.NoirRelationModel

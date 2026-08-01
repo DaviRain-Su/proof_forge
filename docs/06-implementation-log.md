@@ -12567,13 +12567,10 @@ normative: false
 - Boundary：identifier grammar、CFG/invariant closure、requirements、完整structure、production
   encoder/carrier identity与formal TASK/TST仍pending。
 
-## 2026-08-01 — T9c-EVM：窄 Int（Int8/16/32 body + ABI）EVM-first
+## 2026-08-01 — NoirAggregate: named Struct/Enum flatten-to-leaf Plan/IR
 
-- Envelope：`pilotIntWidthPolicyNarrow` / `isAbiIntWidth` / `decodeIntWidthLiteralLe`；
-  `isUintAbiOrInt64`/`isEvmUintAbiOrInt64` Int 分支经 `intWidthOf` 认 Int{8,16,32,64}
-- EVM：`pilotIntWidthPolicyNarrow` 类型表；ResultKind int8/16/32；ABI `int8/16/32/64`；
-  Plan `narrowSigned*` tags 51–58；Yul signextend+intMin/intMax 范围门；sar count≥bitWidth
-- 负向：Int128 仍 fail closed；Solana/NEAR/Noir 仍 Int64-only（policy 未扩）
-- 金样：EvmSmoke `testNarrowIntBodyAndAbi`；EvmSmoke 绿
-- 其余三 target 窄 Int 作为后续 T9c-2（本切片 EVM-first 落地）
-- 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md
+- Production：`Noir/LowerSemanticV1` 开 `pilotNamedAggregateStatePolicyAdmit`；named Struct/Enum state/param 扁平为 UInt64/Int64 leaf public inputs（`p_x`/`p_y` 等）；construct/fieldGet/fieldSet/variantTag/variantPayload 经 leaf 装配/切片/回写；scalar state 路径不变；Array/Map/Bytes/Option + IndexGet/Set 显式 planInvariant fail-closed
+- Emit/Validate：无需新 Plan Expr（leaf 仍为标量 stateLoad/param）；ValidatePlan 以 flattened `Plan.states` 计节点；relation IR/assertEqual 与既有 scalar 路径相同
+- Tests：`NoirRelationModel` PointBox 正例 + Array state 负例；`Targets` N3 矩阵 Noir 从 decline→admit（Solana/NEAR/Psy 仍 decline）
+- Matrix：`docs/research/12-target-coverage-matrix.md` NOIR 行列 construct/field*/variant*/named state LOWERED(NoirAggregate)；Array/Map/Bytes/index FAIL-CLOSED
+- 非 formal D2/D4/D7；不改 EnvelopeV1/Registry/CLI/Semantic shared core

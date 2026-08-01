@@ -2598,8 +2598,10 @@ unsafe def run : IO Unit := do
           s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
 
 
-  -- N3: named Struct state + field assign product pin — EVM admits (flatten-to-leaf
-  -- storage); Solana/NEAR/Noir/Psy decline at type-closure (named types default none).
+  -- N3 / NoirAggregate: named Struct state + field assign product pin —
+  -- EVM admits (flatten-to-leaf storage); Noir admits (flatten-to-leaf public
+  -- inputs / circuit-native field constraints); Solana/NEAR/Psy decline at
+  -- type-closure (named types default none).
   let structStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2627,7 +2629,17 @@ unsafe def run : IO Unit := do
     s!"N3 struct-state: EVM flattened leaf slots for Point.x/y, got {evmStruct.storageLayout.size}"
   expect (evmStruct.entries.any fun e => e.name == "setX")
     "N3 struct-state: EVM plan has setX entry"
-  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.psy] do
+  let noirStruct ← liftResult <| planNoir structCompiled
+  expect (noirStruct.states.size == 2)
+    s!"NoirAggregate: Noir flattened leaf public inputs for Point.x/y, got {noirStruct.states.size}"
+  expect (noirStruct.states.any fun f => f.name == "p_x")
+    "NoirAggregate: Noir leaf name p_x"
+  expect (noirStruct.states.any fun f => f.name == "p_y")
+    "NoirAggregate: Noir leaf name p_y"
+  expect (noirStruct.relations.any fun r => r.name == "setX")
+    "NoirAggregate: Noir plan has setX relation"
+  let _ ← liftResult <| materializeSelected TargetId.noir structCompiled
+  for target in [TargetId.solana, TargetId.near, TargetId.psy] do
     match materializeSelected target structCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N3 struct-state: {target} must decline named aggregate"
