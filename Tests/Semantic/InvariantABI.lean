@@ -794,6 +794,37 @@ theorem callablesValueBytes_data :
     Except.pure, Bind.bind, Except.bind]
   omega
 
+/-- Empty constants expose no duplicate declaration-name candidate. -/
+theorem constantNames_data :
+    validateConstantNameUniquenessV1 data.constants = .ok () := by
+  simp [validateConstantNameUniquenessV1, checkUniqueDeclarationNamesV1, data,
+    Pure.pure, Except.pure]
+
+/-- The fixture's singleton logical-state table takes the production
+    empty/singleton exact-name success path. -/
+theorem logicalStateNames_data :
+    validateLogicalStateNameUniquenessV1 data.logicalState = .ok () := by
+  simp [validateLogicalStateNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    data, logicalStateDecl, Pure.pure, Except.pure]
+
+/-- Empty event and error tables expose no duplicate declaration names. -/
+theorem eventNames_data :
+    validateEventNameUniquenessV1 data.events = .ok () := by
+  simp [validateEventNameUniquenessV1, checkUniqueDeclarationNamesV1, data,
+    Pure.pure, Except.pure]
+
+theorem errorNames_data :
+    validateErrorNameUniquenessV1 data.errors = .ok () := by
+  simp [validateErrorNameUniquenessV1, checkUniqueDeclarationNamesV1, data,
+    Pure.pure, Except.pure]
+
+/-- With no event/error declarations, the production per-declaration
+    interface-field uniqueness walker performs no checks. -/
+theorem interfaceFieldNames_data :
+    validateInterfaceFieldNameUniquenessV1 data.events data.errors = .ok () := by
+  simp [validateInterfaceFieldNameUniquenessV1, data, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
