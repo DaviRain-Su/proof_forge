@@ -55,7 +55,7 @@ normative: false
 | commit | LOWERED(身份透传) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED(身份透传) |
 | externalCall（sync call） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | FAIL-CLOSED | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
-| **match String scrutinee** | GAP(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | FAIL-CLOSED(全) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 
@@ -79,7 +79,7 @@ normative: false
 
 | ID | 缺口 | 现状 | 影响范围 | wave 归属 |
 |---|---|---|---|---|
-| **N-A1** | EVM String match-switch | N4 开 String 类型面 + EVM length+8×u64 布局 + eq/ne，但 `match String scrutinee` 在 EVM 仍 fail-closed | EVM | EvmStringMatch |
+| **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；四 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | ArrayState 开 Array state + index 赋值（EVM/Solana 正例），Map/Bytes state 与穿透元素赋值仍 fail-closed | 全 target | MapBytesAssign |
 | **N-A4** | Option state | ArrayState 明确"Option state: keep fail-closed" | 全 target | OptionState |
@@ -134,7 +134,7 @@ normative: false
 - **MatrixSync**（D-1/D-2）：docs only
 
 ### Phase E（A 组串行——N 家族共享 NormalizeV1/ReferenceV1/EnvelopeV1，必须一个一个）
-- **EvmStringMatch**（N-A1）：EVM EmitIR + 测试
+- **EvmStringMatch**（N-A1）：**已闭合** — EVM LowerSemantic String match → leaf-wise eq + if chains + EvmSmoke pins
 - **MultiArmCtor**（N-A2）：**已闭合** — NormalizeV1 + TypeCheckV1 multi-arm same-outer + 测试
 - **MapBytesAssign**（N-A3）：NormalizeV1 + Reference + 每 target
 - **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target

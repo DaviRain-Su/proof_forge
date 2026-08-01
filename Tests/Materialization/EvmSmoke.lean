@@ -836,6 +836,133 @@ private unsafe def testMatchBindArm : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"MatchBind plan must validate: {e.render}"
 
+/-- EVM pilot String layout: length UInt64 + 8×UInt64 data words (max 64 payload). -/
+private def stringLeafEqAgainstParams (payload : String) : Targets.Evm.Expr := Id.run do
+  let utf8 := payload.toUTF8
+  let len : UInt64 := UInt64.ofNat utf8.size
+  let mut words : Array UInt64 := #[]
+  for w in [0:8] do
+    let mut word : Nat := 0
+    let mut place : Nat := 1
+    for b in [0:8] do
+      let idx := w * 8 + b
+      let byte := if idx < utf8.size then (utf8.get! idx).toNat else 0
+      word := word + byte * place
+      place := place * 256
+    words := words.push (UInt64.ofNat word)
+  -- Leaf-wise AND of eq(param_i, literal_i) for length + 8 data words.
+  let mut acc : Targets.Evm.Expr :=
+    .compare .eq (.param 0) (.literal len)
+  for i in [0:8] do
+    acc := .logicalAnd acc
+      (.compare .eq (.param (i + 1)) (.literal words[i]!))
+  pure acc
+
+/-- N-A1: match on String scrutinee desugars to leaf-wise eq + nested if chains
+    (Plan `switchOn` remains UInt64-case only). Pins exact Plan shape + Yul. -/
+private unsafe def testMatchStringLiterals : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MatchString where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    pad := initial\n" ++
+    "  entry classify(x : String) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | \"hello\" => do\n" ++
+    "      return 1\n" ++
+    "    | \"world\" => do\n" ++
+    "      return 2\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let source ← liftResult "load MatchString" (← session.selectProgramV1
+    text "<evm-match-string>" "Tests.EvmMatchString" none)
+  let compiled ← liftResult "compile MatchString" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MatchString" <| planEvm compiled
+  let helloEq := stringLeafEqAgainstParams "hello"
+  let worldEq := stringLeafEqAgainstParams "world"
+  -- First-match nesting: if hello then 1 else (if world then 2 else 0).
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse helloEq
+        #[.returnValue (.literal 1)]
+        #[.ifThenElse worldEq
+            #[.returnValue (.literal 2)]
+            #[.returnValue (.literal 0)]]])
+    "MatchString must desugar String match to nested ifThenElse + leaf-wise eq"
+  -- No residual switchOn on the String entry (scalar UInt match still uses switchOn).
+  let hasSwitch := plan.entries[0]!.body.any fun s =>
+    match s with | .switchOn .. => true | _ => false
+  expect (!hasSwitch) "MatchString must not emit switchOn for String scrutinee"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MatchString plan must validate: {e.render}"
+  let output ← liftResult "materialize MatchString" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "MatchString.yul") |
+    throw <| IO.userError "MatchString: missing MatchString.yul"
+  let yul := yulFile.contents
+  -- Exact Yul pins: leaf-wise eq chain on ABI words + nested if / iszero fallthrough.
+  -- EmitIR renders compare/logicalAnd as stepwise temps:
+  --   let exprN := arg0; let exprN+1 := 5; let exprN+2 := eq(exprN, exprN+1)
+  --   let … := and(…)
+  -- not a single nested and(and(...eq(arg0,5)...)).
+  expect (yul.contains "let arg0 := calldataload(4)" &&
+      yul.contains "let arg8 := calldataload(260)")
+    "MatchString Yul must load all 9 String ABI words (len + 8 data)"
+  expect (yul.contains ":= 5")
+    "MatchString Yul must materialize String length literal 5"
+  -- Prefer exact stepwise form when present; also accept compact eq(arg0, 5).
+  expect (yul.contains "eq(expr0, expr1)" || yul.contains "eq(arg0, 5)")
+    "MatchString Yul must compare String length leaf against 5"
+  -- "hello" first data word little-endian packing of h,e,l,l,o.
+  expect (yul.contains "478560413032")
+    "MatchString Yul must compare first data word of \"hello\""
+  -- "world" first data word.
+  expect (yul.contains "431316168567")
+    "MatchString Yul must compare first data word of \"world\""
+  expect (yul.contains ":= and(")
+    "MatchString Yul must fold leaf eqs with stepwise and"
+  expect (yul.contains "if expr")
+    "MatchString Yul must branch on the leaf-wise equality result temp"
+  expect (yul.contains "if iszero(expr")
+    "MatchString Yul must emit iszero fallthrough for nested else arms"
+  -- Zero-padded remaining data words of short strings appear as literal 0 temps.
+  expect (yul.contains ":= 0")
+    "MatchString Yul must compare zero-padded String data words"
+
+/-- N-A1 negative: non-String literal pattern on String scrutinee fails closed
+    at TypeCheck/Normalize (never reaches EVM Plan). -/
+private unsafe def testMatchStringNonStringPatternRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MatchStringBad where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    pad := initial\n" ++
+    "  entry classify(x : String) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | 0 => do\n" ++
+    "      return 1\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let source ← liftResult "load MatchStringBad" (← session.selectProgramV1
+    text "<evm-match-string-bad>" "Tests.EvmMatchStringBad" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .ok _ =>
+      throw <| IO.userError
+        "MatchStringBad: integer pattern on String scrutinee must fail closed"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "String" || msg.contains "PF-SRC-INVALID" ||
+          msg.contains "pattern" || msg.contains "type" || msg.contains "match")
+        s!"MatchStringBad must cite pattern/type/String boundary, got {msg}"
+
 /-- validatePlan negatives for the new control-flow constructors. -/
 private unsafe def testRegionValidationNegatives : IO Unit := do
   let base : Targets.Evm.Plan := {
@@ -2614,6 +2741,8 @@ unsafe def run : IO Unit := do
   testAssertInBranch
   testMatchUIntLiterals
   testMatchBindArm
+  testMatchStringLiterals
+  testMatchStringNonStringPatternRejected
   testEarlyReturnJoin
   testInitEarlyBareReturnClosed
   testEmitRevertFlow

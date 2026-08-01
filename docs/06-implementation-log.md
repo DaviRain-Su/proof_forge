@@ -12681,6 +12681,31 @@ normative: false
   catch-all uses trap; no target Plan/IR changes; AGENTS/MIGRATION_MATRIX/
   Materialization/CLI/Targets off-limits for this wave.
 
+## 2026-08-01 — EvmStringMatch (N-A1) String match-switch on EVM
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- EVM Lower (`ProofForgeV2/Targets/Evm/LowerSemanticV1.lean`):
+  * Shared `makeLeafWiseEqExprV1` for aggregate `==`/`!=` and String match.
+  * `Term.Switch` on String (9-leaf pilot layout: length + 8×UInt64 data words)
+    desugars to first-match nested `ifThenElse` with leaf-wise unsigned eq
+    against each String literal arm (`decodeStringLiteralLeavesV1`); default
+    arm is the innermost else / fallthrough.
+  * Join-block semantics preserved (same as scalar switch); non-String
+    aggregate switch and non-String case framing fail closed.
+  * Scalar UInt/Bool `switchOn` path unchanged (byte-identical).
+- EmitIR: no additive change required — reuses existing `ifThenElse` +
+  `compare`/`logicalAnd` Yul emission.
+- Tests (`Tests/Materialization/EvmSmoke.lean`):
+  * `testMatchStringLiterals`: exact Plan pin (nested ifThenElse + 9-leaf eq
+    against ABI params for `"hello"`/`"world"`/`_`) + Yul pins
+    (`eq(arg0, 5)`, first data words, stepwise `and`, `if expr` / `if iszero(expr`).
+  * `testMatchStringNonStringPatternRejected`: integer pattern on String
+    scrutinee fail-closed at compile (TypeCheck/Normalize).
+- Matrix: N-A1 GAP→LOWERED(EVM); other targets remain FAIL-CLOSED for String match.
+- Boundary: max 64 UTF-8 payload bytes (EVM pilot); not multi-target String ABI;
+  not formal D4; AGENTS.md / MIGRATION_MATRIX.md / Materialization/CLI/Semantic
+  off product claim for this wave.
+
 ## 2026-08-02 — T9e-Solana：UInt128/256 multiword（软件双字/四字）
 
 - Envelope：`pilotUintWidthPolicySolanaBody`/`isSolanaAbiUintWidth`/`isSolanaBodyUintWidth` 扩 `{8,16,32,64,128,256}`；`requirePublicSolanaUintAbiOrInt64*`；NEAR/Noir `isAbiUintWidth` 仍 fail closed。

@@ -1120,6 +1120,17 @@ private def makeCheckedSubValueV1
   else
     makeBinaryTreeValueV1 (mkCheckedSub bitWidth) lhsId rhsId lhs rhs false bitWidth
 
+/-- Leaf-wise unsigned equality chain: `(((l0==r0) && (l1==r1)) && ...)`.
+    Shared by aggregate `==`/`!=` and N-A1 String match-switch desugar. -/
+private def makeLeafWiseEqExprV1 (lhs rhs : Array Expr) : CompileResult Expr := do
+  unless lhs.size == rhs.size && lhs.size > 0 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: aggregate comparison leaf count mismatch"
+  let mut acc : Expr := .compare .eq lhs[0]! rhs[0]!
+  for i in [1:lhs.size] do
+    acc := .logicalAnd acc (.compare .eq lhs[i]! rhs[i]!)
+  pure acc
+
 /-- Comparison: same-width UInt or Int64 operands → Bool; Field admits only
     `eq`/`ne`. N4: aggregate (String / named) operands only support `eq`/`ne`
     via leaf-wise unsigned equality AND/OR chain. -/
@@ -1136,13 +1147,7 @@ private def makeCompareValueV1
         "unsupported EVM semantic shape: aggregate comparison only supports == / !="
     let le := lhs.leafExprs
     let re := rhs.leafExprs
-    unless le.size == re.size && le.size > 0 do
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: aggregate comparison leaf count mismatch"
-    -- Build (((l0==r0) && (l1==r1)) && ...) then optionally invert for ne.
-    let mut acc : Expr := .compare .eq le[0]! re[0]!
-    for i in [1:le.size] do
-      acc := .logicalAnd acc (.compare .eq le[i]! re[i]!)
+    let acc ← makeLeafWiseEqExprV1 le re
     let expr := if op == .ne then .boolNot acc else acc
     pure {
       expr
@@ -2925,66 +2930,135 @@ private partial def emitJobV1
                 values2, elseCont, hA || hA1 || hA2, true)
       | .switch scrutId cases defaultTarget =>
           let scrutVal ← currentValueWithArmsV1 values paramCount segmentStart armReadables scrutId
-          if scrutVal.isAggregate then
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: switch on aggregate/String is outside the EVM pilot (use ==/!= + if)"
-          let scrut ← consumeCurrentSegmentWithArmsV1
-            values paramCount segmentStart armReadables scrutId
           let some defaultT := defaultTarget |
             throw (.planInvariant .evm
               "unsupported EVM semantic shape: switch must carry a default target")
-          let mut caseBodies : Array (UInt64 × Array Statement) := #[]
-          let mut joinAcc : Option Nat := none
-          let mut valuesA := values
-          let mut hAAcc := hA
-          for switchCase in cases do
-            let caseValue ←
-              decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
-            let (body, values1, armCont, hA1, _) ←
+          if scrutVal.isAggregate then
+            -- N-A1: String match-switch desugars to leaf-wise eq + nested if chains
+            -- (Plan `switchOn` is UInt64-case only). Named/non-String aggregates
+            -- fail closed: only the EVM pilot String leaf layout is admitted.
+            let expectedStringLeaves := 1 + evmStringDataWordCountV1
+            let scrutLeaves := scrutVal.leafExprs
+            unless scrutLeaves.size == expectedStringLeaves do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: switch on non-String aggregate is outside the EVM pilot"
+            let _ ← consumeCurrentSegmentWithArmsV1
+              values paramCount segmentStart armReadables scrutId
+            let mut caseArms : Array (Expr × Array Statement) := #[]
+            let mut joinAcc : Option Nat := none
+            let mut valuesA := values
+            let mut hAAcc := hA
+            for switchCase in cases do
+              let caseLeaves ← decodeStringLiteralLeavesV1 switchCase.valueBytes
+              unless caseLeaves.size == scrutLeaves.size do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: String match case leaf count mismatch"
+              let cond ← makeLeafWiseEqExprV1 scrutLeaves caseLeaves
+              let (body, values1, armCont, hA1, _) ←
+                emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                  paramCount expectedResultKind (fuel - 1)
+                  (.region (armReadables.push scrutId) activeLoopHeader
+                    switchCase.target.blockId.toNat valuesA)
+              caseArms := caseArms.push (cond, body)
+              valuesA := values1
+              hAAcc := hAAcc || hA1
+              match armCont, joinAcc with
+              | .done, _ => pure ()
+              | .latch _, _ =>
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: switch arm cannot be a loop latch"
+              | .join j, none => joinAcc := some j
+              | .join j, some j0 =>
+                  unless j == j0 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: switch arms converge on divergent joins"
+            let (defaultBody, values2, defaultCont, hA2, _) ←
               emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                 paramCount expectedResultKind (fuel - 1)
                 (.region (armReadables.push scrutId) activeLoopHeader
-                  switchCase.target.blockId.toNat valuesA)
-            caseBodies := caseBodies.push (caseValue, body)
-            valuesA := values1
-            hAAcc := hAAcc || hA1
-            match armCont, joinAcc with
+                  defaultT.blockId.toNat valuesA)
+            hAAcc := hAAcc || hA2
+            match defaultCont, joinAcc with
             | .done, _ => pure ()
             | .latch _, _ =>
                 throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: switch arm cannot be a loop latch"
+                  "unsupported EVM semantic shape: switch default cannot be a loop latch"
             | .join j, none => joinAcc := some j
             | .join j, some j0 =>
                 unless j == j0 do
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: switch arms converge on divergent joins"
-          let (defaultBody, values2, defaultCont, hA2, _) ←
-            emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
-              paramCount expectedResultKind (fuel - 1)
-              (.region (armReadables.push scrutId) activeLoopHeader
-                defaultT.blockId.toNat valuesA)
-          hAAcc := hAAcc || hA2
-          match defaultCont, joinAcc with
-          | .done, _ => pure ()
-          | .latch _, _ =>
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: switch default cannot be a loop latch"
-          | .join j, none => joinAcc := some j
-          | .join j, some j0 =>
-              unless j == j0 do
-                throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: switch arms converge on divergent joins"
-          match joinAcc with
-          | none =>
-              pure (instrs ++ #[.switchOn scrut caseBodies defaultBody],
-                values2, .done, hAAcc, true)
-          | some j =>
-              let (rest, values3, next, hA3, _) ←
+            -- First-match nesting: if c0 then body0 else (if c1 then body1 else default)
+            let mut nested : Array Statement := defaultBody
+            let mut i := caseArms.size
+            while i > 0 do
+              i := i - 1
+              let (cond, body) := caseArms[i]!
+              nested := #[.ifThenElse cond body nested]
+            match joinAcc with
+            | none =>
+                pure (instrs ++ nested, values2, .done, hAAcc, true)
+            | some j =>
+                let (rest, values3, next, hA3, _) ←
+                  emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                    paramCount expectedResultKind (fuel - 1)
+                    (.region armReadables activeLoopHeader j values2)
+                pure (instrs ++ nested ++ rest, values3, next, hAAcc || hA3, true)
+          else
+            let scrut ← consumeCurrentSegmentWithArmsV1
+              values paramCount segmentStart armReadables scrutId
+            let mut caseBodies : Array (UInt64 × Array Statement) := #[]
+            let mut joinAcc : Option Nat := none
+            let mut valuesA := values
+            let mut hAAcc := hA
+            for switchCase in cases do
+              let caseValue ←
+                decodeSwitchCaseValueV1 scrutVal.isBool scrutVal.bitWidth switchCase.valueBytes
+              let (body, values1, armCont, hA1, _) ←
                 emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
                   paramCount expectedResultKind (fuel - 1)
-                  (.region armReadables activeLoopHeader j values2)
-              pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
-                values3, next, hAAcc || hA3, true)
+                  (.region (armReadables.push scrutId) activeLoopHeader
+                    switchCase.target.blockId.toNat valuesA)
+              caseBodies := caseBodies.push (caseValue, body)
+              valuesA := values1
+              hAAcc := hAAcc || hA1
+              match armCont, joinAcc with
+              | .done, _ => pure ()
+              | .latch _, _ =>
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: switch arm cannot be a loop latch"
+              | .join j, none => joinAcc := some j
+              | .join j, some j0 =>
+                  unless j == j0 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: switch arms converge on divergent joins"
+            let (defaultBody, values2, defaultCont, hA2, _) ←
+              emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                paramCount expectedResultKind (fuel - 1)
+                (.region (armReadables.push scrutId) activeLoopHeader
+                  defaultT.blockId.toNat valuesA)
+            hAAcc := hAAcc || hA2
+            match defaultCont, joinAcc with
+            | .done, _ => pure ()
+            | .latch _, _ =>
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: switch default cannot be a loop latch"
+            | .join j, none => joinAcc := some j
+            | .join j, some j0 =>
+                unless j == j0 do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: switch arms converge on divergent joins"
+            match joinAcc with
+            | none =>
+                pure (instrs ++ #[.switchOn scrut caseBodies defaultBody],
+                  values2, .done, hAAcc, true)
+            | some j =>
+                let (rest, values3, next, hA3, _) ←
+                  emitJobV1 owner mode types layout fnIndexByCallableId fns blocks loopBounds
+                    paramCount expectedResultKind (fuel - 1)
+                    (.region armReadables activeLoopHeader j values2)
+                pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest,
+                  values3, next, hAAcc || hA3, true)
       | .revert errorId argIds =>
           let mut argExprs : Array Expr := #[]
           for argId in argIds do

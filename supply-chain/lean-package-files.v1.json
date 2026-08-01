@@ -546,9 +546,9 @@
       "sha256": "72becf95b688496c97263ab7d1ce49dabd725256471e75fb268d0f0c5f4ac371"
     },
     {
-      "bytes": 165273,
+      "bytes": 169409,
       "path": "ProofForgeV2/Targets/Evm/LowerSemanticV1.lean",
-      "sha256": "5e402ed54047410eb716b66454d7379e7951d2dae7694674685a55d725811a91"
+      "sha256": "07544ab2051f63e719cd87f105d0a623ae6ee0a0e3d834b8ce7b63af0ac099f7"
     },
     {
       "bytes": 17708,
