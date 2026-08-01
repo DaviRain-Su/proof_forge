@@ -605,3 +605,7 @@ fixture的Bool/Principal/Unit exact encoded bytes及三组distinct比较已kerne
 empty-domain success；primitive-only table无Struct/Enum/Array/Map edge source，production
 `namedBodyCycle`在DFS前success。四个真实subphase经`validateTypeKeyPhasesV1_eq_ok_of_phases`组合为
 完整TypeKey seam成功。下一production gate为named TypeDecl name uniqueness；完整structure仍pending。
+
+named TypeDecl exact-name uniqueness现已闭合：三项fixture TypeDecl均anonymous，真实production collector
+得到empty array；shared name checker新增语义等价的empty/singleton no-sort fast path并返回success。
+`validateNamedTypeNameUniquenessV1 data.types = .ok ()`已kernel证明。下一片进入canonical valueBytes。

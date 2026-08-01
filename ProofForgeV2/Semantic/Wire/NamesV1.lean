@@ -16,8 +16,12 @@ open ProofForgeV2.Core.Unicode
 /-- Exact declaration/field names are checked on a private UTF-8 sort so
     public source-order arrays remain unchanged and duplicate detection stays
     non-quadratic at the wire table limit. -/
-private def checkUniqueDeclarationNamesV1 (names : Array String) :
+-- Internal production exact-name uniqueness phase exposed for refinement.
+-- Complete declaration-name acceptance remains owned by the structure gate.
+def checkUniqueDeclarationNamesV1 (names : Array String) :
     Except SemanticWireErrorV1 Unit := do
+  -- Empty/singleton tables are unique without allocating a private sort.
+  if names.size ≤ 1 then return
   let sorted := names.qsort fun left right =>
     compareByteArrayLex left.toUTF8 right.toUTF8 == .lt
   let mut index : Nat := 1

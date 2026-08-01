@@ -745,6 +745,14 @@ theorem typeKeyPhases_data :
   · exact typeKeyRecursiveAnonymous_data
   · exact typeKeyNamedBodyCycle_data
 
+/-- The fixture has no named Struct/Enum declarations, so the exact production
+    named-TypeDecl uniqueness phase checks an empty name array. -/
+theorem namedTypeNames_data :
+    validateNamedTypeNameUniquenessV1 data.types = .ok () := by
+  simp [validateNamedTypeNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    data, types, boolType, principalType, unitType, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

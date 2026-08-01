@@ -12494,3 +12494,13 @@ normative: false
 - Verification：focused TypeKeyV1/InvariantABI build通过。
 - Boundary：named TypeDecl name uniqueness及其后value/signature/CFG/requirements、完整structure、
   encoder/carrier/formal状态仍pending。
+
+## 2026-08-01 — D2-07 concrete named-TypeDecl uniqueness
+
+- Production：shared exact-name checker对empty/singleton arrays增加no-sort success fast path；多name表仍走
+  原qsort+adjacent duplicate authority，错误与phase顺序不变。
+- Kernel：fixture三项TypeDecl均anonymous，真实collector得到empty names，闭合
+  `validateNamedTypeNameUniquenessV1 data.types = .ok ()`。
+- Verification：focused NamesV1/InvariantABI build通过。
+- Boundary：canonical Constant/callable valueBytes及后续name/signature/CFG/requirements、完整structure、
+  encoder/carrier/formal状态仍pending。

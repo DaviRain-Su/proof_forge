@@ -337,6 +337,8 @@ fixture theorem已闭合该subphase。recursive/namedBody与完整TypeKey仍pend
 fixture不含anonymous container，故真实`recursiveAnonymous` empty-domain fast path闭合；primitive-only
 table也不产生Option-removed graph edge source，故`namedBodyCycle`闭合。四项随后由production phase
 seam组合为`validateTypeKeyPhasesV1 data.types = .ok ()`；named-type uniqueness及后续structure仍pending。
+紧随其后的`validateNamedTypeNameUniquenessV1`现也已闭合：fixture无named Struct/Enum，production收集
+空name array并由empty/singleton no-sort fast path确认unique。valueBytes及后续gate仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
