@@ -87,18 +87,22 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs
     | .compare _ lhs rhs
     | .signedCompare _ lhs rhs
+    | .narrowSignedCompare _ _ lhs rhs
     | .checkedMul lhs rhs | .narrowCheckedMul _ lhs rhs
     | .checkedDiv lhs rhs | .narrowCheckedDiv _ lhs rhs
     | .checkedMod lhs rhs | .narrowCheckedMod _ lhs rhs
     | .signedCheckedAdd lhs rhs | .signedCheckedSub lhs rhs
     | .signedCheckedMul lhs rhs | .signedCheckedDiv lhs rhs
     | .signedCheckedMod lhs rhs
+    | .narrowSignedCheckedAdd _ lhs rhs | .narrowSignedCheckedSub _ lhs rhs
+    | .narrowSignedCheckedMul _ lhs rhs | .narrowSignedCheckedDiv _ lhs rhs
+    | .narrowSignedCheckedMod _ lhs rhs
     | .bitAnd lhs rhs | .narrowBitAnd _ lhs rhs
     | .bitOr lhs rhs | .narrowBitOr _ lhs rhs
     | .bitXor lhs rhs | .narrowBitXor _ lhs rhs
     | .shl lhs rhs | .narrowShl _ lhs rhs
     | .shr lhs rhs | .narrowShr _ lhs rhs
-    | .sar lhs rhs
+    | .sar lhs rhs | .narrowSar _ lhs rhs
     | .logicalAnd lhs rhs | .logicalOr lhs rhs
     | .fieldAdd lhs rhs | .fieldSub lhs rhs
     | .fieldMul lhs rhs | .fieldDiv lhs rhs =>
@@ -111,7 +115,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     | .bitNot operand | .narrowBitNot _ operand | .boolNot operand
-    | .checkedNeg operand | .fieldNeg operand =>
+    | .checkedNeg operand | .narrowCheckedNeg _ operand | .fieldNeg operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns operand with
@@ -183,6 +187,7 @@ private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
 private def exprIsCompareV1 : Expr → Bool
   | .compare .. => true
   | .signedCompare .. => true
+  | .narrowSignedCompare .. => true
   | _ => false
 
 private def exprIsBoolLiteralV1 : Expr → Bool
@@ -193,6 +198,7 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
   match expr with
   | .compare .. => true
   | .signedCompare .. => true
+  | .narrowSignedCompare .. => true
   | .boolNot .. => true
   | .logicalAnd .. => true
   | .logicalOr .. => true
@@ -210,6 +216,7 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Boo
   match expr with
   | .compare .. => false
   | .signedCompare .. => false
+  | .narrowSignedCompare .. => false
   | .boolNot .. => false
   | .logicalAnd .. => false
   | .logicalOr .. => false
@@ -257,7 +264,8 @@ private partial def checkPlanStatementsV1
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
-        | .uint64 | .uint32 | .uint16 | .uint8 | .uint128 | .uint256 | .int64 | .field =>
+        | .uint64 | .uint32 | .uint16 | .uint8 | .uint128 | .uint256
+        | .int64 | .int32 | .int16 | .int8 | .field =>
             unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind integer/Field is inconsistent with Bool return expression"
@@ -429,12 +437,14 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       unless validAbiByteWidth fn.params[index]!.byteWidth do
         throw <| .planInvariant .evm
           s!"fn '{fn.name}' parameter byteWidth is not an admitted ABI width"
-      unless !fn.params[index]!.isInt || fn.params[index]!.byteWidth == 8 do
+      unless !fn.params[index]!.isInt ||
+          (fn.params[index]!.byteWidth == 1 || fn.params[index]!.byteWidth == 2 ||
+            fn.params[index]!.byteWidth == 4 || fn.params[index]!.byteWidth == 8) do
         throw <| .planInvariant .evm
-          s!"fn '{fn.name}' Int64 parameter must have byteWidth 8"
+          s!"fn '{fn.name}' Int parameter must have byteWidth 1/2/4/8"
       unless !(fn.params[index]!.byteWidth == 32) || !fn.params[index]!.isInt do
         throw <| .planInvariant .evm
-          s!"fn '{fn.name}' Field (byteWidth 32) parameter must not be Int64"
+          s!"fn '{fn.name}' Field (byteWidth 32) parameter must not be Int"
     let sourceIds := fn.params.map (·.sourceId)
     let names := fn.params.map (·.name)
     let words := fn.params.map (·.wordIndex)
@@ -458,13 +468,16 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         throw <| .planInvariant .evm
           "constructor parameter byteWidth is not an admitted ABI width"
       unless !constructor.params[index]!.isInt ||
-          constructor.params[index]!.byteWidth == 8 do
+          (constructor.params[index]!.byteWidth == 1 ||
+            constructor.params[index]!.byteWidth == 2 ||
+            constructor.params[index]!.byteWidth == 4 ||
+            constructor.params[index]!.byteWidth == 8) do
         throw <| .planInvariant .evm
-          "constructor Int64 parameter must have byteWidth 8"
+          "constructor Int parameter must have byteWidth 1/2/4/8"
       unless !(constructor.params[index]!.byteWidth == 32) ||
           !constructor.params[index]!.isInt do
         throw <| .planInvariant .evm
-          "constructor Field (byteWidth 32) parameter must not be Int64"
+          "constructor Field (byteWidth 32) parameter must not be Int"
     let sourceIds := constructor.params.map (·.sourceId)
     let names := constructor.params.map (·.name)
     let words := constructor.params.map (·.wordIndex)
@@ -498,12 +511,14 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       unless validAbiByteWidth entry.params[index]!.byteWidth do
         throw <| .planInvariant .evm
           s!"entry '{entry.name}' parameter byteWidth is not an admitted ABI width"
-      unless !entry.params[index]!.isInt || entry.params[index]!.byteWidth == 8 do
+      unless !entry.params[index]!.isInt ||
+          (entry.params[index]!.byteWidth == 1 || entry.params[index]!.byteWidth == 2 ||
+            entry.params[index]!.byteWidth == 4 || entry.params[index]!.byteWidth == 8) do
         throw <| .planInvariant .evm
-          s!"entry '{entry.name}' Int64 parameter must have byteWidth 8"
+          s!"entry '{entry.name}' Int parameter must have byteWidth 1/2/4/8"
       unless !(entry.params[index]!.byteWidth == 32) || !entry.params[index]!.isInt do
         throw <| .planInvariant .evm
-          s!"entry '{entry.name}' Field (byteWidth 32) parameter must not be Int64"
+          s!"entry '{entry.name}' Field (byteWidth 32) parameter must not be Int"
   let entryNames := plan.entries.map (·.name)
   let selectors := plan.entries.map (·.selector)
   if hasDuplicates entryNames then

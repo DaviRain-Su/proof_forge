@@ -12566,3 +12566,14 @@ normative: false
   declaration rows依source order精确匹配`truth→2`、`falsehood→3`及对应callable kind/name。
 - Boundary：identifier grammar、CFG/invariant closure、requirements、完整structure、production
   encoder/carrier identity与formal TASK/TST仍pending。
+
+## 2026-08-01 — T9c-EVM：窄 Int（Int8/16/32 body + ABI）EVM-first
+
+- Envelope：`pilotIntWidthPolicyNarrow` / `isAbiIntWidth` / `decodeIntWidthLiteralLe`；
+  `isUintAbiOrInt64`/`isEvmUintAbiOrInt64` Int 分支经 `intWidthOf` 认 Int{8,16,32,64}
+- EVM：`pilotIntWidthPolicyNarrow` 类型表；ResultKind int8/16/32；ABI `int8/16/32/64`；
+  Plan `narrowSigned*` tags 51–58；Yul signextend+intMin/intMax 范围门；sar count≥bitWidth
+- 负向：Int128 仍 fail closed；Solana/NEAR/Noir 仍 Int64-only（policy 未扩）
+- 金样：EvmSmoke `testNarrowIntBodyAndAbi`；EvmSmoke 绿
+- 其余三 target 窄 Int 作为后续 T9c-2（本切片 EVM-first 落地）
+- 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md

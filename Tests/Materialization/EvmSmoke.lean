@@ -1821,27 +1821,93 @@ private unsafe def testAbiMultiWidthStateParam : IO Unit := do
   expect (abi.contains "\"type\":\"uint64\"")
     "AbiMw ABI result remains uint64"
 
-/-- T8b-EVM: Int8 param fail closed (Int is Int64-only on ABI). -/
-private unsafe def testInt8ParamRejected : IO Unit := do
+/-- T9c-EVM: Int8 state + Int16 param + body arith + Int8 result; ABI types;
+    Int128 fail closed. -/
+private unsafe def testNarrowIntBodyAndAbi : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program I8Param where\n" ++
-    "  entry run(x : Int8) : UInt64 do\n" ++
-    "    return 0\n"
-  let source ← liftResult "load I8Param" (← session.selectProgramV1
-    sourceText "<evm-i8-param>" "Tests.EvmI8Param" none)
-  match Compiler.compileValidatedSourceV1 source with
+    "program NarrowInt where\n" ++
+    "  state score : Int8\n" ++
+    "  init(s : Int8) do\n" ++
+    "    score := s\n" ++
+    "  entry bump(delta : Int16) : Int8 do\n" ++
+    "    let d : Int8 := 1\n" ++
+    "    score := score + d\n" ++
+    "    assert delta == delta\n" ++
+    "    return score\n" ++
+    "  view peek() : Int8 do\n" ++
+    "    return score\n"
+  let source ← liftResult "load NarrowInt" (← session.selectProgramV1
+    sourceText "<evm-narrow-int>" "Tests.EvmNarrowInt" none)
+  let compiled ← liftResult "compile NarrowInt" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan NarrowInt" <| planEvm compiled
+  expect (plan.storageLayout.map (·.byteWidth) == #[1])
+    "T9c: Int8 state byteWidth 1"
+  expect (plan.storageLayout[0]!.name == "score")
+    "T9c: Int8 state name"
+  match plan.constructor with
+  | none => throw <| IO.userError "NarrowInt must have constructor"
+  | some ctor =>
+      expect (ctor.params.size == 1 && ctor.params[0]!.isInt &&
+          ctor.params[0]!.byteWidth == 1)
+        "T9c: constructor Int8 param isInt byteWidth 1"
+  let bump := plan.entries[0]!
+  expect (bump.resultKind == .int8)
+    "T9c: bump resultKind int8"
+  expect (bump.params.size == 1 && bump.params[0]!.isInt &&
+      bump.params[0]!.byteWidth == 2)
+    "T9c: bump Int16 param isInt byteWidth 2"
+  let expectedSel := Targets.Evm.Keccak.selector "bump" #["int16"]
+  expect (bump.selector == expectedSel)
+    s!"T9c: bump selector keccak(bump(int16))={expectedSel}, got {bump.selector}"
+  let hasNarrowSignedAdd :=
+    bump.body.any fun s =>
+      match s with
+      | .store st =>
+          match st.value with
+          | .narrowSignedCheckedAdd 8 _ _ => true
+          | _ => false
+      | _ => false
+  expect hasNarrowSignedAdd
+    "T9c: Int8 body add must lower to narrowSignedCheckedAdd 8"
+  expect (plan.entries[1]!.resultKind == .int8)
+    "T9c: peek resultKind int8"
+  let output ← liftResult "materialize NarrowInt" <|
+    materializeSelected TargetId.evm compiled
+  let yul ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".yul") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "NarrowInt missing yul"
+  expect (yul.contains "signextend(")
+    "T9c: Yul must sign-extend narrow Int ops"
+  expect (yul.contains "0xff")
+    "T9c: Yul must mask Int8 with 0xff"
+  let abi ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "NarrowInt missing abi"
+  expect (abi.contains "\"type\":\"int8\"" && abi.contains "\"type\":\"int16\"")
+    "T9c: ABI must expose int8/int16"
+  -- Int128 fail closed at plan type-closure.
+  let wideText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideInt where\n" ++
+    "  entry run(x : Int128) : Int128 do\n" ++
+    "    return x\n"
+  let wideSrc ← liftResult "load WideInt" (← session.selectProgramV1
+    wideText "<evm-wide-int>" "Tests.EvmWideInt" none)
+  match Compiler.compileValidatedSourceV1 wideSrc with
   | .error _ => pure ()
-  | .ok compiled =>
-      match planEvm compiled with
+  | .ok compiledW =>
+      match planEvm compiledW with
       | .error e =>
           expect (e.render.contains "Int" || e.render.contains "width" ||
-              e.render.contains "parameter" || e.render.contains "supported")
-            s!"Int8 param must fail at EVM plan, got {e.render}"
+              e.render.contains "supported" || e.render.contains "128")
+            s!"Int128 must fail at EVM plan, got {e.render}"
       | .ok _ =>
-          throw <| IO.userError "EVM plan must reject Int8 param"
+          throw <| IO.userError "EVM plan must reject Int128"
 
 
 /-- T9a-EVM: entry/view may return UInt8/16/32; ABI outputs and resultKind match. -/
@@ -2563,7 +2629,7 @@ unsafe def run : IO Unit := do
   testBodyMultiWidthShift
   testAbiMultiWidthStateParam
   testWideUintProduct
-  testInt8ParamRejected
+  testNarrowIntBodyAndAbi
   testNarrowResultAdmitted
   testUInt128ResultAdmitted
   testVoidEntryRejected

@@ -67,6 +67,7 @@ private def encodeResultKind : ResultKind → UInt8
   | .uint64 => 0 | .bool => 1 | .int64 => 2 | .field => 3
   | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
   | .uint128 => 7 | .uint256 => 8
+  | .int8 => 9 | .int16 => 10 | .int32 => 11
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with
@@ -178,6 +179,32 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .boundsCheckedIndex index length =>
       pure (((encodeU8 50).append (← encodeExpr index)).append
         (← encodeNatAsU32le length))
+  -- T9c narrow signed (tags 51..58; prior tags byte-identical).
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      pure ((((encodeU8 51).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      pure ((((encodeU8 52).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      pure ((((encodeU8 53).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedDiv bitWidth lhs rhs =>
+      pure ((((encodeU8 54).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedMod bitWidth lhs rhs =>
+      pure ((((encodeU8 55).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCompare bitWidth op lhs rhs =>
+      pure (((((encodeU8 56).append (← encodeNatAsU32le bitWidth)).append
+        (encodeU8 (encodeComparisonOp op))).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowCheckedNeg bitWidth operand =>
+      pure (((encodeU8 57).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr operand))
+  | .narrowSar bitWidth lhs rhs =>
+      pure ((((encodeU8 58).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

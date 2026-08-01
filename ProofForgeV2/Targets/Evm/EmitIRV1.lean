@@ -128,6 +128,30 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"sub(0, {renderExprNested paramPrefix operand})"
   | .sar lhs rhs =>
       s!"sar({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
+  | .narrowSignedCheckedAdd _bitWidth lhs rhs =>
+      s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .narrowSignedCheckedSub _bitWidth lhs rhs =>
+      s!"sub({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .narrowSignedCheckedMul _bitWidth lhs rhs =>
+      s!"mul({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .narrowSignedCheckedDiv _bitWidth lhs rhs =>
+      s!"sdiv({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .narrowSignedCheckedMod _bitWidth lhs rhs =>
+      s!"smod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .narrowSignedCompare _bitWidth op lhs rhs =>
+      let l := renderExprNested paramPrefix lhs
+      let r := renderExprNested paramPrefix rhs
+      match op with
+      | .eq => s!"eq({l}, {r})"
+      | .ne => s!"iszero(eq({l}, {r}))"
+      | .lt => s!"slt({l}, {r})"
+      | .le => s!"iszero(sgt({l}, {r}))"
+      | .gt => s!"sgt({l}, {r})"
+      | .ge => s!"iszero(slt({l}, {r}))"
+  | .narrowCheckedNeg _bitWidth operand =>
+      s!"sub(0, {renderExprNested paramPrefix operand})"
+  | .narrowSar _bitWidth lhs rhs =>
+      s!"sar({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
   | .fieldAdd lhs rhs =>
       s!"addmod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs}, {bn254FrModulusYulV1})"
   | .fieldSub lhs rhs =>
@@ -180,6 +204,35 @@ private structure RenderedExpr where
   value : String
   next : Nat
   deriving Inhabited
+
+
+/-- T9c: signextend byte index = byteWidth - 1. -/
+private def signedSignextendByte (bitWidth : Nat) : Nat := bitWidth / 8 - 1
+
+/-- Low-width mask hex for and(_, mask). -/
+private def signedMaskHex (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "0xff"
+  | 16 => "0xffff"
+  | 32 => "0xffffffff"
+  | _ => "0xffffffffffffffff"
+
+/-- Sign-extended intMin as i256 hex (for slt range gate and intMin div-by-neg1).
+    Full 256-bit two's-complement after signextend from the given width. -/
+private def signedIntMinHex (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff80"
+  | 16 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff8000"
+  | 32 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffff80000000"
+  | _ => "0xffffffffffffffffffffffffffffffff8000000000000000"
+
+/-- Sign-extended intMax as i256 hex (for sgt range gate). -/
+private def signedIntMaxHex (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "0x7f"
+  | 16 => "0x7fff"
+  | 32 => "0x7fffffff"
+  | _ => "0x7fffffffffffffff"
 
 private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr → RenderedExpr
   | .literal value =>
@@ -425,6 +478,7 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := or({lhs.value}, {rhs.value})\n",
         value := name, next := rhs.next + 1 }
+
   | .signedCheckedAdd lhs rhs =>
       -- Sign-extend i64 operands, add in i256, range-check int64 bounds, mask.
       let lhs := renderExpr indent paramPrefix next lhs
@@ -538,6 +592,142 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
           s!"{indent}let {r} := sar({rhs.value}, {a})\n" ++
           s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let lo := signedIntMinHex bitWidth
+      let hi := signedIntMaxHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}let {r} := add({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, {lo}), sgt({r}, {hi})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let lo := signedIntMinHex bitWidth
+      let hi := signedIntMaxHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}let {r} := sub({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, {lo}), sgt({r}, {hi})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let lo := signedIntMinHex bitWidth
+      let hi := signedIntMaxHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}let {r} := mul({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, {lo}), sgt({r}, {hi})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCheckedDiv bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let lo := signedIntMinHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}if iszero({b}) \{ revert(0, 0) }\n" ++
+          s!"{indent}if and(eq({a}, {lo}), eq({b}, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := sdiv({a}, {b})\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCheckedMod bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}if iszero({b}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := smod({a}, {b})\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowSignedCompare bitWidth op lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let yul := match op with
+        | .eq => s!"eq({a}, {b})"
+        | .ne => s!"iszero(eq({a}, {b}))"
+        | .lt => s!"slt({a}, {b})"
+        | .le => s!"iszero(sgt({a}, {b}))"
+        | .gt => s!"sgt({a}, {b})"
+        | .ge => s!"iszero(slt({a}, {b}))"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {b} := signextend({sx}, and({rhs.value}, {mask}))\n" ++
+          s!"{indent}let {name} := {yul}\n",
+        value := name, next := rhs.next + 1 }
+  | .narrowCheckedNeg bitWidth operand =>
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      let a := s!"a{operand.next}"
+      let r := s!"r{operand.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      let lo := signedIntMinHex bitWidth
+      { code := operand.code ++
+          s!"{indent}let {a} := signextend({sx}, and({operand.value}, {mask}))\n" ++
+          s!"{indent}if eq({a}, {lo}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := sub(0, {a})\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
+        value := name, next := operand.next + 1 }
+  | .narrowSar bitWidth lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let r := s!"r{rhs.next}"
+      let sx := signedSignextendByte bitWidth
+      let mask := signedMaskHex bitWidth
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, {bitWidth})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {a} := signextend({sx}, and({lhs.value}, {mask}))\n" ++
+          s!"{indent}let {r} := sar({rhs.value}, {a})\n" ++
+          s!"{indent}let {name} := and({r}, {mask})\n",
         value := name, next := rhs.next + 1 }
   | .fieldAdd lhs rhs =>
       let p := bn254FrModulusYulV1
@@ -958,6 +1148,9 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   | .uint32 => "uint32"
   | .uint128 => "uint128"
   | .uint256 => "uint256"
+  | .int8 => "int8"
+  | .int16 => "int16"
+  | .int32 => "int32"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with

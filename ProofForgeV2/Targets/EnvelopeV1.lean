@@ -164,6 +164,17 @@ def pilotIntWidthPolicyNone : PilotIntWidthPolicy where
 def pilotIntWidthPolicyI64 : PilotIntWidthPolicy where
   admittedWidths := #[64]
 
+/-- T9c Phase-1 narrow Int policy: Int{8,16,32,64}. Int128/256 stay fail closed. -/
+def pilotIntWidthPolicyNarrow : PilotIntWidthPolicy where
+  admittedWidths := #[8, 16, 32, 64]
+
+/-- Admitted **ABI/body** Int widths for T9c: `{8,16,32,64}`. -/
+def isAbiIntWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64
+
+/-- Body Int width gate (alias of `isAbiIntWidth`). -/
+def isPilotBodyIntWidth (w : Nat) : Bool := isAbiIntWidth w
+
 /-- Per-target admission for sole catalog Field (bn254 Fr).
 
     Empty / false = Field fail-closed (historical default for Solana /
@@ -399,12 +410,15 @@ def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
 
 def byteWidthOfBitWidth (bitWidth : Nat) : Nat := bitWidth / 8
 
-/-- True when `typeId` is admitted UInt{8,16,32,64} or Int64 (ABI surface). -/
+/-- True when `typeId` is admitted UInt{8,16,32,64} or Int{8,16,32,64} (ABI surface; T9c). -/
 def PilotTypeClosureV1.isUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
   | some w => isAbiUintWidth w
-  | none => c.int64TypeId == some typeId
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w
+    | none => false
 
 /-- True when `typeId` is the admitted sole catalog Field (bn254 Fr). -/
 def PilotTypeClosureV1.isField
@@ -432,14 +446,17 @@ def PilotTypeClosureV1.isUintAbiOrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUintAbiOrInt64 typeId || c.isField typeId
 
-/-- EVM ABI UInt{8,16,32,64,128,256} or Int64 (T9b). -/
+/-- EVM ABI UInt{8,16,32,64,128,256} or Int{8,16,32,64} (T9b + T9c). -/
 def PilotTypeClosureV1.isEvmUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
   | some w => isEvmAbiUintWidth w
-  | none => c.int64TypeId == some typeId
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w
+    | none => false
 
-/-- EVM ABI UInt widths + Int64 + Field (T9b). -/
+/-- EVM ABI UInt widths + Int{8,16,32,64} + Field (T9b/T9c). -/
 def PilotTypeClosureV1.isEvmUintAbiOrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isEvmUintAbiOrInt64 typeId || c.isField typeId
@@ -500,23 +517,22 @@ def evmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "EVM"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer widths are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64/UInt128/UInt256 and Int8/Int16/Int32/Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match)"
+    "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match)"
 
-/-- Solana type-closure diagnostic wording (UInt64/32 + Int64).
+/-- Solana type-closure diagnostic wording (UInt multi-width + Int multi-width T9c).
     Field fail-closed: no native field element. -/
 def solanaTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Solana"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32 and Int64 widths are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
+    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
 
-/-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int64).
-    Field fail-closed: no native field element. Body multi-width (T8c) is
-    still closed even though the type table admits UInt{8,16,32,64}. -/
+/-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int T9c).
+    Field fail-closed: no native field element. -/
 def nearTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "NEAR"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
@@ -525,11 +541,10 @@ def nearTypeClosureWording : PilotTypeClosureWording where
   unsupportedShapeDetail :=
     "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
 
-/-- Noir type-closure diagnostic wording (ABI multi-width UInt + Int64 + Field).
+/-- Noir type-closure diagnostic wording (ABI multi-width UInt + Int T9c + Field).
 
     Wave N2a names Int64; Wave N2b opens sole catalog Field (bn254 Fr = Noir
-    native Field). T8b admits UInt{8,16,32,64} on the type table so state/param
-    ABI multi-width may appear; body multi-width remains T8d. -/
+    native Field). T8b admits UInt{8,16,32,64}; T9c admits Int{8,16,32,64}. -/
 def noirTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Noir"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
@@ -1176,5 +1191,26 @@ def decodeInt64LiteralLe
       | .ok () => pure value
       | .error _ =>
           throw <| mkErr (shapeMsg targetLabel "trailing Int64 literal bytes")
+
+/-- Decode Int{8,16,32,64} LE two's-complement valueBytes into a UInt64 word
+    holding the same low-width bit pattern (high bits zero). Emission
+    sign-extends on use. Int128/256 stay fail closed. -/
+def decodeIntWidthLiteralLe
+    (mkErr : String → CompileError)
+    (targetLabel : String)
+    (bitWidth : Nat)
+    (bytes : ByteArray) : CompileResult UInt64 := do
+  if bitWidth == 64 then
+    decodeInt64LiteralLe mkErr targetLabel bytes
+  else do
+    unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+      throw <| mkErr (shapeMsg targetLabel
+        s!"Int{bitWidth} literal width is not supported")
+    let byteLen := bitWidth / 8
+    unless bytes.size == byteLen do
+      throw <| mkErr (shapeMsg targetLabel
+        s!"Int{bitWidth} literal must contain exactly {byteLen} bytes")
+    let n ← decodeUIntLeBytesToNat mkErr targetLabel bitWidth bytes
+    pure (UInt64.ofNat n)
 
 end ProofForgeV2.Targets.EnvelopeV1
