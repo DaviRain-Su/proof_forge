@@ -424,6 +424,11 @@ count=1 Block与count=0 loopBounds headers组合sole zero/singleton iterator；r
 header exact returned offset开始。kind/name/result/steps仍是actual production successes，因此同一
 theorem可服务entry gate、literal pureFn与PureCall invariant。下一步组合root多callable iterator run。
 
+root四callable iterator run现已闭合：通用`decodeArray_fourV1`只接受真实bounded count=4 header，
+按source order执行exact四次给定production decoder并返回第四cursor；Callable专用corollary锁定
+`maxTableElements`与`decodeCallableV1`。它只证明四个supplied callable的顺序，不伪造entry/pureFn/
+invariant kinds；具体fixture各项仍由前述public Callable successes提供。下一步接入root body callables field。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

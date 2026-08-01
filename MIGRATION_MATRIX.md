@@ -294,7 +294,8 @@ Instruction body theorem提升为public-decoder corollary；后续Return与Block
 single-block callables直接消费，不复制nested decoder。canonical Block zero/one-instruction形状现已
 组合真实双array headers、exact element call count及public Terminator；Callable九字段也已提升为
 public decoder composition；canonical empty-params/singleton-Block/empty-loop shape现已闭合，kind/name/
-result/steps仍由真实production decoder决定。
+result/steps仍由真实production decoder决定。root count=4 callables array现可按source order组合四次真实
+Callable decoder；具体kind约束仍不由transport theorem伪造。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

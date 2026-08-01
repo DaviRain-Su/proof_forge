@@ -11732,6 +11732,15 @@ normative: false
 - Boundary：具体各callable bytes及root multi-element iterator/full carrier仍pending；formal TASK/TST
   状态不变。
 
+## 2026-08-01 — D2-07 four-callable root-array composition
+
+- Proof：通用`decodeArray_fourV1`从真实bounded count=4 header进入sole production iterator，按source
+  order执行四次实际decoder并返回第四cursor；Callable corollary锁定`maxTableElements`与
+  `decodeCallableV1`。
+- Scope：theorem只排序四个supplied callable，不声称其kind；entry/pureFn/two-invariant事实仍来自各自
+  production decode success。focused build、signature examples与blocker review通过。
+- Boundary：root callables field已具备composition，具体root body/full carrier及formal TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

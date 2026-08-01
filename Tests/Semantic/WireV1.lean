@@ -366,6 +366,17 @@ example (c : Cursor) (offset : Nat) (value : UInt32) (afterElement : Cursor)
     decodeArray maxArrayElements decodeU32le c = .ok (#[value], afterElement) :=
   decodeArray_oneV1 maxArrayElements decodeU32le c offset value afterElement hcount helement
 
+example (c : Cursor) (offset : Nat) (v0 v1 v2 v3 : UInt32)
+    (c1 c2 c3 c4 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxArrayElements = .ok (4, offset))
+    (h0 : decodeU32le ⟨c.input, offset, c.nesting⟩ = .ok (v0, c1))
+    (h1 : decodeU32le c1 = .ok (v1, c2))
+    (h2 : decodeU32le c2 = .ok (v2, c3))
+    (h3 : decodeU32le c3 = .ok (v3, c4)) :
+    decodeArray maxArrayElements decodeU32le c = .ok (#[v0, v1, v2, v3], c4) :=
+  decodeArray_fourV1 maxArrayElements decodeU32le c offset v0 v1 v2 v3 c1 c2 c3 c4
+    hcount h0 h1 h2 h3
+
 example :
     decodeArray maxTableElements ((fun _ => .error .badScalar) : Decoder UInt32)
       ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 0, 7⟩ =
@@ -520,6 +531,18 @@ example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
       ⟨c.input, offset, c.nesting⟩ = .ok (callables, afterCallables)) :
     decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
   decodeCallableArrayV1_eq_of_elements c count offset callables afterCallables hcount helements
+
+example (c : Cursor) (offset : Nat) (c0 c1 c2 c3 : CallableV1)
+    (after0 after1 after2 after3 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (4, offset))
+    (h0 : decodeCallableV1 ⟨c.input, offset, c.nesting⟩ = .ok (c0, after0))
+    (h1 : decodeCallableV1 after0 = .ok (c1, after1))
+    (h2 : decodeCallableV1 after1 = .ok (c2, after2))
+    (h3 : decodeCallableV1 after2 = .ok (c3, after3)) :
+    decodeArray maxTableElements decodeCallableV1 c =
+      .ok (#[c0, c1, c2, c3], after3) :=
+  decodeCallableArrayV1_four c offset c0 c1 c2 c3 after0 after1 after2 after3
+    hcount h0 h1 h2 h3
 
 example (c afterMarker afterValue : Cursor) (decode : Decoder UInt32) (value : UInt32)
     (hmarker : decodeU8 c = .ok (1, afterMarker))
