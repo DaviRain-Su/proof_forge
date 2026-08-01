@@ -264,7 +264,9 @@ sized-byte、sole String UTF-8/NFC、array iteration与`parseQualifiedName` auth
 limit-first/body-error/input-offset/parent-depth restoration unfolding theorem，并为sum `decodeTag`建立
 raw framing→既有UTF-8/ASCII分支composition。后续TypeShape前置切片将sole production sum body命名为
 `decodeTypeShapeBodyV1`并补u16 field-count success/mismatch theorem，全部12分支保持原样；九张root
-table与完整carrier refinement仍pending。
+table与完整carrier refinement仍pending。后续nullary切片已组合Bool/Principal/Unit真实tag+zero-field
+success及body→nesting wrapper success，保留body cursor input/offset和parent depth；其余shape与TypeDecl
+仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

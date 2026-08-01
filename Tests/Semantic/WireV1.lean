@@ -279,6 +279,30 @@ example (c : Cursor) (expected : Nat) (count : UInt16) (offset : Nat)
 example :
     decodeTypeShapeV1 ⟨ByteArray.empty, 0, maxNesting⟩ = .error .limitExceeded := by rfl
 
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Bool", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.bool, afterFields) :=
+  decodeTypeShapeBodyV1_bool c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Principal", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.principal, afterFields) :=
+  decodeTypeShapeBodyV1_principal c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Unit", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.unit, afterFields) :=
+  decodeTypeShapeBodyV1_unit c afterTag afterFields htag hfields
+
+example (c c' : Cursor) (shape : TypeShapeV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTypeShapeBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (shape, c')) :
+    decodeTypeShapeV1 c = .ok (shape, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeTypeShapeV1_eq_of_bodyV1 c shape c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

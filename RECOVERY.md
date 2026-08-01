@@ -305,6 +305,11 @@ TypeShape组合前置层现已完成：原anonymous production sum body仅机械
 field count、payload顺序与错误相位不变。`decodeFieldCount_eq_of_readU16leV1`从真实u16 success暴露
 exact offset与`.badFieldCount` mismatch。下一步组合nullary Bool/Principal/Unit与TypeDecl；formal状态不变。
 
+nullary TypeShape success composition现已闭合：Bool/Principal/Unit theorem都要求真实`decodeTag`与
+zero `decodeFieldCount` success，随后`decodeTypeShapeV1_eq_of_bodyV1`经真实nesting gate恢复parent depth，
+同时保留body返回input/offset。错误路径仍由通用`withTaggedNesting_eqV1`覆盖；其余九个shape、TypeDecl
+与root types array仍pending，formal状态不变。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

@@ -1010,6 +1010,41 @@ def decodeTypeShapeBodyV1 : Decoder TypeShapeV1 := fun c => do
 def decodeTypeShapeV1 : Decoder TypeShapeV1 :=
   withTaggedNesting decodeTypeShapeBodyV1
 
+/-- Compose a concrete result from the sole TypeShape body through the tagged
+    nesting authority. -/
+theorem decodeTypeShapeV1_eq_of_bodyV1 (c : Cursor)
+    (shape : TypeShapeV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTypeShapeBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (shape, c')) :
+    decodeTypeShapeV1 c = .ok (shape, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeTypeShapeV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Nullary Bool branch of the sole TypeShape sum body. -/
+theorem decodeTypeShapeBodyV1_bool (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Bool", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.bool, afterFields) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Nullary Principal branch of the sole TypeShape sum body. -/
+theorem decodeTypeShapeBodyV1_principal (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Principal", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.principal, afterFields) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Nullary Unit branch of the sole TypeShape sum body. -/
+theorem decodeTypeShapeBodyV1_unit (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Unit", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.unit, afterFields) := by
+  simp only [decodeTypeShapeBodyV1, htag, hfields, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
 def encodeTypeDeclV1 (d : TypeDeclV1) : Except SemanticWireErrorV1 ByteArray := do
   let idB := encodeU32le d.id
   let nameB ← encodeOption encodeString d.name
