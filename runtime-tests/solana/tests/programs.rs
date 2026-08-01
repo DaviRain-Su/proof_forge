@@ -952,3 +952,185 @@ fn narrow_gates_u8_bitnot_ok() {
         ],
     );
 }
+
+// ─── NarrowAbi (T8b state/param UInt8/16/32 ABI multi-width) ────────────────
+
+fn narrow_abi_fields() -> Vec<StateField> {
+    fields_with_widths(&[("a", 1), ("b", 2), ("c", 4)])
+}
+
+/// Pack three narrow fields into 8-byte slots (low bytes hold the value).
+fn narrow_abi_state(initialized: bool, a: u8, b: u16, c: u32) -> Vec<u8> {
+    let fields = narrow_abi_fields();
+    state_data(
+        &fields,
+        initialized,
+        &[u64::from(a), u64::from(b), u64::from(c)],
+    )
+}
+
+fn assert_narrow_abi_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_path("NarrowAbi"),
+        &[
+            ("initialize", vec![1, 2, 4]),
+            ("bump8", vec![1]),
+            ("bump16", vec![2]),
+            ("bump32", vec![4]),
+            ("peek", vec![]),
+        ],
+    );
+}
+
+#[test]
+fn narrow_abi_initialize_and_bump8() {
+    assert_narrow_abi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowAbi");
+    let state_key = Pubkey::new_unique();
+
+    let init_disc = instruction_discriminator_with_widths("initialize", &[1, 2, 4]);
+    let x: u8 = 10;
+    let y: u16 = 1000;
+    let z: u32 = 100_000;
+    // 8-byte param slots: narrow values in low bytes (same packing as u64 LE).
+    let init_params = [u64::from(x), u64::from(y), u64::from(z)];
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &init_disc, &init_params, true, true),
+        &[(
+            state_key,
+            state_account(&program_id, vec![0u8; exact_data_len(3)]),
+        )],
+        &[
+            Check::success(),
+            Check::account(&state_key)
+                .data(&narrow_abi_state(true, x, y, z))
+                .build(),
+        ],
+    );
+
+    let bump_disc = instruction_discriminator_with_widths("bump8", &[1]);
+    let delta: u8 = 5;
+    let expected_a = x.checked_add(delta).expect("u8 add");
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &bump_disc,
+            &[u64::from(delta)],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, narrow_abi_state(true, x, y, z)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_abi_state(true, expected_a, y, z))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn narrow_abi_bump16_and_bump32() {
+    assert_narrow_abi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowAbi");
+    let state_key = Pubkey::new_unique();
+
+    let a: u8 = 1;
+    let b: u16 = 200;
+    let c: u32 = 3000;
+    let pre = narrow_abi_state(true, a, b, c);
+
+    let d16: u16 = 50;
+    let expected_b = b.checked_add(d16).expect("u16 add");
+    let disc16 = instruction_discriminator_with_widths("bump16", &[2]);
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &disc16,
+            &[u64::from(d16)],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_abi_state(true, a, expected_b, c))
+                .build(),
+        ],
+    );
+
+    let d32: u32 = 700;
+    let expected_c = c.checked_add(d32).expect("u32 add");
+    let disc32 = instruction_discriminator_with_widths("bump32", &[4]);
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &disc32,
+            &[u64::from(d32)],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, narrow_abi_state(true, a, expected_b, c)),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&0u64.to_le_bytes()),
+            Check::account(&state_key)
+                .data(&narrow_abi_state(true, a, expected_b, expected_c))
+                .build(),
+        ],
+    );
+}
+
+#[test]
+fn narrow_abi_u8_add_overflow_0x1001() {
+    assert_narrow_abi_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowAbi");
+    let state_key = Pubkey::new_unique();
+    let pre = narrow_abi_state(true, 250, 0, 0);
+    let disc = instruction_discriminator_with_widths("bump8", &[1]);
+    let delta: u8 = 10;
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &disc,
+            &[u64::from(delta)],
+            true,
+            false,
+        ),
+        &[(state_key, state_account(&program_id, pre.clone()))],
+        &[
+            Check::err(ProgramError::Custom(ARITHMETIC_OVERFLOW)),
+            Check::account(&state_key).data(&pre).build(),
+        ],
+    );
+}
+
+#[test]
+fn narrow_abi_discriminator_differs_from_u64() {
+    // bump(u8) must not equal historical bump(u64).
+    let u8_disc = instruction_discriminator_with_widths("bump", &[1]);
+    let u64_disc = instruction_discriminator_with_widths("bump", &[8]);
+    assert_ne!(
+        u8_disc, u64_disc,
+        "ABI multi-width must change discriminator identity"
+    );
+    // Counter initialize(u64) historical identity is stable.
+    let init = instruction_discriminator("initialize", 1);
+    assert_eq!(init.len(), 16);
+}

@@ -200,11 +200,6 @@ def abiParamTypeString (p : Param) : String :=
   | 4 => "uint32"
   | _ => "uint64"
 
-/-- Bit width ↔ byte width for admitted ABI UInt widths. -/
-def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
-
-def byteWidthOfBitWidth (bitWidth : Nat) : Nat := bitWidth / 8
-
 structure Entry where
   name : String
   selector : String

@@ -23,8 +23,9 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     match expr with
     | .literal .. => some 1
     | .temp _ => some 1
-    | .param dataOffset => if params.any (·.dataOffset == dataOffset) then some 1 else none
-    | .stateLoad accountIndex byteOffset =>
+    | .param dataOffset | .narrowParam _ dataOffset =>
+        if params.any (·.dataOffset == dataOffset) then some 1 else none
+    | .stateLoad accountIndex byteOffset | .narrowStateLoad _ accountIndex byteOffset =>
         if account.fields.any (fun field =>
             field.accountIndex == accountIndex && field.byteOffset == byteOffset) then
           some 1
@@ -91,7 +92,8 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
-  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad ..
+  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .narrowParam ..
+  | .stateLoad .. | .narrowStateLoad ..
   | .temp _ => true
 
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
@@ -111,7 +113,8 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
-  | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. | .temp _ => false
+  | .checkedAdd .. | .checkedSub .. | .param _ | .narrowParam ..
+  | .stateLoad .. | .narrowStateLoad .. | .temp _ => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
@@ -143,10 +146,14 @@ def validateStateAccount (account : StateAccount) : CompileResult Unit := do
     throw <| .planInvariant .solana "state field origins, names, and offsets must be unique"
   for index in [0:account.fields.size] do
     let field := account.fields[index]!
+    let admittedWidth :=
+      field.byteWidth == 1 || field.byteWidth == 2 ||
+      field.byteWidth == 4 || field.byteWidth == 8
     unless field.sourceId == index && field.accountIndex == account.index &&
-        field.byteOffset == stateHeaderBytes + index * 8 && field.byteWidth == 8 &&
+        field.byteOffset == stateHeaderBytes + index * 8 && admittedWidth &&
         field.endianness == .little && isIdentifier field.name do
-      throw <| .planInvariant .solana "state field layout is not canonical UInt64 little-endian"
+      throw <| .planInvariant .solana
+        "state field layout is not canonical little-endian with admitted ABI byteWidth"
 
 def validateParams (owner : String) (params : Array Param) : CompileResult Unit := do
   if params.size > maxParams then
@@ -158,10 +165,17 @@ def validateParams (owner : String) (params : Array Param) : CompileResult Unit 
     throw <| .planInvariant .solana s!"parameter bindings in {owner} must be unique"
   for index in [0:params.size] do
     let param := params[index]!
-    unless param.sourceId == index && param.dataOffset == discriminatorBytes + index * 8 &&
-        param.byteWidth == 8 && param.endianness == .little && isIdentifier param.name do
+    let admittedWidth :=
+      param.byteWidth == 1 || param.byteWidth == 2 ||
+      param.byteWidth == 4 || param.byteWidth == 8
+    -- Int64 ABI identity remains 8-byte; narrow Int is not admitted.
+    unless !param.isInt || param.byteWidth == 8 do
       throw <| .planInvariant .solana
-        s!"parameter binding in {owner} is not canonical UInt64 little-endian"
+        s!"parameter binding in {owner} marks Int without 8-byte width"
+    unless param.sourceId == index && param.dataOffset == discriminatorBytes + index * 8 &&
+        admittedWidth && param.endianness == .little && isIdentifier param.name do
+      throw <| .planInvariant .solana
+        s!"parameter binding in {owner} is not canonical little-endian with admitted ABI byteWidth"
 
 /-- Recursive statement-tree validator for one handler: view-write ban
     (including inside branches), node accounting, and per-level return
@@ -187,9 +201,12 @@ private partial def checkHandlerStatementsV1
     | .store store =>
         if isView then
           throw <| .planInvariant .solana "view handler writes state"
-        unless account.fields.any (fun field =>
-            field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) do
+        let some field := account.fields.find? (fun field =>
+            field.accountIndex == store.accountIndex && field.byteOffset == store.byteOffset) |
           throw <| .planInvariant .solana "handler stores to an unknown field"
+        unless store.byteWidth == field.byteWidth do
+          throw <| .planInvariant .solana
+            "handler store byteWidth does not match state field layout"
         total ← addPlanExprNodes account params fns total store.value
     | .returnValue value =>
         if isInitializer then

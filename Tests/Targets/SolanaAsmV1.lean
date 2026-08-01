@@ -530,6 +530,147 @@ private unsafe def testNarrowWidthOps
   let asmAdd2 ← emitFromSource session srcAdd "Examples.NarrowAddU8" "<solana-asm-nu8-add-2>"
   expect (asmAdd == asmAdd2) "narrow-add: deterministic"
 
+/-- T8b-Solana: UInt8/16/32 state + param ABI multi-width (load/store/zero + disc). -/
+private unsafe def testAbiMultiWidthStateParam
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "AbiMwSol" <|
+    "  state a : UInt8\n" ++
+    "  state b : UInt16\n" ++
+    "  state c : UInt32\n\n" ++
+    "  init(x : UInt8, y : UInt16, z : UInt32) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n" ++
+    "    c := z\n\n" ++
+    "  entry bump8(delta : UInt8) : UInt64 do\n" ++
+    "    a := a + delta\n" ++
+    "    return 0\n\n" ++
+    "  entry bump16(delta : UInt16) : UInt64 do\n" ++
+    "    b := b + delta\n" ++
+    "    return 0\n\n" ++
+    "  entry bump32(delta : UInt32) : UInt64 do\n" ++
+    "    c := c + delta\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiled ← compileSource session source "Examples.AbiMwSol" "<solana-asm-abi-mw>"
+  let ir ← liftResult <| irSolana compiled
+  expect (ir.stateAccount.fields.size == 3) "abi-mw: three state fields"
+  expect (ir.stateAccount.fields[0]!.byteWidth == 1) "abi-mw: UInt8 field byteWidth 1"
+  expect (ir.stateAccount.fields[1]!.byteWidth == 2) "abi-mw: UInt16 field byteWidth 2"
+  expect (ir.stateAccount.fields[2]!.byteWidth == 4) "abi-mw: UInt32 field byteWidth 4"
+  -- 8-byte slot pitch retained (exactDataLen = header + 3*8).
+  expect (ir.stateAccount.exactDataLen == 32)
+    s!"abi-mw: exactDataLen must be 32, got {ir.stateAccount.exactDataLen}"
+  -- Discriminator: bump8(u8) ≠ bump8 with all-u64 historical formula.
+  let bump8 ← match ir.handlers.find? (·.name == "bump8") with
+    | some h => pure h
+    | none => throw <| IO.userError "abi-mw: missing bump8"
+  expect (bump8.params.size == 1 && bump8.params[0]!.byteWidth == 1)
+    "abi-mw: bump8 param byteWidth 1"
+  let histU64 := instructionDiscriminator "bump8"
+    #[{ sourceId := 0, name := "delta", dataOffset := 8, byteWidth := 8,
+        endianness := .little, isInt := false }]
+  expect (bump8.discriminator != histU64)
+    s!"abi-mw: bump8(u8) disc must differ from bump8(u64): {bump8.discriminator}"
+  let expectedU8 := instructionDiscriminator "bump8" bump8.params
+  expect (bump8.discriminator == expectedU8)
+    s!"abi-mw: bump8 disc must match signature, got {bump8.discriminator}"
+  -- SBPF narrow sequences
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "ldxb r1, [r6 + INSTRUCTION_DATA +")
+    "abi-mw: ldxb for UInt8 param"
+  expect (asm.contains "ldxh r1, [r6 + INSTRUCTION_DATA +")
+    "abi-mw: ldxh for UInt16 param"
+  expect (asm.contains "ldxw r1, [r6 + INSTRUCTION_DATA +")
+    "abi-mw: ldxw for UInt32 param"
+  expect (asm.contains "ldxb r1, [r6 + ACC0_DATA +")
+    "abi-mw: ldxb for UInt8 state load"
+  expect (asm.contains "ldxh r1, [r6 + ACC0_DATA +")
+    "abi-mw: ldxh for UInt16 state load"
+  expect (asm.contains "ldxw r1, [r6 + ACC0_DATA +")
+    "abi-mw: ldxw for UInt32 state load"
+  expect (asm.contains "stxb [r6 + ACC0_DATA +")
+    "abi-mw: stxb for UInt8 store"
+  expect (asm.contains "stxh [r6 + ACC0_DATA +")
+    "abi-mw: stxh for UInt16 store"
+  expect (asm.contains "stxw [r6 + ACC0_DATA +")
+    "abi-mw: stxw for UInt32 store"
+  expect (asm.contains "stb [r6 + ACC0_DATA +")
+    "abi-mw: stb imm zero for UInt8 init"
+  expect (asm.contains "sth [r6 + ACC0_DATA +")
+    "abi-mw: sth imm zero for UInt16 init"
+  expect (asm.contains "stw [r6 + ACC0_DATA +")
+    "abi-mw: stw imm zero for UInt32 init"
+  -- IDL types (plan-profile product emit).
+  let files ← liftResult <| filesSolana compiled
+  let some idl := files.find? (fun f => f.path.endsWith ".idl.json") |
+    throw <| IO.userError "abi-mw: missing idl.json"
+  expect (idl.contents.contains "\"type\":\"u8-le\"") "abi-mw: IDL field u8-le"
+  expect (idl.contents.contains "\"type\":\"u16-le\"") "abi-mw: IDL field u16-le"
+  expect (idl.contents.contains "\"type\":\"u32-le\"") "abi-mw: IDL field u32-le"
+  expect (idl.contents.contains "\"type\":\"u8\"") "abi-mw: IDL arg u8"
+  expect (idl.contents.contains "\"type\":\"u16\"") "abi-mw: IDL arg u16"
+  expect (idl.contents.contains "\"type\":\"u32\"") "abi-mw: IDL arg u32"
+  -- Counter discriminator unchanged (historical u64 surface).
+  let counter ← compileSource session counterSourceText counterModuleNameV1
+    "<solana-asm-counter-abi-reg>"
+  let counterIr ← liftResult <| irSolana counter
+  let some inc := counterIr.handlers.find? (·.name == "increment") |
+    throw <| IO.userError "abi-mw: counter missing increment"
+  let expectedInc := instructionDiscriminator "increment" inc.params
+  expect (inc.discriminator == expectedInc)
+    "abi-mw: Counter increment disc unchanged"
+  -- Determinism
+  let asm2 ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm == asm2) "abi-mw: deterministic"
+
+/-- T8b: UInt128 state fail closed. -/
+private unsafe def testUInt128StateRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "U128State" <|
+    "  state big : UInt128\n\n" ++
+    "  init() do\n" ++
+    "    return\n\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return x\n"
+  -- May fail at compile (Normalize unsupported) or Plan seam; both fail closed.
+  let validated ← liftResult (← session.selectProgramV1 source
+    "<solana-u128-state>" "Examples.U128State" none)
+  match Compiler.compileValidatedSourceV1 validated with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match irSolana compiled with
+      | .error e =>
+          expect (e.render.contains "UInt" || e.render.contains "width" ||
+              e.render.contains "state" || e.render.contains "supported")
+            s!"abi-mw: UInt128 state must fail at Solana plan, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "abi-mw: UInt128 state must fail closed on Solana"
+
+/-- T8b: UInt8 entry result fail closed (result multi-width out of scope). -/
+private unsafe def testNarrowResultRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "NarrowRet" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt8 do\n" ++
+    "    return 1\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← liftResult (← session.selectProgramV1 source
+    "<solana-narrow-ret>" "Examples.NarrowRet" none)
+  match Compiler.compileValidatedSourceV1 validated with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match irSolana compiled with
+      | .error e =>
+          expect (e.render.contains "return" || e.render.contains "UInt64" ||
+              e.render.contains "narrow" || e.render.contains "result")
+            s!"abi-mw: narrow result error should mention return width, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "abi-mw: UInt8 entry result must fail closed"
+
 /-- Source-level end-to-end covering mul/if/for/fn/revert/emit together. -/
 private unsafe def testSourceE2E
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -585,6 +726,9 @@ unsafe def run : IO Unit := do
   testCallFnEarlyReturn session
   testEmitEvent session
   testNarrowWidthOps session
+  testAbiMultiWidthStateParam session
+  testUInt128StateRejected session
+  testNarrowResultRejected session
   testSourceE2E session
   IO.println "Tests.Targets.SolanaAsmV1: ok"
 

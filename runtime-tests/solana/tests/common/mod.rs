@@ -38,17 +38,47 @@ pub const CHECK_OR_UNKNOWN: u32 = 1;
 pub const BASE_LAMPORTS: u64 = 10 * LAMPORTS_PER_SOL;
 
 /// One state field for layout-marker / account packing (declaration order).
+/// `byte_width` is the physical ABI width (1/2/4/8); slot pitch remains 8.
 #[derive(Clone, Copy, Debug)]
 pub struct StateField {
     pub source_id: u64,
     pub name: &'static str,
     pub byte_offset: usize,
+    pub byte_width: usize,
+}
+
+/// ABI param type string for discriminator signatures (`u8`/`u16`/`u32`/`u64`).
+/// Int64 keeps historical `"u64"` (matches Lean `abiParamTypeString`).
+pub fn abi_param_type_string(byte_width: usize) -> &'static str {
+    match byte_width {
+        1 => "u8",
+        2 => "u16",
+        4 => "u32",
+        _ => "u64",
+    }
+}
+
+/// Layout field type suffix (`u8-le` … `u64-le`).
+pub fn layout_field_type_suffix(byte_width: usize) -> &'static str {
+    match byte_width {
+        1 => "u8-le",
+        2 => "u16-le",
+        4 => "u32-le",
+        _ => "u64-le",
+    }
 }
 
 /// Independent ABI: sha256 hex of `domain ++ name(u64,...)` → first 16 hex chars.
+/// All params are treated as `u64` (historical Counter/LoopSum/… surface).
 pub fn instruction_discriminator(name: &str, param_count: usize) -> String {
-    let params = std::iter::repeat("u64")
-        .take(param_count)
+    instruction_discriminator_with_widths(name, &vec![8usize; param_count])
+}
+
+/// Discriminator with explicit per-param byte widths (T8b multi-width ABI).
+pub fn instruction_discriminator_with_widths(name: &str, param_widths: &[usize]) -> String {
+    let params = param_widths
+        .iter()
+        .map(|w| abi_param_type_string(*w))
         .collect::<Vec<_>>()
         .join(",");
     let preimage = format!("{DISCRIMINATOR_DOMAIN}{name}({params})");
@@ -71,8 +101,12 @@ pub fn layout_marker(fields: &[StateField]) -> u64 {
         .iter()
         .map(|f| {
             format!(
-                "{}:{}:0:{}:8:u64-le",
-                f.source_id, f.name, f.byte_offset
+                "{}:{}:0:{}:{}:{}",
+                f.source_id,
+                f.name,
+                f.byte_offset,
+                f.byte_width,
+                layout_field_type_suffix(f.byte_width)
             )
         })
         .collect();
@@ -91,6 +125,17 @@ pub fn single_field(name: &'static str) -> [StateField; 1] {
         source_id: 0,
         name,
         byte_offset: STATE_HEADER_BYTES,
+        byte_width: 8,
+    }]
+}
+
+/// Single field with explicit ABI width (T8b multi-width state).
+pub fn single_field_width(name: &'static str, byte_width: usize) -> [StateField; 1] {
+    [StateField {
+        source_id: 0,
+        name,
+        byte_offset: STATE_HEADER_BYTES,
+        byte_width,
     }]
 }
 
@@ -101,13 +146,29 @@ pub fn two_fields(a: &'static str, b: &'static str) -> [StateField; 2] {
             source_id: 0,
             name: a,
             byte_offset: STATE_HEADER_BYTES,
+            byte_width: 8,
         },
         StateField {
             source_id: 1,
             name: b,
             byte_offset: STATE_HEADER_BYTES + 8,
+            byte_width: 8,
         },
     ]
+}
+
+/// Multi-field layout with explicit widths (8-byte slot pitch).
+pub fn fields_with_widths(specs: &[(&'static str, usize)]) -> Vec<StateField> {
+    specs
+        .iter()
+        .enumerate()
+        .map(|(i, (name, w))| StateField {
+            source_id: i as u64,
+            name,
+            byte_offset: STATE_HEADER_BYTES + i * 8,
+            byte_width: *w,
+        })
+        .collect()
 }
 
 pub fn exact_data_len(field_count: usize) -> usize {
@@ -130,12 +191,25 @@ pub fn parse_plan_handlers(plan_text: &str) -> BTreeMap<String, String> {
 }
 
 /// Cross-check independent Rust discriminators against the product plan.
+/// All params assumed u64 (historical fixtures).
 pub fn assert_discriminators_match_plan(plan_path: &Path, expected: &[(&str, usize)]) {
+    let expected_w: Vec<(&str, Vec<usize>)> = expected
+        .iter()
+        .map(|(name, arity)| (*name, vec![8usize; *arity]))
+        .collect();
+    assert_discriminators_match_plan_widths(plan_path, &expected_w);
+}
+
+/// Cross-check discriminators with explicit per-handler param widths (T8b).
+pub fn assert_discriminators_match_plan_widths(
+    plan_path: &Path,
+    expected: &[(&str, Vec<usize>)],
+) {
     let plan = fs::read_to_string(plan_path)
         .unwrap_or_else(|e| panic!("read plan {}: {e}", plan_path.display()));
     let from_plan = parse_plan_handlers(&plan);
-    for (name, arity) in expected {
-        let independent = instruction_discriminator(name, *arity);
+    for (name, widths) in expected {
+        let independent = instruction_discriminator_with_widths(name, widths);
         let plan_hex = from_plan
             .get(*name)
             .unwrap_or_else(|| panic!("plan missing .handler for {name}"));

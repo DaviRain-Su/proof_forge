@@ -214,7 +214,9 @@ private def emitProgramErrorInline (b : AsmBuf) (code : Nat) : AsmBuf :=
 /-- Destination temp of a value-producing op, if any. -/
 private def opDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
-      .loadState destination .. | .checkedAdd destination .. |
+      .narrowLoadParam _ destination .. |
+      .loadState destination .. | .narrowLoadState _ destination .. |
+      .checkedAdd destination .. |
       .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
       .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
       .signedCheckedMod destination .. | .checkedNeg destination .. |
@@ -612,6 +614,30 @@ private def narrowUintMaskImm (bitWidth : Nat) : String :=
   | 32 => "0xffffffff"
   | _ => "0xffffffffffffffff"
 
+/-- SBPF memory load mnemonic for ABI width (`ldxb`/`ldxh`/`ldxw`). -/
+private def narrowLoadMnemonic (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "ldxb"
+  | 16 => "ldxh"
+  | 32 => "ldxw"
+  | _ => "ldxdw"
+
+/-- SBPF memory store mnemonic for ABI width (`stxb`/`stxh`/`stxw`). -/
+private def narrowStoreMnemonic (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "stxb"
+  | 16 => "stxh"
+  | 32 => "stxw"
+  | _ => "stxdw"
+
+/-- SBPF immediate store mnemonic for ABI width (`stb`/`sth`/`stw`). -/
+private def narrowImmStoreMnemonic (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "stb"
+  | 16 => "sth"
+  | 32 => "stw"
+  | _ => "stdw"
+
 /-- Narrow checked_add: 64-bit add then high bits above `bitWidth` must be zero. -/
 private def emitNarrowCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
@@ -783,11 +809,36 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           let b := emit b s!"  ; %{destination} = load_u64_le(instruction_data + {dataOffset})"
           let b := emit b s!"  ldxdw r1, [r6 + INSTRUCTION_DATA + {dataOffset}]"
           pure (storeTemp b tempBase destination "r1")
+  | .narrowLoadParam bitWidth destination dataOffset =>
+      match inlineCtx with
+      | some ctx =>
+          -- pureFn params are already width-normalized temps; remap like loadParam.
+          let some idx := paramIndexByOffset ctx.fn.params dataOffset |
+            return ← asmError
+              s!"S1b inlined narrowLoadParam offset {dataOffset} is not a fn param"
+          let b := emit b
+            s!"  ; %{destination} = fn_param[{idx}] u{bitWidth} (offset {dataOffset})"
+          let b := loadTemp b "r1" ctx.paramBase idx
+          pure (storeTemp b tempBase destination "r1")
+      | none =>
+          let mnem := narrowLoadMnemonic bitWidth
+          let b := emit b
+            s!"  ; %{destination} = load_u{bitWidth}_le(instruction_data + {dataOffset})"
+          let b := emit b s!"  {mnem} r1, [r6 + INSTRUCTION_DATA + {dataOffset}]"
+          pure (storeTemp b tempBase destination "r1")
   | .loadState destination accountIndex byteOffset =>
       unless accountIndex == 0 do
         return ← asmError "S1b loadState supports only account[0]"
       let b := emit b s!"  ; %{destination} = load_u64_le(account[0].data + {byteOffset})"
       let b := emit b s!"  ldxdw r1, [r6 + ACC0_DATA + {byteOffset}]"
+      pure (storeTemp b tempBase destination "r1")
+  | .narrowLoadState bitWidth destination accountIndex byteOffset =>
+      unless accountIndex == 0 do
+        return ← asmError "S1b narrowLoadState supports only account[0]"
+      let mnem := narrowLoadMnemonic bitWidth
+      let b := emit b
+        s!"  ; %{destination} = load_u{bitWidth}_le(account[0].data + {byteOffset})"
+      let b := emit b s!"  {mnem} r1, [r6 + ACC0_DATA + {byteOffset}]"
       pure (storeTemp b tempBase destination "r1")
   | .checkedAdd destination lhs rhs errorCode =>
       let b := emit b s!"  ; %{destination} = checked_add_u64 %{lhs}, %{rhs}"
@@ -924,12 +975,26 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       let b := emit b s!"  ; zero_u64_le account[0].data + {byteOffset}"
       let b := emit b "  lddw r1, 0"
       pure (emit b s!"  stxdw [r6 + ACC0_DATA + {byteOffset}], r1")
+  | .narrowZeroState bitWidth accountIndex byteOffset =>
+      unless accountIndex == 0 do
+        return ← asmError "S1b narrowZeroState supports only account[0]"
+      let mnem := narrowImmStoreMnemonic bitWidth
+      let b := emit b s!"  ; zero_u{bitWidth}_le account[0].data + {byteOffset}"
+      pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], 0")
   | .storeState accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b storeState supports only account[0]"
       let b := emit b s!"  ; store_u64_le account[0].data + {byteOffset}, %{value}"
       let b := loadTemp b "r1" tempBase value
       pure (emit b s!"  stxdw [r6 + ACC0_DATA + {byteOffset}], r1")
+  | .narrowStoreState bitWidth accountIndex byteOffset value =>
+      unless accountIndex == 0 do
+        return ← asmError "S1b narrowStoreState supports only account[0]"
+      let mnem := narrowStoreMnemonic bitWidth
+      let b := emit b
+        s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
+      let b := loadTemp b "r1" tempBase value
+      pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1")
   | .setHeader accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b setHeader supports only account[0]"

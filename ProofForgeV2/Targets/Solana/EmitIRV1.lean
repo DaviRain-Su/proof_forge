@@ -26,7 +26,11 @@ inductive Check where
 inductive Operation where
   | literal (destination : Nat) (value : UInt64)
   | loadParam (destination dataOffset : Nat)
+  /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadParam`. -/
+  | narrowLoadParam (bitWidth destination dataOffset : Nat)
   | loadState (destination accountIndex byteOffset : Nat)
+  /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `loadState`. -/
+  | narrowLoadState (bitWidth destination accountIndex byteOffset : Nat)
   | checkedAdd (destination lhs rhs errorCode : Nat)
   | checkedSub (destination lhs rhs errorCode : Nat)
   | signedCheckedAdd (destination lhs rhs errorCode : Nat)
@@ -38,7 +42,11 @@ inductive Operation where
   | signedCompare (destination lhs rhs : Nat) (op : ComparisonOp)
   | checkedSar (destination lhs rhs shiftError : Nat)
   | zeroState (accountIndex byteOffset : Nat)
+  /-- Narrow field zero on init (`bitWidth ∈ {8,16,32}`); UInt64 keeps `zeroState`. -/
+  | narrowZeroState (bitWidth accountIndex byteOffset : Nat)
   | storeState (accountIndex byteOffset value : Nat)
+  /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
+  | narrowStoreState (bitWidth accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
   | setReturnData (value : Nat)
   | setReturnDataBool (value : Nat)
@@ -151,8 +159,14 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
       { operations := #[.literal next value], value := next, next := next + 1 }
   | .param dataOffset =>
       { operations := #[.loadParam next dataOffset], value := next, next := next + 1 }
+  | .narrowParam bitWidth dataOffset =>
+      { operations := #[.narrowLoadParam bitWidth next dataOffset],
+        value := next, next := next + 1 }
   | .stateLoad accountIndex byteOffset =>
       { operations := #[.loadState next accountIndex byteOffset], value := next, next := next + 1 }
+  | .narrowStateLoad bitWidth accountIndex byteOffset =>
+      { operations := #[.narrowLoadState bitWidth next accountIndex byteOffset],
+        value := next, next := next + 1 }
   | .temp id =>
       let irTemp := resolveTempV1 tempMap id
       { operations := #[], value := irTemp, next }
@@ -532,7 +546,12 @@ private partial def lowerBodyOps
     | .store store =>
         let value := lowerExpr overflowError tempMap next store.value
         operations := operations ++ value.operations
-        operations := operations.push (.storeState store.accountIndex store.byteOffset value.value)
+        let storeOp : Operation :=
+          if store.byteWidth == 8 then
+            .storeState store.accountIndex store.byteOffset value.value
+          else
+            .narrowStoreState (store.byteWidth * 8) store.accountIndex store.byteOffset value.value
+        operations := operations.push storeOp
         next := value.next
     | .returnValue value =>
         let value := lowerExpr overflowError tempMap next value
@@ -633,7 +652,11 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
   let account := plan.stateAccount
   let operations0 : Array Operation :=
     if handler.mode == .initialize then
-      account.fields.map fun field => .zeroState field.accountIndex field.byteOffset
+      account.fields.map fun field =>
+        if field.byteWidth == 8 then
+          .zeroState field.accountIndex field.byteOffset
+        else
+          .narrowZeroState (field.byteWidth * 8) field.accountIndex field.byteOffset
     else
       #[]
   -- The initializer's final bare-return marker is the natural fall-through;
@@ -666,7 +689,9 @@ private def isNarrowBodyWidth (w : Nat) : Bool :=
 
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
-      .loadState destination .. | .checkedAdd destination .. |
+      .narrowLoadParam _ destination .. |
+      .loadState destination .. | .narrowLoadState _ destination .. |
+      .checkedAdd destination .. |
       .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
       .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
       .signedCheckedMod destination .. | .checkedNeg destination .. |
@@ -724,7 +749,8 @@ private partial def validateOperationSequence
         -- initializer's bare return); it neither sets nor requires flags.
         halted := true
     | .literal ..
-    | .loadParam .. | .loadState .. | .checkedAdd .. | .checkedSub ..
+    | .loadParam .. | .narrowLoadParam .. | .loadState .. | .narrowLoadState ..
+    | .checkedAdd .. | .checkedSub ..
     | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
     | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg ..
     | .signedCompare .. | .checkedSar ..
@@ -737,7 +763,8 @@ private partial def validateOperationSequence
     | .narrowCheckedDiv .. | .narrowCheckedMod ..
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
-    | .compare .. | .assert .. | .zeroState .. | .storeState ..
+    | .compare .. | .assert .. | .zeroState .. | .narrowZeroState ..
+    | .storeState .. | .narrowStoreState ..
     | .setHeader .. | .setReturnData .. | .setReturnDataBool ..
     | .emitEvent .. | .revertError ..
     | .ifRegion .. | .switchRegion .. | .forRegion .. | .callFn .. =>
@@ -749,9 +776,18 @@ private partial def validateOperationSequence
     | .loadParam _ dataOffset =>
         unless paramOffsets.contains dataOffset do
           throw <| .planInvariant .solana "typed Solana IR loads an unknown parameter offset"
+    | .narrowLoadParam bitWidth _ dataOffset =>
+        unless isNarrowBodyWidth bitWidth && paramOffsets.contains dataOffset do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrowLoadParam width/offset is invalid"
     | .loadState _ accountIndex byteOffset =>
         unless accountIndex == account.index && fieldOffsets.contains byteOffset do
           throw <| .planInvariant .solana "typed Solana IR loads an unknown state field"
+    | .narrowLoadState bitWidth _ accountIndex byteOffset =>
+        unless isNarrowBodyWidth bitWidth && accountIndex == account.index &&
+            fieldOffsets.contains byteOffset do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrowLoadState width/field is invalid"
     | .checkedAdd _ lhs rhs errorCode =>
         unless lhs < next - 1 && rhs < next - 1 &&
             errorCode == plan.arithmeticOverflowError do
@@ -871,10 +907,21 @@ private partial def validateOperationSequence
         unless handler.mode == .initialize && accountIndex == account.index &&
             fieldOffsets.contains byteOffset do
           throw <| .planInvariant .solana "typed Solana IR zeroes an unknown state field"
+    | .narrowZeroState bitWidth accountIndex byteOffset =>
+        unless isNarrowBodyWidth bitWidth && handler.mode == .initialize &&
+            accountIndex == account.index && fieldOffsets.contains byteOffset do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrowZeroState width/field is invalid"
     | .storeState accountIndex byteOffset value =>
         unless handler.mode != .view && accountIndex == account.index &&
             fieldOffsets.contains byteOffset && value < next do
           throw <| .planInvariant .solana "typed Solana IR store is invalid"
+    | .narrowStoreState bitWidth accountIndex byteOffset value =>
+        unless isNarrowBodyWidth bitWidth && handler.mode != .view &&
+            accountIndex == account.index && fieldOffsets.contains byteOffset &&
+            value < next do
+          throw <| .planInvariant .solana
+            "typed Solana IR narrowStoreState width/store is invalid"
     | .setHeader accountIndex byteOffset value =>
         unless handler.mode == .initialize && accountIndex == account.index &&
             byteOffset == account.headerOffset && value == account.initializedMarker do
@@ -1042,14 +1089,16 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
   -- pureFn bodies must not load state (purity defense beyond view-mode write ban).
   for op in fn.operations do
     match op with
-    | .loadState .. | .storeState .. | .zeroState .. | .setHeader ..
+    | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+    | .zeroState .. | .narrowZeroState .. | .setHeader ..
     | .emitEvent .. =>
         throw <| .planInvariant .solana
           s!"fn IR '{fn.name}' contains a non-pure operation"
     | .ifRegion _ thenOps elseOps =>
         for nested in thenOps ++ elseOps do
           match nested with
-          | .loadState .. | .storeState .. | .emitEvent .. =>
+          | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .emitEvent .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1057,14 +1106,16 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
         let nestedOps := cases.foldl (fun acc (_, ops) => acc ++ ops) defaultOps
         for nested in nestedOps do
           match nested with
-          | .loadState .. | .storeState .. | .emitEvent .. =>
+          | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .emitEvent .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
     | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
         for nested in condOps ++ bodyOps ++ boundOps ++ updateOps do
           match nested with
-          | .loadState .. | .storeState .. | .emitEvent .. =>
+          | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
+          | .emitEvent .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1171,8 +1222,12 @@ private partial def renderOperation (indent : String)
   | .literal destination value => s!"{indent}%{destination} = const_u64 {value}\n"
   | .loadParam destination dataOffset =>
       s!"{indent}%{destination} = load_u64_le(instruction_data + {dataOffset})\n"
+  | .narrowLoadParam bitWidth destination dataOffset =>
+      s!"{indent}%{destination} = load_u{bitWidth}_le(instruction_data + {dataOffset})\n"
   | .loadState destination accountIndex byteOffset =>
       s!"{indent}%{destination} = load_u64_le(account[{accountIndex}].data + {byteOffset})\n"
+  | .narrowLoadState bitWidth destination accountIndex byteOffset =>
+      s!"{indent}%{destination} = load_u{bitWidth}_le(account[{accountIndex}].data + {byteOffset})\n"
   | .checkedAdd destination lhs rhs errorCode =>
       s!"{indent}%{destination} = checked_add_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .checkedSub destination lhs rhs errorCode =>
@@ -1243,8 +1298,12 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = bool_or %{lhs}, %{rhs}\n"
   | .zeroState accountIndex byteOffset =>
       s!"{indent}zero_u64_le account[{accountIndex}].data + {byteOffset}\n"
+  | .narrowZeroState bitWidth accountIndex byteOffset =>
+      s!"{indent}zero_u{bitWidth}_le account[{accountIndex}].data + {byteOffset}\n"
   | .storeState accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
+  | .narrowStoreState bitWidth accountIndex byteOffset value =>
+      s!"{indent}store_u{bitWidth}_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .setHeader accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
   | .setReturnData value =>
@@ -1332,7 +1391,7 @@ private def renderHandlerPlan (ir : IR) (handler : HandlerIR) : String :=
 private def renderPlanText (ir : IR) : String :=
   let account := ir.stateAccount
   let fields := account.fields.foldl (fun output field => output ++
-    s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type=u64-le\n") ""
+    s!"; field source_id={field.sourceId} name={field.name} account={field.accountIndex} offset={field.byteOffset} type={layoutFieldTypeSuffix field.byteWidth}\n") ""
   let fnsText := Id.run do
     let mut text := ""
     for index in [0:ir.fns.size] do
@@ -1350,13 +1409,13 @@ private def renderPlanText (ir : IR) : String :=
     fields ++ fnsText ++ handlers
 
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"u64\",\"dataOffset\":{param.dataOffset}}"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{abiParamTypeString param}\",\"dataOffset\":{param.dataOffset}}"
 
 private def renderParamsJson (params : Array Param) : String :=
   String.intercalate "," (params.toList.map renderParamJson)
 
 private def renderFieldJson (field : StateField) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"offset\":{field.byteOffset},\"type\":\"u64-le\"}"
+  s!"\{\"name\":\"{Targets.escapeJson field.name}\",\"sourceId\":{field.sourceId},\"offset\":{field.byteOffset},\"type\":\"{layoutFieldTypeSuffix field.byteWidth}\"}"
 
 private def renderHandlerJson (handler : HandlerIR) : String :=
   let access := handler.accountAccess

@@ -67,6 +67,7 @@ fixtures=(
   MultiField
   MatchOps
   NarrowGates
+  NarrowAbi
 )
 
 echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"

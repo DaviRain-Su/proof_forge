@@ -11941,3 +11941,29 @@ normative: false
   `PublicInvariantABI` raw bytes 54→76；golden保持1235 bytes且工程suite通过。
 - Review：blocker-only APPROVE。最终UTF-8/NFC/Common parse与`decodeQualifiedName` value留下一片；
   full transport/carrier/formal状态不变。
+
+## 2026-08-01 — T8b-Solana state/param UInt8/16/32 multi-width ABI
+
+- Production：
+  * `EnvelopeV1`：共享 `isAbiUintWidth` + `isSolanaAbiUintWidth` 别名、
+    `bitWidthOfByteWidth`/`byteWidthOfBitWidth`；复用既有
+    `requirePublicUintAbiOrInt64State/Param`（EVM 同形）；`isEvmAbiUintWidth`
+    保留为历史别名。
+  * `Solana/LowerSemanticV1`：state/param 准入 UInt{8,16,32,64}+Int64；
+    `byteWidth` 1/2/4/8（**8 字节槽位 pitch 不变**）；`signature` 渲染
+    `u8/u16/u32/u64`（Int64 仍 `"u64"`）；`layoutFieldSignature` 渲染
+    `u8-le/…/u64-le`；`Expr.narrowParam`/`narrowStateLoad` +
+    `Store.byteWidth`；UInt64/Int64 走历史构造器。
+  * `Solana/EmitIRV1`：`narrowLoadParam`/`narrowLoadState`/
+    `narrowStoreState`/`narrowZeroState`（bitWidth ∈ {8,16,32}）；
+    plan 文本与 IDL 字段/参数类型按宽度；validateIR 收窄宽度。
+  * `Solana/EmitSbpfAsmV1`：`ldxb/ldxh/ldxw`、`stxb/stxh/stxw`、
+    imm `stb/sth/stw`；仅真实 Solana 指令。
+  * `Solana/ValidatePlanV1`：field/param `byteWidth ∈ {1,2,4,8}`；
+    store 宽度与 field 一致；Int 强制 8。
+- Tests：`SolanaAsmV1` 正向 AbiMw（ldxb/…/imm zero、disc 变化、IDL 类型、
+  Counter disc 不变）+ 负向 UInt128 state / UInt8 entry result；
+  runtime `NarrowAbi` fixture + Mollusk（init/bump8/16/32/overflow）与
+  `common/mod.rs` 宽度感知 discriminator/layout marker。
+- Boundary：结果/event/error 仍 UInt64/Bool/Int64；UInt128/256 与窄 Int
+  ABI fail closed；**不是** formal D4。

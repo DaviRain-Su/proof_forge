@@ -120,7 +120,11 @@ inductive ComparisonOp where
 inductive Expr where
   | literal (value : UInt64)
   | param (dataOffset : Nat)
+  /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
+  | narrowParam (bitWidth : Nat) (dataOffset : Nat)
   | stateLoad (accountIndex byteOffset : Nat)
+  /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `stateLoad`. -/
+  | narrowStateLoad (bitWidth : Nat) (accountIndex byteOffset : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -179,6 +183,9 @@ structure Store where
   accountIndex : Nat
   byteOffset : Nat
   value : Expr
+  /-- Physical store width in bytes (`1/2/4/8`). Default 8 keeps historical
+      UInt64/Int64 Plan literals byte-identical. -/
+  byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -269,8 +276,26 @@ def validDiscriminator (value : String) : Bool :=
   value.length == 2 * discriminatorBytes && value.toList.all (fun character =>
     "0123456789abcdef".contains character)
 
+/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`). -/
+def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
+  match byteWidth with
+  | 1 => "u8-le"
+  | 2 => "u16-le"
+  | 4 => "u32-le"
+  | _ => "u64-le"
+
+/-- Instruction-arg type string for discriminator signature and IDL.
+    Int64 keeps historical `"u64"` (ABI identity is not reopened this slice). -/
+def abiParamTypeString (p : Param) : String :=
+  if p.isInt then "u64"
+  else match p.byteWidth with
+  | 1 => "u8"
+  | 2 => "u16"
+  | 4 => "u32"
+  | _ => "u64"
+
 private def layoutFieldSignature (field : StateField) : String :=
-  s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:u64-le"
+  s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth}"
 
 private def layoutSignature (fields : Array StateField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
@@ -285,7 +310,7 @@ def layoutMarker (fields : Array StateField) : UInt64 :=
   firstWordBE <| Crypto.sha256 (layoutDomain ++ layoutSignature fields).toUTF8
 
 def signature (name : String) (params : Array Param) : String :=
-  s!"{name}({String.intercalate "," (params.toList.map fun _ => "u64")})"
+  s!"{name}({String.intercalate "," (params.toList.map abiParamTypeString)})"
 
 def instructionDiscriminator (name : String) (params : Array Param) : String :=
   ((Crypto.sha256Hex (discriminatorDomain ++ signature name params).toUTF8).take
@@ -315,7 +340,8 @@ before any Solana lowering; hand-built/inspection Semantic programs that
 still carry the ops fail closed here with an explicit planInvariant. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Body multi-width admits UInt{8,16,32,64}; state/params remain UInt64/Int64. -/
+    Body multi-width admits UInt{8,16,32,64}; state/params admit
+    UInt{8,16,32,64} or Int64 (T8b ABI multi-width). -/
 private abbrev SolanaTypeClosureV1 := PilotTypeClosureV1
 
 private def solanaPlanErr (message : String) : CompileError :=
@@ -323,15 +349,39 @@ private def solanaPlanErr (message : String) : CompileError :=
 
 /-- Solana pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
     `pilotUintWidthPolicySolanaBody` + default `pilotIntWidthPolicyI64`. Body
-    multi-width UInt values are allowed; **state and ABI parameters admit
-    UInt64 or Int64** via `requirePublicUInt64OrInt64*` with
-    `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed.
+    multi-width UInt values are allowed; **top-level state and ABI parameters
+    admit UInt{8,16,32,64} or Int64** via `requirePublicUintAbiOrInt64*` (T8b)
+    with `allowNonPublic := true` (N1). UInt128/256 and non-64 Int fail closed.
     N2c: Principal remains fail-closed (wire identity is variable-length
     u32-prefixed; not a fixed 32-byte Solana pubkey). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
+
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
+private def abiByteWidthOfTypeV1
+    (types : SolanaTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
+  match types.uintWidthOf typeId with
+  | some w =>
+      unless isSolanaAbiUintWidth w do
+        throw <| .planInvariant .solana
+          s!"unsupported Solana semantic shape: ABI UInt{w} is not admitted"
+      pure (byteWidthOfBitWidth w)
+  | none =>
+      unless types.int64TypeId == some typeId do
+        throw <| .planInvariant .solana
+          "unsupported Solana semantic shape: ABI type must be UInt{8,16,32,64} or Int64"
+      pure 8
+
+/-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
+private def mkParamExpr (bitWidth : Nat) (dataOffset : Nat) : Expr :=
+  if bitWidth == 64 then .param dataOffset else .narrowParam bitWidth dataOffset
+
+/-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`. -/
+private def mkStateLoadExpr (bitWidth : Nat) (accountIndex byteOffset : Nat) : Expr :=
+  if bitWidth == 64 then .stateLoad accountIndex byteOffset
+  else .narrowStateLoad bitWidth accountIndex byteOffset
 
 private def makeStateAccountV1
     (types : SolanaTypeClosureV1)
@@ -342,15 +392,18 @@ private def makeStateAccountV1
   for state in states do
     unless state.id.toNat == fields.size do
       throw <| .planInvariant .solana "semantic state ids must match declaration order"
-    requirePublicUInt64OrInt64State solanaPlanErr types state (allowNonPublic := true)
+    -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
+    -- 8-byte slot pitch is retained (no packing); exactDataLen/offset unchanged.
+    requirePublicUintAbiOrInt64State solanaPlanErr types state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .solana s!"state name '{state.name}' is not a safe identifier"
+    let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
     fields := fields.push {
       sourceId := state.id.toNat
       name := state.name
       accountIndex := 0
       byteOffset := stateHeaderBytes + fields.size * 8
-      byteWidth := 8
+      byteWidth
       endianness := .little
     }
   let marker := layoutMarker fields
@@ -395,29 +448,33 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    requirePublicUInt64OrInt64Param solanaPlanErr types owner param
+    -- T8b: ABI params admit UInt{8,16,32,64} / Int64; 8-byte slot pitch retained.
+    requirePublicUintAbiOrInt64Param solanaPlanErr types owner param
       (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
     let isInt := types.int64TypeId == some param.typeId
+    let byteWidth ← abiByteWidthOfTypeV1 types param.typeId
+    let bitWidth := bitWidthOfByteWidth byteWidth
     let binding : Param := {
       sourceId := param.valueId.toNat
       name := param.name
       dataOffset := discriminatorBytes + planned.size * 8
-      byteWidth := 8
+      byteWidth
       endianness := .little
       isInt
     }
     planned := planned.push binding
     values := values.push {
-      expr := .param binding.dataOffset
+      expr := mkParamExpr bitWidth binding.dataOffset
       depth := 1
       expandedNodes := 1
       dependencies := #[]
       isBool := false
       isInt
-      bitWidth := 64
+      isUInt32 := !isInt && bitWidth == 32
+      bitWidth
     }
   pure (planned, values)
 
@@ -1035,19 +1092,43 @@ private def lowerBlockInstructionsV1
             "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, or Bool"
     | .stateLoad stateId, some result =>
         let field ← findFieldV1 account stateId
+        let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
         let isInt := types.int64TypeId == some result.typeId
-        unless result.typeId == types.uint64TypeId || isInt do
-          throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: state load must be UInt64 or Int64"
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := .stateLoad field.accountIndex field.byteOffset
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-          isBool := false
-          isInt
-          bitWidth := 64
-        }
+        if isInt then
+          unless field.byteWidth == 8 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: Int64 state load requires 8-byte field"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .stateLoad field.accountIndex field.byteOffset
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+            isInt := true
+            bitWidth := 64
+          }
+        else
+          match types.uintWidthOf result.typeId with
+          | some bitWidth =>
+              unless bitWidth == expectedBitWidth do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: state load result UInt{bitWidth} does not match field byteWidth {field.byteWidth}"
+              unless isSolanaAbiUintWidth bitWidth do
+                throw <| .planInvariant .solana
+                  s!"unsupported Solana semantic shape: state load result UInt{bitWidth} is not admitted"
+              values := ← appendResultValueV1 result.typeId values result {
+                expr := mkStateLoadExpr bitWidth field.accountIndex field.byteOffset
+                depth := 1
+                expandedNodes := 1
+                dependencies := #[]
+                isBool := false
+                isInt := false
+                isUInt32 := bitWidth == 32
+                bitWidth
+              }
+          | none =>
+              throw <| .planInvariant .solana
+                "unsupported Solana semantic shape: state load must be UInt{8,16,32,64} or Int64"
     | .binary op lhsId rhsId, some result =>
         let lhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables lhsId
         let rhs ← currentValueWithArmsV1 values blockEntry segmentStart armReadables rhsId
@@ -1300,15 +1381,23 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: view callable writes state"
         let field ← findFieldV1 account stateId
+        let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
         let stored ← currentValueWithArmsV1 values blockEntry segmentStart armReadables valueId
-        unless !stored.isBool && stored.bitWidth == 64 do
+        unless !stored.isBool && stored.bitWidth == expectedBitWidth do
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: state store value must be UInt64 or Int64"
+            s!"unsupported Solana semantic shape: state store value width {stored.bitWidth} must match field bitWidth {expectedBitWidth}"
+        unless !stored.isInt || expectedBitWidth == 64 do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: Int state store requires 8-byte field"
+        unless stored.isInt || isSolanaAbiUintWidth stored.bitWidth do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: state store value must be admitted UInt width or Int64"
         let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
         body := body.push (.store {
           accountIndex := field.accountIndex
           byteOffset := field.byteOffset
           value
+          byteWidth := field.byteWidth
         })
         segmentStart := values.size
     | .assert_ condId errorId args, none =>

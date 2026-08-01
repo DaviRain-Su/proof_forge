@@ -102,7 +102,8 @@ def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
 /-- Solana body multi-width policy: same admitted set as EVM body
-    (`{64, 32, 8, 16}`). State/param/return ABI stay UInt64/Bool/Int64;
+    (`{64, 32, 8, 16}`). Return ABI stays UInt64/Bool/Int64; state/param ABI
+    admits UInt{8,16,32,64}+Int64 via `requirePublicUintAbiOrInt64*` (T8b);
     UInt128/256 remain fail-closed at the Solana Plan seam. -/
 def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
@@ -252,17 +253,29 @@ def PilotTypeClosureV1.isUInt64OrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   typeId == c.uint64TypeId || c.int64TypeId == some typeId
 
-/-- Admitted EVM **ABI** UInt widths for state/param: `{8,16,32,64}`.
-    Distinct from body multi-width only by documentation — same set today;
-    UInt128/256 stay fail closed. Int narrow widths are **not** admitted. -/
-def isEvmAbiUintWidth (w : Nat) : Bool :=
+/-- Admitted **ABI** UInt widths for state/param: `{8,16,32,64}`.
+    Shared by EVM and Solana T8b. Distinct from body multi-width only by
+    documentation — same set today; UInt128/256 stay fail closed. Int narrow
+    widths are **not** admitted on the ABI surface. -/
+def isAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
-/-- True when `typeId` is admitted UInt{8,16,32,64} or Int64 (EVM ABI surface). -/
+/-- EVM **ABI** UInt widths — alias of `isAbiUintWidth` (historical name). -/
+def isEvmAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+
+/-- Solana **ABI** UInt widths — alias of `isAbiUintWidth`. -/
+def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+
+/-- Bit width ↔ byte width for admitted ABI UInt widths. -/
+def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
+
+def byteWidthOfBitWidth (bitWidth : Nat) : Nat := bitWidth / 8
+
+/-- True when `typeId` is admitted UInt{8,16,32,64} or Int64 (ABI surface). -/
 def PilotTypeClosureV1.isUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
-  | some w => isEvmAbiUintWidth w
+  | some w => isAbiUintWidth w
   | none => c.int64TypeId == some typeId
 
 /-- True when `typeId` is the admitted sole catalog Field (bn254 Fr). -/
