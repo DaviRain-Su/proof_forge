@@ -9,6 +9,7 @@ inductive ArtifactEncoding where
   | wasmText
   | noirSource
   | leoSource
+  | psySource
   | researchOnly
   deriving BEq, Inhabited, Repr
 
@@ -39,6 +40,7 @@ inductive StateBinding where
   | actorMemory
   | proofInputs
   | recordsAndMappings
+  | userPartitionedState
   deriving BEq, Inhabited, Repr
 
 inductive CallModel where

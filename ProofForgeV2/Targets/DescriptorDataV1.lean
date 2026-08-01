@@ -73,6 +73,20 @@ def aleo : TargetDescriptor := {
   codegenProfile := CodegenProfileId.aleoLeoU64V1
 }
 
+/-- Psy descriptor: .psy source for the official dargo toolchain; user-partitioned
+    state trees with local proving and network aggregation (ZK application chain). -/
+def psy : TargetDescriptor := {
+  targetId := TargetId.psy
+  artifactEncoding := .psySource
+  executionHost := .zkApplicationChain
+  commitModel := .transactionAtomic
+  stateBinding := .userPartitionedState
+  callModel := .synchronous
+  proofModel := .applicationProof
+  settlementModel := .psy
+  codegenProfile := CodegenProfileId.psyDargoU64V1
+}
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -80,6 +94,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .near => some near
   | .noir => some noir
   | .aleo => some aleo
+  | .psy => some psy
   | _ => none
 
 end ProofForgeV2.Targets.DescriptorDataV1

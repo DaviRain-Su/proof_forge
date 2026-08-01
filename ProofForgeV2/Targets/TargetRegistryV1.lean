@@ -257,8 +257,8 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
-  | .evm | .solana | .near | .noir | .aleo => true
-  | .cosmwasm | .soroban | .icp | .openvm | .psy => false
+  | .evm | .solana | .near | .noir | .aleo | .psy => true
+  | .cosmwasm | .soroban | .icp | .openvm => false
 
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
@@ -267,7 +267,8 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .near => "wasm-validated-alpha"
   | .noir => "source-only"
   | .aleo => "source-only"
-  | .cosmwasm | .soroban | .icp | .openvm | .psy => "research-only"
+  | .psy => "source-only"
+  | .cosmwasm | .soroban | .icp | .openvm => "research-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -280,7 +281,7 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .soroban => "research.soroban.v1"
   | .icp => "research.icp.v1"
   | .openvm => "research.openvm.v1"
-  | .psy => "research.psy.v1"
+  | .psy => "phase1.psy-u64.v1"
 
 /-- Closed kind → exact displayName. -/
 def expectedDisplayNameOfKindV1 : TargetKind → String
@@ -520,7 +521,8 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .psy
       (axes TargetId.psy .psyDpn .recursiveNetwork .userPartitioned
         .recursiveProofPipeline .recursiveAggregation .psyNetwork)
-      #[] none
+      #[CodegenProfileId.psyDargoU64V1]
+      (some CodegenProfileId.psyDargoU64V1)
   ]
 
 /-- Frozen product registry seed. Sole membership authority.

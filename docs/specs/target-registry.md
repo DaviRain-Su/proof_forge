@@ -454,7 +454,7 @@ registry digest。
 | `icp` | — | `research.icp.v1` | design | `research` | Wasm/canister actor/stable memory/await commit/ICP settlement |
 | `openvm` | — | `research.openvm.v1` | design | `research` | RV32IM guest/zkVM proof/external verifier |
 | `aleo` | — | `research.aleo.v1` | design | `research` | Aleo Instructions/records+mappings/private+final/Aleo settlement |
-| `psy` | — | `research.psy.v1` | design | `research` | DPN/user-partitioned state/recursive proof/Psy settlement |
+| `psy` | `psy-dargo-u64-v1` | `phase1.psy-u64.v1` | implemented | `source-only` | DPN/user-partitioned state/recursive proof/Psy settlement; `.psy` source for the official dargo toolchain, no digest-pinned compiler yet |
 
 初始/保留 profile 的 artifact completeness 与 ZK security contract 约束固定如下；每个 cell 表示
 `ArtifactEncoding.primaryGroups` 的 alternative group，role 后是 exact media type：

@@ -215,7 +215,7 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped five-row seed body (canonical targetId order: aleo, evm, near, noir, solana).
+/-- Shipped six-row seed body (canonical targetId order: aleo, evm, near, noir, psy, solana).
     Capability gates are per target: external sync calls need an address-bearing
     type (absent from the UInt64 envelope) so EVM/Solana decline
     `effect.synchronous-call`; NEAR has no synchronous external calls but owns
@@ -223,7 +223,9 @@ private def mkImplementedRow
     `effect.asynchronous-workflow`; Noir's verifier-witness response model
     supports both; Aleo declines both call families (no address-bearing type
     and no workflow model) and `effect.event` (Leo 4.0.2 has no on-chain event
-    log — emit fails closed at the materializer). -/
+    log — emit fails closed at the materializer); Psy supports sync calls and
+    events but declines `effect.asynchronous-workflow` (no emitted deferred
+    crosscall form — schedule fails closed at the materializer). -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
@@ -237,11 +239,17 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != Semantic.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != Semantic.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- Psy supports sync crosscalls (__invoke_sync#<Felt>) and events (__emit),
+  -- but has no emitted deferred-crosscall form, so schedule fails closed and
+  -- effect.asynchronous-workflow is declined here (never alias sync semantics).
+  let psyRequests := catalogRequests.filter fun r =>
+    r.id != Semantic.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 withoutCalls,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
+    mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCalls
   ]
 

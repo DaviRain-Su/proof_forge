@@ -339,33 +339,34 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 5) "exactly five support rows"
+  expect (rows.size == 6) "exactly six support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
     ("evm", "evm-yul-solc-0.8.34-v1", 5),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
+    ("psy", "psy-dargo-u64-v1", 6),
     ("solana", "solana-sbpf-plan-v1", 5)
   ]
   let mut i : Nat := 0
-  while i < 5 do
+  while i < 6 do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
         expect (row.codegenProfile.toString == prof) s!"row {i} profile"
         expect (row.supported.size == supportCount)
           s!"row {i} support count"
-        -- Every row is a wire-order subset of the S2 catalog; only Noir
-        -- currently supports both external-call keys, and NEAR the async one.
+        -- Every row is a wire-order subset of the S2 catalog; Noir supports
+        -- both external-call keys, NEAR the async one, Psy the sync one.
         let ids := row.supported.map (·.id)
         expect (ids.all isS2CatalogIdV1) s!"row {i} ids are catalog members"
         expect (row.supported.all fun item =>
             item.version == s2RequirementVersionV1 && item.predicates.isEmpty)
           s!"row {i} version/predicates"
-        let expectCalls := row.targetId == TargetId.noir
-        expect ((ids.contains "effect.synchronous-call") == expectCalls &&
-            (ids.contains "effect.asynchronous-workflow") ==
-              (expectCalls || row.targetId == TargetId.near))
+        let expectSync := row.targetId == TargetId.noir || row.targetId == TargetId.psy
+        let expectAsync := row.targetId == TargetId.noir || row.targetId == TargetId.near
+        expect ((ids.contains "effect.synchronous-call") == expectSync &&
+            (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
         for item in row.supported do
           match engineeringRequirementDigestV1 item.id with
@@ -385,6 +386,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 dupRows)
@@ -419,6 +421,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio,
     mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio
   ]
@@ -437,6 +440,7 @@ private def testIndexValidationNegatives : IO Unit := do
     wrongKind,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongKindRows)
@@ -452,6 +456,7 @@ private def testIndexValidationNegatives : IO Unit := do
     cross,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 crossRows)
@@ -466,6 +471,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 reversed,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
@@ -477,6 +483,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 dupReq,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
@@ -489,6 +496,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 badVerTrio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
@@ -501,6 +509,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 badDigTrio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
@@ -512,6 +521,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 predTrio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)

@@ -9,7 +9,7 @@ import Tests.Materialization.Aleo
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.SolanaPlanV1
-import Tests.Targets.SolanaAsmV1
+import Tests.Materialization.PsySourceV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
@@ -37,7 +37,6 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.SolanaPlanV1.run
   IO.eprintln "CP run"
-  Tests.Targets.SolanaAsmV1.run
   IO.eprintln "CP run"
   Tests.CLI.Emit.run
   IO.eprintln "CP run"

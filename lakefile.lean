@@ -127,6 +127,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.TargetIrFixtures,
     `Tests.Materialization.Targets,
     `Tests.Materialization.Aleo,
+    `Tests.Materialization.PsySourceV1,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,

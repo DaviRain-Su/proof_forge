@@ -805,10 +805,10 @@ product-negative: build
 target-cli-positive: build
 	mkdir -p build
 	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
-	printf '%b' 'aleo\tsource-only\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\nsolana\tplan-only\n' > build/list-targets.expected
+	printf '%b' 'aleo\tsource-only\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\npsy\tsource-only\nsolana\tplan-only\n' > build/list-targets.expected
 	cmp -s build/list-targets.expected build/list-targets.stdout
 	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
-	printf '%b' 'aleo\tsource-only\ncosmwasm\tresearch-only\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tresearch-only\nsolana\tplan-only\nsoroban\tresearch-only\n' > build/list-targets-all.expected
+	printf '%b' 'aleo\tsource-only\ncosmwasm\tresearch-only\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tsource-only\nsolana\tplan-only\nsoroban\tresearch-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next describe-target evm > build/describe-evm.stdout
 	printf '%b' 'target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[effect.event, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]\n' > build/describe-evm.expected
