@@ -49,7 +49,7 @@
       strict logical and/or producing Bool. Unary `-` on UInt desugars to
       `0 - x`; on Int/Field emits `Op.Unary.neg` (intMin overflow is a runtime
       revert; Field neg = `(p - v) % p`; Principal has no unary). call/schedule
-      args and for endpoints stay UInt64 in this slice
+      args and for endpoints admit legal UInt widths (N-8; Int for ends deferred)
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
       anonymous legal UInt/Int, Unit, Bool, Principal, String, Bytes, Array,
       Map, Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
@@ -119,7 +119,7 @@
   Out of scope for this module:
     * Field/Principal source literals, Field/Principal/String ordering
       comparisons, Field `mod`, Principal/String arithmetic/bitwise/unary,
-      non-UInt64 call/schedule args and for endpoints,
+      Int for endpoints (for ends stay legal UInt; N-8 Int events open),
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
       anonymous Array/Map/Bytes/Option entry/view/fn results (named Struct/Enum
@@ -130,8 +130,7 @@
       index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
       identical multi-arm same-outer patterns (structural duplicate keys),
       param-root bare/field/index assign (params immutable; lets mutable N-6),
-      Int event/error fields (stay UInt-only),
-      String event/error fields (stay UInt-only this slice),
+      String event/error fields (stay UInt/Int-only this slice),
       ContextRead keys other than `context.unixTimeSeconds` / `context.caller`,
       Commit/ContextRead inside pureFn (fail closed; init/entry/view only)
     * registry / resolver / materializer / OutputSetV1
@@ -2533,8 +2532,9 @@ private partial def lowerArgs
 end
 
 /-- Lower a statement-level external effect (`call` / `schedule`): qualified
-    callee (≥2 components), UInt64 args, void op with the shared EffectId
-    sequence. The only difference between the two is the op constructor. -/
+    callee (≥2 components), legal UInt/Int args (N-8; per-arg type from place
+    or UInt64 default for bare integer literals), void op with the shared
+    EffectId sequence. The only difference between the two is the op ctor. -/
 private partial def lowerExternalEffect
     (label : String)
     (mkOp : EffectIdV1 → QualifiedName → Array ValueIdV1 → SemanticOpV1)
@@ -2549,11 +2549,25 @@ private partial def lowerExternalEffect
   let qn ← match parseQualifiedName calleeComponents with
     | .ok qn => pure qn
     | .error e => failUnsupported s!"S1 {label} callee: {e}"
-  let (iU, u64Tid) := internShape st.interner (.uint 64)
-  let st0 := { st with interner := iU }
-  let expectedTids := externalCall.args.map (fun _ => u64Tid)
-  let (argIds, st') ← lowerArgs externalCall.args expectedTids st0 states fns
-    s!"S1 {label} argument must be UInt64"
+  let mut st' := st
+  let mut argIds : Array ValueIdV1 := #[]
+  for arg in externalCall.args do
+    let (i1, expectedTid) ← match arg with
+      | .place p => synthPlaceTypeV1 p st'.interner st'.env states
+      | .literal (.integer _) => pure (internShape st'.interner (.uint 64))
+      | _ =>
+          -- Fall back to place/synth path; reject non-integer shapes below.
+          match synthLetExpectedV1 arg st' states fns with
+          | .ok pair => pure pair
+          | .error _ => pure (internShape st'.interner (.uint 64))
+    requireAnonymousIntegerTypeId i1.types expectedTid
+      s!"{label} argument"
+    let st0 := { st' with interner := i1 }
+    let (vid, argTid, st1) ← lowerExpr arg expectedTid st0 states fns
+    unless argTid == expectedTid do
+      return ← failUnsupported s!"S1 {label} argument type mismatch"
+    argIds := argIds.push vid
+    st' := st1
   let st1 := emitVoid st' (mkOp st'.nextEffectId qn argIds)
   pure ({ st1 with nextEffectId := st1.nextEffectId + 1 }, .open_)
 
@@ -2980,17 +2994,23 @@ private partial def lowerStmt
         return ← failUnsupported s!"S1 let '{raw name}' type mismatch"
       pure ({ st1 with env := envInsert st1.env (raw name) vid tid }, .open_)
   | .for_ binder start endExclusive bound body => do
-      let (iU, u64Tid) := internShape st.interner (.uint 64)
-      let (iB, boolTid) := internShape iU .bool
+      -- N-8: for endpoints are same-width legal UInt (not only UInt64).
+      let (iStart, startTid) ← match start with
+        | .place p => synthPlaceTypeV1 p st.interner st.env states
+        | .literal (.integer _) => pure (internShape st.interner (.uint 64))
+        | _ => pure (internShape st.interner (.uint 64))
+      requireAnonymousUIntTypeId iStart.types startTid "for start"
+      let (iB, boolTid) := internShape iStart .bool
       let st0 := { st with interner := iB }
-      let (sVid, sTid, st1) ← lowerExpr start u64Tid st0 states fns
-      unless sTid == u64Tid do
-        return ← failUnsupported "S1 for start must be UInt64"
-      let (eVid, eTid, st2) ← lowerExpr endExclusive u64Tid st1 states fns
-      unless eTid == u64Tid do
-        return ← failUnsupported "S1 for end must be UInt64"
+      let (sVid, sTid, st1) ← lowerExpr start startTid st0 states fns
+      unless sTid == startTid do
+        return ← failUnsupported "S1 for start type mismatch"
+      let (eVid, eTid, st2) ← lowerExpr endExclusive startTid st1 states fns
+      unless eTid == startTid do
+        return ← failUnsupported "S1 for end must match start UInt width"
       unless bound ≤ maxWireLoopBoundV1 do
         return ← failUnsupported "S1 for bound exceeds the wire loop maximum"
+      let u64Tid := startTid  -- induction / latch use endpoint width (legal UInt)
       -- N-6: outer lets reassigned in the body are loop-carried header params.
       let savedEnv := st2.env
       let liveNames := savedEnv.bindings.foldl
@@ -3041,8 +3061,12 @@ private partial def lowerStmt
       let stL ← match bodyStatus with
         | .open_ =>
             let latchIdx := stB.blocks.size
+            -- N-8: induction width may be UInt8/16/32/64 — encode `1` to that width.
+            let oneBytes := match anonShapeOf? stB.interner.types u64Tid with
+              | some (.uint w) => encodeNatLeBytes 1 (w.toNat / 8)
+              | _ => encodeU64le 1
             let (stB1, oneVid) :=
-              emitValue stB u64Tid (.literal u64Tid (encodeU64le 1))
+              emitValue stB u64Tid (.literal u64Tid oneBytes)
             let (stB2, incVid) :=
               emitValue stB1 u64Tid (.binary BinaryOpV1.add iVid oneVid)
             let mut latchArgs : Array ValueIdV1 := #[incVid]
@@ -3308,7 +3332,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 event '{raw d.name}' field '{raw f.name}' must be public"
           let (interner', tid) ← internSourceType interner f.type_
           interner := interner'
-          requireAnonymousUIntTypeId interner.types tid
+          requireAnonymousIntegerTypeId interner.types tid
             s!"event '{raw d.name}' field '{raw f.name}'"
           fieldTids := fieldTids.push tid
           fields := fields.push {
@@ -3328,7 +3352,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 error '{raw d.name}' field '{raw f.name}' must be public"
           let (interner', tid) ← internSourceType interner f.type_
           interner := interner'
-          requireAnonymousUIntTypeId interner.types tid
+          requireAnonymousIntegerTypeId interner.types tid
             s!"error '{raw d.name}' field '{raw f.name}'"
           fieldTids := fieldTids.push tid
           fields := fields.push {

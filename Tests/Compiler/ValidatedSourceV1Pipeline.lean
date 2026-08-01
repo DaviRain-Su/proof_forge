@@ -556,9 +556,9 @@ def run : IO Unit := do
     ("ConstDecl", #[.const { name := x, type_ := .map .bool .bool, value := hostile }],
       "type mismatch: expected Map (Bool) (Bool), got String"),
     ("EventDecl", #[.event { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 event 'x' field 'y' requires anonymous UInt type"),
+      "S1 event 'x' field 'y' requires anonymous UInt/Int type"),
     ("ErrorDecl", #[.error { name := x, params := #[param y (.map .bool .bool)] }],
-      "S1 error 'x' field 'y' requires anonymous UInt type"),
+      "S1 error 'x' field 'y' requires anonymous UInt/Int type"),
     ("FnDecl",
       #[ProgramItemV1.fn {
           name := x
@@ -673,7 +673,7 @@ def run : IO Unit := do
     ("Stmt.Emit", .emit x #[hostile], "unknown name 'x' (expected event)"),
     ("Stmt.Return", .return_ none, "type mismatch: expected UInt64, got empty return"),
     ("Stmt.Schedule", .schedule { callee := peer, args := #[hostile] },
-      "S1 String literal requires an enclosing String expected type")]
+      "S1 schedule argument requires anonymous UInt/Int type")]
   for (tag, statement, want) in stmtCases do
     let bad ← validated moduleName identity demo
       #[.entry (entry runN (block #[statement, .return_ (some (var seed))]) #[param seed])]
@@ -681,7 +681,7 @@ def run : IO Unit := do
   let callArgs ← validated moduleName identity demo #[.entry (entry runN
     (block #[.call { callee := peer, args := #[hostile] }, .return_ (some (var seed))])
       #[param seed])]
-  expectInvalid "call arguments" "S1 String literal requires an enclosing String expected type"
+  expectInvalid "call arguments" "S1 call argument requires anonymous UInt/Int type"
     (Compiler.compileValidatedSourceV1 callArgs)
 
   -- Phase-order priority under CheckV1-first product gate (via Normalize typedNotOk).

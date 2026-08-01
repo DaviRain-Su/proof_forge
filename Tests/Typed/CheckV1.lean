@@ -2309,8 +2309,8 @@ private unsafe def testUnsupportedEventBoolField
     "  entry ping(x : UInt64) : UInt64 do\n" ++
     "    return x\n"
   expectUnsupportedAfterCheckOk session "event-bool-field" source
-    (fun d => d.contains "UInt64" || d.contains "field")
-    "UInt64 event field"
+    (fun d => d.contains "UInt" || d.contains "Int" || d.contains "field")
+    "UInt/Int event field"
 
 /-- Non-public event fields pass CheckV1 but fail closed at the normalizer. -/
 private unsafe def testUnsupportedEventPrivateField
@@ -2322,6 +2322,44 @@ private unsafe def testUnsupportedEventPrivateField
   expectUnsupportedAfterCheckOk session "event-private-field" source
     (fun d => d.contains "public")
     "public event field"
+
+/-- N-8: Int event/error fields + emit/revert; UInt32 for endpoints. -/
+private unsafe def testIntEventErrorAndUInt32For
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "IntEvt" <|
+    "  event Signed(delta : Int64)\n" ++
+    "  error Bad(code : Int32)\n" ++
+    "  entry run(d : Int64, c : Int32, n : UInt32) : UInt32 do\n" ++
+    "    emit Signed(d)\n" ++
+    "    let zero : UInt32 := 0\n" ++
+    "    for i in zero ..< n bounded 4 do\n" ++
+    "      if i == zero then\n" ++
+    "        revert Bad(c)\n" ++
+    "    return n\n"
+  let validated ← loadSource session "int-evt" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"int-evt: CheckV1 {typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"int-evt: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"int-evt: validate: {repr e}"
+  expect (data.events.size == 1) "int-evt: one event"
+  expect (data.errors.size == 1) "int-evt: one error"
+  let some ev := data.events[0]? | throw <| IO.userError "int-evt: missing event"
+  expect (ev.fields.size == 1) "int-evt: event one field"
+  let some ef := ev.fields[0]? | throw <| IO.userError "int-evt: missing event field"
+  let some ety := data.types[ef.typeId.toNat]? |
+    throw <| IO.userError "int-evt: missing event field type"
+  match ety.shape with
+  | .int 64 => pure ()
+  | .int w => throw <| IO.userError s!"int-evt: expected Int64 event field, got Int{w}"
+  | .uint w => throw <| IO.userError s!"int-evt: expected Int64 event field, got UInt{w}"
+  | _ => throw <| IO.userError "int-evt: expected Int64 event field"
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "int-evt: missing entry"
+  expect (entryC.loopBounds.size == 1) "int-evt: for loopBounds present"
 
 private unsafe def testUnsupportedBoolState
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2951,16 +2989,26 @@ private unsafe def testCallScheduleLowering
   match ← session.selectProgramV1 oneCompSource (testSourcePath "one-comp") moduleName none with
   | .ok _ => throw <| IO.userError "one-comp: single-component callee must fail at the loader"
   | .error _ => pure ()
-  -- Bool call argument fails the UInt64 envelope at the normalizer.
+  -- Bool call argument fails the legal UInt/Int envelope at the normalizer.
   let boolArgSource := wrap "BoolArg" <|
     "  entry run(n : UInt64) : UInt64 do\n" ++
-  "    call Oracle.feed(n > 0)\n" ++
+    "    call Oracle.feed(n > 0)\n" ++
     "    return n\n"
   let boolArg ← loadSource session "bool-arg" boolArgSource
   expect (checkProgramTypedResultV1 boolArg).ok "bool-arg: CheckV1.ok"
   match normalizeProgramV1 boolArg with
   | .ok _ => throw <| IO.userError "bool-arg: Bool argument must fail"
   | .error _ => pure ()
+  -- N-8: UInt32 place as call arg admitted.
+  let u32ArgSource := wrap "U32Arg" <|
+    "  entry run(n : UInt32) : UInt32 do\n" ++
+    "    call Oracle.feed(n)\n" ++
+    "    return n\n"
+  let u32Arg ← loadSource session "u32-arg" u32ArgSource
+  expect (checkProgramTypedResultV1 u32Arg).ok "u32-arg: CheckV1.ok"
+  match normalizeProgramV1 u32Arg with
+  | .error e => throw <| IO.userError s!"u32-arg: normalize: {repr e}"
+  | .ok _ => pure ()
   -- fn with a call: PF-EFFECT-001 typedNotOk (fn allows only failure.revert).
   let fnCallSource := wrap "FnCall" <|
     "  fn helper(n : UInt64) : UInt64 do\n" ++
@@ -6894,6 +6942,7 @@ unsafe def run : IO Unit := do
   testEmitInViewTypedNotOk session
   testUnsupportedEventBoolField session
   testUnsupportedEventPrivateField session
+  testIntEventErrorAndUInt32For session
   testEmitRevertProvenance session
   testFnLocalCall session
   testFnRevertPath session
