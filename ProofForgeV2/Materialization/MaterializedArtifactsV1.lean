@@ -16,6 +16,7 @@
 -/
 import ProofForgeV2.Materialization.Protocol
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Core.Common
@@ -25,6 +26,7 @@ namespace ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Core.Common
 open System
@@ -104,7 +106,9 @@ def mintMaterializedArtifactsV1
   unless selection.targetId == descriptor.targetId do
     throw <| .registryInvalid
       "materialized artifacts: descriptor target diverges from capability selection"
-  unless selection.codegenProfile == descriptor.codegenProfile do
+  -- Residual descriptor binds the default profile; multi-profile targets accept
+  -- additional registered profiles (see DescriptorDataV1.acceptsCodegenProfile).
+  unless acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid
       "materialized artifacts: descriptor profile diverges from capability selection"
   unless selection.kind.toString == selection.targetId.toString do

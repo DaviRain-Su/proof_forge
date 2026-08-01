@@ -9,7 +9,8 @@ ELF. No blueshift extension mnemonics (`hor64`/`lmul64`/`uhmul64`/`udiv64`/
 `urem64`/`shmul64`/`srem64`).
 
 Authority: typed `IR` / `Operation` / `Check` from `EmitIRV1` (not `.sbpf-plan`
-text). Product `emitFromIR` is unchanged and still publishes `.sbpf-plan` + IDL;
+text). Product `buildFromCapability` publishes `.sbpf-plan` + IDL for the plan
+profile and additionally `{name}.s` under `solana-sbpf-elf-v1`;
 `.s` remains additive.
 
 ## Input account layout (single non-dup state account)
@@ -849,5 +850,30 @@ def emitSbpfAsmFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
     CompileResult String := do
   let ir ← irFromCapability capability
   emitSbpfAsmV1 ir
+
+/-- ELF-profile product emit: assembly text + plan + IDL. -/
+private def emitElfFromIR
+    (capability : ResolvedEngineeringBuildV1) (ir : IR) :
+    CompileResult (Array OutputFile) := do
+  let base ← emitPlanAndIdlFromIR capability ir
+  let asm ← emitSbpfAsmV1 ir
+  pure <| base.push {
+    path := s!"{ir.name}.s"
+    mediaType := "text/x-sbpf-asm"
+    contents := asm
+  }
+
+/-- Capability-gated public materialize entry (S6).
+    Profile `solana-sbpf-elf-v1` publishes `.s` + plan + IDL; the default
+    `solana-sbpf-plan-v1` stays plan+IDL only. Lives here (not EmitIRV1) so the
+    `.s` branch can call `emitSbpfAsmV1` without a circular import. -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
+    CompileResult (Array OutputFile) := do
+  let ir ← irFromCapability capability
+  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  if profile == CodegenProfileId.solanaSbpfElfV1 then
+    emitElfFromIR capability ir
+  else
+    emitPlanAndIdlFromIR capability ir
 
 end ProofForgeV2.Targets.Solana

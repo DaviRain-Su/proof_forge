@@ -14,10 +14,10 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 (`materializePlanFromCapabilityV1` → private `makePlanFromSemanticV1`, with
 `semanticV1Of` / `validateSemanticProgramV1` comments on the carrier path).
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
-`irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
-S1a typed-IR → SBPF assembly (`.s` text) lives in `EmitSbpfAsmV1` (additive;
-does not replace `.sbpf-plan` product emit).
-`FinalizeV1` remains a separate submodule.
+`irFromCapability` live in `EmitIRV1`. Product `buildFromCapability` (plan vs
+elf profile emit) and typed-IR → SBPF assembly (`.s` text) live in
+`EmitSbpfAsmV1`. `FinalizeV1` remains a separate submodule (plan: zero-tool;
+elf: locked `sbpf` → `{name}.so`).
 -/
 
 namespace ProofForgeV2.Targets.Solana

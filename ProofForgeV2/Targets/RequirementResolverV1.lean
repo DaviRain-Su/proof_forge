@@ -215,7 +215,9 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped six-row seed body (canonical targetId order: aleo, evm, near, noir, psy, solana).
+/-- Shipped seven-row seed body (canonical targetId order: aleo, evm, near, noir,
+    psy, solana×2). Solana carries both `solana-sbpf-elf-v1` and
+    `solana-sbpf-plan-v1` (ASCII ascending); both share the same S2 capability set.
     Capability gates are per target: external sync calls need an address-bearing
     type (absent from the UInt64 envelope) so EVM/Solana decline
     `effect.synchronous-call`; NEAR has no synchronous external calls but owns
@@ -250,6 +252,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 withoutSync,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
+    mkImplementedRow .solana CodegenProfileId.solanaSbpfElfV1 withoutCalls,
     mkImplementedRow .solana CodegenProfileId.solanaSbpfPlanV1 withoutCalls
   ]
 

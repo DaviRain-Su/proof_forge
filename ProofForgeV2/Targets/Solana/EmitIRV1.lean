@@ -1125,9 +1125,15 @@ private def renderIdl (ir : IR) : String :=
     s!"  \"errors\": [{errors}]\n" ++
     "}\n"
 
-private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
+/-- Plan-profile product files: `.sbpf-plan` + IDL only (non-deployable audit).
+    Capability-gated (mandatory first binder) so residual IR→files scans stay
+    closed; used by `buildFromCapability` in EmitSbpfAsmV1 without a circular
+    import on `emitSbpfAsmV1`. -/
+def emitPlanAndIdlFromIR
+    (_capability : ResolvedEngineeringBuildV1) (ir : IR) :
+    CompileResult (Array OutputFile) := do
   validateIR ir
-  return #[
+  pure #[
     {
       path := s!"{ir.name}.sbpf-plan"
       mediaType := "application/vnd.proof-forge.sbpf-plan"
@@ -1156,11 +1162,5 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
   let plan ← materializePlanFromCapabilityV1 capability
   validatePlan plan
   lower plan
-
-/-- Capability-gated public materialize entry (S6). -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
-    CompileResult (Array OutputFile) := do
-  let ir ← irFromCapability capability
-  emitFromIR ir
 
 end ProofForgeV2.Targets.Solana

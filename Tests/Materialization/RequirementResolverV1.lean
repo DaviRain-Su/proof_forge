@@ -339,17 +339,18 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testFourRowTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 6) "exactly six support rows"
+  expect (rows.size == 7) "exactly seven support rows"
   let expectedKeys := #[
     ("aleo", "aleo-leo-4.0.2-u64-v1", 4),
     ("evm", "evm-yul-solc-0.8.34-v1", 5),
     ("near", "near-wasm-raw-u64-v1", 6),
     ("noir", "noir-source-u64-relations-v1", 7),
     ("psy", "psy-dargo-u64-v1", 6),
+    ("solana", "solana-sbpf-elf-v1", 5),
     ("solana", "solana-sbpf-plan-v1", 5)
   ]
   let mut i : Nat := 0
-  while i < 6 do
+  while i < 7 do
     match rows[i]?, expectedKeys[i]? with
     | some row, some (tid, prof, supportCount) =>
         expect (row.targetId.toString == tid) s!"row {i} targetId"
@@ -375,18 +376,35 @@ private def testFourRowTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
+/-- Canonical 7-row (target,profile) skeleton matching the shipped index shape.
+    `evmSupported` replaces the EVM row's supported list for content negatives. -/
+private def sevenRowSkeleton
+    (base : Array RequirementRequestV1)
+    (evmSupported : Array RequirementRequestV1) :
+    Array StaticRequirementSupportRowV1 :=
+  #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 base,
+    mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
+    mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
+    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .psy CodegenProfileId.psyDargoU64V1 base,
+    mkRow .solana CodegenProfileId.solanaSbpfElfV1 base,
+    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 base
+  ]
+
 private def testIndexValidationNegatives : IO Unit := do
   let trio ← s2Trio
   -- Empty index
   expectErrorCode (createStaticRequirementSupportIndexV1 #[])
     "PF-REGISTRY-INVALID" "empty support index"
-  -- Duplicate row key
+  -- Duplicate row key (size may also diverge; duplicate key is checked first)
   let dupRows := #[
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
+    mkRow .solana CodegenProfileId.solanaSbpfElfV1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 dupRows)
@@ -408,28 +426,22 @@ private def testIndexValidationNegatives : IO Unit := do
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 missing)
     "PF-REGISTRY-INVALID" "missing implemented profile"
-  -- Extra / design-only openvm row (size mismatch with expected 4)
+  -- Extra / design-only openvm row (size mismatch)
   let withDesign := #[
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- openvm row uses wrong profile relative to expected last solana pair → size ok but
-  -- content diverges; also kind/target may fail. Prefer size-extra first:
-  let extra := #[
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio,
-    mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio
-  ]
+  -- Size-extra first (8 rows vs expected 7):
+  let extra :=
+    (sevenRowSkeleton trio trio).push
+      (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
   expectErrorCode (createStaticRequirementSupportIndexV1 extra)
     "PF-REGISTRY-INVALID" "extra design-only row"
   expectErrorCode (createStaticRequirementSupportIndexV1 withDesign)
     "PF-REGISTRY-INVALID" "wrong-kind/cross-profile row"
-  -- Wrong kind on matching target/profile position
+  -- Wrong kind on matching target/profile position (exact 7-row shape)
   let wrongKind : StaticRequirementSupportRowV1 := {
     targetId := TargetId.evm
     codegenProfile := CodegenProfileId.evmYulSolc0834V1
@@ -437,10 +449,12 @@ private def testIndexValidationNegatives : IO Unit := do
     supported := trio
   }
   let wrongKindRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     wrongKind,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
+    mkRow .solana CodegenProfileId.solanaSbpfElfV1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 wrongKindRows)
@@ -453,10 +467,12 @@ private def testIndexValidationNegatives : IO Unit := do
     supported := trio
   }
   let crossRows := #[
+    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
     cross,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
+    mkRow .solana CodegenProfileId.solanaSbpfElfV1 trio,
     mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 crossRows)
@@ -466,64 +482,30 @@ private def testIndexValidationNegatives : IO Unit := do
   let r1 ← match trio[1]? with | some r => pure r | none => throw <| IO.userError "trio1"
   let r2 ← match trio[2]? with | some r => pure r | none => throw <| IO.userError "trio2"
   let reversed := #[r2, r1, r0]
-  let revRows := #[
-    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 reversed,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
-  ]
+  let revRows := sevenRowSkeleton trio reversed
   expectErrorCode (createStaticRequirementSupportIndexV1 revRows)
     "PF-REGISTRY-INVALID" "non-canonical requirement order"
   -- Duplicate requirement id
   let dupReq := #[r0, r0, r1]
-  let dupReqRows := #[
-    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 dupReq,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
-  ]
+  let dupReqRows := sevenRowSkeleton trio dupReq
   expectErrorCode (createStaticRequirementSupportIndexV1 dupReqRows)
     "PF-REGISTRY-DUPLICATE" "duplicate requirement in support row"
   -- Wrong version
   let badVer := { r0 with version := { major := 2, minor := 0, patch := 0 } }
   let badVerTrio := #[badVer, r1, r2]
-  let badVerRows := #[
-    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 badVerTrio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
-  ]
+  let badVerRows := sevenRowSkeleton trio badVerTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badVerRows)
     "PF-REGISTRY-INVALID" "wrong requirement version in support row"
   -- Wrong digest
   let badDig := { r0 with digest := zeroDigest }
   let badDigTrio := #[badDig, r1, r2]
-  let badDigRows := #[
-    mkRow .aleo CodegenProfileId.aleoLeoU64V1 trio,
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 badDigTrio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
-  ]
+  let badDigRows := sevenRowSkeleton trio badDigTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 badDigRows)
     "PF-REGISTRY-INVALID" "wrong requirement digest in support row"
   -- Nonempty predicates
   let withPred := { r0 with predicates := #[.boolEquals "x" true] }
   let predTrio := #[withPred, r1, r2]
-  let predRows := #[
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 predTrio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
-    mkRow .psy CodegenProfileId.psyDargoU64V1 trio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 trio
-  ]
+  let predRows := sevenRowSkeleton trio predTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 predRows)
     "PF-REGISTRY-INVALID" "nonempty predicates in support row"
   -- Unknown requirement id (swap the last item for a non-catalog id that
@@ -539,12 +521,7 @@ private def testIndexValidationNegatives : IO Unit := do
     let some first := full[0]? | throw <| IO.userError "trio0"
     let some second := full[1]? | throw <| IO.userError "trio1"
     pure #[first, second, unknown]
-  let unkRows := #[
-    mkRow .evm CodegenProfileId.evmYulSolc0834V1 unkTrio,
-    mkRow .near CodegenProfileId.nearWasmRawU64V1 unkTrio,
-    mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 unkTrio,
-    mkRow .solana CodegenProfileId.solanaSbpfPlanV1 unkTrio
-  ]
+  let unkRows := sevenRowSkeleton unkTrio unkTrio
   expectErrorCode (createStaticRequirementSupportIndexV1 unkRows)
     "PF-REGISTRY-INVALID" "unknown requirement id in support row"
 

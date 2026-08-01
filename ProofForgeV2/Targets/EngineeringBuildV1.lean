@@ -99,7 +99,10 @@ def resolveEngineeringRequirementsV1
   unless descriptor.targetId == selection.targetId do
     throw <| .registryInvalid
       "descriptor target identity diverges from resolved selection"
-  unless descriptor.codegenProfile == selection.codegenProfile do
+  -- Residual descriptor binds the default profile; multi-profile targets
+  -- (Solana plan + elf) accept additional registered profiles via
+  -- DescriptorDataV1.acceptsCodegenProfile.
+  unless DescriptorDataV1.acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid
       "descriptor codegen profile diverges from resolved selection"
   pure (ResolvedEngineeringBuildV1.mk selection compiled requested)

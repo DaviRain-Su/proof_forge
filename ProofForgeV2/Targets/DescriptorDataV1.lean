@@ -34,8 +34,20 @@ def solana : TargetDescriptor := {
   callModel := .cpi
   proofModel := .none
   settlementModel := .solana
+  -- Residual descriptor binds the default plan profile. The explicit ELF
+  -- profile (`solana-sbpf-elf-v1`) is accepted by `acceptsCodegenProfile`
+  -- without inventing a second TargetDescriptor table.
   codegenProfile := CodegenProfileId.solanaSbpfPlanV1
 }
+
+/-- Residual descriptor profile acceptance for multi-profile targets.
+    Residual `TargetDescriptor.codegenProfile` is the default encoding profile
+    (describe-join / default selection). Additional registered profiles for the
+    same target must be accepted here so capability mint and artifact identity
+    can bind them without a second descriptor row. -/
+def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
+  descriptor.codegenProfile == profile ||
+    (descriptor.targetId == TargetId.solana && profile == CodegenProfileId.solanaSbpfElfV1)
 
 def near : TargetDescriptor := {
   targetId := TargetId.near

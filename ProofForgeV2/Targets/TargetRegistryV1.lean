@@ -29,7 +29,7 @@ open ProofForgeV2.Core.Unicode
 
 /-- Reserved future profiles must never register. -/
 def reservedFutureProfiles : Array String :=
-  #["solana-sbpf-elf-v1", "noir-acir-proof-v1"]
+  #["noir-acir-proof-v1"]
 
 -- ---------------------------------------------------------------------------
 -- SPEC-REG-001 closed axis enums (wire via exact render only; no String parse)
@@ -485,7 +485,8 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .solana
       (axes TargetId.solana .svm .instructionAtomic .explicitAccounts
         .synchronousCpi .noProof .solanaChain)
-      #[CodegenProfileId.solanaSbpfPlanV1]
+      -- Strictly ASCII-ascending: elf-v1 < plan-v1. Default stays plan-v1.
+      #[CodegenProfileId.solanaSbpfElfV1, CodegenProfileId.solanaSbpfPlanV1]
       (some CodegenProfileId.solanaSbpfPlanV1),
     row .near
       (axes TargetId.near .nearWasm .receiptLocal .contractKeyValue

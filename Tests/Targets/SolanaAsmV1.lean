@@ -13,7 +13,8 @@ Pins layout `.equ` offsets (including exactDataLen-derived post-account
 region), Counter entrypoint dispatch (with ix_len≥8 guard), checked_add /
 checked_mul / shift / bitwise / bool / region / callFn / emitEvent sequences,
 `sol_set_return_data` / `sol_log_data`, and determinism. Does not invoke the
-external `sbpf` toolchain. Product emit still only ships `.sbpf-plan` + IDL.
+external `sbpf` toolchain. Default plan-profile product emit still ships only
+`.sbpf-plan` + IDL (elf profile `.s` coverage lives in SolanaElfV1).
 -/
 
 namespace Tests.Targets.SolanaAsmV1
@@ -149,7 +150,7 @@ private unsafe def testCounterAsm
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "asm: deterministic rebuild"
 
-/-- Product emit still only ships .sbpf-plan + idl (no .s in product path). -/
+/-- Default plan-profile product emit ships .sbpf-plan + idl only (no .s). -/
 private unsafe def testProductEmitUnchanged
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session counterSourceText counterModuleNameV1
@@ -159,7 +160,7 @@ private unsafe def testProductEmitUnchanged
   expect (paths.any (· == "Counter.sbpf-plan")) "product: still has .sbpf-plan"
   expect (paths.any (· == "Counter.idl.json")) "product: still has idl"
   expect (!paths.any (fun p => p.endsWith ".s"))
-    "product: must not yet publish .s (S1b emitter is additive-only)"
+    "product: default plan profile must not publish .s"
   let planText ← match files.find? (·.path == "Counter.sbpf-plan") with
     | some f => pure f.contents
     | none => throw <| IO.userError "missing sbpf-plan"

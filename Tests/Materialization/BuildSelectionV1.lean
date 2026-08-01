@@ -193,7 +193,9 @@ private def testGrammar : IO Unit := do
   expect (CodegenProfileId.evmYulSolc0834V1 == (← parseProfile "evm-yul-solc-0.8.34-v1"))
     "well-known evm profile constant"
   expect (CodegenProfileId.solanaSbpfPlanV1 == (← parseProfile "solana-sbpf-plan-v1"))
-    "well-known solana profile constant"
+    "well-known solana plan profile constant"
+  expect (CodegenProfileId.solanaSbpfElfV1 == (← parseProfile "solana-sbpf-elf-v1"))
+    "well-known solana elf profile constant"
   expect (CodegenProfileId.nearWasmRawU64V1 == (← parseProfile "near-wasm-raw-u64-v1"))
     "well-known near profile constant"
   expect (CodegenProfileId.noirSourceU64RelationsV1 == (← parseProfile "noir-source-u64-relations-v1"))
@@ -384,8 +386,9 @@ private def testRegistryNegatives : IO Unit := do
       (some CodegenProfileId.evmYulSolc0834V1) with kind := .near }
   expectErrorCode (createTargetRegistryV1 #[kindMismatch])
     "PF-REGISTRY-INVALID" "targetId/kind mismatch"
-  let reservedElf ← parseProfile "solana-sbpf-elf-v1"
-  let reserved := mkSolanaReg #[reservedElf] (some reservedElf)
+  -- solana-sbpf-elf-v1 is a shipped Solana profile; reserved gate keeps noir-acir.
+  let reservedNoir ← parseProfile "noir-acir-proof-v1"
+  let reserved := mkEvmReg #[reservedNoir] (some reservedNoir)
   expectErrorCode (createTargetRegistryV1 #[reserved])
     "PF-REGISTRY-INVALID" "reserved future profile"
   -- Closed registration policy: no product-facing field can drift from kind.

@@ -113,6 +113,7 @@ import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.SolanaPlanV1
 import Tests.Targets.SolanaAsmV1
+import Tests.Targets.SolanaElfV1
 import Tests.Product.CounterV1Evm
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
@@ -238,6 +239,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NoirRelationModel.run
   Tests.Materialization.SolanaPlanV1.run
   Tests.Targets.SolanaAsmV1.run
+  Tests.Targets.SolanaElfV1.run
   Tests.Product.CounterV1Evm.run
   Tests.CLI.Emit.run
   Tests.CLI.ToolchainPolicy.run
