@@ -105,8 +105,55 @@ jobs:
       - name: Portable source-core gate
         run: just ci
 
-      # S3a: reuse the already-built CLI and materialised tool root from this job
-      # (avoids a second full Lean build). Requires Rust for the Mollusk crate.
+  # BUILD-4: Solana Mollusk runtime is a separate job so Lean product CI failures
+  # surface without waiting on Rust, and Solana failures do not hide Lean green.
+  # Shares the same tool-root materialization pattern as source-core.
+  solana-runtime:
+    name: solana-runtime
+    runs-on: ubuntu-latest
+    needs: []
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Select linux tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
+
+      - name: Provision linux external assets
+        run: just toolchains-provision-external
+
+      - name: Materialize linux tool root
+        run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
+
+      - name: Verify linux tool root
+        run: just toolchains-verify-external
+
+      - name: Cache Lake build products
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-solana-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
+
+      - name: Build product CLI
+        run: just build
+
       - name: Install Rust toolchain
         run: |
           if ! command -v cargo >/dev/null 2>&1; then
