@@ -11648,6 +11648,15 @@ normative: false
 - Boundary：只覆盖canonical fixture所需两个op branch；其余branches、具体Instruction/Block array run、
   完整carrier及formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 singleton production-array composition
+
+- Proof：`decodeArray_oneV1`组合真实bounded count=1 header与sole `decodeArrayElementsV1` successor；从
+  empty accumulator只执行一次实际element decoder，得到exact `#[value]`并原样返回其cursor。
+- Reuse：该通用seam服务canonical单instruction与单block arrays，不增加Instruction/Block专用循环；
+  kernel signature example、focused build与blocker review通过。
+- Boundary：这是transport iteration composition；具体nested element、完整callables/root carrier及formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

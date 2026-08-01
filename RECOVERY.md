@@ -393,6 +393,11 @@ production body，全部既有op与unknown-tag行为保持；Literal严格线程
 `maxArrayElements` args，再经唯一tagged wrapper恢复parent depth。其余op branch proof按需pending。
 下一步把这些field successes组合为具体Instruction、Block及callables array run。
 
+向上组合所需singleton array现已闭合：`decodeArray_oneV1`只接受真实bounded count reader解出1，
+随后通过sole `decodeArrayElementsV1`执行exact一次真实element decoder，从空accumulator得到`#[value]`
+并原样返回element完整cursor；没有第二iterator或专用Instruction/Block循环。该seam将直接服务一个
+instruction的leaf/root block和每个callable的单block array；多callable root仍复用通用succ theorem。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

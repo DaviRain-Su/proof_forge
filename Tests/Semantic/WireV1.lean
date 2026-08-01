@@ -360,6 +360,12 @@ example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
     decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=
   decodeArray_zeroV1 maxCount decode c offset hcount
 
+example (c : Cursor) (offset : Nat) (value : UInt32) (afterElement : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxArrayElements = .ok (1, offset))
+    (helement : decodeU32le ⟨c.input, offset, c.nesting⟩ = .ok (value, afterElement)) :
+    decodeArray maxArrayElements decodeU32le c = .ok (#[value], afterElement) :=
+  decodeArray_oneV1 maxArrayElements decodeU32le c offset value afterElement hcount helement
+
 example :
     decodeArray maxTableElements ((fun _ => .error .badScalar) : Decoder UInt32)
       ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 0, 7⟩ =

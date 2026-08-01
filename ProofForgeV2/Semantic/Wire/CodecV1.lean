@@ -845,6 +845,18 @@ theorem decodeArray_zeroV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
     ⟨c.input, offset, c.nesting⟩ hcount
   rfl
 
+/-- A successfully decoded singleton count executes the sole production
+    element decoder exactly once and returns its cursor. -/
+theorem decodeArray_oneV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (offset : Nat) (value : α) (afterElement : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (1, offset))
+    (helement : decode ⟨c.input, offset, c.nesting⟩ = .ok (value, afterElement)) :
+    decodeArray maxCount decode c = .ok (#[value], afterElement) := by
+  apply decodeArray_eq_of_elementsV1 maxCount decode c 1 offset #[value] afterElement hcount
+  apply decodeArrayElementsV1_succ decode 0 #[] ⟨c.input, offset, c.nesting⟩
+    afterElement value (.ok (#[value], afterElement)) helement
+  rfl
+
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
   let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen
   pure (payload, ⟨c.input, offset, c.nesting⟩)
