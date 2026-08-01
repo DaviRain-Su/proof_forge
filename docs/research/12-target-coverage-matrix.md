@@ -81,7 +81,7 @@ normative: false
 |---|---|---|---|---|
 | **N-A1** | EVM String match-switch | **已闭合(EvmStringMatch)**：EVM Lower 将 `match String` desugar 为 leaf-wise eq + nested ifThenElse（Plan `switchOn` 仍仅 UInt64 case）；catch-all fallthrough；非 String aggregate switch 与非 String pattern 仍 fail-closed | EVM | EvmStringMatch ✅ |
 | **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；四 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
-| **N-A3** | Map/Bytes 穿透元素赋值 | ArrayState 开 Array state + index 赋值（EVM/Solana 正例），Map/Bytes state 与穿透元素赋值仍 fail-closed | 全 target | MapBytesAssign |
+| **N-A3** | Map/Bytes 穿透元素赋值 | **已闭合(MapBytesAssign)**：Map/Bytes **state 已由 ArrayState 开放**（默认 empty Map / zero Bytes）；TypeCheck 开 Bytes 下标 rvalue→UInt8，assign 目标 Map 下标→value（非 Option）、Bytes→UInt8；Normalize 单步 `m[k]:=v`/`b[i]:=u8` → IndexSet（load→set→store）；Reference 既有 Map/Bytes IndexSet 步进 + **Bytes state 产品 Normalize→step**；Map state 整程序 Reference admission 仍因 maxMapEntries 资源模型 fail-closed（手建无-state Map IndexSet 迹保留）；**嵌套穿透** `m[k].x:=v` 仍 fail-closed（Option 中间值）；**target Plan** Map/Bytes 保持 Envelope admitMap/admitBytes=false（B-1d/e） | 全 target（Normalize）；Reference Bytes state；Plan 仍 FAIL-CLOSED | MapBytesAssign ✅ |
 | **N-A4** | Option state | **闭合**：Normalize+Reference default none；全 target Plan **FAIL-CLOSED**+测 | 全 target | OptionState ✅ |
 
 ### B 组：各 target 的 Plan/IR/emitter 覆盖缺口

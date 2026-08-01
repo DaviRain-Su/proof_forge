@@ -139,7 +139,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
-| **N-BYTES** | Bytes state/param 路径复核（+ 产品 String 若仍需） | Normalize docstring 已 admit Array/Map/Bytes state；需测例/产品路径确认 | pending（见 RPT-013 §5；可能缩 scope） |
+| **N-BYTES** | Bytes state/param 路径复核（+ 产品 String 若仍需） | state/index assign 随 N-A3 产品路径已钉；String 另议 | **done**（2026-08-02：随 MapBytesAssign；Bytes state+IndexGet/Set 测例） |
 
 ---
 
@@ -202,7 +202,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | **N-A1** | EVM String `match` switch（N4 类型面已开） | **done**（2026-08-02：`a25365213` EvmStringMatch；matrix LOWERED） |
 | **N-A2** | 多臂同外构造器 match 细化 | **done**（2026-08-02：`2a6c2bc9c` MultiArmCtor；matrix LOWERED 四 target） |
-| **N-A3** | Map/Bytes 穿透元素赋值 | pending |
+| **N-A3** | Map/Bytes 穿透元素赋值 | **done**（2026-08-02：TypeCheck assign-target Map→value / Bytes→UInt8；Normalize 单步 IndexSet；嵌套 FC；target Plan 仍 FAIL-CLOSED） |
 | **N-A4** | Option state | **done**（2026-08-02：Normalize admit Option state/param；default none；四 target Plan FAIL-CLOSED 钉死） |
 
 ### 2.3 Reference / invariant 工程子集

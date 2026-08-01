@@ -228,6 +228,21 @@ private unsafe def testMapIndexKeyTypeRejection (session : Language.Loader.Parse
   expectConstDiag session "map-index-bool" body "bad" "UInt64"
   expectConstDiag session "map-index-bool" body "bad" "Bool"
 
+/-- N-A3: Bytes rvalue index place types as UInt8 with UInt32 index. -/
+private unsafe def testBytesIndex (session : Language.Loader.ParserSession) : IO Unit := do
+  let body :=
+    "  state b : Bytes 2\n" ++
+    "  const ok : UInt8 := b[0]\n"
+  expectConstOk session "bytes-index" body "ok" (.uint 8)
+
+private unsafe def testBytesIndexKeyTypeRejection (session : Language.Loader.ParserSession) : IO Unit := do
+  let body :=
+    "  state b : Bytes 2\n" ++
+    "  state flag : Bool\n" ++
+    "  const bad : UInt8 := b[flag]\n"
+  expectConstDiag session "bytes-index-bool" body "bad" "UInt32"
+  expectConstDiag session "bytes-index-bool" body "bad" "Bool"
+
 private unsafe def testUnaryTypeGates (session : Language.Loader.ParserSession) : IO Unit := do
   let body :=
     "  state x : UInt64\n" ++
@@ -353,6 +368,8 @@ unsafe def run : IO Unit := do
   testArrayIndexKeyTypeRejection session
   testMapIndex session
   testMapIndexKeyTypeRejection session
+  testBytesIndex session
+  testBytesIndexKeyTypeRejection session
   testUnaryTypeGates session
   testBoolIntegerSeparation session
   testSourceOrderDiagnostics session

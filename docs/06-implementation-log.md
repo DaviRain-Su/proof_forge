@@ -12723,3 +12723,17 @@ normative: false
 - Host model + `testWideUintProduct`；Int128 仍 fail closed。
 - 非 formal；mul/div multiword 仍走 narrow 路径（高肢语义待加强）。
 
+
+## 2026-08-02 — MapBytesAssign (N-A3) Map/Bytes single-step index assign
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- **State decision**: Map/Bytes state already admitted by ArrayState (defaults: empty Map / zero-filled Bytes). Keep state open. Target Envelope `admitMap`/`admitBytes` stay false (B-1d/e); no target lowering this wave.
+- TypeCheck (`ProofForgeV2/Typed/TypeCheckV1.lean`):
+  * Rvalue Bytes index → UInt8 (UInt32 index); diagnostic base set is `Array, Bytes, or Map`.
+  * Assign targets use `typeCheckAssignTargetDrafts`: outermost `.index` on Map → **value** type (not Option), Bytes → UInt8, Array → element; nested `m[k].x := v` stays fail-closed (field on Option).
+- Normalize: single-step Map/Bytes IndexSet path already present (N3 applyNestedUpdateV1); nested-through-Map/Bytes element remains fail-closed; docs updated.
+- Reference: wire IndexSet Map/Bytes step already present; product Normalize→admit→step pins for Bytes state set/get and Map state put+Option match.
+- Tests: TypeCheckExpressions Bytes index; TypeCheckStatements Map/Bytes assign ok + Map value mismatch; CheckV1 Map/Bytes IndexSet structure + negatives; ReferenceV1 product traces.
+- Matrix: N-A3 GAP→LOWERED (Normalize/Reference); target Plan Map/Bytes remain FAIL-CLOSED.
+- Boundary: nonempty Map construction still fail-closed; nested assign through Map element still closed; no Envelope/Targets/Materialization/CLI changes; not formal D2/D4.
+- Note: Map logical-state Reference admission still fails under maxMapEntriesV1=1e6 default-work budget; Map IndexSet runtime covered by hand-built fixtures; Bytes state product path admitted.

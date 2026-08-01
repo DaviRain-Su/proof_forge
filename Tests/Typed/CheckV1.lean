@@ -5272,9 +5272,7 @@ private unsafe def testArrayStateIndexAssign
   expect hasIndexGet "array-state: IndexGet on return"
   expect hasStore "array-state: StateStore"
 
-/-- ArrayState: Map state declaration admitted. (Map index *assign* still fails
-    at TypeCheck: place type is Option from IndexGet; Typed is off-limits this
-    wave. Normalize IndexSet for Map remains ready when TypeCheck is fixed.) -/
+/-- ArrayState: Map state declaration admitted (no index assign). -/
 private unsafe def testMapStateAdmitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "MapSlots" <|
@@ -5299,9 +5297,87 @@ private unsafe def testMapStateAdmitted
   expect hasMap "map-state: Map type present"
   expect (data.logicalState.any (·.name == "m")) "map-state: state m present"
 
-/-- ArrayState: Bytes state declaration admitted. (Bytes index place still
-    TypeCheck-gated to Array/Map only; Typed is off-limits this wave. Normalize
-    IndexGet/IndexSet for Bytes remains ready when TypeCheck opens Bytes places.) -/
+/-- N-A3 MapBytesAssign: Map state + single-step key assign/load.
+    `m[k] := v` lowers StateLoad → IndexSet → StateStore; rvalue `m[k]` as
+    annotated `let peek : Option UInt64 := m[k]` is IndexGet (Option V).
+    Product Option constructor match remains TypeCheck fail-closed. -/
+private unsafe def testMapStateIndexAssign
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MapIndexAssign" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[0] := 0\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    let peek : Option UInt64 := m[k]\n" ++
+    "    return v\n" ++
+    "  view sizeHint() : UInt64 do\n" ++
+    "    let peek : Option UInt64 := m[0]\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "map-index-assign" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"map-index-assign: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-index-assign: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-index-assign: validate: {repr e}"
+  expect (data.logicalState.size == 1) "map-index-assign: one logical state"
+  let hasMap := data.types.any fun d =>
+    match d.shape with | .map _ _ => true | _ => false
+  expect hasMap "map-index-assign: Map type present"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "map-index-assign: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "map-index-assign: missing entry block"
+  let hasLoad := blk.instructions.any fun i => match i.op with | .stateLoad _ => true | _ => false
+  let hasIndexSet := blk.instructions.any fun i => match i.op with | .indexSet .. => true | _ => false
+  let hasIndexGet := blk.instructions.any fun i => match i.op with | .indexGet .. => true | _ => false
+  let hasStore := blk.instructions.any fun i => match i.op with | .stateStore .. => true | _ => false
+  expect hasLoad "map-index-assign: StateLoad for index assign root"
+  expect hasIndexSet "map-index-assign: IndexSet"
+  expect hasIndexGet "map-index-assign: IndexGet into Option let"
+  expect hasStore "map-index-assign: StateStore"
+
+/-- N-A3: Map index assign value type mismatch fail closed at TypeCheck. -/
+private unsafe def testMapIndexAssignValueMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MapBadVal" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[0] := true\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "map-bad-val" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "map-bad-val: expected TypeCheck failure"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (msgs.any fun m => m.contains "UInt64" && m.contains "Bool")
+    s!"map-bad-val: expected UInt64/Bool mismatch, got {msgs}"
+
+/-- N-A3: nested assign through Map element remains fail closed (field on Option). -/
+private unsafe def testMapNestedFieldAssignFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MapNested" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "  state m : Map UInt64 Point\n" ++
+    "  init() do\n" ++
+    "    m[0] := Point.new(0)\n" ++
+    "  entry bump(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k].x := v\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "map-nested-assign" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "map-nested-assign: expected TypeCheck failure"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (msgs.any fun m =>
+      m.contains "struct" || m.contains "Option" || m.contains "field")
+    s!"map-nested-assign: expected struct/Option diagnostic, got {msgs}"
+
+/-- ArrayState: Bytes state declaration admitted (no index assign). -/
 private unsafe def testBytesStateAdmitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "BytesSlots" <|
@@ -5324,6 +5400,64 @@ private unsafe def testBytesStateAdmitted
     match d.shape with | .bytes 2 => true | _ => false
   expect hasBytes "bytes-state: Bytes 2 type present"
   expect (data.logicalState.any (·.name == "b")) "bytes-state: state b present"
+
+/-- N-A3 MapBytesAssign: Bytes state + single-step index assign/load.
+    `b[i] := u8` lowers StateLoad → IndexSet → StateStore; rvalue is IndexGet → UInt8. -/
+private unsafe def testBytesStateIndexAssign
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BytesIndexAssign" <|
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    b[0] := v\n" ++
+    "    return b[0]\n" ++
+    "  view get0() : UInt8 do\n" ++
+    "    return b[0]\n"
+  let validated ← loadSource session "bytes-index-assign" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"bytes-index-assign: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bytes-index-assign: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bytes-index-assign: validate: {repr e}"
+  expect (data.logicalState.size == 1) "bytes-index-assign: one logical state"
+  let hasBytes := data.types.any fun d =>
+    match d.shape with | .bytes 2 => true | _ => false
+  expect hasBytes "bytes-index-assign: Bytes 2 type present"
+  let some entryC := data.callables.find? (·.kind == .entry) |
+    throw <| IO.userError "bytes-index-assign: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "bytes-index-assign: missing entry block"
+  let hasLoad := blk.instructions.any fun i => match i.op with | .stateLoad _ => true | _ => false
+  let hasIndexSet := blk.instructions.any fun i => match i.op with | .indexSet .. => true | _ => false
+  let hasIndexGet := blk.instructions.any fun i => match i.op with | .indexGet .. => true | _ => false
+  let hasStore := blk.instructions.any fun i => match i.op with | .stateStore .. => true | _ => false
+  expect hasLoad "bytes-index-assign: StateLoad for index assign root"
+  expect hasIndexSet "bytes-index-assign: IndexSet"
+  expect hasIndexGet "bytes-index-assign: IndexGet on return"
+  expect hasStore "bytes-index-assign: StateStore"
+
+/-- N-A3: Bytes index assign requires UInt8 value (UInt64 fail closed). -/
+private unsafe def testBytesIndexAssignValueMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "BytesBadVal" <|
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 300\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let validated ← loadSource session "bytes-bad-val" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "bytes-bad-val: expected TypeCheck failure"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (msgs.any fun m =>
+      m.contains "UInt8" || m.contains "integer literal" || m.contains "range")
+    s!"bytes-bad-val: expected UInt8/range diagnostic, got {msgs}"
 
 /-- N-A4: Option state admitted at Normalize; init stores Option.none; entry
     may Construct.some / match / StateStore. Target Plan remains FAIL-CLOSED. -/
@@ -6471,7 +6605,13 @@ unsafe def run : IO Unit := do
   -- ArrayState + N-A4: Array/Map/Bytes/Option state admitted
   testArrayStateIndexAssign session
   testMapStateAdmitted session
+  -- N-A3 MapBytesAssign: Map/Bytes single-step index assign + negatives
+  testMapStateIndexAssign session
+  testMapIndexAssignValueMismatch session
+  testMapNestedFieldAssignFailClosed session
   testBytesStateAdmitted session
+  testBytesStateIndexAssign session
+  testBytesIndexAssignValueMismatch session
   testOptionStateAdmitted session
   -- T3 aggregate values
   testAggregateTypeInterning session

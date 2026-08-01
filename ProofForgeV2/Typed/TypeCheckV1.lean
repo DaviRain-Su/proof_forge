@@ -23,8 +23,8 @@
   Covered expression forms:
     * literals (`bool`, bounded integer)
     * places (parameter/local/state/const binding, struct field chains,
-      `Array` element access with `UInt32` index, `Map` key lookup returning
-      `Option V`)
+      `Array` element access with `UInt32` index, `Bytes` element access with
+      `UInt32` index returning `UInt8`, `Map` key lookup returning `Option V`)
     * unary operators (`neg`, `bitNot` require integer; `not` requires `bool`)
     * binary operators (arithmetic, shift, bitwise, equality, ordering,
       logical)
@@ -38,6 +38,11 @@
     * `let` / `assign` / `return` / `assert` / `revert` / `emit` / `if` /
       `for` / `call` / `schedule` / statement `match`
     * declaration bodies for `const`, `init`, `entry`, `view`, `fn`, `invariant`
+    * MapBytesAssign (N-A3): assign targets whose outermost place step is an
+      index use the wire IndexSet slot type — `Array` → element, `Bytes` →
+      `UInt8`, `Map` → value (not `Option V`). Rvalue Map index stays
+      `Option V`. Nested assign through a Map element (`m[k].x := v`) remains
+      fail closed at TypeCheck (field on Option) and Normalize.
 
   Deliberately outside this slice (fail closed with a type-mismatch
   diagnostic):
@@ -781,6 +786,16 @@ mutual
                 resultDraft elem (drafts ++ #[locateDraft
                   (expectedActualDiagnosticDraft "UInt32" (typeName idxRes.type))
                   ip? #[]])
+          | .bytes _ =>
+              -- Rvalue Bytes index → UInt8 (wire IndexGet Bytes result).
+              let idxRes := typeCheckExprDrafts scope tables (some (.uint 32)) #[] ip? idx
+              let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
+              if idxRes.type == .uint 32 then
+                resultDraft (.uint 8) drafts none
+              else
+                resultDraft (.uint 8) (drafts ++ #[locateDraft
+                  (expectedActualDiagnosticDraft "UInt32" (typeName idxRes.type))
+                  ip? #[]])
           | .map key value =>
               let idxRes := typeCheckExprDrafts scope tables (some key) #[] ip? idx
               let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
@@ -792,7 +807,7 @@ mutual
                   ip? #[]])
           | other =>
               resultDraft .unit (pathDs ++ #[locateDraft
-                (expectedActualDiagnosticDraft "Array or Map" (typeName other))
+                (expectedActualDiagnosticDraft "Array, Bytes, or Map" (typeName other))
                 placePath? #[]])
 
   partial def typeCheckExprDrafts (scope : TypeCheckScopeV1)
@@ -1271,6 +1286,65 @@ def typeCheckExpr (scope : TypeCheckScopeV1)
     TypeCheckResultV1 :=
   eraseResult (typeCheckExprDrafts scope tables expected? #[] none expr)
 
+/-- Assign-target place typing (MapBytesAssign / N-A3).
+
+    Wire IndexSet uses the element/slot type, not the IndexGet result type:
+      * Array index assign → element type (same as rvalue)
+      * Bytes index assign → UInt8 (same as rvalue)
+      * Map index assign → value type (rvalue Map index is `Option V`)
+
+    Only the outermost place constructor is special-cased when it is `.index`.
+    Nested field/index chains still use ordinary rvalue place typing, so
+    `m[k].x := v` stays fail closed (field on Option). Bases of an outermost
+    index (including `s.m[k]`) are typed as ordinary places. -/
+partial def typeCheckAssignTargetDrafts (scope : TypeCheckScopeV1)
+    (tables : TypedDeclTablesV1)
+    (placePath? : Option NormalizedSyntacticPathV1)
+    (place : PlaceV1) : TypeCheckResultDraftV1 :=
+  match place with
+  | .index base idx =>
+      let (bp?, pathDs1) := resolveDirect placePath? "Place.Index" "base"
+      let (ip?, pathDs2) := resolveDirect placePath? "Place.Index" "index"
+      let pathDs := pathDs1 ++ pathDs2
+      let baseRes := typeCheckPlaceDrafts scope tables bp? base
+      if !baseRes.drafts.isEmpty then
+        resultDraft baseRes.type (pathDs ++ baseRes.drafts) none
+      else
+        match baseRes.type with
+        | .array elem _ =>
+            let idxRes := typeCheckExprDrafts scope tables (some (.uint 32)) #[] ip? idx
+            let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
+            if idxRes.type == .uint 32 then
+              resultDraft elem drafts none
+            else
+              resultDraft elem (drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "UInt32" (typeName idxRes.type))
+                ip? #[]])
+        | .bytes _ =>
+            let idxRes := typeCheckExprDrafts scope tables (some (.uint 32)) #[] ip? idx
+            let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
+            if idxRes.type == .uint 32 then
+              resultDraft (.uint 8) drafts none
+            else
+              resultDraft (.uint 8) (drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft "UInt32" (typeName idxRes.type))
+                ip? #[]])
+        | .map key value =>
+            let idxRes := typeCheckExprDrafts scope tables (some key) #[] ip? idx
+            let drafts := pathDs ++ baseRes.drafts ++ idxRes.drafts
+            if idxRes.type == key then
+              resultDraft value drafts none
+            else
+              resultDraft value (drafts ++ #[locateDraft
+                (expectedActualDiagnosticDraft (typeName key) (typeName idxRes.type))
+                ip? #[]])
+        | other =>
+            resultDraft .unit (pathDs ++ #[locateDraft
+              (expectedActualDiagnosticDraft "Array, Bytes, or Map" (typeName other))
+              placePath? #[]])
+  | _ =>
+      typeCheckPlaceDrafts scope tables placePath? place
+
 def scopeFromTables (tables : TypedDeclTablesV1) : TypeCheckScopeV1 :=
   let base := emptyScope
   let base := tables.state.entries.foldl
@@ -1332,7 +1406,9 @@ mutual
     | .assign target value =>
         let (tp?, pathDs1) := resolveDirect stmtPath? "Stmt.Assign" "target"
         let (vp?, pathDs2) := resolveDirect stmtPath? "Stmt.Assign" "value"
-        let targetRes := typeCheckPlaceDrafts scope tables tp? target
+        -- N-A3: Map/Bytes index assign uses IndexSet slot types (see
+        -- `typeCheckAssignTargetDrafts`); rvalue places stay unchanged.
+        let targetRes := typeCheckAssignTargetDrafts scope tables tp? target
         let valueExpected? :=
           if targetRes.drafts.isEmpty then some targetRes.type else none
         let valueRelated :=

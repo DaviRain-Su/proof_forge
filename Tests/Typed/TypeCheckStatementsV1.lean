@@ -347,8 +347,36 @@ private unsafe def testSourceOrderTargetBeforeValue
   let msgs := messages res
   unless msgs.size == 1 do
     throw <| IO.userError s!"order-target-value: expected exactly 1 diagnostic, got {msgs}"
-  unless msgs[0]!.contains "Array or Map" do
+  unless msgs[0]!.contains "Array" && msgs[0]!.contains "Map" do
     throw <| IO.userError s!"order-target-value: expected target-place diagnostic, got {msgs}"
+
+/-- N-A3: Map index assign target uses value type (not Option). -/
+private unsafe def testMapIndexAssignOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude := "  state m : Map UInt64 UInt64\n"
+  let res ← typeCheckUnit session "map-assign-ok" prelude
+    "    m[1] := 2\n"
+  expect res.ok s!"map-assign-ok: expected ok, diags={messages res}"
+
+/-- N-A3: Bytes index assign target uses UInt8. -/
+private unsafe def testBytesIndexAssignOk
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude := "  state b : Bytes 2\n"
+  let res ← typeCheckUnit session "bytes-assign-ok" prelude
+    "    b[0] := 7\n"
+  expect res.ok s!"bytes-assign-ok: expected ok, diags={messages res}"
+
+/-- N-A3: Map index assign value must match map value type. -/
+private unsafe def testMapIndexAssignValueMismatch
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude := "  state m : Map UInt64 UInt64\n"
+  let res ← typeCheckUnit session "map-assign-bad" prelude
+    "    m[1] := true\n"
+  expect (!res.ok) "map-assign-bad: expected failure"
+  expect (contains (messages res) "UInt64")
+    s!"map-assign-bad: expected UInt64 diagnostic, got {messages res}"
+  expect (contains (messages res) "Bool")
+    s!"map-assign-bad: expected Bool diagnostic, got {messages res}"
 
 private unsafe def testSourceOrderNameBeforeArgs
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -407,6 +435,9 @@ unsafe def run : IO Unit := do
   testFnBodyResultMismatch session
   testSourceOrderConditionBeforeBranches session
   testSourceOrderTargetBeforeValue session
+  testMapIndexAssignOk session
+  testBytesIndexAssignOk session
+  testMapIndexAssignValueMismatch session
   testSourceOrderNameBeforeArgs session
   testSourceOrderEarlierBeforeLater session
   IO.println "Tests.Typed.TypeCheckStatementsV1: ok"

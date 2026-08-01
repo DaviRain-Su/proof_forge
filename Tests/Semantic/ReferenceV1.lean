@@ -150,6 +150,9 @@ private def stateSlot (valueBytes : ByteArray) : ByteArray :=
 private def refU64 (typeId : TypeIdV1) (n : Nat) : ReferenceValueV1 :=
   { typeId, valueBytes := u64Bytes n }
 
+private def refU8 (typeId : TypeIdV1) (n : Nat) : ReferenceValueV1 :=
+  { typeId, valueBytes := ByteArray.mk #[n.toUInt8] }
+
 private def refBool (typeId : TypeIdV1) (b : Nat) : ReferenceValueV1 :=
   { typeId, valueBytes := ByteArray.mk #[b.toUInt8] }
 
@@ -4254,6 +4257,57 @@ private unsafe def testContextCommitNormalizeReference
       (inv 1 #[refU64 bothU64 1]) emptyResponses)
     .invalidInvocation bothStamped
 
+/-- N-A3 MapBytesAssign: product Normalize → Reference for Bytes/Map index assign. -/
+private unsafe def testMapBytesAssignNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- Bytes state: IndexSet slot + IndexGet return.
+  let bytesSource := wrap "BytesRefAssign" <|
+    "  state b : Bytes 2\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n" ++
+    "    b[1] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    b[0] := v\n" ++
+    "    return b[0]\n" ++
+    "  view get0() : UInt8 do\n" ++
+    "    return b[0]\n"
+  let bytesValidated ← loadSource session "bytes-ref-assign" bytesSource
+  let bytesCarrier ← match normalizeProgramV1 bytesValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"bytes-ref-assign: normalize: {repr e}"
+  let bytesData ← match validateSemanticProgramV1 bytesCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"bytes-ref-assign: validate: {repr e}"
+  let bytesAdmitted ← admitOk "bytes-ref-assign" bytesCarrier
+  let u8Tid ← match bytesData.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 8 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "bytes-ref-assign: missing UInt8"
+  let bytesInitial ← match initialLogicalStateV1 bytesCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"bytes-ref-assign: initial: {repr e}"
+  let afterInit :=
+    stepReferenceSliceV1 bytesAdmitted bytesInitial (inv 0 #[]) emptyResponses
+  let zeroBytesState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[0, 0]) }
+  expectReturned "bytes-ref-assign-init" afterInit zeroBytesState none #[]
+  let afterSet :=
+    stepReferenceSliceV1 bytesAdmitted zeroBytesState
+      (inv 1 #[refU8 u8Tid 7]) emptyResponses
+  let sevenBytesState : LogicalStateV1 :=
+    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[7, 0]) }
+  expectReturned "bytes-ref-assign-set0" afterSet sevenBytesState
+    (some (refU8 u8Tid 7)) #[]
+  let afterGet :=
+    stepReferenceSliceV1 bytesAdmitted sevenBytesState (inv 2 #[]) emptyResponses
+  expectReturned "bytes-ref-assign-get0" afterGet sevenBytesState
+    (some (refU8 u8Tid 7)) #[]
+  -- Map *state* whole-program Reference admission remains fail-closed under the
+  -- current maxMapEntriesV1=1e6 resource model (logical-state default work).
+  -- Map IndexSet step semantics stay covered by hand-built fixtures in
+  -- `testArrayBytesReferenceSlice`; Map product Normalize structure is pinned
+  -- in Tests.Typed.CheckV1.
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -4293,6 +4347,8 @@ unsafe def run : IO Unit := do
   testPrincipalNormalizeAdmissionRejected session
   -- N5b: ContextRead/Commit product step semantics
   testContextCommitNormalizeReference session
+  -- N-A3: Map/Bytes single-step index assign product path
+  testMapBytesAssignNormalizeReference session
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1

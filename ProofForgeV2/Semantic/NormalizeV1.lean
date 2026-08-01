@@ -66,7 +66,13 @@
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
       and index assign on place chains → `Op.FieldSet`/`Op.IndexSet` with
       outward rebind (N3 nested `x.f`, `x[i]`, `x.f[0].g = v`, including
-      state roots: load → chain → write → store). Bare-local field/index
+      state roots: load → chain → write → store). **MapBytesAssign (N-A3)**:
+      single-step `map[k] = v` → `Op.IndexSet` (key exact, value = map value);
+      single-step `bytes[i] = b` → `Op.IndexSet` (UInt32 index, UInt8 value);
+      Map/Bytes **state** already admitted (ArrayState); empty Map default +
+      IndexSet upsert; fixed Bytes default zeros + IndexSet. Nested assign
+      *through* a Map element (`m[k].x = v`) or Bytes element still fail
+      closed (Option intermediate / UInt8 scalar). Bare-local field/index
       assign rebinds the local; param roots still fail closed
     * callables: multi-block CFG (entryBlock=0, dense block ids,
       invariantSteps=none). Bounded `for i in s .. e bounded N do` loops
@@ -112,6 +118,8 @@
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
       aggregate entry/view/fn results, nonempty Map construction,
+      nested assign through Map/Bytes elements (single-step Map/Bytes
+      index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
       identical multi-arm same-outer patterns (structural duplicate keys),
       param-root field/index assign, true mutable locals (field/index
       rebind of immutable let only), Int event/error fields (stay UInt-only),
