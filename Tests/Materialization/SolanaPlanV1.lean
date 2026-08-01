@@ -1502,6 +1502,203 @@ private unsafe def testExternalCallGate
       throw <| IO.userError
         "schedule gate: Solana must reject effect.asynchronous-workflow at resolveEngineeringRequirementsV1"
 
+/-- Unit/void entry (`entry run() do`) fails closed at makeEntryV1. -/
+private unsafe def testVoidEntryRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "VoidEntry" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry run() do\n" ++
+    "    count := count + 1\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  match ← session.selectProgramV1 text "<solana-void-entry>" "Examples.VoidEntry" none with
+  | .error e => throw <| IO.userError s!"void entry load: {e.render}"
+  | .ok source =>
+      match Compiler.compileValidatedSourceV1 source with
+      | .error e =>
+          expect (e.render.contains "return" || e.render.contains "Unit" ||
+              e.render.contains "unsupported" || e.render.contains "PF-SRC-INVALID")
+            s!"void entry compile failure must mention return/Unit/unsupported, got {e.render}"
+      | .ok compiled =>
+          match planSolana compiled with
+          | .error (.planInvariant .solana msg) =>
+              expect (msg.contains "run" &&
+                  msg.contains "does not return public UInt64 or Bool")
+                s!"void entry planInvariant must match makeEntryV1, got: {msg}"
+          | .error e =>
+              throw <| IO.userError
+                s!"void entry must fail with planInvariant .solana, got {e.render}"
+          | .ok _ =>
+              throw <| IO.userError "void entry must not produce a Solana plan"
+
+/-- Two declared events emitted in one entry: pin emit_event plan/IDL. -/
+private unsafe def testMultipleEvents
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "MultiEvent" <|
+    "  state count : UInt64\n\n" ++
+    "  event A(x : UInt64)\n" ++
+    "  event B(x : UInt64, y : UInt64)\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    emit A(x)\n" ++
+    "    emit B(count, x)\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.MultiEvent" "<solana-multi-event>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.events.map (·.name) == #["A", "B"] &&
+      plan.events[0]!.fieldCount == 1 &&
+      plan.events[1]!.fieldCount == 2)
+    "MultiEvent must carry A(1 field) then B(2 fields)"
+  let go ← findHandler plan "go"
+  expect (go.body == #[
+      .emitEvent 0 #[.param 8],
+      .emitEvent 1 #[.stateLoad 0 8, .param 8],
+      .returnValue (.stateLoad 0 8)])
+    "MultiEvent go must emit A then B then return count"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let goIR ← findHandlerIR ir "go"
+  let emitOps := goIR.operations.filter fun op =>
+    match op with | .emitEvent .. => true | _ => false
+  expect (emitOps.size == 2)
+    s!"MultiEvent IR must emit both events, got {emitOps.size}"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "MultiEvent.sbpf-plan"
+  expect (planText.contains "emit_event A" && planText.contains "emit_event B")
+    "sbpf-plan must render both named event emissions"
+  let idl ← findFile files "MultiEvent.idl.json"
+  expect (idl.contains "\"name\":\"A\"" && idl.contains "\"name\":\"B\"" &&
+      idl.contains "\"events\":")
+    "MultiEvent IDL must declare both events"
+
+/-- Zero-field error + bare `revert E` → program_error at declared base. -/
+private unsafe def testZeroArgRevert
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "ZeroRev" <|
+    "  state count : UInt64\n\n" ++
+    "  error E()\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    if x == 0 then\n" ++
+    "      revert E\n" ++
+    "    else\n" ++
+    "      count := count + x\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.ZeroRev" "<solana-zero-rev>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.errors.map (·.name) == #["E"] && plan.errors[0]!.fieldCount == 0)
+    "ZeroRev must carry zero-field error E"
+  let go ← findHandler plan "go"
+  expect (go.body == #[
+      .ifThenElse (.compare .eq (.param 8) (.literal 0))
+        #[.revertError 0 #[]]
+        #[.store {
+          accountIndex := 0
+          byteOffset := 8
+          value := .checkedAdd (.stateLoad 0 8) (.param 8)
+        }],
+      .returnValue (.stateLoad 0 8)])
+    "ZeroRev go must branch to bare revertError 0 with empty args"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "ZeroRev.sbpf-plan"
+  let errCode :=
+    String.ofList (Nat.toDigits 16 (Targets.Solana.declaredErrorBase + 0))
+  expect (planText.contains s!"program_error 0x{errCode}" &&
+      planText.contains "E()")
+    s!"sbpf-plan must render zero-arg program_error 0x{errCode} ; E()"
+  let idl ← findFile files "ZeroRev.idl.json"
+  expect (idl.contains "\"name\":\"E\"" && idl.contains "\"errors\":")
+    "ZeroRev IDL must declare error E"
+
+/-- Bool-result pureFn called from a Bool entry: pin resultIsBool + ret path. -/
+private unsafe def testBoolResultPureFn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "BoolFn" <|
+    "  state count : UInt64\n\n" ++
+    "  fn flag(a : UInt64) : Bool do\n" ++
+    "    return a > 0\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry check(x : UInt64) : Bool do\n" ++
+    "    return flag(x)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.BoolFn" "<solana-bool-fn>"
+  let plan ← liftResult <| planSolana compiled
+  expect (plan.fns.size == 1 && plan.fns[0]!.name == "flag" &&
+      plan.fns[0]!.resultIsBool)
+    "BoolFn must lower flag with resultIsBool"
+  expect (plan.fns[0]!.body == #[
+      .returnValue (.compare .gt (.param 8) (.literal 0))])
+    "flag body must return a > 0"
+  let check ← findHandler plan "check"
+  expect (check.resultKind == .bool &&
+      check.body == #[.returnValue (.callFn 0 #[.param 8])])
+    "check must return flag(x) as Bool callFn"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  expect (ir.fns.size == 1 && ir.fns[0]!.resultIsBool)
+    "IR flag must carry resultIsBool"
+  expect (ir.fns[0]!.operations.any fun op =>
+      match op with | .setReturnDataBool _ => true | _ => false)
+    "Bool pureFn IR must use setReturnDataBool"
+  let checkIR ← findHandlerIR ir "check"
+  expect (checkIR.operations.any fun op =>
+      match op with | .setReturnDataBool _ => true | _ => false)
+    "check handler IR must set_return_data_bool"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "BoolFn.sbpf-plan"
+  expect (planText.contains ".fn 0 flag (-> bool)" &&
+      planText.contains "ret %" &&
+      planText.contains "call flag" &&
+      planText.contains "set_return_data_bool")
+    "sbpf-plan must render Bool fn section, ret, call, and set_return_data_bool"
+  let idl ← findFile files "BoolFn.idl.json"
+  expect (idl.contains "\"name\":\"flag\"" &&
+      idl.contains "\"result\":\"bool\"" &&
+      idl.contains "\"name\":\"check\"" &&
+      idl.contains "\"returns\":\"bool\"")
+    "IDL must declare flag result bool and check returns bool"
+
+/-- Omitted-type `let x := a + b` still lowers to checkedAdd. -/
+private unsafe def testOmittedTypeLet
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "LetOmit" <|
+    "  state seed : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    seed := i\n\n" ++
+    "  entry sum(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    let x := a + b\n" ++
+    "    return x\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return seed\n"
+  let compiled ← compileSource session text
+    "Examples.LetOmit" "<solana-let-omit>"
+  let plan ← liftResult <| planSolana compiled
+  let sum ← findHandler plan "sum"
+  expect (sum.body == #[
+      .returnValue (.checkedAdd (.param 8) (.param 16))])
+    "omitted-type let must lower to checkedAdd of both params"
+  let ir ← liftResult <| irSolana compiled
+  liftResult <| validateIR ir
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "LetOmit.sbpf-plan"
+  expect (planText.contains "checked_add_u64")
+    "sbpf-plan must render checked_add_u64 for the omitted-type let"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1530,6 +1727,11 @@ unsafe def run : IO Unit := do
   testForLoop session
   testShiftBitwiseLogical session
   testExternalCallGate session
+  testVoidEntryRejected session
+  testMultipleEvents session
+  testZeroArgRevert session
+  testBoolResultPureFn session
+  testOmittedTypeLet session
   IO.println "Tests.Materialization.SolanaPlanV1: ok"
 
 end Tests.Materialization.SolanaPlanV1

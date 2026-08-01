@@ -39,6 +39,8 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.SolanaPlanV1.run
   IO.eprintln "CP run"
+  Tests.Materialization.PsySourceV1.run
+  IO.eprintln "CP run"
   Tests.Targets.SolanaAsmV1.run
   IO.eprintln "CP run"
   Tests.Targets.SolanaElfV1.run

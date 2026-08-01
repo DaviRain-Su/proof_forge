@@ -2000,6 +2000,262 @@ private unsafe def checkExternalCallScheduleProduct : IO Unit := do
       laterNr.contents.contains "sched_e1_a0: pub u64")
     "ExtFlow later .nr must declare both schedule arg slots"
 
+/-- Void entry `entry run() do` (no result / no return) fails closed on the
+    product path. Primary gate today is Normalize
+    (`S1 normalizer requires explicit return for entry/view`). Noir lowerer
+    secondary defense (planInvariant
+    `entry '…' does not return public UInt64 or Bool`) is currently
+    unreachable for this source shape. -/
+private unsafe def checkVoidEntryFailClosed : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program VoidRun where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry run() do\n" ++
+    "    count := count + 1\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 text
+    "<noir-void-run>" "Examples.VoidRun" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error err =>
+      expect (err.render.contains "explicit return" ||
+          err.render.contains "PF-SRC-INVALID")
+        s!"void entry must fail closed at product compile, got {err.render}"
+  | .ok compiled =>
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Noir.planFromCapability capability with
+      | .error (.planInvariant .noir msg) =>
+          expect (msg.contains "does not return public UInt64 or Bool")
+            s!"void entry planInvariant must mention UInt64/Bool, got {msg}"
+      | .error other =>
+          throw <| IO.userError
+            s!"void entry: expected planInvariant .noir, got {other.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "void entry must fail closed at Noir plan materialize"
+
+/-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
+private def multiEventSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program MultiEvent where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  event Ticked(value : UInt64)\n" ++
+  "  event Moved(src : UInt64, dst : UInt64)\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry go(x : UInt64) : UInt64 do\n" ++
+  "    emit Ticked(x)\n" ++
+  "    emit Moved(count, x)\n" ++
+  "    count := count + x\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkMultipleEventsProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 multiEventSourceText
+    "Examples.MultiEvent" "<noir-multi-event>"
+  let go ← findRelation ir "go"
+  let eventSlots := go.sourceRelation.inputs.filter fun binding =>
+    match binding.role with | .eventSlot .. => true | _ => false
+  expect (eventSlots.size == 3 &&
+      eventSlots.all (·.visibility == .verifier) &&
+      eventSlots.all (·.type == .u64))
+    s!"MultiEvent go must bind three verifier-visible u64 event slots, got {eventSlots.size}"
+  expect (eventSlots.map (·.name) == #["ev_e0_a0", "ev_e1_a0", "ev_e1_a1"])
+    s!"MultiEvent event slots must use canonical effect-arg names, got {eventSlots.map (·.name)}"
+  -- x=3, pre=5 → Ticked(3), Moved(5,3), post=8, result=8.
+  let ok ← liftModel "MultiEvent ok inputs" <|
+    statefulInputsWithSlots go true 5 3 8 true 8
+      #[(0, 0, 3), (1, 0, 5), (1, 1, 3)]
+  expectAccept "MultiEvent else path binds both event slots" go ok
+  let wrong ← liftModel "MultiEvent wrong slot inputs" <|
+    statefulInputsWithSlots go true 5 3 8 true 8
+      #[(0, 0, 3), (1, 0, 5), (1, 1, 9)]
+  expectReject "MultiEvent rejects a wrong second-event slot" go wrong
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 multiEventSourceText
+      "<noir-multi-event-emit>" "Examples.MultiEvent" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some goNr := files.find? (fun file =>
+      file.path.endsWith "r1-go/src/main.nr") |
+    throw <| IO.userError "MultiEvent missing go main.nr"
+  expect (goNr.contents.contains "ev_e0_a0: pub u64" &&
+      goNr.contents.contains "ev_e1_a0: pub u64" &&
+      goNr.contents.contains "ev_e1_a1: pub u64")
+    "MultiEvent .nr must declare all three event slot public inputs"
+  expect (goNr.contents.contains "assert(ev_e0_a0 ==" &&
+      goNr.contents.contains "assert(ev_e1_a0 ==" &&
+      goNr.contents.contains "assert(ev_e1_a1 ==")
+    "MultiEvent .nr must bind both events' slots on the executing path"
+
+/-- Zero-argument error: `error Cap()` + `revert Cap` marks the then arm
+    inadmissible (assert false); no payload slots. -/
+private def zeroArgRevertSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program ZeroRevert where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  error Cap()\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    if count > delta then\n" ++
+  "      revert Cap\n" ++
+  "    else\n" ++
+  "      count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkZeroArgRevertProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 zeroArgRevertSourceText
+    "Examples.ZeroRevert" "<noir-zero-revert>"
+  let bump ← findRelation ir "bump"
+  let hasRevert := bump.operations.any fun op =>
+    match op with
+    | .ifRegion _ thenOps _ =>
+        thenOps.any fun inner =>
+          match inner with | .assertConstraint (.literal 0) => true | _ => false
+    | _ => false
+  expect hasRevert
+    "ZeroRevert must mark the zero-arg revert path inadmissible in the then arm"
+  -- Else path: delta=7 > count=5 → post=12, result=12.
+  let elseOk ← liftModel "ZeroRevert else inputs" <|
+    statefulInputs bump true 5 7 12 true 12
+  expectAccept "ZeroRevert else path accepts" bump elseOk
+  -- Then path: delta=3 < count=5 → revert: no admissible witness.
+  let revertAny ← liftModel "ZeroRevert revert inputs" <|
+    statefulInputs bump true 5 3 5 true 3
+  expectReject "ZeroRevert revert path is inadmissible" bump revertAny
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 zeroArgRevertSourceText
+      "<noir-zero-revert-emit>" "Examples.ZeroRevert" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some bumpNr := files.find? (fun file =>
+      file.path.endsWith "r1-bump/src/main.nr") |
+    throw <| IO.userError "ZeroRevert missing bump main.nr"
+  expect (bumpNr.contents.contains "assert(false)")
+    "ZeroRevert .nr must render the zero-arg revert path as assert(false)"
+
+/-- Bool-result pureFn inlined into a Bool entry. -/
+private def boolFnSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program BoolFn where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  fn flag(a : UInt64) : Bool do\n" ++
+  "    return a > 0\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry check(x : UInt64) : Bool do\n" ++
+  "    return flag(x)\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkBoolResultPureFnProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 boolFnSourceText
+    "Examples.BoolFn" "<noir-bool-fn>"
+  let check ← findRelation ir "check"
+  let resultBindings := check.sourceRelation.inputs.filter (·.role == .result)
+  expect (resultBindings.size == 1 && resultBindings[0]!.type == .bool)
+    "BoolFn check must bind a Bool result"
+  let hasGt := check.operations.any fun op =>
+    match op with | .compare .gt .. => true | _ => false
+  expect hasGt "BoolFn check must inline flag's gt compare"
+  -- x=5 → true; x=0 → false.
+  let okTrue ← liftModel "BoolFn true inputs" <|
+    statefulInputsBoolResult check true 0 5 0 true true
+  expectAccept "BoolFn flag(5) accepts true" check okTrue
+  let okFalse ← liftModel "BoolFn false inputs" <|
+    statefulInputsBoolResult check true 0 0 0 true false
+  expectAccept "BoolFn flag(0) accepts false" check okFalse
+  let wrong ← liftModel "BoolFn wrong inputs" <|
+    statefulInputsBoolResult check true 0 5 0 true false
+  expectReject "BoolFn flag(5) rejects false" check wrong
+  let files ← do
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 boolFnSourceText
+      "<noir-bool-fn-emit>" "Examples.BoolFn" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    liftResult <| Targets.Noir.buildFromCapability capability
+  let some checkNr := files.find? (fun file =>
+      file.path.endsWith "r1-check/src/main.nr") |
+    throw <| IO.userError "BoolFn missing check main.nr"
+  expect (checkNr.contents.contains "-> bool" || checkNr.contents.contains ": bool" ||
+      checkNr.contents.contains "pub bool")
+    "BoolFn check .nr must surface a Bool result"
+  expect (checkNr.contents.contains ">")
+    "BoolFn check .nr must render the inlined comparison"
+
+/-- Omitted-type let: `let x := a + b` lowers to the same checked-add tree. -/
+private def omitLetSourceText : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program OmitLet where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry sum(a : UInt64, b : UInt64) : UInt64 do\n" ++
+  "    let x := a + b\n" ++
+  "    return x\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+private unsafe def checkOmittedTypeLetProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 omitLetSourceText
+    "Examples.OmitLet" "<noir-omit-let>"
+  let sum ← findRelation ir "sum"
+  let sumPlan := sum.sourceRelation
+  expect (sumPlan.body.size == 1)
+    s!"OmitLet sum body must be [return], got {sumPlan.body.size}"
+  match sumPlan.body[0]! with
+  | .returnValue ret =>
+      -- Stateful mutate: inputOffset = 1 + stateCount = 2 → a=.param 2, b=.param 3.
+      let expected : Targets.Noir.Expr :=
+        .checkedAdd (.param 2) (.param 3)
+      expect (ret == expected)
+        s!"OmitLet return must lower let x := a+b, got {repr ret}"
+  | _ => throw <| IO.userError "OmitLet sum body must be a return"
+  let hasAdd := sum.operations.any fun op =>
+    match op with | .checkedAdd .. => true | _ => false
+  expect hasAdd "OmitLet sum IR must emit checkedAdd"
+  -- View-like state preservation: a=3, b=4, pre=0 → post=0, result=7.
+  let ok ← liftModel "OmitLet ok inputs" <|
+    statefulInputs2 sum true 0 3 4 0 true 7
+  expectAccept "OmitLet sum(3,4) accepts" sum ok
+  let wrong ← liftModel "OmitLet wrong inputs" <|
+    statefulInputs2 sum true 0 3 4 0 true 8
+  expectReject "OmitLet wrong result rejects" sum wrong
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2034,5 +2290,10 @@ unsafe def run : IO Unit := do
   checkForLoopProduct
   checkShiftBitwiseLogicalProduct
   checkExternalCallScheduleProduct
+  checkVoidEntryFailClosed
+  checkMultipleEventsProduct
+  checkZeroArgRevertProduct
+  checkBoolResultPureFnProduct
+  checkOmittedTypeLetProduct
 
 end Tests.Materialization.NoirRelationModel

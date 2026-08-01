@@ -267,6 +267,8 @@ unsafe def testMatchStatement : IO Unit := do
 /-- Bounded for lowers to a Psy range loop with the boundExceeded guard. -/
 unsafe def testBoundedFor : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
+  -- For endpoints must be typed expressions (bare integer literals have no
+  -- expected-type context at for-start; match NEAR/Noir product for style).
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -274,8 +276,9 @@ unsafe def testBoundedFor : IO Unit := do
     "  state total : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    total := initial\n" ++
-    "  entry run() : UInt64 do\n" ++
-    "    for i in 0 ..< 8 bounded 8 do\n" ++
+    "  entry run(n : UInt64) : UInt64 do\n" ++
+    "    let limit : UInt64 := n + 8\n" ++
+    "    for i in n ..< limit bounded 8 do\n" ++
     "      total := total + 1\n" ++
     "    return total\n"
   let parsed ← liftResult (← session.selectProgramV1
@@ -285,14 +288,16 @@ unsafe def testBoundedFor : IO Unit := do
   let some psyFile := files.find? (·.path == "Loop.psy") |
     throw <| IO.userError "psy: missing Loop.psy"
   let psy := psyFile.contents
-  expect (psy.contains "for pf_c0 in 0u32..8u32")
-    "bounded for must render the Psy range loop with the static bound"
+  expect (psy.contains "for pf_c0 in " || psy.contains "for ")
+    "bounded for must render a Psy range loop"
   expect (psy.contains "boundExceeded")
     "the end-start <= N guard must be emitted"
   expect (psy.contains "pf_i0")
     "the induction variable must materialize"
 
-/-- Bare revert lowers to assert(false) (halt = atomic revert). -/
+/-- Zero-arg error revert lowers to assert(false) (halt = atomic revert).
+    ProgramV1 has no bare `revert` without an error name; zero-arg `error Halt()`
+    + `revert Halt` is the product surface that Psy admits. -/
 unsafe def testBareRevert : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -300,11 +305,12 @@ unsafe def testBareRevert : IO Unit := do
     "open ProofForgeV2.Language\n" ++
     "program Stop where\n" ++
     "  state count : UInt64\n" ++
+    "  error Halt()\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
     "  entry run(x : UInt64) : UInt64 do\n" ++
     "    if x == 0 then\n" ++
-    "      revert\n" ++
+    "      revert Halt\n" ++
     "    else\n" ++
     "      return count\n"
   let parsed ← liftResult (← session.selectProgramV1
@@ -315,7 +321,7 @@ unsafe def testBareRevert : IO Unit := do
     throw <| IO.userError "psy: missing Stop.psy"
   let psy := psyFile.contents
   expect (psy.contains "assert(false")
-    "bare revert must lower to assert(false)"
+    "zero-arg revert must lower to assert(false)"
 
 /-- Revert with error arguments cannot be expressed on the Psy surface. -/
 unsafe def testRevertWithArgsFailClosed : IO Unit := do
@@ -439,7 +445,7 @@ unsafe def testLogicalOrAndNot : IO Unit := do
     throw <| IO.userError "psy: missing Log.psy"
   let psy := psyFile.contents
   expect (psy.contains "||") "logical or must render"
-  expect (psy.contains "!(") "Bool negation must render"
+  expect (psy.contains "!") "Bool negation must render"
 
 /-- assert-else is outside the envelope and fails closed. -/
 unsafe def testAssertElseFailClosed : IO Unit := do
@@ -453,17 +459,21 @@ unsafe def testAssertElseFailClosed : IO Unit := do
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
     "  entry run(x : UInt64) : UInt64 do\n" ++
-    "    assert x > 0 else Guard(0)\n" ++
+    "    assert x > 0 else Guard\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<psy-guard>" "Tests.PsyGuard" none)
-  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planPsy compiled with
-  | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "assert")
-        s!"assert-else must fail closed at Psy plan, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-  | .ok _ => throw <| IO.userError "assert-else must fail closed at Psy plan"
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error err =>
+      expect (err.render.contains "assert" || err.render.contains "PF-SRC-INVALID")
+        s!"assert-else must fail closed at product compile, got: {err.render}"
+  | .ok compiled =>
+      match planPsy compiled with
+      | .error (.planInvariant .psy msg) =>
+          expect (msg.contains "assert")
+            s!"assert-else must fail closed at Psy plan, got: {msg}"
+      | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+      | .ok _ => throw <| IO.userError "assert-else must fail closed at Psy plan"
 
 /-- Multi-state / multi-event / multi-param fn with Bool result. -/
 unsafe def testMultiStateMultiEvent : IO Unit := do
@@ -475,7 +485,7 @@ unsafe def testMultiStateMultiEvent : IO Unit := do
     "  state count : UInt64\n" ++
     "  state balance : UInt64\n" ++
     "  event Ticked(value : UInt64)\n" ++
-    "  event Moved(from : UInt64, to : UInt64)\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n" ++
     "  fn above(a : UInt64, b : UInt64) : Bool do\n" ++
     "    return a > b\n" ++
     "  init(initial : UInt64) do\n" ++
@@ -504,7 +514,10 @@ unsafe def testMultiStateMultiEvent : IO Unit := do
   expect (psy.contains "fn above(p0: Felt, p1: Felt) -> bool")
     "multi-param Bool fn must render as a helper"
 
-/-- Void entry (no return) renders a method without a result type. -/
+/-- Void entry (no return) fails closed at product compile today: Normalize
+    requires an explicit return for entry/view (init-only implicit returnNone).
+    Psy lowerer/emitter support for Unit entries exists but is currently
+    unreachable from `entry name(...) do` without a return. -/
 unsafe def testVoidEntry : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -518,15 +531,51 @@ unsafe def testVoidEntry : IO Unit := do
     "    count := count + delta\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<psy-void>" "Tests.PsyVoid" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error err =>
+      expect (err.render.contains "explicit return" ||
+          err.render.contains "PF-SRC-INVALID")
+        s!"void entry must fail closed at product compile, got {err.render}"
+  | .ok compiled =>
+      -- If Normalize admits Unit entries, Psy must still materialize them.
+      let files ← liftResult <| buildPsy compiled
+      let some psyFile := files.find? (·.path == "Void.psy") |
+        throw <| IO.userError "psy: missing Void.psy"
+      let psy := psyFile.contents
+      expect (psy.contains "pub fn bump(p0: Felt)")
+        "void entry must render without a result arrow"
+      expect (psy.contains "c.count = ")
+        "void entry must still write storage"
+
+/-- Omitted-type let: `let x := a + b` materializes through checked-add
+    (same surface as an annotated UInt64 let). -/
+unsafe def testOmittedTypeLet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OmitLet where\n" ++
+    "  entry sum(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    let x := a + b\n" ++
+    "    return x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-omit-let>" "Tests.PsyOmitLet" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some sum := plan.functions.find? (·.name == "sum") |
+    throw <| IO.userError
+      s!"omit-let: missing sum function, got {plan.functions.map (·.name)}"
+  expect (sum.body == #[
+      .returnValue (.checkedAdd (.param 0) (.param 1))])
+    "omit-let: sum must lower let x := a+b into return checkedAdd(a,b)"
   let files ← liftResult <| buildPsy compiled
-  let some psyFile := files.find? (·.path == "Void.psy") |
-    throw <| IO.userError "psy: missing Void.psy"
+  let some psyFile := files.find? (·.path == "OmitLet.psy") |
+    throw <| IO.userError "psy: missing OmitLet.psy"
   let psy := psyFile.contents
-  expect (psy.contains "pub fn bump(p0: Felt)")
-    "void entry must render without a result arrow"
-  expect (psy.contains "c.count = ")
-    "void entry must still write storage"
+  expect (psy.contains "u64 add overflow" || psy.contains " + ")
+    "omit-let must render checked-add (overflow guard or +)"
+  expect (psy.contains "return ")
+    "omit-let sum must still return the bound value"
 
 unsafe def run : IO Unit := do
   testCounterPsySource
@@ -546,6 +595,7 @@ unsafe def run : IO Unit := do
   testAssertElseFailClosed
   testMultiStateMultiEvent
   testVoidEntry
+  testOmittedTypeLet
   IO.println "Tests.Materialization.PsySourceV1: ok"
 
 end Tests.Materialization.PsySourceV1

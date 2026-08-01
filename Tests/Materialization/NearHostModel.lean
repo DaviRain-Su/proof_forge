@@ -2049,6 +2049,337 @@ private unsafe def testScheduleProductPath
       throw <| IO.userError
         "sync call: resolveEngineeringRequirementsV1 must fail for NEAR"
 
+/-- Void entry `entry run() do` (no result / no return) fails closed on the
+    product path. Primary gate today is Normalize
+    (`S1 normalizer requires explicit return for entry/view`); bare `return`
+    is also rejected. NEAR lowerer secondary defense (planInvariant
+    `entry '…' does not return public UInt64 or Bool`) is therefore currently
+    unreachable for this source shape. -/
+private unsafe def testVoidEntryFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program VoidRun where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry run() do\n" ++
+    "    count := count + 1\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-void-run>" "Examples.VoidRun" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error err =>
+      expect (err.render.contains "explicit return" ||
+          err.render.contains "PF-SRC-INVALID")
+        s!"void entry must fail closed at product compile, got {err.render}"
+  | .ok compiled =>
+      -- If Normalize ever admits Unit entries, the NEAR result-kind gate must
+      -- still reject at plan materialize.
+      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let capability ← liftResult <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      match Targets.Near.planFromCapability capability with
+      | .error (.planInvariant .near msg) =>
+          expect (msg.contains "does not return public UInt64 or Bool")
+            s!"void entry planInvariant must mention UInt64/Bool, got {msg}"
+      | .error other =>
+          throw <| IO.userError
+            s!"void entry: expected planInvariant .near, got {other.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "void entry must fail closed at NEAR plan materialize"
+
+/-- Two declared events, both emitted: pins Plan table + host pf-event logs +
+    WAT log_utf8. -/
+private unsafe def testMultipleEventsProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MultiEvent where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  event Ticked(value : UInt64)\n" ++
+    "  event Moved(src : UInt64, dst : UInt64)\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    emit Ticked(x)\n" ++
+    "    emit Moved(count, x)\n" ++
+    "    count := count + x\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-multi-event>" "Examples.MultiEvent" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.events.map (·.name) == #["Ticked", "Moved"] &&
+      plan.events.map (·.fieldCount) == #[1, 2])
+    "MultiEvent must carry both declared events in source order"
+  let go := plan.entries[0]!
+  expect (go.body == #[
+      .emitEvent 0 #[.param 0],
+      .emitEvent 1 #[.stateLoad 0, .param 0],
+      .store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.param 0) },
+      .returnValue (.stateLoad 0)])
+    "MultiEvent go must lower both emits, store, return"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let goIR ← findMethod ir "go"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let eventNames := plan.events.map (·.name)
+  let (storage0, _, _) ← requireSuccess "multi-event init"
+    (execute initializer empty (encodeUInt64LE 5) zero)
+  let (storage1, ret1, logs1) ← requireSuccess "multi-event go"
+    (execute goIR storage0 (encodeUInt64LE 3) zero eventNames #[] )
+  expect (ret1 == some 8 && storedUInt64? storage1 field.key == some 8)
+    "multi-event go must store and return count+x"
+  expect (logs1 == #[
+      "pf-event:Ticked:0000000000000003",
+      "pf-event:Moved:0000000000000005,0000000000000003"])
+    s!"multi-event must log both pf-event messages, got {logs1}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "multi-event: missing .wat artifact"
+  expectContains wat.contents "log_utf8" "multi-event WAT log import"
+
+/-- Zero-argument error: `error Cap()` + `revert Cap` traps as pf-error:Cap:
+    (empty hex payload) and rolls back. -/
+private unsafe def testZeroArgRevertProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ZeroRevert where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  error Cap()\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-zero-revert>" "Examples.ZeroRevert" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.errors.map (·.name) == #["Cap"] &&
+      plan.errors.map (·.fieldCount) == #[0])
+    "ZeroRevert must carry zero-arg Cap error"
+  let bump := plan.entries[0]!
+  expect (bump.body == #[
+      .ifThenElse (.compare .gt (.stateLoad 0) (.param 0))
+        #[.revertError 0 #[]]
+        #[.store { fieldIndex := 0, value := .checkedAdd (.stateLoad 0) (.param 0) }],
+      .returnValue (.stateLoad 0)])
+    "ZeroRevert bump must lower zero-arg revertError"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initializer ← findMethod ir "init"
+  let bumpIR ← findMethod ir "bump"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let errorNames := plan.errors.map (·.name)
+  let (storage0, _, _) ← requireSuccess "zero-revert init"
+    (execute initializer empty (encodeUInt64LE 5) zero)
+  match execute bumpIR storage0 (encodeUInt64LE 3) zero #[] errorNames with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 5)
+        s!"zero-arg revert must roll back storage, got {reason}"
+      expect (reason == "pf-error:Cap:")
+        s!"zero-arg revert message must be pf-error:Cap: (empty args), got {reason}"
+  | .success _ _ _ =>
+      throw <| IO.userError "zero-arg revert branch must trap"
+  let (storage1, ret1, _) ← requireSuccess "zero-revert else"
+    (execute bumpIR storage0 (encodeUInt64LE 7) zero #[] errorNames)
+  expect (ret1 == some 12 && storedUInt64? storage1 field.key == some 12)
+    "zero-arg revert else branch must store and return count+delta"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "zero-revert: missing .wat artifact"
+  expectContains wat.contents "panic_utf8" "zero-revert WAT panic import"
+
+/-- Bool-result pureFn: `fn flag(a : UInt64) : Bool do return a > 0` called
+    from an entry; pins Plan resultIsBool + host 0/1 return. -/
+private unsafe def testBoolResultPureFnProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoolFn where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  fn flag(a : UInt64) : Bool do\n" ++
+    "    return a > 0\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry check(x : UInt64) : Bool do\n" ++
+    "    return flag(x)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-bool-fn>" "Examples.BoolFn" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.fns.size == 1 && plan.fns[0]!.name == "flag" &&
+      plan.fns[0]!.resultIsBool && plan.fns[0]!.params.size == 1)
+    "bool-fn: flag must be a Bool pureFn with one param"
+  expect (plan.fns[0]!.body == #[
+      .returnValue (.compare .gt (.param 0) (.literal 0))])
+    "bool-fn: flag body must return a > 0"
+  let some check := plan.entries.find? (·.name == "check") |
+    throw <| IO.userError "bool-fn: missing check entry"
+  expect (check.resultKind == .bool &&
+      check.body == #[.returnValue (.callFn 0 #[.param 0])])
+    "bool-fn: check must return callFn flag(x) as Bool"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let flagKinds := operationKinds ir.fns[0]!.operations
+  expect (flagKinds.contains "compare.gt" && flagKinds.contains "returnValue")
+    s!"bool-fn: flag IR must lower gt compare + returnValue, got {flagKinds}"
+  let checkIR ← findMethod ir "check"
+  let checkKinds := operationKinds checkIR.operations
+  expect (checkKinds.contains "callFn")
+    s!"bool-fn: check IR must lower callFn, got {checkKinds}"
+  let initializer ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "bool-fn init"
+    (execute initializer empty (encodeUInt64LE 0) zero #[] #[] ir.fns)
+  let (_, trueRet, _) ← requireSuccess "bool-fn check(5)"
+    (execute checkIR storage0 (encodeUInt64LE 5) zero #[] #[] ir.fns)
+  expect (trueRet == some 1) s!"bool-fn: flag(5) must be true, got {trueRet}"
+  let (_, falseRet, _) ← requireSuccess "bool-fn check(0)"
+    (execute checkIR storage0 (encodeUInt64LE 0) zero #[] #[] ir.fns)
+  expect (falseRet == some 0) s!"bool-fn: flag(0) must be false, got {falseRet}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "bool-fn: missing .wat artifact"
+  expectContains wat.contents "(func $fn_flag" "bool-fn WAT flag func"
+  expectContains wat.contents "(call $fn_flag" "bool-fn WAT flag call site"
+
+/-- Omitted-type let: `let x := a + b` lowers identically to the annotated form
+    (RHS expression tree, no residual annotation). Return uses the let binding
+    directly (no intervening effect) so the ValueId stays in-segment. -/
+private unsafe def testOmittedTypeLetProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OmitLet where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry sum(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    let x := a + b\n" ++
+    "    return x\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-omit-let>" "Examples.OmitLet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some sum := plan.entries.find? (·.name == "sum") |
+    throw <| IO.userError "omit-let: missing sum entry"
+  expect (sum.body == #[
+      .returnValue (.checkedAdd (.param 0) (.param 8))])
+    "omit-let: sum must lower let x := a+b into return checkedAdd(a,b)"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let sumIR ← findMethod ir "sum"
+  let sumKinds := operationKinds sumIR.operations
+  expect (sumKinds.contains "checkedAdd")
+    s!"omit-let: sum IR must lower checkedAdd, got {sumKinds}"
+  let initializer ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encodePair (a b : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b
+  let (storage0, _, _) ← requireSuccess "omit-let init"
+    (execute initializer empty (encodeUInt64LE 0) zero)
+  let (_, ret1, _) ← requireSuccess "omit-let sum(3,4)"
+    (execute sumIR storage0 (encodePair 3 4) zero)
+  expect (ret1 == some 7)
+    s!"omit-let: sum(3,4) must yield 7, got ret={ret1}"
+
+/-- Host-model Bool `!` execution pin (boolNot). Plan/WAT already lower `!`;
+    this closes the host-model execution gap left by &&/||-only traces. -/
+private unsafe def testBoolNotHostExecution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BoolNot where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry negate(x : UInt64) : Bool do\n" ++
+    "    return !(x > 0)\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-bool-not>" "Examples.BoolNot" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some negate := plan.entries.find? (·.name == "negate") |
+    throw <| IO.userError "bool-not: missing negate entry"
+  expect (negate.resultKind == .bool &&
+      negate.body == #[
+        .returnValue (.boolNot (.compare .gt (.param 0) (.literal 0)))])
+    "bool-not: negate must lower !(x > 0) to boolNot over gt"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let negateIR ← findMethod ir "negate"
+  let kinds := operationKinds negateIR.operations
+  expect (kinds.contains "boolNot" && kinds.contains "compare.gt")
+    s!"bool-not: IR must lower boolNot + gt, got {kinds}"
+  let initializer ← findMethod ir "init"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "bool-not init"
+    (execute initializer empty (encodeUInt64LE 0) zero)
+  -- !(5 > 0) = false → 0; !(0 > 0) = true → 1.
+  let (_, retPos, _) ← requireSuccess "bool-not negate(5)"
+    (execute negateIR storage0 (encodeUInt64LE 5) zero)
+  expect (retPos == some 0) s!"bool-not: !(5>0) must be false, got {retPos}"
+  let (_, retZero, _) ← requireSuccess "bool-not negate(0)"
+    (execute negateIR storage0 (encodeUInt64LE 0) zero)
+  expect (retZero == some 1) s!"bool-not: !(0>0) must be true, got {retZero}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "bool-not: missing .wat artifact"
+  expectContains wat.contents "i64.eqz" "bool-not WAT i64.eqz for boolNot"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2064,6 +2395,12 @@ unsafe def run : IO Unit := do
   testForLoopProductPath session
   testShiftBitwiseLogicalProductPath session
   testScheduleProductPath session
+  testVoidEntryFailClosed session
+  testMultipleEventsProductPath session
+  testZeroArgRevertProductPath session
+  testBoolResultPureFnProductPath session
+  testOmittedTypeLetProductPath session
+  testBoolNotHostExecution session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
     accumulatorModuleNameV1 none)

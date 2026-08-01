@@ -1752,6 +1752,266 @@ private unsafe def testUInt8StateRejected : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "EVM plan must reject UInt8 state (ABI/storage UInt64-only)"
 
+/-- Unit/void entry (`entry run() do`, no result type) fails closed at the EVM
+    Plan seam: makeEntryV1 rejects non-UInt64/Bool entry results. -/
+private unsafe def testVoidEntryRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program VoidEntry where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run() do\n" ++
+    "    count := count + 1\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load VoidEntry" (← session.selectProgramV1
+    text "<evm-void-entry>" "Tests.EvmVoidEntry" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error e =>
+      -- Normalize may reject Unit entry before the plan seam (no bare/implicit
+      -- return for entry). That is still product fail-closed for void entry.
+      expect (e.render.contains "return" || e.render.contains "Unit" ||
+          e.render.contains "unsupported" || e.render.contains "PF-SRC-INVALID")
+        s!"void entry compile failure must mention return/Unit/unsupported, got {e.render}"
+  | .ok compiled =>
+      match materializeSelected TargetId.evm compiled with
+      | .error (.planInvariant .evm msg) =>
+          expect (msg.contains "run" &&
+              msg.contains "does not return public UInt64 or Bool")
+            s!"void entry planInvariant must match makeEntryV1, got: {msg}"
+      | .error e =>
+          throw <| IO.userError s!"void entry must fail with planInvariant .evm, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "void entry must not materialize on EVM"
+
+/-- Two declared events emitted in one entry: pin both log topics and ABI. -/
+private unsafe def testMultipleEvents : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MultiEvent where\n" ++
+    "  state count : UInt64\n" ++
+    "  event A(x : UInt64)\n" ++
+    "  event B(x : UInt64, y : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    emit A(x)\n" ++
+    "    emit B(count, x)\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load MultiEvent" (← session.selectProgramV1
+    text "<evm-multi-event>" "Tests.EvmMultiEvent" none)
+  let compiled ← liftResult "compile MultiEvent" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan MultiEvent" <| planEvm compiled
+  expect (plan.events.map (·.name) == #["A", "B"] &&
+      plan.events[0]!.fieldCount == 1 &&
+      plan.events[1]!.fieldCount == 2)
+    "MultiEvent must carry A(1 field) then B(2 fields) in source order"
+  expect (plan.entries[0]!.body == #[
+      .emitEvent 0 #[.param 0],
+      .emitEvent 1 #[.storageLoad 0, .param 0],
+      .returnValue (.storageLoad 0)])
+    "MultiEvent go must emit A then B then return count"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"MultiEvent plan must validate: {e.render}"
+  let output ← liftResult "materialize MultiEvent" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "MultiEvent.yul") |
+    throw <| IO.userError "MultiEvent: missing MultiEvent.yul"
+  let yul := yulFile.contents
+  let topicA := Targets.Evm.Keccak.keccak256Hex "A(uint64)".toUTF8
+  let topicB := Targets.Evm.Keccak.keccak256Hex "B(uint64,uint64)".toUTF8
+  expect (yul.contains s!"log1(0, 32, 0x{topicA})")
+    "MultiEvent Yul must emit log1 for A with one word"
+  expect (yul.contains s!"log1(0, 64, 0x{topicB})")
+    "MultiEvent Yul must emit log1 for B with two words"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "MultiEvent.abi.json") |
+    throw <| IO.userError "MultiEvent: missing MultiEvent.abi.json"
+  expect (abiFile.contents.contains "\"type\":\"event\",\"name\":\"A\"" &&
+      abiFile.contents.contains "\"type\":\"event\",\"name\":\"B\"")
+    "MultiEvent ABI must declare both events"
+
+/-- Zero-field declared error + bare `revert E` → empty custom-error selector. -/
+private unsafe def testZeroArgRevert : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ZeroRev where\n" ++
+    "  state count : UInt64\n" ++
+    "  error E()\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry go(x : UInt64) : UInt64 do\n" ++
+    "    if x == 0 then\n" ++
+    "      revert E\n" ++
+    "    else\n" ++
+    "      count := count + x\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load ZeroRev" (← session.selectProgramV1
+    text "<evm-zero-rev>" "Tests.EvmZeroRev" none)
+  let compiled ← liftResult "compile ZeroRev" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan ZeroRev" <| planEvm compiled
+  expect (plan.errors.map (·.name) == #["E"] && plan.errors[0]!.fieldCount == 0)
+    "ZeroRev must carry zero-field error E"
+  expect (plan.entries[0]!.body == #[
+      .ifThenElse (.compare .eq (.param 0) (.literal 0))
+        #[.revertError 0 #[]]
+        #[.store {
+          slot := 0
+          value := .checkedAdd (.storageLoad 0) (.param 0)
+        }],
+      .returnValue (.storageLoad 0)])
+    "ZeroRev go must branch to bare revertError 0 with empty args"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ZeroRev plan must validate: {e.render}"
+  let output ← liftResult "materialize ZeroRev" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "ZeroRev.yul") |
+    throw <| IO.userError "ZeroRev: missing ZeroRev.yul"
+  let yul := yulFile.contents
+  let expectedSelector := Targets.Evm.Keccak.selector "E" #[]
+  expect (yul.contains expectedSelector)
+    s!"ZeroRev Yul must contain empty-error selector {expectedSelector}"
+  expect (yul.contains "revert(0, 4)")
+    "ZeroRev Yul must revert with selector-only length 4"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "ZeroRev.abi.json") |
+    throw <| IO.userError "ZeroRev: missing ZeroRev.abi.json"
+  expect (abiFile.contents.contains "\"type\":\"error\",\"name\":\"E\"")
+    "ZeroRev ABI must declare error E"
+
+/-- Bool-result pureFn called from a Bool entry: pin resultIsBool + Yul fn path. -/
+private unsafe def testBoolResultPureFn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program BoolFn where\n" ++
+    "  state count : UInt64\n" ++
+    "  fn flag(a : UInt64) : Bool do\n" ++
+    "    return a > 0\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry check(x : UInt64) : Bool do\n" ++
+    "    return flag(x)\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load BoolFn" (← session.selectProgramV1
+    text "<evm-bool-fn>" "Tests.EvmBoolFn" none)
+  let compiled ← liftResult "compile BoolFn" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan BoolFn" <| planEvm compiled
+  expect (plan.fns.size == 1 && plan.fns[0]!.name == "flag" &&
+      plan.fns[0]!.resultIsBool)
+    "BoolFn must lower flag with resultIsBool"
+  expect (plan.fns[0]!.body == #[
+      .returnValue (.compare .gt (.param 0) (.literal 0))])
+    "flag body must return a > 0"
+  expect (plan.entries[0]!.name == "check" &&
+      plan.entries[0]!.resultKind == .bool &&
+      plan.entries[0]!.body == #[.returnValue (.callFn 0 #[.param 0])])
+    "check must return flag(x) as Bool callFn"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"BoolFn plan must validate: {e.render}"
+  let output ← liftResult "materialize BoolFn" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BoolFn.yul") |
+    throw <| IO.userError "BoolFn: missing BoolFn.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "function pf_fn0(" && yul.contains "pf_fn0(")
+    "BoolFn Yul must define and call pf_fn0"
+  expect (yul.contains "gt(")
+    "BoolFn Yul must render the comparison inside the pureFn"
+  expect (yul.contains "mstore(0," && yul.contains "return(0, 32)")
+    "BoolFn entry must return the Bool word via mstore/return"
+  let some abiFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "BoolFn.abi.json") |
+    throw <| IO.userError "BoolFn: missing BoolFn.abi.json"
+  expect (abiFile.contents.contains "\"name\":\"check\"" &&
+      abiFile.contents.contains "\"type\":\"bool\"")
+    "BoolFn ABI must declare check with bool outputs"
+
+/-- Omitted-type `let x := a + b` still lowers to checkedAdd. -/
+private unsafe def testOmittedTypeLet : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LetOmit where\n" ++
+    "  entry sum(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    let x := a + b\n" ++
+    "    return x\n"
+  let source ← liftResult "load LetOmit" (← session.selectProgramV1
+    text "<evm-let-omit>" "Tests.EvmLetOmit" none)
+  let compiled ← liftResult "compile LetOmit" <|
+    Compiler.compileValidatedSourceV1 source
+  let plan ← liftResult "plan LetOmit" <| planEvm compiled
+  expect (plan.entries[0]!.body == #[
+      .returnValue (.checkedAdd (.param 0) (.param 1))])
+    "omitted-type let must lower to checkedAdd of both params"
+  match Targets.Evm.validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"LetOmit plan must validate: {e.render}"
+  let output ← liftResult "materialize LetOmit" <|
+    materializeSelected TargetId.evm compiled
+  let some yulFile := (MaterializedArtifactsV1.filesOf output).find?
+      (·.path == "LetOmit.yul") |
+    throw <| IO.userError "LetOmit: missing LetOmit.yul"
+  let yul := yulFile.contents
+  expect (yul.contains "add(")
+    "LetOmit Yul must render the add from the omitted-type let"
+
+/-- `assert … else` is outside the envelope (Normalize/plan fail closed). -/
+private unsafe def testAssertElseRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let text :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program AssertElse where\n" ++
+    "  state count : UInt64\n" ++
+    "  error Guard()\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry f(x : UInt64) : UInt64 do\n" ++
+    "    assert x > 0 else Guard\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let source ← liftResult "load AssertElse" (← session.selectProgramV1
+    text "<evm-assert-else>" "Tests.EvmAssertElse" none)
+  match Compiler.compileValidatedSourceV1 source with
+  | .error e =>
+      expect (e.render.contains "assert" || e.render.contains "PF-SRC-INVALID" ||
+          e.render.contains "unsupported")
+        s!"assert-else compile failure must mention assert/unsupported, got {e.render}"
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error (.planInvariant .evm msg) =>
+          expect (msg.contains "assert")
+            s!"assert-else planInvariant must mention assert, got: {msg}"
+      | .error e =>
+          throw <| IO.userError s!"assert-else must fail closed, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "assert-else must not produce an EVM plan"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -1781,6 +2041,12 @@ unsafe def run : IO Unit := do
   testBodyUInt8OverflowPlan
   testBodyMultiWidthShift
   testUInt8StateRejected
+  testVoidEntryRejected
+  testMultipleEvents
+  testZeroArgRevert
+  testBoolResultPureFn
+  testOmittedTypeLet
+  testAssertElseRejected
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
