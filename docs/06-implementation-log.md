@@ -12052,6 +12052,18 @@ normative: false
 - Boundary：四个callables及后续root字段、finish、structure-gated encoder/carrier closed theorem、
   `evalInvariantV1`/`InvariantTheoremV1`与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete entry-gate callable
+
+- Golden segmentation：从原root remainder中精确拆出empty interfaces、callables count与158-byte
+  `entry_gate`；拼接内容不变且总长仍为1235 bytes。
+- Kernel：闭合count=4（257→261）及首个production Callable（261→419），覆盖Entry kind、
+  Option.some ASCII/NFC name、empty params、public Unit result、singleton empty Block、`Return none`、
+  empty loopBounds与absent invariantSteps，并保持Callable/Kind/Result/Visibility/Block/Term nesting。
+- Review/Verification：blocker-only APPROVE；focused Semantic builds、WireV1/InvariantABI suites及
+  docs-check通过；production encoder仍逐字节命中golden。
+- Boundary：pure truth leaf、两个invariant callables、InvariantDecl/requirements、root finish、closed
+  carrier theorem与formal TASK/TST仍pending。
+
 ## 2026-08-01 — N5 ContextRead/Commit engineering slice
 
 - Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).

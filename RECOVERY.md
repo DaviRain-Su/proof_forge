@@ -546,3 +546,10 @@ header 195→210、id 210→214、ASCII/NFC name `flag` 214→222、typeId 222�
 production zero-array authority闭合249→253→257。显式golden仅重新分段，production encoder
 byte-for-byte suite仍确认总长1235且内容不变。下一字段为四元素callables；尚未闭合root finish、
 structure-gated encoder/carrier theorem、`evalInvariantV1`/`InvariantTheoremV1`或formal TASK/TST evidence。
+
+callables count=4现已闭合257→261，首个`entry_gate`完整闭合261→419。production路径依次消费
+Callable header/id、nested Entry kind、Option.some ASCII/NFC name、empty params、nested public Unit
+CallableResult、entryBlock=0、singleton Block；Block内部为empty params/instructions与nested
+`Return none`，随后empty loopBounds及absent invariantSteps。所有wrapper均恢复parent nesting，显式
+golden重分段后仍由production encoder suite确认1235-byte identity。下一片从offset 419的pure truth
+leaf开始；其余callables/root/carrier及formal状态均未闭合。
