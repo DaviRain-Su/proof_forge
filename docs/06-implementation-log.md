@@ -12539,3 +12539,12 @@ normative: false
   `validateCallablesValueBytesV1 ... maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 4)`。
 - Boundary：declaration/name/signature、CFG/invariant closure、requirements、完整structure、production
   encoder/carrier identity与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 concrete declaration-name uniqueness group
+
+- Kernel：canonical valueBytes之后的五个production gates依次闭合；empty constants/events/errors与
+  interface-field walkers执行零次，singleton logicalState name `flag`走shared checker的≤1 no-sort路径。
+- Scope：只证明exact-string uniqueness结果；SPEC §6 identifier grammar仍由后续
+  `validateDeclarationIdentifierNamesV1`拥有，没有并入或重排phase。
+- Boundary：callable signature phases、InvariantDecl join、identifier grammar、CFG/requirements、完整
+  structure/encoder/carrier/formal状态仍pending。

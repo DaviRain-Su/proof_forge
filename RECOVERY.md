@@ -617,3 +617,8 @@ canonical Bool `#[1]`经sole decoder消耗2单位，truth的PureCall不消费val
 canonical Bool `#[0]`再消耗2单位，故production callable walker精确返回
 `maxCanonicalProgramBytes - 4`。下一片进入declaration/name/signature gates；完整structure、encoder/
 carrier identity及formal TASK/TST仍pending。
+
+canonical valueBytes之后的same-error declaration-name组已按production顺序闭合：constants、events、
+errors为空，interface-field walker也无声明可遍历；logicalState仅`flag`一项，走shared exact-name checker
+的singleton no-sort success path。下一阻塞为callable signature phases，随后才是InvariantDecl exact join
+与identifier grammar；不得提前声称完整structure成功。
