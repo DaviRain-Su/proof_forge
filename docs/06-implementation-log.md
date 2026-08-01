@@ -12626,6 +12626,15 @@ normative: false
 - Kernel：canonical fixture四个callable结果与无ContextRead catalog成功组合为完整generic `.cfg` success。
 - Boundary：五项invariant closure、exact/intrinsic fuel、requirements、完整structure及formal状态仍pending。
 
+## 2026-08-01 — D2-07 invariant closure single-analysis boundary
+
+- Production：direct-root之后只运行一次`computeInvariantClosureMembershipV1`；exact members按原顺序共享给
+  metadata、call-DAG、closure-CFG、PureFn-op及exact-fuel checker，删除五次确定性重复计算。
+- Safety：phase/error precedence不变；fuel seam增加members/callables size fail-closed guard；composition
+  theorem固定closure返回的同一members进入fuel，不接受第二套membership authority。
+- Verification：WireV1与InvariantABI engineering suites通过；本片仅重构proof boundary，canonical
+  closure/fuel success仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

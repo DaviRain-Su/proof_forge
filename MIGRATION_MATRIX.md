@@ -354,9 +354,10 @@ structure/encoder/carrier/formal状态仍pending。CFG现按callable source orde
 `validateCallableCfgShape`，闭合single reachable return block、empty defs/effects/loops及generic typing。
 随后`truthLeaf`、`truth`、`falsehood`也均通过同一production authority的完整a–j路径：两个literal
 callable闭合canonical ValueId/use/dominance/Bool op+return typing，`truth`闭合nullary PureCall→pureFn
-callee join与Bool result typing。四项generic callable CFG已全部kernel闭合；global ContextRead catalog、
+callee join与Bool result typing。四项generic callable CFG已全部kernel闭合；
 随后已与原private global ContextRead catalog按production顺序组合，fixture无ContextRead并闭合完整generic
-`.cfg` phase；invariant closure/fuel仍pending。
+`.cfg` phase。closure production现已先做行为保持的single-analysis重构：direct-root后只计算一次exact
+membership，并共享给metadata/DAG/CFG/PureFn-op/exact-fuel；canonical closure/fuel proof仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

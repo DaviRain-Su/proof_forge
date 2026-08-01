@@ -639,3 +639,9 @@ generic `.cfg` production phase现也已闭合：新seam原样执行四个source
 原private global ContextRead catalog；fixture无ContextRead，故catalog保持empty seen table并成功。structure
 gate仍消费同一phase，mixed callable/catalog error precedence由既有WireV1回归固定。下一片进入五项
 invariant closure restrictions；fuel、requirements及完整structure仍pending。
+
+进入closure证明前已先保持行为做单一analysis重构：direct-root检查后，production
+`computeInvariantClosureMembershipV1`现在只计算一次，exact members依次传给metadata、call-DAG、
+closure-CFG、PureFn-op及exact-fuel checker；不再由五个downstream phase重复计算。phase/error顺序不变，
+fuel proof seam对members长度fail-closed，并由完整composition theorem固定它必须来自closure结果。
+本片仅准备proof boundary，尚未声称canonical closure/fuel成功。
