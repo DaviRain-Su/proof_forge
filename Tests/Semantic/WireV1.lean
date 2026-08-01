@@ -418,6 +418,33 @@ example (c : Cursor) (count offset : Nat) (states : Array StateDeclV1)
     decodeArray maxTableElements decodeStateDeclV1 c = .ok (states, afterStates) :=
   decodeStateDeclArrayV1_eq_of_elements c count offset states afterStates hcount helements
 
+example (c afterTag afterId afterName afterCallable : Cursor)
+    (id callableId : UInt32) (name : String)
+    (htag : expectTag "InvariantDecl" 3 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeString afterId = .ok (name, afterName))
+    (hcallable : decodeU32le afterName = .ok (callableId, afterCallable)) :
+    decodeInvariantDeclBodyV1 c = .ok ({ id, name, callableId }, afterCallable) :=
+  decodeInvariantDeclBodyV1_eq_of_fields c afterTag afterId afterName afterCallable
+    id callableId name htag hid hname hcallable
+
+example (c c' : Cursor) (invariant : InvariantDeclV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeInvariantDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (invariant, c')) :
+    decodeInvariantDeclV1 c =
+      .ok (invariant, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeInvariantDeclV1_eq_of_bodyV1 c invariant c' hdepth hbody
+
+example (c : Cursor) (count offset : Nat) (invariants : Array InvariantDeclV1)
+    (afterInvariants : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeInvariantDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (invariants, afterInvariants)) :
+    decodeArray maxTableElements decodeInvariantDeclV1 c = .ok (invariants, afterInvariants) :=
+  decodeInvariantDeclArrayV1_eq_of_elements c count offset invariants afterInvariants
+    hcount helements
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

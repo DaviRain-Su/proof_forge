@@ -11535,3 +11535,12 @@ normative: false
   `maxTableElements` header与sole iterator。focused build、signature examples与blocker review通过。
 - Boundary：当前canonical public state已具备composition；private/commitment branch theorem、callables、
   invariants、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 InvariantDecl root-array composition
+
+- Production：将InvariantDecl原anonymous body机械抽为sole `decodeInvariantDeclBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装，wire顺序保持tag→id→name→callableId。
+- Proof：field theorem线程真实production decoder equality，wrapper恢复parent nesting；root array
+  corollary复用真实`maxTableElements` count与sole iterator。focused build与signature examples通过。
+- Boundary：callableId引用合法性仍属于structure gate；CallableV1、完整root/carrier与formal TASK/TST
+  仍pending。

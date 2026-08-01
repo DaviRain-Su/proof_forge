@@ -340,6 +340,11 @@ production bodies；public visibility theorem固定tag→zero field-count，Stat
 tag→id→name→typeId→visibility并正确恢复两层nesting。`decodeStateDeclArrayV1_eq_of_elements`锁定root
 `maxTableElements` table。private/commitment runtime仍保留，仅branch proof按需pending。
 
+root invariants composition现已闭合：InvariantDecl anonymous body机械抽为sole production body，field
+theorem固定tag→id→name→callableId，wrapper恢复parent nesting；root array corollary复用真实
+`maxTableElements` header与sole iterator。callableId的structure join仍由后续structure gate负责，transport
+proof不提前验证引用。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

@@ -1718,12 +1718,47 @@ def encodeInvariantDeclV1 (d : InvariantDeclV1) : Except SemanticWireErrorV1 Byt
   let nameB ← encodeString d.name
   encodeTagged "InvariantDecl" #[encodeU32le d.id, nameB, encodeU32le d.callableId]
 
-def decodeInvariantDeclV1 : Decoder InvariantDeclV1 := withTaggedNesting fun c => do
+/-- Sole production body for an InvariantDecl tagged record. -/
+def decodeInvariantDeclBodyV1 : Decoder InvariantDeclV1 := fun c => do
   let ((), c) ← expectTag "InvariantDecl" 3 c
   let (id, c) ← decodeU32le c
   let (name, c) ← decodeString c
   let (callableId, c) ← decodeU32le c
   pure ({ id, name, callableId }, c)
+
+def decodeInvariantDeclV1 : Decoder InvariantDeclV1 :=
+  withTaggedNesting decodeInvariantDeclBodyV1
+
+/-- Compose InvariantDecl from its actual production field decoders. -/
+theorem decodeInvariantDeclBodyV1_eq_of_fields (c afterTag afterId afterName afterCallable : Cursor)
+    (id callableId : UInt32) (name : String)
+    (htag : expectTag "InvariantDecl" 3 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeString afterId = .ok (name, afterName))
+    (hcallable : decodeU32le afterName = .ok (callableId, afterCallable)) :
+    decodeInvariantDeclBodyV1 c = .ok ({ id, name, callableId }, afterCallable) := by
+  simp only [decodeInvariantDeclBodyV1, htag, hid, hname, hcallable, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful InvariantDecl body through tagged nesting. -/
+theorem decodeInvariantDeclV1_eq_of_bodyV1 (c : Cursor) (invariant : InvariantDeclV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeInvariantDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (invariant, c')) :
+    decodeInvariantDeclV1 c =
+      .ok (invariant, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeInvariantDeclV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+/-- Root `invariants` field composition through the sole array decoder. -/
+theorem decodeInvariantDeclArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
+    (invariants : Array InvariantDeclV1) (afterInvariants : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeInvariantDeclV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (invariants, afterInvariants)) :
+    decodeArray maxTableElements decodeInvariantDeclV1 c = .ok (invariants, afterInvariants) :=
+  decodeArray_eq_of_elementsV1 maxTableElements decodeInvariantDeclV1 c count offset
+    invariants afterInvariants hcount helements
 
 def encodeRequirementPredicateV1 :
     RequirementPredicateV1 → Except SemanticWireErrorV1 ByteArray
