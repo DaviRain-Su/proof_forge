@@ -220,7 +220,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **T9a–T9c-2** | 窄结果 / EVM UInt128·256 / 窄 Int 四 target | **done**（roadmap merged） |
 | **T9d** | NEAR/Solana/Noir `planDigest` 绑 BuildIdentity/OutputSet（镜像 M4） | **done**（`c3626725f` / roadmap 2026-08-01） |
 | **T9e** | Solana/NEAR UInt128/256 多字算术（先设计后实现，可拆） | **done**（2026-08-02：T9e-Solana `52f527140` + T9e-NEAR claimed on main） |
-| **T9-0** | 控制面/文档对齐 | **partial**（DOC-1/4/5 done；Matrix 长表扫除仍待） |
+| **T9-0** | 控制面/文档对齐 | **done**（2026-08-02：roadmap merged `93b80db45` / control-plane status） |
 
 ---
 
