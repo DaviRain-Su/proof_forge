@@ -131,9 +131,11 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - Tests：`testWideUintProduct` + body/result admit；shard-targets 绿
 - 隔离 CI 已 dispatch（ci-verify-t9e-solana）。非 formal。
 
-### [in_progress] T9e-NEAR：NEAR UInt128/256（多字算术）
-- 镜像 T9e-Solana；WAT i64 软件多字 + host model
-- 认领：Grok Build coordinator fire
+### [merged] T9e-NEAR：NEAR UInt128/256（多字算术）（2026-08-02, 0cefa72b2）
+- Envelope `isNearAbiUintWidth`/`pilotUintWidthPolicyNearBody` 扩 128/256；
+  param cumulative pitch；KV byteWidth 16/32；`MethodResultKind.uint128/256`
+- WAT 多肢 i64：add/sub/compare；条件 scratch locals；host model WideUint
+- shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t9e-near）。非 formal。
 
 ### [partial] T9-0：控制面/文档对齐（主代理；不进调度）
 - **2026-08-01 已做**：RECOVERY 当前 CLI 路径；docs/index + document-status；四 target dossier +
@@ -162,3 +164,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T9c-2 | merged 65bc46956, 隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int） |
 | 2026-08-01 | T9d | merged 4c79e0a59+c3626725f, 隔离 CI 已 dispatch（ci-verify-t9d-plan-digest） |
 | 2026-08-02 | T9e-Solana | merged 52f527140, 隔离 CI 已 dispatch（ci-verify-t9e-solana） |
+| 2026-08-02 | T9e-NEAR | merged 0cefa72b2, 隔离 CI 已 dispatch（ci-verify-t9e-near） |
