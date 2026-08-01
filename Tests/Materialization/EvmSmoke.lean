@@ -1840,6 +1840,11 @@ private unsafe def testMultipleEvents : IO Unit := do
   expect (abiFile.contents.contains "\"type\":\"event\",\"name\":\"A\"" &&
       abiFile.contents.contains "\"type\":\"event\",\"name\":\"B\"")
     "MultiEvent ABI must declare both events"
+  -- Cross-event emission order: A's log1 must appear before B's log1 in Yul.
+  let headA := (yul.splitOn s!"log1(0, 32, 0x{topicA})").head?.getD ""
+  let headB := (yul.splitOn s!"log1(0, 64, 0x{topicB})").head?.getD ""
+  expect (headA.length < headB.length)
+    "MultiEvent Yul must emit log1 for A before log1 for B"
 
 /-- Zero-field declared error + bare `revert E` → empty custom-error selector. -/
 private unsafe def testZeroArgRevert : IO Unit := do

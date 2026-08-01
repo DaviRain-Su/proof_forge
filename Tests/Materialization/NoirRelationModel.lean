@@ -1409,6 +1409,44 @@ private def arithFlowSourceText : String :=
   "    return !(count % 2 == 0)\n\n" ++
   "end ProofForgeV2.Examples\n"
 
+
+/-- Isolated mod-by-zero: a dedicated `%` entry — the remainder guard rejects
+    b=0 without any preceding division. -/
+private unsafe def checkIsolatedModZeroProduct : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ModOnly where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry rem(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    return a % b\n"
+  let ir ← compileIrFromProgramV1 source
+    "Examples.ModOnly" "<noir-mod-only>"
+  let rem ← findRelation ir "rem"
+  let modOps := rem.operations.filter fun op =>
+    match op with | .checkedMod .. => true | _ => false
+  expect (modOps.size == 1)
+    s!"ModOnly rem must lower exactly one checkedMod, got {modOps.size}"
+  -- Two-parameter witness: state slots keep 7 (unread), params a/b, result.
+  let modInputs (a b : U64) (result : U64) : Except String (Array ModelValue) :=
+    bindInputs rem fun role => match role with
+      | .preInitialized => some <| .bool true
+      | .preState _ => some <| .u64 7
+      | .parameter 0 => some <| .u64 a
+      | .parameter 1 => some <| .u64 b
+      | .postState _ => some <| .u64 7
+      | .postInitialized => some <| .bool true
+      | .result => some <| .u64 result
+      | _ => none
+  -- rem accept: 7 % 3 = 1 (state untouched).
+  let remOk ← liftModel "ModOnly rem ok inputs" <| modInputs 7 3 1
+  expectAccept "ModOnly rem 7,3 accepts" rem remOk
+  -- rem divisor 0: the remainder guard rejects any witness.
+  let remZero ← liftModel "ModOnly rem zero inputs" <| modInputs 7 0 0
+  expectReject "ModOnly rem by zero is inadmissible" rem remZero
+
 private unsafe def checkArithOpsProduct : IO Unit := do
   let ir ← compileIrFromProgramV1 arithFlowSourceText
     "Examples.ArithFlow" "<noir-arith-flow>"
@@ -2287,6 +2325,7 @@ unsafe def run : IO Unit := do
   checkEmitRevertProduct
   checkFnLocalCallProduct
   checkArithOpsProduct
+  checkIsolatedModZeroProduct
   checkForLoopProduct
   checkShiftBitwiseLogicalProduct
   checkExternalCallScheduleProduct

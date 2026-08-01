@@ -2380,6 +2380,116 @@ private unsafe def testBoolNotHostExecution
     throw <| IO.userError "bool-not: missing .wat artifact"
   expectContains wat.contents "i64.eqz" "bool-not WAT i64.eqz for boolNot"
 
+
+/-- Isolated mod-by-zero: a dedicated `%` entry traps "division by zero" on
+    b=0 without any preceding division, and rolls storage back. -/
+private unsafe def testIsolatedModZeroProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ModOnly where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry rem(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    return a % b\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-host-mod-only>" "Examples.ModOnly" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some rem := plan.entries.find? (·.name == "rem") |
+    throw <| IO.userError s!"mod-only: missing rem entry, got {plan.entries.map (·.name)}"
+  let remMods := rem.body.filter fun s =>
+    match s with | .returnValue (.checkedMod ..) => true | _ => false
+  expect (remMods.size == 1)
+    "mod-only: rem must return a checkedMod"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let remIR ← findMethod ir "rem"
+  let initializer ← findMethod ir "init"
+  let field := ir.keys[1]!
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encodePair (a b : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b
+  let (storage0, _, _) ← requireSuccess "mod-only init"
+    (execute initializer empty (encodeUInt64LE 6) zero)
+  -- rem(7,3) = 1
+  let (storage1, ret1, _) ← requireSuccess "mod-only rem 7,3"
+    (execute remIR storage0 (encodePair 7 3) zero)
+  expect (ret1 == some 1)
+    "mod-only: rem(7,3) must yield 1"
+  -- rem(5,0) traps the isolated mod-by-zero guard and rolls storage back.
+  match execute remIR storage1 (encodePair 5 0) zero with
+  | .trapped restored reason =>
+      expect (storedUInt64? restored field.key == some 6)
+        "mod-only: mod-by-zero must roll back storage"
+      expect (reason.contains "division by zero")
+        s!"mod-only: expected division by zero trap, got {reason}"
+  | .success .. => throw <| IO.userError "mod-only: rem(/0) must trap"
+
+/-- Multi-state host execution: both storage fields flow through init and a
+    mutate entry, each under its own layout region. -/
+private unsafe def testMultiStateHostExecution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program TwoState where\n" ++
+    "  state count : UInt64\n" ++
+    "  state balance : UInt64\n\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    count := seed\n" ++
+    "    balance := seed\n\n" ++
+    "  entry go(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    balance := balance - delta\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-host-two-state>" "Examples.TwoState" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.map (·.name) == #["count", "balance"])
+    "two-state: plan must carry both state fields in source order"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  -- keys = [layout marker, count, balance].
+  expect (ir.keys.size == 3)
+    s!"two-state: IR must have marker + two storage regions, got {ir.keys.size}"
+  let initializer ← findMethod ir "init"
+  let go ← findMethod ir "go"
+  let countKey := ir.keys[1]!.key
+  let balanceKey := ir.keys[2]!.key
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encodePair (a b : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b
+  let (storage0, _, _) ← requireSuccess "two-state init"
+    (execute initializer empty (encodeUInt64LE 10) zero)
+  expect (storedUInt64? storage0 countKey == some 10 &&
+      storedUInt64? storage0 balanceKey == some 10)
+    "two-state: init must seed both fields"
+  let (storage1, ret1, _) ← requireSuccess "two-state go"
+    (execute go storage0 (encodeUInt64LE 3) zero)
+  expect (ret1 == some 13)
+    "two-state: go must return the updated count"
+  expect (storedUInt64? storage1 countKey == some 13 &&
+      storedUInt64? storage1 balanceKey == some 7)
+    "two-state: go must update count and balance independently"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2392,6 +2502,8 @@ unsafe def run : IO Unit := do
   testFnLocalCallProductPath session
   testEmitRevertProductPath session
   testArithOpsProductPath session
+  testIsolatedModZeroProductPath session
+  testMultiStateHostExecution session
   testForLoopProductPath session
   testShiftBitwiseLogicalProductPath session
   testScheduleProductPath session

@@ -1572,6 +1572,10 @@ private unsafe def testMultipleEvents
   let planText ← findFile files "MultiEvent.sbpf-plan"
   expect (planText.contains "emit_event A" && planText.contains "emit_event B")
     "sbpf-plan must render both named event emissions"
+  let headA := (planText.splitOn "emit_event A").head?.getD ""
+  let headB := (planText.splitOn "emit_event B").head?.getD ""
+  expect (headA.length < headB.length)
+    "sbpf-plan must emit event A before event B"
   let idl ← findFile files "MultiEvent.idl.json"
   expect (idl.contains "\"name\":\"A\"" && idl.contains "\"name\":\"B\"" &&
       idl.contains "\"events\":")
@@ -1699,6 +1703,34 @@ private unsafe def testOmittedTypeLet
   expect (planText.contains "checked_add_u64")
     "sbpf-plan must render checked_add_u64 for the omitted-type let"
 
+
+/-- Isolated mod-by-zero: a dedicated `%` entry pins checked_rem_u64 with its
+    error branch in the sbpf plan. -/
+private unsafe def testIsolatedModZero
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text := wrapProgram "ModOnly" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry rem(a : UInt64, b : UInt64) : UInt64 do\n" ++
+    "    return a % b\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session text
+    "Examples.ModOnly" "<solana-mod-only>"
+  let plan ← liftResult <| planSolana compiled
+  let rem ← findHandler plan "rem"
+  let remMods := rem.body.filter fun s =>
+    match s with | .returnValue (.checkedMod ..) => true | _ => false
+  expect (remMods.size == 1)
+    "mod-only: rem must return a checkedMod"
+  let files ← liftResult <| filesSolana compiled
+  let planText ← findFile files "ModOnly.sbpf-plan"
+  expect (planText.contains "checked_rem_u64")
+    "sbpf-plan must emit checked_rem_u64 for the isolated mod"
+  expect (planText.contains "else program_error")
+    "checked_rem_u64 must carry the fail-closed error branch"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testGuardedCounterPlan session
@@ -1729,6 +1761,7 @@ unsafe def run : IO Unit := do
   testExternalCallGate session
   testVoidEntryRejected session
   testMultipleEvents session
+  testIsolatedModZero session
   testZeroArgRevert session
   testBoolResultPureFn session
   testOmittedTypeLet session
