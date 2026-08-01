@@ -26,6 +26,8 @@ normative: false
 8. [`06-security-and-migration.md`](06-security-and-migration.md)：安全与 clean-room 迁移。
 9. [`07-synthesis.md`](07-synthesis.md)：研究综合与实施准入。
 10. [`08-v1-v2-frontend-ir-comparison.md`](08-v1-v2-frontend-ir-comparison.md)：V1 与 V2 的 Lean 语法入口、领域 IR 和编译边界对照。
+11. [`09-assembler-semantics-bridge.md`](09-assembler-semantics-bridge.md)：汇编语义桥研究。
+12. [`10-ibc-as-proofforge-programs.md`](10-ibc-as-proofforge-programs.md)：把 IBC 协议实现成 ProofForge 程序、编译部署到各链的可行性、可移植性映射与语言前置缺口。
 
 ## 证据等级
 
