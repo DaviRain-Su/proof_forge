@@ -173,62 +173,71 @@ lean_exe proof_forge_next_fast_tests where
 -- OS between suites. Each shard runs an independent process so the OS reclaims
 -- memory when it exits. `test` runs the shards instead of the aggregate.
 --
--- BUILD-3: test suite exes use `supportInterpreter := false` (measured ~7–15 MiB
--- per shard vs ~170 MiB with interpreter). Product CLI keeps interpreter true
--- (parser / elaborator). Re-enable per-exe only if a suite needs the Lean
--- interpreter at runtime.
+-- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
+-- above the 7 GB hosted runner limit because Lean does not return heap to the
+-- OS between suites. Each shard runs an independent process so the OS reclaims
+-- memory when it exits. `test` runs the shards instead of the aggregate.
+--
+-- BUILD-3 (revised): test suite exes keep `supportInterpreter := true`. The
+-- earlier `false` probe saved ~7–15 MiB per shard but broke linux runners:
+-- Lean 4.31 linux builds do not export `IO.getRandomBytes` (and a few other
+-- `Init/Std` externs) without the interpreter, so any shard whose transitive
+-- imports touch those symbols fails with "Could not find native
+-- implementation". The ~170 MiB/shard cost is well within the 7 GB runner
+-- budget (9 shards × ~170 MiB ≈ 1.5 GB peak, and shards run with limited
+-- parallelism). Product CLI already keeps the interpreter on for the
+-- parser/elaborator.
 lean_exe proof_forge_next_tests_shard_core where
   exeName := "proof-forge-next-tests-shard-core"
   root := `Tests.Shards.Core
-  -- BUILD-3 probe: interpreter off if pure IO tests
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_worker where
   exeName := "proof-forge-next-tests-shard-worker"
   root := `Tests.Shards.Worker
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_typed where
   exeName := "proof-forge-next-tests-shard-typed"
   root := `Tests.Shards.Typed
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_language where
   exeName := "proof-forge-next-tests-shard-language"
   root := `Tests.Shards.Language
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_language_b where
   exeName := "proof-forge-next-tests-shard-language-b"
   root := `Tests.Shards.LanguageB
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_language_c where
   exeName := "proof-forge-next-tests-shard-language-c"
   root := `Tests.Shards.LanguageC
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_aggregate where
   exeName := "proof-forge-next-tests-shard-aggregate"
   root := `Tests.Shards.Aggregate
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_language_heavy where
   exeName := "proof-forge-next-tests-shard-language-heavy"
   root := `Tests.Shards.LanguageHeavy
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_source where
   exeName := "proof-forge-next-tests-shard-source"
   root := `Tests.Shards.Source
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_source_b where
   exeName := "proof-forge-next-tests-shard-source-b"
   root := `Tests.Shards.SourceB
-  supportInterpreter := false
+  supportInterpreter := true
 
 lean_exe proof_forge_next_tests_shard_targets where
   exeName := "proof-forge-next-tests-shard-targets"
   root := `Tests.Shards.Targets
-  supportInterpreter := false
+  supportInterpreter := true
