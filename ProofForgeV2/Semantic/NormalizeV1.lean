@@ -70,7 +70,9 @@
       single-step `map[k] = v` → `Op.IndexSet` (key exact, value = map value);
       single-step `bytes[i] = b` → `Op.IndexSet` (UInt32 index, UInt8 value);
       Map/Bytes **state** already admitted (ArrayState); empty Map default +
-      IndexSet upsert; fixed Bytes default zeros + IndexSet. Nested assign
+      IndexSet upsert; **N-1** product nonempty Map = empty default or
+      `Map.empty()` Construct + successive IndexSet (Wire Construct stays
+      empty-only); fixed Bytes default zeros + IndexSet. Nested assign
       *through* a Map element (`m[k].x = v`) or Bytes element still fail
       closed (Option intermediate / UInt8 scalar). Bare-local field/index
       assign rebinds the local; param roots still fail closed
@@ -117,7 +119,9 @@
       non-UInt64 call/schedule args and for endpoints,
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
-      aggregate entry/view/fn results, nonempty Map construction,
+      aggregate entry/view/fn results,
+      multi-arg nonempty Map *Construct* (product nonempty = empty default /
+      `Map.empty` + IndexSet upsert — N-1; Wire Construct remains empty-only),
       nested assign through Map/Bytes elements (single-step Map/Bytes
       index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
       identical multi-arm same-outer patterns (structural duplicate keys),
@@ -1148,7 +1152,8 @@ private def emitVoid (st : BodyStateV1) (op : SemanticOpV1) : BodyStateV1 :=
 
 /-- Resolve a Phase-1 constructor path to (result TypeId, ctorIndex, arg TypeIds).
     Identities: `StructName.new`, `EnumName.Variant`, bare struct name (compat),
-    bare unique enum variant, `Option.some`/`Option.none` (need expected Option). -/
+    bare unique enum variant, `Option.some`/`Option.none` (need expected Option),
+    `Map.empty` (need expected Map; empty construct only — N-1). -/
 private def resolveConstructorLoweringV1
     (interner : TypeInternerV1) (ctor : SourceQualifiedNameV1)
     (expectedTid : TypeIdV1) :
@@ -1166,7 +1171,7 @@ private def resolveConstructorLoweringV1
           | _ =>
               failUnsupported s!"S1 '{structName}.new' requires a struct type"
   | #[typeName, variantName] =>
-      -- EnumName.Variant, or Option.some / Option.none
+      -- EnumName.Variant, Option.some/none, or Map.empty
       if typeName == "Option" then
         match shapeOf? interner.types expectedTid with
         | some (.option elTid) =>
@@ -1181,6 +1186,19 @@ private def resolveConstructorLoweringV1
         | _ =>
             failUnsupported
               "S1 Option constructor requires an enclosing Option expected type"
+      else if typeName == "Map" then
+        -- N-1: empty Map construct only (ctorIndex 0, no args). Nonempty maps
+        -- are product-built via IndexSet upsert, not multi-arg Construct.
+        match shapeOf? interner.types expectedTid with
+        | some (.map _ _) =>
+            if variantName == "empty" || variantName == "Empty" then
+              pure (expectedTid, 0, #[])
+            else
+              failUnsupported
+                s!"S1 Map constructor must be Map.empty (or Empty), got '{variantName}'"
+        | _ =>
+            failUnsupported
+              "S1 Map.empty requires an enclosing Map expected type"
       else
         match lookupNamedTypeId interner typeName with
         | none =>
@@ -1227,7 +1245,8 @@ private def resolveConstructorLoweringV1
           | _ =>
               failUnsupported s!"S1 constructor '{name}' is not declared"
   | _ =>
-      failUnsupported "S1 constructor path must be Struct.new, Enum.Variant, or Option.some/none"
+      failUnsupported
+        "S1 constructor path must be Struct.new, Enum.Variant, Option.some/none, or Map.empty"
 
 /-- Resolve a constructor *pattern* against an already-known scrutinee TypeId.
     Returns (variantIndex, payload TypeIds). Result type must equal scrutTid. -/

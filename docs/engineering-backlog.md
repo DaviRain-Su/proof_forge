@@ -187,7 +187,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 
 | ID | 项 | 解锁 | 状态 |
 |---|---|---|---|
-| **N-1** | Map：非空构造 + Map state/param + index | 余额表、IBC 表 | pending |
+| **N-1** | Map：非空构造 + Map state/param + index | 余额表、IBC 表 | **done**（2026-08-02：product nonempty = empty/`Map.empty` + IndexSet；Wire multi-arg Construct 仍 FC；state/index 已 N-A3） |
 | **N-2** | ContextRead **扩面** + `callerContext`（CheckV1 + Normalize + Reference） | Normalize 已有 sole `unixTimeSeconds`（N5）；缺多 key/callerContext | pending（见 RPT-013 §5） |
 | **N-3** | Commit **disclosure 契约** + Check | Normalize 已有 label-only `commit(x)`（N5）；非 full disclosure | pending（见 RPT-013 §5） |
 | **N-4** | aggregate entry/view/fn **返回值** + target ABI struct 返回 | 查询型 API | pending |

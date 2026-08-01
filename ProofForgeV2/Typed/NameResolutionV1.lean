@@ -178,6 +178,14 @@ def resolveConstructorName (tables : TypedDeclTablesV1)
         else
           emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")
             sitePath #[]
+      else if typeName.raw == "Map" then
+        -- N-1: Map.empty() only (empty construct; nonempty via IndexSet).
+        let m := methodOrVariant.raw
+        if m == "empty" || m == "Empty" then
+          pure ()
+        else
+          emitLocated (unknownNameDiagnosticDraft methodOrVariant "constructor variant")
+            sitePath #[]
       else
         match tables.enum.find? typeName with
         | some p =>

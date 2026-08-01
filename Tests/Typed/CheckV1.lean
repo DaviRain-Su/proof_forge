@@ -5341,6 +5341,65 @@ private unsafe def testMapStateIndexAssign
   expect hasIndexGet "map-index-assign: IndexGet into Option let"
   expect hasStore "map-index-assign: StateStore"
 
+/-- N-1: nonempty product Map = empty state default + multi-key IndexSet
+    (insert, second key, overwrite) + get as Option + match Option.some.
+    Wire multi-arg Map Construct stays closed; Map.empty() is reserved for
+    future local-empty construct (parser currently type-keyword only). -/
+private unsafe def testMapNonemptyProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MapNonempty" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[1] := 10\n" ++
+    "    m[2] := 20\n" ++
+    "    m[1] := 11\n" ++
+    "  entry get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let validated ← loadSource session "map-nonempty" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok
+    s!"map-nonempty: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-nonempty: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-nonempty: validate: {repr e}"
+  expect (data.logicalState.size == 1) "map-nonempty: Map state"
+  let some initC := data.callables.find? (·.kind == .initializer) |
+    throw <| IO.userError "map-nonempty: missing init"
+  let initIndexSets : Nat :=
+    initC.blocks.foldl (fun acc blk =>
+      acc + blk.instructions.foldl (fun n i =>
+        match i.op with | .indexSet .. => n + 1 | _ => n) 0) 0
+  expect (initIndexSets >= 3)
+    s!"map-nonempty: expected >=3 IndexSet in initializer, got {initIndexSets}"
+  let getC? := data.callables.find? fun c =>
+    match c.name with
+    | some n => n == "get"
+    | none => false
+  let some getC := getC? |
+    throw <| IO.userError "map-nonempty: missing get entry"
+  let hasIndexGet := getC.blocks.any fun blk =>
+    blk.instructions.any fun i =>
+      match i.op with
+      | .indexGet .. => true
+      | _ => false
+  expect hasIndexGet "map-nonempty: IndexGet in get entry"
+  let hasVariantTag := getC.blocks.any fun blk =>
+    blk.instructions.any fun i =>
+      match i.op with
+      | .variantTag _ => true
+      | _ => false
+  expect hasVariantTag "map-nonempty: Option match uses VariantTag"
+
 /-- N-A3: Map index assign value type mismatch fail closed at TypeCheck. -/
 private unsafe def testMapIndexAssignValueMismatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6607,6 +6666,7 @@ unsafe def run : IO Unit := do
   testMapStateAdmitted session
   -- N-A3 MapBytesAssign: Map/Bytes single-step index assign + negatives
   testMapStateIndexAssign session
+  testMapNonemptyProductPath session
   testMapIndexAssignValueMismatch session
   testMapNestedFieldAssignFailClosed session
   testBytesStateAdmitted session

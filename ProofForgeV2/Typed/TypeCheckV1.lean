@@ -488,6 +488,22 @@ private def tryOptionConstructor
         else none
   | _, _ => none
 
+/-- N-1: resolve `Map.empty` / `Map.Empty` when expected is `Map K V` (empty
+    construct only; nonempty maps are built with IndexSet). -/
+private def tryMapEmptyConstructor
+    (expected? : Option TypeV1) (ctor : SourceQualifiedNameV1) :
+    Option (TypeV1 × Array TypeV1) :=
+  let comps := ctor.components.toArray
+  match comps, expected? with
+  | #[typeName, methodOrVariant], some (.map key value) =>
+      if typeName.raw != "Map" then none
+      else
+        let m := methodOrVariant.raw
+        if m == "empty" || m == "Empty" then
+          some (.map key value, #[])
+        else none
+  | _, _ => none
+
 /-- Resolve a constructor path to its result type and expected argument types.
     Mirrors `NameResolutionV1.resolveConstructorName`. Optional `expected?` unlocks
     N-A4 `Option.some`/`Option.none` when the expected type is `Option T`. -/
@@ -495,6 +511,9 @@ def resolveConstructorType (tables : TypedDeclTablesV1)
     (ctor : SourceQualifiedNameV1) (expected? : Option TypeV1 := none) :
     Except DiagnosticV1 (TypeV1 × Array TypeV1) :=
   match tryOptionConstructor expected? ctor with
+  | some r => pure r
+  | none =>
+  match tryMapEmptyConstructor expected? ctor with
   | some r => pure r
   | none =>
   let comps := ctor.components.toArray
@@ -525,7 +544,7 @@ def resolveConstructorType (tables : TypedDeclTablesV1)
             | none => .error (unknownNameDiagnostic name "constructor")
   | #[typeName, methodOrVariant] =>
       -- Phase-1 constructor identity: StructName.new | EnumName.Variant |
-      -- Option.some/none (when expected? = some (.option _)).
+      -- Option.some/none | Map.empty (when expected matches).
       if methodOrVariant.raw == "new" then
         match tables.struct.find? typeName with
         | some (_, structDecl) =>

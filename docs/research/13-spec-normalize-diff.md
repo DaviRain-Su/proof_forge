@@ -51,7 +51,7 @@ normative: false
 | public UInt/Int state/param 多宽 | **LOWERED** | {8..256}；T8 ABI 另轨 | — |
 | Field(bn254) / Principal state/param | **LOWERED** | 无源字面量 | — |
 | named Struct/Enum state/param | **LOWERED** | N3 | — |
-| anonymous Array/Map/Bytes state | **LOWERED**（Map 非空构造仍 FC） | Option/Unit/Bool state **FC** | N-A4, N-1, N-BYTES |
+| anonymous Array/Map/Bytes/Option state | **LOWERED** | Map 非空 = empty+IndexSet（N-1）；Wire multi-arg Map Construct 仍 FC | N-1 ✅ N-A3 ✅ N-A4 ✅ |
 | init/entry/view/fn | **LOWERED** | invariant/proof item 仍 FC | INV-1 |
 | bare assign / return / assert | **LOWERED** | assert-else **FC** | — |
 | if / match（stmt+expr） | **LOWERED** | multi-block；嵌套子模式已开；同键 duplicate FC | N-7 深化 |
