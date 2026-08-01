@@ -80,9 +80,9 @@ private def computeInvariantClosureMembershipV1
     and closure-CFG acyclicity validation run next; op restrictions and exact
     checked step values follow in later post-CFG subphases. Other callable-kind
     presence rules remain in the earlier signature gates. -/
-private def validatePureFnInvariantClosureMembershipV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  let members ← computeInvariantClosureMembershipV1 callables
+private def validatePureFnInvariantClosureMembershipWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
   for index in [:callables.size] do
     match callables[index]? with
     | none => return ← err .badCfg
@@ -101,9 +101,9 @@ private def validatePureFnInvariantClosureMembershipV1
     Generic CFG/op typing and exact membership already ran; all edge facts are
     rechecked fail-closed. Unreachable pureFn cycles are outside this gate.
     Closure-CFG back edges and exact step computation run afterward. -/
-private def validateInvariantClosureCallGraphDagV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  let members ← computeInvariantClosureMembershipV1 callables
+private def validateInvariantClosureCallGraphDagWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
   let callableCount := callables.size
   let mut indegree := Array.mk (List.replicate callableCount 0)
   let mut adjacency : Array (Array Nat) :=
@@ -154,9 +154,9 @@ private def validateInvariantClosureCallGraphDagV1
     back-edge metadata; this post-membership gate rejects any actual back edge
     in a closure member while leaving unreachable pureFn bounded loops under
     the generic contract. Bounded by callables plus CFG successor edges. -/
-private def validateInvariantClosureCfgAcyclicV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  let members ← computeInvariantClosureMembershipV1 callables
+private def validateInvariantClosureCfgAcyclicWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
   for index in [:callables.size] do
     if members[index]! then
       match callables[index]? with
@@ -172,9 +172,9 @@ private def validateInvariantClosureCfgAcyclicV1
     closure graph/CFG acyclicity have
     already run. Invariant roots remain allowed to use StateLoad directly, and
     unreachable pureFns remain outside this closure-only restriction. -/
-private def validateInvariantClosurePureFnOpsV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  let members ← computeInvariantClosureMembershipV1 callables
+private def validateInvariantClosurePureFnOpsWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
   for index in [:callables.size] do
     if members[index]! then
       match callables[index]? with
@@ -212,9 +212,9 @@ private def addInvariantStepsCheckedV1 (lhs rhs : UInt64) :
     member is processed once. Generic CFG/op typing, exact closure membership,
     call-graph DAG, closure-CFG acyclicity, and op restrictions have already
     run; every fact is nevertheless rechecked fail-closed. -/
-private def validateInvariantStepsExactV1
-    (callables : Array CallableV1) : Except SemanticWireErrorV1 Unit := do
-  let members ← computeInvariantClosureMembershipV1 callables
+private def validateInvariantStepsExactWithMembersV1
+    (callables : Array CallableV1) (members : Array Bool) :
+    Except SemanticWireErrorV1 Unit := do
   let callableCount := callables.size
   let mut remainingCalls := Array.mk (List.replicate callableCount 0)
   let mut callersByCallee : Array (Array Nat) :=
@@ -289,6 +289,58 @@ private def validateInvariantStepsIntrinsicCeilingV1
         unless steps ≤ maxInvariantStepsV1 do return ← err .badCfg
   pure ()
 
+/-- Run invariant-closure validation in its exact production order and return
+    the exact membership array shared by all membership-consuming subphases. -/
+def validateInvariantClosurePhasesV1 (callables : Array CallableV1) :
+    Except SemanticWireErrorV1 (Array Bool) := do
+  validateInvariantRootDirectOpsV1 callables
+  let members ← computeInvariantClosureMembershipV1 callables
+  validatePureFnInvariantClosureMembershipWithMembersV1 callables members
+  validateInvariantClosureCallGraphDagWithMembersV1 callables members
+  validateInvariantClosureCfgAcyclicWithMembersV1 callables members
+  validateInvariantClosurePureFnOpsWithMembersV1 callables members
+  pure members
+
+/-- Production composition phase for exact carried invariant-step validation
+    followed by the intrinsic metadata ceiling. `members` must be the exact
+    result returned by `validateInvariantClosurePhasesV1`; the complete
+    production validator and its composition theorem pin that identity. The
+    size guard keeps direct proof-seam use total and fail-closed. -/
+def validateInvariantFuelPhasesV1 (callables : Array CallableV1)
+    (members : Array Bool) : Except SemanticWireErrorV1 Unit := do
+  unless members.size == callables.size do return ← err .badCfg
+  validateInvariantStepsExactWithMembersV1 callables members
+  validateInvariantStepsIntrinsicCeilingV1 callables
+
+/-- Shallow composition rule for the closure phase, retaining the exact
+    membership value returned to the fuel phase. -/
+theorem validateInvariantClosurePhasesV1_eq_ok
+    (callables : Array CallableV1) (members : Array Bool)
+    (hRoot : validateInvariantRootDirectOpsV1 callables = .ok ())
+    (hMembers : computeInvariantClosureMembershipV1 callables = .ok members)
+    (hMetadata : validatePureFnInvariantClosureMembershipWithMembersV1
+      callables members = .ok ())
+    (hDag : validateInvariantClosureCallGraphDagWithMembersV1
+      callables members = .ok ())
+    (hCfg : validateInvariantClosureCfgAcyclicWithMembersV1
+      callables members = .ok ())
+    (hOps : validateInvariantClosurePureFnOpsWithMembersV1
+      callables members = .ok ()) :
+    validateInvariantClosurePhasesV1 callables = .ok members := by
+  simp only [validateInvariantClosurePhasesV1, hRoot, hMembers, hMetadata,
+    hDag, hCfg, hOps, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Shallow composition rule for exact fuel validation over pinned closure
+    membership. -/
+theorem validateInvariantFuelPhasesV1_eq_ok
+    (callables : Array CallableV1) (members : Array Bool)
+    (hSize : members.size = callables.size)
+    (hExact : validateInvariantStepsExactWithMembersV1 callables members = .ok ())
+    (hCeiling : validateInvariantStepsIntrinsicCeilingV1 callables = .ok ()) :
+    validateInvariantFuelPhasesV1 callables members = .ok () := by
+  simp only [validateInvariantFuelPhasesV1, hSize, beq_self_eq_true, ↓reduceIte,
+    hExact, hCeiling, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /- SPEC-SEM-WIRE-001 §5.1 engineering subset (structure-gate-only): within one
     `SemanticProgramV1`, every `Op.ContextRead` carrying the same exact
     `SchemaId` key MUST use the same `Instruction.result` TypeId. Different
@@ -354,12 +406,12 @@ structure CfgInvariantValidationFailureV1 where
   error : SemanticWireErrorV1
   deriving BEq, Repr
 
-private def liftCfgInvariantValidationPhaseV1
+private def liftCfgInvariantValidationPhaseV1 {α : Type}
     (phase : CfgInvariantValidationPhaseV1)
-    (result : Except SemanticWireErrorV1 Unit) :
-    Except CfgInvariantValidationFailureV1 Unit :=
+    (result : Except SemanticWireErrorV1 α) :
+    Except CfgInvariantValidationFailureV1 α :=
   match result with
-  | .ok () => .ok ()
+  | .ok value => .ok value
   | .error error => .error { phase, error }
 
 /-- The exact generic `.cfg` production phase: every callable's CFG/op
@@ -398,19 +450,20 @@ def validateCfgInvariantPhasesV1 (data : SemanticProgramDataV1) :
     Except CfgInvariantValidationFailureV1 Unit := do
   liftCfgInvariantValidationPhaseV1 .cfg
     (validateGenericCfgPhasesV1 data)
-  liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validateInvariantRootDirectOpsV1 data.callables)
-  liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validatePureFnInvariantClosureMembershipV1 data.callables)
-  liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validateInvariantClosureCallGraphDagV1 data.callables)
-  liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validateInvariantClosureCfgAcyclicV1 data.callables)
-  liftCfgInvariantValidationPhaseV1 .invariantClosure
-    (validateInvariantClosurePureFnOpsV1 data.callables)
+  let members ← liftCfgInvariantValidationPhaseV1 .invariantClosure
+    (validateInvariantClosurePhasesV1 data.callables)
   liftCfgInvariantValidationPhaseV1 .invariantFuel
-    (validateInvariantStepsExactV1 data.callables)
-  liftCfgInvariantValidationPhaseV1 .invariantFuel
-    (validateInvariantStepsIntrinsicCeilingV1 data.callables)
+    (validateInvariantFuelPhasesV1 data.callables members)
+
+/-- Shallow composition rule for the complete CFG/invariant segment, pinning
+    the closure membership passed unchanged into invariant fuel validation. -/
+theorem validateCfgInvariantPhasesV1_eq_ok
+    (data : SemanticProgramDataV1) (members : Array Bool)
+    (hCfg : validateGenericCfgPhasesV1 data = .ok ())
+    (hClosure : validateInvariantClosurePhasesV1 data.callables = .ok members)
+    (hFuel : validateInvariantFuelPhasesV1 data.callables members = .ok ()) :
+    validateCfgInvariantPhasesV1 data = .ok () := by
+  simp only [validateCfgInvariantPhasesV1, hCfg, hClosure, hFuel,
+    liftCfgInvariantValidationPhaseV1, Bind.bind, Except.bind]
 
 end ProofForgeV2.Semantic.WireV1
