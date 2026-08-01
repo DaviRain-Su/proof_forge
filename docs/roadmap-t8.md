@@ -103,7 +103,11 @@ EVM-only：`pilotIntWidthPolicyNarrow`；ResultKind int8/16/32；ABI int*；
 Solana/NEAR/Noir 仍 Int64-only → 见 pending **T9c-2**。
 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int）。
 
-### [in_progress] T9c-2：窄 Int 其余三 target（Solana/NEAR/Noir body + ABI）
+### [merged] T9c-2：窄 Int 其余三 target（Solana/NEAR/Noir body + ABI）（2026-08-01, 65bc46956）
+Solana ResultKind i8/i16/i32 + layout i*-le + Plan narrowSigned*（Emit→signed IR）；
+NEAR MethodResultKind int8/16/32 + i64 plan surface；Noir InputType i8..i64。
+SolanaPlanV1 NarrowInt 绿。隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int）。
+
 - 镜像 T9c-EVM：`pilotIntWidthPolicyNarrow` + signed narrow Plan/IR/emit + results
 - Solana layout `i*-le` + SBPF 宽度守卫；NEAR WAT；Noir i8/i16/i32
 - 金样 + 可选 Mollusk NarrowInt fixture
@@ -142,3 +146,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T9a | merged 642e6016e, 隔离 CI 已 dispatch（ci-verify-t9a-narrow-result） |
 | 2026-08-01 | T9b | merged 09c07cfc8, 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256） |
 | 2026-08-01 | T9c-EVM | merged f523b674f, 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int） |
+| 2026-08-01 | T9c-2 | merged 65bc46956, 隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int） |
