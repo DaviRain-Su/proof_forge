@@ -761,6 +761,16 @@ theorem decodeArray_eq_of_elementsV1 (maxCount : Nat) (decode : Decoder α) (c :
   rw [decodeArray_eq_elementsV1 maxCount decode c count offset hcount]
   exact helements
 
+/-- A successfully decoded zero count returns immediately at the post-header
+    cursor and never invokes the element decoder. -/
+theorem decodeArray_zeroV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (offset : Nat)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
+    decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) := by
+  apply decodeArray_eq_of_elementsV1 maxCount decode c 0 offset #[]
+    ⟨c.input, offset, c.nesting⟩ hcount
+  rfl
+
 def decodeByteArray (maxLen : Nat) : Decoder ByteArray := fun c => do
   let (payload, offset) ← readSizedBytesAtV1 c.input c.offset maxLen
   pure (payload, ⟨c.input, offset, c.nesting⟩)

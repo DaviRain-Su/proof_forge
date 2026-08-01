@@ -326,6 +326,10 @@ decoder已直接改用该同一wrapper。field composition theorem固定tag后qu
 logicalState→events→errors→callables→invariants→requirements顺序，未移动structure gate。剩余字段
 具体proof仍逐段pending。
 
+空root table的通用composition现已闭合：`decodeArray_zeroV1`只接受真实bounded header解出count=0，
+随后definitionally结束sole iterator，返回原input/parent nesting与exact post-header offset；即使传入必错
+element decoder也不会调用。constants/events/errors等空表可共享该theorem，不增加表专用decoder。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

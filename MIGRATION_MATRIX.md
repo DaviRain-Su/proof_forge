@@ -271,7 +271,8 @@ production body，并按header→id→name→shape组合success及parent nesting
 切片为sole array iterator补单步success与header+完整run组合 theorem，并将其专用于
 `decodeArray maxTableElements decodeTypeDeclV1`。后续root scaffold切片将anonymous九字段closure机械抽为
 sole `decodeSemanticProgramDataBodyV1`与单一tagged wrapper，正式transport decoder直接消费，并建立
-exact field-order与nesting success composition；各剩余字段的具体证明仍pending。
+exact field-order与nesting success composition。后续zero-table切片证明真实bounded count=0时立即返回
+post-header cursor且绝不调用element decoder，可统一复用到各空root table；非空字段仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

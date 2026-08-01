@@ -11506,3 +11506,12 @@ normative: false
   input/offset。focused build、signature example与blocker review通过。
 - Boundary：transport/structure边界不变；本切片只建立root scaffold，各剩余字段、完整carrier与formal
   TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 zero root-table composition
+
+- Proof：新增通用`decodeArray_zeroV1`；premise必须由真实bounded array-count reader得到zero count，结论
+  保留原input/nesting并返回exact post-header offset，sole element iterator不执行任何step。
+- Tests：除signature example外，以必返`.badScalar`的element decoder固定zero count仍成功，证明没有隐藏
+  element call；focused Wire build通过。
+- Boundary：该theorem统一服务constants/events/errors等空表；非空logicalState/callables/invariants、
+  requirements、完整carrier与formal TASK/TST仍pending。

@@ -355,6 +355,16 @@ example (c c' : Cursor) (data : SemanticProgramDataV1)
       .ok (data, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeSemanticProgramDataTaggedV1_eq_of_bodyV1 c data c' hdepth hbody
 
+example (c : Cursor) (maxCount offset : Nat) (decode : Decoder UInt32)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (0, offset)) :
+    decodeArray maxCount decode c = .ok (#[], ⟨c.input, offset, c.nesting⟩) :=
+  decodeArray_zeroV1 maxCount decode c offset hcount
+
+example :
+    decodeArray maxTableElements ((fun _ => .error .badScalar) : Decoder UInt32)
+      ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 0, 7⟩ =
+        .ok (#[], ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 4, 7⟩) := by rfl
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
