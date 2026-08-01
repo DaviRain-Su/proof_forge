@@ -566,3 +566,9 @@ public Bool result与singleton Block；唯一Instruction包含ValueDef `(0, Bool
 随后消费`Return (some 0)`、empty loopBounds与`invariantSteps=some 6`。最高nesting仍为5并正确恢复，
 234-byte truth segment与347-byte remainder保持1235-byte encoder golden identity。下一片从offset 888的
 `falsehood`开始；尚未闭合root fields、carrier theorem或formal evidence。
+
+第四个`falsehood` invariant callable现已闭合888→1126：真实Literal路径确认ValueDef `(0, Bool)`与
+canonical Bool false payload `[0]`，随后为`Return (some 0)`、empty loopBounds及steps=3。238-byte
+segment与109-byte remainder保持golden identity。四个已证明的Callable再经sole production four-element
+iterator按gate→leaf→truth→falsehood顺序组合，完整callables字段闭合257→1126。下一字段为两个
+InvariantDecl；requirements/root finish/carrier theorem及formal evidence仍pending。

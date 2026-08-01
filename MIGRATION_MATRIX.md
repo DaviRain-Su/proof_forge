@@ -316,8 +316,9 @@ callables count=4现已闭合257→261，首个source-order entry gate经真实C
 CallableResult/Visibility/Block/Return decoder完整闭合261→419。第二个pure `truthLeaf`又经singleton
 Instruction/ValueDef/Bool Literal payload/Return some ValueId与Option.some UInt64 steps闭合419→654。
 第三个`truth` invariant再经真实PureCall callableId=1/empty args、Return some ValueId及steps=6闭合
-654→888。最后一个`falsehood` callable、root finish、structure-gated encoder/carrier closed theorem与
-formal TASK/TST仍pending。
+654→888。最后一个`falsehood`经canonical Bool false payload与steps=3闭合888→1126，四元素callables
+随后由sole production iterator按gate/leaf/truth/falsehood source order完整组合。InvariantDecl、
+requirements、root finish、structure-gated encoder/carrier closed theorem与formal TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

@@ -588,8 +588,17 @@ def truth : CallableV1 :=
   invariantCallable 2 "truth"
     #[truthInstruction] (.return_ (some 0)) 6
 
+def falsehoodInstruction : InstructionV1 := boolLiteral 0 false
+
+def falsehoodBlock : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[falsehoodInstruction]
+  terminator := .return_ (some 0)
+}
+
 def falsehood : CallableV1 :=
-  invariantCallable 3 "falsehood" #[boolLiteral 0 false]
+  invariantCallable 3 "falsehood" #[falsehoodInstruction]
     (.return_ (some 0)) 3
 
 /-- Closed semantic data used by both the runtime ABI suite and the kernel
@@ -707,9 +716,8 @@ def canonicalTruthSpine : TransparentByteSpineV1 := [
   1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 6, 0, 0, 0, 0, 0, 0, 0
 ]
 
-/-- Remaining 347 bytes after the third callable. Keeping this opaque to prefix
-    reductions avoids traversing the full carrier for scalar facts. -/
-def canonicalRootFields : Array UInt8 := #[
+/-- Exact fourth callable (`falsehood`) at root offset 888. -/
+def canonicalFalsehoodSpine : TransparentByteSpineV1 := [
   8, 0, 0, 0, 67, 97, 108, 108, 97, 98,
   108, 101, 9, 0, 3, 0, 0, 0, 18, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101,
   46, 73, 110, 118, 97, 114, 105, 97, 110, 116, 0, 0, 1, 9, 0, 0, 0, 102, 97, 108,
@@ -722,7 +730,13 @@ def canonicalRootFields : Array UInt8 := #[
   0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 79, 112, 46, 76, 105, 116, 101, 114, 97,
   108, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82,
   101, 116, 117, 114, 110, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0,
-  0, 0, 2, 0, 0, 0, 13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68,
+  0, 0
+]
+
+/-- Remaining 109 bytes after the callables table. Keeping this opaque to prefix
+    reductions avoids traversing the full carrier for scalar facts. -/
+def canonicalRootFields : Array UInt8 := #[
+  2, 0, 0, 0, 13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68,
   101, 99, 108, 3, 0, 0, 0, 0, 0, 5, 0, 0, 0, 116, 114, 117, 116, 104, 2, 0, 0, 0,
   13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68, 101, 99, 108, 3, 0, 1,
   0, 0, 0, 9, 0, 0, 0, 102, 97, 108, 115, 101, 104, 111, 111, 100, 3, 0, 0, 0, 19,
@@ -737,7 +751,8 @@ def canonicalSpine : TransparentByteSpineV1 :=
   canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
     canonicalTypesSpine ++ canonicalConstantsSpine ++ canonicalLogicalStateSpine ++
     canonicalEmptyInterfacesSpine ++ canonicalCallablesHeaderSpine ++ canonicalEntryGateSpine ++
-    canonicalTruthLeafSpine ++ canonicalTruthSpine ++ canonicalRootFields.toList
+    canonicalTruthLeafSpine ++ canonicalTruthSpine ++ canonicalFalsehoodSpine ++
+    canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 
@@ -2000,6 +2015,287 @@ theorem decodeTruth_canonicalBytes :
       · apply decodeCanonicalU64V1
         rfl)
   simpa [truth, invariantCallable, truthBlock] using h
+
+theorem decodeFalsehoodKind_canonicalBytes :
+    decodeCallableKindV1 ⟨canonicalBytes, 906, 2⟩ =
+      .ok (.invariant, ⟨canonicalBytes, 930, 2⟩) := by
+  refine decodeCallableKindV1_eq_of_bodyV1 ⟨canonicalBytes, 906, 2⟩ .invariant
+    ⟨canonicalBytes, 930, 3⟩ (by decide) ?_
+  apply decodeCallableKindBodyV1_invariant
+  · apply decodeCanonicalTagV1 906 928 3
+      [67, 97, 108, 108, 97, 98, 108, 101, 46, 73, 110, 118, 97, 114, 105, 97,
+        110, 116] "Callable.Invariant"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeCanonicalZeroFieldsV1
+    rfl
+
+theorem readFalsehoodNameBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 931 maxStringBytes =
+      .ok (ByteArray.mk [102, 97, 108, 115, 101, 104, 111, 111, 100].toArray, 944) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 931 maxStringBytes =
+    .ok (ByteArray.mk [102, 97, 108, 115, 101, 104, 111, 111, 100].toArray, 944)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine
+      [102, 97, 108, 115, 101, 104, 111, 111, 100] 931 maxStringBytes 9 935
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
+
+private theorem decodeFalsehoodNameV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 931 maxStringBytes =
+      .ok (ByteArray.mk [102, 97, 108, 115, 101, 104, 111, 111, 100].toArray, 944)) :
+    decodeString ⟨bytes, 931, 2⟩ = .ok ("falsehood", ⟨bytes, 944, 2⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+theorem decodeFalsehoodName_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 930, 2⟩ =
+      .ok (some "falsehood", ⟨canonicalBytes, 944, 2⟩) := by
+  apply decodeOption_someV1 decodeString ⟨canonicalBytes, 930, 2⟩
+    ⟨canonicalBytes, 931, 2⟩ ⟨canonicalBytes, 944, 2⟩ "falsehood"
+  · apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 930 = .ok 1
+    rw [readByteAtV1_refinesSpine]
+    rfl
+  · exact decodeFalsehoodNameV1_of_read canonicalBytes readFalsehoodNameBytes_canonicalBytes
+
+theorem decodeFalsehoodResult_canonicalBytes :
+    decodeCallableResultV1 ⟨canonicalBytes, 948, 2⟩ =
+      .ok ({ typeId := 0, visibility := .public_ }, ⟨canonicalBytes, 995, 2⟩) := by
+  refine decodeCallableResultV1_eq_of_bodyV1 ⟨canonicalBytes, 948, 2⟩
+    { typeId := 0, visibility := .public_ } ⟨canonicalBytes, 995, 3⟩ (by decide) ?_
+  apply decodeCallableResultBodyV1_eq_of_fields
+  · apply expectTag_eq_of_headerV1
+    change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 948
+        (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108,
+          116].toArray) 2 = .ok 968
+    rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+    unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+      spineRemainingV1 readSpineU16leV1
+    rw [canonicalSpine_length]
+    rfl
+  · apply decodeCanonicalU32V1
+    rfl
+  · refine decodeVisibilityV1_eq_of_bodyV1 ⟨canonicalBytes, 972, 3⟩ .public_
+      ⟨canonicalBytes, 995, 4⟩ (by decide) ?_
+    apply decodeVisibilityBodyV1_public
+    · apply decodeCanonicalTagV1 972 993 4
+        [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108,
+          105, 99] "Visibility.Public"
+      · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+        rw [canonicalSpine_length]
+        rfl
+      · rfl
+      · rfl
+    · apply decodeCanonicalZeroFieldsV1
+      rfl
+
+theorem decodeFalsehoodValueDef_canonicalBytes :
+    decodeValueDefV1 ⟨canonicalBytes, 1044, 4⟩ =
+      .ok ({ valueId := 0, typeId := 0 }, ⟨canonicalBytes, 1066, 4⟩) := by
+  apply decodeValueDefV1_eq_of_fieldsV1 ⟨canonicalBytes, 1044, 4⟩
+    ⟨canonicalBytes, 1058, 5⟩ ⟨canonicalBytes, 1062, 5⟩
+    ⟨canonicalBytes, 1066, 5⟩ 0 0 (by decide)
+  · apply expectTag_eq_of_headerV1
+    change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1044
+        (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 1058
+    rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+    unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+      spineRemainingV1 readSpineU16leV1
+    rw [canonicalSpine_length]
+    rfl
+  · apply decodeCanonicalU32V1
+    rfl
+  · apply decodeCanonicalU32V1
+    rfl
+
+theorem decodeFalsehoodLiteral_canonicalBytes :
+    decodeSemanticOpV1 ⟨canonicalBytes, 1066, 4⟩ =
+      .ok (.literal 0 (ByteArray.mk #[0]), ⟨canonicalBytes, 1091, 4⟩) := by
+  apply decodeSemanticOpV1_literal ⟨canonicalBytes, 1066, 4⟩
+    ⟨canonicalBytes, 1080, 5⟩ ⟨canonicalBytes, 1082, 5⟩
+    ⟨canonicalBytes, 1086, 5⟩ ⟨canonicalBytes, 1091, 5⟩ 0 (ByteArray.mk #[0])
+    (by decide)
+  · apply decodeCanonicalTagV1 1066 1080 5
+      [79, 112, 46, 76, 105, 116, 101, 114, 97, 108] "Op.Literal"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · have hread : readU16leAtV1 canonicalBytes 1080 = .ok (2, 1082) := by
+      change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) 1080 = .ok (2, 1082)
+      rw [readU16leAtV1_refinesSpine]
+      rfl
+    have hresult := decodeFieldCount_eq_of_readU16leV1 2
+      ⟨canonicalBytes, 1080, 5⟩ 2 1082 hread
+    simpa using hresult
+  · apply decodeCanonicalU32V1
+    rfl
+  · have hread : readSizedBytesAtV1 canonicalBytes 1086 maxCanonicalProgramBytes =
+        .ok (ByteArray.mk #[0], 1091) := by
+      change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1086
+        maxCanonicalProgramBytes = .ok (ByteArray.mk [0].toArray, 1091)
+      apply readSizedBytesAtV1_eq_of_spine
+      apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [0] 1086
+        maxCanonicalProgramBytes 1 1090
+      · rfl
+      · decide
+      · decide
+      · unfold takeSpineBytesV1 spineRemainingV1
+        rw [canonicalSpine_length]
+        rfl
+    simp only [decodeByteArray, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+theorem decodeFalsehoodInstruction_canonicalBytes :
+    decodeInstructionV1 ⟨canonicalBytes, 1026, 3⟩ =
+      .ok (falsehoodInstruction, ⟨canonicalBytes, 1091, 3⟩) := by
+  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨canonicalBytes, 1026, 3⟩
+    ⟨canonicalBytes, 1043, 4⟩ ⟨canonicalBytes, 1066, 4⟩
+    ⟨canonicalBytes, 1091, 4⟩ (some { valueId := 0, typeId := 0 })
+    (.literal 0 (ByteArray.mk #[0])) (by decide) (by
+      apply expectTag_eq_of_headerV1
+      change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1026
+          (ByteArray.mk [73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110].toArray)
+          2 = .ok 1043
+      rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+      unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+        spineRemainingV1 readSpineU16leV1
+      rw [canonicalSpine_length]
+      rfl)
+    (by
+      apply decodeOption_someV1 decodeValueDefV1 ⟨canonicalBytes, 1043, 4⟩
+        ⟨canonicalBytes, 1044, 4⟩ ⟨canonicalBytes, 1066, 4⟩
+        { valueId := 0, typeId := 0 }
+      · apply decodeU8_eq_of_readV1
+        change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 1043 = .ok 1
+        rw [readByteAtV1_refinesSpine]
+        rfl
+      · exact decodeFalsehoodValueDef_canonicalBytes)
+    decodeFalsehoodLiteral_canonicalBytes
+  simpa [falsehoodInstruction, boolLiteral, instruction, valueDef] using h
+
+theorem decodeFalsehoodReturn_canonicalBytes :
+    decodeTerminatorV1 ⟨canonicalBytes, 1091, 3⟩ =
+      .ok (.return_ (some 0), ⟨canonicalBytes, 1113, 3⟩) := by
+  apply decodeTerminatorV1_return ⟨canonicalBytes, 1091, 3⟩
+    ⟨canonicalBytes, 1106, 4⟩ ⟨canonicalBytes, 1108, 4⟩
+    ⟨canonicalBytes, 1113, 4⟩ (some 0) (by decide)
+  · apply decodeCanonicalTagV1 1091 1106 4
+      [84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110] "Term.Return"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · have hread : readU16leAtV1 canonicalBytes 1106 = .ok (1, 1108) := by
+      change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) 1106 = .ok (1, 1108)
+      rw [readU16leAtV1_refinesSpine]
+      rfl
+    have hresult := decodeFieldCount_eq_of_readU16leV1 1
+      ⟨canonicalBytes, 1106, 4⟩ 1 1108 hread
+    simpa using hresult
+  · apply decodeOption_someV1 decodeU32le ⟨canonicalBytes, 1108, 4⟩
+      ⟨canonicalBytes, 1109, 4⟩ ⟨canonicalBytes, 1113, 4⟩ 0
+    · apply decodeU8_eq_of_readV1
+      change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 1108 = .ok 1
+      rw [readByteAtV1_refinesSpine]
+      rfl
+    · apply decodeCanonicalU32V1
+      rfl
+
+theorem decodeFalsehoodBlock_canonicalBytes :
+    decodeBlockV1 ⟨canonicalBytes, 1003, 2⟩ =
+      .ok (falsehoodBlock, ⟨canonicalBytes, 1113, 2⟩) := by
+  apply decodeBlockV1_oneInstructionV1 ⟨canonicalBytes, 1003, 2⟩
+    ⟨canonicalBytes, 1014, 3⟩ ⟨canonicalBytes, 1018, 3⟩
+    ⟨canonicalBytes, 1091, 3⟩ ⟨canonicalBytes, 1113, 3⟩
+    1022 1026 0 falsehoodInstruction (.return_ (some 0)) (by decide)
+  · apply expectTag_eq_of_headerV1
+    change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1003
+        (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 1014
+    rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+    unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+      spineRemainingV1 readSpineU16leV1
+    rw [canonicalSpine_length]
+    rfl
+  · apply decodeCanonicalU32V1
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1018
+      maxArrayElements = .ok (0, 1022)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1022
+      maxArrayElements = .ok (1, 1026)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · exact decodeFalsehoodInstruction_canonicalBytes
+  · exact decodeFalsehoodReturn_canonicalBytes
+
+theorem decodeFalsehood_canonicalBytes :
+    decodeCallableV1 ⟨canonicalBytes, 888, 1⟩ =
+      .ok (falsehood, ⟨canonicalBytes, 1126, 1⟩) := by
+  have h := decodeCallableV1_singleBlockV1
+    ⟨canonicalBytes, 888, 1⟩ ⟨canonicalBytes, 902, 2⟩
+    ⟨canonicalBytes, 906, 2⟩ ⟨canonicalBytes, 930, 2⟩
+    ⟨canonicalBytes, 944, 2⟩ ⟨canonicalBytes, 995, 2⟩
+    ⟨canonicalBytes, 999, 2⟩ ⟨canonicalBytes, 1113, 2⟩
+    ⟨canonicalBytes, 1126, 2⟩ 948 1003 1117 3 0 .invariant (some "falsehood")
+    { typeId := 0, visibility := .public_ } falsehoodBlock (some 3) (by decide)
+    (by
+      apply expectTag_eq_of_headerV1
+      change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 888
+          (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 902
+      rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+      unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+        spineRemainingV1 readSpineU16leV1
+      rw [canonicalSpine_length]
+      rfl)
+    (decodeCanonicalU32V1 902 906 2 3 (by rfl)) decodeFalsehoodKind_canonicalBytes
+    decodeFalsehoodName_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 944
+        maxArrayElements = .ok (0, 948)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeFalsehoodResult_canonicalBytes (decodeCanonicalU32V1 995 999 2 0 (by rfl))
+    (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 999
+        maxArrayElements = .ok (1, 1003)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeFalsehoodBlock_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1113
+        maxArrayElements = .ok (0, 1117)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    (by
+      apply decodeOption_someV1 decodeU64le ⟨canonicalBytes, 1117, 2⟩
+        ⟨canonicalBytes, 1118, 2⟩ ⟨canonicalBytes, 1126, 2⟩ 3
+      · apply decodeU8_eq_of_readV1
+        change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 1117 = .ok 1
+        rw [readByteAtV1_refinesSpine]
+        rfl
+      · apply decodeCanonicalU64V1
+        rfl)
+  simpa [falsehood, invariantCallable, falsehoodBlock] using h
+
+theorem decodeCallables_canonicalBytes :
+    decodeArray maxTableElements decodeCallableV1 ⟨canonicalBytes, 257, 1⟩ =
+      .ok (#[gate, leaf, truth, falsehood], ⟨canonicalBytes, 1126, 1⟩) := by
+  exact decodeCallableArrayV1_four ⟨canonicalBytes, 257, 1⟩ 261
+    gate leaf truth falsehood ⟨canonicalBytes, 419, 1⟩ ⟨canonicalBytes, 654, 1⟩
+    ⟨canonicalBytes, 888, 1⟩ ⟨canonicalBytes, 1126, 1⟩
+    readCallablesCount_canonicalBytes decodeGate_canonicalBytes decodeLeaf_canonicalBytes
+    decodeTruth_canonicalBytes decodeFalsehood_canonicalBytes
 
 end CanonicalInvariantFixtureV1
 

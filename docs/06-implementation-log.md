@@ -12088,6 +12088,19 @@ normative: false
 - Boundary：最后的`falsehood` callable、InvariantDecl/requirements、root finish、closed carrier theorem
   与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete falsehood + complete callables array
+
+- Golden segmentation：拆出238-byte `falsehood`（888→1126）与109-byte remainder；完整1235-byte
+  golden及production encoder identity保持不变。
+- Kernel：第四个production Invariant Callable闭合ASCII/NFC name、public Bool result、singleton
+  Instruction/ValueDef、`Op.Literal` canonical false payload `[0]`、`Return (some 0)`、empty loops及
+  steps=3；随后sole production four-element iterator按gate/leaf/truth/falsehood组合callables字段
+  257→1126。
+- Review/Verification：blocker-only APPROVE；focused Semantic builds、WireV1/InvariantABI suites与
+  docs-check通过；无第二decoder、validator或forbidden shortcut。
+- Boundary：两个InvariantDecl、requirements、root finish、closed encoder/carrier theorem与formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — N5 ContextRead/Commit engineering slice
 
 - Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).
