@@ -12064,6 +12064,18 @@ normative: false
 - Boundary：pure truth leaf、两个invariant callables、InvariantDecl/requirements、root finish、closed
   carrier theorem与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete pure truth leaf callable
+
+- Golden segmentation：精确拆出235-byte `truthLeaf`（419→654）与581-byte remainder；拼接后的
+  explicit golden与production encoder identity仍保持1235 bytes。
+- Kernel：production PureFn Callable路径闭合ASCII/NFC name、public Bool result、singleton Block，
+  并经真实Instruction/Option.some ValueDef/`Op.Literal` decoder确认typeId 0和canonical Bool payload
+  `[1]`；`Return (some 0)`、empty loopBounds及`invariantSteps=some 3`同步闭合。
+- Review/Verification：blocker-only APPROVE；focused Semantic builds、WireV1/InvariantABI suites及
+  docs-check通过；无第二decoder、validation伪造或forbidden proof shortcut。
+- Boundary：`truth`/`falsehood`两个invariant callables、InvariantDecl/requirements、root finish、
+  closed carrier theorem与formal TASK/TST仍pending。
+
 ## 2026-08-01 — N5 ContextRead/Commit engineering slice
 
 - Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).

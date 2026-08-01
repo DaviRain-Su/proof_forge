@@ -313,8 +313,10 @@ source order cursor 76→187；紧随的empty constants array闭合187→191。s
 StateDecl header/id/name/typeId、nested public Visibility与production one-element array闭合191→249；
 empty events/errors再由production zero-array authority闭合249→253→257。下一字段为四元素callables；
 callables count=4现已闭合257→261，首个source-order entry gate经真实Callable/Kind/Option String/NFC/
-CallableResult/Visibility/Block/Return decoder完整闭合261→419。其余三个callables、root finish、
-structure-gated encoder/carrier closed theorem与formal TASK/TST仍pending。
+CallableResult/Visibility/Block/Return decoder完整闭合261→419。第二个pure `truthLeaf`又经singleton
+Instruction/ValueDef/Bool Literal payload/Return some ValueId与Option.some UInt64 steps闭合419→654。
+其余两个invariant callables、root finish、structure-gated encoder/carrier closed theorem与formal
+TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

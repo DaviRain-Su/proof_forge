@@ -547,6 +547,15 @@ def gateBlock : BlockV1 :=
 
 def gate : CallableV1 := entryGate 0 2
 
+def leafInstruction : InstructionV1 := boolLiteral 0 true
+
+def leafBlock : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[leafInstruction]
+  terminator := .return_ (some 0)
+}
+
 def leaf : CallableV1 := {
   id := 1
   kind := .pureFn
@@ -554,12 +563,7 @@ def leaf : CallableV1 := {
   params := #[]
   result := { typeId := 0, visibility := .public_ }
   entryBlock := 0
-  blocks := #[{
-    id := 0
-    params := #[]
-    instructions := #[boolLiteral 0 true]
-    terminator := .return_ (some 0)
-  }]
+  blocks := #[leafBlock]
   loopBounds := #[]
   invariantSteps := some 3
 }
@@ -655,21 +659,28 @@ def canonicalEntryGateSpine : TransparentByteSpineV1 := [
   82, 101, 116, 117, 114, 110, 1, 0, 0, 0, 0, 0, 0, 0
 ]
 
-/-- Remaining 816 bytes after the first callable. Keeping this opaque to prefix
+/-- Exact second callable (`truthLeaf`) at root offset 419. -/
+def canonicalTruthLeafSpine : TransparentByteSpineV1 := [
+  8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 1, 0, 0, 0,
+  15, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114, 101, 70,
+  110, 0, 0, 1, 9, 0, 0, 0, 116, 114, 117, 116, 104, 76, 101, 97, 102, 0,
+  0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
+  117, 108, 116, 2, 0, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98,
+  105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
+  1, 0, 0, 0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0, 11, 0, 0, 0, 73, 110, 115, 116, 114,
+  117, 99, 116, 105, 111, 110, 2, 0, 1, 8, 0, 0, 0, 86, 97, 108, 117, 101,
+  68, 101, 102, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 79,
+  112, 46, 76, 105, 116, 101, 114, 97, 108, 2, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 1, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110, 1,
+  0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0,
+  0
+]
+
+/-- Remaining 581 bytes after the second callable. Keeping this opaque to prefix
     reductions avoids traversing the full carrier for scalar facts. -/
 def canonicalRootFields : Array UInt8 := #[
-  8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 1,
-  0, 0, 0, 15, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114,
-  101, 70, 110, 0, 0, 1, 9, 0, 0, 0, 116, 114, 117, 116, 104, 76, 101, 97, 102,
-  0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
-  117, 108, 116, 2, 0, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98, 105,
-  108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-  0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
-  0, 0, 11, 0, 0, 0, 73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110, 2, 0,
-  1, 8, 0, 0, 0, 86, 97, 108, 117, 101, 68, 101, 102, 2, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 10, 0, 0, 0, 79, 112, 46, 76, 105, 116, 101, 114, 97, 108, 2, 0, 0, 0,
-  0, 0, 1, 0, 0, 0, 1, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117,
-  114, 110, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 8,
+  8,
   0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 2, 0, 0, 0, 18, 0, 0, 0,
   67, 97, 108, 108, 97, 98, 108, 101, 46, 73, 110, 118, 97, 114, 105, 97, 110,
   116, 0, 0, 1, 5, 0, 0, 0, 116, 114, 117, 116, 104, 0, 0, 0, 0, 14, 0, 0, 0,
@@ -708,7 +719,7 @@ def canonicalSpine : TransparentByteSpineV1 :=
   canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
     canonicalTypesSpine ++ canonicalConstantsSpine ++ canonicalLogicalStateSpine ++
     canonicalEmptyInterfacesSpine ++ canonicalCallablesHeaderSpine ++ canonicalEntryGateSpine ++
-    canonicalRootFields.toList
+    canonicalTruthLeafSpine ++ canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 
@@ -1388,6 +1399,327 @@ theorem decodeGate_canonicalBytes :
       rw [readByteAtV1_refinesSpine]
       rfl)
   simpa [gate, entryGate, gateBlock] using h
+
+private theorem decodeCanonicalU64V1 (offset after nesting value : Nat)
+    (hspine : readSpineU64leV1 canonicalSpine offset =
+      .ok (UInt64.ofNat value, after)) :
+    decodeU64le ⟨canonicalBytes, offset, nesting⟩ =
+      .ok (UInt64.ofNat value, ⟨canonicalBytes, after, nesting⟩) := by
+  apply decodeU64le_eq_of_readV1
+  change readU64leAtV1 (ByteArray.mk canonicalSpine.toArray) offset =
+    .ok (UInt64.ofNat value, after)
+  rw [readU64leAtV1_refinesSpine, hspine]
+
+theorem expectLeafCallable_canonicalBytes :
+    expectTag "Callable" 9 ⟨canonicalBytes, 419, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 433, 2⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 419
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101].toArray) 9 = .ok 433
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeLeafKind_canonicalBytes :
+    decodeCallableKindV1 ⟨canonicalBytes, 437, 2⟩ =
+      .ok (.pureFn, ⟨canonicalBytes, 458, 2⟩) := by
+  refine decodeCallableKindV1_eq_of_bodyV1 ⟨canonicalBytes, 437, 2⟩ .pureFn
+    ⟨canonicalBytes, 458, 3⟩ (by decide) ?_
+  apply decodeCallableKindBodyV1_pureFn
+  · apply decodeCanonicalTagV1 437 456 3
+      [67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114, 101, 70, 110]
+      "Callable.PureFn"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeCanonicalZeroFieldsV1
+    rfl
+
+theorem readLeafNameBytes_canonicalBytes :
+    readSizedBytesAtV1 canonicalBytes 459 maxStringBytes =
+      .ok (ByteArray.mk [116, 114, 117, 116, 104, 76, 101, 97, 102].toArray, 472) := by
+  change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 459 maxStringBytes =
+    .ok (ByteArray.mk [116, 114, 117, 116, 104, 76, 101, 97, 102].toArray, 472)
+  apply readSizedBytesAtV1_eq_of_spine
+  apply readSizedSpineBytesV1_eq_of_parts canonicalSpine
+      [116, 114, 117, 116, 104, 76, 101, 97, 102] 459 maxStringBytes 9 463
+  · rfl
+  · decide
+  · decide
+  · unfold takeSpineBytesV1 spineRemainingV1
+    rw [canonicalSpine_length]
+    rfl
+
+private theorem decodeTruthLeafNameV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 459 maxStringBytes =
+      .ok (ByteArray.mk [116, 114, 117, 116, 104, 76, 101, 97, 102].toArray, 472)) :
+    decodeString ⟨bytes, 459, 2⟩ = .ok ("truthLeaf", ⟨bytes, 472, 2⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+theorem decodeLeafName_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 458, 2⟩ =
+      .ok (some "truthLeaf", ⟨canonicalBytes, 472, 2⟩) := by
+  apply decodeOption_someV1 decodeString ⟨canonicalBytes, 458, 2⟩
+    ⟨canonicalBytes, 459, 2⟩ ⟨canonicalBytes, 472, 2⟩ "truthLeaf"
+  · apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 458 = .ok 1
+    rw [readByteAtV1_refinesSpine]
+    rfl
+  · exact decodeTruthLeafNameV1_of_read canonicalBytes readLeafNameBytes_canonicalBytes
+
+theorem expectLeafResult_canonicalBytes :
+    expectTag "CallableResult" 2 ⟨canonicalBytes, 476, 3⟩ =
+      .ok ((), ⟨canonicalBytes, 496, 3⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 476
+      (ByteArray.mk [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108,
+        116].toArray) 2 = .ok 496
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeLeafResultVisibility_canonicalBytes :
+    decodeVisibilityV1 ⟨canonicalBytes, 500, 3⟩ =
+      .ok (.public_, ⟨canonicalBytes, 523, 3⟩) := by
+  refine decodeVisibilityV1_eq_of_bodyV1 ⟨canonicalBytes, 500, 3⟩ .public_
+    ⟨canonicalBytes, 523, 4⟩ (by decide) ?_
+  apply decodeVisibilityBodyV1_public
+  · apply decodeCanonicalTagV1 500 521 4
+      [86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105,
+        99] "Visibility.Public"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · apply decodeCanonicalZeroFieldsV1
+    rfl
+
+theorem decodeLeafResult_canonicalBytes :
+    decodeCallableResultV1 ⟨canonicalBytes, 476, 2⟩ =
+      .ok ({ typeId := 0, visibility := .public_ }, ⟨canonicalBytes, 523, 2⟩) := by
+  refine decodeCallableResultV1_eq_of_bodyV1 ⟨canonicalBytes, 476, 2⟩
+    { typeId := 0, visibility := .public_ } ⟨canonicalBytes, 523, 3⟩ (by decide) ?_
+  apply decodeCallableResultBodyV1_eq_of_fields
+  · exact expectLeafResult_canonicalBytes
+  · apply decodeCanonicalU32V1
+    rfl
+  · exact decodeLeafResultVisibility_canonicalBytes
+
+theorem expectLeafBlock_canonicalBytes :
+    expectTag "Block" 4 ⟨canonicalBytes, 531, 3⟩ =
+      .ok ((), ⟨canonicalBytes, 542, 3⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 531
+      (ByteArray.mk [66, 108, 111, 99, 107].toArray) 4 = .ok 542
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem expectLeafInstruction_canonicalBytes :
+    expectTag "Instruction" 2 ⟨canonicalBytes, 554, 4⟩ =
+      .ok ((), ⟨canonicalBytes, 571, 4⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 554
+      (ByteArray.mk [73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110].toArray) 2 =
+    .ok 571
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem expectLeafValueDef_canonicalBytes :
+    expectTag "ValueDef" 2 ⟨canonicalBytes, 572, 5⟩ =
+      .ok ((), ⟨canonicalBytes, 586, 5⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 572
+      (ByteArray.mk [86, 97, 108, 117, 101, 68, 101, 102].toArray) 2 = .ok 586
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine]
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem decodeLeafValueDef_canonicalBytes :
+    decodeValueDefV1 ⟨canonicalBytes, 572, 4⟩ =
+      .ok ({ valueId := 0, typeId := 0 }, ⟨canonicalBytes, 594, 4⟩) := by
+  apply decodeValueDefV1_eq_of_fieldsV1 ⟨canonicalBytes, 572, 4⟩
+    ⟨canonicalBytes, 586, 5⟩ ⟨canonicalBytes, 590, 5⟩
+    ⟨canonicalBytes, 594, 5⟩ 0 0 (by decide)
+  · exact expectLeafValueDef_canonicalBytes
+  · apply decodeCanonicalU32V1
+    rfl
+  · apply decodeCanonicalU32V1
+    rfl
+
+theorem decodeLeafResultDef_canonicalBytes :
+    decodeOption decodeValueDefV1 ⟨canonicalBytes, 571, 4⟩ =
+      .ok (some { valueId := 0, typeId := 0 }, ⟨canonicalBytes, 594, 4⟩) := by
+  apply decodeOption_someV1 decodeValueDefV1 ⟨canonicalBytes, 571, 4⟩
+    ⟨canonicalBytes, 572, 4⟩ ⟨canonicalBytes, 594, 4⟩
+    { valueId := 0, typeId := 0 }
+  · apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 571 = .ok 1
+    rw [readByteAtV1_refinesSpine]
+    rfl
+  · exact decodeLeafValueDef_canonicalBytes
+
+theorem decodeLeafLiteralBytes_canonicalBytes :
+    decodeByteArray maxCanonicalProgramBytes ⟨canonicalBytes, 614, 5⟩ =
+      .ok (ByteArray.mk #[1], ⟨canonicalBytes, 619, 5⟩) := by
+  have hread : readSizedBytesAtV1 canonicalBytes 614 maxCanonicalProgramBytes =
+      .ok (ByteArray.mk #[1], 619) := by
+    change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 614
+      maxCanonicalProgramBytes = .ok (ByteArray.mk [1].toArray, 619)
+    apply readSizedBytesAtV1_eq_of_spine
+    apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [1] 614
+      maxCanonicalProgramBytes 1 618
+    · rfl
+    · decide
+    · decide
+    · unfold takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+  simp only [decodeByteArray, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+theorem decodeLeafLiteral_canonicalBytes :
+    decodeSemanticOpV1 ⟨canonicalBytes, 594, 4⟩ =
+      .ok (.literal 0 (ByteArray.mk #[1]), ⟨canonicalBytes, 619, 4⟩) := by
+  apply decodeSemanticOpV1_literal ⟨canonicalBytes, 594, 4⟩
+    ⟨canonicalBytes, 608, 5⟩ ⟨canonicalBytes, 610, 5⟩
+    ⟨canonicalBytes, 614, 5⟩ ⟨canonicalBytes, 619, 5⟩ 0 (ByteArray.mk #[1])
+    (by decide)
+  · apply decodeCanonicalTagV1 594 608 5
+      [79, 112, 46, 76, 105, 116, 101, 114, 97, 108] "Op.Literal"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · have hread : readU16leAtV1 canonicalBytes 608 = .ok (2, 610) := by
+      change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) 608 = .ok (2, 610)
+      rw [readU16leAtV1_refinesSpine]
+      rfl
+    have hresult := decodeFieldCount_eq_of_readU16leV1 2
+      ⟨canonicalBytes, 608, 5⟩ 2 610 hread
+    simpa using hresult
+  · apply decodeCanonicalU32V1
+    rfl
+  · exact decodeLeafLiteralBytes_canonicalBytes
+
+theorem decodeLeafInstruction_canonicalBytes :
+    decodeInstructionV1 ⟨canonicalBytes, 554, 3⟩ =
+      .ok (leafInstruction, ⟨canonicalBytes, 619, 3⟩) := by
+  have h := decodeInstructionV1_eq_of_fieldsV1 ⟨canonicalBytes, 554, 3⟩
+    ⟨canonicalBytes, 571, 4⟩ ⟨canonicalBytes, 594, 4⟩
+    ⟨canonicalBytes, 619, 4⟩ (some { valueId := 0, typeId := 0 })
+    (.literal 0 (ByteArray.mk #[1])) (by decide) expectLeafInstruction_canonicalBytes
+    decodeLeafResultDef_canonicalBytes decodeLeafLiteral_canonicalBytes
+  simpa [leafInstruction, boolLiteral, instruction, valueDef] using h
+
+theorem decodeLeafReturn_canonicalBytes :
+    decodeTerminatorV1 ⟨canonicalBytes, 619, 3⟩ =
+      .ok (.return_ (some 0), ⟨canonicalBytes, 641, 3⟩) := by
+  apply decodeTerminatorV1_return ⟨canonicalBytes, 619, 3⟩
+    ⟨canonicalBytes, 634, 4⟩ ⟨canonicalBytes, 636, 4⟩
+    ⟨canonicalBytes, 641, 4⟩ (some 0) (by decide)
+  · apply decodeCanonicalTagV1 619 634 4
+      [84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110] "Term.Return"
+    · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+      rw [canonicalSpine_length]
+      rfl
+    · rfl
+    · rfl
+  · have hread : readU16leAtV1 canonicalBytes 634 = .ok (1, 636) := by
+      change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) 634 = .ok (1, 636)
+      rw [readU16leAtV1_refinesSpine]
+      rfl
+    have hresult := decodeFieldCount_eq_of_readU16leV1 1
+      ⟨canonicalBytes, 634, 4⟩ 1 636 hread
+    simpa using hresult
+  · apply decodeOption_someV1 decodeU32le ⟨canonicalBytes, 636, 4⟩
+      ⟨canonicalBytes, 637, 4⟩ ⟨canonicalBytes, 641, 4⟩ 0
+    · apply decodeU8_eq_of_readV1
+      change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 636 = .ok 1
+      rw [readByteAtV1_refinesSpine]
+      rfl
+    · apply decodeCanonicalU32V1
+      rfl
+
+theorem decodeLeafBlock_canonicalBytes :
+    decodeBlockV1 ⟨canonicalBytes, 531, 2⟩ =
+      .ok (leafBlock, ⟨canonicalBytes, 641, 2⟩) := by
+  apply decodeBlockV1_oneInstructionV1 ⟨canonicalBytes, 531, 2⟩
+    ⟨canonicalBytes, 542, 3⟩ ⟨canonicalBytes, 546, 3⟩
+    ⟨canonicalBytes, 619, 3⟩ ⟨canonicalBytes, 641, 3⟩
+    550 554 0 leafInstruction (.return_ (some 0)) (by decide)
+  · exact expectLeafBlock_canonicalBytes
+  · apply decodeCanonicalU32V1
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 546
+      maxArrayElements = .ok (0, 550)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 550
+      maxArrayElements = .ok (1, 554)
+    rw [readArrayCountAtV1_refinesSpine]
+    rfl
+  · exact decodeLeafInstruction_canonicalBytes
+  · exact decodeLeafReturn_canonicalBytes
+
+theorem decodeLeafSteps_canonicalBytes :
+    decodeOption decodeU64le ⟨canonicalBytes, 645, 2⟩ =
+      .ok (some 3, ⟨canonicalBytes, 654, 2⟩) := by
+  apply decodeOption_someV1 decodeU64le ⟨canonicalBytes, 645, 2⟩
+    ⟨canonicalBytes, 646, 2⟩ ⟨canonicalBytes, 654, 2⟩ 3
+  · apply decodeU8_eq_of_readV1
+    change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) 645 = .ok 1
+    rw [readByteAtV1_refinesSpine]
+    rfl
+  · apply decodeCanonicalU64V1
+    rfl
+
+theorem decodeLeaf_canonicalBytes :
+    decodeCallableV1 ⟨canonicalBytes, 419, 1⟩ =
+      .ok (leaf, ⟨canonicalBytes, 654, 1⟩) := by
+  have h := decodeCallableV1_singleBlockV1
+    ⟨canonicalBytes, 419, 1⟩ ⟨canonicalBytes, 433, 2⟩
+    ⟨canonicalBytes, 437, 2⟩ ⟨canonicalBytes, 458, 2⟩
+    ⟨canonicalBytes, 472, 2⟩ ⟨canonicalBytes, 523, 2⟩
+    ⟨canonicalBytes, 527, 2⟩ ⟨canonicalBytes, 641, 2⟩
+    ⟨canonicalBytes, 654, 2⟩ 476 531 645 1 0 .pureFn (some "truthLeaf")
+    { typeId := 0, visibility := .public_ } leafBlock (some 3) (by decide)
+    expectLeafCallable_canonicalBytes (decodeCanonicalU32V1 433 437 2 1 (by rfl))
+    decodeLeafKind_canonicalBytes decodeLeafName_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 472
+        maxArrayElements = .ok (0, 476)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeLeafResult_canonicalBytes (decodeCanonicalU32V1 523 527 2 0 (by rfl))
+    (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 527
+        maxArrayElements = .ok (1, 531)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeLeafBlock_canonicalBytes (by
+      change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 641
+        maxArrayElements = .ok (0, 645)
+      rw [readArrayCountAtV1_refinesSpine]
+      rfl)
+    decodeLeafSteps_canonicalBytes
+  simpa [leaf] using h
 
 end CanonicalInvariantFixtureV1
 

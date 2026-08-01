@@ -553,3 +553,10 @@ CallableResult、entryBlock=0、singleton Block；Block内部为empty params/ins
 `Return none`，随后empty loopBounds及absent invariantSteps。所有wrapper均恢复parent nesting，显式
 golden重分段后仍由production encoder suite确认1235-byte identity。下一片从offset 419的pure truth
 leaf开始；其余callables/root/carrier及formal状态均未闭合。
+
+第二个`truthLeaf` callable现已闭合419→654。除PureFn kind、ASCII/NFC name、public Bool result与
+singleton Block外，production路径进一步闭合singleton Instruction：Option.some ValueDef `(0, Bool)`、
+`Op.Literal` typeId 0及canonical Bool payload `[1]`，再消费`Return (some 0)`、empty loopBounds与
+`invariantSteps=some 3`。Instruction/ValueDef/SemanticOp最高进入nesting 5并逐层恢复。显式golden
+重分段及production encoder byte identity仍为1235 bytes；下一片从offset 654的`truth` invariant
+callable开始，剩余root/carrier与formal状态不变。
