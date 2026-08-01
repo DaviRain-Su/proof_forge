@@ -85,11 +85,11 @@ manifest/CLI/validate_artifacts 发布字段。shard-targets 绿。
 > 执行模式：参照 T8 的 merged 切片（T8b-EVM 是 ABI 模板、T8a 是 body 模板、M4 是 digest 模板）。
 > 每切片按"执行协议"走完整流程；顺序固定（依赖关系），不跳项。
 
-### [in_progress] T9a：窄结果四 target（entry/view 返回 UInt8/16/32）
-- Normalize 已开（requireScalarResultTypeId）；target 侧 resultKind 仍 uint64/bool/int64
-- 工作面：各 target resultKind 扩展 + 返回编码（EVM ABI return 低字节、Solana set_return_data 长度 1/2/4、NEAR 返回值编码、Noir result 类型）+ IDL/manifest 同步
-- 金样 + Solana 运行时 fixture（窄返回 Mollusk 断言）；负向：UInt128 结果仍 fail closed
-- 注意：EVM selector 不含返回类型（不变）；Solana discriminator 不含返回类型（不变）
+### [merged] T9a：窄结果四 target（entry/view 返回 UInt8/16/32）（2026-08-01, 642e6016e）
+EVM/Solana/NEAR/Noir resultKind 扩展 UInt8/16/32；EVM ABI uint8/16/32；Solana
+set_return_data 1/2/4 + SBPF stxb/h/w；NEAR value_return 长度 + u8-le ABI；Noir
+原生 result InputType。UInt128 结果 fail closed。NarrowResult Mollusk 三测绿。
+shard-targets 绿。隔离 CI 已 dispatch（ci-verify-t9a-narrow-result）。
 
 ### [pending] T9b：EVM UInt128/256 ABI（state/param + body）
 - EVM 256 位字天然：UInt256 = 原生字、UInt128 = 低 128 位；storage slot-per-field 保持
@@ -129,3 +129,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T8c | merged 451a452b3, 隔离 CI 已 dispatch（ci-verify-t8c-near-body） |
 | 2026-08-01 | T8d | merged 91bd079ff, 隔离 CI 已 dispatch（ci-verify-t8d-noir-body） |
 | 2026-08-01 | M4 | merged 13e3a54be, 隔离 CI 已 dispatch（ci-verify-m4-plan-digest） |
+| 2026-08-01 | T9a | merged 642e6016e, 隔离 CI 已 dispatch（ci-verify-t9a-narrow-result） |
