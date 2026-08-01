@@ -589,3 +589,7 @@ carrier identity仍需后续逐片闭合，formal状态不变。
 下一production phase `validateTypesStructureV1`已对fixture的三项primitive声明闭合：Bool、Principal、
 Unit逐项通过真实named-rule与shape/catalog authority。TypeKey phases尚未由kernel theorem闭合，不能把
 本切片扩写为完整type/structure acceptance。
+
+TypeKey按phase顺序继续：全anonymous三项已证明sole `validateNamedPrefixRankV1`成功。下一阻塞点是
+`primitiveLeaf`内部真实TypeShape encoding + private qsort/adjacent comparison；不得用第二套shape key、
+opaque digest或提高recursion depth绕过。recursive/namedBody尚未越序组合，完整TypeKey仍pending。

@@ -645,6 +645,14 @@ theorem typesStructure_data :
     validateTypeDeclNamedRuleV1, data, types, boolType, principalType, unitType,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- All three fixture declarations are anonymous, so the first production
+    TypeKey subphase closes without any named declaration appearing after the
+    anonymous suffix has begun. -/
+theorem typeKeyNamedPrefix_data :
+    validateNamedPrefixRankV1 data.types = .ok () := by
+  simp [validateNamedPrefixRankV1, data, types, boolType, principalType,
+    unitType, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

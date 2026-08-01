@@ -329,6 +329,8 @@ theorem；具体fixture已kernel闭合root shape、table id及shallow refs prelu
 CFG/requirements phase、完整structure gate、encoder/carrier identity与formal TASK/TST仍pending。
 紧随prelude的`validateTypesStructureV1`现也已对fixture闭合：Bool、Principal、Unit三项均通过sole
 production declaration named-rule与shape/catalog gate。TypeKey四subphase及其后续gate仍pending。
+TypeKey首个`namedPrefix` subphase现已对全anonymous fixture闭合；尚未跨越到需要真实TypeShape
+encoding/sort authority的`primitiveLeaf`，后续recursive/namedBody及完整TypeKey seam仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
