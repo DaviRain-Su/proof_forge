@@ -313,6 +313,65 @@ private unsafe def testCommitmentLattice
   let d4 ← checkSourceWithParity session "public-to-private" pubToPriv
   expectOk d4 "public-to-private"
 
+/-- N-3: Commit disclosure contract — sole private→commitment declassifier;
+    commitment result still cannot enter public sinks. -/
+private unsafe def testCommitDisclosureContract
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- private → commit(x) → commitment state OK
+  let declassOk :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CommitDeclassOk where\n" ++
+    "  state commitment note : UInt64\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    note := commit(x)\n" ++
+    "    return 0\n"
+  let d1 ← checkSourceWithParity session "commit-declass-ok" declassOk
+  expectOk d1 "commit-declass-ok"
+
+  -- return commit(x) is a public sink receiving commitment → PF-VIS-001
+  let retCommit :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CommitReturnPublic where\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return commit(x)\n"
+  let d2 ← checkSourceWithParity session "commit-return-public" retCommit
+  expectNotOk d2 "commit-return-public"
+  expectWireVis001 d2 "commit-return-public"
+  unless contains (messages d2) (flowMsg "commitment" "public") do
+    throw <| IO.userError s!"commit-return-public: unexpected {messages d2}"
+
+  -- commit(x) into public state is still commitment → public
+  let commitToPublic :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CommitToPublicState where\n" ++
+    "  state total : UInt64\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    total := commit(x)\n" ++
+    "    return 0\n"
+  let d3 ← checkSourceWithParity session "commit-to-public-state" commitToPublic
+  expectNotOk d3 "commit-to-public-state"
+  expectWireVis001 d3 "commit-to-public-state"
+  unless contains (messages d3) (flowMsg "commitment" "public") do
+    throw <| IO.userError s!"commit-to-public-state: unexpected {messages d3}"
+
+  -- Without commit, private → commitment still rejected (sole declassifier)
+  let privDirect :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program PrivateDirectCommitment where\n" ++
+    "  state commitment note : UInt64\n" ++
+    "  entry run(private x : UInt64) : UInt64 do\n" ++
+    "    note := x\n" ++
+    "    return 0\n"
+  let d4 ← checkSourceWithParity session "private-direct-commitment" privDirect
+  expectNotOk d4 "private-direct-commitment"
+  expectWireVis001 d4 "private-direct-commitment"
+  unless contains (messages d4) (flowMsg "private" "commitment") do
+    throw <| IO.userError s!"private-direct-commitment: unexpected {messages d4}"
+
 private unsafe def testShadowingLocalDoesNotLeakState
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- Local let `total` shadows private state; public RHS local flowing to public return is OK.
@@ -878,6 +937,7 @@ unsafe def run : IO Unit := do
   testPrivateCallScheduleRejected session
   testPrivateIndexRejected session
   testCommitmentLattice session
+  testCommitDisclosureContract session
   testShadowingLocalDoesNotLeakState session
   testHumanRenderUsesVisWire session
   testDefaultVisibilityIsPublic session

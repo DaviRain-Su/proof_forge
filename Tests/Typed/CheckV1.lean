@@ -6543,6 +6543,45 @@ private unsafe def testContextReadInPureFnFailClosed
         s!"ctx-fn: unexpected detail {detail}"
   | .error e => throw <| IO.userError s!"ctx-fn: unexpected error {repr e}"
 
+/-- N-3: Commit inside pureFn fails closed at Normalize (mirror ContextRead).
+    Keep body free of commitment→public return so CheckV1 can stay ok and
+    Normalize is the pureFn Commit boundary. -/
+private unsafe def testCommitInPureFnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CommitPureFn" <|
+    "  state commitment note : UInt64\n" ++
+    "  init() do\n" ++
+    "    note := 0\n" ++
+    "  fn wrapNote(x : UInt64) : UInt64 do\n" ++
+    "    let y : UInt64 := commit(x)\n" ++
+    "    return 0\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return wrapNote(x)\n"
+  let validated ← loadSource session "commit-pure-fn" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"commit-pure-fn: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .ok _ =>
+      throw <| IO.userError "commit-pure-fn: expected Normalize fail closed for pureFn Commit"
+  | .error (.unsupported detail) =>
+      expect (detail.contains "Commit" || detail.contains "pureFn" || detail.contains "commit")
+        s!"commit-pure-fn: unexpected detail {detail}"
+  | .error e => throw <| IO.userError s!"commit-pure-fn: unexpected error {repr e}"
+
+/-- N-3: CheckV1 product path — return commit(x) is PF-VIS-001. -/
+private unsafe def testCommitReturnPublicProduct
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CommitRet" <|
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    return commit(x)\n"
+  let validated ← loadSource session "commit-ret" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "commit-ret: expected CheckV1 not ok"
+  let hasVis := typed.diagnostics.any (fun d =>
+    d.code == ProofForgeV2.Core.DiagnosticV1.DiagnosticCodeV1.visibilityViolation)
+  expect hasVis
+    s!"commit-ret: expected PF-VIS-001, diags={typed.diagnostics.map (·.message)}"
+
 /-- N5: Commit + ContextRead together keep UTF-8 requirement order. -/
 private unsafe def testContextAndCommitRequirementOrder
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6638,6 +6677,8 @@ unsafe def run : IO Unit := do
   testCommitIdentityPublic session
   testCommitPrivateToCommitmentState session
   testContextReadInPureFnFailClosed session
+  testCommitInPureFnFailClosed session
+  testCommitReturnPublicProduct session
   testContextAndCommitRequirementOrder session
   testNestedLoopsAndIfInLoopState session
   testEmitRevertMultiBlock session

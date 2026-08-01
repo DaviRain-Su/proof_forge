@@ -75,10 +75,12 @@
     * deleting alpha Semantic visibility/requirement inference
     * B7b3d located CheckV1 composition
 
-  N5 engineering: intrinsic `commit(x)` is the sole private→commitment
+  N5/N-3 engineering: intrinsic `commit(x)` is the sole private→commitment
   declassification operator (result label = commitment; operand is not
-  mayFlow-checked against commitment). `context.unixTimeSeconds` is public_
-  (invocation-start snapshot).
+  mayFlow-checked against commitment). Commitment still cannot flow to public_
+  sinks (`return commit(x)`, public state assign) without a separate public
+  path. `context.unixTimeSeconds` / `context.caller` are public_ / Principal
+  identity (invocation-start snapshot; N-2).
 -/
 import ProofForgeV2.Core.DiagnosticV1
 import ProofForgeV2.Source.AstDeclV1
