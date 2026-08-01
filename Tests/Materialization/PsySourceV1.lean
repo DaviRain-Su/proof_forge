@@ -547,6 +547,42 @@ unsafe def testVoidEntry : IO Unit := do
       expect (psy.contains "c.count = ")
         "void entry must still write storage"
 
+/-- PsyFelt research pin (2026-08-01): Field bn254_fr fails closed at Psy
+    type-closure. Native Felt is Goldilocks (p = 2^64−2^32+1), not bn254 Fr;
+    wording must cite Goldilocks / modulus mismatch so no silent wrong-field
+    mapping can land later. -/
+unsafe def testFieldBn254FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PsyFieldPin where\n" ++
+    "  state acc : Field bn254_fr\n" ++
+    "  init(initial : Field bn254_fr) do\n" ++
+    "    acc := initial\n" ++
+    "  entry bump(delta : Field bn254_fr) : Field bn254_fr do\n" ++
+    "    acc := acc + delta\n" ++
+    "    return acc\n" ++
+    "  view get() : Field bn254_fr do\n" ++
+    "    return acc\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-field-pin>" "Tests.PsyFieldPin" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "Field bn254_fr must fail closed at Psy type-closure (Felt is Goldilocks, not bn254 Fr)"
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "Field" || msg.contains "unsupported" ||
+          msg.contains "Goldilocks" || msg.contains "bn254")
+        s!"Psy Field decline must cite Field/Goldilocks/bn254 boundary, got: {msg}"
+      expect (msg.contains "Goldilocks" || msg.contains "0xFFFFFFFF00000001" ||
+          msg.contains "2^64-2^32+1" || msg.contains "bn254 Fr")
+        s!"Psy Field decline must cite Goldilocks modulus vs bn254 Fr, got: {msg}"
+      expect (msg.contains "Psy" || msg.contains "psy")
+        s!"Psy Field decline must label Psy, got: {msg}"
+
 /-- Omitted-type let: `let x := a + b` materializes through checked-add
     (same surface as an annotated UInt64 let). -/
 unsafe def testOmittedTypeLet : IO Unit := do
@@ -595,6 +631,7 @@ unsafe def run : IO Unit := do
   testAssertElseFailClosed
   testMultiStateMultiEvent
   testVoidEntry
+  testFieldBn254FailClosed
   testOmittedTypeLet
   IO.println "Tests.Materialization.PsySourceV1: ok"
 

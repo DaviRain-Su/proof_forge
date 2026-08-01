@@ -2546,6 +2546,18 @@ unsafe def run : IO Unit := do
             (e.render).contains "mod-p" ||
             (e.render).contains "bn254")
           s!"N2b field {target} message must cite Field boundary, got {e.render}"
+  -- PsyFelt research pin: Psy Felt is Goldilocks, not bn254 Fr — type-closure
+  -- wording must name the modulus mismatch (no silent approximate mapping).
+  match materializeSelected TargetId.psy fieldCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "N2b field: Psy must fail closed on Field (Felt is Goldilocks, not bn254 Fr)"
+  | .error e =>
+      expect ((e.render).contains "Goldilocks" ||
+          (e.render).contains "0xFFFFFFFF00000001" ||
+          (e.render).contains "2^64-2^32+1" ||
+          (e.render).contains "bn254 Fr")
+        s!"N2b field Psy message must cite Goldilocks≠bn254 Fr, got {e.render}"
 
 
   -- N2c: Principal identity-only product pin — Normalize admits, all five

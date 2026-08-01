@@ -4,6 +4,7 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Common
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.EnvelopeV1
 
 /-!
 # Psy LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
@@ -19,6 +20,11 @@ enforced by explicit assert guards at emission (Felt is a field element; the
 old Psy backend had no checked arith — V2 requires it). Bitwise `&`/`|`/`^`
 and shifts lower to native Psy Felt operators (golden BitwiseProbe); unary
 `~` (bitNot) fails closed because the Psy surface has no bitwise-not unary.
+
+**Field (bn254 Fr) is fail-closed.** Native Psy `Felt` is plonky2 Goldilocks
+(`ORDER = 0xFFFFFFFF00000001`), not catalog bn254 Fr — see
+`EnvelopeV1.psyTypeClosureWording` research pin. Type-closure uses
+`pilotFieldPolicyNone`.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -27,6 +33,7 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.EnvelopeV1
 
 /-- Engineering codegen profile string for the Dargo/Psy UInt64 source slice.
     `CodegenProfileId` has no psy variant yet — P-B wires the opaque id into
@@ -134,6 +141,22 @@ structure Plan where
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .psy message
+
+/-- Psy pilot type-closure carrier (shared `PilotTypeClosureV1`).
+    Field stays on `pilotFieldPolicyNone`: Felt is Goldilocks, not bn254 Fr. -/
+private abbrev PsyTypeClosureV1 := PilotTypeClosureV1
+
+private def psyPlanErr (message : String) : CompileError :=
+  .planInvariant .psy message
+
+/-- Psy pilot accepts anonymous UInt64/UInt32/Unit/Bool/Int64 under the default
+    UInt64+UInt32 + Int64 policies. Field/Principal/named aggregates/containers
+    fail closed at type-closure (`psyTypeClosureWording` cites Goldilocks vs
+    bn254 Fr for Field). -/
+private def validatePsyTypeClosureV1
+    (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
+  validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
+    pilotUintWidthPolicyU64U32
 
 -- ---------------------------------------------------------------------------
 -- Wire semantic → target-owned Plan lowering
@@ -636,10 +659,14 @@ private def lowerCallable
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
     (sourceHash semanticHash : String) : CompileResult Plan := do
+  -- Type-closure first: Field/Principal/aggregates/containers fail closed with
+  -- `psyTypeClosureWording` (Field cites Goldilocks ≠ bn254 Fr).
+  let _types ← validatePsyTypeClosureV1 data.types
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
     -- N1: Felt storage is opaque; accept any visibility, UInt64/Int64 type.
     -- N2c: Principal is variable-length u32-prefixed identity — not Felt.
+    -- Field already rejected at type-closure (Goldilocks ≠ bn254 Fr).
     unless isUInt64Type data state.typeId || isInt64Type data state.typeId do
       planError "unsupported Psy semantic shape: state must be UInt64 or Int64 (Array/Map/Bytes container state and Principal declined)"
     stateFields := stateFields.push state.name

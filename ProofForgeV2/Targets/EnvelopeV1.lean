@@ -169,6 +169,9 @@ def pilotIntWidthPolicyI64 : PilotIntWidthPolicy where
     NEAR / Psy). Noir admits bn254 because its native `Field` is the Barretenberg
     bn254 scalar field — exact modulus match with `bn254FrFieldSpecV1`.
     EVM admits bn254 via ADDMOD/MULMOD + Fermat inverse (engineering Field lane).
+    Psy stays fail-closed: native `Felt` is plonky2 **Goldilocks**
+    (`ORDER = 0xFFFFFFFF00000001 = 2^64 - 2^32 + 1`), not bn254 Fr
+    (research pin 2026-08-01; see `psyTypeClosureWording`).
     Any non-catalog FieldSpec fails closed even when admission is enabled. -/
 structure PilotFieldPolicy where
   /-- When true, admit at most one anonymous `.field bn254FrFieldSpecV1`. -/
@@ -179,7 +182,8 @@ structure PilotFieldPolicy where
 def pilotFieldPolicyNone : PilotFieldPolicy where
   admitBn254Fr := false
 
-/-- Noir native Field / EVM mod-p subsystem (exact bn254 Fr catalog modulus). -/
+/-- Noir native Field / EVM mod-p subsystem (exact bn254 Fr catalog modulus).
+    Not Psy: Psy Felt ≠ bn254 Fr (Goldilocks). -/
 def pilotFieldPolicyBn254 : PilotFieldPolicy where
   admitBn254Fr := true
 
@@ -519,15 +523,24 @@ def noirTypeClosureWording : PilotTypeClosureWording where
     "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
 
 /-- Psy type-closure diagnostic wording (UInt64/32 + Int64).
-    Field fail-closed: Psy Felt is a field element but there is no pinned
-    evidence that Psy's Felt modulus equals bn254 Fr (catalog modulus). -/
+
+    Field fail-closed — research pin (2026-08-01 PsyFelt wave):
+    * Psy native `Felt` is plonky2 `GoldilocksField` with prime modulus
+      `ORDER = 0xFFFFFFFF00000001 = 2^64 - 2^32 + 1 = 18446744069414584321`
+      (sources: PsyProtocol/psy-compiler uses `plonky2::field::goldilocks_field::GoldilocksField`;
+      PsyProtocol/psy-prover `psy_vm` eval resolves Felts via Goldilocks;
+      PsyProtocol/plonky2-hwa `field/src/goldilocks_field.rs` pins `const ORDER`).
+    * Catalog `bn254FrFieldSpecV1` modulus is the 254-bit BN254 scalar-field prime
+      (not equal to Goldilocks). ConstValue::Felt is u64-shaped; bn254 Fr needs 32 bytes.
+    Therefore Psy must not open `pilotFieldPolicyBn254` — mapping would be a
+    silent wrong modulus (non-exact). Keep `pilotFieldPolicyNone`. -/
 def psyTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Psy"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt64/UInt32 and Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, Int64, Unit, and Bool are supported (Psy Felt modulus not proven equal to bn254 Fr; Principal is variable-length identity, not Felt)"
+    "only UInt64, UInt32, Int64, Unit, and Bool are supported (Psy Felt is Goldilocks p=2^64-2^32+1=0xFFFFFFFF00000001, not bn254 Fr; Principal is variable-length identity, not Felt)"
 private def shapeMsg (label detail : String) : String :=
   s!"unsupported {label} semantic shape: {detail}"
 

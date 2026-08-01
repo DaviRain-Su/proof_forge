@@ -12421,3 +12421,28 @@ normative: false
 - Boundary：`primitiveLeaf`真实encoding/sort proof及其后的recursive/namedBody、完整TypeKey/structure/
   encoder/carrier/formal状态仍pending。
 
+## 2026-08-01 — PsyFelt research: Felt = Goldilocks ≠ bn254 Fr (fail-closed pin)
+
+- Engineering research slice only (not formal TASK/TST; not Field support on Psy).
+- Finding: Psy native `Felt` is plonky2 **Goldilocks**, not catalog bn254 Fr.
+  * Modulus: `ORDER = 0xFFFFFFFF00000001 = 2^64 - 2^32 + 1 = 18446744069414584321`.
+  * Sources: PsyProtocol/psy-compiler (`plonky2::field::goldilocks_field::GoldilocksField`,
+    `ConstValue::Felt(u64)`); PsyProtocol/psy-prover `psy_vm` eval via Goldilocks;
+    PsyProtocol/plonky2-hwa `field/src/goldilocks_field.rs` pins `const ORDER`;
+    PsyProtocol/poseidon-goldilocks (Poseidon over Goldilocks).
+  * bn254 Fr catalog modulus is a distinct 254-bit prime (32-byte valueBytes);
+    Goldilocks is a 64-bit prime — **not an exact match**. Opening
+    `pilotFieldPolicyBn254` on Psy would be a silent wrong-modulus mapping.
+- Decision: keep Field fail-closed on Psy (`pilotFieldPolicyNone`). Do **not**
+  implement a third Field lane or approximate mapping.
+- Code:
+  * `EnvelopeV1.psyTypeClosureWording` / Field-policy docs cite Goldilocks modulus
+    and refuse bn254 Fr admission on Psy.
+  * `Psy/LowerSemanticV1` wires shared `validatePilotTypeClosure` at Plan entry
+    (default Field policy none) so Field declines at type-closure with the pin
+    wording, consistent with Solana/NEAR envelope pattern.
+- Tests: `PsySourceV1.testFieldBn254FailClosed` + Targets N2b Psy-specific
+  Goldilocks≠bn254 Fr wording pin; Solana/NEAR still generic Field decline.
+- Boundary: engineering only; no Psy Field arith/Plan tags; Noir/EVM Field lanes
+  unchanged; not formal modulus proof package.
+
