@@ -21,6 +21,14 @@ structure LockedRuntimeFile where
   sha256 : String
   deriving FromJson, Repr
 
+/-- Marks a tool whose binary is produced by a cargo-git source build.
+    Trust anchor is the git commit in the lock asset; runtime authority is the
+    version probe. `executableSha256` on the tool is null and hash closure is
+    exempted (cargo is not byte-reproducible across hosts). -/
+structure LockedSourceBuild where
+  assetId : String
+  deriving FromJson, Repr
+
 structure LockedTool where
   id : String
   version : String
@@ -29,13 +37,16 @@ structure LockedTool where
   assetId : String
   executable : String
   defaultPath : String
-  executableSha256 : String
+  /-- Content-addressed pin, or `none` when `sourceBuild` is set. -/
+  executableSha256 : Option String
   runtimeLibrarySubdir : Option String
   runtimeFiles : Array LockedRuntimeFile
   versionArgs : Array String
   expectedVersion : String
   licenseSpdx : String
   requiredByProfiles : Array String
+  /-- `none` for content-addressed tools; `some` for cargo-git source builds. -/
+  sourceBuild : Option LockedSourceBuild
   deriving FromJson, Repr
 
 structure LockedBundleFile where
@@ -50,6 +61,9 @@ structure LockFile where
   bundleFiles : Array LockedBundleFile
   tools : Array LockedTool
   deriving FromJson, Repr
+
+private def LockedTool.isSourceBuild (tool : LockedTool) : Bool :=
+  tool.sourceBuild.isSome
 
 structure LockedSystemTool where
   id : String
@@ -88,8 +102,9 @@ private def embeddedHostLock : String := include_str "../../host-profiles.lock.j
 
 private def isDarwinHost : Bool := System.Platform.isOSX
 
-private def expectedLockSchema : String :=
-  if isDarwinHost then "proof-forge.toolchains.v2" else "proof-forge.toolchains.v3"
+/-- Both platforms share Tool Lock v4 (`cargo-git` + `sourceBuild`); platform
+    policy (macho vs elf) is selected by host, not by schema name. -/
+private def expectedLockSchema : String := "proof-forge.toolchains.v4"
 
 private def loadLock : Except String LockFile := do
   let embedded := if isDarwinHost then embeddedLockDarwin else embeddedLockLinux
@@ -136,33 +151,60 @@ private def validateLockClosure (lock : LockFile) : IO Unit := do
     if file.sha256.length != 64 then
       mismatch s!"bundle file '{file.path}' has an invalid SHA-256"
     filePaths := filePaths.push file.path
+  let mut sourceExecutables : Array String := #[]
   for tool in lock.tools do
     let _ ← safeRelativeComponents s!"{tool.id} executable" tool.executable
-    let executableFile ← match lock.bundleFiles.find? (·.path == tool.executable) with
-      | some file => pure file
-      | none => mismatch s!"{tool.id} executable is absent from bundleFiles"
-    unless executableFile.sha256 == tool.executableSha256 do
-      mismatch s!"{tool.id} executable hash disagrees with bundleFiles"
-    for runtimeFile in tool.runtimeFiles do
-      let _ ← safeRelativeComponents s!"{tool.id} runtime file" runtimeFile.path
-      let bundled ← match lock.bundleFiles.find? (·.path == runtimeFile.path) with
+    if tool.isSourceBuild then
+      -- sourceBuild: hash/bundle closure exempt; require empty runtime surface.
+      if tool.executableSha256.isSome then
+        mismatch s!"{tool.id} sourceBuild requires executableSha256 null"
+      if !tool.runtimeFiles.isEmpty then
+        mismatch s!"{tool.id} sourceBuild requires empty runtimeFiles"
+      if tool.runtimeLibrarySubdir.isSome then
+        mismatch s!"{tool.id} sourceBuild must not declare runtimeLibrarySubdir"
+      if filePaths.contains tool.executable then
+        mismatch s!"{tool.id} sourceBuild executable must not appear in bundleFiles"
+      if sourceExecutables.contains tool.executable then
+        mismatch s!"{tool.id} sourceBuild executable path is duplicated"
+      sourceExecutables := sourceExecutables.push tool.executable
+    else
+      let expectedHash ← match tool.executableSha256 with
+        | some h => pure h
+        | none => mismatch s!"{tool.id} content-addressed tool requires executableSha256"
+      let executableFile ← match lock.bundleFiles.find? (·.path == tool.executable) with
         | some file => pure file
-        | none => mismatch s!"{tool.id} runtime file '{runtimeFile.path}' is absent from bundleFiles"
-      unless bundled.sha256 == runtimeFile.sha256 do
-        mismatch s!"{tool.id} runtime file hash disagrees with bundleFiles"
-    if let some subdir := tool.runtimeLibrarySubdir then
-      let _ ← safeRelativeComponents s!"{tool.id} runtime library" subdir
-      unless tool.runtimeFiles.any fun file =>
-          file.path.startsWith (subdir ++ "/") do
-        mismatch s!"{tool.id} runtime library directory has no locked runtime file"
+        | none => mismatch s!"{tool.id} executable is absent from bundleFiles"
+      unless executableFile.sha256 == expectedHash do
+        mismatch s!"{tool.id} executable hash disagrees with bundleFiles"
+      for runtimeFile in tool.runtimeFiles do
+        let _ ← safeRelativeComponents s!"{tool.id} runtime file" runtimeFile.path
+        let bundled ← match lock.bundleFiles.find? (·.path == runtimeFile.path) with
+          | some file => pure file
+          | none => mismatch s!"{tool.id} runtime file '{runtimeFile.path}' is absent from bundleFiles"
+        unless bundled.sha256 == runtimeFile.sha256 do
+          mismatch s!"{tool.id} runtime file hash disagrees with bundleFiles"
+      if let some subdir := tool.runtimeLibrarySubdir then
+        let _ ← safeRelativeComponents s!"{tool.id} runtime library" subdir
+        unless tool.runtimeFiles.any fun file =>
+            file.path.startsWith (subdir ++ "/") do
+          mismatch s!"{tool.id} runtime library directory has no locked runtime file"
 
 private def requiredBundlePathsFor (lock : LockFile) (tool : LockedTool) :
     Except String (Array String) := do
-  let declared := #[tool.executable] ++ tool.runtimeFiles.map (·.path)
-  let selected := lock.bundleFiles.filter fun file => declared.contains file.path
-  unless selected.size == declared.size do
-    throw s!"locked closure for tool '{tool.id}' is missing or repeats a bundle path"
-  pure (selected.map (·.path))
+  -- sourceBuild tools have no content-addressed bundle members.
+  if tool.isSourceBuild then
+    pure #[]
+  else
+    let declared := #[tool.executable] ++ tool.runtimeFiles.map (·.path)
+    let selected := lock.bundleFiles.filter fun file => declared.contains file.path
+    unless selected.size == declared.size do
+      throw s!"locked closure for tool '{tool.id}' is missing or repeats a bundle path"
+    pure (selected.map (·.path))
+
+/-- Relative paths of sourceBuild tool executables (allowed extra tool-root nodes). -/
+private def sourceBuildExecutablePaths (lock : LockFile) : Array String :=
+  lock.tools.filterMap fun tool =>
+    if tool.isSourceBuild then some tool.executable else none
 
 /-- Exact executable/runtime closure needed by one locked product tool. This is
 smaller than the release bundle when unrelated tools share the same lock. -/
@@ -409,7 +451,8 @@ private def verifyBundleFile (statTool : VerifiedSystemTool) (root : FilePath)
     throwCompile <| .toolchainMismatch s!"bundle:{locked.path}" locked.sha256 actualHash
 
 private partial def verifyBundleDirectory (statTool : VerifiedSystemTool) (root current : FilePath)
-    (relative : String) (files : Array LockedBundleFile) (directories : Array String) :
+    (relative : String) (files : Array LockedBundleFile) (sourceExecutables : Array String)
+    (directories : Array String) :
     IO (Array String) := do
   let metadata ← current.symlinkMetadata
   unless metadata.type == .dir do
@@ -428,17 +471,34 @@ private partial def verifyBundleDirectory (statTool : VerifiedSystemTool) (root 
     if directories.contains childRelative then
       unless childMetadata.type == .dir do
         mismatch s!"bundle node '{childRelative}' must be a directory"
-      observed := observed ++ (← verifyBundleDirectory statTool root child childRelative files directories)
+      observed := observed ++ (← verifyBundleDirectory statTool root child childRelative
+        files sourceExecutables directories)
     else
       match files.find? (·.path == childRelative) with
       | some locked =>
           verifyBundleFile statTool root locked child
           observed := observed.push childRelative
-      | none => mismatch s!"unexpected node '{childRelative}' in tool bundle"
+      | none =>
+          if sourceExecutables.contains childRelative then
+            -- sourceBuild executable: regular, single-link, safe mode; no lock hash.
+            unless childMetadata.type == .file do
+              mismatch s!"sourceBuild node '{childRelative}' must be a regular file"
+            unless childMetadata.numLinks == 1 do
+              mismatch s!"sourceBuild file '{childRelative}' must have exactly one hard link"
+            let realPath ← IO.FS.realPath child
+            unless realPath == child && realPath.toString.startsWith (root.toString ++ "/") do
+              mismatch s!"sourceBuild file '{childRelative}' escaped the verified tool root"
+            let label := s!"sourceBuild:{childRelative}"
+            let actualMode ← permissionMode statTool label child
+            verifySafePermissionMode label actualMode
+            observed := observed.push childRelative
+          else
+            mismatch s!"unexpected node '{childRelative}' in tool bundle"
   return observed
 
 private def verifyToolBundleRoot (statTool : VerifiedSystemTool) (root : FilePath)
-    (knownFiles : Array LockedBundleFile) (requiredPaths : Array String) : IO Unit := do
+    (knownFiles : Array LockedBundleFile) (sourceExecutables : Array String)
+    (requiredPaths : Array String) : IO Unit := do
   unless root.isAbsolute do mismatch "tool bundle root must be absolute"
   let rootMetadata ← root.symlinkMetadata
   unless rootMetadata.type == .dir do
@@ -446,11 +506,22 @@ private def verifyToolBundleRoot (statTool : VerifiedSystemTool) (root : FilePat
   let realRoot ← IO.FS.realPath root
   unless realRoot == root do
     mismatch "tool bundle root cannot contain a symlink or unresolved component"
-  let directories ← expectedDirectories knownFiles
+  -- Directories implied by both bundleFiles and sourceBuild executables.
+  let mut allPaths : Array LockedBundleFile := knownFiles
+  for path in sourceExecutables do
+    -- synthetic zero-size placeholder only used for parent-directory discovery
+    allPaths := allPaths.push {
+      path
+      size := 1
+      sha256 := String.ofList (List.replicate 64 '0')
+      mode := "0555"
+    }
+  let directories ← expectedDirectories allPaths
   -- Every file that is present must still be a fully verified member of the
-  -- platform lock. Product execution only requires the selected tool closure;
+  -- platform lock (bundleFiles) or a declared sourceBuild executable.
+  -- Product execution only requires the selected tool closure;
   -- release verification separately requires the complete global bundle.
-  let observed ← verifyBundleDirectory statTool root root "" knownFiles directories
+  let observed ← verifyBundleDirectory statTool root root "" knownFiles sourceExecutables directories
   unless requiredPaths.all observed.contains do
     mismatch "tool bundle is missing one or more files required by the selected tool"
 
@@ -490,6 +561,8 @@ def VerifiedTool.run (tool : VerifiedTool) (args : Array String)
   let (launcher, statTool) ← resolveLauncher
   unless launcher.path == tool.launcher do
     mismatch s!"process launcher is not the locked host env: {tool.launcher}"
+  -- Re-hash the on-disk binary against the observed hash captured at resolve
+  -- (for sourceBuild this is host-local evidence, not a lock pin).
   let executable ← verifyRegularFile tool.id tool.path tool.executableSha256 true
   verifyProtectedPath statTool tool.id executable .file
   let lock ← match loadLock with
@@ -499,15 +572,25 @@ def VerifiedTool.run (tool : VerifiedTool) (args : Array String)
   let locked ← match lock.tools.find? (·.id == tool.id) with
     | some locked => pure locked
     | none => mismatch s!"unrecognized verified tool id '{tool.id}'"
-  unless locked.executableSha256 == tool.executableSha256 do
-    mismatch s!"{tool.id} VerifiedTool hash disagrees with the embedded lock"
+  if locked.isSourceBuild then
+    pure ()
+  else
+    match locked.executableSha256 with
+    | some expected =>
+        unless expected == tool.executableSha256 do
+          mismatch s!"{tool.id} VerifiedTool hash disagrees with the embedded lock"
+    | none => mismatch s!"{tool.id} content-addressed tool missing executableSha256"
   let root := executable.parent.getD "."
   unless executable == root / locked.executable do
     mismatch s!"{tool.id} executable is not at its locked bundle path"
   let requiredPaths ← match requiredBundlePathsFor lock locked with
     | .ok paths => pure paths
     | .error message => mismatch message
-  verifyToolBundleRoot statTool root lock.bundleFiles requiredPaths
+  -- sourceBuild tools require their own executable path to be present.
+  let requiredPaths :=
+    if locked.isSourceBuild then requiredPaths.push locked.executable else requiredPaths
+  verifyToolBundleRoot statTool root lock.bundleFiles
+    (sourceBuildExecutablePaths lock) requiredPaths
   let expectedEnvironment ← lockedProcessEnvironment locked executable
   unless expectedEnvironment == tool.processEnvironment do
     mismatch s!"{tool.id} process environment disagrees with the embedded lock"
@@ -537,8 +620,16 @@ def resolve (id : String) : IO VerifiedTool := do
   let realPath ← IO.FS.realPath candidate
   let binary ← IO.FS.readBinFile realPath
   let actualHash := sha256Hex binary
-  unless actualHash == tool.executableSha256 do
-    throwCompile <| .toolchainMismatch id tool.executableSha256 actualHash
+  if tool.isSourceBuild then
+    -- No lock pin; observed hash is session evidence only.
+    pure ()
+  else
+    match tool.executableSha256 with
+    | some expected =>
+        unless actualHash == expected do
+          throwCompile <| .toolchainMismatch id expected actualHash
+    | none =>
+        throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: {id} missing executableSha256 pin"
   let environment ← lockedProcessEnvironment tool realPath
   let (launcher, _statTool) ← resolveLauncher
   let verified : VerifiedTool := {

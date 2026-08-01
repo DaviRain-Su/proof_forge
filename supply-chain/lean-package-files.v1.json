@@ -156,9 +156,9 @@
       "sha256": "d6304ed4e0a2a157193ffa6c43f46ad0c7e71d9186857853caebb38285a3630f"
     },
     {
-      "bytes": 25553,
+      "bytes": 30055,
       "path": "ProofForgeV2/Materialization/LockedToolchainV1.lean",
-      "sha256": "a2e7ceedc2f95db94d2c4d53e56367cefc1ae2cf20c5881ba03dcd15569e38fb"
+      "sha256": "e6fe8a229a9a592d2d092929d6d789c17880968e5acb5fa6b7d0950f2564f09f"
     },
     {
       "bytes": 6172,

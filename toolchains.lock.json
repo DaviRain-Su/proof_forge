@@ -1,5 +1,5 @@
 {
-  "schema": "proof-forge.toolchains.v2",
+  "schema": "proof-forge.toolchains.v4",
   "platform": "darwin-arm64",
   "assets": [
     {
@@ -35,6 +35,15 @@
         "service": "ghcr.io",
         "scope": "repository:homebrew/core/openssl/3:pull"
       }
+    },
+    {
+      "id": "sbpf-0.2.2-git-d835bc6e638e",
+      "url": "https://github.com/blueshift-gg/sbpf",
+      "commit": "d835bc6e638e4f55b88f31a31bbc92e3a2e0a5ba",
+      "format": "cargo-git",
+      "package": "sbpf",
+      "bin": "sbpf",
+      "version": "0.2.2"
     },
     {
       "id": "solc-0.8.34-macos-universal",
@@ -74,12 +83,16 @@
     "versionProbes": [
       {
         "path": "bin/lake",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "expected": "Lake version 5.0.0-src+68218e8 (Lean version 4.31.0)"
       },
       {
         "path": "bin/lean",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "expected": "Lean (version 4.31.0, arm64-apple-darwin24.6.0, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)"
       }
     ]
@@ -135,7 +148,10 @@
     }
   ],
   "machoPolicy": {
-    "allowedSystemLoadRoots": ["/System/Library/", "/usr/lib/"],
+    "allowedSystemLoadRoots": [
+      "/System/Library/",
+      "/usr/lib/"
+    ],
     "files": [
       {
         "path": "anvil",
@@ -186,10 +202,15 @@
       "executableSha256": "888500bc210752e71a355ed4d492ad6dcb4c0ef54d283c105a29a5ccc73d0dbd",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1-runtime"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "cast",
@@ -202,10 +223,15 @@
       "executableSha256": "bd48e86b566eaffeb03638789a8f757079683f6f95f115e60c150ccdee874f37",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1-runtime"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "jv",
@@ -218,10 +244,38 @@
       "executableSha256": "aa44150325875a6ba94d8fc29a8bfcff271ca0802b6faa9ac731d70056460ece",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["-v"],
+      "versionArgs": [
+        "-v"
+      ],
       "expectedVersion": "github.com/santhosh-tekuri/jsonschema/cmd/jv (devel)",
       "licenseSpdx": "Apache-2.0",
-      "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"]
+      "requiredByProfiles": [
+        "supply-chain-cyclonedx-1.6-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "sbpf",
+      "version": "0.2.2",
+      "sourceUrl": "https://github.com/blueshift-gg/sbpf",
+      "platform": "darwin-arm64",
+      "assetId": "sbpf-0.2.2-git-d835bc6e638e",
+      "executable": "sbpf",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/sbpf",
+      "executableSha256": null,
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "sbpf 0.2.2",
+      "licenseSpdx": "MIT",
+      "requiredByProfiles": [
+        "solana-sbpf-elf-v1"
+      ],
+      "sourceBuild": {
+        "assetId": "sbpf-0.2.2-git-d835bc6e638e"
+      }
     },
     {
       "id": "solc",
@@ -234,10 +288,15 @@
       "executableSha256": "0a2829292697dda542e4e365bb63fbd6d3ed51537140222a880ab760cffa7746",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.8.34+commit.80d5c536",
       "licenseSpdx": "GPL-3.0-or-later",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "wat2wasm",
@@ -255,15 +314,20 @@
           "sha256": "64bc88540449292800458aa64fb0ca8b6fdb913413fd691f5f057b16315c06f4"
         }
       ],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "1.0.41",
       "licenseSpdx": "Apache-2.0",
-      "requiredByProfiles": ["near-wasm-raw-u64-v1"]
+      "requiredByProfiles": [
+        "near-wasm-raw-u64-v1"
+      ],
+      "sourceBuild": null
     }
   ],
   "unresolved": {
     "nearSandbox": "2.13.0",
-    "solanaAssembler": null,
+    "solanaAssembler": "0.2.2",
     "nargo": null,
     "barretenberg": null
   }

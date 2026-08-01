@@ -40,4 +40,12 @@ def run : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "unknown locked tool unexpectedly resolved"
 
+  -- S2b sourceBuild tool: empty content-addressed bundle closure.
+  match requiredBundlePaths "sbpf" with
+  | .error error =>
+      throw <| IO.userError s!"locked sbpf closure could not be resolved: {error}"
+  | .ok paths =>
+      expect (paths == #[])
+        "sourceBuild sbpf must declare an empty content-addressed bundle closure"
+
 end Tests.CLI.ToolchainPolicy

@@ -73,7 +73,13 @@ SEMVER_RE = re.compile(
 )
 SAFE_ASSET_ID_RE = re.compile(r"[a-z0-9](?:[a-z0-9._-]{0,126}[a-z0-9])?")
 SAFE_IDENTIFIER_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,254}[A-Za-z0-9])?")
-FORMATS = {"file", "tar.gz", "zip"}
+FORMATS = {"file", "tar.gz", "zip", "cargo-git"}
+DOWNLOAD_FORMATS = {"file", "tar.gz", "zip"}
+TOOL_LOCK_SCHEMA_V4 = "proof-forge.toolchains.v4"
+LEGACY_TOOL_LOCK_SCHEMAS = {
+    "proof-forge.toolchains.v2",
+    "proof-forge.toolchains.v3",
+}
 MAX_ARCHIVE_MEMBERS = 100_000
 MAX_COMPILER_UNPACKED_BYTES = 8 * 1024 * 1024 * 1024
 MAX_ZIP_ENTRY_NAME_BYTES = 4096
@@ -386,48 +392,87 @@ def validate_elf_policy(lock: dict, bundle_by_path: dict[str, dict]) -> dict[str
     return adjacency
 
 
+def tool_lock_policy_key(lock: dict) -> str:
+    """Return the platform-bound policy key for a validated or candidate v4 lock."""
+
+    platform = lock.get("platform")
+    if platform == "darwin-arm64":
+        return "machoPolicy"
+    if platform == "linux-x86_64":
+        return "elfPolicy"
+    fail(f"unsupported toolchain lock platform: {platform}")
+
+
+def is_darwin_tool_lock(lock: dict) -> bool:
+    return lock.get("platform") == "darwin-arm64"
+
+
+def is_source_build_tool(tool: dict) -> bool:
+    return tool.get("sourceBuild") is not None
+
+
 def validate_tool_lock(lock: dict) -> dict:
     schema = lock.get("schema")
-    if schema == "proof-forge.toolchains.v2":
-        policy_key = "machoPolicy"
-        expected_platform = "darwin-arm64"
-    elif schema == "proof-forge.toolchains.v3":
-        policy_key = "elfPolicy"
-        expected_platform = "linux-x86_64"
-    else:
+    if schema in LEGACY_TOOL_LOCK_SCHEMAS:
+        fail(f"toolchain lock schema {schema} is retired; migrate to {TOOL_LOCK_SCHEMA_V4}")
+    if schema != TOOL_LOCK_SCHEMA_V4:
         fail("unsupported toolchain lock schema")
+    platform = lock.get("platform")
+    if platform == "darwin-arm64":
+        policy_key = "machoPolicy"
+        forbidden_policy = "elfPolicy"
+    elif platform == "linux-x86_64":
+        policy_key = "elfPolicy"
+        forbidden_policy = "machoPolicy"
+    else:
+        fail("toolchain lock platform must be darwin-arm64 or linux-x86_64")
     require_keys(lock, {
         "schema", "platform", "assets", "compilerToolchain", "bundleFiles",
         policy_key, "tools", "unresolved",
     }, "toolchain lock")
-    if lock.get("platform") != expected_platform:
-        fail(f"this lock must declare platform {expected_platform}")
+    if forbidden_policy in lock:
+        fail(f"toolchain lock for {platform} must not declare {forbidden_policy}")
 
     assets = require_list(lock.get("assets"), "assets")
     unique_sorted(assets, "id", "assets")
     asset_by_id: dict[str, dict] = {}
     for index, raw in enumerate(assets):
         asset = require_dict(raw, f"assets[{index}]")
-        require_keys(asset, {"id", "url", "size", "sha256", "format"},
-                     f"assets[{index}]", {"auth"})
-        asset_id = require_safe_asset_id(asset.get("id"), f"assets[{index}].id")
-        require_https_url(asset.get("url"), f"asset {asset_id}.url")
-        size = asset.get("size")
-        if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
-            fail(f"asset {asset_id} size must be a positive integer")
-        require_sha256(asset.get("sha256"), f"asset {asset_id}.sha256")
-        if asset.get("format") not in FORMATS:
-            fail(f"asset {asset_id} has unsupported format")
-        auth = asset.get("auth")
-        if auth is not None:
-            auth = require_dict(auth, f"asset {asset_id}.auth")
-            require_keys(auth, {"type", "realm", "service", "scope"},
-                         f"asset {asset_id}.auth")
-            if auth.get("type") != "oci-bearer":
-                fail(f"asset {asset_id} has unsupported auth type")
-            require_https_url(auth.get("realm"), f"asset {asset_id}.auth.realm")
-            require_string(auth.get("service"), f"asset {asset_id}.auth.service")
-            require_string(auth.get("scope"), f"asset {asset_id}.auth.scope")
+        format_value = asset.get("format")
+        if format_value == "cargo-git":
+            require_keys(asset, {
+                "id", "url", "commit", "format", "package", "bin", "version",
+            }, f"assets[{index}]")
+            asset_id = require_safe_asset_id(asset.get("id"), f"assets[{index}].id")
+            require_https_url(asset.get("url"), f"asset {asset_id}.url")
+            commit = require_string(asset.get("commit"), f"asset {asset_id}.commit")
+            if SOURCE_COMMIT_RE.fullmatch(commit) is None:
+                fail(f"asset {asset_id}.commit must be a lowercase 40-hex commit")
+            require_safe_identifier(asset.get("package"), f"asset {asset_id}.package")
+            require_safe_identifier(asset.get("bin"), f"asset {asset_id}.bin")
+            require_semver(asset.get("version"), f"asset {asset_id}.version")
+        elif format_value in DOWNLOAD_FORMATS:
+            require_keys(asset, {"id", "url", "size", "sha256", "format"},
+                         f"assets[{index}]", {"auth"})
+            asset_id = require_safe_asset_id(asset.get("id"), f"assets[{index}].id")
+            require_https_url(asset.get("url"), f"asset {asset_id}.url")
+            size = asset.get("size")
+            if not isinstance(size, int) or isinstance(size, bool) or size <= 0:
+                fail(f"asset {asset_id} size must be a positive integer")
+            require_sha256(asset.get("sha256"), f"asset {asset_id}.sha256")
+            auth = asset.get("auth")
+            if auth is not None:
+                auth = require_dict(auth, f"asset {asset_id}.auth")
+                require_keys(auth, {"type", "realm", "service", "scope"},
+                             f"asset {asset_id}.auth")
+                if auth.get("type") != "oci-bearer":
+                    fail(f"asset {asset_id} has unsupported auth type")
+                require_https_url(auth.get("realm"), f"asset {asset_id}.auth.realm")
+                require_string(auth.get("service"), f"asset {asset_id}.auth.service")
+                require_string(auth.get("scope"), f"asset {asset_id}.auth.scope")
+        else:
+            fail(f"asset at assets[{index}] has unsupported format")
+            asset_id = f"assets[{index}]"  # pragma: no cover - fail() never returns
         asset_by_id[asset_id] = asset
 
     compiler = require_dict(lock.get("compilerToolchain"), "compilerToolchain")
@@ -522,7 +567,12 @@ def validate_tool_lock(lock: dict) -> dict:
                 f"bundle file {path} references an unknown asset"
             )
         member = record.get("member")
-        if asset_by_id[asset_id]["format"] == "file":
+        asset_format = asset_by_id[asset_id]["format"]
+        if asset_format == "cargo-git":
+            fail_tool_lock_closure(
+                f"bundle file {path} cannot reference cargo-git asset {asset_id}"
+            )
+        if asset_format == "file":
             if member is not None:
                 fail_tool_lock_closure(
                     f"raw file asset {asset_id} must use a null member"
@@ -547,13 +597,14 @@ def validate_tool_lock(lock: dict) -> dict:
     if not tools:
         fail("tools must be non-empty")
     unique_sorted(tools, "id", "tools")
+    source_build_executables: set[str] = set()
     for index, raw in enumerate(tools):
         tool = require_dict(raw, f"tools[{index}]")
         require_keys(tool, {
             "id", "version", "sourceUrl", "platform", "assetId", "executable",
             "defaultPath", "executableSha256", "runtimeLibrarySubdir",
             "runtimeFiles", "versionArgs", "expectedVersion", "licenseSpdx",
-            "requiredByProfiles",
+            "requiredByProfiles", "sourceBuild",
         }, f"tools[{index}]")
         tool_id = require_safe_asset_id(tool.get("id"), f"tools[{index}].id")
         require_semver(tool.get("version"), f"tool {tool_id}.version")
@@ -568,76 +619,126 @@ def validate_tool_lock(lock: dict) -> dict:
                 f"tool {tool_id} references an unknown asset"
             )
         executable = safe_relative(tool.get("executable"), f"tool {tool_id}.executable")
-        if executable not in bundle_by_path:
-            fail_tool_lock_closure(
-                f"tool {tool_id} executable is absent from bundleFiles"
-            )
-        if bundle_by_path[executable]["assetId"] != tool_asset:
-            fail_tool_lock_closure(
-                f"tool {tool_id} asset disagrees with its executable bundle asset"
-            )
         default_path = require_string(tool.get("defaultPath"), f"tool {tool_id}.defaultPath")
         if (not default_path.startswith("~/") or "\\" in default_path or
                 posixpath.normpath(default_path[2:]) != default_path[2:] or
                 PurePosixPath(default_path[2:]).name != PurePosixPath(executable).name):
             fail(f"tool {tool_id} defaultPath must be a normalized home-relative executable path")
-        executable_hash = require_sha256(tool.get("executableSha256"),
-                                           f"tool {tool_id}.executableSha256")
-        if executable_hash != bundle_by_path[executable]["sha256"]:
-            fail_tool_lock_closure(
-                f"tool {tool_id} executable hash disagrees with bundleFiles"
-            )
+        source_build = tool.get("sourceBuild")
         runtime_subdir = tool.get("runtimeLibrarySubdir")
-        if runtime_subdir is not None:
-            runtime_subdir = safe_relative(runtime_subdir, f"tool {tool_id}.runtimeLibrarySubdir")
         runtime_files = require_list(tool.get("runtimeFiles"), f"tool {tool_id}.runtimeFiles")
-        unique_sorted(runtime_files, "path", f"tool {tool_id}.runtimeFiles")
-        declared_runtime: set[str] = set()
-        for runtime in runtime_files:
-            runtime = require_dict(runtime, f"tool {tool_id}.runtimeFiles[]")
-            require_keys(runtime, {"path", "sha256"}, f"tool {tool_id}.runtimeFiles[]")
-            runtime_path = safe_relative(runtime.get("path"), f"tool {tool_id} runtime file path")
-            if runtime_path not in bundle_by_path:
+        if source_build is not None:
+            source_build = require_dict(source_build, f"tool {tool_id}.sourceBuild")
+            require_keys(source_build, {"assetId"}, f"tool {tool_id}.sourceBuild")
+            source_asset = require_string(
+                source_build.get("assetId"), f"tool {tool_id}.sourceBuild.assetId")
+            if source_asset != tool_asset:
                 fail_tool_lock_closure(
-                    f"tool {tool_id} runtime file is absent from bundleFiles"
+                    f"tool {tool_id} sourceBuild.assetId must equal tools[].assetId"
                 )
-            runtime_hash = require_sha256(runtime.get("sha256"),
-                                             f"tool {tool_id} runtime file sha256")
-            if runtime_hash != bundle_by_path[runtime_path]["sha256"]:
+            if asset_by_id[tool_asset]["format"] != "cargo-git":
                 fail_tool_lock_closure(
-                    f"tool {tool_id} runtime file hash disagrees with bundleFiles"
+                    f"tool {tool_id} sourceBuild requires a cargo-git asset"
                 )
-            declared_runtime.add(runtime_path)
+            if tool.get("executableSha256") is not None:
+                fail(f"tool {tool_id} sourceBuild requires executableSha256 null")
+            if runtime_subdir is not None:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} sourceBuild must not declare runtimeLibrarySubdir"
+                )
+            if runtime_files:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} sourceBuild must declare empty runtimeFiles"
+                )
+            if executable in bundle_by_path:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} sourceBuild executable must not appear in bundleFiles"
+                )
+            if executable in source_build_executables:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} sourceBuild executable path is duplicated"
+                )
+            source_build_executables.add(executable)
+            # cargo-git package/bin should match tool executable leaf for this product slice
+            cargo_bin = asset_by_id[tool_asset]["bin"]
+            if PurePosixPath(executable).name != cargo_bin:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} executable leaf must equal cargo-git bin '{cargo_bin}'"
+                )
+            if asset_by_id[tool_asset]["version"] != tool["version"]:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} version must match cargo-git asset version"
+                )
+        else:
+            if asset_by_id[tool_asset]["format"] == "cargo-git":
+                fail_tool_lock_closure(
+                    f"tool {tool_id} cargo-git asset requires sourceBuild"
+                )
+            if executable not in bundle_by_path:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} executable is absent from bundleFiles"
+                )
+            if bundle_by_path[executable]["assetId"] != tool_asset:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} asset disagrees with its executable bundle asset"
+                )
+            executable_hash = require_sha256(tool.get("executableSha256"),
+                                               f"tool {tool_id}.executableSha256")
+            if executable_hash != bundle_by_path[executable]["sha256"]:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} executable hash disagrees with bundleFiles"
+                )
+            if runtime_subdir is not None:
+                runtime_subdir = safe_relative(
+                    runtime_subdir, f"tool {tool_id}.runtimeLibrarySubdir")
+            unique_sorted(runtime_files, "path", f"tool {tool_id}.runtimeFiles")
+            declared_runtime: set[str] = set()
+            for runtime in runtime_files:
+                runtime = require_dict(runtime, f"tool {tool_id}.runtimeFiles[]")
+                require_keys(runtime, {"path", "sha256"}, f"tool {tool_id}.runtimeFiles[]")
+                runtime_path = safe_relative(
+                    runtime.get("path"), f"tool {tool_id} runtime file path")
+                if runtime_path not in bundle_by_path:
+                    fail_tool_lock_closure(
+                        f"tool {tool_id} runtime file is absent from bundleFiles"
+                    )
+                runtime_hash = require_sha256(runtime.get("sha256"),
+                                                 f"tool {tool_id} runtime file sha256")
+                if runtime_hash != bundle_by_path[runtime_path]["sha256"]:
+                    fail_tool_lock_closure(
+                        f"tool {tool_id} runtime file hash disagrees with bundleFiles"
+                    )
+                declared_runtime.add(runtime_path)
 
-        pending = list(bundle_adjacency[executable])
-        closure: set[str] = set()
-        while pending:
-            dependency = pending.pop()
-            if dependency in closure:
-                continue
-            if dependency == executable:
+            pending = list(bundle_adjacency[executable])
+            closure: set[str] = set()
+            while pending:
+                dependency = pending.pop()
+                if dependency in closure:
+                    continue
+                if dependency == executable:
+                    fail_tool_lock_closure(
+                        f"tool {tool_id} bundle closure cycles to its executable"
+                    )
+                closure.add(dependency)
+                pending.extend(bundle_adjacency[dependency])
+            if declared_runtime != closure:
                 fail_tool_lock_closure(
-                    f"tool {tool_id} bundle closure cycles to its executable"
+                    f"tool {tool_id} runtimeFiles do not equal its bundle closure"
                 )
-            closure.add(dependency)
-            pending.extend(bundle_adjacency[dependency])
-        if declared_runtime != closure:
-            fail_tool_lock_closure(
-                f"tool {tool_id} runtimeFiles do not equal its bundle closure"
-            )
-        if closure and runtime_subdir is None:
-            fail_tool_lock_closure(
-                f"tool {tool_id} with runtime files must declare runtimeLibrarySubdir"
-            )
-        if not closure and runtime_subdir is not None:
-            fail_tool_lock_closure(
-                f"tool {tool_id} without runtime files must not declare runtimeLibrarySubdir"
-            )
-        if runtime_subdir is not None and any(
-                not path.startswith(runtime_subdir + "/") for path in closure):
-            fail_tool_lock_closure(
-                f"tool {tool_id} runtime file is outside runtimeLibrarySubdir"
-            )
+            if closure and runtime_subdir is None:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} with runtime files must declare runtimeLibrarySubdir"
+                )
+            if not closure and runtime_subdir is not None:
+                fail_tool_lock_closure(
+                    f"tool {tool_id} without runtime files must not declare runtimeLibrarySubdir"
+                )
+            if runtime_subdir is not None and any(
+                    not path.startswith(runtime_subdir + "/") for path in closure):
+                fail_tool_lock_closure(
+                    f"tool {tool_id} runtime file is outside runtimeLibrarySubdir"
+                )
         args = require_list(tool.get("versionArgs"), f"tool {tool_id}.versionArgs")
         if not args or not all(isinstance(arg, str) and arg for arg in args):
             fail(f"tool {tool_id} versionArgs must be non-empty strings")
@@ -887,7 +988,7 @@ def validate_linux_distro(profile: dict, platform: dict) -> bool:
 
 
 def validate_lock_pair(tool_lock: dict, host_lock: dict) -> None:
-    if tool_lock["schema"] == "proof-forge.toolchains.v2":
+    if is_darwin_tool_lock(tool_lock):
         policy_key = "machoPolicy"
         kind = "darwin"
     else:
@@ -915,8 +1016,7 @@ def validate_host_profile_file(path: Path) -> None:
         if not lock_path.is_file():
             continue
         tool_lock = validate_tool_lock(load_json(lock_path))
-        lock_kind = ("darwin" if tool_lock["schema"] == "proof-forge.toolchains.v2"
-                     else "linux")
+        lock_kind = "darwin" if is_darwin_tool_lock(tool_lock) else "linux"
         if lock_kind != kind:
             continue
         validate_lock_pair(tool_lock, synthetic_lock)
@@ -988,12 +1088,34 @@ def cache_root() -> Path:
 
 def cached_asset_path(asset: dict) -> Path:
     asset_id = require_safe_asset_id(asset.get("id"), "asset cache id")
+    if asset.get("format") == "cargo-git":
+        fail(f"cargo-git asset {asset_id} uses cargo_git_cache_root, not sha256 cache")
     digest = require_sha256(asset.get("sha256"), f"asset {asset_id}.sha256")
     root = cache_root()
     path = root / "sha256" / digest / asset_id
     if path.parent.parent.parent != root:
         fail(f"cached asset {asset_id} escaped the cache root")
     return path
+
+
+def cargo_git_cache_root(asset: dict) -> Path:
+    """Content-addressed (by commit) workspace root for a cargo-git asset."""
+
+    asset_id = require_safe_asset_id(asset.get("id"), "cargo-git asset id")
+    if asset.get("format") != "cargo-git":
+        fail(f"asset {asset_id} is not cargo-git")
+    commit = require_string(asset.get("commit"), f"asset {asset_id}.commit")
+    if SOURCE_COMMIT_RE.fullmatch(commit) is None:
+        fail(f"asset {asset_id}.commit must be a lowercase 40-hex commit")
+    root = cache_root()
+    path = root / "cargo-git" / commit / asset_id
+    if path.parent.parent.parent != root:
+        fail(f"cargo-git asset {asset_id} escaped the cache root")
+    return path
+
+
+def cargo_git_binary_path(asset: dict) -> Path:
+    return cargo_git_cache_root(asset) / "target" / "release" / asset["bin"]
 
 
 def validate_owned_directory(path: Path, where: str) -> None:
@@ -1146,7 +1268,203 @@ def request_headers(asset: dict) -> dict[str, str]:
     return headers
 
 
+def provision_cargo_git_asset(asset: dict) -> Path:
+    """Clone pinned commit and cargo build --release; cache under cargo-git/<commit>/<id>."""
+
+    asset_id = asset["id"]
+    commit = asset["commit"]
+    package = asset["package"]
+    binary_name = asset["bin"]
+    cache_dir = cargo_git_cache_root(asset)
+    binary = cargo_git_binary_path(asset)
+    # Ensure cache parents exist with owned-directory checks.
+    directories = [cache_root(), cache_root() / "cargo-git", cache_dir.parent]
+    for directory in directories:
+        try:
+            directory.mkdir(mode=0o700, parents=directory == directories[0])
+        except FileExistsError:
+            pass
+        validate_owned_directory(directory, f"cargo-git cache parent for {asset_id}")
+
+    def binary_usable() -> bool:
+        try:
+            metadata = binary.lstat()
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            return False
+        if metadata.st_uid != os.getuid():
+            return False
+        if not os.access(binary, os.X_OK):
+            return False
+        return True
+
+    if cache_dir.is_dir() and binary_usable():
+        print(f"toolchain-assets: cached cargo-git {asset_id} commit={commit}")
+        return binary
+
+    staging = cache_dir.parent / (
+        f".{asset_id}.staging-{os.getpid()}-{secrets.token_hex(6)}"
+    )
+    if staging.exists() or staging.is_symlink():
+        fail(f"cargo-git staging path already exists: {staging}")
+    try:
+        clone = subprocess.run(
+            [
+                "git", "clone", "--filter=blob:none", "--no-checkout",
+                asset["url"], str(staging),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "HOME": os.environ.get("HOME", "/var/empty"),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            timeout=600,
+        )
+        if clone.returncode != 0:
+            fail(
+                f"cargo-git clone failed for {asset_id}: "
+                f"{clone.stderr.strip() or clone.stdout.strip()}"
+            )
+        fetch = subprocess.run(
+            ["git", "-C", str(staging), "fetch", "--depth", "1", "origin", commit],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "HOME": os.environ.get("HOME", "/var/empty"),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            timeout=600,
+        )
+        # shallow fetch of an arbitrary commit may fail on some remotes; fall back to full fetch
+        if fetch.returncode != 0:
+            fetch = subprocess.run(
+                ["git", "-C", str(staging), "fetch", "origin", commit],
+                check=False,
+                capture_output=True,
+                text=True,
+                env={
+                    "LC_ALL": "C",
+                    "TZ": "UTC",
+                    "HOME": os.environ.get("HOME", "/var/empty"),
+                    "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                    "GIT_TERMINAL_PROMPT": "0",
+                },
+                timeout=1200,
+            )
+        if fetch.returncode != 0:
+            fail(
+                f"cargo-git fetch failed for {asset_id}@{commit}: "
+                f"{fetch.stderr.strip() or fetch.stdout.strip()}"
+            )
+        checkout = subprocess.run(
+            ["git", "-C", str(staging), "checkout", "--force", commit],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "HOME": os.environ.get("HOME", "/var/empty"),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            timeout=120,
+        )
+        if checkout.returncode != 0:
+            fail(
+                f"cargo-git checkout failed for {asset_id}@{commit}: "
+                f"{checkout.stderr.strip() or checkout.stdout.strip()}"
+            )
+        head = subprocess.run(
+            ["git", "-C", str(staging), "rev-parse", "HEAD"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env={
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "HOME": os.environ.get("HOME", "/var/empty"),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "GIT_TERMINAL_PROMPT": "0",
+            },
+            timeout=30,
+        )
+        if head.returncode != 0 or head.stdout.strip() != commit:
+            fail(
+                f"cargo-git HEAD mismatch for {asset_id}: "
+                f"expected {commit}, got {head.stdout.strip()!r}"
+            )
+        cargo = shutil.which("cargo")
+        if cargo is None:
+            fail(f"cargo is required to provision cargo-git asset {asset_id}")
+        build = subprocess.run(
+            [cargo, "build", "--release", "-p", package],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=str(staging),
+            env={
+                "LC_ALL": "C",
+                "TZ": "UTC",
+                "HOME": os.environ.get("HOME", "/var/empty"),
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "CARGO_HOME": os.environ.get(
+                    "CARGO_HOME", str(Path.home() / ".cargo")),
+                "RUSTUP_HOME": os.environ.get(
+                    "RUSTUP_HOME", str(Path.home() / ".rustup")),
+            },
+            timeout=1800,
+        )
+        if build.returncode != 0:
+            fail(
+                f"cargo build --release -p {package} failed for {asset_id}: "
+                f"{build.stderr.strip() or build.stdout.strip()}"
+            )
+        built = staging / "target" / "release" / binary_name
+        try:
+            built_meta = built.lstat()
+        except FileNotFoundError:
+            fail(
+                f"cargo-git build for {asset_id} did not produce "
+                f"target/release/{binary_name}"
+            )
+        if not stat.S_ISREG(built_meta.st_mode):
+            fail(f"cargo-git product for {asset_id} is not a regular file")
+        os.chmod(built, 0o755)
+        # Atomic publish: replace any incomplete previous cache tree.
+        if cache_dir.exists() or cache_dir.is_symlink():
+            if cache_dir.is_dir() and not cache_dir.is_symlink():
+                shutil.rmtree(cache_dir)
+            else:
+                cache_dir.unlink()
+        os.replace(staging, cache_dir)
+        directory_fd = os.open(cache_dir.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
+    if not binary_usable():
+        fail(f"cargo-git provision for {asset_id} did not leave a usable binary")
+    print(f"toolchain-assets: provisioned cargo-git {asset_id} commit={commit}")
+    return binary
+
+
 def provision_asset(asset: dict) -> Path:
+    if asset.get("format") == "cargo-git":
+        return provision_cargo_git_asset(asset)
     destination = cached_asset_path(asset)
     cache_asset_parent(asset, create=True)
     try:
@@ -1213,6 +1531,9 @@ def selected_assets(lock: dict, group: str, requested: list[str]) -> list[dict]:
         ids = {lock["compilerToolchain"]["assetId"]}
     elif group == "external":
         ids = {record["assetId"] for record in lock["bundleFiles"]}
+        for tool in lock["tools"]:
+            if tool.get("sourceBuild") is not None:
+                ids.add(tool["assetId"])
     else:
         ids = set(assets)
     return [asset for asset in lock["assets"] if asset["id"] in ids]
@@ -1890,7 +2211,23 @@ def verify_host_linux(profile: dict, *, require_eligible: bool) -> None:
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
 
 
-def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
+def source_build_executables(lock: dict) -> dict[str, dict]:
+    """Map executable relative path → tool record for sourceBuild tools."""
+
+    result: dict[str, dict] = {}
+    for tool in lock["tools"]:
+        if tool.get("sourceBuild") is None:
+            continue
+        path = tool["executable"]
+        if path in result:
+            fail(f"duplicate sourceBuild executable path: {path}")
+        result[path] = tool
+    return result
+
+
+def verify_external_tree(root: Path, bundle: dict[str, dict],
+                         source_tools: dict[str, dict] | None = None) -> Path:
+    source_tools = source_tools or {}
     require_normalized_absolute_path(root, "external tool root")
     try:
         root_metadata = root.lstat()
@@ -1909,7 +2246,7 @@ def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
         fail(f"external tool root changed during canonicalization: {root}")
     root = canonical_root
 
-    expected_files = set(bundle)
+    expected_files = set(bundle) | set(source_tools)
     expected_directories: set[str] = set()
     for relative in expected_files:
         parent = PurePosixPath(relative).parent
@@ -1957,14 +2294,22 @@ def verify_external_tree(root: Path, bundle: dict[str, dict]) -> Path:
                 fail(f"external bundle file must have exactly one hard link: {relative}")
             if metadata.st_uid != os.getuid():
                 fail(f"external bundle file owner mismatch: {relative}")
-            record = bundle[relative]
-            if metadata.st_size != record["size"]:
-                fail(f"external bundle size mismatch: {relative}")
-            if sha256_regular_snapshot(Path(entry.path), metadata,
-                                       f"external bundle path {relative}") != record["sha256"]:
-                fail(f"external bundle hash mismatch: {relative}")
-            if stat.S_IMODE(metadata.st_mode) != int(record["mode"], 8):
-                fail(f"external bundle mode mismatch: {relative}")
+            if relative in source_tools:
+                # sourceBuild: mode must be executable 0555; size/hash not locked
+                mode = stat.S_IMODE(metadata.st_mode)
+                if mode != 0o555:
+                    fail(f"sourceBuild tool mode mismatch: {relative} mode={mode:04o}")
+                if not os.access(Path(entry.path), os.X_OK):
+                    fail(f"sourceBuild tool is not executable: {relative}")
+            else:
+                record = bundle[relative]
+                if metadata.st_size != record["size"]:
+                    fail(f"external bundle size mismatch: {relative}")
+                if sha256_regular_snapshot(Path(entry.path), metadata,
+                                           f"external bundle path {relative}") != record["sha256"]:
+                    fail(f"external bundle hash mismatch: {relative}")
+                if stat.S_IMODE(metadata.st_mode) != int(record["mode"], 8):
+                    fail(f"external bundle mode mismatch: {relative}")
             actual_files.add(relative)
 
     walk(root, PurePosixPath("."))
@@ -2019,8 +2364,9 @@ def verify_external_elf_closure(lock: dict, host_lock: dict, root: Path) -> None
 
 def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
     bundle = {record["path"]: record for record in lock["bundleFiles"]}
-    root = verify_external_tree(root, bundle)
-    darwin_probe = lock["schema"] == "proof-forge.toolchains.v2"
+    source_tools = source_build_executables(lock)
+    root = verify_external_tree(root, bundle, source_tools)
+    darwin_probe = is_darwin_tool_lock(lock)
     if darwin_probe:
         verify_external_macho_closure(lock, host_lock, root)
         system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
@@ -2031,6 +2377,7 @@ def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
     tool_by_id = {tool["id"]: tool for tool in lock["tools"]}
     for tool_id in sorted(tool_by_id):
         tool = tool_by_id[tool_id]
+        is_source = tool.get("sourceBuild") is not None
         if darwin_probe:
             environment = {
                 "HOME": "/var/empty",
@@ -2054,11 +2401,15 @@ def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
             capture_output=True,
             text=True,
             env=environment,
-            timeout=10,
+            timeout=30 if is_source else 10,
         )
         observed_version = probe.stdout + probe.stderr
         if probe.returncode != 0 or tool["expectedVersion"] not in observed_version:
             fail(f"external tool version probe failed for {tool_id}")
+        if is_source:
+            # sourceBuild tools: version probe is the authority; skip Mach-O/ELF
+            # policy join (executable is outside bundleFiles).
+            continue
         if darwin_probe:
             loaded: set[str] = set()
             for line in probe.stderr.splitlines():
@@ -2116,6 +2467,34 @@ def verify_external(lock: dict, host_lock: dict, root: Path) -> None:
         print(f"toolchain-assets: verified ELF and runtime closure {root}")
 
 
+def materialize_source_build_tools(lock: dict, staging: Path) -> None:
+    assets = asset_map(lock)
+    for tool in lock["tools"]:
+        if tool.get("sourceBuild") is None:
+            continue
+        asset = assets[tool["assetId"]]
+        if asset["format"] != "cargo-git":
+            fail(f"sourceBuild tool {tool['id']} asset is not cargo-git")
+        binary = cargo_git_binary_path(asset)
+        try:
+            metadata = binary.lstat()
+        except FileNotFoundError:
+            fail(
+                f"cache miss for cargo-git {asset['id']}; "
+                "run toolchain-assets provision --group external"
+            )
+        if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+            fail(f"cargo-git product for {asset['id']} is not a regular file")
+        output = staging / tool["executable"]
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Copy without hash pin; size is whatever cargo produced.
+        with binary.open("rb") as handle, output.open("xb") as dest:
+            shutil.copyfileobj(handle, dest)
+            dest.flush()
+            os.fsync(dest.fileno())
+        os.chmod(output, 0o555)
+
+
 def materialize_external(lock: dict, host_lock: dict, destination: Path) -> None:
     assets = asset_map(lock)
     staging = prepare_destination(destination)
@@ -2126,6 +2505,7 @@ def materialize_external(lock: dict, host_lock: dict, destination: Path) -> None
             with member_stream(assets[record["assetId"]], record["member"]) as handle:
                 copy_exact(handle, output, record["size"], record["sha256"])
             os.chmod(output, int(record["mode"], 8))
+        materialize_source_build_tools(lock, staging)
         verify_external(lock, host_lock, staging)
         os.replace(staging, destination)
     finally:
@@ -3663,7 +4043,7 @@ def discover_lean_runtime_static(
     root: Path,
     image_paths: list[Path],
 ):
-    if lock["schema"] == "proof-forge.toolchains.v2":
+    if is_darwin_tool_lock(lock):
         return discover_lean_macho_static(lock, host_lock, root, image_paths)
     return discover_lean_elf_static(lock, host_lock, root, image_paths)
 
@@ -3793,7 +4173,7 @@ def verify_lean_macho_static(lock: dict, host_lock: dict, root: Path,
 
 def verify_lean_runtime_static(lock: dict, host_lock: dict, root: Path,
                                image_paths: list[Path]) -> dict[Path, set[Path]]:
-    if lock["schema"] == "proof-forge.toolchains.v2":
+    if is_darwin_tool_lock(lock):
         return verify_lean_macho_static(lock, host_lock, root, image_paths)
     graph = discover_lean_elf_static(lock, host_lock, root, image_paths)
     resolved_root = root.resolve()
@@ -3810,7 +4190,7 @@ def verify_lean_runtime_static(lock: dict, host_lock: dict, root: Path,
 def probe_lean_versions_and_runtime(lock: dict, root: Path,
                                     closures: dict[Path, set[Path]]) -> None:
     compiler = lock["compilerToolchain"]
-    darwin_probe = lock["schema"] == "proof-forge.toolchains.v2"
+    darwin_probe = is_darwin_tool_lock(lock)
     if darwin_probe:
         system_roots = tuple(lock["machoPolicy"]["allowedSystemLoadRoots"])
     else:
@@ -4066,10 +4446,67 @@ def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
     else:
         fail("self-test failed to reject duplicate JSON keys")
 
-    if lock["schema"] == "proof-forge.toolchains.v2":
+    if is_darwin_tool_lock(lock):
         self_test_darwin_tool_lock(lock, host_lock)
     else:
         self_test_linux_tool_lock(lock, host_lock)
+
+
+def self_test_cargo_git_mutations(lock: dict) -> None:
+    mutations: list[tuple[str, dict]] = []
+    bad_commit = copy.deepcopy(lock)
+    cargo = next(a for a in bad_commit["assets"] if a.get("format") == "cargo-git")
+    cargo["commit"] = "not-a-commit"
+    mutations.append(("cargo-git bad commit", bad_commit))
+    bad_package = copy.deepcopy(lock)
+    cargo = next(a for a in bad_package["assets"] if a.get("format") == "cargo-git")
+    cargo["package"] = "../escape"
+    mutations.append(("cargo-git bad package", bad_package))
+    bad_bin = copy.deepcopy(lock)
+    cargo = next(a for a in bad_bin["assets"] if a.get("format") == "cargo-git")
+    cargo["bin"] = ""
+    mutations.append(("cargo-git empty bin", bad_bin))
+    missing_bin = copy.deepcopy(lock)
+    cargo = next(a for a in missing_bin["assets"] if a.get("format") == "cargo-git")
+    del cargo["bin"]
+    mutations.append(("cargo-git missing bin field", missing_bin))
+    source_hash = copy.deepcopy(lock)
+    sb = next(t for t in source_hash["tools"] if t.get("sourceBuild") is not None)
+    sb["executableSha256"] = "0" * 64
+    mutations.append(("sourceBuild with executableSha256", source_hash))
+    source_runtime = copy.deepcopy(lock)
+    sb = next(t for t in source_runtime["tools"] if t.get("sourceBuild") is not None)
+    sb["runtimeFiles"] = [{"path": "lib/x", "sha256": "0" * 64}]
+    mutations.append(("sourceBuild with runtimeFiles", source_runtime))
+    version_mismatch = copy.deepcopy(lock)
+    sb = next(t for t in version_mismatch["tools"] if t.get("sourceBuild") is not None)
+    sb["version"] = "9.9.9"
+    mutations.append(("sourceBuild version mismatch", version_mismatch))
+    cargo_without_source = copy.deepcopy(lock)
+    sb = next(t for t in cargo_without_source["tools"] if t.get("sourceBuild") is not None)
+    sb["sourceBuild"] = None
+    sb["executableSha256"] = "0" * 64
+    mutations.append(("cargo-git tool without sourceBuild", cargo_without_source))
+    bundle_cargo = copy.deepcopy(lock)
+    cargo = next(a for a in bundle_cargo["assets"] if a.get("format") == "cargo-git")
+    bundle_cargo["bundleFiles"].append({
+        "path": "from-cargo",
+        "assetId": cargo["id"],
+        "member": None,
+        "size": 1,
+        "sha256": "0" * 64,
+        "mode": "0555",
+    })
+    # keep bundleFiles sorted by path
+    bundle_cargo["bundleFiles"] = sorted(
+        bundle_cargo["bundleFiles"], key=lambda r: r["path"])
+    mutations.append(("bundleFiles referencing cargo-git", bundle_cargo))
+    for name, candidate in mutations:
+        try:
+            validate_tool_lock(candidate)
+        except AssetError:
+            continue
+        fail(f"self-test failed to reject {name}")
 
 
 def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
@@ -4084,16 +4521,20 @@ def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
     non_normal_path["bundleFiles"][0]["path"] = "bin//tool"
     mutations.append(("non-normal bundle path", non_normal_path))
     mismatch = copy.deepcopy(lock)
-    mismatch["tools"][0]["executableSha256"] = "0" * 64
+    content_tool = next(t for t in mismatch["tools"] if t.get("sourceBuild") is None)
+    content_tool["executableSha256"] = "0" * 64
     mutations.append(("tool/bundle hash mismatch", mismatch))
     insecure_url = copy.deepcopy(lock)
-    insecure_url["assets"][0]["url"] = "http://example.invalid/tool"
+    download = next(a for a in insecure_url["assets"] if a.get("format") in DOWNLOAD_FORMATS)
+    download["url"] = "http://example.invalid/tool"
     mutations.append(("insecure URL", insecure_url))
     unknown_field = copy.deepcopy(lock)
-    unknown_field["assets"][0]["unexpected"] = True
+    download = next(a for a in unknown_field["assets"] if a.get("format") in DOWNLOAD_FORMATS)
+    download["unexpected"] = True
     mutations.append(("unknown asset field", unknown_field))
     unsafe_id = copy.deepcopy(lock)
-    unsafe_id["assets"][0]["id"] = "../escape"
+    download = next(a for a in unsafe_id["assets"] if a.get("format") in DOWNLOAD_FORMATS)
+    download["id"] = "../escape"
     mutations.append(("unsafe asset id", unsafe_id))
     missing_compiler_field = copy.deepcopy(lock)
     missing_compiler_field["compilerToolchain"].pop("sourceCommit")
@@ -4117,10 +4558,12 @@ def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
     foreign_version_probe["compilerToolchain"]["versionProbes"][0]["path"] = "bin/foreign"
     mutations.append(("foreign compiler version probe", foreign_version_probe))
     tool_asset_mismatch = copy.deepcopy(lock)
-    tool_asset_mismatch["tools"][0]["assetId"] = lock["compilerToolchain"]["assetId"]
+    content_tool = next(t for t in tool_asset_mismatch["tools"] if t.get("sourceBuild") is None)
+    content_tool["assetId"] = lock["compilerToolchain"]["assetId"]
     mutations.append(("tool/executable asset mismatch", tool_asset_mismatch))
     invalid_tool_version = copy.deepcopy(lock)
-    invalid_tool_version["tools"][0]["version"] = "01.0.0"
+    content_tool = next(t for t in invalid_tool_version["tools"] if t.get("sourceBuild") is None)
+    content_tool["version"] = "01.0.0"
     mutations.append(("invalid tool version", invalid_tool_version))
     invalid_unresolved_version = copy.deepcopy(lock)
     invalid_unresolved_version["unresolved"]["nearSandbox"] = "^2.13"
@@ -4132,6 +4575,9 @@ def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
     next(tool for tool in runtime_closure_mismatch["tools"]
          if tool["id"] == "wat2wasm")["runtimeFiles"] = []
     mutations.append(("runtime closure mismatch", runtime_closure_mismatch))
+    legacy_schema = copy.deepcopy(lock)
+    legacy_schema["schema"] = "proof-forge.toolchains.v2"
+    mutations.append(("legacy v2 schema", legacy_schema))
     for name, candidate in mutations:
         try:
             validate_tool_lock(candidate)
@@ -4139,8 +4585,12 @@ def self_test_darwin_tool_lock(lock: dict, host_lock: dict) -> None:
             continue
         fail(f"self-test failed to reject {name}")
 
+    self_test_cargo_git_mutations(lock)
+
     closure_classification = copy.deepcopy(lock)
-    closure_classification["tools"][0]["assetId"] = lock["compilerToolchain"]["assetId"]
+    content_tool = next(
+        t for t in closure_classification["tools"] if t.get("sourceBuild") is None)
+    content_tool["assetId"] = lock["compilerToolchain"]["assetId"]
     try:
         validate_tool_lock(closure_classification)
     except ToolLockClosureError:
@@ -4224,16 +4674,19 @@ def self_test_host_lock_section_darwin(host_lock: dict) -> None:
         fail(f"self-test failed to reject {name}")
 
 def self_test_linux_tool_lock(lock: dict, host_lock: dict) -> None:
-    # --- ADR-0016: Tool Lock v3 (per-platform linux) fixtures ---
+    # --- Tool Lock v4 linux (elfPolicy) fixtures ---
     linux_lock = lock
 
     linux_lock_mutations: list[tuple[str, dict]] = []
-    v3_wrong_platform = copy.deepcopy(linux_lock)
-    v3_wrong_platform["platform"] = "darwin-arm64"
-    linux_lock_mutations.append(("v3 lock with darwin platform", v3_wrong_platform))
-    v2_with_elf = copy.deepcopy(linux_lock)
-    v2_with_elf["schema"] = "proof-forge.toolchains.v2"
-    linux_lock_mutations.append(("v2 schema carrying elfPolicy", v2_with_elf))
+    v4_wrong_platform = copy.deepcopy(linux_lock)
+    v4_wrong_platform["platform"] = "darwin-arm64"
+    linux_lock_mutations.append(("v4 linux lock with darwin platform", v4_wrong_platform))
+    legacy_v2 = copy.deepcopy(linux_lock)
+    legacy_v2["schema"] = "proof-forge.toolchains.v2"
+    linux_lock_mutations.append(("legacy v2 schema on linux lock", legacy_v2))
+    legacy_v3 = copy.deepcopy(linux_lock)
+    legacy_v3["schema"] = "proof-forge.toolchains.v3"
+    linux_lock_mutations.append(("legacy v3 schema", legacy_v3))
     missing_elf_file = copy.deepcopy(linux_lock)
     del missing_elf_file["elfPolicy"]["files"][0]
     linux_lock_mutations.append(("elf policy missing a bundle file", missing_elf_file))
@@ -4265,6 +4718,8 @@ def self_test_linux_tool_lock(lock: dict, host_lock: dict) -> None:
         except AssetError:
             continue
         fail(f"self-test failed to reject {name}")
+
+    self_test_cargo_git_mutations(linux_lock)
 
     validate_lock_pair(linux_lock, host_lock)
     linux_roots_mismatch = copy.deepcopy(host_lock)

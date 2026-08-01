@@ -1,5 +1,5 @@
 {
-  "schema": "proof-forge.toolchains.v3",
+  "schema": "proof-forge.toolchains.v4",
   "platform": "linux-x86_64",
   "assets": [
     {
@@ -22,6 +22,15 @@
       "size": 871637688,
       "sha256": "cdd336bcc1a8456f6628a368c1fa6d432f663f01a1fdcfe8c2c2ad760d3f9285",
       "format": "zip"
+    },
+    {
+      "id": "sbpf-0.2.2-git-d835bc6e638e",
+      "url": "https://github.com/blueshift-gg/sbpf",
+      "commit": "d835bc6e638e4f55b88f31a31bbc92e3a2e0a5ba",
+      "format": "cargo-git",
+      "package": "sbpf",
+      "bin": "sbpf",
+      "version": "0.2.2"
     },
     {
       "id": "solc-0.8.34-static-linux",
@@ -61,12 +70,16 @@
     "versionProbes": [
       {
         "path": "bin/lake",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "expected": "Lake version 5.0.0-src+68218e8 (Lean version 4.31.0)"
       },
       {
         "path": "bin/lean",
-        "args": ["--version"],
+        "args": [
+          "--version"
+        ],
         "expected": "Lean (version 4.31.0, x86_64-unknown-linux-gnu, commit 68218e876d2a38b1985b8590fff244a83c321783, Release)"
       }
     ]
@@ -114,37 +127,83 @@
     }
   ],
   "elfPolicy": {
-    "allowedSystemLoadRoots": ["/lib/", "/lib64/", "/usr/lib/"],
+    "allowedSystemLoadRoots": [
+      "/lib/",
+      "/lib64/",
+      "/usr/lib/"
+    ],
     "files": [
       {
         "path": "anvil",
         "needed": [
-          {"soname": "libc.so.6", "bundlePath": null},
-          {"soname": "libdl.so.2", "bundlePath": null},
-          {"soname": "libgcc_s.so.1", "bundlePath": null},
-          {"soname": "libm.so.6", "bundlePath": null},
-          {"soname": "libpthread.so.0", "bundlePath": null}
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libdl.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgcc_s.so.1",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libpthread.so.0",
+            "bundlePath": null
+          }
         ],
         "runpath": null
       },
       {
         "path": "cast",
         "needed": [
-          {"soname": "ld-linux-x86-64.so.2", "bundlePath": null},
-          {"soname": "libc.so.6", "bundlePath": null},
-          {"soname": "libdl.so.2", "bundlePath": null},
-          {"soname": "libgcc_s.so.1", "bundlePath": null},
-          {"soname": "libm.so.6", "bundlePath": null},
-          {"soname": "libpthread.so.0", "bundlePath": null}
+          {
+            "soname": "ld-linux-x86-64.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libdl.so.2",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgcc_s.so.1",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libpthread.so.0",
+            "bundlePath": null
+          }
         ],
         "runpath": null
       },
       {
         "path": "jv",
         "needed": [
-          {"soname": "libc.so.6", "bundlePath": null},
-          {"soname": "libpthread.so.0", "bundlePath": null},
-          {"soname": "libresolv.so.2", "bundlePath": null}
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libpthread.so.0",
+            "bundlePath": null
+          },
+          {
+            "soname": "libresolv.so.2",
+            "bundlePath": null
+          }
         ],
         "runpath": null
       },
@@ -156,8 +215,14 @@
       {
         "path": "wat2wasm",
         "needed": [
-          {"soname": "libc.so.6", "bundlePath": null},
-          {"soname": "libstdc++.so.6", "bundlePath": null}
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libstdc++.so.6",
+            "bundlePath": null
+          }
         ],
         "runpath": null
       }
@@ -175,10 +240,15 @@
       "executableSha256": "6104069b183fa0f3cdcb692681da9dbd203a3c1bceb435853bbf7abd991c649e",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1-runtime"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "cast",
@@ -191,10 +261,15 @@
       "executableSha256": "2e7ad5eecfd3766069fa0955cbe959d9aa7a8df1b426f084a88743e759ca2b5d",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.3.0 (5a8bd89",
       "licenseSpdx": "MIT OR Apache-2.0",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1-runtime"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1-runtime"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "jv",
@@ -207,10 +282,38 @@
       "executableSha256": "905cbe1e59b36771ea5b4d9479141cb07c4722462cef8f81fda7cd4fbdbc2c9c",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["-v"],
+      "versionArgs": [
+        "-v"
+      ],
       "expectedVersion": "github.com/santhosh-tekuri/jsonschema/cmd/jv (devel)",
       "licenseSpdx": "Apache-2.0",
-      "requiredByProfiles": ["supply-chain-cyclonedx-1.6-v1"]
+      "requiredByProfiles": [
+        "supply-chain-cyclonedx-1.6-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "sbpf",
+      "version": "0.2.2",
+      "sourceUrl": "https://github.com/blueshift-gg/sbpf",
+      "platform": "linux-x86_64",
+      "assetId": "sbpf-0.2.2-git-d835bc6e638e",
+      "executable": "sbpf",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/sbpf",
+      "executableSha256": null,
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "sbpf 0.2.2",
+      "licenseSpdx": "MIT",
+      "requiredByProfiles": [
+        "solana-sbpf-elf-v1"
+      ],
+      "sourceBuild": {
+        "assetId": "sbpf-0.2.2-git-d835bc6e638e"
+      }
     },
     {
       "id": "solc",
@@ -223,10 +326,15 @@
       "executableSha256": "d40adc6f9fdbb22a97d32a02fa05688bf2ee7886affc48c9851b0afd4a726b39",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "0.8.34+commit.80d5c536",
       "licenseSpdx": "GPL-3.0-or-later",
-      "requiredByProfiles": ["evm-yul-solc-0.8.34-v1"]
+      "requiredByProfiles": [
+        "evm-yul-solc-0.8.34-v1"
+      ],
+      "sourceBuild": null
     },
     {
       "id": "wat2wasm",
@@ -239,15 +347,20 @@
       "executableSha256": "b98b5517a024025e76f7cd78cc5e9a9002d7429ba4c8f01b3a178725ed4676da",
       "runtimeLibrarySubdir": null,
       "runtimeFiles": [],
-      "versionArgs": ["--version"],
+      "versionArgs": [
+        "--version"
+      ],
       "expectedVersion": "1.0.41",
       "licenseSpdx": "Apache-2.0",
-      "requiredByProfiles": ["near-wasm-raw-u64-v1"]
+      "requiredByProfiles": [
+        "near-wasm-raw-u64-v1"
+      ],
+      "sourceBuild": null
     }
   ],
   "unresolved": {
     "nearSandbox": "2.13.0",
-    "solanaAssembler": null,
+    "solanaAssembler": "0.2.2",
     "nargo": null,
     "barretenberg": null
   }

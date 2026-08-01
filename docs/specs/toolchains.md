@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-07-25
+updated: 2026-08-01
 normative: true
 ---
 
@@ -14,9 +14,10 @@ normative: true
 按 [ADR-0013](../adr/0013-content-addressed-tools-and-host-profile.md) 分离两类闭包，
 跨平台形态按 [ADR-0016](../adr/0016-cross-platform-host-profile-and-linux-eligibility.md)：
 
-- Tool Lock 家族：可下载、内容寻址并离线物化的 compiler/tool/runtime 资产，按平台拆为
-  per-platform 文件：`toolchains.lock.json`（darwin-arm64，Tool Lock v2）与
-  `toolchains-linux-x86_64.lock.json`（linux-x86_64，Tool Lock v3）。
+- Tool Lock 家族：可下载、内容寻址并离线物化的 compiler/tool/runtime 资产，以及
+  commit-pinned source-build（`cargo-git`）资产，按平台拆为 per-platform 文件：
+  `toolchains.lock.json`（darwin-arm64）与 `toolchains-linux-x86_64.lock.json`
+  （linux-x86_64）；两平台当前均为 **Tool Lock v4**（`proof-forge.toolchains.v4`）。
 - `host-profiles.lock.json`：不能打包进 cache 的 host/system runtime TCB（macOS/Xcode
   或 linux distro；schema v2 见下）。
 
@@ -25,17 +26,25 @@ Darwin profile 因系统卷 seal broken 且 Xcode pathname 可由当前 admin �
 development-only；它不能关闭 `TASK-D0-03/04`。linux profile 的 eligibility 谓词与信任根
 弱化声明见 Host Profile v2 节；任一谓词观察不到即 ineligible，formal 入口 fail closed。
 
-## Tool Lock v2
+## Tool Lock v4（当前权威；两平台）
 
-根目录 `toolchains.lock.json` 是机器可读权威：
+两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
+
+| File | platform | policy key |
+|---|---|---|
+| `toolchains.lock.json` | `darwin-arm64` | `machoPolicy` |
+| `toolchains-linux-x86_64.lock.json` | `linux-x86_64` | `elfPolicy` |
 
 ```text
-schema: "proof-forge.toolchains.v2"
+schema: "proof-forge.toolchains.v4"
 platform
-assets[]: {
-  id, url, size, sha256, format,
-  auth? {type, realm, service, scope}
-}
+assets[]: one of
+  content-addressed download asset:
+    {id, url, size, sha256, format ∈ {tar.gz, zip, file},
+     auth? {type, realm, service, scope}}
+  cargo-git source-build asset (no size/sha256; commit is the trust anchor):
+    {id, url (HTTPS git), commit (40 lowercase hex), format: "cargo-git",
+     package (cargo package name), bin (release binary name), version (SemVer)}
 compilerToolchain: {
   id, version, sourceCommit, platform, assetId,
   archiveRoot, stripComponents, entryCount, unpackedSize,
@@ -43,66 +52,83 @@ compilerToolchain: {
   versionProbes[] {path, args, expected}
 }
 bundleFiles[]: {path, assetId, member?, size, sha256, mode}
-machoPolicy: {
+  -- only members of content-addressed download assets; never cargo-git products
+darwin: machoPolicy {
   allowedSystemLoadRoots[],
   files[] {path, installId?, externalLoads[] {installName, bundlePath}}
 }
+linux: elfPolicy {
+  allowedSystemLoadRoots[],
+  files[] {path, needed[] {soname, bundlePath?}, runpath?}
+}
 tools[]: {
   id, version, sourceUrl, platform, assetId, executable,
-  defaultPath, executableSha256, runtimeLibrarySubdir?,
+  defaultPath, executableSha256 (string | null), runtimeLibrarySubdir?,
   runtimeFiles[] {path, sha256},
-  versionArgs, expectedVersion, licenseSpdx, requiredByProfiles[]
+  versionArgs, expectedVersion, licenseSpdx, requiredByProfiles[],
+  sourceBuild (null | {assetId})
 }
 unresolved: {barretenberg, nargo, nearSandbox, solanaAssembler}
 ```
 
 root object 恰为
-`schema,platform,assets,compilerToolchain,bundleFiles,machoPolicy,tools,unresolved`；除
-`assets[].auth` 可缺失外，nested object 必须包含且只包含上面列出的字段，显式 nullable 字段必须保留
-为 `null`，不能用缺字段代替。`unresolved` 恰含上述四个 key，value 只允许 `null` 或 canonical
-version string；增加 root/nested field、unresolved key 或改变 nullable 语义必须升级 Tool Lock schema。
-consumer 必须在 hash 前拒绝 duplicate/unknown/missing field、错误 JSON scalar 类型、非 canonical
-array order、重复 ID/path/ref 和所有 cross-reference/leaf-closure 错误。
+`schema,platform,assets,compilerToolchain,bundleFiles,(machoPolicy|elfPolicy),tools,unresolved`；
+policy 键与 platform 绑定：`darwin-arm64` 必须 `machoPolicy` 且不得含 `elfPolicy`，
+`linux-x86_64` 必须 `elfPolicy` 且不得含 `machoPolicy`。除 `assets[].auth` 可缺失外，
+nested object 必须包含且只包含上面列出的字段，显式 nullable 字段必须保留为 `null`，不能用
+缺字段代替。`unresolved` 恰含上述四个 key，value 只允许 `null` 或 canonical version string；
+增加 root/nested field、unresolved key 或改变 nullable 语义必须升级 Tool Lock schema。
+consumer 必须在 hash 前拒绝 duplicate/unknown/missing field、错误 JSON scalar 类型、非
+canonical array order、重复 ID/path/ref 和所有 cross-reference/leaf-closure 错误。
 
-`ToolLockV2Digest` 由本规格唯一拥有，使用 SPEC-COMMON-001 PF-JCS v1：
+### sourceBuild 与 cargo-git
+
+- `tools[].sourceBuild == null`：普通内容寻址工具。`executableSha256` 必须为 64-hex 且等于
+  `bundleFiles[executable].sha256`；`executable` 与 `runtimeFiles[]` 必须闭合到
+  `bundleFiles` 与 macho/elf 邻接闭包（v2/v3 同规则）。
+- `tools[].sourceBuild == {assetId}`：source-built 工具。`assetId` 必须等于
+  `tools[].assetId` 且引用 `format: "cargo-git"` 资产；`executableSha256` 必须为 `null`；
+  `runtimeLibrarySubdir` 必须为 `null` 且 `runtimeFiles` 必须为 `[]`；该工具的
+  executable **不得** 出现在 `bundleFiles`（因此也不进 macho/elf policy）。闭包哈希校验
+  豁免：信任锚是 git `commit`；运行时权威校验是执行 `versionArgs` 并要求
+  stdout+stderr **包含** `expectedVersion`（与普通工具 version probe 相同包含语义）。
+- cargo build **不**保证字节可复现，禁止对 source-built 二进制做跨主机 SHA-256 pin。
+- cargo-git 资产 cache 布局：`cargo-git/<commit>/<asset-id>/`（workspace checkout +
+  `cargo build --release -p <package>`；命中已构建 `target/release/<bin>` 且 version
+  probe 通过则不重建）。download 资产仍为 `sha256/<asset-sha256>/<asset-id>`。
+
+`ToolLockV4Digest` 由本规格唯一拥有，使用 SPEC-COMMON-001 PF-JCS v1：
 
 ```text
-ToolLockV2Digest = SHA-256(
-  "proof-forge.toolchains.v2" || 0x00 || PF-JCS(validated ToolLockV2)
+ToolLockV4Digest = SHA-256(
+  "proof-forge.toolchains.v4" || 0x00 || PF-JCS(validated ToolLockV4)
 )
 ```
 
-`toolchainLockSha256` 只表示 retained `toolchains.lock.json` exact file bytes 的 raw SHA-256；它与
-`ToolLockV2Digest` 是不同类型，whitespace/object-key layout 改变可以只改变前者。所有名为
-`lockDigest` 或 `toolchainLockDigest` 的 typed identity 字段都必须消费 `ToolLockV2Digest`；
-`proof-forge.toolchain-lock.v1` 是拒绝的 legacy domain，禁止 fallback 或 dual-domain acceptance。
-该决定由 [ADR-0015](../adr/0015-canonical-tool-lock-and-candidate-bound-sbom.md) 固定。
+`toolchainLockSha256` 只表示 retained lock file exact file bytes 的 raw SHA-256；它与
+`ToolLockV4Digest` 是不同类型。所有名为 `lockDigest` 或 `toolchainLockDigest` 的 typed
+identity 字段都必须消费 `ToolLockV4Digest`。legacy domains
+`proof-forge.toolchain-lock.v1`、`proof-forge.toolchains.v2`、`proof-forge.toolchains.v3`
+一律拒绝，禁止 fallback 或 dual-domain acceptance。
+该决定由 [ADR-0015](../adr/0015-canonical-tool-lock-and-candidate-bound-sbom.md) 与
+[ADR-0016](../adr/0016-cross-platform-host-profile-and-linux-eligibility.md) 的
+schema-closed 规则固定；v4 同时吸收 v2（darwin/macho）与 v3（linux/elf）平台形态并加入
+cargo-git/sourceBuild。
 
-数组按 ID/path 排序；ID 唯一；所有 size 是正整数；所有 SHA-256 是 64 位小写十六进制；URL 必须 HTTPS；
-member/path 必须相对且不能含 `.`、`..`、NUL、symlink 或特殊文件。asset cache 布局固定为
-`sha256/<asset-sha256>/<asset-id>`。普通 build 不自动下载。
+**版本串选择理由**：darwin 历史上为 v2、linux 为 v3（elfPolicy 替换 machoPolicy）。
+cargo-git 资产形状与 `sourceBuild`/`executableSha256=null` 改变了 closed field 与
+nullable 语义，必须升 schema。darwin **不能**占用 v3（v3 已专指 linux+elfPolicy）。
+因此两平台统一升至 **v4**，以 `platform`+policy 键保留 per-platform 差异。
 
-## Tool Lock v3（per-platform linux 文件）
+数组按 ID/path 排序；ID 唯一；download 资产的 size 是正整数；所有声明的 SHA-256 是 64 位
+小写十六进制；URL 必须 HTTPS；member/path 必须相对且不能含 `.`、`..`、NUL、symlink 或特殊
+文件。普通 build 不自动下载/构建。
 
-linux 平台使用独立 lock 文件 `toolchains-linux-x86_64.lock.json`
-（[ADR-0016](../adr/0016-cross-platform-host-profile-and-linux-eligibility.md)），darwin 的
-`toolchains.lock.json`（v2）字节不变。v3 root object 恰为
-`schema,platform,assets,compilerToolchain,bundleFiles,elfPolicy,tools,unresolved`：`schema`
-为 `proof-forge.toolchains.v3`，`platform` 为 `linux-x86_64`，`elfPolicy` 取代
-`machoPolicy`：
+### 历史 schema（拒绝）
 
-```text
-elfPolicy: {
-  allowedSystemLoadRoots[],
-  files[] {path, neededLibs[], runpath?}
-}
-```
-
-v3 digest domain 为 `proof-forge.toolchains.v3`，算法与 v2 相同
-（`SHA-256(domain || 0x00 || PF-JCS(validated lock))`）；`proof-forge.toolchain-lock.v1`
-仍为拒绝的 legacy domain。consumer 按 host 平台选择对应 lock 文件；平台不匹配、跨文件
-ref、缺文件全部 fail closed。除上述替换外，v2 的字段封闭性、排序、cross-reference 与
-leaf-closure 规则全部适用于 v3。
+- Tool Lock v2（`proof-forge.toolchains.v2`，仅 darwin+machoPolicy）与 v3
+  （`proof-forge.toolchains.v3`，仅 linux+elfPolicy）已由 v4 取代；consumer 对 v2/v3
+  文件 fail closed。
 
 ## Host Profile v2
 
@@ -178,17 +204,25 @@ candidate/release digest 仍是起始信任。开发模式可输出 ineligible �
 | OpenSSL dependency | Homebrew arm64 Tahoe bottle `3.6.3_1` | `2d995a1b…f92f` | 仅取锁定 `libcrypto.3.dylib`，file SHA `64bc8854…6f4` |
 | Foundry | official `v0.3.0` Darwin arm64 archive, commit `5a8bd89` | `38756791…3e94` | Anvil/Cast 仅 Apple system dylib/framework |
 
-未冻结：sBPF assembler、Nargo、Barretenberg；`null` 表示未进入实现承诺，不能从 PATH 猜测。
+| sBPF assembler (`sbpf`) | blueshift-gg/sbpf `0.2.2` @ `d835bc6e…a5ba`，`format: cargo-git`，`sourceBuild` | n/a（非字节 pin；`sbpf --version` → `sbpf 0.2.2`） | 已登记；`unresolved.solanaAssembler="0.2.2"` 记录 version pin |
+
+未冻结：Nargo、Barretenberg；`null` 表示未进入实现承诺，不能从 PATH 猜测。nearSandbox
+version pin 已写入 unresolved，工具尚未进入 `tools[]`。
 
 ## Provision 与离线物化
 
-联网 provision 是独立命令：下载到同 filesystem 私有 staging，边下载边限制 size/hash，
-只在完全匹配后原子 publish 到 content-addressed cache。OCI bearer token 只用于读取公开
-blob，不进入 lock/evidence。partial、redirect 降级、HTTP、额外 bytes、已有错误 cache、
-symlink/hardlink/特殊文件均失败。
+联网 provision 是独立命令：download 资产下载到同 filesystem 私有 staging，边下载边限制
+size/hash，只在完全匹配后原子 publish 到 content-addressed cache；cargo-git 资产在
+`cargo-git/<commit>/<asset-id>/` 下 clone+`git checkout` 精确 commit，再
+`cargo build --release -p <package>`，产物为 `target/release/<bin>`，缓存命中且 version
+probe 通过则跳过重建。OCI bearer token 只用于读取公开 blob，不进入 lock/evidence。
+partial、redirect 降级、HTTP、额外 bytes、已有错误 cache、symlink/hardlink/特殊文件、
+cargo/git 失败均失败。
 
-离线物化只读 cache：安全读取精确 member，生成私有 staging；external bundle 的每个最终
-file 都验证 hash/mode 与 Mach-O closure，再原子 publish tool root。Lean ZIP 只接受单一固定
+离线物化只读 cache：安全读取精确 member，生成私有 staging；external bundle 的每个
+`bundleFiles` 最终 file 都验证 hash/mode 与 Mach-O/ELF closure；每个 `sourceBuild` 工具
+从 cargo-git cache 复制 `target/release/<bin>` 到 tool root 的 `executable` 路径（mode
+`0555`，无字节 hash 校验），再原子 publish tool root。Lean ZIP 只接受单一固定
 root；锁定 15,194 个 central-directory entry 和 2,761,381,330 个解压文件字节，strip 1 后
 拒绝路径穿越、重复/缺失父目录、symlink、特殊文件和 privilege bits。最终 Lean 树必须逐项
 匹配 path/kind/size、owner、单 hardlink 与规范化的 `0444/0555` mode；内容信任来自已复验的
@@ -207,22 +241,27 @@ Python 并带 `-I -S`，不得退回 dispatch 或 site-enabled interpreter。cle
 
 ## Runtime Resolution
 
-执行顺序：读取 embedded lock → 精确平台 → 显式 `PROOF_FORGE_TOOL_ROOT` 或 lock default
-cache root → canonical regular executable → SHA-256 → 安全 runtime library subdir → exact
-version probe → `VerifiedToolchain`。所有工具通过 host profile 中 hash-locked `/usr/bin/env -i`
+执行顺序：读取 embedded lock → 精确平台（schema `proof-forge.toolchains.v4`）→ 显式
+`PROOF_FORGE_TOOL_ROOT` 或 lock default cache root → canonical regular executable →
+（content-addressed 工具）SHA-256 与 lock pin 一致 / （`sourceBuild` 工具）记录 observed
+hash 供 evidence 但**不**与 lock pin 比较 → 安全 runtime library subdir（仅 non-sourceBuild）→
+version probe（stdout+stderr 必须包含 `expectedVersion`）→ `VerifiedTool`。
+`sourceBuild` 工具的 version probe 失败报告 `PF-TOOLCHAIN-MISMATCH`；缺失报告
+`PF-TOOLCHAIN-MISSING`。所有工具通过 host profile 中 hash-locked `/usr/bin/env -i`
 启动，同时 spawn 使用 `inheritEnv=false`，只注入固定 locale/timezone 以及该工具锁定的 runtime
 library path；因此不是依靠有限 denylist 过滤 `DYLD_*`。
 每次 product spawn 前先由 `tools[].executable + tools[].runtimeFiles[]` 计算选中工具的
-exact closure。该 closure 的每个成员都必须存在且验证 regular file、single link、size/hash/mode；
-tool root 中实际出现的其他文件必须仍是当前平台 `bundleFiles[]` 的已知成员并通过同样的
-file checks，unknown/symlink/special node 一律拒绝，但未被选中工具引用的缺失成员不得阻塞
-产品执行。例如 EVM `solc` 不依赖 SBOM validator `jv`。不搜索 cwd、父目录或 PATH。WABT
-仍只能使用 tool root 内锁定的
-`libcrypto`。
+exact closure（`sourceBuild` 工具的 required closure 仅为自身 executable，无 bundle hash）。
+content-addressed closure 成员必须验证 regular file、single link、size/hash/mode；
+tool root 中实际出现的其他文件必须是 `bundleFiles[]` 成员或声明的 `sourceBuild` tool
+executable，unknown/symlink/special node 一律拒绝，但未被选中工具引用的缺失
+bundle/`sourceBuild` 成员不得阻塞产品执行。例如 EVM `solc` 不依赖 SBOM validator `jv` 或
+`sbpf`。不搜索 cwd、父目录或 PATH。WABT 仍只能使用 tool root 内锁定的 `libcrypto`。
 
 上述 product per-tool closure 不替代 release exact-set：`toolchain_assets.py verify-external`、
-clean-room 与 `release-check` 继续要求完整全局 bundle，并执行 Mach-O/ELF static/runtime closure
-和 loaded-library observation。development 与 release 两种结论不得混写。
+clean-room 与 `release-check` 继续要求完整全局 bundle + 全部 sourceBuild 可执行文件，并执行
+Mach-O/ELF static/runtime closure（仅 bundle 成员）与 version probe（含 sourceBuild）。
+development 与 release 两种结论不得混写。
 
 ## Supply-chain inventory
 
@@ -251,7 +290,7 @@ DependencyRefV1 {kind, to}
 ```
 
 root/nested object 恰含上述字段；`schemaVersion` 精确为 integer `1`，`platform` 必须等于 Tool
-Lock v2 platform，`rootPackageComponentId` 必须唯一命中 `kind=lean-package` component。component
+Lock v4 platform，`rootPackageComponentId` 必须唯一命中 `kind=lean-package` component。component
 `id` 是 1..127-byte
 lowercase ASCII `[a-z0-9][a-z0-9._-]*`，全局唯一并按 UTF-8 升序；`name/version/supplier` 是
 nonempty NFC string，禁止 Cc、absolute path 和 host/user data。`kind` 恰为下列互斥 enum 之一：
@@ -272,9 +311,10 @@ logical component：`id/kind` 进入 component identity，shared bytes 只通过
 
 下述 D0-08 新 schema 中所有名为 `digest` 或 `sha256` 的字段都使用 SPEC-COMMON-001
 `Digest` wire form `sha256:<64 lowercase hex>`；`sha256` 字段的 preimage 是 exact file bytes，
-`digest` 字段的 preimage 由所属 schema 的 domain 公式定义。唯一例外是嵌入读取的 Tool Lock v2
-legacy leaf checksum，其原 wire 仍按本规格前文的裸 64-hex 校验，resolve 进入新 schema 前必须构造
-typed Digest；两种表示不得按字符串相等、截前缀或隐式 coercion 比较。
+`digest` 字段的 preimage 由所属 schema 的 domain 公式定义。唯一例外是嵌入读取的 Tool Lock
+leaf checksum（content-addressed tools），其 wire 仍按本规格前文的裸 64-hex 校验，resolve
+进入新 schema 前必须构造 typed Digest；两种表示不得按字符串相等、截前缀或隐式 coercion 比较。
+sourceBuild 工具无 lock-pinned executable digest。
 
 `source` 是四种 exact closed object union：
 
