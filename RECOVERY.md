@@ -330,6 +330,11 @@ logicalState→events→errors→callables→invariants→requirements顺序，�
 随后definitionally结束sole iterator，返回原input/parent nesting与exact post-header offset；即使传入必错
 element decoder也不会调用。constants/events/errors等空表可共享该theorem，不增加表专用decoder。
 
+canonical empty ProgramRequirements composition现已闭合：原anonymous body机械抽为sole
+`decodeProgramRequirementsBodyV1`，public decoder仍由一次`withTaggedNesting`包装；body theorem按真实
+ProgramRequirements tag→items array线程，wrapper恢复parent nesting。items为空时直接复用
+`decodeArray_zeroV1`，不需要RequirementRequest decoder执行。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

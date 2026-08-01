@@ -11515,3 +11515,13 @@ normative: false
   element call；focused Wire build通过。
 - Boundary：该theorem统一服务constants/events/errors等空表；非空logicalState/callables/invariants、
   requirements、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 empty ProgramRequirements composition
+
+- Production：将ProgramRequirements原anonymous body机械抽为sole
+  `decodeProgramRequirementsBodyV1`，public decoder仍由一次`withTaggedNesting`包装。
+- Proof：body theorem严格组合真实tag与items array decoder，wrapper theorem恢复parent nesting并保留
+  body input/offset；canonical empty items直接复用`decodeArray_zeroV1`，不会执行RequirementRequest
+  decoder。focused Wire build与signature examples通过。
+- Boundary：empty requirements transport composition已就绪；非空requirements、logicalState/callables/
+  invariants、完整carrier与formal TASK/TST仍pending。

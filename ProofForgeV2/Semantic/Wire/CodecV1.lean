@@ -1740,10 +1740,35 @@ def encodeProgramRequirementsV1 (r : ProgramRequirementsV1) :
   let itemsB ← encodeArray encodeRequirementRequestV1 r.items
   encodeTagged "ProgramRequirements" #[itemsB]
 
-def decodeProgramRequirementsV1 : Decoder ProgramRequirementsV1 := withTaggedNesting fun c => do
+/-- Sole production body for ProgramRequirements. -/
+def decodeProgramRequirementsBodyV1 : Decoder ProgramRequirementsV1 := fun c => do
   let ((), c) ← expectTag "ProgramRequirements" 1 c
   let (items, c) ← decodeArray maxArrayElements decodeRequirementRequestV1 c
   pure ({ items }, c)
+
+def decodeProgramRequirementsV1 : Decoder ProgramRequirementsV1 :=
+  withTaggedNesting decodeProgramRequirementsBodyV1
+
+/-- Compose ProgramRequirements from its actual tag and items-array decoders. -/
+theorem decodeProgramRequirementsBodyV1_eq_of_fields (c afterTag afterItems : Cursor)
+    (items : Array RequirementRequestV1)
+    (htag : expectTag "ProgramRequirements" 1 c = .ok ((), afterTag))
+    (hitems : decodeArray maxArrayElements decodeRequirementRequestV1 afterTag =
+      .ok (items, afterItems)) :
+    decodeProgramRequirementsBodyV1 c = .ok ({ items }, afterItems) := by
+  simp only [decodeProgramRequirementsBodyV1, htag, hitems, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful ProgramRequirements body through tagged nesting. -/
+theorem decodeProgramRequirementsV1_eq_of_bodyV1 (c : Cursor)
+    (requirements : ProgramRequirementsV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeProgramRequirementsBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (requirements, c')) :
+    decodeProgramRequirementsV1 c =
+      .ok (requirements, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeProgramRequirementsV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeSemanticEntityRefV1 : SemanticEntityRefV1 → Except SemanticWireErrorV1 ByteArray
   | .typeRef id => encodeTagged "Entity.Type" #[encodeU32le id]

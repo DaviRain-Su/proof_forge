@@ -272,7 +272,9 @@ production body，并按header→id→name→shape组合success及parent nesting
 `decodeArray maxTableElements decodeTypeDeclV1`。后续root scaffold切片将anonymous九字段closure机械抽为
 sole `decodeSemanticProgramDataBodyV1`与单一tagged wrapper，正式transport decoder直接消费，并建立
 exact field-order与nesting success composition。后续zero-table切片证明真实bounded count=0时立即返回
-post-header cursor且绝不调用element decoder，可统一复用到各空root table；非空字段仍pending。
+post-header cursor且绝不调用element decoder，可统一复用到各空root table。后续requirements切片机械抽取
+sole production body，并组合tag→items array→parent nesting；canonical empty requirements现可复用zero array
+theorem，非空root字段仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

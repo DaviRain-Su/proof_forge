@@ -365,6 +365,21 @@ example :
       ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 0, 7⟩ =
         .ok (#[], ⟨ByteArray.mk [0, 0, 0, 0, 0xaa].toArray, 4, 7⟩) := by rfl
 
+example (c afterTag afterItems : Cursor) (items : Array RequirementRequestV1)
+    (htag : expectTag "ProgramRequirements" 1 c = .ok ((), afterTag))
+    (hitems : decodeArray maxArrayElements decodeRequirementRequestV1 afterTag =
+      .ok (items, afterItems)) :
+    decodeProgramRequirementsBodyV1 c = .ok ({ items }, afterItems) :=
+  decodeProgramRequirementsBodyV1_eq_of_fields c afterTag afterItems items htag hitems
+
+example (c c' : Cursor) (requirements : ProgramRequirementsV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeProgramRequirementsBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (requirements, c')) :
+    decodeProgramRequirementsV1 c =
+      .ok (requirements, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeProgramRequirementsV1_eq_of_bodyV1 c requirements c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
