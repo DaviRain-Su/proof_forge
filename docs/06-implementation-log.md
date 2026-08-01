@@ -12002,3 +12002,14 @@ normative: false
 - Boundary: not full multi-target String ABI; EVM match-switch on String
   not lowered; nested multi-arm same-outer refinement still fail closed;
   formal status unchanged.
+
+## 2026-08-01 — D2-07 concrete QualifiedName value closure
+
+- Unicode：sole `normalizeNfc`内部增加all-ASCII fixed-point fast path与显式前提kernel theorem；不复制
+  normalizer。测试覆盖U+0000..U+007F全部ASCII scalar，既有non-ASCII corpus保持。
+- Kernel：两个exact raw payload接production UTF-8/NFC，再经two-element production array与Common
+  `parseQualifiedName`闭合`decodeQualifiedName`=`Tests.PublicInvariantABI`、cursor 41→76。
+- Review/Verification：blocker-only APPROVE；Unicode/Codec/InvariantABI builds及Unicode、InvariantABI
+  suites通过。无`native_decide`、limit提高、axiom、cast或第二decoder。
+- Boundary：root types及后续字段、finish、encoder/carrier identity与formal TASK/TST仍pending。
+

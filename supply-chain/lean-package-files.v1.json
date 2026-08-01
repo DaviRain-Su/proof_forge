@@ -91,9 +91,9 @@
       "sha256": "76c727579e8dcec531b1015f26a0f50ac888955c8dad68f01ecf4d248e2bc6ba"
     },
     {
-      "bytes": 7431,
+      "bytes": 8444,
       "path": "ProofForgeV2/Core/Unicode.lean",
-      "sha256": "19b4191b0a93d0976b3e93f7746e6f25d3ff3d823e4cb458d7358dbd765839ac"
+      "sha256": "8e841017e853ca7d1fb3492dbbe3c82382fe2006bea1e39bc63603dd8ef709cb"
     },
     {
       "bytes": 184413,

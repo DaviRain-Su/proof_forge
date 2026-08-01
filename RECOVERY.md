@@ -529,3 +529,8 @@ cursor `15→41`（tag body nesting=1），同时closed证明总长1235。没有
 QualifiedName下一子片已闭合production framing：count=2 cursor 41→45，`Tests` raw sized bytes
 45→54，`PublicInvariantABI` raw sized bytes54→76。新增seam均为conditional composition/refinement，
 不替代production reader；UTF-8/NFC与Common parser的最终value composition仍待下一片。
+
+QualifiedName value现已闭合。`Unicode.normalizeNfc`在sole authority内部增加语义等价的all-ASCII
+fixed-point fast path，并提供带显式`isAscii=true`前提的kernel theorem；全128 ASCII scalar及既有
+non-ASCII corpus均通过。fixture随后经production UTF-8、NFC、two-element array iterator与Common
+`parseQualifiedName`证明`decodeQualifiedName` cursor 41→76。types字段从offset 76开始。
