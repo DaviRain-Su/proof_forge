@@ -211,7 +211,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | **R-1** | Reference 扩到 PureCall / aggregates / index / Int / Field / Principal / ContextRead / Commit | **done**（2026-08-02：Map empty-default admit + product IndexSet step；Option state product step；external UInt/Int 全宽；Map Reference budget 4096） |
 | **R-2** | `evalInvariantV1` + `InvariantTheoremV1` 工程入口（非 formal theorem 完成） | **done**（2026-08-02：ABI 已接线；空 invariants OOR trap 钉测；theorem 形 Iff.rfl；非 formal corpus） |
-| **R-3** | ProofBundleV1 safe loading 工程路径 | pending |
+| **R-3** | ProofBundleV1 safe loading 工程路径 | **done**（2026-08-02：`openProofBundleV1` PF-JCS re-encode identity + olean SHA join；malformed/mismatch/extra/missing FC；非 contained-worker/formal TST-PROOF-001） |
 
 ---
 

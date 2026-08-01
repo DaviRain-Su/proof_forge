@@ -32,6 +32,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.WireV1,
     `Tests.Semantic.InvariantABI,
     `Tests.Semantic.ReferenceV1,
+    `Tests.Semantic.ProofBundleV1,
     `Tests.Language.ParserSession,
     `Tests.Language.ProgramExportFixtures.A,
     `Tests.Language.ProgramExportFixtures.B,
