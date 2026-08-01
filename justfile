@@ -7,20 +7,58 @@ locked_python := if os() == "macos" { "/Applications/Xcode.app/Contents/Develope
 
 default: dev-check
 
+# Bounded parallelism for `just test` shard *execution* (not lake build).
+# PROOF_FORGE_TEST_JOBS=1 keeps full serial (CI / low-memory hosts).
+# Default 4; invalid values fall back to 4.
+test_jobs := env_var_or_default("PROOF_FORGE_TEST_JOBS", "4")
+
 build:
     lake build ProofForgeV2 proof_forge_next proof_forge_frontend_worker_v1
 
+# Build all memory-bounded test shards once, then run them with bounded
+# parallelism. Each failing shard prints `FAIL shard: <name>` and xargs
+# returns non-zero if any child fails.
 test: build
-    lake build proof_forge_next_tests_shard_core proof_forge_next_tests_shard_typed proof_forge_next_tests_shard_language_b proof_forge_next_tests_shard_language_c proof_forge_next_tests_shard_aggregate proof_forge_next_tests_shard_language_heavy proof_forge_next_tests_shard_source proof_forge_next_tests_shard_source_b proof_forge_next_tests_shard_targets
-    lake env .lake/build/bin/proof-forge-next-tests-shard-core
-    lake env .lake/build/bin/proof-forge-next-tests-shard-typed
-    lake env .lake/build/bin/proof-forge-next-tests-shard-language-b
-    lake env .lake/build/bin/proof-forge-next-tests-shard-language-c
-    lake env .lake/build/bin/proof-forge-next-tests-shard-aggregate
-    lake env .lake/build/bin/proof-forge-next-tests-shard-language-heavy
-    lake env .lake/build/bin/proof-forge-next-tests-shard-source
-    lake env .lake/build/bin/proof-forge-next-tests-shard-source-b
-    lake env .lake/build/bin/proof-forge-next-tests-shard-targets
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lake build \
+      proof_forge_next_tests_shard_core \
+      proof_forge_next_tests_shard_typed \
+      proof_forge_next_tests_shard_language_b \
+      proof_forge_next_tests_shard_language_c \
+      proof_forge_next_tests_shard_aggregate \
+      proof_forge_next_tests_shard_language_heavy \
+      proof_forge_next_tests_shard_source \
+      proof_forge_next_tests_shard_source_b \
+      proof_forge_next_tests_shard_targets
+    jobs='{{test_jobs}}'
+    if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
+      jobs=4
+    fi
+    shards=(
+      proof-forge-next-tests-shard-core
+      proof-forge-next-tests-shard-typed
+      proof-forge-next-tests-shard-language-b
+      proof-forge-next-tests-shard-language-c
+      proof-forge-next-tests-shard-aggregate
+      proof-forge-next-tests-shard-language-heavy
+      proof-forge-next-tests-shard-source
+      proof-forge-next-tests-shard-source-b
+      proof-forge-next-tests-shard-targets
+    )
+    run_shard() {
+      local name="$1"
+      echo "=== shard start: ${name} (jobs=${jobs}) ==="
+      if lake env ".lake/build/bin/${name}"; then
+        echo "=== shard ok: ${name} ==="
+      else
+        echo "FAIL shard: ${name}" >&2
+        exit 1
+      fi
+    }
+    export -f run_shard
+    export jobs
+    printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
 test-fast: build
     lake build proof_forge_next_fast_tests
