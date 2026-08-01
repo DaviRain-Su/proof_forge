@@ -5208,7 +5208,7 @@ private unsafe def testAggregateParamOk
     throw <| IO.userError "agg-param: missing param"
   expect (p0.typeId == 0) "agg-param: Point typeId"
 
-/-- N3: aggregate entry result still fails closed. -/
+/-- N-4: named Struct entry result admitted (was N3 fail-closed). -/
 private unsafe def testAggregateResultFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "AggResult" <|
@@ -5218,17 +5218,16 @@ private unsafe def testAggregateResultFailClosed
     "    return Point.new(1)\n"
   let validated ← loadSource session "agg-result" source
   let typed := checkProgramTypedResultV1 validated
-  if typed.ok then
-    match normalizeProgramV1 validated with
-    | .ok _ => throw <| IO.userError "agg-result: expected unsupported aggregate result"
-    | .error (.unsupported detail) =>
-        expect (detail.contains "result" || detail.contains "UInt" ||
-            detail.contains "Field" || detail.contains "Principal")
-          s!"agg-result: detail={detail}"
-    | .error e =>
-        throw <| IO.userError s!"agg-result: expected unsupported, got {repr e}"
-  else
-    pure ()
+  expect typed.ok s!"agg-result: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"agg-result: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"agg-result: validate: {repr e}"
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "agg-result: missing entry"
+  expect (entryC.result.typeId == 0) "agg-result: Point result typeId 0"
 
 /-- ArrayState: anonymous Array UInt64 state + literal index assign/load. -/
 private unsafe def testArrayStateIndexAssign
@@ -5745,6 +5744,110 @@ private unsafe def testEnumConstruct
     "enum-val: Blue construct idx1 arity1"
   expect (constructs.any fun (_, idx, n) => idx == 0 && n == 0)
     "enum-val: Red construct idx0 arity0"
+
+/-- N-4: entry/view/fn may return named Struct (result TypeId = Point). -/
+private unsafe def testStructEntryResult
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "StructRet" <|
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  entry origin() : Point do\n" ++
+    "    return Point.new(0, 0)\n" ++
+    "  view peek() : Point do\n" ++
+    "    return Point.new(1, 2)\n" ++
+    "  fn make(x : UInt64, y : UInt64) : Point do\n" ++
+    "    return Point.new(x, y)\n" ++
+    "  entry viaFn(a : UInt64, b : UInt64) : Point do\n" ++
+    "    return make(a, b)\n"
+  let validated ← loadSource session "struct-ret" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"struct-ret: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"struct-ret: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"struct-ret: validate: {repr e}"
+  let pointTid? := data.types.findSome? fun decl =>
+    match decl.name, decl.shape with
+    | some "Point", .struct _ => some decl.id
+    | _, _ => none
+  let pointTid ← match pointTid? with
+    | some t => pure t
+    | none => throw <| IO.userError "struct-ret: missing Point type"
+  let mut foundEntry := false
+  let mut foundView := false
+  let mut foundFn := false
+  for c in data.callables do
+    match c.kind, c.name with
+    | .entry, some "origin" =>
+        expect (c.result.typeId == pointTid) "struct-ret: origin result Point"
+        foundEntry := true
+    | .view, some "peek" =>
+        expect (c.result.typeId == pointTid) "struct-ret: peek result Point"
+        foundView := true
+    | .pureFn, some "make" =>
+        expect (c.result.typeId == pointTid) "struct-ret: make result Point"
+        foundFn := true
+    | .entry, some "viaFn" =>
+        expect (c.result.typeId == pointTid) "struct-ret: viaFn result Point"
+    | _, _ => pure ()
+  expect foundEntry "struct-ret: entry origin present"
+  expect foundView "struct-ret: view peek present"
+  expect foundFn "struct-ret: pureFn make present"
+
+/-- N-4: entry may return named Enum. -/
+private unsafe def testEnumEntryResult
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "EnumRet" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue(UInt64)\n" ++
+    "  entry pick(n : UInt64) : Color do\n" ++
+    "    if n == 0 then\n" ++
+    "      return Color.Red()\n" ++
+    "    else\n" ++
+    "      return Color.Blue(n)\n"
+  let validated ← loadSource session "enum-ret" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"enum-ret: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"enum-ret: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"enum-ret: validate: {repr e}"
+  let colorTid? := data.types.findSome? fun decl =>
+    match decl.name, decl.shape with
+    | some "Color", .enum _ => some decl.id
+    | _, _ => none
+  let colorTid ← match colorTid? with
+    | some t => pure t
+    | none => throw <| IO.userError "enum-ret: missing Color type"
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "enum-ret: missing entry"
+  expect (entryC.result.typeId == colorTid) "enum-ret: entry result Color"
+
+/-- N-4: anonymous Array result still fail closed (named Struct/Enum only). -/
+private unsafe def testArrayResultFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ArrayRet" <|
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry dump() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let validated ← loadSource session "array-ret" source
+  -- TypeCheck may admit Array results; Normalize must fail closed.
+  match normalizeProgramV1 validated with
+  | .ok _ => throw <| IO.userError "array-ret: expected Normalize fail closed for Array result"
+  | .error (.unsupported detail) =>
+      expect (detail.contains "result" || detail.contains "Struct" || detail.contains "Array" ||
+          detail.contains "UInt" || detail.contains "named")
+        s!"array-ret: unexpected detail {detail}"
+  | .error e => throw <| IO.userError s!"array-ret: unexpected {repr e}"
 
 /-- T3: constructor arity mismatch fails (TypeCheck or Normalize). -/
 private unsafe def testStructConstructArityMismatch
@@ -6753,6 +6856,9 @@ unsafe def run : IO Unit := do
   testAggregateFieldCatalogReject session
   testStructConstructFieldGetSet session
   testEnumConstruct session
+  testStructEntryResult session
+  testEnumEntryResult session
+  testArrayResultFailClosed session
   testStructConstructArityMismatch session
   testFieldGetNonStructTypedNotOk session
   -- T4 expression-level match

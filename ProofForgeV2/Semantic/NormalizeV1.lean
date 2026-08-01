@@ -57,10 +57,10 @@
       positions admit public legal-UInt/Int/Field/Principal/String **or named
       Struct/Enum** (N3/N4) **or anonymous Array/Map/Bytes/Option** (N3 ArrayState +
       N-A4 Option; default valueBytes = Option-none `0x00`). Unit/Bool state still
-      fail closed). Entry/view/fn results stay legal
-      UInt/Int/Unit/Bool/Field/Principal/String (aggregate results fail closed —
-      target ABI surface is scalar). Local `let` may hold named/aggregate
-      values (including Principal/String)
+      fail closed). Entry/view/fn results admit legal
+      UInt/Int/Unit/Bool/Field/Principal/String **or named Struct/Enum** (N-4;
+      anonymous Array/Map/Bytes/Option results still fail closed). Local `let`
+      may hold named/aggregate values (including Principal/String)
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
       `Option.some` / `Option.none` constructors → `Op.Construct`; field places
       → `Op.FieldGet`; index places → `Op.IndexGet` (Array/Bytes/Map); field
@@ -121,7 +121,8 @@
       non-UInt64 call/schedule args and for endpoints,
       anonymous Unit/Bool as state or param types (Array/Map/Bytes/Option
       state admitted; Option default is none-tag `0x00` via InvariantFoundation),
-      aggregate entry/view/fn results,
+      anonymous Array/Map/Bytes/Option entry/view/fn results (named Struct/Enum
+      results admitted — N-4),
       multi-arg nonempty Map *Construct* (product nonempty = empty default /
       `Map.empty` + IndexSet upsert — N-1; Wire Construct remains empty-only),
       nested assign through Map/Bytes elements (single-step Map/Bytes
@@ -638,26 +639,45 @@ private def requireUInt64TypeId
   | none =>
       failUnsupported s!"S1 {context} references missing TypeId {typeId}"
 
-/-- Require anonymous scalar at entry/view/fn results: legal UInt/Int, Unit,
-    Bool, sole catalog Field, Principal, or String. -/
+/-- Require entry/view/fn result type: anonymous scalar (legal UInt/Int, Unit,
+    Bool, sole catalog Field, Principal, String) **or** named Struct/Enum (N-4).
+    Anonymous Array/Map/Bytes/Option results remain fail-closed (no ABI). -/
+private def requireCallableResultTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match types[typeId.toNat]? with
+  | none =>
+      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
+  | some decl =>
+      match decl.name, decl.shape with
+      | some _, .struct _ => pure ()
+      | some _, .enum _ => pure ()
+      | some _, _ =>
+          failUnsupported
+            s!"S1 {context} named result type must be Struct or Enum"
+      | none, .uint w =>
+          if legalIntegerWidthV1 w.toNat then pure ()
+          else
+            failUnsupported
+              s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
+      | none, .int w =>
+          if legalIntegerWidthV1 w.toNat then pure ()
+          else
+            failUnsupported
+              s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
+      | none, .unit | none, .bool | none, .principal | none, .string => pure ()
+      | none, .field spec =>
+          if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
+          else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
+      | none, _ =>
+          failUnsupported
+            s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String or named Struct/Enum"
+
+/-- Historical alias for scalar-only call sites that still need the narrow gate. -/
 private def requireScalarResultTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
-  match anonShapeOf? types typeId with
-  | some (.uint w) =>
-      if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String type"
-  | some (.int w) =>
-      if legalIntegerWidthV1 w.toNat then pure ()
-      else failUnsupported s!"S1 {context} requires legal UInt/Int/Unit/Bool/Field/Principal/String type"
-  | some .unit | some .bool | some .principal | some .string => pure ()
-  | some (.field spec) =>
-      if fieldSpecEq spec bn254FrFieldSpecV1 then pure ()
-      else failUnsupported s!"S1 {context} requires sole catalog Field bn254_fr"
-  | some _ =>
-      failUnsupported s!"S1 {context} requires UInt/Int/Unit/Bool/Field/Principal/String type"
-  | none =>
-      failUnsupported s!"S1 {context} references missing TypeId {typeId}"
+  requireCallableResultTypeId types typeId context
 
 /-- Require anonymous legal UInt expected type (arith/bitwise/shift lhs). -/
 private def requireExpectedUIntWidth
