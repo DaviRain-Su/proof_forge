@@ -1444,11 +1444,31 @@ theorem decodeCallableResultV1_eq_of_bodyV1 (c : Cursor) (result : CallableResul
 def encodeValueDefV1 (v : ValueDefV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "ValueDef" #[encodeU32le v.valueId, encodeU32le v.typeId]
 
-def decodeValueDefV1 : Decoder ValueDefV1 := withTaggedNesting fun c => do
+/-- Sole production body for a ValueDef tagged record. -/
+def decodeValueDefBodyV1 : Decoder ValueDefV1 := fun c => do
   let ((), c) ← expectTag "ValueDef" 2 c
   let (valueId, c) ← decodeU32le c
   let (typeId, c) ← decodeU32le c
   pure ({ valueId, typeId }, c)
+
+def decodeValueDefV1 : Decoder ValueDefV1 :=
+  withTaggedNesting decodeValueDefBodyV1
+
+theorem decodeValueDefBodyV1_eq_of_fields (c afterTag afterValue afterType : Cursor)
+    (valueId typeId : UInt32)
+    (htag : expectTag "ValueDef" 2 c = .ok ((), afterTag))
+    (hvalue : decodeU32le afterTag = .ok (valueId, afterValue))
+    (htype : decodeU32le afterValue = .ok (typeId, afterType)) :
+    decodeValueDefBodyV1 c = .ok ({ valueId, typeId }, afterType) := by
+  simp only [decodeValueDefBodyV1, htag, hvalue, htype, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+theorem decodeValueDefV1_eq_of_bodyV1 (c : Cursor) (value : ValueDefV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeValueDefBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (value, c')) :
+    decodeValueDefV1 c = .ok (value, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeValueDefV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeBlockParameterV1 (p : BlockParameterV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "BlockParameter" #[encodeU32le p.valueId, encodeU32le p.typeId]
@@ -1578,7 +1598,8 @@ def encodeSemanticOpV1 : SemanticOpV1 → Except SemanticWireErrorV1 ByteArray
       let argsB ← encodeValueIdArray args
       encodeTagged "Op.Schedule" #[encodeU32le effectId, calleeB, argsB]
 
-def decodeSemanticOpV1 : Decoder SemanticOpV1 := withTaggedNesting fun c => do
+/-- Sole production body for the SemanticOp tagged sum. -/
+def decodeSemanticOpBodyV1 : Decoder SemanticOpV1 := fun c => do
   let (tag, c) ← decodeTag c
   match tag with
   | "Op.Literal" => do
@@ -1692,16 +1713,73 @@ def decodeSemanticOpV1 : Decoder SemanticOpV1 := withTaggedNesting fun c => do
       pure (.schedule effectId callee args, c)
   | _ => err .badTag
 
+def decodeSemanticOpV1 : Decoder SemanticOpV1 :=
+  withTaggedNesting decodeSemanticOpBodyV1
+
+/-- Literal branch through the actual production field decoders. -/
+theorem decodeSemanticOpBodyV1_literal
+    (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
+    (valueBytes : ByteArray)
+    (htag : decodeTag c = .ok ("Op.Literal", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (htype : decodeU32le afterFields = .ok (typeId, afterType))
+    (hbytes : decodeByteArray maxCanonicalProgramBytes afterType =
+      .ok (valueBytes, afterBytes)) :
+    decodeSemanticOpBodyV1 c = .ok (.literal typeId valueBytes, afterBytes) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, htype, hbytes, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- PureCall branch through the actual production field and bounded-array decoders. -/
+theorem decodeSemanticOpBodyV1_pureCall
+    (c afterTag afterFields afterCallable afterArgs : Cursor) (callableId : UInt32)
+    (args : Array UInt32)
+    (htag : decodeTag c = .ok ("Op.PureCall", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hcallable : decodeU32le afterFields = .ok (callableId, afterCallable))
+    (hargs : decodeArray maxArrayElements decodeU32le afterCallable = .ok (args, afterArgs)) :
+    decodeSemanticOpBodyV1 c = .ok (.pureCall callableId args, afterArgs) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, hcallable, hargs, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful SemanticOp body through tagged nesting. -/
+theorem decodeSemanticOpV1_eq_of_bodyV1 (c : Cursor) (op : SemanticOpV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticOpBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (op, c')) :
+    decodeSemanticOpV1 c = .ok (op, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeSemanticOpV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
 def encodeInstructionV1 (i : InstructionV1) : Except SemanticWireErrorV1 ByteArray := do
   let resultB ← encodeOption encodeValueDefV1 i.result
   let opB ← encodeSemanticOpV1 i.op
   encodeTagged "Instruction" #[resultB, opB]
 
-def decodeInstructionV1 : Decoder InstructionV1 := withTaggedNesting fun c => do
+/-- Sole production body for an Instruction tagged record. -/
+def decodeInstructionBodyV1 : Decoder InstructionV1 := fun c => do
   let ((), c) ← expectTag "Instruction" 2 c
   let (result, c) ← decodeOption decodeValueDefV1 c
   let (op, c) ← decodeSemanticOpV1 c
   pure ({ result, op }, c)
+
+def decodeInstructionV1 : Decoder InstructionV1 :=
+  withTaggedNesting decodeInstructionBodyV1
+
+theorem decodeInstructionBodyV1_eq_of_fields (c afterTag afterResult afterOp : Cursor)
+    (result : Option ValueDefV1) (op : SemanticOpV1)
+    (htag : expectTag "Instruction" 2 c = .ok ((), afterTag))
+    (hresult : decodeOption decodeValueDefV1 afterTag = .ok (result, afterResult))
+    (hop : decodeSemanticOpV1 afterResult = .ok (op, afterOp)) :
+    decodeInstructionBodyV1 c = .ok ({ result, op }, afterOp) := by
+  simp only [decodeInstructionBodyV1, htag, hresult, hop, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+theorem decodeInstructionV1_eq_of_bodyV1 (c : Cursor) (instruction : InstructionV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeInstructionBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (instruction, c')) :
+    decodeInstructionV1 c = .ok (instruction, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeInstructionV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeJumpTargetV1 (t : JumpTargetV1) : Except SemanticWireErrorV1 ByteArray := do
   let argsB ← encodeValueIdArray t.args
@@ -1763,7 +1841,8 @@ def encodeTerminatorV1 : TerminatorV1 → Except SemanticWireErrorV1 ByteArray
       let codeB ← encodeSemanticTrapCodeV1 code
       encodeTagged "Term.Trap" #[codeB]
 
-def decodeTerminatorV1 : Decoder TerminatorV1 := withTaggedNesting fun c => do
+/-- Sole production body for the Terminator tagged sum. -/
+def decodeTerminatorBodyV1 : Decoder TerminatorV1 := fun c => do
   let (tag, c) ← decodeTag c
   match tag with
   | "Term.Jump" => do
@@ -1796,6 +1875,28 @@ def decodeTerminatorV1 : Decoder TerminatorV1 := withTaggedNesting fun c => do
       let (code, c) ← decodeSemanticTrapCodeV1 c
       pure (.trap code, c)
   | _ => err .badTag
+
+def decodeTerminatorV1 : Decoder TerminatorV1 :=
+  withTaggedNesting decodeTerminatorBodyV1
+
+/-- Return branch through the actual tag, field-count, and optional ValueId decoders. -/
+theorem decodeTerminatorBodyV1_return (c afterTag afterFields afterValue : Cursor)
+    (value : Option UInt32)
+    (htag : decodeTag c = .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorBodyV1 c = .ok (.return_ value, afterValue) := by
+  simp only [decodeTerminatorBodyV1, htag, hfields, hvalue, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful Terminator body through tagged nesting. -/
+theorem decodeTerminatorV1_eq_of_bodyV1 (c : Cursor) (terminator : TerminatorV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTerminatorBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (terminator, c')) :
+    decodeTerminatorV1 c = .ok (terminator, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeTerminatorV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let paramsB ← encodeArray encodeBlockParameterV1 b.params

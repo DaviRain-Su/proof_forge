@@ -11617,3 +11617,33 @@ normative: false
   registration-count）；encode-only surface 反射。已挂 `Tests/Shards/Targets`。
 - Boundary：**工程** registry root digest 切片；**不是** formal TASK-D3-02 / formal registry
   root / SupportClaim / reachable BuildIdentity / OutputSetV1。formal status 不变。
+## 2026-08-01 — D2-07 canonical Return terminator composition
+
+- Production：将Terminator原anonymous sum body机械命名为sole `decodeTerminatorBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；Jump/Branch/Switch/Return/Revert/Trap及unknown-tag行为均不变。
+- Proof：canonical Return严格组合真实tag→field count 1→optional ValueId decoder；none/some直接复用
+  shared Option composition，wrapper success保留body input/offset并恢复parent depth。focused build、
+  kernel signature examples与blocker review通过。
+- Boundary：其余五个terminator branch proof按需pending；Instruction、Literal/PureCall、完整carrier及
+  formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 ValueDef and Instruction proof scaffolds
+
+- Production：将ValueDef与Instruction原anonymous bodies机械命名为各自sole production body；public
+  decoders仍各由一次`withTaggedNesting`包装。ValueDef顺序为header→valueId→typeId，Instruction为
+  header→optional result→SemanticOp，错误优先级不变。
+- Proof：两个field theorem线程真实decoder equalities和exact cursors；两个wrapper theorem保留body
+  input/offset并恢复parent depth。Option marker本身不进入nesting，some ValueDef继续使用真实nested
+  decoder。focused build、kernel signature examples与blocker review通过。
+- Boundary：SemanticOp仍为success premise；Literal/PureCall branches、完整carrier及formal TASK/TST
+  仍pending。
+
+## 2026-08-01 — D2-07 canonical Literal and PureCall composition
+
+- Production：将SemanticOp原anonymous sum body机械命名为sole `decodeSemanticOpBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；全部既有op branches与unknown-tag行为保持。
+- Proof：Literal组合真实tag→field count 2→TypeId→bounded byte payload；PureCall组合真实tag→field
+  count 2→callableId→bounded ValueId array；wrapper theorem保留body input/offset并恢复parent depth。
+  focused build、kernel signature examples与blocker review通过。
+- Boundary：只覆盖canonical fixture所需两个op branch；其余branches、具体Instruction/Block array run、
+  完整carrier及formal TASK/TST仍pending。

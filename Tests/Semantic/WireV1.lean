@@ -548,6 +548,77 @@ example (c c' : Cursor) (block : BlockV1)
     decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeBlockV1_eq_of_bodyV1 c block c' hdepth hbody
 
+example (c afterTag afterFields afterValue : Cursor) (value : Option UInt32)
+    (htag : decodeTag c = .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorBodyV1 c = .ok (.return_ value, afterValue) :=
+  decodeTerminatorBodyV1_return c afterTag afterFields afterValue value htag hfields hvalue
+
+example (c c' : Cursor) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTerminatorBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (terminator, c')) :
+    decodeTerminatorV1 c = .ok (terminator, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeTerminatorV1_eq_of_bodyV1 c terminator c' hdepth hbody
+
+example (c afterTag afterValue afterType : Cursor) (valueId typeId : UInt32)
+    (htag : expectTag "ValueDef" 2 c = .ok ((), afterTag))
+    (hvalue : decodeU32le afterTag = .ok (valueId, afterValue))
+    (htype : decodeU32le afterValue = .ok (typeId, afterType)) :
+    decodeValueDefBodyV1 c = .ok ({ valueId, typeId }, afterType) :=
+  decodeValueDefBodyV1_eq_of_fields c afterTag afterValue afterType valueId typeId
+    htag hvalue htype
+
+example (c c' : Cursor) (value : ValueDefV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeValueDefBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (value, c')) :
+    decodeValueDefV1 c = .ok (value, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeValueDefV1_eq_of_bodyV1 c value c' hdepth hbody
+
+example (c afterTag afterResult afterOp : Cursor) (result : Option ValueDefV1)
+    (op : SemanticOpV1)
+    (htag : expectTag "Instruction" 2 c = .ok ((), afterTag))
+    (hresult : decodeOption decodeValueDefV1 afterTag = .ok (result, afterResult))
+    (hop : decodeSemanticOpV1 afterResult = .ok (op, afterOp)) :
+    decodeInstructionBodyV1 c = .ok ({ result, op }, afterOp) :=
+  decodeInstructionBodyV1_eq_of_fields c afterTag afterResult afterOp result op
+    htag hresult hop
+
+example (c c' : Cursor) (instruction : InstructionV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeInstructionBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (instruction, c')) :
+    decodeInstructionV1 c = .ok (instruction, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeInstructionV1_eq_of_bodyV1 c instruction c' hdepth hbody
+
+example (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
+    (valueBytes : ByteArray)
+    (htag : decodeTag c = .ok ("Op.Literal", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (htype : decodeU32le afterFields = .ok (typeId, afterType))
+    (hbytes : decodeByteArray maxCanonicalProgramBytes afterType =
+      .ok (valueBytes, afterBytes)) :
+    decodeSemanticOpBodyV1 c = .ok (.literal typeId valueBytes, afterBytes) :=
+  decodeSemanticOpBodyV1_literal c afterTag afterFields afterType afterBytes typeId
+    valueBytes htag hfields htype hbytes
+
+example (c afterTag afterFields afterCallable afterArgs : Cursor) (callableId : UInt32)
+    (args : Array UInt32)
+    (htag : decodeTag c = .ok ("Op.PureCall", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hcallable : decodeU32le afterFields = .ok (callableId, afterCallable))
+    (hargs : decodeArray maxArrayElements decodeU32le afterCallable = .ok (args, afterArgs)) :
+    decodeSemanticOpBodyV1 c = .ok (.pureCall callableId args, afterArgs) :=
+  decodeSemanticOpBodyV1_pureCall c afterTag afterFields afterCallable afterArgs callableId
+    args htag hfields hcallable hargs
+
+example (c c' : Cursor) (op : SemanticOpV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeSemanticOpBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (op, c')) :
+    decodeSemanticOpV1 c = .ok (op, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeSemanticOpV1_eq_of_bodyV1 c op c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
