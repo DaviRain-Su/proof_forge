@@ -1,8 +1,8 @@
 # Goal slice queue (engineering only)
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
 > Master goal: `.grok/goals/prompt-master-queue.md`
-> **Current resume (2026-08-02):** `.grok/goals/prompt-c-2-finish.md` or
-> `prompt-master-queue.md starting at C-2`
+> **Current resume (2026-08-02):** `prompt-master-queue.md starting at D3-E4`
+> (C-2/C-4/D3-E1..E3 done; C-5 ongoing; formal C-3 blocked)
 >
 > Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.
 > Seed column below tracks **navigation only**; conflict → backlog wins.

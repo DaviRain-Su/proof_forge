@@ -136,9 +136,9 @@
       "sha256": "cb9d395625ccfed1f0cb76792061a31250267773b7efd84f4ce0ba5110e5dff6"
     },
     {
-      "bytes": 18625,
+      "bytes": 18760,
       "path": "ProofForgeV2/Materialization/OutputSetV1.lean",
-      "sha256": "24d36f1c1bf86b251c52624d76d9fce707d61f1c6955c5b8818d3d734ae165c7"
+      "sha256": "00eb1b8ebfe475518b0e0fb11fff4fd07c49eddb297c60b480fe7c85f2e6d4de"
     },
     {
       "bytes": 2895,

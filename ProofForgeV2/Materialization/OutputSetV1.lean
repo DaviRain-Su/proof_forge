@@ -370,9 +370,13 @@ def mintEngineeringOutputSetV1
 
 /-- Deterministic engineering on-disk manifest JSON for `proof-forge.output.v1`.
 
-    Digests are bare 64-char lowercase hex (same presentation as the retired
-    v2alpha1 `sourceHash`/`semanticHash` fields). Sidecar leaf names are not
-    listed in `files`. Not formal OutputSetV1 / PF-JCS product wire. -/
+    Digests are bare 64-char lowercase hex under stable keys
+    `sourceHash`/`semanticHash` (historical field names kept for on-disk
+    inspect/recompute compatibility). The retired transitional output schema
+    string and legacy renderer symbols are gated absent by
+    `Tests.Materialization.OutputSetV1` (deletion residual scan).
+    Sidecar leaf names are not listed in `files`.
+    Not formal OutputSetV1 / PF-JCS product wire. -/
 def renderEngineeringOutputSetManifestV1 (outputSet : EngineeringOutputSetV1) :
     Except String String := do
   let sourceHash ← digestHexExcept "source" outputSet.sourceDigest
