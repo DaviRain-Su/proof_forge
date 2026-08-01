@@ -853,6 +853,19 @@ theorem callableSignatures_data :
     hInvariantInvariant, hPublicPublic, Pure.pure, Except.pure, Bind.bind,
     Except.bind]
 
+/-- The two InvariantDecl rows exactly join the invariant callables in their
+    filtered callable source order: truth→2, then falsehood→3. -/
+theorem invariantDeclarationJoin_data :
+    validateInvariantDeclarationJoinV1 data.callables data.invariants = .ok () := by
+  have hEntryInvariant : ((.entry : CallableKindV1) == .invariant) = false := by decide
+  have hPureInvariant : ((.pureFn : CallableKindV1) == .invariant) = false := by decide
+  have hInvariantInvariant : ((.invariant : CallableKindV1) == .invariant) = true := by decide
+  simp [validateInvariantDeclarationJoinV1, data, gate, entryGate, leaf,
+    leafBlock, truth, invariantCallable, truthInstruction, instruction,
+    valueDef, falsehood, falsehoodInstruction, boolLiteral, invariants,
+    truthDecl, falsehoodDecl, hEntryInvariant, hPureInvariant,
+    hInvariantInvariant, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

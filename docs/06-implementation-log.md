@@ -12559,3 +12559,10 @@ normative: false
   entry/view、无initializer、invariant Bool-public/zero-param/zero-loop与fuel metadata presence。
 - Boundary：InvariantDecl join、identifier grammar、CFG/invariant closure、requirements、完整structure、
   encoder/carrier identity与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 concrete InvariantDecl join
+
+- Kernel：sole production join从gate/truthLeaf/truth/falsehood过滤出invariant callable ids `#[2,3]`，
+  declaration rows依source order精确匹配`truth→2`、`falsehood→3`及对应callable kind/name。
+- Boundary：identifier grammar、CFG/invariant closure、requirements、完整structure、production
+  encoder/carrier identity与formal TASK/TST仍pending。

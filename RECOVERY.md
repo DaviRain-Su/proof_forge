@@ -626,4 +626,6 @@ errors为空，interface-field walker也无声明可遍历；logicalState仅`fla
 callable signature phase现已闭合。production对≤4个extracted callable names使用六组以内exhaustive
 exact equality scan，>4仍走原private qsort+adjacent路径；所有parameter表为空并由≤1 fast path跳过sort。
 fixture随后真实通过kind/name、entry/view、initializer absence、Bool-public invariant result、zero params/
-loopBounds、non-closure metadata与root steps presence。下一production gate是InvariantDecl exact join。
+loopBounds、non-closure metadata与root steps presence。紧随其后的InvariantDecl exact join也已闭合：
+production过滤callable source order得到`#[2,3]`，两行declaration依次精确匹配callable id、kind与name。
+下一production gate是declaration identifier grammar。
