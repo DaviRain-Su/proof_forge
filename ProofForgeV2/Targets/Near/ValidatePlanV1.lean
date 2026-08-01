@@ -15,7 +15,7 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. => false
+  | .compare .. | .wideCompare .. => false
   | .signedCompare .. => false
   | .boolNot _ => false
   | .boolAnd .. => false
@@ -53,7 +53,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
       | none => none
       | some nodes => some (1 + nodes)
     match expr with
-    | .literal .. => some 1
+    | .literal .. | .bigLiteral .. => some 1
     | .param inputOffset | .narrowParam _ inputOffset =>
         if params.any (·.inputOffset == inputOffset) then some 1 else none
     | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
@@ -86,7 +86,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .checkedNeg operand => unaryNodes operand
     | .boolAnd lhs rhs => binaryNodes lhs rhs
     | .boolOr lhs rhs => binaryNodes lhs rhs
-    | .compare _ lhs rhs => binaryNodes lhs rhs
+    | .compare _ lhs rhs | .wideCompare _ _ lhs rhs => binaryNodes lhs rhs
     | .callFn fnIndex args => Id.run do
         match fns[fnIndex]? with
         | none => pure none
@@ -144,7 +144,8 @@ private def validateStorageLayout (limits : ResourceLimits)
     let field := layout.fields[index]!
     let admittedWidth :=
       field.byteWidth == 1 || field.byteWidth == 2 ||
-      field.byteWidth == 4 || field.byteWidth == 8
+      field.byteWidth == 4 || field.byteWidth == 8 ||
+      field.byteWidth == 16 || field.byteWidth == 32
     unless field.sourceId == index && isIdentifier field.name &&
         field.key == stateKey index && admittedWidth &&
         field.endianness == .little do
@@ -162,16 +163,19 @@ private def validateParams (limits : ResourceLimits) (owner : String)
   if params.size > limits.maxParams then
     throw <| .planInvariant .near
       s!"parameter count in {owner} exceeds profile limit {limits.maxParams}"
+  let mut expectedOffset : Nat := 0
   for index in [0:params.size] do
     let param := params[index]!
     let admittedWidth :=
       param.byteWidth == 1 || param.byteWidth == 2 ||
-      param.byteWidth == 4 || param.byteWidth == 8
+      param.byteWidth == 4 || param.byteWidth == 8 ||
+      param.byteWidth == 16 || param.byteWidth == 32
     unless param.sourceId == index && isIdentifier param.name &&
-        param.inputOffset == index * 8 && admittedWidth &&
+        param.inputOffset == expectedOffset && admittedWidth &&
         param.endianness == .little do
       throw <| .planInvariant .near
         s!"parameter binding in {owner} is not canonical little-endian with admitted ABI byteWidth"
+    expectedOffset := expectedOffset + slotPitchOfByteWidth param.byteWidth
   if hasDuplicates (params.map (·.name)) then
     throw <| .planInvariant .near s!"parameter names in {owner} must be unique"
 
@@ -339,15 +343,16 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   else unless method.resultKind == .uint64 || method.resultKind == .bool ||
       method.resultKind == .int64 || method.resultKind == .uint8 ||
       method.resultKind == .uint16 || method.resultKind == .uint32 ||
+      method.resultKind == .uint128 || method.resultKind == .uint256 ||
       method.resultKind == .int8 || method.resultKind == .int16 ||
       method.resultKind == .int32 do
     throw <| .planInvariant .near
-      s!"method '{method.name}' result kind must be UInt8/16/32/64, Int64, or Bool"
+      s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, or Bool"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .near s!"method '{method.name}' deposit policy is not canonical"
   validateParams limits s!"method '{method.name}'" method.params
-  unless method.exactInputLen == method.params.size * 8 do
+  unless method.exactInputLen == exactInputLenOfParams method.params do
     throw <| .planInvariant .near s!"method '{method.name}' raw input length is not canonical"
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"

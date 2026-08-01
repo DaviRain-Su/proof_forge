@@ -60,6 +60,7 @@ private def encodeMethodResultKind : MethodResultKind → UInt8
   | .unit => 0 | .uint64 => 1 | .bool => 2 | .int64 => 3
   | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
   | .int8 => 7 | .int16 => 8 | .int32 => 9
+  | .uint128 => 10 | .uint256 => 11
 
 private def encodeEndianness : Endianness → UInt8
   | .little => 0
@@ -67,6 +68,15 @@ private def encodeEndianness : Endianness → UInt8
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with
   | .literal value => pure ((encodeU8 0).append (encodeU64le value))
+  | .bigLiteral bitWidth value =>
+      let byteLen := bitWidth / 8
+      let mut payload := ByteArray.empty
+      let mut v := value
+      for _ in [:byteLen] do
+        payload := payload.push (UInt8.ofNat (v % 256))
+        v := v / 256
+      pure ((((encodeU8 49).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le byteLen)).append payload)
   | .param inputOffset => pure ((encodeU8 1).append (← encodeNatAsU32le inputOffset))
   | .narrowParam bitWidth inputOffset =>
       pure (((encodeU8 2).append (← encodeNatAsU32le bitWidth)).append
@@ -134,6 +144,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .compare op lhs rhs =>
       pure ((((encodeU8 38).append (encodeU8 (encodeComparisonOp op))).append
         (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .wideCompare bitWidth op lhs rhs =>
+      pure (((((encodeU8 50).append (← encodeNatAsU32le bitWidth)).append
+        (encodeU8 (encodeComparisonOp op))).append (← encodeExpr lhs)).append
+        (← encodeExpr rhs))
   | .callFn fnIndex args =>
       let mut out := (encodeU8 39).append (← encodeNatAsU32le fnIndex)
       out := out.append (← encodeNatAsU32le args.size)

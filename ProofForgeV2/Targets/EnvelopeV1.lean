@@ -114,11 +114,10 @@ def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
 def pilotUintWidthPolicyNearAbi : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
-/-- NEAR body multi-width policy (T8c): same admitted set as EVM/Solana body
-    (`{64, 32, 8, 16}`). State/param ABI multi-width remains via
-    `requirePublicUintAbiOrInt64*` (T8b); UInt128/256 fail closed at the Plan seam. -/
+/-- NEAR body+ABI multi-width policy (T9e): UInt{8,16,32,64,128,256}.
+    UInt128/256 use software multiword (2/4 × i64 LE limbs) on Wasm. -/
 def pilotUintWidthPolicyNearBody : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8, 16]
+  admittedWidths := #[64, 32, 8, 16, 128, 256]
 
 /-- Noir type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
     so top-level state/param types may appear alongside Field. Superseded for
@@ -139,7 +138,8 @@ def isPilotBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
 /-- NEAR body UInt width gate (alias of `isPilotBodyUintWidth`). -/
-def isNearBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
+def isNearBodyUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
 /-- Noir body UInt width gate (alias of `isPilotBodyUintWidth`). -/
 def isNoirBodyUintWidth (w : Nat) : Bool := isPilotBodyUintWidth w
@@ -403,8 +403,9 @@ def isSolanaAbiUintWidth (w : Nat) : Bool :=
 /-- Solana body UInt width gate (alias of `isSolanaAbiUintWidth`). -/
 def isSolanaBodyUintWidth (w : Nat) : Bool := isSolanaAbiUintWidth w
 
-/-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth` (`{8,16,32,64}`). -/
-def isNearAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+/-- NEAR **ABI/body** UInt widths (T9e): `{8,16,32,64,128,256}`. -/
+def isNearAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
 /-- Noir **ABI** UInt widths — alias of `isAbiUintWidth`. -/
 def isNoirAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
@@ -470,6 +471,16 @@ def PilotTypeClosureV1.isSolanaUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
   | some w => isSolanaAbiUintWidth w
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w
+    | none => false
+
+/-- NEAR ABI UInt{8,16,32,64,128,256} or Int{8,16,32,64} (T9e + T9c-2). -/
+def PilotTypeClosureV1.isNearUintAbiOrInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isNearAbiUintWidth w
   | none =>
     match c.intWidthOf typeId with
     | some w => isAbiIntWidth w
@@ -898,6 +909,37 @@ def requirePublicSolanaUintAbiOrInt64Param
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isSolanaUintAbiOrInt64 param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is NEAR-admitted UInt{8,16,32,64,128,256} or Int{8,16,32,64}
+    (T9e), and public unless `allowNonPublic`. -/
+def requirePublicNearUintAbiOrInt64State
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isNearUintAbiOrInt64 state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is NEAR-admitted UInt{8,16,32,64,128,256} or Int{8,16,32,64}. -/
+def requirePublicNearUintAbiOrInt64Param
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isNearUintAbiOrInt64 param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

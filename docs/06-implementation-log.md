@@ -12714,3 +12714,12 @@ normative: false
 - Tests：`testWideUintProduct` / body+result admit；翻转 UInt128 reject。
 - 非 formal D2/D4；mul/div 真多字 schoolbook 仍可后续加强。
 
+
+## 2026-08-02 — T9e-NEAR：UInt128/256 multiword（WAT i64 软件多字）
+
+- Envelope：`pilotUintWidthPolicyNearBody`/`isNearAbiUintWidth`/`isNearBodyUintWidth` 扩 128/256；`requirePublicNearUintAbiOrInt64*`。
+- Plan：`MethodResultKind.uint128/256`、`bigLiteral`/`wideCompare`、param cumulative pitch、KV byteWidth 16/32。
+- IR/WAT：多肢 consecutive i64 temps；add/sub/compare/bit multiword；scratch locals 条件声明。
+- Host model + `testWideUintProduct`；Int128 仍 fail closed。
+- 非 formal；mul/div multiword 仍走 narrow 路径（高肢语义待加强）。
+

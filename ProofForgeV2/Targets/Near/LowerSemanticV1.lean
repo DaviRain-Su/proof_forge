@@ -125,6 +125,8 @@ inductive ComparisonOp where
 
 inductive Expr where
   | literal (value : UInt64)
+  /-- Multi-limb literal for UInt128/256 (T9e). `bitWidth ∈ {128,256}`. -/
+  | bigLiteral (bitWidth : Nat) (value : Nat)
   | param (inputOffset : Nat)
   /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
   | narrowParam (bitWidth : Nat) (inputOffset : Nat)
@@ -171,6 +173,8 @@ inductive Expr where
   /-- Strict Bool OR on 0/1 words (both sides always evaluate). -/
   | boolOr (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- Multiword unsigned compare (`bitWidth ∈ {128,256}`); result Bool. -/
+  | wideCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   /-- Mutable plan-local (loop induction). Index is method-local and unique per
       forLoop; IR lowering maps it to a stable Wasm temp rewritten each latch. -/
@@ -180,7 +184,7 @@ inductive Expr where
 structure Store where
   fieldIndex : Nat
   value : Expr
-  /-- Physical store width in bytes (`1/2/4/8`). Default 8 keeps historical
+  /-- Physical store width in bytes (`1/2/4/8/16/32`). Default 8 keeps historical
       UInt64/Int64 Plan literals byte-identical. -/
   byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
@@ -230,6 +234,9 @@ inductive MethodResultKind where
   | int8
   | int16
   | int32
+  /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
+  | uint128
+  | uint256
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -398,7 +405,20 @@ def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
   | 1 => "u8-le"
   | 2 => "u16-le"
   | 4 => "u32-le"
+  | 16 => "u128-le"
+  | 32 => "u256-le"
   | _ => "u64-le"
+
+/-- Input slot pitch for a param physical width (T9e multiword). -/
+def slotPitchOfByteWidth (byteWidth : Nat) : Nat :=
+  let limbs := (byteWidth + 7) / 8
+  if limbs ≤ 1 then 8 else limbs * 8
+
+/-- Total raw input length for a param list (last offset + pitch, or 0). -/
+def exactInputLenOfParams (params : Array Param) : Nat :=
+  match params.back? with
+  | none => 0
+  | some p => p.inputOffset + slotPitchOfByteWidth p.byteWidth
 
 /-- ABI / IDL type string for a param or storage field (Int64 keeps `u64-le`). -/
 def abiScalarTypeString (byteWidth : Nat) : String :=
@@ -433,6 +453,9 @@ private inductive NearValueKindV1 where
   | uint8
   | bool
   | int64
+  /-- T9e multiword body kinds. -/
+  | uint128
+  | uint256
   deriving BEq, Inhabited, Repr
 
 /-- Map admitted body UInt width to plan value kind. -/
@@ -442,7 +465,10 @@ private def uintKindOfWidthV1 (w : Nat) : Option NearValueKindV1 :=
   | 16 => some .uint16
   | 32 => some .uint32
   | 64 => some .uint64
+  | 128 => some .uint128
+  | 256 => some .uint256
   | _ => none
+
 
 /-- Inverse of `uintKindOfWidthV1` for store/width gates. -/
 private def widthOfUintKindV1 (k : NearValueKindV1) : Option Nat :=
@@ -451,6 +477,8 @@ private def widthOfUintKindV1 (k : NearValueKindV1) : Option Nat :=
   | .uint16 => some 16
   | .uint32 => some 32
   | .uint64 => some 64
+  | .uint128 => some 128
+  | .uint256 => some 256
   | .bool | .int64 => none
 
 /-- NEAR pilot type-closure carrier (shared `PilotTypeClosureV1`).
@@ -460,10 +488,10 @@ private abbrev NearTypeClosureV1 := PilotTypeClosureV1
 private def nearPlanErr (message : String) : CompileError :=
   .planInvariant .near message
 
-/-- NEAR pilot accepts anonymous UInt{8,16,32,64}/Unit/Bool/Int64 under
-    `pilotUintWidthPolicyNearBody` (T8c body multi-width + T8b ABI multi-width).
-    UInt128/256 and non-64 Int fail closed. N2c: Principal remains fail-closed
-    (wire identity is binary variable-length; not a NEAR account-id string). -/
+/-- NEAR pilot accepts anonymous UInt{8,16,32,64,128,256}/Unit/Bool/Int{8,16,32,64}
+    under `pilotUintWidthPolicyNearBody` (T9e multiword + T8c/T8b). N2c: Principal
+    remains fail-closed (wire identity is binary variable-length; not a NEAR
+    account-id string). -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   -- ArrayState: container policy defaults to none — anonymous Array/Map/Bytes
@@ -490,7 +518,7 @@ private def abiByteWidthOfTypeV1
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: ABI type must be UInt8/16/32/64 or Int8/16/32/64"
+            "unsupported NEAR semantic shape: ABI type must be UInt8/16/32/64/128/256 or Int8/16/32/64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
@@ -512,7 +540,7 @@ private def makeStorageLayoutV1
       throw <| .planInvariant .near "semantic state ids must match declaration order"
     -- T8b: scalar state admits UInt{8,16,32,64} / Int64 with byteWidth 1/2/4/8.
     -- KV keys stay one-per-field (no packing); value length is the ABI width.
-    requirePublicUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
+    requirePublicNearUintAbiOrInt64State nearPlanErr types state (allowNonPublic := true)
     unless isIdentifier state.name do
       throw <| .planInvariant .near s!"state name '{state.name}' is not a safe identifier"
     let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
@@ -549,12 +577,13 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     throw <| .planInvariant .near s!"parameter count in {owner} exceeds profile limit {maxParams}"
   let mut planned : Array Param := #[]
   let mut values : Array LoweredValueV1 := #[]
+  let mut nextInputOffset : Nat := 0
   for param in params do
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .near
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- T8b: ABI params admit UInt{8,16,32,64} / Int64; 8-byte input slot pitch retained.
-    requirePublicUintAbiOrInt64Param nearPlanErr types owner param
+    -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8..64}; cumulative pitch.
+    requirePublicNearUintAbiOrInt64Param nearPlanErr types owner param
       (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .near
@@ -565,10 +594,11 @@ private def makeParamsV1 (owner : String) (types : NearTypeClosureV1)
     let binding : Param := {
       sourceId := param.valueId.toNat
       name := param.name
-      inputOffset := planned.size * 8
+      inputOffset := nextInputOffset
       byteWidth
       endianness := .little
     }
+    nextInputOffset := nextInputOffset + slotPitchOfByteWidth byteWidth
     planned := planned.push binding
     let kind ←
       if isInt then pure NearValueKindV1.int64
@@ -823,8 +853,13 @@ private def makeCompareValueV1
   unless (widthOfUintKindV1 lhs.kind).isSome do
     throw <| .planInvariant .near
       "unsupported NEAR semantic shape: unsigned comparison requires UInt operands"
-  makeBinaryTreeValueKindsV1 (fun l r => .compare op l r) lhs.kind rhs.kind .bool
-    lhsId rhsId lhs rhs
+  let bw := match widthOfUintKindV1 lhs.kind with | some w => w | none => 64
+  if bw > 64 then
+    makeBinaryTreeValueKindsV1 (fun l r => .wideCompare bw op l r) lhs.kind rhs.kind .bool
+      lhsId rhsId lhs rhs
+  else
+    makeBinaryTreeValueKindsV1 (fun l r => .compare op l r) lhs.kind rhs.kind .bool
+      lhsId rhsId lhs rhs
 
 /-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
     `(typeId, kind, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
@@ -1044,14 +1079,24 @@ private def lowerBlockInstructionsV1
             | none =>
                 throw <| .planInvariant .near
                   s!"unsupported NEAR semantic shape: UInt{bitWidth} literal is not admitted"
-          let value ← decodeUIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
-          values := ← appendResultValueV1 typeId values result {
-            expr := .literal value
-            kind
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-          }
+          if bitWidth ≤ 64 then
+            let value ← decodeUIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+            values := ← appendResultValueV1 typeId values result {
+              expr := .literal value
+              kind
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
+          else
+            let n ← decodeUIntWideLiteralLe nearPlanErr "NEAR" bitWidth bytes
+            values := ← appendResultValueV1 typeId values result {
+              expr := .bigLiteral bitWidth n
+              kind
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
         else
           let boolTypeId ← match types.boolTypeId with
             | some tid =>
@@ -1354,9 +1399,9 @@ private def lowerBlockInstructionsV1
               | none =>
                   throw <| .planInvariant .near
                     "unsupported NEAR semantic shape: Bool type is missing for pureCall result"
-          | .uint32 | .uint16 | .uint8 =>
+          | .uint32 | .uint16 | .uint8 | .uint128 | .uint256 =>
               throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: pureCall result cannot be narrow UInt"
+                "unsupported NEAR semantic shape: pureCall result cannot be narrow/multiword UInt"
         unless result.typeId == expectedTypeId do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureCall result type does not match the callee"
@@ -1633,6 +1678,8 @@ private partial def emitRegionV1
               | .uint32 => "UInt32"
               | .uint16 => "UInt16"
               | .uint8 => "UInt8"
+              | .uint128 => "UInt128"
+              | .uint256 => "UInt256"
               | .bool => "Bool"
               | .int64 => "Int64"
             throw <| .planInvariant .near
@@ -1974,7 +2021,7 @@ private def makeInitializerV1
   pure {
     name := "init"
     params := lowered.params
-    exactInputLen := lowered.params.size * 8
+    exactInputLen := exactInputLenOfParams lowered.params
     mode := .initialize
     depositPolicy := .requireZero
     resultKind := .unit
@@ -2000,9 +2047,11 @@ private def makeEntryV1
     | some 16 => pure (MethodResultKind.uint16, some NearValueKindV1.uint16)
     | some 32 => pure (MethodResultKind.uint32, some NearValueKindV1.uint32)
     | some 64 => pure (MethodResultKind.uint64, some NearValueKindV1.uint64)
+    | some 128 => pure (MethodResultKind.uint128, some NearValueKindV1.uint128)
+    | some 256 => pure (MethodResultKind.uint256, some NearValueKindV1.uint256)
     | some _ =>
         throw <| .planInvariant .near
-          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, or Bool"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure (MethodResultKind.int8, some NearValueKindV1.int64)
@@ -2017,7 +2066,7 @@ private def makeEntryV1
             pure (MethodResultKind.bool, some NearValueKindV1.bool)
           else
             throw <| .planInvariant .near
-              s!"entry '{name}' does not return public UInt8/16/32/64, Int8/16/32/64, or Bool"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -2033,7 +2082,7 @@ private def makeEntryV1
   pure {
     name
     params := lowered.params
-    exactInputLen := lowered.params.size * 8
+    exactInputLen := exactInputLenOfParams lowered.params
     mode
     depositPolicy := if mode == .view then .queryOnly else .requireZero
     resultKind

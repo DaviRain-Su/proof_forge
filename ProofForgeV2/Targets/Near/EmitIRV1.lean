@@ -43,9 +43,11 @@ inductive Operation where
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
-  /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8} from MethodResultKind. -/
+  /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8,16,32} from MethodResultKind. -/
   | setReturnData (byteLen value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
+  /-- Multiword unsigned compare (T9e): lhs/rhs bases of bitWidth/64 limbs. -/
+  | wideCompare (bitWidth destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
   | revertError (errorIndex : Nat) (args : Array Nat)
@@ -180,6 +182,19 @@ private structure LoweredExpr where
 private def fieldRegion (keys : Array KeyRegion) (fieldIndex : Nat) : KeyRegion :=
   keys[fieldIndex + 1]!
 
+/-- LE i64 limb count for multiword body widths (T9e). -/
+private def limbCountOfBitWidth (bitWidth : Nat) : Nat :=
+  if bitWidth ≤ 64 then 1 else bitWidth / 64
+
+/-- Split `n` into `count` little-endian UInt64 limbs. -/
+private def natToLimbsLE (n : Nat) (count : Nat) : Array UInt64 := Id.run do
+  let mut out : Array UInt64 := #[]
+  let mut v := n
+  for _ in [:count] do
+    out := out.push (UInt64.ofNat v)
+    v := v / UInt64.size
+  pure out
+
 /-- `paramAsTemp`: pureFn bodies bind params to temps `0..n-1` (Wasm params),
     so `.param` is a direct temp reference rather than a host input load.
     `localEnv` maps plan `.localTemp` indices to IR temps (loop induction). -/
@@ -187,18 +202,27 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
     (paramAsTemp : Bool) (localEnv : Array (Nat × Nat)) : Expr → LoweredExpr
   | .literal value =>
       { operations := #[.literal next value], value := next, next := next + 1 }
+  | .bigLiteral bitWidth value =>
+      Id.run do
+        let nLimbs := limbCountOfBitWidth bitWidth
+        let limbs := natToLimbsLE value nLimbs
+        let mut ops : Array Operation := #[]
+        for i in [:nLimbs] do
+          ops := ops.push (.literal (next + i) (limbs[i]!))
+        pure { operations := ops, value := next, next := next + nLimbs }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next }
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
   | .narrowParam bitWidth inputOffset =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       if paramAsTemp then
         -- pureFn params still occupy one Wasm i64 slot each (8-byte pitch).
         { operations := #[], value := inputOffset / 8, next := next }
       else
         { operations := #[.narrowLoadParam bitWidth next inputOffset],
-          value := next, next := next + 1 }
+          value := next, next := next + nLimbs }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == index) with
       | some (_, irTemp) =>
@@ -214,10 +238,11 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := next + 1
       }
   | .narrowStateLoad bitWidth fieldIndex =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       {
         operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
         value := next
-        next := next + 1
+        next := next + nLimbs
       }
   | .checkedAdd lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
@@ -317,102 +342,113 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         next := operand.next + 1
       }
   | .narrowCheckedAdd bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowCheckedSub bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowCheckedMul bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowCheckedDiv bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowCheckedMod bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowBitAnd bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowBitOr bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowBitXor bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowBitNot bitWidth operand =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let operand := lowerExpr keys next paramAsTemp localEnv operand
       {
         operations := operand.operations ++
           #[.narrowBitNot bitWidth operand.next operand.value]
         value := operand.next
-        next := operand.next + 1
+        next := operand.next + nLimbs
       }
   | .narrowShl bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .narrowShr bitWidth lhs rhs =>
+      let nLimbs := limbCountOfBitWidth bitWidth
       let lhs := lowerExpr keys next paramAsTemp localEnv lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next
-        next := rhs.next + 1
+        next := rhs.next + nLimbs
       }
   | .boolNot operand =>
       let operand := lowerExpr keys next paramAsTemp localEnv operand
@@ -445,6 +481,15 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .wideCompare bitWidth op lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.wideCompare bitWidth rhs.next lhs.value rhs.value op]
         value := rhs.next
         next := rhs.next + 1
       }
@@ -683,6 +728,8 @@ private def methodResultByteLen : MethodResultKind → Nat
   | .uint8 | .int8 => 1
   | .uint16 | .int16 => 2
   | .uint32 | .int32 => 4
+  | .uint128 => 16
+  | .uint256 => 32
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -868,6 +915,36 @@ private def renderImport : HostImport → String
       -- in this pilot (explicit in the call site, not silent economics).
       "  (import \"env\" \"promise_batch_action_function_call\" (func $pf_promise_batch_action_function_call (param i64 i64 i64 i64 i64 i64 i64 i64)))\n"
 
+
+/-- Multiword checked add on consecutive i64 temps (LE limbs); final carry → trap.
+    Uses scratch locals `$t_mw_a`, `$t_mw_b`, `$t_mw_carry` declared in each method. -/
+private def renderMultiwordCheckedAdd (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
+  Id.run do
+    let mut out := s!"{indent};; multiword checked_add nLimbs={nLimbs}\n"
+    out := out ++ s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_a (local.get $t{lhs + i}))\n" ++
+        s!"{indent}(local.set $t_mw_b (local.get $t{rhs + i}))\n" ++
+        s!"{indent}(local.set $t{dest + i} (i64.add (i64.add (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}(local.set $t_mw_carry (i64.or (i64.extend_i32_u (i64.lt_u (local.get $t{dest + i}) (local.get $t_mw_a))) (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t{dest + i}) (local.get $t_mw_a))))))\n"
+    out := out ++ s!"{indent}(if (i64.ne (local.get $t_mw_carry) (i64.const 0)) (then unreachable))\n"
+    pure out
+
+/-- Multiword checked sub; final borrow → trap. -/
+private def renderMultiwordCheckedSub (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
+  Id.run do
+    let mut out := s!"{indent};; multiword checked_sub nLimbs={nLimbs}\n"
+    out := out ++ s!"{indent}(local.set $t_mw_carry (i64.const 0))\n"
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_a (local.get $t{lhs + i}))\n" ++
+        s!"{indent}(local.set $t_mw_b (local.get $t{rhs + i}))\n" ++
+        s!"{indent}(local.set $t{dest + i} (i64.sub (i64.sub (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}(local.set $t_mw_carry (i64.or (i64.extend_i32_u (i64.lt_u (local.get $t_mw_a) (local.get $t_mw_b))) (i64.and (local.get $t_mw_carry) (i64.extend_i32_u (i64.eq (local.get $t_mw_a) (local.get $t_mw_b))))))\n"
+    out := out ++ s!"{indent}(if (i64.ne (local.get $t_mw_carry) (i64.const 0)) (then unreachable))\n"
+    pure out
+
 /-- Load a LE integer of `byteWidth` from `addr` into an i64 local (zero-extend). -/
 private def renderLoadLeToI64 (indent : String) (destination addr byteWidth : Nat) : String :=
   match byteWidth with
@@ -903,10 +980,21 @@ private def renderZeroLe (indent : String) (addr byteWidth : Nat) : String :=
 private def renderReadKey (registers : RegisterLayout) (memory : MemoryLayout)
     (indent : String) (destination : Nat) (field : KeyRegion)
     (byteWidth : Nat := 8) : String :=
-  s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
-    s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const {byteWidth})) (then unreachable))\n" ++
-    s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
-    renderLoadLeToI64 indent destination memory.valueOffset byteWidth
+  let header :=
+    s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {field.length}) (i64.const {field.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
+      s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const {byteWidth})) (then unreachable))\n" ++
+      s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n"
+  if byteWidth > 8 then
+    Id.run do
+      let nLimbs := byteWidth / 8
+      let mut out := header
+      for i in [:nLimbs] do
+        out := out ++
+          s!"{indent}(local.set $t{destination + i} (i64.load (i32.const {memory.valueOffset + i * 8})))\n"
+      pure out
+  else
+    header ++ renderLoadLeToI64 indent destination memory.valueOffset byteWidth
+
 
 /-- Offset of the transient interface-message scratch region (right after the
     8-byte value-return cell; bounded well inside the first memory page). -/
@@ -1031,7 +1119,16 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .loadParam destination inputOffset =>
       s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.inputOffset + inputOffset})))\n"
   | .narrowLoadParam bitWidth destination inputOffset =>
-      renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := ""
+          for i in [:nLimbs] do
+            out := out ++
+              s!"{indent}(local.set $t{destination + i} (i64.load (i32.const {memory.inputOffset + inputOffset + i * 8})))\n"
+          pure out
+      else
+        renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
   | .loadState destination field =>
       renderReadKey registers memory indent destination field 8
   | .narrowLoadState bitWidth destination field =>
@@ -1158,6 +1255,60 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         | .gt => "i64.gt_u"
         | .ge => "i64.ge_u"
       s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .wideCompare bitWidth destination lhs rhs op =>
+      let nLimbs := limbCountOfBitWidth bitWidth
+      match op with
+      | .eq =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t{destination} (i64.const 1))
+"
+            for k in [:nLimbs] do
+              out := out ++
+                s!"{indent}(local.set $t{destination} (i64.and (local.get $t{destination}) (i64.extend_i32_u (i64.eq (local.get $t{lhs + k}) (local.get $t{rhs + k})))))
+"
+            pure out
+      | .ne =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t{destination} (i64.const 0))
+"
+            for k in [:nLimbs] do
+              out := out ++
+                s!"{indent}(local.set $t{destination} (i64.or (local.get $t{destination}) (i64.extend_i32_u (i64.ne (local.get $t{lhs + k}) (local.get $t{rhs + k})))))
+"
+            pure out
+      | .lt | .le | .gt | .ge =>
+          Id.run do
+            let mut out := s!"{indent}(local.set $t_mw_carry (i64.const 0))
+"
+            let eqDef := match op with | .le | .ge => 1 | _ => 0
+            out := out ++ s!"{indent}(local.set $t{destination} (i64.const {eqDef}))
+"
+            for j in [:nLimbs] do
+              let k := nLimbs - 1 - j
+              let insn :=
+                match op with
+                | .lt => "i64.lt_u" | .le => "i64.lt_u"
+                | .gt => "i64.gt_u" | .ge => "i64.gt_u" | _ => "i64.eq"
+              -- For le/ge: on inequality use strict lt/gt; equal limbs continue
+              out := out ++
+                s!"{indent}(if (i64.eqz (local.get $t_mw_carry))
+" ++
+                s!"{indent}  (then
+" ++
+                s!"{indent}    (if (i64.ne (local.get $t{lhs + k}) (local.get $t{rhs + k}))
+" ++
+                s!"{indent}      (then
+" ++
+                s!"{indent}        (local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs + k}) (local.get $t{rhs + k}))))
+" ++
+                s!"{indent}        (local.set $t_mw_carry (i64.const 1)))
+" ++
+                s!"{indent}      (else)))
+" ++
+                s!"{indent}  (else))
+"
+            pure out
+
   | .assert condition =>
       s!"{indent}(if (i64.eqz (local.get $t{condition})) (then unreachable))\n"
   | .returnNone =>
@@ -1202,15 +1353,49 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 8)) (then unreachable))\n"
   | .narrowStoreState bitWidth field value =>
       let bw := bitWidth / 8
-      renderStoreI64Le indent memory.valueOffset value bw ++
-        s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))\n" ++
-        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))\n"
+      if bitWidth > 64 then
+        Id.run do
+          let nLimbs := limbCountOfBitWidth bitWidth
+          let mut out := ""
+          for i in [:nLimbs] do
+            out := out ++
+              s!"{indent}(i64.store (i32.const {memory.valueOffset + i * 8}) (local.get $t{value + i}))
+"
+          out := out ++
+            s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))
+" ++
+            s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))
+"
+          pure out
+      else
+        renderStoreI64Le indent memory.valueOffset value bw ++
+          s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const {bw}) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 1)) (then unreachable))
+" ++
+          s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const {bw})) (then unreachable))
+"
+
   | .setLayout marker value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .setReturnData byteLen value =>
-      s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
-        s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))\n"
+      if byteLen > 8 then
+        Id.run do
+          let nLimbs := byteLen / 8
+          let mut out := ""
+          for i in [:nLimbs] do
+            out := out ++
+              s!"{indent}(i64.store (i32.const {memory.valueOffset + i * 8}) (local.get $t{value + i}))
+"
+          out := out ++
+            s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
+"
+          pure out
+      else
+        s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))
+" ++
+          s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
+"
+
   | .callFn fnIndex destination args =>
       let name := match fnNames[fnIndex]? with
         | some n => n
@@ -1301,6 +1486,15 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
   let fnNames := ir.fns.map (·.name)
   let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
     s!" (local $t{index} i64)"
+  let needsMwScratch := method.operations.any fun op =>
+    match op with
+    | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth .. => bitWidth > 64
+    | .wideCompare .. => true
+    | _ => false
+  let locals :=
+    if needsMwScratch then
+      locals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)"
+    else locals
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
       ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
@@ -1365,6 +1559,8 @@ private def renderResultKindJson : MethodResultKind → String
   | .uint8 => "\"u8-le\""
   | .uint16 => "\"u16-le\""
   | .uint32 => "\"u32-le\""
+  | .uint128 => "\"u128-le\""
+  | .uint256 => "\"u256-le\""
   | .int8 => "\"i8-le\""
   | .int16 => "\"i16-le\""
   | .int32 => "\"i32-le\""

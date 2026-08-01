@@ -205,7 +205,7 @@ private partial def step (input : ByteArray) (deposit : Deposit)
           storage := storagePut machine.storage field.key (encodeUInt64LE 0) }
   | .narrowZeroState bitWidth field =>
       let bw := bitWidth / 8
-      if !(bw == 1 || bw == 2 || bw == 4) then
+      if !(bw == 1 || bw == 2 || bw == 4 || bw == 16 || bw == 32) then
         modelError s!"narrowZeroState bitWidth {bitWidth} is not admitted"
       else if (storageLookup? machine.storage field.key).isSome then
         modelError s!"state key '{field.key}' already exists during zero initialization"
@@ -543,14 +543,59 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         storage := storagePut machine.storage field.key (encodeUInt64LE value) }
   | .narrowStoreState bitWidth field source => do
       let bw := bitWidth / 8
-      unless bw == 1 || bw == 2 || bw == 4 do
+      unless bw == 1 || bw == 2 || bw == 4 || bw == 16 || bw == 32 do
         modelError s!"narrowStoreState bitWidth {bitWidth} is not admitted"
-      let previous ← requireStorage machine field
-      unless previous.size == bw do
-        modelError s!"evicted state at '{field.key}' is not exactly {bw} bytes"
-      let value ← readTemp machine source
-      pure { machine with
-        storage := storagePut machine.storage field.key (encodeUIntLE value bw) }
+      if bw > 8 then
+        -- Multiword store: pack LE limbs into KV value.
+        let nLimbs := bw / 8
+        let mut bytes := ByteArray.empty
+        for k in [:nLimbs] do
+          let limb ← readTemp machine (source + k)
+          bytes := bytes.append (encodeUInt64LE limb)
+        let previous ← requireStorage machine field
+        unless previous.size == bw do
+          modelError s!"evicted state at '{field.key}' is not exactly {bw} bytes"
+        pure { machine with
+          storage := storagePut machine.storage field.key bytes }
+      else do
+        let previous ← requireStorage machine field
+        unless previous.size == bw do
+          modelError s!"evicted state at '{field.key}' is not exactly {bw} bytes"
+        let value ← readTemp machine source
+        pure { machine with
+          storage := storagePut machine.storage field.key (encodeUIntLE value bw) }
+  | .wideCompare bitWidth destination lhs rhs op => do
+      let nLimbs := if bitWidth ≤ 64 then (1 : Nat) else bitWidth / 64
+      let mut allEq := true
+      for k in [:nLimbs] do
+        let a ← readTemp machine (lhs + k)
+        let b ← readTemp machine (rhs + k)
+        if a != b then
+          allEq := false
+      match op with
+      | .eq =>
+          writeTemp machine destination (if allEq then 1 else 0)
+      | .ne =>
+          writeTemp machine destination (if allEq then 0 else 1)
+      | .lt | .le | .gt | .ge => do
+          let mut decided := false
+          let mut result : U64 :=
+            match op with
+            | .le | .ge => 1
+            | _ => 0
+          for j in [:nLimbs] do
+            if !decided then
+              let k := nLimbs - 1 - j
+              let a ← readTemp machine (lhs + k)
+              let b ← readTemp machine (rhs + k)
+              if a != b then
+                decided := true
+                result :=
+                  match op with
+                  | .lt | .le => if a < b then 1 else 0
+                  | .gt | .ge => if a > b then 1 else 0
+                  | _ => 0
+          writeTemp machine destination result
   | .setLayout marker value =>
       if (storageLookup? machine.storage marker.key).isSome then
         modelError "layout marker unexpectedly exists before commit"
@@ -884,6 +929,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
         | .le => "compare.le"
         | .gt => "compare.gt"
         | .ge => "compare.ge"
+    | .wideCompare _ _ _ _ _ => "wideCompare"
     | .assert _ => "assert"
     | .emitEvent .. => "emitEvent"
     | .promiseAccount .. => "promiseAccount"
@@ -2824,25 +2870,26 @@ private unsafe def testNarrowBodyProductPath
   expectContains watFile.contents "i32.store8" "narrow-body WAT store8"
   expectContains watFile.contents "i32.load8_u" "narrow-body WAT load8_u"
 
-/-- T8b-NEAR negatives: UInt128 state/result fail closed (Int8 param admitted
+/-- T8b-NEAR negatives: Int128 state/result fail closed (Int8 param admitted
     by T9c-2, moved to testInt8ParamAdmitted). -/
 private unsafe def testNarrowAbiNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
   let cases : Array (String × String × String) := #[
-    ("uint128-state", "Examples.U128State",
-      "program U128State where\n" ++
-      "  state big : UInt128\n\n" ++
-      "  init(x : UInt64) do\n" ++
-      "    big := 0\n\n" ++
-      "  entry ping(x : UInt64) : UInt64 do\n" ++
-      "    return x\n"),
-    ("uint128-result", "Examples.U128Result",
-      "program U128Result where\n" ++
-      "  state count : UInt64\n\n" ++
-      "  init(i : UInt64) do\n" ++
-      "    count := i\n\n" ++
-      "  entry ping(x : UInt64) : UInt128 do\n" ++
-      "    return 0\n")
+    ("int128-state", "Examples.I128State",
+      "program I128State where
+" ++
+      "  state big : Int128
+
+" ++
+      "  init(x : UInt64) do
+" ++
+      "    big := 0
+
+" ++
+      "  entry ping(x : UInt64) : UInt64 do
+" ++
+      "    return x
+")
   ]
   for item in cases do
     let (label, moduleName, body) := item
@@ -3214,38 +3261,73 @@ private unsafe def testAbiMultiWidthStateParam (session : Language.Loader.Parser
     | none => throw <| IO.userError "AbiMw setFlag missing flag key"
   expect (decodeUIntLE flag1 1 == some 9) "AbiMw setFlag overwrites UInt8 flag"
 
-/-- T8b-NEAR: UInt128 state remains fail-closed. -/
-private unsafe def testUInt128StateRejected (session : Language.Loader.ParserSession) :
+/-- T9e-NEAR: UInt128/256 state+param+body+result multiword product. -/
+private unsafe def testWideUintProduct (session : Language.Loader.ParserSession) :
     IO Unit := do
   let sourceText :=
-    "import ProofForgeV2\n\n" ++
-    "namespace ProofForgeV2.Examples\n\n" ++
-    "open ProofForgeV2.Language\n\n" ++
-    "program U128State where\n" ++
-    "  state big : UInt128\n\n" ++
-    "  init() do\n" ++
-    "    big := 0\n\n" ++
-    "  entry noop() : UInt64 do\n" ++
-    "    return 0\n\n" ++
-    "end ProofForgeV2.Examples\n"
-  let source ← liftResult (← session.selectProgramV1
-    sourceText "<near-host-u128>" "Examples.U128State" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error _ => pure ()
-  | .ok compiled =>
-      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
-      match Targets.resolveEngineeringRequirementsV1 selection compiled with
-      | .error _ => pure ()
-      | .ok capability =>
-          match Targets.Near.planFromCapability capability with
-          | .error e =>
-              expect (e.render.contains "UInt64" || e.render.contains "not public" ||
-                  e.render.contains "unsupported")
-                s!"UInt128 state must fail closed with planInvariant, got {e.render}"
-          | .ok _ =>
-              throw <| IO.userError "UInt128 state must fail closed at NEAR plan"
+    "import ProofForgeV2
 
-/-- T8b-NEAR: Int8 param remains fail-closed (narrow Int not on ABI surface). -/
+" ++
+    "namespace ProofForgeV2.Examples
+
+" ++
+    "open ProofForgeV2.Language
+
+" ++
+    "program WideUint where
+" ++
+    "  state a : UInt128
+" ++
+    "  state b : UInt256
+
+" ++
+    "  init(x : UInt128, y : UInt256) do
+" ++
+    "    a := x
+" ++
+    "    b := y
+
+" ++
+    "  entry add128(delta : UInt128) : UInt128 do
+" ++
+    "    a := a + delta
+" ++
+    "    return a
+
+" ++
+    "  view get128() : UInt128 do
+" ++
+    "    return a
+
+" ++
+    "  view get256() : UInt256 do
+" ++
+    "    return b
+
+" ++
+    "end ProofForgeV2.Examples
+"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-wide-uint>" "Examples.WideUint" none)
+  let compiled ← liftResult (Compiler.compileValidatedSourceV1 source)
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.storage.fields.size == 2) "T9e: two state fields"
+  expect (plan.storage.fields[0]!.byteWidth == 16) "T9e: UInt128 field 16"
+  expect (plan.storage.fields[1]!.byteWidth == 32) "T9e: UInt256 field 32"
+  let add128 ← match plan.entries.find? (·.name == "add128") with
+    | some m => pure m
+    | none => throw <| IO.userError "T9e: missing add128"
+  expect (add128.resultKind == .uint128) "T9e: add128 resultKind uint128"
+  expect (add128.params.size == 1 && add128.params[0]!.byteWidth == 16)
+    "T9e: add128 param byteWidth 16"
+  expect (add128.exactInputLen == 16) "T9e: add128 exactInputLen 16"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.methods.any (·.name == "add128")) "T9e: IR has add128"
+
+
 private unsafe def testInt8ParamAdmitted (session : Language.Loader.ParserSession) :
     IO Unit := do
   -- T9c-2 opened narrow Int8/16/32 ABI params on NEAR; this was a T8b-NEAR
@@ -3301,7 +3383,7 @@ unsafe def run : IO Unit := do
   testOmittedTypeLetProductPath session
   testBoolNotHostExecution session
   testAbiMultiWidthStateParam session
-  testUInt128StateRejected session
+  testWideUintProduct session
   testInt8ParamAdmitted session
   let source ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-host-accumulator>"
