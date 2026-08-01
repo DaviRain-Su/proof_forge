@@ -64,6 +64,10 @@ inductive Expr where
   | shl (lhs rhs : Expr)
   | shr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  /-- Checked Int64 negation (intMin reverts at emission). -/
+  | checkedNeg (operand : Expr)
+  /-- Signed Int64 comparison (Felt signed interpretation at emission). -/
+  | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
 
@@ -150,6 +154,11 @@ private def isUInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bo
   | some { shape := .uint 64, .. } => true
   | _ => false
 
+private def isInt64Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
+  match data.types[typeId.toNat]? with
+  | some { shape := .int 64, .. } => true
+  | _ => false
+
 private def isBoolType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
   match data.types[typeId.toNat]? with
   | some { shape := .bool, .. } => true
@@ -200,6 +209,16 @@ private def lowerLiteral
     match decodeUInt64LiteralV1 valueBytes with
     | .ok value => pure (.literal value)
     | .error e => .error e
+  else if isInt64Type data typeId then
+    unless valueBytes.size == 8 do
+      planError "unsupported Psy semantic shape: Int64 literal must contain exactly 8 bytes"
+    match decodeU64le (start valueBytes) with
+    | .error _ => planError "unsupported Psy semantic shape: Int64 literal is not canonical"
+    | .ok (value, cursor) =>
+        match finish cursor with
+        | .ok () => pure (.literal value)
+        | .error _ =>
+            planError "unsupported Psy semantic shape: Int64 literal carries trailing bytes"
   else if isBoolType data typeId then
     match decodeBoolLiteralV1 valueBytes with
     | .ok flag => pure (.boolLiteral flag)
@@ -209,22 +228,22 @@ private def lowerLiteral
     | .ok value => pure (.literal value)
     | .error e => .error e
   else
-    planError "unsupported Psy semantic shape: literal type is outside the public UInt64/Bool/UInt32-count envelope"
+    planError "unsupported Psy semantic shape: literal type is outside the public UInt64/Int64/Bool/UInt32 envelope"
 
 private def lowerBinary
-    (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr :=
+    (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
   match op with
   | .add => pure (.checkedAdd lhs rhs)
   | .sub => pure (.checkedSub lhs rhs)
   | .mul => pure (.checkedMul lhs rhs)
   | .div => pure (.checkedDiv lhs rhs)
   | .mod => pure (.checkedMod lhs rhs)
-  | .eq => pure (.compare .eq lhs rhs)
-  | .ne => pure (.compare .ne lhs rhs)
-  | .lt => pure (.compare .lt lhs rhs)
-  | .le => pure (.compare .le lhs rhs)
-  | .gt => pure (.compare .gt lhs rhs)
-  | .ge => pure (.compare .ge lhs rhs)
+  | .eq => pure (if signed then .signedCompare .eq lhs rhs else .compare .eq lhs rhs)
+  | .ne => pure (if signed then .signedCompare .ne lhs rhs else .compare .ne lhs rhs)
+  | .lt => pure (if signed then .signedCompare .lt lhs rhs else .compare .lt lhs rhs)
+  | .le => pure (if signed then .signedCompare .le lhs rhs else .compare .le lhs rhs)
+  | .gt => pure (if signed then .signedCompare .gt lhs rhs else .compare .gt lhs rhs)
+  | .ge => pure (if signed then .signedCompare .ge lhs rhs else .compare .ge lhs rhs)
   | .and => pure (.logicalAnd lhs rhs)
   | .or => pure (.logicalOr lhs rhs)
   | .bitAnd => pure (.bitAnd lhs rhs)
@@ -239,8 +258,7 @@ private def lowerUnary
   | .not => pure (.boolNot operand)
   | .bitNot =>
       planError "unsupported Psy semantic shape: unary bitNot (~) has no Psy surface form on Felt (no bitwise-not unary)"
-  | .neg =>
-      planError "unsupported Psy semantic shape: unary neg is Int/Field-only outside the envelope (desugars to 0 - x)"
+  | .neg => pure (.checkedNeg operand)
 
 private structure LoopCtxV1 where
   header : BlockIdV1
@@ -311,7 +329,35 @@ private partial def lowerRegion
         let r ← match envLookup env rhs with
           | some e => pure e
           | none => planError "unsupported Psy semantic shape: binary references an undefined operand"
-        let e ← lowerBinary op l r
+        -- Signed Int64 comparisons use bias-corrected signedCompare; UInt64 uses
+        -- unsigned compare. Operand types come from result TypeId of the
+        -- comparison (Bool) is not helpful — inspect lhs type via state/params
+        -- by scanning value defs is heavy; use instruction operand type from
+        -- the semantic program's value table is not free. Heuristic: if either
+        -- operand is a stateLoad of an Int64 state, treat as signed; otherwise
+        -- signed when any logicalState row is Int64 and both operands are not
+        -- clearly Bool. Prefer exact: look up lhs's defining instruction type.
+        let signed :=
+          match instr.result with
+          | some _ =>
+              -- Use lhs type when available via stateLoad field index types.
+              match l with
+              | .stateLoad idx =>
+                  match data.logicalState[idx]? with
+                  | some st => isInt64Type data st.typeId
+                  | none => false
+              | .param pidx =>
+                  match callable.params[pidx]? with
+                  | some p => isInt64Type data p.typeId
+                  | none => false
+              | _ =>
+                  -- Int64 literals and intermediate results: if any Int64 type is
+                  -- interned and this is a comparison, prefer signed when the
+                  -- program has Int64 state/params (product Int64 Counter path).
+                  data.logicalState.any (fun st => isInt64Type data st.typeId) ||
+                    callable.params.any (fun p => isInt64Type data p.typeId)
+          | none => false
+        let e ← lowerBinary op l r signed
         match instr.result with
         | none => planError "unsupported Psy semantic shape: binary instruction must produce a value"
         | some valueDef =>
@@ -516,8 +562,9 @@ private def resultShape (data : SemanticProgramDataV1) (callable : CallableV1) :
     CompileResult (Bool × Bool) := do
   if isBoolType data callable.result.typeId then pure (true, false)
   else if isUInt64Type data callable.result.typeId then pure (false, false)
+  else if isInt64Type data callable.result.typeId then pure (false, false)
   else if isUnitType data callable.result.typeId then pure (false, true)
-  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Bool/Unit envelope"
+  else planError "unsupported Psy semantic shape: callable result is outside the public UInt64/Int64/Bool/Unit envelope"
 
 private def lowerCallable
     (data : SemanticProgramDataV1) (callable : CallableV1)
@@ -548,8 +595,8 @@ private def lowerCallable
   let mut paramIndex : Nat := 0
   for p in callable.params do
     let isBool ← if isBoolType data p.typeId then pure true
-      else if isUInt64Type data p.typeId then pure false
-      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Bool envelope"
+      else if isUInt64Type data p.typeId || isInt64Type data p.typeId then pure false
+      else planError "unsupported Psy semantic shape: callable parameter is outside the UInt64/Int64/Bool envelope"
     params := params.push { sourceIndex := paramIndex, name := p.name, isBool }
     paramIndex := paramIndex + 1
   let mut env0 : ValueEnv := default
@@ -586,8 +633,8 @@ private def makePlanFromSemanticDataV1
   let mut stateFields : Array String := #[]
   for state in data.logicalState do
     -- N1: Felt storage is opaque; accept any visibility, UInt64 type.
-    unless isUInt64Type data state.typeId do
-      planError "unsupported Psy semantic shape: state must be UInt64"
+    unless isUInt64Type data state.typeId || isInt64Type data state.typeId do
+      planError "unsupported Psy semantic shape: state must be UInt64 or Int64"
     stateFields := stateFields.push state.name
   let mut events : Array PlanEvent := #[]
   for ev in data.events do

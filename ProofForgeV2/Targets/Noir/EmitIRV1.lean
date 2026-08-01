@@ -28,6 +28,8 @@ inductive Operation where
   | checkedMod (destination : Nat) (lhs rhs : ValueRef)
   | bitNot (destination : Nat) (source : ValueRef)
   | boolNot (destination : Nat) (source : ValueRef)
+  | checkedNeg (destination : Nat) (source : ValueRef)
+  | signedCompare (op : ComparisonOp) (destination : Nat) (lhs rhs : ValueRef)
   | bitAnd (destination : Nat) (lhs rhs : ValueRef)
   | bitOr (destination : Nat) (lhs rhs : ValueRef)
   | bitXor (destination : Nat) (lhs rhs : ValueRef)
@@ -298,6 +300,22 @@ private partial def lowerExpr (plan : Plan) (fuel : Nat)
         value := .temp rhs.next
         next := rhs.next + 1
       }
+  | .signedCompare op lhs rhs => do
+      let lhs ← lowerExpr plan fuel loopEnv stateValues next lhs
+      let rhs ← lowerExpr plan fuel loopEnv stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCompare op rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedNeg operand => do
+      let operand ← lowerExpr plan fuel loopEnv stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.checkedNeg operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
+      }
   | .callFn fnIndex args => do
       let some fn := plan.fns.find? (fun binding => binding.callableId == fnIndex) |
         throw <| .planInvariant .noir
@@ -482,6 +500,22 @@ private partial def lowerExprFn (plan : Plan) (fuel depth : Nat)
           #[.compare op rhs.next lhs.value rhs.value]
         value := .temp rhs.next
         next := rhs.next + 1
+      }
+  | .signedCompare op lhs rhs => do
+      let lhs ← lowerExprFn plan fuel depth paramValues stateValues next lhs
+      let rhs ← lowerExprFn plan fuel depth paramValues stateValues lhs.next rhs
+      pure {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCompare op rhs.next lhs.value rhs.value]
+        value := .temp rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedNeg operand => do
+      let operand ← lowerExprFn plan fuel depth paramValues stateValues next operand
+      pure {
+        operations := operand.operations ++ #[.checkedNeg operand.next operand.value]
+        value := .temp operand.next
+        next := operand.next + 1
       }
   | .callFn fnIndex args => do
       let some fn := plan.fns.find? (fun binding => binding.callableId == fnIndex) |
@@ -1054,13 +1088,15 @@ private partial def collectLiveTempsV1 (relationName : String)
     | .bitXor destination lhs rhs
     | .boolAnd destination lhs rhs
     | .boolOr destination lhs rhs
-    | .compare _ destination lhs rhs =>
+    | .compare _ destination lhs rhs
+    | .signedCompare _ destination lhs rhs =>
         unless live.contains destination do
           throw <| .planInvariant .noir
             s!"relation '{relationName}' contains dead checked arithmetic whose failure would not be constrained"
         live := addLiveTemp (addLiveTemp live lhs) rhs
     | .bitNot destination source
-    | .boolNot destination source =>
+    | .boolNot destination source
+    | .checkedNeg destination source =>
         unless live.contains destination do
           throw <| .planInvariant .noir
             s!"relation '{relationName}' contains dead unary arithmetic whose value would not be constrained"
@@ -1198,6 +1234,12 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       s!"{indent}assert({relation.inputs[inputIndex]!.name} == {if expected then "true" else "false"});\n"
   | .compare op destination lhs rhs =>
       s!"{indent}let t{destination}: bool = {renderValue relation lhs} {renderComparisonOp op} {renderValue relation rhs};\n"
+  | .signedCompare op destination lhs rhs =>
+      -- i64 surface: cast u64 bit patterns to i64 for signed ordering.
+      s!"{indent}let t{destination}: bool = ({renderValue relation lhs} as i64) {renderComparisonOp op} ({renderValue relation rhs} as i64);\n"
+  | .checkedNeg destination source =>
+      s!"{indent}assert({renderValue relation source} != 9223372036854775808);\n" ++
+        s!"{indent}let t{destination}: u64 = (0 as u64).wrapping_sub({renderValue relation source});\n"
   | .assertConstraint condition =>
       s!"{indent}assert({renderAssertCondition relation condition});\n"
   | .ifRegion condition thenOps elseOps =>

@@ -143,6 +143,24 @@ private partial def step (machine : Machine) :
         modelError "native checked UInt64 addition overflow"
       else
         writeTemp machine destination (UInt64.ofNat sum)
+  | .checkedNeg destination source => do
+      let value ← readValue machine source
+      if value.toNat == 9223372036854775808 then
+        modelError "Int64 negation overflow"
+      else
+        let bits := (18446744073709551616 - value.toNat) % 18446744073709551616
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCompare op destination lhs rhs => do
+      let left ← readValue machine lhs
+      let right ← readValue machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let flag :=
+        match op with
+        | .eq => a == b | .ne => a != b
+        | .lt => a < b | .le => a ≤ b
+        | .gt => a > b | .ge => a ≥ b
+      writeTemp machine destination (if flag then 1 else 0)
   | .checkedSub destination lhs rhs => do
       let left ← readValue machine lhs
       let right ← readValue machine rhs

@@ -215,6 +215,10 @@ private def emitProgramErrorInline (b : AsmBuf) (code : Nat) : AsmBuf :=
 private def opDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
+      .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
+      .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
+      .signedCheckedMod destination .. | .checkedNeg destination .. |
+      .signedCompare destination .. | .checkedSar destination .. |
       .checkedSub destination .. | .checkedMul destination .. |
       .checkedDiv destination .. | .checkedMod destination .. |
       .bitAnd destination .. | .bitOr destination .. | .bitXor destination .. |
@@ -407,6 +411,158 @@ private def emitCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) 
     let b := emitErrorExit b errLab errorCode
     emit b s!"{okLab}:"
 
+/-- intMin as i64 bit pattern: 0x8000_0000_0000_0000. -/
+private def intMinI64Hex : String := "0x8000000000000000"
+/-- -1 as i64 bit pattern. -/
+private def negOneI64Hex : String := "0xffffffffffffffff"
+
+/-- Checked i64 add: overflow when sign(a)==sign(b) and sign(r)!=sign(a). -/
+private def emitSignedCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_sadd"
+    let (b, okLab) := fresh b "ok_sadd"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b "  mov64 r3, r1"
+    let b := emit b "  add64 r3, r2"
+    -- overflow if ((a ^ r) & (b ^ r)) has sign bit set
+    let b := emit b "  mov64 r4, r1"
+    let b := emit b "  xor64 r4, r3"
+    let b := emit b "  mov64 r5, r2"
+    let b := emit b "  xor64 r5, r3"
+    let b := emit b "  and64 r4, r5"
+    let b := emit b s!"  jslt r4, 0, {errLab}"
+    let b := storeTemp b tempBase dest "r3"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Checked i64 sub: a - b overflows when signs of a and b differ and sign(r)!=sign(a). -/
+private def emitSignedCheckedSub (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_ssub"
+    let (b, okLab) := fresh b "ok_ssub"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b "  mov64 r3, r1"
+    let b := emit b "  sub64 r3, r2"
+    -- overflow if ((a ^ b) & (a ^ r)) has sign bit (a and b different signs)
+    let b := emit b "  mov64 r4, r1"
+    let b := emit b "  xor64 r4, r2"
+    let b := emit b "  mov64 r5, r1"
+    let b := emit b "  xor64 r5, r3"
+    let b := emit b "  and64 r4, r5"
+    let b := emit b s!"  jslt r4, 0, {errLab}"
+    let b := storeTemp b tempBase dest "r3"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Checked i64 mul: multiply then reverse sdiv when a ≠ 0 and a ≠ -1. -/
+private def emitSignedCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_smul"
+    let (b, okLab) := fresh b "ok_smul"
+    let (b, skipLab) := fresh b "smul_skip"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b "  mov64 r3, r1"
+    let b := emit b "  mul64 r3, r2"
+    let b := emit b s!"  jeq r1, 0, {skipLab}"
+    let b := emit b s!"  lddw r4, {negOneI64Hex}"
+    let b := emit b s!"  jeq r1, r4, {skipLab}"
+    let b := emit b "  mov64 r5, r3"
+    let b := emit b "  sdiv64 r5, r1"
+    let b := emit b s!"  jne r5, r2, {errLab}"
+    let b := emit b s!"{skipLab}:"
+    let b := storeTemp b tempBase dest "r3"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Checked i64 div: zero and intMin divided by -1 overflow. -/
+private def emitSignedCheckedDiv (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_sdiv"
+    let (b, okLab) := fresh b "ok_sdiv"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b s!"  jeq r2, 0, {errLab}"
+    let b := emit b s!"  lddw r3, {intMinI64Hex}"
+    let b := emit b s!"  jne r1, r3, {okLab}_do"
+    let b := emit b s!"  lddw r4, {negOneI64Hex}"
+    let b := emit b s!"  jeq r2, r4, {errLab}"
+    let b := emit b s!"{okLab}_do:"
+    let b := emit b "  sdiv64 r1, r2"
+    let b := storeTemp b tempBase dest "r1"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Checked i64 rem: zero divisor only (intMin rem -1 is fine). -/
+private def emitSignedCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_smod"
+    let (b, okLab) := fresh b "ok_smod"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b s!"  jeq r2, 0, {errLab}"
+    let b := emit b "  smod64 r1, r2"
+    let b := storeTemp b tempBase dest "r1"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Checked i64 neg: intMin overflows. -/
+private def emitCheckedNeg (b : AsmBuf) (tempBase dest source errorCode : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_neg"
+    let (b, okLab) := fresh b "ok_neg"
+    let b := loadTemp b "r1" tempBase source
+    let b := emit b s!"  lddw r2, {intMinI64Hex}"
+    let b := emit b s!"  jeq r1, r2, {errLab}"
+    let b := emit b "  neg64 r1"
+    let b := storeTemp b tempBase dest "r1"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Signed compare → 0/1 in dest using jsgt/jslt family. -/
+private def emitSignedCompare (b : AsmBuf) (tempBase dest lhs rhs : Nat)
+    (op : ComparisonOp) : AsmBuf :=
+  Id.run do
+    let (b, trueLab) := fresh b "scmp_t"
+    let (b, doneLab) := fresh b "scmp_d"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := match op with
+      | .eq => emit b s!"  jeq r1, r2, {trueLab}"
+      | .ne => emit b s!"  jne r1, r2, {trueLab}"
+      | .lt => emit b s!"  jslt r1, r2, {trueLab}"
+      | .le => emit b s!"  jsle r1, r2, {trueLab}"
+      | .gt => emit b s!"  jsgt r1, r2, {trueLab}"
+      | .ge => emit b s!"  jsge r1, r2, {trueLab}"
+    let b := emit b "  mov64 r3, 0"
+    let b := emit b s!"  ja {doneLab}"
+    let b := emit b s!"{trueLab}:"
+    let b := emit b "  mov64 r3, 1"
+    let b := emit b s!"{doneLab}:"
+    storeTemp b tempBase dest "r3"
+
+/-- Arithmetic right shift with count ≥ 64 → error. -/
+private def emitCheckedSar (b : AsmBuf) (tempBase dest lhs rhs shiftError : Nat) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_sar"
+    let (b, okLab) := fresh b "ok_sar"
+    let b := loadTemp b "r1" tempBase lhs
+    let b := loadTemp b "r2" tempBase rhs
+    let b := emit b s!"  jge r2, 64, {errLab}"
+    let b := emit b "  arsh64 r1, r2"
+    let b := storeTemp b tempBase dest "r1"
+    let b := emit b s!"  ja {okLab}"
+    let b := emitErrorExit b errLab shiftError
+    emit b s!"{okLab}:"
+
 /-- Emit checked_shl: count≥64 → shiftErr; lost high bits → overflowErr. -/
 private def emitCheckedShl (b : AsmBuf) (tempBase dest lhs rhs shiftErr overflowErr : Nat) :
     AsmBuf :=
@@ -540,6 +696,30 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .checkedMod destination lhs rhs errorCode =>
       let b := emit b s!"  ; %{destination} = checked_rem_u64 %{lhs}, %{rhs}"
       pure (emitCheckedMod b tempBase destination lhs rhs errorCode)
+  | .signedCheckedAdd destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_add_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCheckedAdd b tempBase destination lhs rhs errorCode)
+  | .signedCheckedSub destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_sub_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCheckedSub b tempBase destination lhs rhs errorCode)
+  | .signedCheckedMul destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_mul_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCheckedMul b tempBase destination lhs rhs errorCode)
+  | .signedCheckedDiv destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_div_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCheckedDiv b tempBase destination lhs rhs errorCode)
+  | .signedCheckedMod destination lhs rhs errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_rem_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCheckedMod b tempBase destination lhs rhs errorCode)
+  | .checkedNeg destination source errorCode =>
+      let b := emit b s!"  ; %{destination} = checked_neg_i64 %{source}"
+      pure (emitCheckedNeg b tempBase destination source errorCode)
+  | .signedCompare destination lhs rhs op =>
+      let b := emit b s!"  ; %{destination} = cmp_i64 %{lhs}, %{rhs}"
+      pure (emitSignedCompare b tempBase destination lhs rhs op)
+  | .checkedSar destination lhs rhs shiftError =>
+      let b := emit b s!"  ; %{destination} = sar_i64 %{lhs}, %{rhs}"
+      pure (emitCheckedSar b tempBase destination lhs rhs shiftError)
   | .bitAnd destination lhs rhs =>
       let b := emit b s!"  ; %{destination} = bitand_u64 %{lhs}, %{rhs}"
       let b := loadTemp b "r1" tempBase lhs

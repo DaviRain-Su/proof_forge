@@ -313,7 +313,7 @@ private def hashCallee (comps : Array String) : PsyExpr × PsyExpr × String :=
 
 private def exprTypeName : Expr → String
   | .boolLiteral _ => "bool"
-  | .compare _ _ _ => "bool"
+  | .compare _ _ _ | .signedCompare _ _ _ => "bool"
   | .logicalAnd _ _ | .logicalOr _ _ => "bool"
   | .boolNot _ => "bool"
   | _ => "Felt"
@@ -428,6 +428,34 @@ private partial def lowerExprStmt
       let (ls1, o', ctx1) ← lowerExprStmt ctx operand
       let (name, ctx2) := freshName ctx1
       pure (ls1 ++ #[.letBind name "bool" (.unary .not o')], .local name, ctx2)
+  | .checkedNeg operand => do
+      -- Two's-complement Int64 negation over Felt bit patterns in [0, 2^64):
+      -- intMin (2^63) reverts; 0 stays 0; else 2^64 - x.
+      let (ls1, o', ctx1) ← lowerExprStmt ctx operand
+      let (name, ctx2) := freshName ctx1
+      let intMin : PsyExpr := .literal (.felt 9223372036854775808)
+      let two64 : PsyExpr := .literal (.felt 18446744073709551616)
+      pure (ls1 ++
+        #[.assert (.binary o' .ne intMin) "i64 neg overflow (intMin)",
+          .letBind name "Felt" (.binary two64 .sub o'),
+          .assert (.binary (.local name) .lt two64) "i64 neg range"],
+        .local name, ctx2)
+  | .signedCompare op l r => do
+      -- Signed compare of Int64 bit patterns: subtract bias 2^63 then unsigned cmp.
+      let psyOp := match op with
+        | .eq => PsyBinaryOp.eq | .ne => .ne | .lt => .lt
+        | .le => .le | .gt => .gt | .ge => .ge
+      let (ls1, l', ctx1) ← lowerExprStmt ctx l
+      let (ls2, r', ctx2) ← lowerExprStmt ctx1 r
+      let (nl, ctx3) := freshName ctx2
+      let (nr, ctx4) := freshName ctx3
+      let (name, ctx5) := freshName ctx4
+      let bias : PsyExpr := .literal (.felt 9223372036854775808)
+      pure (ls1 ++ ls2 ++
+        #[.letBind nl "Felt" (.binary l' .add bias),
+          .letBind nr "Felt" (.binary r' .add bias),
+          .letBind name "bool" (.binary (.local nl) psyOp (.local nr))],
+        .local name, ctx5)
   | .callFn fnName args => do
       let mut stmts : Array PsyStmt := #[]
       let mut args' : Array PsyExpr := #[]

@@ -3691,15 +3691,26 @@ private unsafe def testIntNormalizeReference
   expectReturned "int-ref-wide"
     (stepReferenceSliceV1 admitted pre (inv 3 #[]) emptyResponses)
     pre (some (refNat i256 9 256)) #[]
-  -- Int unary neg remains Normalize fail closed (no Op.Unary.neg product path)
+  -- Int unary-neg literal folds to two's-complement LE (-1 = all 0xff).
   let negSrc := wrap "IntNegRef" <|
     "  entry run() : Int8 do\n" ++
     "    return -1\n"
   let negVal ← loadSource session "int-neg-ref" negSrc
-  match normalizeProgramV1 negVal with
-  | .ok _ => throw <| IO.userError "int-neg-ref: Normalize must still fail closed for Int neg"
-  | .error (.unsupported _) => pure ()
-  | .error e => throw <| IO.userError s!"int-neg-ref: expected unsupported, got {repr e}"
+  let negCarrier ← match normalizeProgramV1 negVal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"int-neg-ref: normalize: {repr e}"
+  let negData ← match validateSemanticProgramV1 negCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"int-neg-ref: validate: {repr e}"
+  let some negBlk := negData.callables[0]?.bind (·.blocks[0]?) |
+    throw <| IO.userError "int-neg-ref: missing block"
+  let some negInstr := negBlk.instructions[0]? |
+    throw <| IO.userError "int-neg-ref: missing literal"
+  match negInstr.op with
+  | .literal _ bytes =>
+      unless bytes == ByteArray.mk #[(0xff : UInt8)] do
+        throw <| IO.userError s!"int-neg-ref: expected Int8 -1 bytes, got size {bytes.size}"
+  | _ => throw <| IO.userError "int-neg-ref: expected folded Op.Literal for -1"
 
 /-- T6 product path: Struct construct / fieldGet / fieldSet via Normalize. -/
 private unsafe def testStructNormalizeReference

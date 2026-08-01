@@ -40,11 +40,11 @@ private partial def planExprNodes? (states : Array StateField) (inputs : Array I
             match planExprNodes? states inputs fnCount (depthLeft - 1) (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .boolNot operand =>
+    | .bitNot operand | .boolNot operand | .checkedNeg operand =>
         match planExprNodes? states inputs fnCount (depthLeft - 1) (nodeBudget - 1) operand with
         | none => none
         | some operandNodes => some (1 + operandNodes)
-    | .compare _ lhs rhs =>
+    | .compare _ lhs rhs | .signedCompare _ lhs rhs =>
         let available := nodeBudget - 1
         match planExprNodes? states inputs fnCount (depthLeft - 1) available lhs with
         | none => none

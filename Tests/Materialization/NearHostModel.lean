@@ -222,6 +222,91 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         modelError "division by zero"
       else
         writeTemp machine destination (left % right)
+  | .signedCheckedAdd destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let r := a + b
+      if r < -9223372036854775808 || r > 9223372036854775807 then
+        modelError "Int64 addition overflow"
+      else
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCheckedSub destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let r := a - b
+      if r < -9223372036854775808 || r > 9223372036854775807 then
+        modelError "Int64 subtraction overflow"
+      else
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCheckedMul destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let r := a * b
+      if r < -9223372036854775808 || r > 9223372036854775807 then
+        modelError "Int64 multiplication overflow"
+      else
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCheckedDiv destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      if b == 0 then modelError "division by zero"
+      else if a == -9223372036854775808 && b == -1 then
+        modelError "Int64 division overflow"
+      else
+        let r := a.tdiv b
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCheckedMod destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      if b == 0 then modelError "division by zero"
+      else
+        let r := a.tmod b
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .signedCompare destination lhs rhs op => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let b := (Int.ofNat right.toNat) - (if right.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+      let flag :=
+        match op with
+        | .eq => a == b | .ne => a != b
+        | .lt => a < b | .le => a ≤ b
+        | .gt => a > b | .ge => a ≥ b
+      writeTemp machine destination (if flag then 1 else 0)
+  | .checkedNeg destination source => do
+      let value ← readTemp machine source
+      if value.toNat == 9223372036854775808 then
+        modelError "Int64 negation overflow"
+      else
+        let a := (Int.ofNat value.toNat) - (if value.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+        let r := -a
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
+  | .sar destination lhs rhs => do
+      let left ← readTemp machine lhs
+      let right ← readTemp machine rhs
+      let shift := right.toNat
+      if shift ≥ 64 then modelError "invalid shift"
+      else
+        let a := (Int.ofNat left.toNat) - (if left.toNat ≥ 9223372036854775808 then 18446744073709551616 else 0)
+        let r := a.ediv (Int.ofNat (Nat.pow 2 shift))
+        let bits := if r < 0 then (r + 18446744073709551616).toNat else r.toNat
+        writeTemp machine destination (UInt64.ofNat bits)
   | .bitAnd destination lhs rhs => do
       let left ← readTemp machine lhs
       let right ← readTemp machine rhs
@@ -589,6 +674,14 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .checkedMul _ _ _ => "checkedMul"
     | .checkedDiv _ _ _ => "checkedDiv"
     | .checkedMod _ _ _ => "checkedMod"
+    | .signedCheckedAdd _ _ _ => "signedCheckedAdd"
+    | .signedCheckedSub _ _ _ => "signedCheckedSub"
+    | .signedCheckedMul _ _ _ => "signedCheckedMul"
+    | .signedCheckedDiv _ _ _ => "signedCheckedDiv"
+    | .signedCheckedMod _ _ _ => "signedCheckedMod"
+    | .signedCompare _ _ _ _ => "signedCompare"
+    | .checkedNeg _ _ => "checkedNeg"
+    | .sar _ _ _ => "sar"
     | .bitAnd _ _ _ => "bitAnd"
     | .bitOr _ _ _ => "bitOr"
     | .bitXor _ _ _ => "bitXor"

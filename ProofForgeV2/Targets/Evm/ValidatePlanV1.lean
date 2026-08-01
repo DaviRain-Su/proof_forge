@@ -28,14 +28,19 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .add lhs rhs
     | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs
     | .compare _ lhs rhs
+    | .signedCompare _ lhs rhs
     | .checkedMul lhs rhs | .narrowCheckedMul _ lhs rhs
     | .checkedDiv lhs rhs | .narrowCheckedDiv _ lhs rhs
     | .checkedMod lhs rhs | .narrowCheckedMod _ lhs rhs
+    | .signedCheckedAdd lhs rhs | .signedCheckedSub lhs rhs
+    | .signedCheckedMul lhs rhs | .signedCheckedDiv lhs rhs
+    | .signedCheckedMod lhs rhs
     | .bitAnd lhs rhs | .narrowBitAnd _ lhs rhs
     | .bitOr lhs rhs | .narrowBitOr _ lhs rhs
     | .bitXor lhs rhs | .narrowBitXor _ lhs rhs
     | .shl lhs rhs | .narrowShl _ lhs rhs
     | .shr lhs rhs | .narrowShr _ lhs rhs
+    | .sar lhs rhs
     | .logicalAnd lhs rhs | .logicalOr lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
@@ -45,7 +50,8 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
             match planExprNodes? slots paramCount childDepth (available - lhsNodes) fns rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand =>
+    | .bitNot operand | .narrowBitNot _ operand | .boolNot operand
+    | .checkedNeg operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? slots paramCount childDepth available fns operand with
@@ -109,6 +115,7 @@ private def addPlanStoreNodes (slots : Array Nat) (paramCount total : Nat)
     the callee result flag. -/
 private def exprIsCompareV1 : Expr → Bool
   | .compare .. => true
+  | .signedCompare .. => true
   | _ => false
 
 private def exprIsBoolLiteralV1 : Expr → Bool
@@ -118,6 +125,7 @@ private def exprIsBoolLiteralV1 : Expr → Bool
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => true
+  | .signedCompare .. => true
   | .boolNot .. => true
   | .logicalAnd .. => true
   | .logicalOr .. => true
@@ -128,13 +136,13 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool 
       | none => false
   | _ => false
 
-/-- UInt64-compatible: everything except comparison, boolNot, logical binaries,
-    and Bool-returning callFn. Literals/params/loads/arithmetic/bitwise/shift/
-    bitNot remain UInt64, including 0/1 which also double as Bool words when
-    resultKind demands it. -/
+/-- Word-compatible (UInt64 or Int64): everything except comparison, boolNot,
+    logical binaries, and Bool-returning callFn. Signed arith/neg/sar count as
+    word-compatible for store/return/event args. -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. => false
+  | .signedCompare .. => false
   | .boolNot .. => false
   | .logicalAnd .. => false
   | .logicalOr .. => false
@@ -182,14 +190,14 @@ private partial def checkPlanStatementsV1
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
-        | .uint64 =>
+        | .uint64 | .int64 =>
             unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
-                s!"{owner} resultKind uint64 is inconsistent with Bool return expression"
+                s!"{owner} resultKind integer is inconsistent with Bool return expression"
         | .bool =>
             unless exprIsBoolCompatibleV1 fns value do
               throw <| .planInvariant .evm
-                s!"{owner} resultKind bool is inconsistent with UInt64 return expression"
+                s!"{owner} resultKind bool is inconsistent with integer return expression"
         total ← addPlanExprNodes slots paramCount total fns value
         closed := true
     | .returnNone =>
@@ -404,7 +412,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if hasDuplicates selectors then
     throw <| .planInvariant .evm "entry selectors collide"
   for entry in plan.entries do
-    let expectedSelector := Keccak.selector entry.name (entry.params.map fun _ => "uint64")
+    let expectedSelector := Keccak.selector entry.name
+      (entry.params.map fun p => if p.isInt then "int64" else "uint64")
     unless entry.selector == expectedSelector do
       throw <| .planInvariant .evm
         s!"entry '{entry.name}' selector is not bound to its canonical ABI signature"
@@ -426,7 +435,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   for fn in plan.fns do
     if fn.body.isEmpty then
       throw <| .planInvariant .evm s!"fn '{fn.name}' has no body"
-    let resultKind : ResultKind := if fn.resultIsBool then .bool else .uint64
+    let resultKind : ResultKind :=
+      if fn.resultIsBool then .bool
+      else if fn.resultIsInt then .int64
+      else .uint64
     let (t, returned) ← checkPlanStatementsV1 s!"fn '{fn.name}'" false
       true resultKind slots fn.params.size
       false plan.events.size eventFieldCounts plan.errors.size errorFieldCounts

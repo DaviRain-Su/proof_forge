@@ -14,7 +14,8 @@
 
   Supported S1/S2 surface (everything else fails closed at this boundary):
     * declarations: public primitive state/params/event/error fields
-      (anonymous legal UInt widths {8,16,32,64,128,256}), init, entry, view
+      (anonymous legal UInt or Int widths {8,16,32,64,128,256} for state/
+      params; event/error fields stay legal UInt), init, entry, view
     * statements: bare-place assign to state, return (some/none); init may omit
       return (implicit return none); bare `assert` with a Bool condition
       (assert-else still fails closed); `if cond then B (else B)?` lowered to
@@ -26,19 +27,22 @@
       sub-patterns fail closed; a catch-all-only match materializes inline;
       expression-level match shares the same pattern set (see expressions)
     * expressions: bare place (param or state name), expected-type integer
-      literals (legal UInt/Int widths, LE valueBytes of width/8), Bool literal,
-      checked binary add/sub/mul/div/mod and bitwise and/or/xor on same-width
-      legal UInt, shifts (lhs legal UInt, count UInt32), and the six same-width
+      literals (legal UInt/Int widths, LE valueBytes of width/8; Int negatives
+      enter as `unary neg (integer literal)` folded to two's-complement LE
+      including intMin), Bool literal, checked binary add/sub/mul/div/mod and
+      bitwise and/or/xor on same-width legal UInt/Int, shifts (lhs legal
+      UInt/Int, count UInt32; Int `>>` is arithmetic), and the six same-width
       UInt/Int comparisons plus strict logical and/or producing Bool; integer
       width is supplied by the enclosing typed context (or by the lhs place
-      for comparisons). Unary `-` on UInt desugars to `0 - x`; Int/Field
-      `Op.Unary.neg` remains fail closed. call/schedule args and for endpoints
-      stay UInt64 in this slice
+      for comparisons). Unary `-` on UInt desugars to `0 - x`; on Int emits
+      `Op.Unary.neg` (intMin overflow is a runtime revert). Field unary neg
+      remains fail closed. call/schedule args and for endpoints stay UInt64
+      in this slice
     * types: named Struct/Enum (Pass0 contiguous prefix, source order) then
       anonymous legal UInt/Int, Unit, Bool, Principal, Bytes, Array, Map,
       Option, Field(bn254-fr); one TypeId per distinct anonymous shape,
       interned on first actual use after named registration. State/parameter
-      positions stay public legal-UInt only (named/aggregate state fail closed);
+      positions admit public legal-UInt/Int (named/aggregate state fail closed);
       entry/view/fn results stay legal UInt/Int/Unit/Bool. Local `let` may
       hold named/aggregate values
     * expressions (aggregate values): `StructName.new` / `Enum.Variant` /
@@ -80,13 +84,13 @@
       residual alpha `Semantic.Program`, Registry, or target Plan/IR.
 
   Out of scope for this module:
-    * Int/Field `Op.Unary.neg`, Int arithmetic/shift,
+    * Field `Op.Unary.neg` and Field arithmetic,
       non-UInt64 call/schedule args and for endpoints, named/aggregate state,
       nonempty Map construction, nested field/index assign chains,
       ContextRead/Commit, match string patterns (no String TypeShape),
       nested constructor/literal sub-patterns inside constructor arms,
       named Enum/Struct entry parameters (local `let` carries them),
-      true mutable locals
+      true mutable locals, Int event/error fields (stay UInt-only)
     * registry / resolver / materializer / OutputSetV1
     * interpreter / target Plan changes
     * formal TASK-D2-05 / TASK-D2-06 / TST-SEM-001 completion
@@ -440,6 +444,17 @@ private def encodeNatLeBytes (n : Nat) (byteLen : Nat) : ByteArray := Id.run do
     v := v / 256
   pure out
 
+/-- Two's-complement little-endian encoding of a signed `Int` at `width` bits.
+    Mirrors ReferenceMachineV1 `intToLeBytes` (no import). Precondition: value
+    is in `[−2^(w−1), 2^(w−1)−1]`; callers enforce range. -/
+private def encodeIntLeBytes (value : Int) (width : Nat) : ByteArray :=
+  let bits : Nat :=
+    if value < 0 then
+      (value + Int.ofNat (Nat.pow 2 width)).toNat
+    else
+      value.toNat
+  encodeNatLeBytes bits (width / 8)
+
 /-- Look up any TypeDecl shape by TypeId (named or anonymous). -/
 private def shapeOf? (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     Option TypeShapeV1 :=
@@ -474,7 +489,7 @@ private def findEnumVariantIndex (variants : Array WireEnumVariantV1) (name : St
     i := i + 1
   pure none
 
-/-- Require anonymous legal UInt width (state/param/event/error/fn params). -/
+/-- Require anonymous legal UInt width (event/error fields; UInt-only sites). -/
 private def requireAnonymousUIntTypeId
     (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
     Except NormalizeErrorV1 Unit :=
@@ -484,6 +499,19 @@ private def requireAnonymousUIntTypeId
       else failUnsupported s!"S1 {context} requires legal UInt width, got UInt{w}"
   | some _ =>
       failUnsupported s!"S1 {context} requires anonymous UInt type"
+  | none =>
+      failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
+
+/-- Require anonymous legal UInt or Int width (state / params / fn params). -/
+private def requireAnonymousIntegerTypeId
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (context : String) :
+    Except NormalizeErrorV1 Unit :=
+  match anonShapeOf? types typeId with
+  | some (.uint w) | some (.int w) =>
+      if legalIntegerWidthV1 w.toNat then pure ()
+      else failUnsupported s!"S1 {context} requires legal UInt/Int width"
+  | some _ =>
+      failUnsupported s!"S1 {context} requires anonymous UInt/Int type"
   | none =>
       failUnsupported s!"S1 {context} references missing or named TypeId {typeId}"
 
@@ -556,6 +584,10 @@ private def uintExclusiveLimit (width : Nat) : Nat := Nat.pow 2 width
 /-- Signed positive magnitude max inclusive `2^(width-1) - 1` (TypeCheck align). -/
 private def intPositiveInclusiveMax (width : Nat) : Nat :=
   Nat.pow 2 (width - 1) - 1
+
+/-- Signed negated magnitude max inclusive `2^(width-1)` (intMin magnitude). -/
+private def intNegatedInclusiveMax (width : Nat) : Nat :=
+  Nat.pow 2 (width - 1)
 
 /-- Param/local env: bare name → (ValueId, TypeId). -/
 structure LocalEnvV1 where
@@ -1199,8 +1231,9 @@ private partial def lowerExpr
         else none
       match arithOp? with
       | some semanticOp => do
-        -- Same-width legal UInt only in this slice (Int arith deferred).
-        requireExpectedUIntWidth st.interner.types expectedTid "binary arithmetic/bitwise"
+        -- Same-width legal UInt or Int (ReferenceMachineV1 int paths own
+        -- two's-complement overflow / intMin/-1 / div-zero semantics).
+        requireExpectedIntegerWidth st.interner.types expectedTid "binary arithmetic/bitwise"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
         let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
         let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states fns
@@ -1212,13 +1245,14 @@ private partial def lowerExpr
       | none =>
         match shiftOp? with
         | some semanticOp => do
-          -- Shift lhs: legal UInt width; count remains sole UInt32 context.
-          requireExpectedUIntWidth st.interner.types expectedTid "shift"
+          -- Shift lhs: legal UInt or Int width; count remains sole UInt32.
+          -- Int `>>` is arithmetic (ReferenceMachineV1 `ediv` path).
+          requireExpectedIntegerWidth st.interner.types expectedTid "shift"
           let (iU32, u32Tid) := internShape st.interner (.uint 32)
           let st0 := { st with interner := iU32 }
           let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st0 states fns
           unless lTid == expectedTid do
-            return ← failUnsupported "S1 shift requires a legal UInt operand"
+            return ← failUnsupported "S1 shift requires a legal UInt/Int operand"
           let (rVid, rTid, st2) ← lowerExpr rhs u32Tid st1 states fns
           unless rTid == u32Tid do
             return ← failUnsupported "S1 shift count must be UInt32"
@@ -1328,8 +1362,10 @@ private partial def lowerExpr
       match op with
       | .neg => do
           -- UInt: desugar to `0 - x` with a zero constant of the same width.
-          -- Int/Field: Op.Unary.neg is deferred — fail closed rather than
-          -- incorrectly reusing the unsigned desugar.
+          -- Int: emit Op.Unary.neg (Reference reverts on intMin). Fold
+          -- `unary neg (integer literal)` to two's-complement LE bytes so
+          -- intMin is representable (positive Int literal max is 2^(w-1)-1).
+          -- Field unary neg remains fail closed.
           match anonShapeOf? st.interner.types expectedTid with
           | some (.uint w) => do
               unless legalIntegerWidthV1 w.toNat do
@@ -1344,12 +1380,32 @@ private partial def lowerExpr
                 emitValue st1 expectedTid (.literal expectedTid zeroBytes)
               let (st3, vid) := emitValue st2 expectedTid (.binary .sub zeroVid oVid)
               pure (vid, expectedTid, st3)
-          | some (.int _) =>
-              failUnsupported
-                "S1 unary Int negation (Op.Unary.neg) is not yet supported"
+          | some (.int w) => do
+              let width := w.toNat
+              unless legalIntegerWidthV1 width do
+                return ← failUnsupported
+                  "S1 unary Int negation requires expected legal Int type"
+              match operand with
+              | .literal (.integer magnitude) => do
+                  unless magnitude ≤ intNegatedInclusiveMax width do
+                    return ← failUnsupported
+                      s!"S1 Int{width} negated integer literal is out of range"
+                  let bytes := encodeIntLeBytes (-Int.ofNat magnitude) width
+                  let (st1, vid) :=
+                    emitValue st expectedTid (.literal expectedTid bytes)
+                  pure (vid, expectedTid, st1)
+              | _ => do
+                  let (oVid, oTid, st1) ←
+                    lowerExpr operand expectedTid st states fns
+                  unless oTid == expectedTid do
+                    return ← failUnsupported
+                      "S1 unary Int negation requires a legal Int operand"
+                  let (st2, vid) :=
+                    emitValue st1 expectedTid (.unary .neg oVid)
+                  pure (vid, expectedTid, st2)
           | _ =>
               failUnsupported
-                "S1 unary checked negation requires expected legal UInt type"
+                "S1 unary checked negation requires expected legal UInt/Int type"
       | .bitNot => do
           requireExpectedIntegerWidth st.interner.types expectedTid "unary bit-not"
           let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
@@ -2254,7 +2310,7 @@ private def lowerParams
   for p in ps do
     let (interner', tid) ← internSourceType interner p.type_
     interner := interner'
-    requireAnonymousUIntTypeId interner.types tid s!"parameter '{raw p.name}'"
+    requireAnonymousIntegerTypeId interner.types tid s!"parameter '{raw p.name}'"
     out := out.push {
       valueId := UInt32.ofNat i
       name := raw p.name
@@ -2285,9 +2341,9 @@ private def mkCallable
 
   Passes over ProgramV1 items (not NameResolution tables):
   0. Register source-order named Struct/Enum TypeDecls (contiguous prefix).
-  1. Collect/validate all legal-UInt states (public/private/commitment) into a
-     complete logicalState table (IDs are source-order among state decls,
-     independent of callable position). Visibility is retained via
+  1. Collect/validate all legal-UInt/Int states (public/private/commitment)
+     into a complete logicalState table (IDs are source-order among state
+     decls, independent of callable position). Visibility is retained via
      `mapVisibility`; product disclosure is enforced by CheckV1/DisclosureCheck
      before this lowering (not by the state table gate).
   2. Lower init/entry/view bodies against that complete table.
@@ -2307,13 +2363,13 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 1: complete state/event/error tables (source order among those
   -- items only). Event/error fields stay public legal-UInt in this envelope.
-  -- State rows retain public/private/commitment visibility (N1).
+  -- State rows admit legal UInt/Int and retain visibility (N1).
   for item in program.items do
     match item with
     | .state s =>
         let (interner', tid) ← internSourceType interner s.type_
         interner := interner'
-        requireAnonymousUIntTypeId interner.types tid s!"state '{raw s.name}'"
+        requireAnonymousIntegerTypeId interner.types tid s!"state '{raw s.name}'"
         let sid := UInt32.ofNat stateRows.size
         stateRows := stateRows.push {
           id := sid
@@ -2368,7 +2424,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
 
   -- Pass 2a: fn signature table for localCall resolution. CallableIds follow
   -- the unified source order of init/entry/view/fn items (the same order
-  -- pass 2 lowers them). Fn params stay public legal-UInt; results are
+  -- pass 2 lowers them). Fn params stay public legal-UInt/Int; results are
   -- public legal UInt/Int/Unit/Bool.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
@@ -2382,7 +2438,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
               s!"S1 fn '{raw d.name}' param '{raw p.name}' must be public"
           let (interner', tid) ← internSourceType interner p.type_
           interner := interner'
-          requireAnonymousUIntTypeId interner.types tid
+          requireAnonymousIntegerTypeId interner.types tid
             s!"fn '{raw d.name}' param '{raw p.name}'"
           paramTids := paramTids.push tid
         let (interner', resultTid) ← internSourceType interner d.result
@@ -2468,6 +2524,16 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         return ← failUnsupported "S1 normalizer does not support extension"
     | .proof _ =>
         return ← failUnsupported "S1 normalizer does not support proof"
+
+  -- Target envelope still requires exactly one anonymous UInt64 TypeId.
+  -- Int-primary programs (Int64 state/results only) never intern UInt64 via
+  -- use; add it once at the end so PilotTypeClosure admission stays stable
+  -- without shifting TypeIds of already-used shapes.
+  match findTypeId interner (.uint 64) with
+  | some _ => pure ()
+  | none =>
+      let (interner', _) := internShape interner (.uint 64)
+      interner := interner'
 
   -- S2: freeze exact ProgramRequirementsV1 before encode/hash.
   let requirements ← match freezeProgramRequirementsV1 program with

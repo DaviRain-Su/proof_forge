@@ -29,6 +29,14 @@ inductive Operation where
   | loadState (destination accountIndex byteOffset : Nat)
   | checkedAdd (destination lhs rhs errorCode : Nat)
   | checkedSub (destination lhs rhs errorCode : Nat)
+  | signedCheckedAdd (destination lhs rhs errorCode : Nat)
+  | signedCheckedSub (destination lhs rhs errorCode : Nat)
+  | signedCheckedMul (destination lhs rhs errorCode : Nat)
+  | signedCheckedDiv (destination lhs rhs errorCode : Nat)
+  | signedCheckedMod (destination lhs rhs errorCode : Nat)
+  | checkedNeg (destination source errorCode : Nat)
+  | signedCompare (destination lhs rhs : Nat) (op : ComparisonOp)
+  | checkedSar (destination lhs rhs shiftError : Nat)
   | zeroState (accountIndex byteOffset : Nat)
   | storeState (accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
@@ -267,6 +275,77 @@ private partial def lowerExpr (overflowError : Nat) (tempMap : List (Nat × Nat)
         value := rhs.next
         next := rhs.next + 1
       }
+  | .signedCheckedAdd lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedAdd rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedSub lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedSub rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedMul lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMul rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedDiv lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedDiv rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedMod lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMod rhs.next lhs.value rhs.value overflowError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCompare op lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCompare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedNeg operand =>
+      let operand := lowerExpr overflowError tempMap next operand
+      {
+        operations := operand.operations ++
+          #[.checkedNeg operand.next operand.value overflowError]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .sar lhs rhs =>
+      let lhs := lowerExpr overflowError tempMap next lhs
+      let rhs := lowerExpr overflowError tempMap lhs.next rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.checkedSar rhs.next lhs.value rhs.value invalidShiftError]
+        value := rhs.next
+        next := rhs.next + 1
+      }
   | .callFn fnIndex args =>
       Id.run do
         let mut operations : Array Operation := #[]
@@ -347,7 +426,7 @@ private partial def lowerBodyOps
         let value := lowerExpr overflowError tempMap next value
         operations := operations ++ value.operations
         let returnOp : Operation := match resultKind with
-          | .u64 => .setReturnData value.value
+          | .u64 | .i64 => .setReturnData value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
         next := value.next
@@ -472,6 +551,10 @@ private def lowerHandler (plan : Plan) (handler : Handler) : HandlerIR := Id.run
 private def tempDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
       .loadState destination .. | .checkedAdd destination .. |
+      .signedCheckedAdd destination .. | .signedCheckedSub destination .. |
+      .signedCheckedMul destination .. | .signedCheckedDiv destination .. |
+      .signedCheckedMod destination .. | .checkedNeg destination .. |
+      .signedCompare destination .. | .checkedSar destination .. |
       .checkedSub destination .. | .checkedMul destination .. |
       .checkedDiv destination .. | .checkedMod destination .. |
       .bitAnd destination .. | .bitOr destination .. | .bitXor destination .. |
@@ -482,7 +565,8 @@ private def tempDestination? : Operation → Option Nat
   | _ => none
 
 private def lowerFn (plan : Plan) (fn : FnBinding) : FnIR := Id.run do
-  let resultKind : ResultKind := if fn.resultIsBool then .bool else .u64
+  let resultKind : ResultKind :=
+    if fn.resultIsBool then .bool else if fn.resultIsInt then .i64 else .u64
   let (bodyOps, _) := lowerBodyOps
     plan.arithmeticOverflowError resultKind
     plan.assertionFailedError plan.loopBoundExceededError [] 0 fn.body
@@ -519,6 +603,9 @@ private partial def validateOperationSequence
         halted := true
     | .literal ..
     | .loadParam .. | .loadState .. | .checkedAdd .. | .checkedSub ..
+    | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
+    | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg ..
+    | .signedCompare .. | .checkedSar ..
     | .checkedMul .. | .checkedDiv .. | .checkedMod ..
     | .bitAnd .. | .bitOr .. | .bitXor ..
     | .checkedShl .. | .checkedShr ..
@@ -559,6 +646,24 @@ private partial def validateOperationSequence
         unless lhs < next - 1 && rhs < next - 1 &&
             errorCode == plan.arithmeticOverflowError do
           throw <| .planInvariant .solana "typed Solana IR checked-mod operands/error are invalid"
+    | .signedCheckedAdd _ lhs rhs errorCode
+    | .signedCheckedSub _ lhs rhs errorCode
+    | .signedCheckedMul _ lhs rhs errorCode
+    | .signedCheckedDiv _ lhs rhs errorCode
+    | .signedCheckedMod _ lhs rhs errorCode =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR signed checked-arith operands/error are invalid"
+    | .checkedNeg _ source errorCode =>
+        unless source < next - 1 && errorCode == plan.arithmeticOverflowError do
+          throw <| .planInvariant .solana "typed Solana IR checkedNeg operand/error is invalid"
+    | .signedCompare _ lhs rhs _op =>
+        unless lhs < next - 1 && rhs < next - 1 do
+          throw <| .planInvariant .solana "typed Solana IR signedCompare operands are invalid"
+    | .checkedSar _ lhs rhs shiftError =>
+        unless lhs < next - 1 && rhs < next - 1 &&
+            shiftError == plan.invalidShiftError do
+          throw <| .planInvariant .solana "typed Solana IR checkedSar operands/error are invalid"
     | .bitAnd _ lhs rhs =>
         unless lhs < next - 1 && rhs < next - 1 do
           throw <| .planInvariant .solana "typed Solana IR bitAnd operands are invalid"
@@ -922,6 +1027,22 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = checked_div_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
   | .checkedMod destination lhs rhs errorCode =>
       s!"{indent}%{destination} = checked_rem_u64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .signedCheckedAdd destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_add_i64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .signedCheckedSub destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_sub_i64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .signedCheckedMul destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_mul_i64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .signedCheckedDiv destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_div_i64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .signedCheckedMod destination lhs rhs errorCode =>
+      s!"{indent}%{destination} = checked_rem_i64 %{lhs}, %{rhs} else program_error 0x{natHex errorCode}\n"
+  | .checkedNeg destination source errorCode =>
+      s!"{indent}%{destination} = checked_neg_i64 %{source} else program_error 0x{natHex errorCode}\n"
+  | .signedCompare destination lhs rhs op =>
+      s!"{indent}%{destination} = cmp_{renderComparisonOp op}_i64 %{lhs}, %{rhs}\n"
+  | .checkedSar destination lhs rhs shiftError =>
+      s!"{indent}%{destination} = sar_i64 %{lhs}, %{rhs} else program_error 0x{natHex shiftError}\n"
   | .bitAnd destination lhs rhs =>
       s!"{indent}%{destination} = bitand_u64 %{lhs}, %{rhs}\n"
   | .bitOr destination lhs rhs =>
@@ -1067,6 +1188,7 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
     if handler.mode == .initialize then "null"
     else match handler.resultKind with
       | .u64 => "\"u64-le\""
+      | .i64 => "\"i64-le\""
       | .bool => "\"bool\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson handler.name}\"," ++

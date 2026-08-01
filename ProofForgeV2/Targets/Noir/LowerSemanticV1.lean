@@ -122,6 +122,8 @@ inductive Expr where
   | checkedMod (lhs rhs : Expr)
   | bitNot (operand : Expr)
   | boolNot (operand : Expr)
+  | checkedNeg (operand : Expr)
+  | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | bitAnd (lhs rhs : Expr)
   | bitOr (lhs rhs : Expr)
   | bitXor (lhs rhs : Expr)
@@ -318,6 +320,7 @@ state and params stay UInt64-only. -/
 private inductive NoirValueKindV1 where
   | uint64
   | bool
+  | int64
   deriving BEq, Inhabited, Repr
 
 /-- Noir pilot type-closure carrier (shared `PilotTypeClosureV1`).
@@ -340,7 +343,7 @@ private def validateNoirTypeClosureV1
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
 
 private def makeStatesV1
-    (uint64TypeId : TypeIdV1)
+    (types : NoirTypeClosureV1)
     (states : Array StateDeclV1) : CompileResult (Array StateField) := do
   if states.size > maxStateFields then
     throw <| .planInvariant .noir s!"state count exceeds profile limit {maxStateFields}"
@@ -350,7 +353,7 @@ private def makeStatesV1
       throw <| .planInvariant .noir "semantic state ids must match declaration order"
     -- N1: Noir relation state slots are public inputs — private/commitment
     -- state is not representable without a later witness-input redesign.
-    requirePublicUInt64State noirPlanErr uint64TypeId state
+    requirePublicUInt64OrInt64State noirPlanErr types state
       (allowNonPublic := false)
       (nonPublicMsg := some
         "unsupported Noir semantic shape: private/commitment state is not representable (relation state slots are public inputs)")
@@ -370,7 +373,7 @@ private structure LoweredValueV1 where
   deriving Inhabited
 
 private def makeParamsV1 (owner : String) (inputOffset : Nat)
-    (uint64TypeId : TypeIdV1) (params : Array ParameterV1) :
+    (types : NoirTypeClosureV1) (params : Array ParameterV1) :
     CompileResult (Array Param × Array LoweredValueV1) := do
   if params.size > maxParams then
     throw <| .planInvariant .noir s!"parameter count in {owner} exceeds profile limit {maxParams}"
@@ -382,7 +385,7 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
         s!"semantic parameter ValueIds in {owner} must match declaration order"
     -- N1: Noir binds params as public inputs — private/commitment params
     -- would leak into verifier-visible data.
-    requirePublicUInt64Param noirPlanErr uint64TypeId owner param
+    requirePublicUInt64OrInt64Param noirPlanErr types owner param
       (allowNonPublic := false)
       (nonPublicMsg := some
         s!"unsupported Noir semantic shape: private/commitment parameter '{param.name}' in {owner} is not representable (relation parameter slots are public inputs)")
@@ -396,9 +399,10 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
       visibility := .verifier
     }
     planned := planned.push binding
+    let isInt := types.int64TypeId == some param.typeId
     values := values.push {
       expr := .param binding.inputIndex
-      kind := .uint64
+      kind := if isInt then .int64 else .uint64
       depth := 1
       expandedNodes := 1
       dependencies := #[]
@@ -608,9 +612,10 @@ private def currentValueWithArmsV1
 private def makeCheckedAddValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+  unless (lhs.kind == .uint64 && rhs.kind == .uint64) ||
+      (lhs.kind == .int64 && rhs.kind == .int64) do
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: checked add operands must be UInt64"
+      "unsupported Noir semantic shape: checked add operands must be UInt64 or Int64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -621,7 +626,7 @@ private def makeCheckedAddValueV1
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := .checkedAdd lhs.expr rhs.expr
-    kind := .uint64
+    kind := lhs.kind
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -630,9 +635,10 @@ private def makeCheckedAddValueV1
 private def makeCheckedSubValueV1
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+  unless (lhs.kind == .uint64 && rhs.kind == .uint64) ||
+      (lhs.kind == .int64 && rhs.kind == .int64) do
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: checked sub operands must be UInt64"
+      "unsupported Noir semantic shape: checked sub operands must be UInt64 or Int64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -643,7 +649,7 @@ private def makeCheckedSubValueV1
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := .checkedSub lhs.expr rhs.expr
-    kind := .uint64
+    kind := lhs.kind
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -664,9 +670,10 @@ private def binaryOpToComparisonV1 : BinaryOpV1 → Option ComparisonOp
 private def makeArithValueV1 (label : String) (mkExpr : Expr → Expr → Expr)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+  unless (lhs.kind == .uint64 && rhs.kind == .uint64) ||
+      (lhs.kind == .int64 && rhs.kind == .int64) do
     throw <| .planInvariant .noir
-      s!"unsupported Noir semantic shape: {label} operands must be UInt64"
+      s!"unsupported Noir semantic shape: {label} operands must be UInt64 or Int64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -677,7 +684,7 @@ private def makeArithValueV1 (label : String) (mkExpr : Expr → Expr → Expr)
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
     expr := mkExpr lhs.expr rhs.expr
-    kind := .uint64
+    kind := lhs.kind
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
@@ -723,9 +730,10 @@ private def makeCompareValueV1
     (op : ComparisonOp)
     (lhsId rhsId : ValueIdV1)
     (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 := do
-  unless lhs.kind == .uint64 && rhs.kind == .uint64 do
+  unless (lhs.kind == .uint64 && rhs.kind == .uint64) ||
+      (lhs.kind == .int64 && rhs.kind == .int64) do
     throw <| .planInvariant .noir
-      "unsupported Noir semantic shape: comparison operands must be UInt64"
+      "unsupported Noir semantic shape: comparison operands must be UInt64 or Int64"
   let depth := 1 + max lhs.depth rhs.depth
   if depth > maxExprDepth then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
@@ -735,7 +743,8 @@ private def makeCompareValueV1
   if rhs.expandedNodes > remaining then
     throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
   pure {
-    expr := .compare op lhs.expr rhs.expr
+    expr := if lhs.kind == .int64 then .signedCompare op lhs.expr rhs.expr
+      else .compare op lhs.expr rhs.expr
     kind := .bool
     depth
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
@@ -955,6 +964,15 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if types.int64TypeId == some typeId then
+          let value ← decodeInt64LiteralLe noirPlanErr "Noir" bytes
+          values := ← appendResultValueV1 typeId values result {
+            expr := .literal value
+            kind := .int64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         else if types.uint32TypeId == some typeId then
           -- Shift counts: 4-byte UInt32 literals surface as plain u64
           -- literals (lossless); only shift operands consume them.
@@ -982,12 +1000,16 @@ private def lowerBlockInstructionsV1
           }
         else
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: literal is not UInt64 or Bool"
+            "unsupported Noir semantic shape: literal is not UInt64, Int64, or Bool"
     | .stateLoad stateId, some result =>
         let field ← findStateV1 states stateId
-        values := ← appendResultValueV1 types.uint64TypeId values result {
+        let isInt := types.int64TypeId == some result.typeId
+        unless result.typeId == types.uint64TypeId || isInt do
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: state load must be UInt64 or Int64"
+        values := ← appendResultValueV1 result.typeId values result {
           expr := .stateLoad field.sourceId
-          kind := .uint64
+          kind := if isInt then .int64 else .uint64
           depth := 1
           expandedNodes := 1
           dependencies := #[]
@@ -1058,8 +1080,28 @@ private def lowerBlockInstructionsV1
         let operand ← currentValueWithArmsV1 values paramCount segmentStart armReadables operandId
         match op with
         | .neg =>
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: unary neg is Int/Field-only at the wire"
+            unless operand.kind == .int64 do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: Op.Unary.neg requires Int64"
+            let tid ← match types.int64TypeId with
+              | some t => pure t
+              | none => throw (.planInvariant .noir
+                  "unsupported Noir semantic shape: Int64 type is missing for neg")
+            unless result.typeId == tid do
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: checkedNeg result must be Int64"
+            if 1 + operand.depth > maxExprDepth then
+              throw <| .planInvariant .noir s!"Noir plan expression exceeds depth {maxExprDepth}"
+            if operand.expandedNodes > maxPlanNodes - 1 then
+              throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
+            let value : LoweredValueV1 := {
+              expr := .checkedNeg operand.expr
+              kind := .int64
+              depth := 1 + operand.depth
+              expandedNodes := 1 + operand.expandedNodes
+              dependencies := #[operandId]
+            }
+            values := ← appendResultValueV1 tid values result value
         | .bitNot =>
             let value ← makeBitNotValueV1 operandId operand
             values := ← appendResultValueV1 types.uint64TypeId values result value
@@ -1079,9 +1121,9 @@ private def lowerBlockInstructionsV1
             "unsupported Noir semantic shape: view callable writes state"
         let field ← findStateV1 states stateId
         let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
-        unless root.kind == .uint64 do
+        unless root.kind == .uint64 || root.kind == .int64 do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: state store value must be UInt64"
+            "unsupported Noir semantic shape: state store value must be UInt64 or Int64"
         let value ← consumeCurrentSegmentV1 values paramCount segmentStart armReadables valueId
         body := body.push (.store { fieldIndex := field.sourceId, value })
         segmentStart := values.size
@@ -1158,22 +1200,34 @@ private def lowerBlockInstructionsV1
         let mut expanded := 1
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless root.kind == .uint64 do
+          unless root.kind == .uint64 || root.kind == .int64 do
             throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: pure call arguments must be UInt64"
+              "unsupported Noir semantic shape: pure call arguments must be UInt64 or Int64"
           argExprs := argExprs.push root.expr
           maxDepth := max maxDepth root.depth
           if expanded > maxPlanNodes - 1 - root.expandedNodes then
             throw <| .planInvariant .noir s!"Noir plan expression exceeds node limit {maxPlanNodes}"
           expanded := expanded + root.expandedNodes
         -- Pure expression: the segment continues (no effect boundary).
-        let resultKind : NoirValueKindV1 := if fnSig.resultIsBool then .bool else .uint64
-        let resultTypeId ← match resultKind, types.boolTypeId with
-          | .uint64, _ => pure types.uint64TypeId
-          | .bool, some boolTid => pure boolTid
-          | .bool, none =>
-              throw <| .planInvariant .noir
-                "unsupported Noir semantic shape: Bool fn result requires interned Bool type"
+        let resultKind : NoirValueKindV1 :=
+          if fnSig.resultIsBool then .bool
+          else if result.typeId == types.int64TypeId.getD (UInt32.ofNat 0) &&
+              types.int64TypeId.isSome then .int64
+          else if types.int64TypeId == some result.typeId then .int64
+          else .uint64
+        let resultTypeId ← match resultKind with
+          | .uint64 => pure types.uint64TypeId
+          | .int64 =>
+              match types.int64TypeId with
+              | some tid => pure tid
+              | none => throw (.planInvariant .noir
+                  "unsupported Noir semantic shape: Int64 type is missing for pureCall")
+          | .bool =>
+              match types.boolTypeId with
+              | some boolTid => pure boolTid
+              | none =>
+                  throw <| .planInvariant .noir
+                    "unsupported Noir semantic shape: Bool fn result requires interned Bool type"
         values := ← appendResultValueV1 resultTypeId values result {
           expr := .callFn callableId.toNat argExprs
           kind := resultKind
@@ -1508,7 +1562,7 @@ private def lowerCallableV1
         callable.loopBounds.any (fun lb => lb.header == blk.id) do
       throw <| .planInvariant .noir
         "unsupported Noir semantic shape: block parameters are only supported on loop headers"
-  let (params, paramValues) ← makeParamsV1 owner inputOffset types.uint64TypeId callable.params
+  let (params, paramValues) ← makeParamsV1 owner inputOffset types callable.params
   -- Pre-seed the loop-induction placeholder slots in canonical ValueId
   -- order (callable params, then every block param in BlockId order), so
   -- instruction results keep appending at their canonical positions.
@@ -1567,7 +1621,8 @@ private def resolveEntryViewResultV1
     (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .noir s!"entry '{name}' does not return a public UInt64 or Bool"
-  if callable.result.typeId == types.uint64TypeId then
+  if callable.result.typeId == types.uint64TypeId ||
+      types.int64TypeId == some callable.result.typeId then
     pure (.uint64, .u64)
   else if types.boolTypeId == some callable.result.typeId then
     pure (.bool, .bool)
@@ -1602,7 +1657,7 @@ private def makeRelationV1
       pure (some kind)
   let resultType : InputType := match returnKind with
     | some .bool => .bool
-    | some .uint64 | none => .u64
+    | some .uint64 | some .int64 | none => .u64
   let inputOffset := if states.isEmpty then 0 else
     1 + (if mode == .initialize then 0 else states.size)
   let semanticMode : SemanticCallableModeV1 := match mode with
@@ -1650,7 +1705,7 @@ private def makePlanFromSemanticDataV1
     throw <| .planInvariant .noir
       s!"requirement count exceeds canonical limit {Targets.maxRequirementKinds}"
   let types ← validateNoirTypeClosureV1 source.types
-  let states ← makeStatesV1 types.uint64TypeId source.logicalState
+  let states ← makeStatesV1 types source.logicalState
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -1682,7 +1737,8 @@ private def makePlanFromSemanticDataV1
           throw <| .planInvariant .noir
             s!"unsupported Noir semantic shape: fn name '{fnName}' is not a safe identifier"
         let resultIsBool ←
-          if callable.result.typeId == types.uint64TypeId then
+          if callable.result.typeId == types.uint64TypeId ||
+      types.int64TypeId == some callable.result.typeId then
             pure false
           else if types.boolTypeId == some callable.result.typeId then
             pure true

@@ -25,6 +25,14 @@ inductive Operation where
   | loadState (destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
+  | signedCheckedAdd (destination lhs rhs : Nat)
+  | signedCheckedSub (destination lhs rhs : Nat)
+  | signedCheckedMul (destination lhs rhs : Nat)
+  | signedCheckedDiv (destination lhs rhs : Nat)
+  | signedCheckedMod (destination lhs rhs : Nat)
+  | signedCompare (destination lhs rhs : Nat) (op : ComparisonOp)
+  | checkedNeg (destination source : Nat)
+  | sar (destination lhs rhs : Nat)
   | storeState (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
   | setReturnData (value : Nat)
@@ -303,6 +311,76 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       {
         operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedAdd lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedAdd rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedSub lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedSub rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedMul lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMul rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedDiv lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedDiv rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCheckedMod lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCheckedMod rhs.next lhs.value rhs.value]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .signedCompare op lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.signedCompare rhs.next lhs.value rhs.value op]
+        value := rhs.next
+        next := rhs.next + 1
+      }
+  | .checkedNeg operand =>
+      let operand := lowerExpr keys next paramAsTemp localEnv operand
+      {
+        operations := operand.operations ++ #[.checkedNeg operand.next operand.value]
+        value := operand.next
+        next := operand.next + 1
+      }
+  | .sar lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      {
+        operations := lhs.operations ++ rhs.operations ++
+          #[.sar rhs.next lhs.value rhs.value]
         value := rhs.next
         next := rhs.next + 1
       }
@@ -775,6 +853,39 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .checkedMod destination lhs rhs =>
       s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .signedCheckedAdd destination lhs rhs =>
+      -- i64 add with signed overflow: ((a^r)&(b^r)) sign bit set.
+      s!"{indent}(local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.lt_s (i64.and (i64.xor (local.get $t{lhs}) (local.get $t{destination})) (i64.xor (local.get $t{rhs}) (local.get $t{destination}))) (i64.const 0)) (then unreachable))\n"
+  | .signedCheckedSub destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.lt_s (i64.and (i64.xor (local.get $t{lhs}) (local.get $t{rhs})) (i64.xor (local.get $t{lhs}) (local.get $t{destination}))) (i64.const 0)) (then unreachable))\n"
+  | .signedCheckedMul destination lhs rhs =>
+      s!"{indent}(local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"{indent}(if (i64.ne (local.get $t{lhs}) (i64.const 0)) (then (if (i64.ne (local.get $t{lhs}) (i64.const -1)) (then (if (i64.ne (i64.div_s (local.get $t{destination}) (local.get $t{lhs})) (local.get $t{rhs})) (then unreachable))))))\n"
+  | .signedCheckedDiv destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(if (i64.eq (local.get $t{lhs}) (i64.const -9223372036854775808)) (then (if (i64.eq (local.get $t{rhs}) (i64.const -1)) (then unreachable))))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.div_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .signedCheckedMod destination lhs rhs =>
+      s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.rem_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .signedCompare destination lhs rhs op =>
+      let insn :=
+        match op with
+        | .eq => "i64.eq"
+        | .ne => "i64.ne"
+        | .lt => "i64.lt_s"
+        | .le => "i64.le_s"
+        | .gt => "i64.gt_s"
+        | .ge => "i64.ge_s"
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .checkedNeg destination source =>
+      s!"{indent}(if (i64.eq (local.get $t{source}) (i64.const -9223372036854775808)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.sub (i64.const 0) (local.get $t{source})))\n"
+  | .sar destination lhs rhs =>
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shr_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .bitAnd destination lhs rhs =>
       s!"{indent}(local.set $t{destination} (i64.and (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .bitOr destination lhs rhs =>
@@ -1008,6 +1119,7 @@ private def renderResultKindJson : MethodResultKind → String
   | .unit => "null"
   | .uint64 => "\"u64-le\""
   | .bool => "\"bool\""
+  | .int64 => "\"i64-le\""
 
 private def renderMethodJson (method : Method) : String :=
   let returns := renderResultKindJson method.resultKind

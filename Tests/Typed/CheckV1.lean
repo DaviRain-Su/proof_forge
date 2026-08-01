@@ -4517,20 +4517,92 @@ private unsafe def testMultiWidthIntResults
         expect (litTid == tid && bytes == expectedBytes)
           s!"{label}: exact Int{width} positive LE bits"
     | _ => throw <| IO.userError s!"{label}: expected Op.Literal"
-    -- Int unary neg remains fail-closed (Op.Unary.neg deferred; no Int params in this slice)
+    -- Int unary-neg literal folds to two's-complement LE (including intMin).
     let negSrc := wrap s!"MwIntNeg{width}" <|
       s!"  entry run() : {tyName} do\n" ++
       "    return -1\n"
     let negValidated ← loadSource session s!"{label}-neg" negSrc
     let negTyped := checkProgramTypedResultV1 negValidated
     expect negTyped.ok s!"{label}-neg: CheckV1 accepts Int unary-neg literal"
-    match normalizeProgramV1 negValidated with
-    | .ok _ => throw <| IO.userError s!"{label}-neg: must fail closed (no Op.Unary.neg yet)"
-    | .error (.unsupported detail) =>
-        expect (detail.contains "neg" || detail.contains "Int" || detail.contains "negation")
-          s!"{label}-neg: expected neg/Int detail, got {detail}"
-    | .error e =>
-        throw <| IO.userError s!"{label}-neg: expected unsupported, got {repr e}"
+    let negCarrier ← match normalizeProgramV1 negValidated with
+      | .ok c => pure c
+      | .error e => throw <| IO.userError s!"{label}-neg: normalize: {repr e}"
+    let negData ← match validateSemanticProgramV1 negCarrier with
+      | .ok d => pure d
+      | .error e => throw <| IO.userError s!"{label}-neg: validate: {repr e}"
+    let some negTid := findAnonIntTid negData.types width |
+      throw <| IO.userError s!"{label}-neg: missing Int{width}"
+    let some negBlk := negData.callables[0]?.bind (·.blocks[0]?) |
+      throw <| IO.userError s!"{label}-neg: missing block"
+    let some negInstr := negBlk.instructions[0]? |
+      throw <| IO.userError s!"{label}-neg: missing literal"
+    -- -1 is all 0xff bytes for any two's-complement width.
+    let expectedNeg := encodeNatLeBytes (Nat.pow 2 width - 1) (width / 8)
+    match negInstr.op with
+    | .literal litTid bytes =>
+        expect (litTid == negTid && bytes == expectedNeg)
+          s!"{label}-neg: exact Int{width} -1 LE bits"
+    | _ => throw <| IO.userError s!"{label}-neg: expected Op.Literal for folded -1"
+
+/-- Wave N2a: Int64 state/params, unary neg (Op.Unary.neg), checked arith. -/
+private unsafe def testInt64StateArithNeg
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "IntCounter" <|
+    "  state count : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : Int64) : Int64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  entry neg(x : Int64) : Int64 do\n" ++
+    "    return -x\n" ++
+    "  entry cmp(a : Int64, b : Int64) : Bool do\n" ++
+    "    return a < b\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let validated ← loadSource session "int64-state" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"int64-state: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"int64-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"int64-state: validate: {repr e}"
+  let some intTid := findAnonIntTid data.types 64 |
+    throw <| IO.userError "int64-state: missing anonymous Int64"
+  let some st0 := data.logicalState[0]? |
+    throw <| IO.userError "int64-state: missing state"
+  expect (st0.typeId == intTid) "int64-state: state is Int64"
+  -- entry neg: Op.Unary.neg on Int64
+  let some negC := data.callables.find? (fun c => c.name == some "neg") |
+    throw <| IO.userError "int64-state: missing entry neg"
+  let some blk := negC.blocks[0]? |
+    throw <| IO.userError "int64-state: missing neg block"
+  let hasUnaryNeg := blk.instructions.any fun instr =>
+    match instr.op with | .unary .neg _ => true | _ => false
+  expect hasUnaryNeg "int64-state: Op.Unary.neg present for -x"
+  -- entry bump: Op.Binary.add on Int64
+  let some bumpC := data.callables.find? (fun c => c.name == some "bump") |
+    throw <| IO.userError "int64-state: missing entry bump"
+  let some bumpBlk := bumpC.blocks[0]? |
+    throw <| IO.userError "int64-state: missing bump block"
+  let hasAdd := bumpBlk.instructions.any fun instr =>
+    match instr.op with | .binary .add _ _ => true | _ => false
+  expect hasAdd "int64-state: Op.Binary.add present for Int64"
+  -- Field/Principal remain fail-closed at Normalize intern boundary.
+  let fieldSrc := wrap "FieldClosed" <|
+    "  state f : Field bn254_fr\n" ++
+    "  entry run() : UInt64 do\n" ++
+    "    return 0\n"
+  let fieldValidated ← loadSource session "field-closed" fieldSrc
+  match normalizeProgramV1 fieldValidated with
+  | .ok _ => throw <| IO.userError "field-closed: Field state must fail closed"
+  | .error (.unsupported detail) =>
+      expect (detail.contains "Field" || detail.contains "state" ||
+          detail.contains "UInt" || detail.contains "Int")
+        s!"field-closed: detail={detail}"
+  | .error e => throw <| IO.userError s!"field-closed: {repr e}"
 
 /-- T1 multi-width match scrutinee on UInt8 with exact case valueBytes. -/
 private unsafe def testMultiWidthMatchScrut
@@ -5531,6 +5603,7 @@ unsafe def run : IO Unit := do
   -- T1 multi-width anonymous integers
   testMultiWidthUIntState session
   testMultiWidthIntResults session
+  testInt64StateArithNeg session
   testMultiWidthMatchScrut session
   testMixedWidthOperandsTypedNotOk session
   testMultiWidthShiftUInt32Shared session

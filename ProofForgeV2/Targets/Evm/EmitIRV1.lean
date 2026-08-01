@@ -77,6 +77,32 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       s!"and({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
   | .logicalOr lhs rhs =>
       s!"or({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  -- Nested form for signed ops is only used in for-loop slots (not Int64);
+  -- fall through to the modular op identity so the match is exhaustive.
+  | .signedCheckedAdd lhs rhs =>
+      s!"add({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .signedCheckedSub lhs rhs =>
+      s!"sub({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .signedCheckedMul lhs rhs =>
+      s!"mul({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .signedCheckedDiv lhs rhs =>
+      s!"sdiv({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .signedCheckedMod lhs rhs =>
+      s!"smod({renderExprNested paramPrefix lhs}, {renderExprNested paramPrefix rhs})"
+  | .signedCompare op lhs rhs =>
+      let l := renderExprNested paramPrefix lhs
+      let r := renderExprNested paramPrefix rhs
+      match op with
+      | .eq => s!"eq({l}, {r})"
+      | .ne => s!"iszero(eq({l}, {r}))"
+      | .lt => s!"slt({l}, {r})"
+      | .le => s!"iszero(sgt({l}, {r}))"
+      | .gt => s!"sgt({l}, {r})"
+      | .ge => s!"iszero(slt({l}, {r}))"
+  | .checkedNeg operand =>
+      s!"sub(0, {renderExprNested paramPrefix operand})"
+  | .sar lhs rhs =>
+      s!"sar({renderExprNested paramPrefix rhs}, {renderExprNested paramPrefix lhs})"
   | .callFn fnIndex args =>
       let argsJoined := String.intercalate ", "
         (args.toList.map (renderExprNested paramPrefix))
@@ -318,6 +344,120 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{rhs.next}"
       { code := lhs.code ++ rhs.code ++
           s!"{indent}let {name} := or({lhs.value}, {rhs.value})\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCheckedAdd lhs rhs =>
+      -- Sign-extend i64 operands, add in i256, range-check int64 bounds, mask.
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {r} := add({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, 0xffffffffffffffff8000000000000000), sgt({r}, 0x7fffffffffffffff)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCheckedSub lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {r} := sub({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, 0xffffffffffffffff8000000000000000), sgt({r}, 0x7fffffffffffffff)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCheckedMul lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {r} := mul({a}, {b})\n" ++
+          s!"{indent}if or(slt({r}, 0xffffffffffffffff8000000000000000), sgt({r}, 0x7fffffffffffffff)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCheckedDiv lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      -- intMin = 0x8000…0000; -1 as i256 = all-ones.
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}if iszero({b}) \{ revert(0, 0) }\n" ++
+          s!"{indent}if and(eq({a}, 0xffffffffffffffff8000000000000000), eq({b}, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := sdiv({a}, {b})\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCheckedMod lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let r := s!"r{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}if iszero({b}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := smod({a}, {b})\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := rhs.next + 1 }
+  | .signedCompare op lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let b := s!"b{rhs.next}"
+      let yul := match op with
+        | .eq => s!"eq({a}, {b})"
+        | .ne => s!"iszero(eq({a}, {b}))"
+        | .lt => s!"slt({a}, {b})"
+        | .le => s!"iszero(sgt({a}, {b}))"
+        | .gt => s!"sgt({a}, {b})"
+        | .ge => s!"iszero(slt({a}, {b}))"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {b} := signextend(7, and({rhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {name} := {yul}\n",
+        value := name, next := rhs.next + 1 }
+  | .checkedNeg operand =>
+      let operand := renderExpr indent paramPrefix next operand
+      let name := s!"expr{operand.next}"
+      let a := s!"a{operand.next}"
+      let r := s!"r{operand.next}"
+      { code := operand.code ++
+          s!"{indent}let {a} := signextend(7, and({operand.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}if eq({a}, 0xffffffffffffffff8000000000000000) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {r} := sub(0, {a})\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
+        value := name, next := operand.next + 1 }
+  | .sar lhs rhs =>
+      let lhs := renderExpr indent paramPrefix next lhs
+      let rhs := renderExpr indent paramPrefix lhs.next rhs
+      let name := s!"expr{rhs.next}"
+      let a := s!"a{rhs.next}"
+      let r := s!"r{rhs.next}"
+      { code := lhs.code ++ rhs.code ++
+          s!"{indent}if iszero(lt({rhs.value}, 64)) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {a} := signextend(7, and({lhs.value}, 0xffffffffffffffff))\n" ++
+          s!"{indent}let {r} := sar({rhs.value}, {a})\n" ++
+          s!"{indent}let {name} := and({r}, 0xffffffffffffffff)\n",
         value := name, next := rhs.next + 1 }
   | .callFn fnIndex args => Id.run do
       let mut code := ""
@@ -570,7 +710,8 @@ private def renderYul (plan : Plan) : String :=
     "    }\n  }\n}\n"
 
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"uint64\"}"
+  let ty := if param.isInt then "int64" else "uint64"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{ty}\"}"
 
 private def renderParamsJson (params : Array Param) : String :=
   String.intercalate "," (params.toList.map renderParamJson)
@@ -583,6 +724,7 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   match kind with
   | .uint64 => "uint64"
   | .bool => "bool"
+  | .int64 => "int64"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with

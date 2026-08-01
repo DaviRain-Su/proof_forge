@@ -16,6 +16,7 @@ open ProofForgeV2.Targets.EnvelopeV1
 
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .compare .. => false
+  | .signedCompare .. => false
   | .boolNot _ => false
   | .boolAnd .. => false
   | .boolOr .. => false
@@ -55,13 +56,21 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .checkedMul lhs rhs => binaryNodes lhs rhs
     | .checkedDiv lhs rhs => binaryNodes lhs rhs
     | .checkedMod lhs rhs => binaryNodes lhs rhs
+    | .signedCheckedAdd lhs rhs => binaryNodes lhs rhs
+    | .signedCheckedSub lhs rhs => binaryNodes lhs rhs
+    | .signedCheckedMul lhs rhs => binaryNodes lhs rhs
+    | .signedCheckedDiv lhs rhs => binaryNodes lhs rhs
+    | .signedCheckedMod lhs rhs => binaryNodes lhs rhs
+    | .signedCompare _ lhs rhs => binaryNodes lhs rhs
     | .bitAnd lhs rhs => binaryNodes lhs rhs
     | .bitOr lhs rhs => binaryNodes lhs rhs
     | .bitXor lhs rhs => binaryNodes lhs rhs
     | .shl lhs rhs => binaryNodes lhs rhs
     | .shr lhs rhs => binaryNodes lhs rhs
+    | .sar lhs rhs => binaryNodes lhs rhs
     | .bitNot operand => unaryNodes operand
     | .boolNot operand => unaryNodes operand
+    | .checkedNeg operand => unaryNodes operand
     | .boolAnd lhs rhs => binaryNodes lhs rhs
     | .boolOr lhs rhs => binaryNodes lhs rhs
     | .compare _ lhs rhs => binaryNodes lhs rhs

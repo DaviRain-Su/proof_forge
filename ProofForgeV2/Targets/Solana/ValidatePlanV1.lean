@@ -32,10 +32,13 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
           none
     | .checkedAdd lhs rhs | .checkedSub lhs rhs
     | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+    | .signedCheckedAdd lhs rhs | .signedCheckedSub lhs rhs
+    | .signedCheckedMul lhs rhs | .signedCheckedDiv lhs rhs
+    | .signedCheckedMod lhs rhs
     | .bitAnd lhs rhs | .bitOr lhs rhs | .bitXor lhs rhs
-    | .shl lhs rhs | .shr lhs rhs
+    | .shl lhs rhs | .shr lhs rhs | .sar lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs
-    | .compare _ lhs rhs =>
+    | .compare _ lhs rhs | .signedCompare _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available lhs with
@@ -44,7 +47,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
             match planExprNodes? account params fns childDepth (available - lhsNodes) rhs with
             | none => none
             | some rhsNodes => some (1 + lhsNodes + rhsNodes)
-    | .bitNot operand | .boolNot operand =>
+    | .bitNot operand | .boolNot operand | .checkedNeg operand =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
         match planExprNodes? account params fns childDepth available operand with
@@ -70,27 +73,31 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
 /-- UInt64-compatible plan expression (comparison/boolNot/boolAnd/boolOr results
     and Bool-returning callFn results are not UInt64). -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .boolNot _ | .boolAnd .. | .boolOr .. => false
+  | .compare .. | .signedCompare .. | .boolNot _ | .boolAnd .. | .boolOr .. => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => !fn.resultIsBool
       | none => false
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
-  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr ..
+  | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
+  | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
+  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
   | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .stateLoad ..
   | .temp _ => true
 
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
     Bool-returning callFn). -/
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .boolNot _ | .boolAnd .. | .boolOr .. => true
+  | .compare .. | .signedCompare .. | .boolNot _ | .boolAnd .. | .boolOr .. => true
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
       | some fn => fn.resultIsBool
       | none => false
   | .literal _ => true
   | .checkedMul .. | .checkedDiv .. | .checkedMod .. | .bitNot _
-  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr ..
+  | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
+  | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg _
+  | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .stateLoad .. | .temp _ => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
