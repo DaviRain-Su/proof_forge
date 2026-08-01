@@ -342,9 +342,10 @@ private def evmPlanErr (message : String) : CompileError :=
     via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
     `allowNonPublic := true` (N3), and **Array state** flattens to contiguous
     scalar slots (element UInt8/16/32/64/128/256). non-64 Int fail closed.
-    T9b admits UInt128/256 on scalar state/param/body/result. N2c: Principal
-    remains fail-closed (wire identity is variable-length u32-prefixed; not a
-    20-byte EVM address). -/
+    T9b admits UInt128/256 on scalar state/param/body/result. B-3 / N2c:
+    Principal remains fail-closed (wire identity is variable-length
+    u32-prefixed 1..4096 body; not a fixed 20-byte EVM address — no
+    truncate/pad/strip-prefix mapping). -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
@@ -2079,19 +2080,20 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         hasAssert := true
         segmentStart := values.size
-    -- Wave I: EVM declines external calls / workflow schedules. Product
+    -- Wave I + B-3: EVM declines external calls / workflow schedules. Product
     -- capability resolution rejects `effect.synchronous-call` and
     -- `effect.asynchronous-workflow` with PF-REQ-UNSUPPORTED before this
     -- lowerer runs; the arms below are defensive for hand-built / inspection
     -- SemanticProgramV1 carriers. No placeholder CALL/CREATE Yul: EVM
-    -- external calls require an address-bearing type that does not exist in
-    -- the current public-UInt64 envelope.
+    -- external calls need a 20-byte address, but wire Principal is
+    -- u32-prefixed variable-length identity (no exact match) and product
+    -- call/schedule callees are static QualifiedName, not Principal values.
     | .externalCall _effectId _callee _args, none =>
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: external calls are outside the EVM pilot envelope (no address-bearing type)"
+          "unsupported EVM semantic shape: external calls are outside the EVM pilot envelope (no address-bearing type; Principal is variable-length u32-prefixed identity, not a fixed 20-byte EVM address)"
     | .schedule _effectId _callee _args, none =>
         throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: workflow schedules are outside the EVM pilot envelope (no address-bearing type)"
+          "unsupported EVM semantic shape: workflow schedules are outside the EVM pilot envelope (no address-bearing type; Principal is variable-length u32-prefixed identity, not a fixed 20-byte EVM address)"
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do
           throw <| .planInvariant .evm

@@ -12782,3 +12782,47 @@ normative: false
   (toolchain compile ✅ WABT; runtime ⚠️ dummy-env load, not Reference↔Wasm).
 - Boundary: not NEAR sandbox / near-vm / wasmer host model; dummy stubs do not
   assert storage/return semantics; formal D6 still pending.
+
+## 2026-08-02 — PrincipalAddr (B-3): Principal→address research pin (fail-closed)
+
+- Engineering research slice only (not formal TASK/TST; not Principal Plan admit;
+  not EVM CALL / Solana CPI unlock).
+- **Finding (exact mismatch, PsyFelt-style honesty)**:
+  * Wire Principal valueBytes (`ProofForgeV2/Semantic/Wire/ValueBytesV1.lean`):
+    `u32 LE length` with `1 ≤ len ≤ maxTypeLengthV1` (4096) + opaque body;
+    default zero payload = `encodeU32le(1) || 0x00` (5 bytes).
+  * EVM `address` = fixed **20 raw bytes** (no length prefix; ABI word is
+    right-aligned 32-byte). Strip-prefix + pad/truncate invents a second
+    identity spelling — not lossless.
+  * Solana pubkey / program id = fixed **32 raw bytes** (ed25519). Same
+    prefix/length mismatch; "require body==32" still drops the wire length
+    header and rejects legal 1..31 / 33..4096 Principal values.
+  * NEAR account id = UTF-8 string; Noir Field / Psy Felt = field elements —
+    not binary identity payloads.
+  * Product `call`/`schedule` lower to `Op.ExternalCall`/`Op.Schedule` with a
+    **static `QualifiedName` callee**, not a Principal `ValueId`. Admitting
+    Principal storage alone cannot unlock CALL/CPI without a new
+    address-bearing expression surface (out of B-3 scope).
+  * SPEC-TYPE-001: Principal is opaque logical identity and must not assume
+    20/32-byte layout; target Plan rejects when it cannot encode losslessly.
+- **Decision**: keep **all** Phase-1 targets on `pilotPrincipalPolicyNone`.
+  Do **not** open approximate address mapping (same honesty class as PsyFelt
+  Goldilocks ≠ bn254 Fr).
+- Code:
+  * `EnvelopeV1.PilotPrincipalPolicy` docs pin B-3 layout table + call-surface
+    note; EVM/Solana `unsupportedShapeDetail` cite 20-byte / 32-byte mismatch
+    and wire `1..4096` body.
+  * `Evm/LowerSemanticV1` / `Solana/LowerSemanticV1`: Principal type-closure
+    remains none; defensive externalCall/schedule planInvariant messages cite
+    Principal wire ≠ address/pubkey.
+  * NormalizeV1 unchanged (identity-only Principal already admitted at
+    semantic layer; Plan is the fail-closed seam).
+- Tests: `Tests/Materialization/Targets.lean` N2c + B-3 exact wording pins
+  (EVM must cite 20-byte address + variable-length; Solana must cite 32-byte
+  pubkey + variable-length).
+- Helper: `scripts/principal_addr_research.sh` prints the layout table
+  (documentation only; no build side effect).
+- Matrix: B-3 GAP→FAIL-CLOSED research pin; Principal state/params row annotated.
+- Boundary: engineering only; no Principal state/param Plan admit; no
+  externalCall/schedule unlock; RequirementResolver call-key matrix unchanged
+  (off-limits this wave); not formal D2/D4.

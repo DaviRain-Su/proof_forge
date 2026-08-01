@@ -57,7 +57,7 @@ normative: false
 | schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | LOWERED(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| **Principal state/params** | FAIL-CLOSED(全) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| **Principal state/params** | FAIL-CLOSED(B-3: wire≠20B addr) | FAIL-CLOSED(B-3: wire≠32B pubkey) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -104,7 +104,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-3** | Principal→address 映射 | EVM/Solana 拒绝双键因无 address 类型；Principal 全 target Plan fail-closed；开放 Principal→address 可解锁 cross-target call | PrincipalAddr |
+| **B-3** | Principal→address 映射 | **已闭合为 FAIL-CLOSED 研究钉（PrincipalAddr, 2026-08-02，PsyFelt 式诚实）**：wire Principal valueBytes = `u32le(len)\|body`（`1≤len≤4096`；default `01 00 00 00 00`）；EVM `address` = 固定 20 raw bytes（无 length prefix）；Solana pubkey/program id = 固定 32 raw bytes。**无无损 exact canonical-bytes 匹配**——truncate/pad/strip-prefix 会发明第二身份拼写。另：产品 `call`/`schedule` 降为 `Op.ExternalCall`/`Schedule` 的 **static `QualifiedName` callee**，不是 Principal `ValueId`；仅开放 Principal state/param 也无法解锁 CALL/CPI。全 target 保持 `pilotPrincipalPolicyNone`；EVM/Solana type-closure wording 钉 20-byte / 32-byte mismatch；resolver 仍拒 EVM/Solana 双 call 键。**不**开放 approximate address mapping | PrincipalAddr ✅ |
 
 #### B-4：验收门升级（= C 组）
 
@@ -140,7 +140,7 @@ normative: false
 - **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target
 
 ### Phase F（B-3 + C 组，可并行）
-- **PrincipalAddr**（B-3）：NormalizeV1 + EnvelopeV1 + EVM/Solana Plan（解锁 externalCall/schedule）
+- **PrincipalAddr**（B-3）：**已闭合为 FAIL-CLOSED 研究钉** — wire Principal（u32-prefixed 1..4096）≠ EVM 20B address / Solana 32B pubkey；call/schedule callee 仍为 QualifiedName 非 Principal；全 target `pilotPrincipalPolicyNone`；见 §B-3 与 `scripts/principal_addr_research.sh`
 - **NearWasmAcceptance**（C-1）：**已闭合** — `Tests/Materialization/NearWasmAcceptance.lean` + `scripts/near_wasm_acceptance.sh`；WABT wat2wasm+wasm-interp dummy-import 门
 - **AleoPsyResearch**（C-2）：docs/research 研究文档（Aleo leo compiler / Psy psy-vm 可用性）
 

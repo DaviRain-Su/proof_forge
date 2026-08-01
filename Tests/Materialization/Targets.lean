@@ -2560,9 +2560,11 @@ unsafe def run : IO Unit := do
         s!"N2b field Psy message must cite Goldilocks≠bn254 Fr, got {e.render}"
 
 
-  -- N2c: Principal identity-only product pin — Normalize admits, all five
-  -- Phase-1 targets fail closed (wire Principal is variable-length u32-prefixed
-  -- opaque identity; no exact native address/pubkey/account-id/Field match).
+  -- N2c + B-3 PrincipalAddr research pin — Normalize admits identity-only
+  -- Principal (state/params/eq/ne); all Phase-1 targets fail closed at Plan
+  -- type-closure. Wire is variable-length u32-prefixed 1..4096 body; no exact
+  -- EVM 20-byte address / Solana 32-byte pubkey / NEAR account-id / Field match
+  -- (PsyFelt-style honesty pin — no silent truncate/pad/reinterpret).
   let prinSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2596,6 +2598,35 @@ unsafe def run : IO Unit := do
             (e.render).contains "identity" ||
             (e.render).contains "variable-length")
           s!"N2c principal {target} message must cite Principal boundary, got {e.render}"
+  -- B-3 EVM exact mismatch pin: wording must name fixed 20-byte address vs
+  -- variable-length u32-prefixed wire (no approximate mapping theater).
+  match materializeSelected TargetId.evm prinCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "B-3 principal: EVM must fail closed (wire ≠ fixed 20-byte address)"
+  | .error e =>
+      expect ((e.render).contains "20-byte" ||
+          (e.render).contains "EVM address" ||
+          (e.render).contains "address exact match")
+        s!"B-3 EVM Principal decline must cite 20-byte address mismatch, got {e.render}"
+      expect ((e.render).contains "variable-length" ||
+          (e.render).contains "u32-prefixed" ||
+          (e.render).contains "1..4096")
+        s!"B-3 EVM Principal decline must cite variable-length wire, got {e.render}"
+  -- B-3 Solana exact mismatch pin: wording must name fixed 32-byte pubkey.
+  match materializeSelected TargetId.solana prinCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "B-3 principal: Solana must fail closed (wire ≠ fixed 32-byte pubkey)"
+  | .error e =>
+      expect ((e.render).contains "32-byte" ||
+          (e.render).contains "pubkey" ||
+          (e.render).contains "program id")
+        s!"B-3 Solana Principal decline must cite 32-byte pubkey mismatch, got {e.render}"
+      expect ((e.render).contains "variable-length" ||
+          (e.render).contains "u32-prefixed" ||
+          (e.render).contains "1..4096")
+        s!"B-3 Solana Principal decline must cite variable-length wire, got {e.render}"
 
 
   -- N3 / NoirAggregate: named Struct state + field assign product pin —

@@ -388,11 +388,14 @@ def accessFor (account : StateAccount) (mode : HandlerMode) : AccountAccess := {
 The Solana pilot lowers public-UInt64 state, checked arith/bitwise/shift,
 Bool compare/logical, bare assert, emit/revert, pureFn localCall, if/match
 regions, and bounded for. External calls (`Op.ExternalCall`) and workflow
-schedules (`Op.Schedule`) are declined this wave: CPI needs a 32-byte
-program id, which the current UInt64 envelope cannot express. The product
-path rejects those S2 requirements at `resolveEngineeringRequirementsV1`
-before any Solana lowering; hand-built/inspection Semantic programs that
-still carry the ops fail closed here with an explicit planInvariant. -/
+schedules (`Op.Schedule`) are declined (Wave I + B-3): CPI needs a fixed
+32-byte program id, but wire Principal is u32-prefixed variable-length
+identity (1..4096 body, not an exact 32-byte pubkey match) and product
+call/schedule callees are static `QualifiedName`, not Principal values.
+The product path rejects those S2 requirements at
+`resolveEngineeringRequirementsV1` before any Solana lowering;
+hand-built/inspection Semantic programs that still carry the ops fail
+closed here with an explicit planInvariant. -/
 
 /-- Solana pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Body multi-width admits UInt8/16/32/64; state/params admit
@@ -410,12 +413,15 @@ private def solanaPlanErr (message : String) : CompileError :=
     (N1). ArrayState: anonymous **Array** shapes are admitted via
     `pilotContainerStatePolicyArrayOnly` (element/layout gated at state planning
     to fixed-length `Array UInt64 N` leaf slots). UInt128/256 use multiword
-    software limbs. N2c: Principal remains fail-closed. -/
+    software limbs. B-3 / N2c: Principal remains fail-closed (wire identity
+    is variable-length u32-prefixed 1..4096 body; not a fixed 32-byte
+    Solana pubkey / program id — no silent reinterpret). -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
     pilotUintWidthPolicySolanaBody
     (intPolicy := pilotIntWidthPolicyNarrow)
+    (principalPolicy := pilotPrincipalPolicyNone)
     (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
@@ -1730,16 +1736,17 @@ private def lowerBlockInstructionsV1
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         body := body.push (.emitEvent eventId.toNat argExprs)
         segmentStart := values.size
-    -- External call / workflow schedule: Solana declines both this wave.
-    -- CPI needs a 32-byte program id; the UInt64 pilot envelope has no
-    -- address-bearing type, so there is no placeholder, adapter, or
-    -- fabricated program id — fail closed with an explicit planInvariant.
+    -- External call / workflow schedule: Solana declines both (Wave I + B-3).
+    -- CPI needs a fixed 32-byte program id; wire Principal is u32-prefixed
+    -- variable-length identity (not an exact match) and product call/schedule
+    -- callees are static QualifiedName — no placeholder, adapter, or
+    -- fabricated program id.
     | .externalCall _ _ _, _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: external calls are outside the Solana pilot envelope (CPI requires a 32-byte program id the current UInt64 envelope cannot express)"
+          "unsupported Solana semantic shape: external calls are outside the Solana pilot envelope (CPI requires a fixed 32-byte program id; Principal is variable-length u32-prefixed identity, not a Solana pubkey)"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
-          "unsupported Solana semantic shape: workflow schedules are outside the Solana pilot envelope (CPI requires a 32-byte program id the current UInt64 envelope cannot express)"
+          "unsupported Solana semantic shape: workflow schedules are outside the Solana pilot envelope (CPI requires a fixed 32-byte program id; Principal is variable-length u32-prefixed identity, not a Solana pubkey)"
     -- ArrayState: construct fixed Array UInt64 N from N scalar UInt64 args.
     | .construct typeId ctorIdx argIds, some result => do
         unless result.typeId == typeId do

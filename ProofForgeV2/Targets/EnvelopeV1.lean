@@ -200,25 +200,48 @@ def pilotFieldPolicyBn254 : PilotFieldPolicy where
 
 /-- Per-target admission for identity-only Principal.
 
-    Wire Principal valueBytes are **variable-length**: `u32 LE length` (1..=4096)
-    + opaque body (`maxTypeLengthV1`). No Phase-1 target identity is an exact
-    canonical-bytes match:
-    * EVM `address` = fixed 20 bytes (not variable-length u32-prefixed)
-    * Solana pubkey = fixed 32 bytes
-    * NEAR account id = UTF-8 string, not binary identity payload
-    * Noir Field / Psy Felt = field elements, not opaque identity bytes
+    ## B-3 PrincipalAddr research pin (2026-08-02, fail-closed)
+
+    Wire Principal valueBytes (SPEC-SEM-WIRE-001 §5 / `ValueBytesV1`) are
+    **variable-length**:
+      `u32 LE length` with `1 ≤ len ≤ maxTypeLengthV1` (4096) + opaque body.
+    Default zero payload is `encodeU32le(1) || 0x00` (5 bytes), not a fixed
+    native address size.
+
+    No Phase-1 target identity is an **exact canonical-bytes** match:
+    * EVM `address` = fixed **20 raw bytes** (no length prefix; ABI word is
+      right-aligned 32-byte). Mapping would require strip-prefix + pad/truncate
+      or invent a second identity spelling — not lossless.
+    * Solana pubkey / program id = fixed **32 raw bytes** (ed25519). Same
+      prefix/length mismatch; a "require body==32" rule would still drop the
+      wire length header and reject legal 1..31 / 33..4096 Principal values.
+    * NEAR account id = UTF-8 string, not binary identity payload.
+    * Noir Field / Psy Felt = field elements, not opaque identity bytes.
+
+    Further: product `call`/`schedule` lower to `Op.ExternalCall` /
+    `Op.Schedule` with a **static `QualifiedName` callee**, not a Principal
+    `ValueId`. Admitting Principal storage alone cannot unlock CALL/CPI
+    without a new address-bearing expression surface (out of B-3 scope).
+
+    SPEC-TYPE-001: Principal is opaque logical identity and must not assume
+    20/32-byte layout; target Plan must reject when it cannot encode losslessly.
+    Decision (PsyFelt-style honesty pin): keep **all** Phase-1 targets on
+    `pilotPrincipalPolicyNone`. Do **not** open approximate address mapping.
 
     Default is fail-closed. A future target may set `admitPrincipal := true`
-    only when it can store and byte-compare the full wire encoding. -/
+    only when it can store and byte-compare the **full** wire encoding
+    (length header + body) without truncation/padding/reinterpretation. -/
 structure PilotPrincipalPolicy where
   admitPrincipal : Bool
   deriving BEq, Repr
 
-/-- Historical / opt-out: Principal fail-closed (all Phase-1 targets). -/
+/-- Historical / opt-out and B-3 research pin: Principal fail-closed
+    (all Phase-1 targets; no EVM address / Solana pubkey exact match). -/
 def pilotPrincipalPolicyNone : PilotPrincipalPolicy where
   admitPrincipal := false
 
-/-- Admit at most one anonymous Principal type (reserved; no Phase-1 user yet). -/
+/-- Admit at most one anonymous Principal type (reserved; full wire identity
+    storage only — not an EVM/Solana address alias). No Phase-1 user yet. -/
 def pilotPrincipalPolicyAdmit : PilotPrincipalPolicy where
   admitPrincipal := true
 
@@ -537,24 +560,28 @@ structure PilotTypeClosureWording where
 
 /-- EVM type-closure diagnostic wording (body multi-width UInt + Int64 + Field).
     Wave N2b-EVM opens sole catalog Field (bn254 Fr) via ADDMOD/MULMOD +
-    Fermat inverse for div. Principal stays fail-closed. -/
+    Fermat inverse for div. B-3: Principal stays fail-closed — wire is
+    u32-prefixed 1..4096 bytes; EVM address is fixed 20 raw bytes (not an
+    exact match; no silent truncate/pad). -/
 def evmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "EVM"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64/UInt128/UInt256 and Int8/Int16/Int32/Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match)"
+    "only UInt8, UInt16, UInt32, UInt64, UInt128, UInt256, Int8, Int16, Int32, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length u32-prefixed identity with no EVM address exact match; wire 1..4096 body ≠ fixed 20-byte address)"
 
 /-- Solana type-closure diagnostic wording (UInt multi-width + Int multi-width T9c).
-    Field fail-closed: no native field element. -/
+    Field fail-closed: no native field element. B-3: Principal stays fail-closed
+    — wire is u32-prefixed 1..4096 bytes; Solana pubkey/program id is fixed
+    32 raw bytes (not an exact match; no silent require-body-32 reinterpret). -/
 def solanaTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Solana"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
     "only anonymous UInt8/UInt16/UInt32/UInt64 and Int8/Int16/Int32/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey)"
+    "only UInt8, UInt16, UInt32, UInt64, Int8, Int16, Int32, Int64, Unit, and Bool are supported (no native Field; Principal is variable-length u32-prefixed identity, not fixed 32-byte pubkey; wire 1..4096 body ≠ ed25519 program id)"
 
 /-- NEAR type-closure diagnostic wording (ABI multi-width UInt + Int T9c).
     Field fail-closed: no native field element. -/
