@@ -409,6 +409,11 @@ Return与Block public composition现已接通：Return corollary组合真实tag/
 public Terminator，并恢复Block parent。两者均只提升既有body theorem，不新增runtime或nested claim。
 现在可将zero/singleton array theorem与public Instruction/Return successes直接拼为fixture三种单Block。
 
+canonical Block array composition现已闭合：`decodeBlockV1_emptyV1`组合empty params+empty instructions，
+`decodeBlockV1_oneInstructionV1`组合empty params+exact一次public Instruction；两者均从真实bounded
+count reader returned offset构造下一cursor，再消费真实public Terminator success。entry gate使用前者，
+literal leaf与PureCall invariant使用后者。下一步将每个Block用singleton array接入具体Callable fields。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

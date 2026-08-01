@@ -675,6 +675,44 @@ example (c afterTag afterId afterParams afterInstructions afterTerminator : Curs
     afterTerminator id params instructions terminator hdepth htag hid hparams
     hinstructions hterminator
 
+example (c afterTag afterId afterTerminator : Cursor) (paramsOffset instructionsOffset : Nat)
+    (id : UInt32) (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (0, instructionsOffset))
+    (hterminator : decodeTerminatorV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_emptyV1 c afterTag afterId afterTerminator paramsOffset instructionsOffset
+    id terminator hdepth htag hid hparams hinstructions hterminator
+
+example (c afterTag afterId afterInstruction afterTerminator : Cursor)
+    (paramsOffset instructionsOffset : Nat) (id : UInt32) (instruction : InstructionV1)
+    (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (1, instructionsOffset))
+    (hinstruction : decodeInstructionV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (instruction, afterInstruction))
+    (hterminator : decodeTerminatorV1 afterInstruction =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[instruction], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) :=
+  decodeBlockV1_oneInstructionV1 c afterTag afterId afterInstruction afterTerminator
+    paramsOffset instructionsOffset id instruction terminator hdepth htag hid hparams
+    hinstructions hinstruction hterminator
+
 example (c afterTag afterFields afterType afterBytes : Cursor) (typeId : UInt32)
     (valueBytes : ByteArray)
     (htag : decodeTag c = .ok ("Op.Literal", afterTag))

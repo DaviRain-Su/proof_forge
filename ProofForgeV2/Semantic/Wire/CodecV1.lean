@@ -2047,6 +2047,60 @@ theorem decodeBlockV1_eq_of_fieldsV1
       afterId afterParams afterInstructions afterTerminator id params instructions terminator
       htag hid hparams hinstructions hterminator)
 
+/-- Compose the canonical empty-parameter, empty-instruction Block shape. -/
+theorem decodeBlockV1_emptyV1
+    (c afterTag afterId afterTerminator : Cursor) (paramsOffset instructionsOffset : Nat)
+    (id : UInt32) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (0, instructionsOffset))
+    (hterminator : decodeTerminatorV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) := by
+  apply decodeBlockV1_eq_of_fieldsV1 c afterTag afterId
+    ⟨afterId.input, paramsOffset, afterId.nesting⟩
+    ⟨afterId.input, instructionsOffset, afterId.nesting⟩ afterTerminator id #[] #[]
+    terminator hdepth htag hid
+  · exact decodeArray_zeroV1 maxArrayElements decodeBlockParameterV1 afterId paramsOffset hparams
+  · exact decodeArray_zeroV1 maxArrayElements decodeInstructionV1
+      ⟨afterId.input, paramsOffset, afterId.nesting⟩ instructionsOffset hinstructions
+  · exact hterminator
+
+/-- Compose the canonical empty-parameter, singleton-instruction Block shape. -/
+theorem decodeBlockV1_oneInstructionV1
+    (c afterTag afterId afterInstruction afterTerminator : Cursor)
+    (paramsOffset instructionsOffset : Nat) (id : UInt32) (instruction : InstructionV1)
+    (terminator : TerminatorV1) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Block" 4 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hparams : readArrayCountAtV1 afterId.input afterId.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hinstructions : readArrayCountAtV1 afterId.input paramsOffset maxArrayElements =
+      .ok (1, instructionsOffset))
+    (hinstruction : decodeInstructionV1
+      ⟨afterId.input, instructionsOffset, afterId.nesting⟩ =
+        .ok (instruction, afterInstruction))
+    (hterminator : decodeTerminatorV1 afterInstruction =
+      .ok (terminator, afterTerminator)) :
+    decodeBlockV1 c = .ok ({ id, params := #[], instructions := #[instruction], terminator },
+      ⟨afterTerminator.input, afterTerminator.offset, c.nesting⟩) := by
+  apply decodeBlockV1_eq_of_fieldsV1 c afterTag afterId
+    ⟨afterId.input, paramsOffset, afterId.nesting⟩ afterInstruction afterTerminator id #[]
+    #[instruction] terminator hdepth htag hid
+  · exact decodeArray_zeroV1 maxArrayElements decodeBlockParameterV1 afterId paramsOffset hparams
+  · exact decodeArray_oneV1 maxArrayElements decodeInstructionV1
+      ⟨afterId.input, paramsOffset, afterId.nesting⟩ instructionsOffset instruction
+      afterInstruction hinstructions hinstruction
+  · exact hterminator
+
 def encodeLoopBoundV1 (lb : LoopBoundV1) : Except SemanticWireErrorV1 ByteArray := do
   encodeTagged "LoopBound"
     #[encodeU32le lb.header, encodeU32le lb.backEdgeFrom, encodeU32le lb.maxIterations]

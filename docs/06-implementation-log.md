@@ -11676,6 +11676,16 @@ normative: false
 - Boundary：没有新增runtime或声称nested decoder errors；下一步组合具体三种single-block callables，
   formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 canonical zero/one-instruction Blocks
+
+- Proof：`decodeBlockV1_emptyV1`组合真实empty params与empty instructions headers；
+  `decodeBlockV1_oneInstructionV1`组合empty params与singleton Instruction。两个theorem均从production
+  count reader returned offset构造下一cursor，再消费public Terminator success。
+- Authority：zero array不调用element，singleton只调用一次真实Instruction；Block字段顺序、bounded
+  headers、nested limits与final cursor均不变。focused build、signature examples与blocker review通过。
+- Boundary：entry/literal/PureCall所需Block shapes已就绪；具体Callable与root carrier、formal TASK/TST
+  仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）
