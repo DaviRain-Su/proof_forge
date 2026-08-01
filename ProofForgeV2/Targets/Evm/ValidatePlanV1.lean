@@ -33,6 +33,54 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
         if (bitWidth == 8 || bitWidth == 16 || bitWidth == 32) && slots.contains slot then
           some 1
         else none
+    | .indexedStorageLoad baseSlot length index byteWidth =>
+        -- Contiguous range baseSlot .. baseSlot+length-1 must all be planned
+        -- slots; length ≥ 1; byteWidth ∈ {1,2,4,8}.
+        if length == 0 then none
+        else if !(byteWidth == 1 || byteWidth == 2 || byteWidth == 4 || byteWidth == 8) then
+          none
+        else
+          let rangeOk := Id.run do
+            let mut ok := true
+            for i in [0:length] do
+              unless slots.contains (baseSlot + i) do ok := false
+            pure ok
+          if !rangeOk then none
+          else
+            let childDepth := depthLeft - 1
+            let available := nodeBudget - 1
+            match planExprNodes? slots paramCount childDepth available fns index with
+            | none => none
+            | some nodes => some (1 + nodes)
+    | .boundsCheckedIndex index length =>
+        if length == 0 then none
+        else
+          let childDepth := depthLeft - 1
+          let available := nodeBudget - 1
+          match planExprNodes? slots paramCount childDepth available fns index with
+          | none => none
+          | some nodes => some (1 + nodes)
+    | .arrayIndexGet index leaves =>
+        if leaves.isEmpty then none
+        else
+          let childDepth := depthLeft - 1
+          Id.run do
+            let mut available := nodeBudget - 1
+            let mut total : Nat := 1
+            let mut ok := true
+            match planExprNodes? slots paramCount childDepth available fns index with
+            | none => ok := false
+            | some nodes =>
+                total := total + nodes
+                available := available - nodes
+            if ok then
+              for leaf in leaves do
+                match planExprNodes? slots paramCount childDepth available fns leaf with
+                | none => ok := false
+                | some nodes =>
+                    total := total + nodes
+                    available := available - nodes
+            if ok then some total else none
     | .checkedAdd lhs rhs | .narrowCheckedAdd _ lhs rhs
     | .add lhs rhs
     | .checkedSub lhs rhs | .narrowCheckedSub _ lhs rhs

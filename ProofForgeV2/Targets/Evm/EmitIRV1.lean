@@ -145,6 +145,28 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
       -- sub-wrapping rationale.
       s!"addmod(0, sub({bn254FrModulusYulV1}, addmod({renderExprNested paramPrefix operand}, 0, {bn254FrModulusYulV1})), {bn254FrModulusYulV1})"
   | .fieldStorageLoad slot => s!"sload({slot})"
+  -- Nested form for Array index ops is only used in for-loop slots; statement
+  -- form carries the bounds guards. Emit the core addressing so nested use
+  -- remains deterministic (bounds are enforced when the expr is top-level).
+  | .indexedStorageLoad baseSlot _length index byteWidth =>
+      let slot := s!"add({baseSlot}, {renderExprNested paramPrefix index})"
+      if byteWidth == 8 then s!"sload({slot})"
+      else s!"and(sload({slot}), {yulUintMask (bitWidthOfByteWidth byteWidth)})"
+  | .arrayIndexGet index leaves =>
+      -- Nested fallback: fold mul/eq select without bounds (top-level form
+      -- enforces bounds). Deterministic left-fold over leaves.
+      Id.run do
+        let idx := renderExprNested paramPrefix index
+        let mut acc := "0"
+        for i in [0:leaves.size] do
+          match leaves[i]? with
+          | some leaf =>
+              let l := renderExprNested paramPrefix leaf
+              acc := s!"add(mul(eq({idx}, {i}), {l}), mul(iszero(eq({idx}, {i})), {acc}))"
+          | none => pure ()
+        acc
+  | .boundsCheckedIndex index _length =>
+      renderExprNested paramPrefix index
   | .callFn fnIndex args =>
       let argsJoined := String.intercalate ", "
         (args.toList.map (renderExprNested paramPrefix))
@@ -575,6 +597,56 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := sload({slot})\n",
         value := name, next := next + 1 }
+  | .indexedStorageLoad baseSlot length index byteWidth =>
+      -- Exact Yul pins: bounds guard + sload(add(base,idx)) (+ narrow mask).
+      let index := renderExpr indent paramPrefix next index
+      let name := s!"expr{index.next}"
+      let slotTmp := s!"slot{index.next}"
+      let maskCode :=
+        if byteWidth == 8 then
+          s!"{indent}let {name} := sload({slotTmp})\n" ++
+            s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+        else
+          let mask := yulUintMask (bitWidthOfByteWidth byteWidth)
+          s!"{indent}let {name} := and(sload({slotTmp}), {mask})\n"
+      { code := index.code ++
+          s!"{indent}if iszero(lt({index.value}, {length})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {slotTmp} := add({baseSlot}, {index.value})\n" ++
+          maskCode,
+        value := name, next := index.next + 1 }
+  | .arrayIndexGet index leaves => Id.run do
+      let index := renderExpr indent paramPrefix next index
+      let mut code := index.code ++
+        s!"{indent}if iszero(lt({index.value}, {leaves.size})) \{ revert(0, 0) }\n"
+      let mut next := index.next
+      let mut leafNames : Array String := #[]
+      for leaf in leaves do
+        let rendered := renderExpr indent paramPrefix next leaf
+        code := code ++ rendered.code
+        next := rendered.next
+        leafNames := leafNames.push rendered.value
+      -- Left-fold arithmetic select: sum_i mul(eq(idx,i), leaf_i)
+      let acc0 := s!"expr{next}"
+      code := code ++ s!"{indent}let {acc0} := 0\n"
+      next := next + 1
+      let mut acc := acc0
+      for i in [0:leafNames.size] do
+        match leafNames[i]? with
+        | some ln =>
+            let nextAcc := s!"expr{next}"
+            code := code ++
+              s!"{indent}let {nextAcc} := add(mul(eq({index.value}, {i}), {ln}), {acc})\n"
+            acc := nextAcc
+            next := next + 1
+        | none => pure ()
+      { code := code, value := acc, next }
+  | .boundsCheckedIndex index length =>
+      let index := renderExpr indent paramPrefix next index
+      let name := s!"expr{index.next}"
+      { code := index.code ++
+          s!"{indent}if iszero(lt({index.value}, {length})) \{ revert(0, 0) }\n" ++
+          s!"{indent}let {name} := {index.value}\n",
+        value := name, next := index.next + 1 }
   | .callFn fnIndex args => Id.run do
       let mut code := ""
       let mut next := next

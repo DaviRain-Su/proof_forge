@@ -150,6 +150,19 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .fieldDiv lhs rhs => pure (((encodeU8 45).append (← encodeExpr lhs)).append (← encodeExpr rhs))
   | .fieldNeg operand => pure ((encodeU8 46).append (← encodeExpr operand))
   | .fieldStorageLoad slot => pure ((encodeU8 47).append (← encodeNatAsU32le slot))
+  -- EvmIndex ArrayState constructors (tags 48..50; prior tags byte-identical).
+  | .indexedStorageLoad baseSlot length index byteWidth =>
+      pure ((((((encodeU8 48).append (← encodeNatAsU32le baseSlot)).append
+        (← encodeNatAsU32le length)).append (← encodeExpr index)).append
+        (← encodeNatAsU32le byteWidth)))
+  | .arrayIndexGet index leaves => do
+      let mut out := (encodeU8 49).append (← encodeExpr index)
+      out := out.append (← encodeNatAsU32le leaves.size)
+      for leaf in leaves do out := out.append (← encodeExpr leaf)
+      pure out
+  | .boundsCheckedIndex index length =>
+      pure (((encodeU8 50).append (← encodeExpr index)).append
+        (← encodeNatAsU32le length))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

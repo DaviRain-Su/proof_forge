@@ -2638,9 +2638,9 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
-  -- ArrayState: fixed Array UInt64 2 state — Solana admits (flatten to 2×8B
-  -- slots named slots_0/slots_1; literal-index IndexGet/IndexSet); EVM/Near/
-  -- Noir/Psy decline container state (EVM IndexGet/IndexSet off-limits wave).
+  -- ArrayState: fixed Array UInt64 2 state — Solana + EVM admit (flatten to
+  -- 2×8B slots named slots_0/slots_1; IndexGet/IndexSet). Near/Noir/Psy
+  -- decline container state. Map/Bytes remain fail closed on all Phase-1 lanes.
   let arrayStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -2670,7 +2670,18 @@ unsafe def run : IO Unit := do
     "ArrayState: Solana leaf name slots_1"
   expect (solanaArray.entries.any fun e => e.name == "set0")
     "ArrayState: Solana plan has set0 entry"
-  for target in [TargetId.evm, TargetId.near, TargetId.noir, TargetId.psy] do
+  let evmArray ← liftResult <| planEvm arrayCompiled
+  expect (evmArray.storageLayout.size == 2)
+    s!"ArrayState: EVM flattened 2 storage slots for Array UInt64 2, got {evmArray.storageLayout.size}"
+  expect (evmArray.storageLayout.any fun b => b.name == "slots_0" && b.slot == 0)
+    "ArrayState: EVM leaf name slots_0 at slot 0"
+  expect (evmArray.storageLayout.any fun b => b.name == "slots_1" && b.slot == 1)
+    "ArrayState: EVM leaf name slots_1 at slot 1"
+  expect (evmArray.entries.any fun e => e.name == "set0")
+    "ArrayState: EVM plan has set0 entry"
+  -- Product materialize path accepts EVM Array state.
+  let _ ← liftResult <| materializeSelected TargetId.evm arrayCompiled
+  for target in [TargetId.near, TargetId.noir, TargetId.psy] do
     match materializeSelected target arrayCompiled with
     | .ok _ =>
         throw <| IO.userError s!"ArrayState: {target} must decline container state"

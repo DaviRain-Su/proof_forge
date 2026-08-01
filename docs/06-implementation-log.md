@@ -12446,3 +12446,28 @@ normative: false
 - Boundary: engineering only; no Psy Field arith/Plan tags; Noir/EVM Field lanes
   unchanged; not formal modulus proof package.
 
+## 2026-08-01 — EvmIndex: EVM Array state + IndexGet/IndexSet (runtime bounds)
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- EnvelopeV1: EVM type-closure now uses `pilotContainerStatePolicyArrayOnly`
+  (Array admitted; Map/Bytes stay fail closed). No new policy type.
+- Evm/LowerSemanticV1:
+  * fixed-length `Array UInt{8,16,32,64} N` state flattens to N consecutive
+    storage slots named `{state}_{i}` with element `byteWidth` 1/2/4/8;
+  * StateLoad/StateStore multi-leaf; Array Construct from N scalar args;
+  * IndexGet literal = compile-time leaf select; runtime on contiguous storage
+    → `indexedStorageLoad base length index byteWidth`; otherwise
+    `arrayIndexGet`;
+  * IndexSet literal = rebind; runtime = `boundsCheckedIndex` + arithmetic
+    select rebind of all leaves; OOB reverts at Yul emission.
+- PlanSchemaV1: additive Expr tags 48–50 (`indexedStorageLoad` /
+  `arrayIndexGet` / `boundsCheckedIndex`); prior encodings byte-identical.
+- ValidatePlanV1: admits new ops (contiguous slot range, nonempty leaves).
+- EmitIRV1: Yul pins `if iszero(lt(idx,len)) { revert }` + `add(base,idx)` +
+  `sload` (+ narrow mask); existing op emission preserved.
+- Tests: Targets EVM ArrayBox positive; EvmSmoke literal/runtime/OOB/Map
+  decline; EvmPlanSchema digest determinism for tags 48–50.
+- Limitations: Map/Bytes state declined on EVM; Array params declined;
+  nested Array/element non-UInt fail closed; no formal Reference↔EVM
+  differential; formal D2/D4 still pending.
+

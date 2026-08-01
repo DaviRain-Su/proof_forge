@@ -2303,6 +2303,180 @@ private unsafe def testFieldBn254Lane : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "Field mod must not produce an EVM plan"
 
+/-- EvmIndex: Array UInt64 state with literal IndexGet/IndexSet + product Yul.
+    Pins storage layout, literal rebind stores, and runtime-index Yul
+    (`if iszero(lt(...)) { revert }` + `add(base,idx)` + `sload`). Map/Bytes
+    decline is covered via hand-built plan rejection of non-Array shapes at
+    type-closure (product source Map state is Normalize-admitted but EVM
+    type-closure fails closed). -/
+private unsafe def testArrayStateIndexOps : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- Literal-index ArrayBox (product path).
+  let literalSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayBox where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n" ++
+    "  entry set1(v : UInt64) : UInt64 do\n" ++
+    "    slots[1] := v\n" ++
+    "    return slots[1]\n"
+  let litSrc ← liftResult "load ArrayBox" (← session.selectProgramV1
+    literalSource "<evm-array-box>" "Tests.EvmArrayBox" none)
+  let litCompiled ← liftResult "compile ArrayBox" <|
+    Compiler.compileValidatedSourceV1 litSrc
+  let litPlan ← liftResult "plan ArrayBox" <| planEvm litCompiled
+  expect (litPlan.storageLayout.size == 2)
+    s!"ArrayBox must flatten to 2 slots, got {litPlan.storageLayout.size}"
+  expect (litPlan.storageLayout[0]!.name == "slots_0" &&
+      litPlan.storageLayout[0]!.slot == 0 &&
+      litPlan.storageLayout[0]!.byteWidth == 8)
+    "ArrayBox slots_0 must occupy storage slot 0 (8-byte UInt64)"
+  expect (litPlan.storageLayout[1]!.name == "slots_1" &&
+      litPlan.storageLayout[1]!.slot == 1 &&
+      litPlan.storageLayout[1]!.byteWidth == 8)
+    "ArrayBox slots_1 must occupy storage slot 1 (8-byte UInt64)"
+  expect (litPlan.entries.map (·.name) == #["set0", "get0", "set1"])
+    "ArrayBox entry order"
+  -- set0: IndexSet literal 0 → store leaf 0 with param, leaf 1 keeps sload(1).
+  let set0 := litPlan.entries[0]!
+  expect (set0.body.size >= 2)
+    "set0 must store then return"
+  match set0.body[0]? with
+  | some stmt =>
+      match stmt with
+      | .store s =>
+          expect (s.slot == 0 && s.byteWidth == 8)
+            "set0 first store targets slot 0"
+      | _ => throw <| IO.userError "set0 body[0] must be a store"
+  | none => throw <| IO.userError "set0 body[0] missing"
+  -- get0 returns storageLoad of leaf 0 (literal IndexGet).
+  expect (litPlan.entries[1]!.body == #[.returnValue (.storageLoad 0)])
+    "get0 must return sload(0) via literal IndexGet"
+  match Targets.Evm.validatePlan litPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayBox plan must validate: {e.render}"
+  let litOut ← liftResult "materialize ArrayBox" <|
+    materializeSelected TargetId.evm litCompiled
+  let some litYul := (MaterializedArtifactsV1.filesOf litOut).find?
+      (·.path == "ArrayBox.yul") |
+    throw <| IO.userError "ArrayBox: missing ArrayBox.yul"
+  expect (litYul.contents.contains "sstore(0," && litYul.contents.contains "sload(0)")
+    "ArrayBox Yul must sstore/sload slot 0 for set0/get0"
+  expect (litYul.contents.contains "sstore(1," || litYul.contents.contains "sload(1)")
+    "ArrayBox Yul must touch slot 1 for the second leaf"
+  let litPlan2 ← liftResult "plan ArrayBox again" <| planEvm litCompiled
+  expect (litPlan == litPlan2) "ArrayBox plan rebuild must be deterministic"
+
+  -- Runtime-index product path: IndexGet/IndexSet with a UInt32 param index
+  -- (wire Array index type is UInt32).
+  let runtimeSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayIdx where\n" ++
+    "  state slots : Array UInt64 3\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "    slots[2] := 0\n" ++
+    "  entry getAt(i : UInt32) : UInt64 do\n" ++
+    "    return slots[i]\n" ++
+    "  entry setAt(i : UInt32, v : UInt64) : UInt64 do\n" ++
+    "    slots[i] := v\n" ++
+    "    return slots[i]\n"
+  let rtSrc ← liftResult "load ArrayIdx" (← session.selectProgramV1
+    runtimeSource "<evm-array-idx>" "Tests.EvmArrayIdx" none)
+  let rtCompiled ← liftResult "compile ArrayIdx" <|
+    Compiler.compileValidatedSourceV1 rtSrc
+  let rtPlan ← liftResult "plan ArrayIdx" <| planEvm rtCompiled
+  expect (rtPlan.storageLayout.size == 3)
+    s!"ArrayIdx must flatten to 3 slots, got {rtPlan.storageLayout.size}"
+  -- getAt body must use indexedStorageLoad (runtime IndexGet on contiguous storage).
+  let getAt := rtPlan.entries[0]!
+  let hasIndexed :=
+    match getAt.body[0]? with
+    | some stmt =>
+        match stmt with
+        | .returnValue (.indexedStorageLoad base len _idx bw) =>
+            base == 0 && len == 3 && bw == 8
+        | _ => false
+    | none => false
+  expect hasIndexed
+    "getAt must lower to indexedStorageLoad base=0 length=3 byteWidth=8"
+  match Targets.Evm.validatePlan rtPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayIdx plan must validate: {e.render}"
+  let rtOut ← liftResult "materialize ArrayIdx" <|
+    materializeSelected TargetId.evm rtCompiled
+  let some rtYul := (MaterializedArtifactsV1.filesOf rtOut).find?
+      (·.path == "ArrayIdx.yul") |
+    throw <| IO.userError "ArrayIdx: missing ArrayIdx.yul"
+  expect (rtYul.contents.contains "if iszero(lt(" &&
+      rtYul.contents.contains "revert(0, 0)" &&
+      rtYul.contents.contains "add(0," &&
+      rtYul.contents.contains "sload(")
+    "ArrayIdx Yul must pin bounds guard + add(base,idx) + sload"
+  -- setAt must bounds-check (boundsCheckedIndex or indexed path) and sstore leaves.
+  expect (rtYul.contents.contains "sstore(")
+    "ArrayIdx setAt Yul must sstore array leaves"
+
+  -- Hand-built OOB plan negative: indexedStorageLoad with length beyond layout.
+  let badOob : Targets.Evm.Plan := {
+    objectName := "BadOob"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[
+      { sourceId := 0, name := "a0", slot := 0 },
+      { sourceId := 1, name := "a1", slot := 1 }
+    ]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "get"
+      selector := Targets.Evm.Keccak.selector "get" #["uint64"]
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      mutability := .view
+      body := #[.returnValue
+        (.indexedStorageLoad 0 4 (.param 0) 8)]  -- length 4 > 2 slots
+      resultKind := .uint64
+    }]
+    fns := #[]
+  }
+  match Targets.Evm.validatePlan badOob with
+  | .ok () => throw <| IO.userError "validatePlan must reject OOR indexedStorageLoad range"
+  | .error _ => pure ()
+
+  -- Map state product decline (type-closure / plan fail closed on EVM).
+  -- Normalize admits Map state; EVM container policy is Array-only.
+  let mapSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapBox where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  state dummy : UInt64\n" ++
+    "  init() do\n" ++
+    "    dummy := 0\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return dummy\n"
+  let mapSrc ← liftResult "load MapBox" (← session.selectProgramV1
+    mapSource "<evm-map-box>" "Tests.EvmMapBox" none)
+  let mapCompiled ← liftResult "compile MapBox" <|
+    Compiler.compileValidatedSourceV1 mapSrc
+  match planEvm mapCompiled with
+  | .ok _ => throw <| IO.userError "EVM must decline Map state"
+  | .error e =>
+      expect ((e.render).contains "Map" || (e.render).contains "container" ||
+          (e.render).contains "Array" || (e.render).contains "unsupported" ||
+          (e.render).contains "pilot")
+        s!"Map decline must cite container/Map boundary, got {e.render}"
+
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
@@ -2342,6 +2516,7 @@ unsafe def run : IO Unit := do
   testOmittedTypeLet
   testAssertElseRejected
   testFieldBn254Lane
+  testArrayStateIndexOps
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
     Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)

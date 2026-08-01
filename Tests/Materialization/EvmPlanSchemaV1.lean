@@ -291,6 +291,89 @@ private unsafe def testFieldPlanDigestDeterminism : IO Unit := do
   let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
   expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Field tags present"
 
+
+/-- EvmIndex: new Expr tags 48..50 must digest deterministically and leave
+    historical Field/UInt64 encodings distinct when absent. -/
+private unsafe def testArrayIndexPlanDigestDeterminism : IO Unit := do
+  let arrayPlan : Plan := {
+    objectName := "A"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[
+      { sourceId := 0, name := "s0", slot := 0 },
+      { sourceId := 1, name := "s1", slot := 1 },
+      { sourceId := 2, name := "s2", slot := 2 }
+    ]
+    events := #[]
+    errors := #[]
+    constructor := some {
+      params := #[]
+      stores := #[
+        { slot := 0, value := .literal 0 },
+        { slot := 1, value := .literal 0 },
+        { slot := 2, value := .literal 0 }
+      ]
+    }
+    entries := #[{
+      name := "getAt"
+      selector := Targets.Evm.Keccak.selector "getAt" #["uint64"]
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      mutability := .view
+      body := #[.returnValue
+        (.indexedStorageLoad 0 3 (.param 0) 8)]
+      resultKind := .uint64
+    }, {
+      name := "pick"
+      selector := Targets.Evm.Keccak.selector "pick" #["uint64"]
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      mutability := .view
+      body := #[.returnValue
+        (.arrayIndexGet (.param 0)
+          #[.storageLoad 0, .storageLoad 1, .storageLoad 2])]
+      resultKind := .uint64
+    }, {
+      name := "guarded"
+      selector := Targets.Evm.Keccak.selector "guarded" #["uint64"]
+      params := #[{ sourceId := 0, name := "i", wordIndex := 0 }]
+      mutability := .view
+      body := #[.returnValue
+        (.boundsCheckedIndex (.param 0) 3)]
+      resultKind := .uint64
+    }]
+    fns := #[]
+  }
+  match validatePlan arrayPlan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"array plan: {e.render}"
+  let b1 ← liftExcept "e1" (encodeEngineeringEvmPlanBytesV1 arrayPlan)
+  let b2 ← liftExcept "e2" (encodeEngineeringEvmPlanBytesV1 arrayPlan)
+  expect (b1 == b2) "Array-index plan encode determinism"
+  let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 arrayPlan)
+  let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 arrayPlan)
+  expect (d1.bytes == d2.bytes) "Array-index plan digest determinism"
+  let fieldOnly : Plan := {
+    objectName := "F"
+    runtimeObjectName := "__proof_forge_runtime"
+    storageLayout := #[{ sourceId := 0, name := "acc", slot := 0, byteWidth := 32 }]
+    events := #[]
+    errors := #[]
+    constructor := none
+    entries := #[{
+      name := "g"
+      selector := Targets.Evm.Keccak.selector "g" #[]
+      params := #[]
+      mutability := .view
+      body := #[.returnValue (.fieldStorageLoad 0)]
+      resultKind := .field
+    }]
+    fns := #[]
+  }
+  let fb ← liftExcept "f" (encodeEngineeringEvmPlanBytesV1 fieldOnly)
+  expect (!(fb == b1)) "Array-index plan bytes must differ from Field plan"
+  let counter ← planCounter
+  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 counter)
+  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
+  expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Array tags present"
+
 unsafe def run : IO Unit := do
   testDomain
   testMinimalPlanDeterminism
@@ -300,6 +383,7 @@ unsafe def run : IO Unit := do
   testIrValidationNegatives
   testWirePresence
   testFieldPlanDigestDeterminism
+  testArrayIndexPlanDigestDeterminism
   IO.println "Tests.Materialization.EvmPlanSchemaV1: ok"
 
 end Tests.Materialization.EvmPlanSchemaV1

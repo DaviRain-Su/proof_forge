@@ -149,6 +149,17 @@ inductive Expr where
   | fieldNeg (operand : Expr)
   /-- Full 32-byte storage load for Field (no UInt64 range gate). -/
   | fieldStorageLoad (slot : Nat)
+  /-- ArrayState: bounds-checked load from a contiguous storage slot range.
+      Yul: `if iszero(lt(index, length)) { revert(0, 0) }` then
+      `sload(add(baseSlot, index))` (narrow: mask after sload).
+      `byteWidth ∈ {1,2,4,8}`. -/
+  | indexedStorageLoad (baseSlot length : Nat) (index : Expr) (byteWidth : Nat := 8)
+  /-- ArrayState: bounds-checked select among a fixed leaf vector (runtime index
+      over non-contiguous or non-storage aggregate leaves). -/
+  | arrayIndexGet (index : Expr) (leaves : Array Expr)
+  /-- ArrayState: evaluate `index`, revert when `index ≥ length`, return index.
+      Used so runtime IndexSet rebinds can share a single bounds gate. -/
+  | boundsCheckedIndex (index : Expr) (length : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -291,14 +302,17 @@ private def evmPlanErr (message : String) : CompileError :=
 /-- EVM pilot admits anonymous UInt{8,16,32,64} + Int64 + Unit + Bool + Field
     under `pilotUintWidthPolicyEvmBody` + `pilotIntWidthPolicyI64` +
     `pilotFieldPolicyBn254`, plus **named Struct/Enum**
-    (`pilotNamedAggregateStatePolicyAdmit`, N3). Body multi-width UInt and
-    Int64 values are allowed; **top-level scalar state and ABI parameters admit
+    (`pilotNamedAggregateStatePolicyAdmit`, N3) and **anonymous fixed-length
+    Array** (`pilotContainerStatePolicyArrayOnly`, EvmIndex wave; Map/Bytes
+    stay fail closed). Body multi-width UInt and Int64 values are allowed;
+    **top-level scalar state and ABI parameters admit
     UInt{8,16,32,64}/Int64/Field** via `requirePublicUintAbiOrInt64OrField*`
-    (T8b + N2b-EVM), and **named aggregates admit UInt64/Int64 leaves only**
+    (T8b + N2b-EVM), **named aggregates admit UInt64/Int64 leaves only**
     via `requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamed*` with
-    `allowNonPublic := true` (N3). UInt128/256 and non-64 Int fail closed.
-    N2c: Principal remains fail-closed (wire identity is variable-length
-    u32-prefixed; not a 20-byte EVM address). -/
+    `allowNonPublic := true` (N3), and **Array state** flattens to contiguous
+    scalar slots (element UInt{8,16,32,64}). UInt128/256 and non-64 Int fail
+    closed. N2c: Principal remains fail-closed (wire identity is
+    variable-length u32-prefixed; not a 20-byte EVM address). -/
 private def validateEvmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult EvmTypeClosureV1 :=
   validatePilotTypeClosure evmPlanErr evmTypeClosureWording types
@@ -308,6 +322,7 @@ private def validateEvmTypeClosureV1
     (principalPolicy := pilotPrincipalPolicyNone)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (stringPolicy := pilotStringPolicyAdmit)
+    (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
 /-- Lowering-time storage + type table. Plan.storageLayout is `bindings`
     (flattened leaf slots; sourceId == slot == declaration order of leaves).
@@ -484,6 +499,66 @@ private def leafCountOfTypeV1
   let specs ← flattenTypeLeafSpecsV1 typeDecls types typeId "x"
   pure specs.size
 
+/-- ArrayState positive layout: fixed-length `Array UInt{8,16,32,64} N`
+    (`1 ≤ N`). Returns `(elementBitWidth, N)`. Map/Bytes and non-UInt
+    elements fail closed this wave. -/
+private def arrayScalarLeafLayoutV1
+    (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      let bitWidth ← match types.uintWidthOf elTid with
+        | some w =>
+            unless isEvmAbiUintWidth w do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: Array element UInt{w} is not admitted"
+            pure w
+        | none =>
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Array state element must be UInt{8,16,32,64}"
+      let n := len.toNat
+      unless n ≥ 1 do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: Array state length must be ≥ 1"
+      pure (some (bitWidth, n))
+  | some { shape := .map .., .. } =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: Map state is outside the EVM Array-only container pilot"
+  | some { shape := .bytes _, .. } =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: Bytes state is outside the EVM Array-only container pilot"
+  | _ =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Detect a contiguous storage-backed Array aggregate (all leaves are
+    `storageLoad`/`narrowStorageLoad` of consecutive slots with a uniform
+    physical width). Returns `(baseSlot, length, byteWidth)`. -/
+private def contiguousStorageLeavesV1 (leaves : Array Expr) :
+    Option (Nat × Nat × Nat) := Id.run do
+  if leaves.isEmpty then return none
+  let some head := leaves[0]? | return none
+  match head with
+  | .storageLoad s0 =>
+      let mut ok := true
+      for i in [1:leaves.size] do
+        match leaves[i]? with
+        | some (.storageLoad s) =>
+            unless s == s0 + i do ok := false
+        | _ => ok := false
+      if ok then some (s0, leaves.size, 8) else none
+  | .narrowStorageLoad w s0 =>
+      let mut ok := true
+      for i in [1:leaves.size] do
+        match leaves[i]? with
+        | some (.narrowStorageLoad w' s) =>
+            unless w' == w && s == s0 + i do ok := false
+        | _ => ok := false
+      if ok then some (s0, leaves.size, byteWidthOfBitWidth w) else none
+  | _ => none
+
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
 private def structFieldLeafRangeV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
@@ -541,41 +616,66 @@ private def makeStorageLayoutV1
       throw <| .planInvariant .evm "semantic state ids must match declaration order"
     unless isIdentifier state.name do
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
-    if types.isNamedAggregate state.typeId then
-      -- N3: flatten named Struct/Enum state to 64-bit leaf slots.
-      requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
-        (allowNonPublic := true)
-      let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
-      if leafSpecs.isEmpty then
-        throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
-      if bindings.size + leafSpecs.size > maxStorageBindings then
-        throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
-      let mut leaves : Array Nat := #[]
-      for (leafName, _) in leafSpecs do
+    match ← arrayScalarLeafLayoutV1 typeDecls types state.typeId with
+    | some (bitWidth, n) =>
+        -- ArrayState: N consecutive slots named `{state}_{i}`; element
+        -- UInt{8,16,32,64} sets physical byteWidth (one storage word each).
+        requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
+          evmPlanErr types state (allowNonPublic := true)
+        if bindings.size + n > maxStorageBindings then
+          throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
+        let byteWidth := byteWidthOfBitWidth bitWidth
+        let mut leaves : Array Nat := #[]
+        for i in [0:n] do
+          let leafName := state.name ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            throw <| .planInvariant .evm
+              s!"state name '{leafName}' is not an EVM ABI identifier"
+          let slot := bindings.size
+          bindings := bindings.push {
+            sourceId := slot
+            name := leafName
+            slot
+            byteWidth
+          }
+          leaves := leaves.push slot
+        stateLeaves := stateLeaves.push leaves
+    | none =>
+      if types.isNamedAggregate state.typeId then
+        -- N3: flatten named Struct/Enum state to 64-bit leaf slots.
+        requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedState evmPlanErr types state
+          (allowNonPublic := true)
+        let leafSpecs ← flattenTypeLeafSpecsV1 typeDecls types state.typeId state.name
+        if leafSpecs.isEmpty then
+          throw <| .planInvariant .evm s!"state '{state.name}' produced zero storage leaves"
+        if bindings.size + leafSpecs.size > maxStorageBindings then
+          throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
+        let mut leaves : Array Nat := #[]
+        for (leafName, _) in leafSpecs do
+          let slot := bindings.size
+          bindings := bindings.push {
+            sourceId := slot
+            name := leafName
+            slot
+            -- N3 aggregate leaves stay 64-bit words.
+            byteWidth := 8
+          }
+          leaves := leaves.push slot
+        stateLeaves := stateLeaves.push leaves
+      else
+        -- T8b + N2b-EVM: scalar state admits UInt{8,16,32,64}/Int64/Field
+        -- (byteWidth 1/2/4/8/32).
+        requirePublicUintAbiOrInt64OrFieldState evmPlanErr types state
+          (allowNonPublic := true)
+        let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
         let slot := bindings.size
         bindings := bindings.push {
           sourceId := slot
-          name := leafName
+          name := state.name
           slot
-          -- N3 aggregate leaves stay 64-bit words.
-          byteWidth := 8
+          byteWidth
         }
-        leaves := leaves.push slot
-      stateLeaves := stateLeaves.push leaves
-    else
-      -- T8b + N2b-EVM: scalar state admits UInt{8,16,32,64}/Int64/Field
-      -- (byteWidth 1/2/4/8/32).
-      requirePublicUintAbiOrInt64OrFieldState evmPlanErr types state
-        (allowNonPublic := true)
-      let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
-      let slot := bindings.size
-      bindings := bindings.push {
-        sourceId := slot
-        name := state.name
-        slot
-        byteWidth
-      }
-      stateLeaves := stateLeaves.push #[slot]
+        stateLeaves := stateLeaves.push #[slot]
   pure { bindings, stateLeaves, typeDecls }
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
@@ -1515,7 +1615,28 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pureFn body loads storage"
         let leaves ← findStateLeavesV1 layout stateId
-        if types.isNamedAggregate result.typeId || types.isString result.typeId then
+        if types.isContainer result.typeId then
+          -- ArrayState multi-leaf load: each leaf is a storage word at the
+          -- planned slot with element byteWidth from the layout binding.
+          let layoutInfo ← arrayScalarLeafLayoutV1 layout.typeDecls types result.typeId
+          let (bitWidth, n) ← match layoutInfo with
+            | some p => pure p
+            | none =>
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: container state load is not Array UInt"
+          unless leaves.size == n do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Array state load leaf count mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          for i in [0:leaves.size] do
+            let some slot := leaves[i]? |
+              throw <| .planInvariant .evm "Array state load slot missing"
+            leafExprs := leafExprs.push (mkStorageLoadExpr bitWidth slot)
+            leafIsInt := leafIsInt.push false
+          let value := mkAggregateValueV1 leafExprs leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
+        else if types.isNamedAggregate result.typeId || types.isString result.typeId then
           -- N3 aggregate load; per-leaf isInt restored from the flatten specs
           -- (the base N3 lowering marked every leaf UInt64, losing Int64 flags).
           let specs ← flattenTypeLeafSpecsV1 layout.typeDecls types result.typeId "state"
@@ -1816,8 +1937,12 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .evm "aggregate store leaf slot missing"
             let some expr := leafExprs[i]? |
               throw <| .planInvariant .evm "aggregate store leaf expr missing"
-            -- N3 aggregate leaves stay 64-bit storage words.
-            body := body.push (.store { slot, value := expr, byteWidth := 8 })
+            -- N3 named leaves are 64-bit; ArrayState leaves use layout byteWidth.
+            let byteWidth :=
+              match layout.bindings[slot]? with
+              | some b => b.byteWidth
+              | none => 8
+            body := body.push (.store { slot, value := expr, byteWidth })
         else
           unless leaves.size == 1 do
             throw <| .planInvariant .evm
@@ -1894,84 +2019,116 @@ private def lowerBlockInstructionsV1
         unless result.typeId == typeId do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: construct result typeId must match op typeId"
-        unless types.isNamedAggregate typeId do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: construct requires named Struct/Enum"
-        let some decl := layout.typeDecls[typeId.toNat]? |
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: construct TypeDecl missing"
-        match decl.shape with
-        | .struct fields => do
-            unless ctorIdx.toNat == 0 do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: struct construct ctorIdx must be 0"
-            unless argIds.size == fields.size do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: struct construct arity mismatch"
-            let mut leaves : Array Expr := #[]
-            let mut leafIsInt : Array Bool := #[]
-            let mut deps : Array ValueIdV1 := #[]
-            let mut depth : Nat := 1
-            let mut nodes : Nat := 1
-            for i in [0:argIds.size] do
-              let some argId := argIds[i]? |
-                throw <| .planInvariant .evm "struct construct arg missing"
-              let some field := fields[i]? |
-                throw <| .planInvariant .evm "struct construct field missing"
-              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-              let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
-              let argLeaves := arg.leafExprs
-              let argIsInt := arg.leafIsInts
-              unless argLeaves.size == expectedLeaves do
+        if types.isContainer typeId then
+          -- ArrayState: construct fixed Array UInt{w} N from N scalar args.
+          let (elBitWidth, n) ← match ← arrayScalarLeafLayoutV1 layout.typeDecls types typeId with
+            | some p => pure p
+            | none =>
                 throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: struct construct field leaf count mismatch"
-              leaves := leaves ++ argLeaves
-              leafIsInt := leafIsInt ++ argIsInt
-              deps := deps.push argId
-              depth := Nat.max depth (arg.depth + 1)
-              nodes := nodes + arg.expandedNodes
-            let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-            values := ← appendResultValueV1 typeId values result value
-        | .enum variants => do
-            let vi := ctorIdx.toNat
-            let some variant := variants[vi]? |
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: enum construct variant out of range"
-            unless argIds.size == variant.payloadTypes.size do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: enum construct arity mismatch"
-            let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
-            let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
-            let mut leafIsInt : Array Bool := #[false]
-            let mut deps : Array ValueIdV1 := #[]
-            let mut depth : Nat := 1
-            let mut nodes : Nat := 1
-            for i in [0:argIds.size] do
-              let some argId := argIds[i]? |
-                throw <| .planInvariant .evm "enum construct arg missing"
-              let some pt := variant.payloadTypes[i]? |
-                throw <| .planInvariant .evm "enum construct payload type missing"
-              let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-              let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
-              let argLeaves := arg.leafExprs
-              let argIsInt := arg.leafIsInts
-              unless argLeaves.size == expectedLeaves do
-                throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: enum construct payload leaf count mismatch"
-              leaves := leaves ++ argLeaves
-              leafIsInt := leafIsInt ++ argIsInt
-              deps := deps.push argId
-              depth := Nat.max depth (arg.depth + 1)
-              nodes := nodes + arg.expandedNodes
-            -- Pad payload region to maxPay so enum storage layout is fixed-width.
-            while leaves.size < 1 + maxPay do
-              leaves := leaves.push (.literal 0)
-              leafIsInt := leafIsInt.push false
-            let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
-            values := ← appendResultValueV1 typeId values result value
-        | _ =>
+                  "unsupported EVM semantic shape: construct admits only fixed Array UInt on EVM"
+          unless ctorIdx == 0 do
             throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: construct requires Struct or Enum shape"
+              "unsupported EVM semantic shape: Array construct ctorIdx must be 0"
+          unless argIds.size == n do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: Array construct arity mismatch"
+          let mut leafExprs : Array Expr := #[]
+          let mut leafIsInt : Array Bool := #[]
+          let mut deps : Array ValueIdV1 := #[]
+          let mut depth : Nat := 1
+          let mut nodes : Nat := 0
+          for argId in argIds do
+            let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            unless !arg.isBool && !arg.isInt && !arg.isField && !arg.isAggregate &&
+                arg.bitWidth == elBitWidth do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: Array construct args must be scalar UInt{elBitWidth}"
+            leafExprs := leafExprs.push arg.expr
+            leafIsInt := leafIsInt.push false
+            deps := deps.push argId
+            depth := Nat.max depth (arg.depth + 1)
+            nodes := nodes + arg.expandedNodes
+          let value := mkAggregateValueV1 leafExprs leafIsInt deps depth (nodes + n)
+          values := ← appendResultValueV1 typeId values result value
+        else
+          unless types.isNamedAggregate typeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: construct requires named Struct/Enum or Array"
+          let some decl := layout.typeDecls[typeId.toNat]? |
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: construct TypeDecl missing"
+          match decl.shape with
+          | .struct fields => do
+              unless ctorIdx.toNat == 0 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: struct construct ctorIdx must be 0"
+              unless argIds.size == fields.size do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: struct construct arity mismatch"
+              let mut leaves : Array Expr := #[]
+              let mut leafIsInt : Array Bool := #[]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 1
+              for i in [0:argIds.size] do
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .evm "struct construct arg missing"
+                let some field := fields[i]? |
+                  throw <| .planInvariant .evm "struct construct field missing"
+                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types field.typeId
+                let argLeaves := arg.leafExprs
+                let argIsInt := arg.leafIsInts
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: struct construct field leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                leafIsInt := leafIsInt ++ argIsInt
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | .enum variants => do
+              let vi := ctorIdx.toNat
+              let some variant := variants[vi]? |
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: enum construct variant out of range"
+              unless argIds.size == variant.payloadTypes.size do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: enum construct arity mismatch"
+              let maxPay ← enumMaxPayloadLeavesV1 layout.typeDecls types variants
+              let mut leaves : Array Expr := #[.literal (UInt64.ofNat vi)]
+              let mut leafIsInt : Array Bool := #[false]
+              let mut deps : Array ValueIdV1 := #[]
+              let mut depth : Nat := 1
+              let mut nodes : Nat := 1
+              for i in [0:argIds.size] do
+                let some argId := argIds[i]? |
+                  throw <| .planInvariant .evm "enum construct arg missing"
+                let some pt := variant.payloadTypes[i]? |
+                  throw <| .planInvariant .evm "enum construct payload type missing"
+                let arg ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+                let expectedLeaves ← leafCountOfTypeV1 layout.typeDecls types pt
+                let argLeaves := arg.leafExprs
+                let argIsInt := arg.leafIsInts
+                unless argLeaves.size == expectedLeaves do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: enum construct payload leaf count mismatch"
+                leaves := leaves ++ argLeaves
+                leafIsInt := leafIsInt ++ argIsInt
+                deps := deps.push argId
+                depth := Nat.max depth (arg.depth + 1)
+                nodes := nodes + arg.expandedNodes
+              -- Pad payload region to maxPay so enum storage layout is fixed-width.
+              while leaves.size < 1 + maxPay do
+                leaves := leaves.push (.literal 0)
+                leafIsInt := leafIsInt.push false
+              let value := mkAggregateValueV1 leaves leafIsInt deps depth nodes
+              values := ← appendResultValueV1 typeId values result value
+          | _ =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: construct requires Struct or Enum shape"
     | .fieldGet baseId fieldIndex, some result => do
         let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
         unless base.isAggregate do
@@ -2169,12 +2326,120 @@ private def lowerBlockInstructionsV1
               bitWidth := 64
             }
         values := ← appendResultValueV1 result.typeId values result value
-    | .indexGet .., some _ =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: IndexGet is outside the EVM named-aggregate pilot (no Array/Map/Bytes state)"
-    | .indexSet .., some _ =>
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: IndexSet is outside the EVM named-aggregate pilot (no Array/Map/Bytes state)"
+    | .indexGet baseId idxId, some result => do
+        let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: IndexGet base must be an Array aggregate"
+        let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
+        unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Array IndexGet index must be unsigned integer"
+        -- Element type must be admitted UInt width matching the result.
+        let elBitWidth ← match types.uintWidthOf result.typeId with
+          | some w =>
+              unless isEvmAbiUintWidth w do
+                throw <| .planInvariant .evm
+                  s!"unsupported EVM semantic shape: Array IndexGet result UInt{w} is not admitted"
+              pure w
+          | none =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Array IndexGet result must be UInt{8,16,32,64}"
+        let leaves := base.leafExprs
+        let valueExpr ← match idx.expr with
+          | .literal n =>
+              let i := n.toNat
+              unless i < leaves.size do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: Array IndexGet index out of range"
+              match leaves[i]? with
+              | some leaf => pure leaf
+              | none =>
+                  throw <| .planInvariant .evm "Array IndexGet leaf missing"
+          | _ =>
+              -- Runtime index: prefer contiguous storage → indexedStorageLoad
+              -- (Yul `sload(add(base,idx))` + bounds guard); otherwise
+              -- bounds-checked leaf select.
+              match contiguousStorageLeavesV1 leaves with
+              | some (baseSlot, length, byteWidth) =>
+                  pure (.indexedStorageLoad baseSlot length idx.expr byteWidth)
+              | none =>
+                  pure (.arrayIndexGet idx.expr leaves)
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := valueExpr
+          depth := Nat.max base.depth idx.depth + 1
+          expandedNodes := base.expandedNodes + idx.expandedNodes + 1
+          dependencies := #[baseId, idxId]
+          isBool := false
+          isInt := false
+          isField := false
+          bitWidth := elBitWidth
+        }
+    | .indexSet baseId idxId valueId, some result => do
+        let base ← currentValueWithArmsV1 values paramCount segmentStart armReadables baseId
+        unless base.isAggregate do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: IndexSet base must be an Array aggregate"
+        unless types.isContainer result.typeId do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: IndexSet result must be Array container"
+        let idx ← currentValueWithArmsV1 values paramCount segmentStart armReadables idxId
+        unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Array IndexSet index must be unsigned integer"
+        let val ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        unless !val.isBool && !val.isInt && !val.isField && !val.isAggregate do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Array IndexSet value must be scalar UInt"
+        let layoutInfo ← arrayScalarLeafLayoutV1 layout.typeDecls types result.typeId
+        let (elBitWidth, n) ← match layoutInfo with
+          | some p => pure p
+          | none =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: IndexSet result is not Array UInt"
+        unless base.leafExprs.size == n do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: Array IndexSet base leaf count mismatch"
+        unless val.bitWidth == elBitWidth do
+          throw <| .planInvariant .evm
+            s!"unsupported EVM semantic shape: Array IndexSet value width {val.bitWidth} must match element UInt{elBitWidth}"
+        let leaves := base.leafExprs
+        let mut outLeaves : Array Expr := #[]
+        let mut outIsInt : Array Bool := #[]
+        match idx.expr with
+        | .literal lit =>
+            let i := lit.toNat
+            unless i < leaves.size do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: Array IndexSet index out of range"
+            for j in [0:leaves.size] do
+              if j == i then
+                outLeaves := outLeaves.push val.expr
+              else
+                let some e := leaves[j]? |
+                  throw <| .planInvariant .evm "Array IndexSet leaf missing"
+                outLeaves := outLeaves.push e
+              outIsInt := outIsInt.push false
+        | _ =>
+            -- Runtime index: bounds-check once, then rebind every leaf via
+            -- arithmetic select `eq(idx,j) ? value : base[j]`.
+            let guarded := Expr.boundsCheckedIndex idx.expr leaves.size
+            for j in [0:leaves.size] do
+              let some baseLeaf := leaves[j]? |
+                throw <| .planInvariant .evm "Array IndexSet leaf missing"
+              let jLit := Expr.literal (UInt64.ofNat j)
+              let isHit := Expr.compare .eq guarded jLit
+              let isMiss := Expr.boolNot isHit
+              let chosen :=
+                Expr.checkedAdd
+                  (Expr.checkedMul isHit val.expr)
+                  (Expr.checkedMul isMiss baseLeaf)
+              outLeaves := outLeaves.push chosen
+              outIsInt := outIsInt.push false
+        let value := mkAggregateValueV1 outLeaves outIsInt #[baseId, idxId, valueId]
+          (Nat.max (Nat.max base.depth idx.depth) val.depth + 1)
+          (base.expandedNodes + idx.expandedNodes + val.expandedNodes + 1)
+        values := ← appendResultValueV1 result.typeId values result value
     -- N5: Op.Commit is label-only identity — reuse the operand's Plan value
     -- (no new Expr tag; PlanSchema/ValidatePlan stay frozen). Cryptographic
     -- commitment realization is a later capability.
