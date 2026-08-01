@@ -2803,5 +2803,37 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N5 context {target} message must cite ContextRead boundary, got {e.render}"
 
+  -- B-ctx: context.caller (Principal ContextRead) also Plan-fail-closed on
+  -- every Phase-1 target (no address/host identity ABI this slice).
+  let callerSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxCaller where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry who(a : Principal) : Bool do\n" ++
+    "    return context.caller == a\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let callerV1 ← match ← session.selectProgramV1 callerSource
+      "<targets-b-ctx-caller>" "Examples.CtxCaller" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"B-ctx caller select: {e.render}"
+  let callerCompiled ← liftResult <| Compiler.compileValidatedSourceV1 callerV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    match materializeSelected target callerCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"
+    | .error e =>
+        expect ((e.render).contains "ContextRead" ||
+            (e.render).contains "context" ||
+            (e.render).contains "caller" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "Principal")
+          s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
+
 
 end Tests.Materialization
