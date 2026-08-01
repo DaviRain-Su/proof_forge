@@ -1870,7 +1870,7 @@ unsafe def run : IO Unit := do
   | _ => throw <| IO.userError "Solana typed IR must reject missing account/data/init checks"
   let forgedCurrentOperations := #[
     Targets.Solana.Operation.literal 0 99,
-    Targets.Solana.Operation.setReturnData 0
+    Targets.Solana.Operation.setReturnData 8 0
   ]
   let forgedCurrentHandler := {
     solanaIR.handlers[2]! with operations := forgedCurrentOperations
@@ -2043,21 +2043,21 @@ unsafe def run : IO Unit := do
       .checkedAdd 2 0 1,
       .storeState nearField 2,
       .loadState 3 nearField,
-      .setReturnData 3
+      .setReturnData 8 3
     ])
     "NEAR mutable recipe must preserve checked Accumulator statement order"
   expect (nearIR.methods[2]!.operations == #[
       .checkInputLen 0,
       .requireLayout nearMarker nearPlan.storage.markerValue,
       .loadState 0 nearField,
-      .setReturnData 0
+      .setReturnData 8 0
     ])
     "NEAR view recipe must require empty input/layout and contain no deposit or write operation"
   let forgedNearOperations := #[
     Targets.Near.Operation.checkInputLen 0,
     .requireLayout nearMarker nearPlan.storage.markerValue,
     .literal 0 99,
-    .setReturnData 0
+    .setReturnData 8 0
   ]
   let forgedNearMethod := {
     nearIR.methods[2]! with operations := forgedNearOperations

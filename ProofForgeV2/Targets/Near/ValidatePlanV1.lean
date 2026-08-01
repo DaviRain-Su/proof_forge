@@ -336,9 +336,11 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       throw <| .planInvariant .near "initializer export identity is not canonical"
   else if method.mode == .initialize then
     throw <| .planInvariant .near "entry method cannot use initialize mode"
-  else unless method.resultKind == .uint64 || method.resultKind == .bool do
+  else unless method.resultKind == .uint64 || method.resultKind == .bool ||
+      method.resultKind == .int64 || method.resultKind == .uint8 ||
+      method.resultKind == .uint16 || method.resultKind == .uint32 do
     throw <| .planInvariant .near
-      s!"method '{method.name}' result kind must be UInt64 or Bool"
+      s!"method '{method.name}' result kind must be UInt8/16/32/64, Int64, or Bool"
   unless method.depositPolicy ==
       (if method.mode == .view then .queryOnly else .requireZero) do
     throw <| .planInvariant .near s!"method '{method.name}' deposit policy is not canonical"

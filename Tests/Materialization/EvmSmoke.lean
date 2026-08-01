@@ -1866,27 +1866,57 @@ private unsafe def testInt8ParamRejected : IO Unit := do
       | .ok _ =>
           throw <| IO.userError "EVM plan must reject Int8 param"
 
-/-- T8b-EVM: entry result UInt8 remains fail closed (result multi-width out of scope). -/
-private unsafe def testUInt8ResultRejected : IO Unit := do
+/-- T9a-EVM: entry/view may return UInt8/16/32; ABI outputs and resultKind match. -/
+private unsafe def testNarrowResultAdmitted : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let sourceText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program U8Result where\n" ++
-    "  entry run(x : UInt8) : UInt8 do\n" ++
+    "program NarrowResult where\n" ++
+    "  entry get8(x : UInt8) : UInt8 do\n" ++
+    "    return x\n" ++
+    "  entry get16(x : UInt16) : UInt16 do\n" ++
+    "    return x\n" ++
+    "  entry get32(x : UInt32) : UInt32 do\n" ++
     "    return x\n"
-  let source ← liftResult "load U8Result" (← session.selectProgramV1
-    sourceText "<evm-u8-result>" "Tests.EvmU8Result" none)
+  let source ← liftResult "load NarrowResult" (← session.selectProgramV1
+    sourceText "<evm-narrow-result>" "Tests.EvmNarrowResult" none)
+  let compiled ← liftResult "compile NarrowResult"
+    (Compiler.compileValidatedSourceV1 source)
+  let plan ← liftResult "plan NarrowResult" (planEvm compiled)
+  expect (plan.entries.map (·.resultKind) == #[.uint8, .uint16, .uint32])
+    "T9a: EVM entry resultKinds must be uint8/16/32"
+  let output ← liftResult "materialize NarrowResult" <|
+    materializeSelected TargetId.evm compiled
+  let abi ← match (MaterializedArtifactsV1.filesOf output).find? (·.path.endsWith ".abi.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "NarrowResult missing abi"
+  expect (abi.contains "\"type\":\"uint8\"" &&
+      abi.contains "\"type\":\"uint16\"" &&
+      abi.contains "\"type\":\"uint32\"")
+    "T9a: EVM ABI must declare uint8/16/32 outputs"
+
+/-- T9a-EVM: UInt128 entry result remains fail closed. -/
+private unsafe def testUInt128ResultRejected : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let sourceText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U128Result where\n" ++
+    "  entry run(x : UInt64) : UInt128 do\n" ++
+    "    return 0\n"
+  let source ← liftResult "load U128Result" (← session.selectProgramV1
+    sourceText "<evm-u128-result>" "Tests.EvmU128Result" none)
   match Compiler.compileValidatedSourceV1 source with
   | .error _ => pure ()
   | .ok compiled =>
       match planEvm compiled with
       | .error e =>
-          expect (e.render.contains "UInt64" || e.render.contains "return" ||
-              e.render.contains "result" || e.render.contains "Bool")
-            s!"UInt8 entry result must fail at EVM plan, got {e.render}"
+          expect (e.render.contains "UInt" || e.render.contains "return" ||
+              e.render.contains "result" || e.render.contains "supported")
+            s!"UInt128 entry result must fail at EVM plan, got {e.render}"
       | .ok _ =>
-          throw <| IO.userError "EVM plan must reject UInt8 entry result"
+          throw <| IO.userError "EVM plan must reject UInt128 entry result"
 
 /-- Unit/void entry (`entry run() do`, no result type) fails closed at the EVM
     Plan seam: makeEntryV1 rejects non-UInt64/Bool entry results. -/
@@ -2508,7 +2538,8 @@ unsafe def run : IO Unit := do
   testAbiMultiWidthStateParam
   testUInt128StateRejected
   testInt8ParamRejected
-  testUInt8ResultRejected
+  testNarrowResultAdmitted
+  testUInt128ResultRejected
   testVoidEntryRejected
   testMultipleEvents
   testZeroArgRevert

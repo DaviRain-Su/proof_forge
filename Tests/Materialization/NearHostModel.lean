@@ -557,7 +557,7 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         .ok { machine with
           storage := storagePut machine.storage marker.key (encodeUInt64LE value) }
-  | .setReturnData source => do
+  | .setReturnData _byteLen source => do
       if machine.returned.isSome then
         modelError "return data was already set"
       let value ← readTemp machine source
@@ -875,7 +875,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .storeState _ _ => "storeState"
     | .narrowStoreState _ _ _ => "narrowStoreState"
     | .setLayout _ _ => "setLayout"
-    | .setReturnData _ => "setReturnData"
+    | .setReturnData _ _ => "setReturnData"
     | .compare _ _ _ op =>
         match op with
         | .eq => "compare.eq"
@@ -2842,12 +2842,12 @@ private unsafe def testNarrowAbiNegatives
       "    count := i\n\n" ++
       "  entry ping(x : Int8) : UInt64 do\n" ++
       "    return count\n"),
-    ("uint8-result", "Examples.U8Result",
-      "program U8Result where\n" ++
+    ("uint128-result", "Examples.U128Result",
+      "program U128Result where\n" ++
       "  state count : UInt64\n\n" ++
       "  init(i : UInt64) do\n" ++
       "    count := i\n\n" ++
-      "  entry ping(x : UInt64) : UInt8 do\n" ++
+      "  entry ping(x : UInt64) : UInt128 do\n" ++
       "    return 0\n")
   ]
   for item in cases do
@@ -2870,7 +2870,68 @@ private unsafe def testNarrowAbiNegatives
             | .error _ => pure ()
             | .ok _ =>
                 throw <| IO.userError
-                  s!"{label}: must fail closed for NEAR T8b ABI multi-width"
+                  s!"{label}: must fail closed for NEAR T8b/T9a width bounds"
+
+/-- T9a-NEAR: entry results UInt8/16/32 admitted; ABI + value_return lengths. -/
+private unsafe def testNarrowResultProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowResult where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry get8(x : UInt8) : UInt8 do\n" ++
+    "    return x\n\n" ++
+    "  entry get16(x : UInt16) : UInt16 do\n" ++
+    "    return x\n\n" ++
+    "  entry get32(x : UInt32) : UInt32 do\n" ++
+    "    return x\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-narrow-result>" "Examples.NarrowResult" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.entries.map (·.resultKind) ==
+      #[.uint8, .uint16, .uint32, .uint64])
+    "T9a: NEAR resultKinds must be uint8/16/32/64"
+  liftResult <| Targets.Near.validatePlan plan
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  liftResult <| Targets.Near.validateIR ir
+  let get8IR ← findMethod ir "get8"
+  expect (get8IR.operations.any fun
+    | .setReturnData 1 _ => true
+    | _ => false)
+    "T9a: get8 must emit setReturnData byteLen=1"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "narrow-result init" <|
+    execute (← findMethod ir "init") empty (encodeUInt64LE 7) zero
+  let (_, ret8, _) ← requireSuccess "narrow-result get8" <|
+    execute get8IR storage0 (encodeUInt64LE 9) zero
+  expect (ret8 == some 9)
+    s!"T9a: get8 must return 9, got {ret8}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some abiFile := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "narrow-result: missing near-abi.json"
+  expectContains abiFile.contents "\"u8-le\"" "narrow-result ABI u8-le"
+  expectContains abiFile.contents "\"u16-le\"" "narrow-result ABI u16-le"
+  expectContains abiFile.contents "\"u32-le\"" "narrow-result ABI u32-le"
+  let some watFile := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "narrow-result: missing .wat"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 1)" "narrow-result WAT return len 1"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 2)" "narrow-result WAT return len 2"
+  expectContains watFile.contents
+    "(call $pf_value_return (i64.const 4)" "narrow-result WAT return len 4"
 
 /-- Host-model Bool `!` execution pin (boolNot). Plan/WAT already lower `!`;
     this closes the host-model execution gap left by &&/||-only traces. -/
@@ -3347,6 +3408,7 @@ unsafe def run : IO Unit := do
   -- T8b-NEAR: state/param UInt{8,16,32} ABI multi-width.
   testNarrowAbiProductPath session
   testNarrowAbiNegatives session
+  testNarrowResultProductPath session
   -- T8c-NEAR: body multi-width UInt8 add success + overflow.
   testNarrowBodyProductPath session
   IO.println "Tests.Materialization.NearHostModel: ok"

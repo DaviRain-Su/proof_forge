@@ -256,7 +256,7 @@ private partial def checkPlanStatementsV1
         if isConstructor then
           throw <| .planInvariant .evm "constructor cannot return a value"
         match resultKind with
-        | .uint64 | .int64 | .field =>
+        | .uint64 | .uint32 | .uint16 | .uint8 | .int64 | .field =>
             unless exprIsUInt64CompatibleV1 fns value do
               throw <| .planInvariant .evm
                 s!"{owner} resultKind integer/Field is inconsistent with Bool return expression"

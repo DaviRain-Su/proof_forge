@@ -2522,7 +2522,45 @@ private unsafe def checkNarrowAbiProduct : IO Unit := do
       counterIr.sourcePlan.states[0]!.inputType == .u64)
     "narrow-abi: Counter state must remain u64"
 
-/-- T8b-Noir negatives: UInt128 state, Int8 param, narrow entry result fail closed.
+
+/-- T9a-Noir: entry results UInt8/16/32 admitted as native InputType. -/
+private unsafe def checkNarrowResultProduct : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowResult where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry get8(x : UInt8) : UInt8 do\n" ++
+    "    return x\n\n" ++
+    "  entry get16(x : UInt16) : UInt16 do\n" ++
+    "    return x\n\n" ++
+    "  entry get32(x : UInt32) : UInt32 do\n" ++
+    "    return x\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1
+    text "<noir-narrow-result>" "Examples.NarrowResult" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Noir.planFromCapability capability
+  let get8 := plan.relations.find? (·.name == "get8")
+  let get16 := plan.relations.find? (·.name == "get16")
+  let get32 := plan.relations.find? (·.name == "get32")
+  expect (
+      (match get8 with | some r => Targets.Noir.resultInputTypeOf r == .u8 | none => false) &&
+      (match get16 with | some r => Targets.Noir.resultInputTypeOf r == .u16 | none => false) &&
+      (match get32 with | some r => Targets.Noir.resultInputTypeOf r == .u32 | none => false))
+    "T9a: Noir result InputType must be u8/u16/u32"
+  liftResult <| Targets.Noir.validatePlan plan
+
+/-- T8b/T9a-Noir negatives: UInt128 state/result, Int8 param fail closed.
     Field state remains admitted (coexists with narrow UInt). -/
 private unsafe def checkNarrowAbiNegatives : IO Unit := do
   let cases : Array (String × String × String) := #[
@@ -2540,12 +2578,12 @@ private unsafe def checkNarrowAbiNegatives : IO Unit := do
       "    count := i\n\n" ++
       "  entry ping(x : Int8) : UInt64 do\n" ++
       "    return count\n"),
-    ("uint8-result", "Examples.U8Result",
-      "program U8Result where\n" ++
+    ("uint128-result", "Examples.U128Result",
+      "program U128Result where\n" ++
       "  state count : UInt64\n\n" ++
       "  init(i : UInt64) do\n" ++
       "    count := i\n\n" ++
-      "  entry ping(x : UInt64) : UInt8 do\n" ++
+      "  entry ping(x : UInt64) : UInt128 do\n" ++
       "    return 0\n")
   ]
   let session ← Tests.Language.ParserSession.shared
@@ -2569,7 +2607,7 @@ private unsafe def checkNarrowAbiNegatives : IO Unit := do
             | .error _ => pure ()
             | .ok _ =>
                 throw <| IO.userError
-                  s!"{label}: must fail closed for Noir T8b ABI multi-width"
+                  s!"{label}: must fail closed for Noir T8b/T9a width bounds"
 
 /-- Dual-state private-write program: public count + private secret. Public
     return flows only from public count (disclosure-safe). -/
@@ -2810,6 +2848,7 @@ unsafe def run : IO Unit := do
   checkBoolResultPureFnProduct
   checkOmittedTypeLetProduct
   checkNarrowAbiProduct
+  checkNarrowResultProduct
   checkNarrowAbiNegatives
 
 end Tests.Materialization.NoirRelationModel

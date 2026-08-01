@@ -43,9 +43,17 @@ private def solanaCapability (compiled : CompiledSemanticV1) :
   let selection ← resolveBuildSelectionV1 TargetId.solana none
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
+private def planSolana (compiled : CompiledSemanticV1) : CompileResult Plan := do
+  let capability ← solanaCapability compiled
+  planFromCapability capability
+
 private def irSolana (compiled : CompiledSemanticV1) : CompileResult IR := do
   let capability ← solanaCapability compiled
   irFromCapability capability
+
+private def asmSolana (compiled : CompiledSemanticV1) : CompileResult String := do
+  let ir ← irSolana compiled
+  emitSbpfAsmV1 ir
 
 private def filesSolana (compiled : CompiledSemanticV1) : CompileResult (Array OutputFile) := do
   let capability ← solanaCapability compiled
@@ -647,29 +655,64 @@ private unsafe def testUInt128StateRejected
       | .ok _ =>
           throw <| IO.userError "abi-mw: UInt128 state must fail closed on Solana"
 
-/-- T8b: UInt8 entry result fail closed (result multi-width out of scope). -/
-private unsafe def testNarrowResultRejected
+/-- T9a: UInt8/16/32 entry results admitted; return-data lengths 1/2/4 in SBPF. -/
+private unsafe def testNarrowResultAdmitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "NarrowRet" <|
     "  state count : UInt64\n\n" ++
     "  init(i : UInt64) do\n" ++
     "    count := i\n\n" ++
-    "  entry run() : UInt8 do\n" ++
+    "  entry get8() : UInt8 do\n" ++
     "    return 1\n\n" ++
+    "  entry get16() : UInt16 do\n" ++
+    "    return 2\n\n" ++
+    "  entry get32() : UInt32 do\n" ++
+    "    return 3\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let validated ← liftResult (← session.selectProgramV1 source
     "<solana-narrow-ret>" "Examples.NarrowRet" none)
+  let compiled ← liftResult (Compiler.compileValidatedSourceV1 validated)
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.entries.map (·.resultKind) == #[.u8, .u16, .u32, .u64])
+    "T9a: Solana resultKinds must be u8/u16/u32/u64"
+  let ir ← liftResult (irSolana compiled)
+  let get8 := ir.handlers.find? (·.name == "get8")
+  let get16 := ir.handlers.find? (·.name == "get16")
+  let get32 := ir.handlers.find? (·.name == "get32")
+  expect (
+      (match get8 with | some h => h.operations.any (fun | .setReturnData 1 _ => true | _ => false) | none => false) &&
+      (match get16 with | some h => h.operations.any (fun | .setReturnData 2 _ => true | _ => false) | none => false) &&
+      (match get32 with | some h => h.operations.any (fun | .setReturnData 4 _ => true | _ => false) | none => false))
+    "T9a: Solana IR setReturnData byteLen must be 1/2/4 for UInt8/16/32"
+  let asm ← liftResult (asmSolana compiled)
+  expect (asm.contains "lddw r2, 1" && asm.contains "lddw r2, 2" &&
+      asm.contains "lddw r2, 4" && asm.contains "call sol_set_return_data")
+    "T9a: SBPF asm must set return-data lengths 1/2/4"
+
+/-- T9a: UInt128 entry result remains fail closed on Solana. -/
+private unsafe def testUInt128ResultRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrapProgram "U128Ret" <|
+    "  state count : UInt64\n\n" ++
+    "  init(i : UInt64) do\n" ++
+    "    count := i\n\n" ++
+    "  entry run() : UInt128 do\n" ++
+    "    return 0\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let validated ← liftResult (← session.selectProgramV1 source
+    "<solana-u128-ret>" "Examples.U128Ret" none)
   match Compiler.compileValidatedSourceV1 validated with
   | .error _ => pure ()
   | .ok compiled =>
       match irSolana compiled with
       | .error e =>
-          expect (e.render.contains "return" || e.render.contains "UInt64" ||
-              e.render.contains "narrow" || e.render.contains "result")
-            s!"abi-mw: narrow result error should mention return width, got {e.render}"
+          expect (e.render.contains "return" || e.render.contains "UInt" ||
+              e.render.contains "result" || e.render.contains "supported")
+            s!"T9a: UInt128 result error should mention return width, got {e.render}"
       | .ok _ =>
-          throw <| IO.userError "abi-mw: UInt8 entry result must fail closed"
+          throw <| IO.userError "T9a: UInt128 entry result must fail closed"
 
 /-- Source-level end-to-end covering mul/if/for/fn/revert/emit together. -/
 private unsafe def testSourceE2E
@@ -728,7 +771,8 @@ unsafe def run : IO Unit := do
   testNarrowWidthOps session
   testAbiMultiWidthStateParam session
   testUInt128StateRejected session
-  testNarrowResultRejected session
+  testNarrowResultAdmitted session
+  testUInt128ResultRejected session
   testSourceE2E session
   IO.println "Tests.Targets.SolanaAsmV1: ok"
 

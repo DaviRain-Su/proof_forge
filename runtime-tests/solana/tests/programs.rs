@@ -1134,3 +1134,129 @@ fn narrow_abi_discriminator_differs_from_u64() {
     let init = instruction_discriminator("initialize", 1);
     assert_eq!(init.len(), 16);
 }
+
+// ─── NarrowResult (T9a entry/view UInt8/16/32 return lengths) ───────────────
+
+fn assert_narrow_result_plan() {
+    assert_discriminators_match_plan_widths(
+        &fixture_plan_path("NarrowResult"),
+        &[
+            ("initialize", vec![8]),
+            ("get8", vec![1]),
+            ("get16", vec![2]),
+            ("get32", vec![4]),
+            ("peek", vec![]),
+        ],
+    );
+}
+
+#[test]
+fn narrow_result_get8_returns_one_byte() {
+    assert_narrow_result_plan();
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowResult");
+    let state_key = Pubkey::new_unique();
+
+    let init_disc = instruction_discriminator_with_widths("initialize", &[8]);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &init_disc, &[7u64], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, vec![0u8; exact_data_len(1)]),
+        )],
+        &[Check::success()],
+    );
+
+    let get8_disc = instruction_discriminator_with_widths("get8", &[1]);
+    let x: u8 = 0xab;
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &get8_disc,
+            &[u64::from(x)],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, state_data(&fields_with_widths(&[("count", 8)]), true, &[7])),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&[x]),
+        ],
+    );
+}
+
+#[test]
+fn narrow_result_get16_returns_two_bytes() {
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowResult");
+    let state_key = Pubkey::new_unique();
+    let init_disc = instruction_discriminator_with_widths("initialize", &[8]);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &init_disc, &[1u64], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, vec![0u8; exact_data_len(1)]),
+        )],
+        &[Check::success()],
+    );
+    let get16_disc = instruction_discriminator_with_widths("get16", &[2]);
+    let x: u16 = 0xabcd;
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &get16_disc,
+            &[u64::from(x)],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, state_data(&fields_with_widths(&[("count", 8)]), true, &[1])),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&x.to_le_bytes()),
+        ],
+    );
+}
+
+#[test]
+fn narrow_result_get32_returns_four_bytes() {
+    let program_id = Pubkey::new_unique();
+    let mollusk = make_fixture_mollusk(&program_id, "NarrowResult");
+    let state_key = Pubkey::new_unique();
+    let init_disc = instruction_discriminator_with_widths("initialize", &[8]);
+    mollusk.process_and_validate_instruction(
+        &build_ix(program_id, state_key, &init_disc, &[1u64], true, true),
+        &[(
+            state_key,
+            state_account(&program_id, vec![0u8; exact_data_len(1)]),
+        )],
+        &[Check::success()],
+    );
+    let get32_disc = instruction_discriminator_with_widths("get32", &[4]);
+    let x: u32 = 0xabcd_ef01;
+    mollusk.process_and_validate_instruction(
+        &build_ix(
+            program_id,
+            state_key,
+            &get32_disc,
+            &[u64::from(x)],
+            true,
+            false,
+        ),
+        &[(
+            state_key,
+            state_account(&program_id, state_data(&fields_with_widths(&[("count", 8)]), true, &[1])),
+        )],
+        &[
+            Check::success(),
+            Check::return_data(&x.to_le_bytes()),
+        ],
+    );
+}

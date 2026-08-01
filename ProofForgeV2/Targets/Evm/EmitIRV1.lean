@@ -947,6 +947,9 @@ private def resultKindAbiType (kind : ResultKind) : String :=
   | .bool => "bool"
   | .int64 => "int64"
   | .field => "uint256"
+  | .uint8 => "uint8"
+  | .uint16 => "uint16"
+  | .uint32 => "uint32"
 
 private def renderEntryAbi (entry : Entry) : String :=
   let mutability := match entry.mutability with

@@ -216,13 +216,17 @@ inductive Statement where
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a NEAR method export. Init is always unit; entry/view may be
-UInt64 or Bool. Wire encoding for both scalar returns is still 8-byte little-
-endian i64 (Bool is 0/1); the ABI JSON result type distinguishes them. -/
+UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
+i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
+`returns` distinguishes the declared type. -/
 inductive MethodResultKind where
   | unit
   | uint64
   | bool
   | int64
+  | uint8
+  | uint16
+  | uint32
   deriving BEq, Inhabited, Repr
 
 structure Method where
@@ -1979,15 +1983,22 @@ private def makeEntryV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .near s!"entry '{name}' does not return a public result"
   let (resultKind, expectedReturn) ←
-    if callable.result.typeId == types.uint64TypeId then
-      pure (MethodResultKind.uint64, some NearValueKindV1.uint64)
-    else if types.int64TypeId == some callable.result.typeId then
-      pure (MethodResultKind.int64, some NearValueKindV1.int64)
-    else if types.boolTypeId == some callable.result.typeId then
-      pure (MethodResultKind.bool, some NearValueKindV1.bool)
-    else
-      throw <| .planInvariant .near
-        s!"entry '{name}' does not return public UInt64 or Bool"
+    match types.uintWidthOf callable.result.typeId with
+    | some 8 => pure (MethodResultKind.uint8, some NearValueKindV1.uint8)
+    | some 16 => pure (MethodResultKind.uint16, some NearValueKindV1.uint16)
+    | some 32 => pure (MethodResultKind.uint32, some NearValueKindV1.uint32)
+    | some 64 => pure (MethodResultKind.uint64, some NearValueKindV1.uint64)
+    | some _ =>
+        throw <| .planInvariant .near
+          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+    | none =>
+        if types.int64TypeId == some callable.result.typeId then
+          pure (MethodResultKind.int64, some NearValueKindV1.int64)
+        else if types.boolTypeId == some callable.result.typeId then
+          pure (MethodResultKind.bool, some NearValueKindV1.bool)
+        else
+          throw <| .planInvariant .near
+            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

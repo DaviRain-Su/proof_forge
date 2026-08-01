@@ -188,7 +188,7 @@ private unsafe def testGuardedCounterIR
       .checkedSub 5 3 4 overflow,
       .storeState 0 8 5,
       .loadState 6 0 8,
-      .setReturnData 6])
+      .setReturnData 8 6])
     "decrement IR must lower compare/assert then checked-sub store with dense temps"
   liftResult <| validateIR ir
   -- Deterministic rebuild identity.
@@ -266,7 +266,7 @@ private unsafe def testAllComparisonOps
     expect (checkIR.operations[opBase + 3]? == some (.assert destCmp assertErr))
       s!"IR [{opBase}+3] assert %{destCmp}"
   expect (checkIR.operations[24]? == some (.loadParam 18 8) &&
-      checkIR.operations[25]? == some (.setReturnData 18))
+      checkIR.operations[25]? == some (.setReturnData 8 18))
     "after six assert segments, return must reload param a into %{18}"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "AllCompares.sbpf-plan"
@@ -451,7 +451,7 @@ private unsafe def testBoolPredicateEndToEnd
   let mut sawU64Return := false
   for op in bumpIR.operations do
     match op with
-    | .setReturnData _ => sawU64Return := true
+    | .setReturnData _ _ => sawU64Return := true
     | .setReturnDataBool _ =>
         throw <| IO.userError "bump must not emit setReturnDataBool"
     | _ => pure ()
@@ -1075,13 +1075,13 @@ private unsafe def testFnLocalCall
       .loadParam 0 8,
       .loadParam 1 8,
       .checkedAdd 2 0 1 overflow,
-      .setReturnData 2])
+      .setReturnData 8 2])
     "double IR: load x twice, checkedAdd, setReturnData (rendered as ret)"
   expect (ir.fns[1]!.operations == #[
       .loadParam 0 8,
       .callFn 0 1 #[0],
       .callFn 0 2 #[1],
-      .setReturnData 2])
+      .setReturnData 8 2])
     "quadruple IR: two callFn double with dense destinations"
   let bumpIR ← findHandlerIR ir "bump"
   expect (bumpIR.operations == #[
@@ -1092,7 +1092,7 @@ private unsafe def testFnLocalCall
       .storeState 0 8 3,
       .loadState 4 0 8,
       .callFn 1 5 #[4],
-      .setReturnData 5])
+      .setReturnData 8 5])
     "bump IR must call double then quadruple with dense temps"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "FnCall.sbpf-plan"
@@ -1188,13 +1188,13 @@ private unsafe def testArithOps
       .checkedAdd 8 4 7 overflow,
       .storeState 0 8 8,
       .loadState 9 0 8,
-      .setReturnData 9])
+      .setReturnData 8 9])
     "scale IR must lower mul/div/mod/add with dense temp numbering"
   let bitsIR ← findHandlerIR ir "bits"
   expect (bitsIR.operations == #[
       .loadParam 0 8,
       .bitNot 1 0,
-      .setReturnData 1])
+      .setReturnData 8 1])
     "bits IR must lower bitNot with dense temps"
   let neg5IR ← findHandlerIR ir "neg5"
   expect (neg5IR.operations == #[
@@ -1405,7 +1405,7 @@ private unsafe def testShiftBitwiseLogical
       .bitOr 10 4 9,
       .storeState 0 8 10,
       .loadState 11 0 8,
-      .setReturnData 11])
+      .setReturnData 8 11])
     "shiftMask IR must lower shifts/bitwise with dense temps and dual shift guards"
   let strictOrIR ← findHandlerIR ir "strictOr"
   expect (strictOrIR.operations == #[
@@ -1427,7 +1427,7 @@ private unsafe def testShiftBitwiseLogical
       .literal 2 32,
       .narrowCheckedAdd 32 3 1 2 overflow,
       .checkedShr 4 0 3 shiftErr,
-      .setReturnData 4])
+      .setReturnData 8 4])
     "bigShift IR must lower UInt32 count narrowCheckedAdd then checkedShr with invalidShift"
   let files ← liftResult <| filesSolana compiled
   let planText ← findFile files "BitLogic.sbpf-plan"

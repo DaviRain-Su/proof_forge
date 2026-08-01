@@ -66,11 +66,15 @@ inductive HandlerMode where
   deriving BEq, Inhabited, Repr
 
 /-- Entry/view return ABI kind. Init handlers ignore this field (IDL `null`).
-    Bool is a single-byte 0/1 return-data payload; UInt64/Int64 are 8-byte LE. -/
+    Bool is a single-byte 0/1 return-data payload; UInt64/Int64 are 8-byte LE;
+    UInt{8,16,32} are 1/2/4-byte LE (T9a). -/
 inductive ResultKind where
   | u64
   | bool
   | i64
+  | u8
+  | u16
+  | u32
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -1847,6 +1851,7 @@ private partial def emitRegionV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
+    (expectedReturnBitWidth : Nat)
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -1895,11 +1900,11 @@ private partial def emitRegionV1
               (if expectsBoolReturn then
                 "unsupported Solana semantic shape: Bool entry/view must return a Bool value"
                else
-                "unsupported Solana semantic shape: UInt64 entry/view must not return a Bool value")
-          -- ABI returns are UInt64/Bool/Int64 only; narrow body values cannot escape.
-          unless expectsBoolReturn || returned.bitWidth == 64 do
+                "unsupported Solana semantic shape: integer entry/view must not return a Bool value")
+          -- T9a: entry/view may return UInt{8,16,32,64}/Int64/Bool; width must match.
+          unless expectsBoolReturn || returned.bitWidth == expectedReturnBitWidth do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: entry/view return must be UInt64 or Int64 (not narrow body width)"
+              s!"unsupported Solana semantic shape: entry/view return bitWidth must be {expectedReturnBitWidth} (or Bool) matching declared result"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           pure (instrs.push (.returnValue value), values, .closed)
   | .return_ none =>
@@ -1928,10 +1933,10 @@ private partial def emitRegionV1
         let (initial, values1, _) ←
           readJumpArgExprV1 values blockEntry segmentStart armReadables target.args[0]!
         let (loopStmt, values2, exitId) ←
-          lowerForLoopV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+          lowerForLoopV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
             loopBounds enclosingHeaders armReadables (fuel - 1) lb initial values1
         let (rest, values3, exit) ←
-          emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
             loopBounds enclosingHeaders armReadables (fuel - 1) exitId values2
         pure (instrs ++ #[loopStmt] ++ rest, values3, exit)
       else
@@ -1944,7 +1949,7 @@ private partial def emitRegionV1
           "unsupported Solana semantic shape: branch condition must be Bool"
       let cond ← consumeCurrentSegmentV1 values blockEntry segmentStart condId
       let (thenBody, values1, thenExit) ←
-        emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
           loopBounds enclosingHeaders armReadables (fuel - 1) thenT.blockId.toNat values
       match thenExit with
       | .latch _ =>
@@ -1952,14 +1957,14 @@ private partial def emitRegionV1
             "unsupported Solana semantic shape: branch then-arm cannot be a raw loop latch"
       | .closed =>
           let (elseBody, values2, elseExit) ←
-            emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
               loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
           match elseExit with
           | .closed =>
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody], values2, .closed)
           | .join j =>
               let (rest, values3, exit) ←
-                emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+                emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
                   loopBounds enclosingHeaders armReadables (fuel - 1) j values2
               pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
           | .latch _ =>
@@ -1968,12 +1973,12 @@ private partial def emitRegionV1
       | .join j =>
           if elseT.blockId.toNat == j then
             let (rest, values2, exit) ←
-              emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
                 loopBounds enclosingHeaders armReadables (fuel - 1) j values1
             pure (instrs ++ #[.ifThenElse cond thenBody #[]] ++ rest, values2, exit)
           else
             let (elseBody, values2, elseExit) ←
-              emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+              emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
                 loopBounds enclosingHeaders armReadables (fuel - 1) elseT.blockId.toNat values1
             match elseExit with
             | .join j2 =>
@@ -1981,12 +1986,12 @@ private partial def emitRegionV1
                   throw <| .planInvariant .solana
                     "unsupported Solana semantic shape: branch arms converge on divergent joins"
                 let (rest, values3, exit) ←
-                  emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
                     loopBounds enclosingHeaders armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .closed =>
                 let (rest, values3, exit) ←
-                  emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+                  emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
                     loopBounds enclosingHeaders armReadables (fuel - 1) j values2
                 pure (instrs ++ #[.ifThenElse cond thenBody elseBody] ++ rest, values3, exit)
             | .latch _ =>
@@ -2004,7 +2009,7 @@ private partial def emitRegionV1
       for switchCase in cases do
         let caseValue ← decodeSwitchCaseValueV1 scrutVal.isBool switchCase.valueBytes
         let (body, values1, armExit) ←
-          emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
             loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
             switchCase.target.blockId.toNat valuesA
         caseBodies := caseBodies.push (caseValue, body)
@@ -2020,7 +2025,7 @@ private partial def emitRegionV1
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: switch arm cannot be a loop latch"
       let (defaultBody, values2, defaultExit) ←
-        emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
           loopBounds enclosingHeaders (armReadables.push scrutId) (fuel - 1)
           defaultT.blockId.toNat valuesA
       match defaultExit, joinAcc with
@@ -2038,7 +2043,7 @@ private partial def emitRegionV1
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody], values2, .closed)
       | some j =>
           let (rest, values3, exit) ←
-            emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+            emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
               loopBounds enclosingHeaders armReadables (fuel - 1) j values2
           pure (instrs ++ #[.switchOn scrut caseBodies defaultBody] ++ rest, values3, exit)
   | .revert errorId argIds =>
@@ -2062,6 +2067,7 @@ private partial def lowerForLoopV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
+    (expectedReturnBitWidth : Nat)
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -2127,7 +2133,7 @@ private partial def lowerForLoopV1
       let exitId := elseT.blockId.toNat
       let headers' := enclosingHeaders.push headerId
       let (bodyStmts, values1, bodyExit) ←
-        emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns blocks
+        emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns blocks
           loopBounds headers' armReadables (fuel - 1) bodyId values
       match bodyExit with
       | .latch update =>
@@ -2145,6 +2151,7 @@ private def lowerCallableV1
     (owner : String)
     (mode : SemanticCallableModeV1)
     (expectsBoolReturn : Bool)
+    (expectedReturnBitWidth : Nat)
     (types : SolanaTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
     (account : StateAccount)
@@ -2191,7 +2198,7 @@ private def lowerCallableV1
   let valuesPadded ← allocateBlockParamSlotsV1 types.uint64TypeId callable.loopBounds
     callable.blocks initialValues
   let (body0, values0, exit0) ←
-    emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns callable.blocks
+    emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns callable.blocks
       callable.loopBounds #[] #[] callable.blocks.size 0 valuesPadded
   -- Fold trailing join continuations (an arm that returned early leaves the
   -- remaining open path's join to the caller). Join targets strictly increase
@@ -2214,7 +2221,7 @@ private def lowerCallableV1
     | none => break
     | some j =>
         let (rest, values1, exit1) ←
-          emitRegionV1 owner mode expectsBoolReturn types typeDecls account pureFns callable.blocks
+          emitRegionV1 owner mode expectsBoolReturn expectedReturnBitWidth types typeDecls account pureFns callable.blocks
             callable.loopBounds #[] #[] callable.blocks.size j values
         body := body ++ rest
         values := values1
@@ -2249,7 +2256,7 @@ private def makeInitializerV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .solana
       "unsupported Solana semantic shape: initializer result is not Unit"
-  let lowered ← lowerCallableV1 "initializer" .initialize false types typeDecls account pureFns callable
+  let lowered ← lowerCallableV1 "initializer" .initialize false 64 types typeDecls account pureFns callable
   let handler : Handler := {
     name := "initialize"
     discriminator := ""
@@ -2276,15 +2283,22 @@ private def makeEntryV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .solana s!"entry '{name}' result is not public"
   let resultKind : ResultKind ←
-    if callable.result.typeId == types.uint64TypeId then
-      pure .u64
-    else if types.int64TypeId == some callable.result.typeId then
-      pure .i64
-    else if types.boolTypeId == some callable.result.typeId then
-      pure .bool
-    else
-      throw <| .planInvariant .solana
-        s!"entry '{name}' does not return public UInt64, Int64, or Bool"
+    match types.uintWidthOf callable.result.typeId with
+    | some 8 => pure .u8
+    | some 16 => pure .u16
+    | some 32 => pure .u32
+    | some 64 => pure .u64
+    | some _ =>
+        throw <| .planInvariant .solana
+          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+    | none =>
+        if types.int64TypeId == some callable.result.typeId then
+          pure .i64
+        else if types.boolTypeId == some callable.result.typeId then
+          pure .bool
+        else
+          throw <| .planInvariant .solana
+            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -2295,8 +2309,11 @@ private def makeEntryV1
     | .view => .view
     | .initialize => .initialize
   let expectsBoolReturn := resultKind == .bool
+  let expectedReturnBitWidth : Nat :=
+    match resultKind with
+    | .u8 => 8 | .u16 => 16 | .u32 => 32 | .u64 | .i64 => 64 | .bool => 64
   let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
-    types typeDecls account pureFns callable
+    expectedReturnBitWidth types typeDecls account pureFns callable
   let handler : Handler := {
     name
     discriminator := ""
@@ -2329,7 +2346,7 @@ private def makePureFnV1
       s!"fn '{name}' does not return public UInt64, Int64, or Bool"
   -- pureFn bodies use view mode so store/emit fail closed at the lowerer.
   let lowered ← lowerCallableV1 s!"fn '{name}'" .view resultIsBool
-    types typeDecls account pureFns callable
+    64 types typeDecls account pureFns callable
   pure {
     name
     params := lowered.params

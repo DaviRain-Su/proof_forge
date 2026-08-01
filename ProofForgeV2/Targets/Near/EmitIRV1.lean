@@ -43,7 +43,8 @@ inductive Operation where
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth : Nat) (field : KeyRegion) (value : Nat)
   | setLayout (marker : KeyRegion) (value : UInt64)
-  | setReturnData (value : Nat)
+  /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8} from MethodResultKind. -/
+  | setReturnData (byteLen value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat)
   | emitEvent (eventIndex : Nat) (args : Array Nat)
@@ -569,7 +570,8 @@ private def armOpsWithHardReturn (arm : Array Statement)
 
 private partial def lowerBodyOps
     (keys : Array KeyRegion) (next : Nat) (statements : Array Statement)
-    (fnMode : Bool) (localEnv : Array (Nat × Nat)) :
+    (fnMode : Bool) (localEnv : Array (Nat × Nat))
+    (returnByteLen : Nat) :
     Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
@@ -592,7 +594,7 @@ private partial def lowerBodyOps
         if fnMode then
           operations := operations.push (.returnValue value.value)
         else
-          operations := operations.push (.setReturnData value.value)
+          operations := operations.push (.setReturnData returnByteLen value.value)
         next := value.next
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
@@ -630,8 +632,8 @@ private partial def lowerBodyOps
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv
-        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv
+        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv returnByteLen
+        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv returnByteLen
         operations := operations.push (.ifRegion value.value
           (armOpsWithHardReturn thenBody thenOps fnMode)
           (armOpsWithHardReturn elseBody elseOps fnMode))
@@ -642,10 +644,10 @@ private partial def lowerBodyOps
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode localEnv
+          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode localEnv returnByteLen
           caseOps := caseOps.push (caseValue, armOpsWithHardReturn caseBody ops fnMode)
           nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode localEnv
+        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode localEnv returnByteLen
         operations := operations.push (.switchRegion value.value caseOps
           (armOpsWithHardReturn defaultBody defaultOps fnMode))
         next := nextD
@@ -662,7 +664,7 @@ private partial def lowerBodyOps
         let condOps := condL.operations
         let condTemp := condL.value
         next := condL.next
-        let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv'
+        let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv' returnByteLen
         next := nextB
         let updateL := lowerExpr keys next fnMode localEnv' update
         let updateOps := updateL.operations
@@ -673,6 +675,14 @@ private partial def lowerBodyOps
             condOps condTemp bodyOps updateOps updateTemp)
         localEnv := localEnv'
   pure (operations, next)
+
+
+private def methodResultByteLen : MethodResultKind → Nat
+  | .unit => 8
+  | .uint64 | .int64 | .bool => 8
+  | .uint8 => 1
+  | .uint16 => 2
+  | .uint32 => 4
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -698,7 +708,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps, next) := lowerBodyOps keys 0 body false #[]
+  let (bodyOps, next) := lowerBodyOps keys 0 body false #[] (methodResultByteLen method.resultKind)
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -713,7 +723,7 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
 private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
   let paramCount := fn.params.size
   -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.
-  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true #[]
+  let (bodyOps, next) := lowerBodyOps keys paramCount fn.body true #[] 8
   {
     name := fn.name
     paramCount
@@ -735,7 +745,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .zeroState _ | .narrowZeroState _ _
   | .loadState _ _ | .narrowLoadState _ _ _
   | .storeState _ _ | .narrowStoreState _ _ _
-  | .setLayout _ _ | .setReturnData _ | .loadParam _ _
+  | .setLayout _ _ | .setReturnData _ _ | .loadParam _ _
   | .narrowLoadParam _ _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
@@ -1198,9 +1208,9 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .setLayout marker value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
-  | .setReturnData value =>
+  | .setReturnData byteLen value =>
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (local.get $t{value}))\n" ++
-        s!"{indent}(call $pf_value_return (i64.const 8) (i64.const {memory.valueOffset}))\n"
+        s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))\n"
   | .callFn fnIndex destination args =>
       let name := match fnNames[fnIndex]? with
         | some n => n
@@ -1352,6 +1362,9 @@ private def renderResultKindJson : MethodResultKind → String
   | .uint64 => "\"u64-le\""
   | .bool => "\"bool\""
   | .int64 => "\"i64-le\""
+  | .uint8 => "\"u8-le\""
+  | .uint16 => "\"u16-le\""
+  | .uint32 => "\"u32-le\""
 
 private def renderMethodJson (method : Method) : String :=
   let returns := renderResultKindJson method.resultKind

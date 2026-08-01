@@ -236,9 +236,10 @@ private def validateRelation (plan : Plan) (expectedIndex baseNodes : Nat)
     throw <| .planInvariant .noir "relation parameters/input disclosure are not canonical"
   if relation.mode != .initialize then
     unless expectedResultType == .u64 || expectedResultType == .bool ||
-        expectedResultType == .field do
+        expectedResultType == .field || expectedResultType == .u8 ||
+        expectedResultType == .u16 || expectedResultType == .u32 do
       throw <| .planInvariant .noir
-        s!"relation '{relation.name}' result type is outside the UInt64/Bool/Field pilot"
+        s!"relation '{relation.name}' result type is outside the UInt8/16/32/64/Bool/Field pilot"
   let (total, closed) ← checkRelationStatementsV1
     plan relation (relation.mode == .view) relation.body baseNodes
   unless closed do

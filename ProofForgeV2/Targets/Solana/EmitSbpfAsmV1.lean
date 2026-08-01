@@ -732,29 +732,36 @@ private def emitNarrowBitNot (b : AsmBuf) (tempBase dest source bitWidth : Nat) 
     let b := emit b "  and64 r1, r2"
     storeTemp b tempBase dest "r1"
 
+/-- Stash a little-endian integer of `byteLen` ∈ {1,2,4,8} at absolute temp
+    `retTemp` and call `sol_set_return_data`. UInt64/Int64 use full 8B stores;
+    UInt{8,16,32} use stxb/sth/stw so return-data length matches the ABI. -/
+private def emitSetReturnDataBytes (b : AsmBuf) (tempBase valueTemp retTemp byteLen : Nat) :
+    AsmBuf :=
+  let b := loadTemp b "r1" tempBase valueTemp
+  let off := tempStackOff retTemp
+  let b :=
+    match byteLen with
+    | 1 => emit b s!"  stxb [r10 - {off}], r1"
+    | 2 => emit b s!"  stxh [r10 - {off}], r1"
+    | 4 => emit b s!"  stxw [r10 - {off}], r1"
+    | _ =>
+        let b := storeTempAbs b retTemp "r1"
+        b
+  let b := emit b "  mov64 r1, r10"
+  let b := emit b s!"  add64 r1, -{off}"
+  let b := emit b s!"  lddw r2, {byteLen}"
+  let b := emit b "  call sol_set_return_data"
+  b
+
 /-- Stash a u64 at absolute temp `retTemp` and call `sol_set_return_data`. -/
 private def emitSetReturnDataU64 (b : AsmBuf) (tempBase valueTemp retTemp : Nat) :
     AsmBuf :=
-  let b := loadTemp b "r1" tempBase valueTemp
-  let b := storeTempAbs b retTemp "r1"
-  let off := tempStackOff retTemp
-  let b := emit b "  mov64 r1, r10"
-  let b := emit b s!"  add64 r1, -{off}"
-  let b := emit b "  lddw r2, 8"
-  let b := emit b "  call sol_set_return_data"
-  b
+  emitSetReturnDataBytes b tempBase valueTemp retTemp 8
 
 /-- Stash a bool as a single byte and call `sol_set_return_data` with len=1. -/
 private def emitSetReturnDataBool (b : AsmBuf) (tempBase valueTemp retTemp : Nat) :
     AsmBuf :=
-  let b := loadTemp b "r1" tempBase valueTemp
-  let off := tempStackOff retTemp
-  let b := emit b s!"  stxb [r10 - {off}], r1"
-  let b := emit b "  mov64 r1, r10"
-  let b := emit b s!"  add64 r1, -{off}"
-  let b := emit b "  lddw r2, 1"
-  let b := emit b "  call sol_set_return_data"
-  b
+  emitSetReturnDataBytes b tempBase valueTemp retTemp 1
 
 /-- Resolve pureFn param index by instruction-data offset (fn table). -/
 private def paramIndexByOffset (params : Array Param) (dataOffset : Nat) : Option Nat :=
@@ -1001,16 +1008,16 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       let b := emit b s!"  ; store header u64 @ {byteOffset}"
       let b := emit b s!"  lddw r1, {hexImm value.toNat}"
       pure (emit b s!"  stxdw [r6 + ACC0_DATA + {byteOffset}], r1")
-  | .setReturnData value =>
+  | .setReturnData byteLen value =>
       match inlineCtx with
       | some ctx =>
-          let b := emit b s!"  ; fn ret u64 %{value} → caller dest"
+          let b := emit b s!"  ; fn ret u{byteLen*8} %{value} → caller dest"
           let b := loadTemp b "r1" tempBase value
           pure (storeTempAbs b ctx.retDestAbs "r1")
       | none =>
           let (b, retTemp) := allocTemps b 1
-          let b := emit b s!"  ; set_return_data_u64_le %{value}"
-          pure (emitSetReturnDataU64 b tempBase value retTemp)
+          let b := emit b s!"  ; set_return_data_u{byteLen*8}_le %{value}"
+          pure (emitSetReturnDataBytes b tempBase value retTemp byteLen)
   | .setReturnDataBool value =>
       match inlineCtx with
       | some ctx =>

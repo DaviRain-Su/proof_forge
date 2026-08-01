@@ -1823,18 +1823,26 @@ private def resolveEntryViewResultV1
     (callable : CallableV1) : CompileResult (NoirValueKindV1 × InputType) := do
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .noir
-      s!"entry '{name}' does not return a public UInt64, Int64, Bool, or Field"
+      s!"entry '{name}' does not return a public UInt8/16/32/64, Int64, Bool, or Field"
   if types.isField callable.result.typeId then
     pure (.field, .field)
-  else if callable.result.typeId == types.uint64TypeId then
-    pure (.uint64, .u64)
-  else if types.int64TypeId == some callable.result.typeId then
-    pure (.int64, .u64)
-  else if types.boolTypeId == some callable.result.typeId then
-    pure (.bool, .bool)
   else
-    throw <| .planInvariant .noir
-      s!"entry '{name}' does not return public UInt64, Int64, Bool, or Field"
+    match types.uintWidthOf callable.result.typeId with
+    | some 8 => pure (.uint8, .u8)
+    | some 16 => pure (.uint16, .u16)
+    | some 32 => pure (.uint32, .u32)
+    | some 64 => pure (.uint64, .u64)
+    | some _ =>
+        throw <| .planInvariant .noir
+          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
+    | none =>
+        if types.int64TypeId == some callable.result.typeId then
+          pure (.int64, .u64)
+        else if types.boolTypeId == some callable.result.typeId then
+          pure (.bool, .bool)
+        else
+          throw <| .planInvariant .noir
+            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
 
 private def makeRelationV1
     (index : Nat)
@@ -1846,7 +1854,7 @@ private def makeRelationV1
     (callable : CallableV1) : CompileResult Relation := do
   unless isIdentifier name do
     throw <| .planInvariant .noir s!"relation name '{name}' is not a safe identifier"
-  let returnKind : Option NoirValueKindV1 ←
+  let (returnKind, resultType) : Option NoirValueKindV1 × InputType ←
     if mode == .initialize then
       unless callable.name.isNone && callable.result.visibility == .public_ do
         throw <| .planInvariant .noir
@@ -1858,14 +1866,10 @@ private def makeRelationV1
       unless callable.result.typeId == unitTypeId do
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: initializer result is not Unit"
-      pure none
+      pure (none, .u64)
     else
-      let (kind, _) ← resolveEntryViewResultV1 types name callable
-      pure (some kind)
-  let resultType : InputType := match returnKind with
-    | some .bool => .bool
-    | some .field => .field
-    | some .uint64 | some .int64 | some .uint8 | some .uint16 | some .uint32 | none => .u64
+      let (kind, inputTy) ← resolveEntryViewResultV1 types name callable
+      pure (some kind, inputTy)
   let inputOffset := if states.isEmpty then 0 else
     1 + (if mode == .initialize then 0 else states.size)
   let semanticMode : SemanticCallableModeV1 := match mode with

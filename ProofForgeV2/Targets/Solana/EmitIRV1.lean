@@ -48,7 +48,7 @@ inductive Operation where
   /-- Narrow field store (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `storeState`. -/
   | narrowStoreState (bitWidth accountIndex byteOffset value : Nat)
   | setHeader (accountIndex byteOffset : Nat) (value : UInt64)
-  | setReturnData (value : Nat)
+  | setReturnData (byteLen value : Nat)
   | setReturnDataBool (value : Nat)
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   | assert (condition : Nat) (errorCode : Nat)
@@ -556,8 +556,11 @@ private partial def lowerBodyOps
     | .returnValue value =>
         let value := lowerExpr overflowError tempMap next value
         operations := operations ++ value.operations
+        let returnByteLen : Nat :=
+          match resultKind with
+          | .u8 => 1 | .u16 => 2 | .u32 => 4 | .u64 | .i64 => 8 | .bool => 1
         let returnOp : Operation := match resultKind with
-          | .u64 | .i64 => .setReturnData value.value
+          | .u64 | .i64 | .u8 | .u16 | .u32 => .setReturnData returnByteLen value.value
           | .bool => .setReturnDataBool value.value
         operations := operations.push returnOp
         next := value.next
@@ -927,9 +930,13 @@ private partial def validateOperationSequence
             byteOffset == account.headerOffset && value == account.initializedMarker do
           throw <| .planInvariant .solana "typed Solana IR header write is invalid"
         initialized := true
-    | .setReturnData value =>
-        unless handler.mode != .initialize && handler.resultKind == .u64 && value < next do
-          throw <| .planInvariant .solana "typed Solana IR UInt64 return value is invalid"
+    | .setReturnData byteLen value =>
+        let expectedLen : Nat :=
+          match handler.resultKind with
+          | .u8 => 1 | .u16 => 2 | .u32 => 4 | .u64 | .i64 => 8 | .bool => 0
+        unless handler.mode != .initialize && expectedLen != 0 &&
+            byteLen == expectedLen && value < next do
+          throw <| .planInvariant .solana "typed Solana IR integer return value is invalid"
         returned := true
     | .setReturnDataBool value =>
         unless handler.mode != .initialize && handler.resultKind == .bool && value < next do
@@ -1306,9 +1313,9 @@ private partial def renderOperation (indent : String)
       s!"{indent}store_u{bitWidth}_le account[{accountIndex}].data + {byteOffset}, %{value}\n"
   | .setHeader accountIndex byteOffset value =>
       s!"{indent}store_u64_le account[{accountIndex}].data + {byteOffset}, 0x{uint64Hex value}\n"
-  | .setReturnData value =>
+  | .setReturnData byteLen value =>
       if fnReturnStyle then s!"{indent}ret %{value}\n"
-      else s!"{indent}set_return_data_u64_le %{value}\n"
+      else s!"{indent}set_return_data_u{byteLen*8}_le %{value}\n"
   | .setReturnDataBool value =>
       if fnReturnStyle then s!"{indent}ret %{value}\n"
       else s!"{indent}set_return_data_bool %{value}\n"
@@ -1427,6 +1434,9 @@ private def renderHandlerJson (handler : HandlerIR) : String :=
       | .u64 => "\"u64-le\""
       | .i64 => "\"i64-le\""
       | .bool => "\"bool\""
+      | .u8 => "\"u8-le\""
+      | .u16 => "\"u16-le\""
+      | .u32 => "\"u32-le\""
   "{" ++
     s!"\"name\":\"{Targets.escapeJson handler.name}\"," ++
     s!"\"discriminator\":\"{handler.discriminator}\"," ++

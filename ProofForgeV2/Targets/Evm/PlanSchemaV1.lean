@@ -65,6 +65,7 @@ private def encodeMutability : Mutability → UInt8
 
 private def encodeResultKind : ResultKind → UInt8
   | .uint64 => 0 | .bool => 1 | .int64 => 2 | .field => 3
+  | .uint8 => 4 | .uint16 => 5 | .uint32 => 6
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   match expr with

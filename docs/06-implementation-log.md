@@ -12512,3 +12512,12 @@ normative: false
 - Verification：focused InvariantABI build通过。
 - Boundary：callables内两个Bool Literal valueBytes、后续name/signature/CFG/requirements、完整
   structure/encoder/carrier/formal状态仍pending。
+
+## 2026-08-01 — T9a：窄结果四 target（entry/view 返回 UInt8/16/32）
+
+- EVM/Solana/NEAR/Noir `resultKind`/`MethodResultKind`/`InputType` 扩展 UInt8/16/32 入口/视图返回
+- 返回编码：EVM ABI `uint8/16/32`；Solana `set_return_data` 长度 1/2/4 + SBPF stxb/h/w；NEAR `value_return` 长度 + `u8-le` ABI；Noir 原生 result InputType
+- 负向：UInt128 结果四 target 仍 fail closed；selector/discriminator 不变
+- 金样：EvmSmoke/NearHostModel/NoirRelationModel/SolanaAsm；Solana Mollusk fixture `NarrowResult`
+- 非 formal D2/D4；不改 AGENTS.md/MIGRATION_MATRIX.md
+

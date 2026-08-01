@@ -205,14 +205,19 @@ inductive Mutability where
   | view
   deriving BEq, Inhabited, Repr
 
-/-- Declared ABI result kind for an entry/view. Results admit UInt64/Bool/Int64/
-Field; state/params admit UInt{8,16,32,64}/Int64/Field. -/
+/-- Declared ABI result kind for an entry/view. Results admit
+UInt{8,16,32,64}/Bool/Int64/Field (T9a); state/params already admit
+UInt{8,16,32,64}/Int64/Field (T8b). -/
 inductive ResultKind where
   | uint64
   | bool
   | int64
   /-- bn254 Fr Field (ABI `uint256` full word). -/
   | field
+  /-- T9a: narrow public UInt entry/view results (ABI `uint8`/`uint16`/`uint32`). -/
+  | uint8
+  | uint16
+  | uint32
   deriving BEq, Inhabited, Repr
 
 /-- Solidity ABI type string for a plan Param (selector + `.abi.json`). -/
@@ -2699,6 +2704,21 @@ private partial def emitJobV1
                       returned.bitWidth == 64 do
                     throw <| .planInvariant .evm
                       "unsupported EVM semantic shape: return value must be UInt64"
+              | .uint32 =>
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 32 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt32"
+              | .uint16 =>
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 16 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt16"
+              | .uint8 =>
+                  unless !returned.isBool && !returned.isInt && !returned.isField &&
+                      returned.bitWidth == 8 do
+                    throw <| .planInvariant .evm
+                      "unsupported EVM semantic shape: return value must be UInt8"
               | .int64 =>
                   unless !returned.isBool && returned.isInt && !returned.isField &&
                       returned.bitWidth == 64 do
@@ -3062,19 +3082,26 @@ private def makeEntryV1
     throw <| .planInvariant .evm s!"entry name '{name}' is not an EVM ABI identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .evm
-      s!"entry '{name}' does not return public UInt64, Int64, Bool, or Field"
+      s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
   let resultKind : ResultKind ←
-    if callable.result.typeId == types.uint64TypeId then
-      pure .uint64
-    else if types.int64TypeId == some callable.result.typeId then
-      pure .int64
-    else if types.boolTypeId == some callable.result.typeId then
-      pure .bool
-    else if types.isField callable.result.typeId then
-      pure .field
-    else
-      throw <| .planInvariant .evm
-        s!"entry '{name}' does not return public UInt64, Int64, Bool, or Field"
+    match types.uintWidthOf callable.result.typeId with
+    | some 8 => pure .uint8
+    | some 16 => pure .uint16
+    | some 32 => pure .uint32
+    | some 64 => pure .uint64
+    | some _ =>
+        throw <| .planInvariant .evm
+          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
+    | none =>
+        if types.int64TypeId == some callable.result.typeId then
+          pure .int64
+        else if types.boolTypeId == some callable.result.typeId then
+          pure .bool
+        else if types.isField callable.result.typeId then
+          pure .field
+        else
+          throw <| .planInvariant .evm
+            s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, or Field"
   let mode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .entry
     | .view => pure .view
