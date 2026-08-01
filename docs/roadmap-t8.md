@@ -85,7 +85,7 @@ manifest/CLI/validate_artifacts 发布字段。shard-targets 绿。
 > 执行模式：参照 T8 的 merged 切片（T8b-EVM 是 ABI 模板、T8a 是 body 模板、M4 是 digest 模板）。
 > 每切片按"执行协议"走完整流程；顺序固定（依赖关系），不跳项。
 
-### [pending] T9a：窄结果四 target（entry/view 返回 UInt8/16/32）
+### [in_progress] T9a：窄结果四 target（entry/view 返回 UInt8/16/32）
 - Normalize 已开（requireScalarResultTypeId）；target 侧 resultKind 仍 uint64/bool/int64
 - 工作面：各 target resultKind 扩展 + 返回编码（EVM ABI return 低字节、Solana set_return_data 长度 1/2/4、NEAR 返回值编码、Noir result 类型）+ IDL/manifest 同步
 - 金样 + Solana 运行时 fixture（窄返回 Mollusk 断言）；负向：UInt128 结果仍 fail closed
