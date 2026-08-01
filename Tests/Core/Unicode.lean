@@ -72,6 +72,8 @@ private def testLatin : IO Unit := do
   -- ASCII and empty are trivially NFC.
   expectNfc "ascii unchanged"
     [0x61, 0x62, 0x63] [0x61, 0x62, 0x63]
+  let allAscii := ofScalars (List.range 128)
+  expectOk "all ASCII scalars unchanged" (normalizeNfc allAscii) allAscii
   expectNfc "empty unchanged"
     [] []
 

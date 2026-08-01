@@ -748,6 +748,38 @@ theorem readQualifiedNamePublicInvariantABIBytes_canonicalBytes :
     rw [canonicalSpine_length]
     rfl
 
+private theorem decodeTestsV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 45 maxStringBytes =
+      .ok (ByteArray.mk [84, 101, 115, 116, 115].toArray, 54)) :
+    decodeString ⟨bytes, 45, 1⟩ = .ok ("Tests", ⟨bytes, 54, 1⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+private theorem decodePublicInvariantABIV1_of_read (bytes : ByteArray)
+    (hread : readSizedBytesAtV1 bytes 54 maxStringBytes =
+      .ok (ByteArray.mk
+        [80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116,
+          65, 66, 73].toArray, 76)) :
+    decodeString ⟨bytes, 54, 1⟩ =
+      .ok ("PublicInvariantABI", ⟨bytes, 76, 1⟩) := by
+  apply decodeString_eq_of_valueV1 _ _ _ _ hread
+  · rfl
+  · apply ProofForgeV2.Core.Unicode.requireNfc_eq_ok_of_isAscii
+    rfl
+
+theorem decodeQualifiedName_canonicalBytes :
+    decodeQualifiedName ⟨canonicalBytes, 41, 1⟩ =
+      .ok (qualifiedName, ⟨canonicalBytes, 76, 1⟩) := by
+  apply decodeQualifiedName_eq_of_arrayV1
+  · apply decodeArray_twoV1
+    · exact readQualifiedNameCount_canonicalBytes
+    · exact decodeTestsV1_of_read canonicalBytes readQualifiedNameTestsBytes_canonicalBytes
+    · exact decodePublicInvariantABIV1_of_read canonicalBytes
+        readQualifiedNamePublicInvariantABIBytes_canonicalBytes
+  · rfl
+
 end CanonicalInvariantFixtureV1
 
 private def testEvalInvariantABI : IO Unit := do

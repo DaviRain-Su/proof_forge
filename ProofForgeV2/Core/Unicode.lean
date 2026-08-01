@@ -197,17 +197,37 @@ private def codepointsToString (codes : Array UInt32) : Except String String := 
       throw s!"generated Unicode table produced invalid scalar U+{value}"
   pure result
 
+/-- True exactly when every scalar in the string is ASCII. ASCII has no
+    canonical decomposition, nonzero combining class, or composition pair,
+    so it is a fixed point of NFC normalization. -/
+def isAscii (value : String) : Bool :=
+  value.toList.all fun character => character.val ≤ 0x7f
+
 /-- Normalize a Lean `String` to NFC using the pinned Unicode 17.0.0 tables. -/
 def normalizeNfc (value : String) : Except String String := do
+  if isAscii value then
+    return value
   let decomposed := canonicalDecompose value
   let ordered := canonicalReorder decomposed
   codepointsToString (canonicalCompose ordered)
+
+/-- ASCII strings are fixed points of the pinned NFC normalizer. -/
+theorem normalizeNfc_eq_ok_of_isAscii (value : String) (hascii : isAscii value = true) :
+    normalizeNfc value = .ok value := by
+  simp only [normalizeNfc, hascii, ↓reduceIte, Pure.pure, Except.pure]
 
 /-- Accept only strings that are already in the pinned NFC form. -/
 def requireNfc (value : String) : Except String Unit := do
   let normalized ← normalizeNfc value
   unless normalized == value do
     throw s!"string must already be NFC under Unicode {unicodeVersion}"
+
+/-- ASCII strings satisfy the pinned NFC requirement without expanding the
+    generated Unicode tables in kernel proofs. -/
+theorem requireNfc_eq_ok_of_isAscii (value : String) (hascii : isAscii value = true) :
+    requireNfc value = .ok () := by
+  simp only [requireNfc, normalizeNfc_eq_ok_of_isAscii value hascii, beq_self_eq_true,
+    ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure]
 
 /-- Test Unicode 17.0.0 `General_Category=Cc` using the generated ranges. -/
 def isUnicodeCc (character : Char) : Bool :=
