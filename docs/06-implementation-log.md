@@ -11360,3 +11360,41 @@ normative: false
   focused Wire build与kernel theorem reuse通过，blocker review批准。
 - Boundary：本切片仅闭合QualifiedName framing composition；root九字段、完整carrier kernel validation、
   `InvariantTheoremV1`与formal TASK/TST仍pending。
+
+## 2026-08-01 — Solana SBPF assembly emitter (S1a/S1b engineering slices)
+
+- S1a：新增`ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean`，typed Solana IR → 默认方言 SBPF 汇编
+  文本（additive，产品仍发`.sbpf-plan`+IDL）。Counter 子集：exactDataLen 推导的输入布局 `.equ`、
+  entrypoint discriminator 分发、check 序列、checked add/sub 软件溢出守卫、compare/assert、
+  `sol_set_return_data` u64/bool、exit/program_error。`Tests/Targets/SolanaAsmV1.lean` 金样固定。
+- S1b：扩展至完整 Operation 表面——checked mul/div/mod（rhs==0 与 MAX/rhs 守卫）、checked
+  shl/shr（count≥64 + 丢失高位守卫）、bitand/or/xor/not（xor -1）、bool not/and/or、if/switch/for
+  region（静态标签，SBPF 无间接跳转）、callFn 内联展开（param 槽拷贝、loadParam 重映射、fn 级
+  return 跳转到内联实例 end label 以跳过尾随 ops、嵌套区域不相交、深度防环）、emitEvent 经
+  `sol_log_data`（key=8B LE 事件索引 + args u64-LE 打包，双 SolBytes 描述符）、dispatch
+  `instruction_data_len >= 8` 守卫、4096B 帧预算 fail closed。仅真实 Solana 指令（无 uhmul64 等
+  blueshift 扩展）。主代理审计发现并修复"单臂 return + 后续 ops"形状下内联 return 原 no-op 会
+  错误执行尾随代码的问题（改为 `ja fn_end`），补针对性测试。
+- 端到端：发射的 Counter 汇编被真实 `sbpf build`（d835bc6e）汇编为 1392B ELF eBPF `.so`，
+  反汇编还原出守卫 + 三 handler 分发结构。
+
+## 2026-08-01 — Solana ELF profile 与工具链注册 (S2a/S2b engineering slices)
+
+- S2a：注册 `solana-sbpf-elf-v1` CodegenProfile（默认仍 `solana-sbpf-plan-v1`）；elf profile 下
+  `buildFromCapability` 发 `.s`+plan+IDL；`FinalizeV1` 分支：plan profile 保持零工具
+  non-deployable stub，elf profile `resolve "sbpf"` → staging 外 temp `src/<name>/<name>.s` 项目 →
+  `sbpf build -d` → stage `{name}.so`（deployable=true，evidence 含版本+sha256），缺失/空 `.s`、
+  空 `.so`、symlink 输出均 fail closed。多 profile 经 `DescriptorDataV1.acceptsCodegenProfile`
+  单一谓词接入 capability mint 与 artifact identity（不建第二 descriptor 表）。
+- S2b：Tool Lock v4（darwin/linux 统一；machoPolicy/elfPolicy 按宿主选择）新增 `cargo-git` asset
+  格式（url+commit+package+bin+version，无 size/sha256）与 `sourceBuild` 工具字段
+  （executableSha256=null、空 runtime 面、豁免 bundleFiles 哈希闭合——cargo 不可字节复现）。
+  `unresolved.solanaAssembler=0.2.2`；双平台 lock 注册 sbpf（blueshift-gg/sbpf 0.2.2，
+  commit d835bc6e638e4f55b88f31a31bbc92e3a2e0a5ba，license MIT）。供给：git clone（blob:none）+
+  checkout 到 pin + rev-parse 校验 + `cargo build --release -p sbpf`，commit 为信任锚，cache 按
+  commit 键控；materialize 复制 0555 到工具根；verify/Lean resolve 以 `--version` 探针
+  （`sbpf 0.2.2` contains 语义，与既有工具一致）为权威，observed hash 仅作 evidence。
+- 端到端：`proof-forge-next build-counter --target solana --profile solana-sbpf-elf-v1` →
+  `Counter.so`（ELF eBPF 1392B）+ evidence `sbpf 0.2.2 sha256=1b3d69e5… completed successfully`。
+- Boundary：无运行时执行验证（Mollusk/sbpf-runtime 差分 S3 未接线）；非 formal
+  ToolchainIdentity/OutputSetV1/Stage-0；CI linux 供给路径由 self-test 覆盖，未在本机执行。
