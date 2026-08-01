@@ -14,6 +14,9 @@ test_jobs := env_var_or_default("PROOF_FORGE_TEST_JOBS", "4")
 
 # Product CLI path is in-process Loader (no frontend worker). Keep the worker
 # exe as an explicit target for Tests.Frontend.WorkerV1 / optional CI.
+# BUILD-7: Lake 5 has no `-j` flag; module builds already fan out across cores
+# (see `Built … (N jobs)` in lake logs). PROOF_FORGE_TEST_JOBS only parallelizes
+# *test shard processes*, not Lean compilation.
 build:
     lake build ProofForgeV2 proof_forge_next
 
@@ -571,7 +574,43 @@ s1-target-semantic-plan-deletion-gate:
     lake build ProofForgeV2.Targets.Solana ProofForgeV2.Targets.Near ProofForgeV2.Targets.Noir Tests.Materialization.Targets Tests.Materialization.NearHostModel Tests.Materialization.NoirRelationModel
     echo "s1-target-semantic-plan-deletion-gate: ok"
 
-dev-check: docs-check sbom-package-files-check build test-fast s1-evm-semantic-plan-deletion-gate s1-target-semantic-plan-deletion-gate w2-single-semantic-carrier-deletion-gate requirement-resolver-deletion-gate s6-plan-cutover-deletion-gate s7-output-envelope-deletion-gate s7b-finalize-authority-deletion-gate s7c-disk-closure-gate
+# BUILD-5: product path serial, then deletion gates with bounded parallelism
+# (PROOF_FORGE_GATE_JOBS, default 4; use 1 for serial). Fail-closed: any gate
+# non-zero fails the recipe and prints FAIL gate: <name>.
+dev-check: docs-check sbom-package-files-check build test-fast run-deletion-gates
+
+gate_jobs := env_var_or_default("PROOF_FORGE_GATE_JOBS", "4")
+
+run-deletion-gates:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    jobs='{{gate_jobs}}'
+    if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
+      jobs=4
+    fi
+    gates=(
+      s1-evm-semantic-plan-deletion-gate
+      s1-target-semantic-plan-deletion-gate
+      w2-single-semantic-carrier-deletion-gate
+      requirement-resolver-deletion-gate
+      s6-plan-cutover-deletion-gate
+      s7-output-envelope-deletion-gate
+      s7b-finalize-authority-deletion-gate
+      s7c-disk-closure-gate
+    )
+    run_gate() {
+      local name="$1"
+      echo "=== gate start: ${name} (jobs=${jobs}) ==="
+      if just "${name}"; then
+        echo "=== gate ok: ${name} ==="
+      else
+        echo "FAIL gate: ${name}" >&2
+        exit 1
+      fi
+    }
+    export -f run_gate
+    export jobs
+    printf '%s\n' "${gates[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_gate "$@"' _
 
 # Re-run unit tests with host-profile toolchain self-tests (darwin lock only).
 test-host-isolation: build
