@@ -608,6 +608,30 @@ theorem readTagBytesAtV1_refinesSpine (input : TransparentByteSpineV1) (offset :
       · simp only [if_neg ht]
         rfl
 
+/-- Turn a successful transparent-spine tag computation back into the exact
+    sole production raw-byte result. -/
+theorem readTagBytesAtV1_eq_of_spine (input raw : TransparentByteSpineV1)
+    (offset next : Nat)
+    (hspine : readTagSpineBytesV1 input offset = .ok (raw, next)) :
+    readTagBytesAtV1 (ByteArray.mk input.toArray) offset =
+      .ok (ByteArray.mk raw.toArray, next) := by
+  have href := readTagBytesAtV1_refinesSpine input offset
+  rw [hspine] at href
+  cases hproduction : readTagBytesAtV1 (ByteArray.mk input.toArray) offset with
+  | error e =>
+      rw [hproduction] at href
+      contradiction
+  | ok pair =>
+      rcases pair with ⟨productionRaw, productionNext⟩
+      rw [hproduction] at href
+      simp only [Except.map, Except.ok.injEq, Prod.mk.injEq] at href
+      rcases href with ⟨hraw, hnext⟩
+      subst productionNext
+      congr
+      apply ByteArray.ext
+      rw [← Array.toList_inj, Array.toArray_toList]
+      exact hraw
+
 /-- Exact expected-tag plus field-count check on the transparent spine. -/
 def expectTaggedHeaderSpineV1 (input : TransparentByteSpineV1) (offset : Nat)
     (want : List UInt8) (fieldCount : Nat) : Except SemanticWireErrorV1 Nat :=
@@ -786,6 +810,18 @@ def decodeU64le : Decoder UInt64 := fun c => do
   let (value, offset) ← readU64leAtV1 c.input c.offset
   pure (value, ⟨c.input, offset, c.nesting⟩)
 
+/-- Compose u8 decoding through the sole production offset reader. -/
+theorem decodeU8_eq_of_readV1 (c : Cursor) (value : UInt8)
+    (hread : readByteAtV1 c.input c.offset = .ok value) :
+    decodeU8 c = .ok (value, ⟨c.input, c.offset + 1, c.nesting⟩) := by
+  simp only [decodeU8, takeByte, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
+/-- Compose u32 decoding through the sole production offset reader. -/
+theorem decodeU32le_eq_of_readV1 (c : Cursor) (value : UInt32) (offset : Nat)
+    (hread : readU32leAtV1 c.input c.offset = .ok (value, offset)) :
+    decodeU32le c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeU32le, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Compose u64 decoding through the sole production offset reader. -/
 theorem decodeU64le_eq_of_readV1 (c : Cursor) (value : UInt64) (offset : Nat)
     (hread : readU64leAtV1 c.input c.offset = .ok (value, offset)) :
@@ -904,6 +940,18 @@ theorem decodeArray_twoV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
     decodeArray maxCount decode c = .ok (#[v0, v1], c2) := by
   apply decodeArray_eq_of_elementsV1 maxCount decode c 2 offset #[v0, v1] c2 hcount
   simp [decodeArrayElementsV1, h0, h1]
+
+/-- A count of three executes three production element decoders in source
+    order and returns the third cursor. -/
+theorem decodeArray_threeV1 (maxCount : Nat) (decode : Decoder α) (c : Cursor)
+    (offset : Nat) (v0 v1 v2 : α) (c1 c2 c3 : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxCount = .ok (3, offset))
+    (h0 : decode ⟨c.input, offset, c.nesting⟩ = .ok (v0, c1))
+    (h1 : decode c1 = .ok (v1, c2))
+    (h2 : decode c2 = .ok (v2, c3)) :
+    decodeArray maxCount decode c = .ok (#[v0, v1, v2], c3) := by
+  apply decodeArray_eq_of_elementsV1 maxCount decode c 3 offset #[v0, v1, v2] c3 hcount
+  simp [decodeArrayElementsV1, h0, h1, h2]
 
 /-- A count of four executes four production element decoders in source order
     and returns the fourth cursor. -/
@@ -1060,6 +1108,17 @@ theorem decodeTag_eq_of_readBytesV1 (c : Cursor) (raw : ByteArray) (offset : Nat
           else
             .error .badTag := by
   simp only [decodeTag, hread, Bind.bind, Pure.pure, Except.bind, Except.pure, err]
+
+/-- Successful tag composition through the sole raw-byte, UTF-8, and ASCII
+    tag authorities. -/
+theorem decodeTag_eq_of_valueV1 (c : Cursor) (raw : ByteArray) (offset : Nat)
+    (value : String)
+    (hread : readTagBytesAtV1 c.input c.offset = .ok (raw, offset))
+    (hutf8 : String.fromUTF8? raw = some value)
+    (hascii : isAsciiTagV1 value = true) :
+    decodeTag c = .ok (value, ⟨c.input, offset, c.nesting⟩) := by
+  simp only [decodeTag, hread, hutf8, hascii, ↓reduceIte, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
 
 def decodeFieldCount (expected : Nat) : Decoder Unit := fun c => do
   let (count, c) ← decodeU16le c

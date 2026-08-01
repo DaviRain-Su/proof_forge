@@ -12031,3 +12031,11 @@ normative: false
   suites通过。无`native_decide`、limit提高、axiom、cast或第二decoder。
 - Boundary：root types及后续字段、finish、encoder/carrier identity与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete types + empty constants
+
+- Proof seams：新增u8/u32 production read composition、three-element production array、successful
+  proof-spine tag→production raw bytes及decoded tag composition；均conditional且不增加decoder。
+- Kernel：闭合types count=3与anonymous Bool/Principal/Unit三个nested TypeDecl/TypeShape路径，exact
+  source order/cursors 76→80→114→153→187，nesting 1/2/3恢复不变；empty constants再闭合187→191。
+- Review/Verification：blocker-only APPROVE；Codec/InvariantABI build与工程suite通过，golden仍1235 bytes。
+- Boundary：logicalState及后续root字段、finish、encoder/carrier identity与formal TASK/TST仍pending。

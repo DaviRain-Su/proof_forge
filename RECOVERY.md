@@ -534,3 +534,8 @@ QualifiedName value现已闭合。`Unicode.normalizeNfc`在sole authority内部�
 fixed-point fast path，并提供带显式`isAscii=true`前提的kernel theorem；全128 ASCII scalar及既有
 non-ASCII corpus均通过。fixture随后经production UTF-8、NFC、two-element array iterator与Common
 `parseQualifiedName`证明`decodeQualifiedName` cursor 41→76。types字段从offset 76开始。
+
+types字段现已完整kernel闭合：count=3（76→80），三个production TypeDecl分别为anonymous Bool
+（80→114）、Principal（114→153）、Unit（153→187）；每个路径均保留TypeDecl nesting=2与
+TypeShape nesting=3，并经真实tag/field-count/scalar/Option-none decoder组合。empty constants array随后
+由production zero-array authority闭合187→191。下一字段为singleton logicalState。

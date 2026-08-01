@@ -528,14 +528,16 @@ namespace CanonicalInvariantFixtureV1
 def qualifiedName : QualifiedName :=
   { components := ⟨"Tests", #["PublicInvariantABI"]⟩ }
 
-/-- The exact type table exercised by the selected invariant. The unrelated
-    Principal declaration pins selected-closure rather than whole-program
-    admission. -/
-def types : Array TypeDeclV1 := #[
-  { id := 0, name := none, shape := .bool },
-  { id := 1, name := none, shape := .principal },
-  { id := 2, name := none, shape := .unit }
-]
+def boolType : TypeDeclV1 := { id := 0, name := none, shape := .bool }
+
+/-- The unrelated Principal declaration pins selected-closure rather than
+    whole-program admission. -/
+def principalType : TypeDeclV1 := { id := 1, name := none, shape := .principal }
+
+def unitType : TypeDeclV1 := { id := 2, name := none, shape := .unit }
+
+/-- The exact type table exercised by the selected invariant. -/
+def types : Array TypeDeclV1 := #[boolType, principalType, unitType]
 
 def gate : CallableV1 := entryGate 0 2
 
@@ -608,15 +610,20 @@ def canonicalQualifiedNameSpine : TransparentByteSpineV1 := [
   66, 73
 ]
 
-/-- Remaining 1159 bytes after the qualified name. Keeping this opaque to
-    prefix reductions avoids traversing the full carrier for scalar facts. -/
-def canonicalRootFields : Array UInt8 := #[
+/-- Exact three-element TypeDecl array at root offset 76. -/
+def canonicalTypesSpine : TransparentByteSpineV1 := [
   3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
   0, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0,
   8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 14,
   0, 0, 0, 84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108, 0,
   0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 2, 0, 0, 0, 0, 9,
-  0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0
+]
+
+/-- Remaining 1048 bytes after the types field. Keeping this opaque to prefix
+    reductions avoids traversing the full carrier for scalar facts. -/
+def canonicalRootFields : Array UInt8 := #[
+  0, 0, 0, 0, 1, 0,
   0, 0, 9, 0, 0, 0, 83, 116, 97, 116, 101, 68, 101, 99, 108, 4, 0, 0, 0, 0, 0,
   4, 0, 0, 0, 102, 108, 97, 103, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105,
   98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
@@ -676,7 +683,7 @@ def canonicalRootFields : Array UInt8 := #[
     computation and is not a second runtime decoder. -/
 def canonicalSpine : TransparentByteSpineV1 :=
   canonicalMagicSpine ++ canonicalRootHeaderSpine ++ canonicalQualifiedNameSpine ++
-    canonicalRootFields.toList
+    canonicalTypesSpine ++ canonicalRootFields.toList
 
 def canonicalBytes : ByteArray := ByteArray.mk canonicalSpine.toArray
 
@@ -779,6 +786,225 @@ theorem decodeQualifiedName_canonicalBytes :
     · exact decodePublicInvariantABIV1_of_read canonicalBytes
         readQualifiedNamePublicInvariantABIBytes_canonicalBytes
   · rfl
+
+theorem readTypesCount_canonicalBytes :
+    readArrayCountAtV1 canonicalBytes 76 maxTableElements = .ok (3, 80) := by
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 76 maxTableElements =
+    .ok (3, 80)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
+
+private theorem expectTypeDeclV1_canonicalBytes (offset after : Nat)
+    (hspine : expectTaggedHeaderSpineV1 canonicalSpine offset
+      [84, 121, 112, 101, 68, 101, 99, 108] 3 = .ok after) :
+    expectTag "TypeDecl" 3 ⟨canonicalBytes, offset, 2⟩ =
+      .ok ((), ⟨canonicalBytes, after, 2⟩) := by
+  apply expectTag_eq_of_headerV1
+  change expectTaggedHeaderBytesAtV1 (ByteArray.mk canonicalSpine.toArray) offset
+      (ByteArray.mk [84, 121, 112, 101, 68, 101, 99, 108].toArray) 3 = .ok after
+  rw [expectTaggedHeaderBytesAtV1_refinesSpine, hspine]
+
+theorem expectTypeDecl0_canonicalBytes :
+    expectTag "TypeDecl" 3 ⟨canonicalBytes, 80, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 94, 2⟩) := by
+  apply expectTypeDeclV1_canonicalBytes
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem expectTypeDecl1_canonicalBytes :
+    expectTag "TypeDecl" 3 ⟨canonicalBytes, 114, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 128, 2⟩) := by
+  apply expectTypeDeclV1_canonicalBytes
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+theorem expectTypeDecl2_canonicalBytes :
+    expectTag "TypeDecl" 3 ⟨canonicalBytes, 153, 2⟩ =
+      .ok ((), ⟨canonicalBytes, 167, 2⟩) := by
+  apply expectTypeDeclV1_canonicalBytes
+  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
+    spineRemainingV1 readSpineU16leV1
+  rw [canonicalSpine_length]
+  rfl
+
+private theorem decodeTypeIdV1_canonicalBytes (offset after id : Nat)
+    (hspine : readSpineU32leV1 canonicalSpine offset = .ok (UInt32.ofNat id, after)) :
+    decodeU32le ⟨canonicalBytes, offset, 2⟩ =
+      .ok (UInt32.ofNat id, ⟨canonicalBytes, after, 2⟩) := by
+  apply decodeU32le_eq_of_readV1
+  change readU32leAtV1 (ByteArray.mk canonicalSpine.toArray) offset =
+    .ok (UInt32.ofNat id, after)
+  rw [readU32leAtV1_refinesSpine, hspine]
+
+theorem decodeTypeId0_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 94, 2⟩ = .ok (0, ⟨canonicalBytes, 98, 2⟩) := by
+  apply decodeTypeIdV1_canonicalBytes
+  rfl
+
+theorem decodeTypeId1_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 128, 2⟩ = .ok (1, ⟨canonicalBytes, 132, 2⟩) := by
+  apply decodeTypeIdV1_canonicalBytes
+  rfl
+
+theorem decodeTypeId2_canonicalBytes :
+    decodeU32le ⟨canonicalBytes, 167, 2⟩ = .ok (2, ⟨canonicalBytes, 171, 2⟩) := by
+  apply decodeTypeIdV1_canonicalBytes
+  rfl
+
+private theorem decodeNoTypeNameV1_canonicalBytes (offset : Nat)
+    (hspine : readSpineByteV1 canonicalSpine offset = .ok 0) :
+    decodeOption decodeString ⟨canonicalBytes, offset, 2⟩ =
+      .ok (none, ⟨canonicalBytes, offset + 1, 2⟩) := by
+  apply decodeOption_noneV1
+  apply decodeU8_eq_of_readV1
+  change readByteAtV1 (ByteArray.mk canonicalSpine.toArray) offset = .ok 0
+  rw [readByteAtV1_refinesSpine, hspine]
+
+theorem decodeNoTypeName0_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 98, 2⟩ =
+      .ok (none, ⟨canonicalBytes, 99, 2⟩) := by
+  simpa using decodeNoTypeNameV1_canonicalBytes 98 (by rfl)
+
+theorem decodeNoTypeName1_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 132, 2⟩ =
+      .ok (none, ⟨canonicalBytes, 133, 2⟩) := by
+  simpa using decodeNoTypeNameV1_canonicalBytes 132 (by rfl)
+
+theorem decodeNoTypeName2_canonicalBytes :
+    decodeOption decodeString ⟨canonicalBytes, 171, 2⟩ =
+      .ok (none, ⟨canonicalBytes, 172, 2⟩) := by
+  simpa using decodeNoTypeNameV1_canonicalBytes 171 (by rfl)
+
+private theorem decodeTypeShapeTagV1_canonicalBytes (offset after : Nat)
+    (raw : TransparentByteSpineV1) (value : String)
+    (hspine : readTagSpineBytesV1 canonicalSpine offset = .ok (raw, after))
+    (hutf8 : String.fromUTF8? (ByteArray.mk raw.toArray) = some value)
+    (hascii : isAsciiTagV1 value = true) :
+    decodeTag ⟨canonicalBytes, offset, 3⟩ =
+      .ok (value, ⟨canonicalBytes, after, 3⟩) := by
+  apply decodeTag_eq_of_valueV1 _ _ _ _ _ hutf8 hascii
+  change readTagBytesAtV1 (ByteArray.mk canonicalSpine.toArray) offset =
+    .ok (ByteArray.mk raw.toArray, after)
+  exact readTagBytesAtV1_eq_of_spine canonicalSpine raw offset after hspine
+
+private theorem decodeZeroFieldCountV1_canonicalBytes (offset after : Nat)
+    (hspine : readSpineU16leV1 canonicalSpine offset = .ok (0, after)) :
+    decodeFieldCount 0 ⟨canonicalBytes, offset, 3⟩ =
+      .ok ((), ⟨canonicalBytes, after, 3⟩) := by
+  have hread : readU16leAtV1 canonicalBytes offset = .ok (0, after) := by
+    change readU16leAtV1 (ByteArray.mk canonicalSpine.toArray) offset = .ok (0, after)
+    rw [readU16leAtV1_refinesSpine, hspine]
+  have hresult := decodeFieldCount_eq_of_readU16leV1 0
+    ⟨canonicalBytes, offset, 3⟩ 0 after hread
+  simpa using hresult
+
+theorem decodeTypeShapeBool_canonicalBytes :
+    decodeTypeShapeV1 ⟨canonicalBytes, 99, 2⟩ =
+      .ok (.bool, ⟨canonicalBytes, 114, 2⟩) := by
+  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 99, 2⟩ .bool
+    ⟨canonicalBytes, 114, 3⟩ ?_ ?_
+  · decide
+  · apply decodeTypeShapeBodyV1_bool
+    · apply decodeTypeShapeTagV1_canonicalBytes 99 112
+        [84, 121, 112, 101, 46, 66, 111, 111, 108] "Type.Bool"
+      · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+        rw [canonicalSpine_length]
+        rfl
+      · rfl
+      · rfl
+    · apply decodeZeroFieldCountV1_canonicalBytes
+      rfl
+
+theorem decodeTypeShapePrincipal_canonicalBytes :
+    decodeTypeShapeV1 ⟨canonicalBytes, 133, 2⟩ =
+      .ok (.principal, ⟨canonicalBytes, 153, 2⟩) := by
+  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 133, 2⟩ .principal
+    ⟨canonicalBytes, 153, 3⟩ ?_ ?_
+  · decide
+  · apply decodeTypeShapeBodyV1_principal
+    · apply decodeTypeShapeTagV1_canonicalBytes 133 151
+        [84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108]
+        "Type.Principal"
+      · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+        rw [canonicalSpine_length]
+        rfl
+      · rfl
+      · rfl
+    · apply decodeZeroFieldCountV1_canonicalBytes
+      rfl
+
+theorem decodeTypeShapeUnit_canonicalBytes :
+    decodeTypeShapeV1 ⟨canonicalBytes, 172, 2⟩ =
+      .ok (.unit, ⟨canonicalBytes, 187, 2⟩) := by
+  refine decodeTypeShapeV1_eq_of_bodyV1 ⟨canonicalBytes, 172, 2⟩ .unit
+    ⟨canonicalBytes, 187, 3⟩ ?_ ?_
+  · decide
+  · apply decodeTypeShapeBodyV1_unit
+    · apply decodeTypeShapeTagV1_canonicalBytes 172 185
+        [84, 121, 112, 101, 46, 85, 110, 105, 116] "Type.Unit"
+      · unfold readTagSpineBytesV1 takeSpineBytesV1 spineRemainingV1
+        rw [canonicalSpine_length]
+        rfl
+      · rfl
+      · rfl
+    · apply decodeZeroFieldCountV1_canonicalBytes
+      rfl
+
+theorem decodeTypeDecl0_canonicalBytes :
+    decodeTypeDeclV1 ⟨canonicalBytes, 80, 1⟩ =
+      .ok (boolType, ⟨canonicalBytes, 114, 1⟩) := by
+  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 80, 1⟩ boolType
+    ⟨canonicalBytes, 114, 2⟩ (by decide) ?_
+  apply decodeTypeDeclBodyV1_eq_of_fields
+  · exact expectTypeDecl0_canonicalBytes
+  · exact decodeTypeId0_canonicalBytes
+  · exact decodeNoTypeName0_canonicalBytes
+  · exact decodeTypeShapeBool_canonicalBytes
+
+theorem decodeTypeDecl1_canonicalBytes :
+    decodeTypeDeclV1 ⟨canonicalBytes, 114, 1⟩ =
+      .ok (principalType, ⟨canonicalBytes, 153, 1⟩) := by
+  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 114, 1⟩ principalType
+    ⟨canonicalBytes, 153, 2⟩ (by decide) ?_
+  apply decodeTypeDeclBodyV1_eq_of_fields
+  · exact expectTypeDecl1_canonicalBytes
+  · exact decodeTypeId1_canonicalBytes
+  · exact decodeNoTypeName1_canonicalBytes
+  · exact decodeTypeShapePrincipal_canonicalBytes
+
+theorem decodeTypeDecl2_canonicalBytes :
+    decodeTypeDeclV1 ⟨canonicalBytes, 153, 1⟩ =
+      .ok (unitType, ⟨canonicalBytes, 187, 1⟩) := by
+  refine decodeTypeDeclV1_eq_of_bodyV1 ⟨canonicalBytes, 153, 1⟩ unitType
+    ⟨canonicalBytes, 187, 2⟩ (by decide) ?_
+  apply decodeTypeDeclBodyV1_eq_of_fields
+  · exact expectTypeDecl2_canonicalBytes
+  · exact decodeTypeId2_canonicalBytes
+  · exact decodeNoTypeName2_canonicalBytes
+  · exact decodeTypeShapeUnit_canonicalBytes
+
+theorem decodeTypes_canonicalBytes :
+    decodeArray maxTableElements decodeTypeDeclV1 ⟨canonicalBytes, 76, 1⟩ =
+      .ok (types, ⟨canonicalBytes, 187, 1⟩) := by
+  have h := decodeArray_threeV1 maxTableElements decodeTypeDeclV1
+    ⟨canonicalBytes, 76, 1⟩ 80 boolType principalType unitType
+    ⟨canonicalBytes, 114, 1⟩ ⟨canonicalBytes, 153, 1⟩ ⟨canonicalBytes, 187, 1⟩
+    readTypesCount_canonicalBytes decodeTypeDecl0_canonicalBytes
+    decodeTypeDecl1_canonicalBytes decodeTypeDecl2_canonicalBytes
+  simpa [types] using h
+
+theorem decodeConstants_canonicalBytes :
+    decodeArray maxTableElements decodeConstantV1 ⟨canonicalBytes, 187, 1⟩ =
+      .ok (#[], ⟨canonicalBytes, 191, 1⟩) := by
+  apply decodeArray_zeroV1
+  change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 187 maxTableElements =
+    .ok (0, 191)
+  rw [readArrayCountAtV1_refinesSpine]
+  rfl
 
 end CanonicalInvariantFixtureV1
 

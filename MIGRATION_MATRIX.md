@@ -308,6 +308,8 @@ kernel已由production `consumeMagic`与`expectTag`真实路径闭合size=1235�
 QualifiedName framing又已kernel闭合count=2（41→45）及两个exact sized payload（45→54、54→76）；
 通用ASCII NFC fixed-point seam随后接入sole Unicode normalizer，最终production UTF-8/NFC、two-element
 array与Common `parseQualifiedName`已闭合完整QualifiedName value cursor 41→76；下一字段为types。
+types现又经production三元素array与真实nested TypeDecl/TypeShape decoder闭合Bool、Principal、Unit
+source order cursor 76→187；紧随的empty constants array闭合187→191。下一字段为logicalState。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
