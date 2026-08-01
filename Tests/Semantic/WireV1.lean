@@ -548,6 +548,20 @@ example (c c' : Cursor) (block : BlockV1)
     decodeBlockV1 c = .ok (block, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeBlockV1_eq_of_bodyV1 c block c' hdepth hbody
 
+example (c afterTag afterFields afterValue : Cursor) (value : Option UInt32)
+    (htag : decodeTag c = .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorBodyV1 c = .ok (.return_ value, afterValue) :=
+  decodeTerminatorBodyV1_return c afterTag afterFields afterValue value htag hfields hvalue
+
+example (c c' : Cursor) (terminator : TerminatorV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTerminatorBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (terminator, c')) :
+    decodeTerminatorV1 c = .ok (terminator, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeTerminatorV1_eq_of_bodyV1 c terminator c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

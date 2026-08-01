@@ -11598,3 +11598,13 @@ normative: false
   input/offset并恢复parent depth。focused build、kernel signature examples与blocker review通过。
 - Boundary：Instruction/Terminator仅作为真实decoder success premise，未声称nested branch已闭合；
   canonical Return、Instruction/Op、完整carrier与formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 canonical Return terminator composition
+
+- Production：将Terminator原anonymous sum body机械命名为sole `decodeTerminatorBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；Jump/Branch/Switch/Return/Revert/Trap及unknown-tag行为均不变。
+- Proof：canonical Return严格组合真实tag→field count 1→optional ValueId decoder；none/some直接复用
+  shared Option composition，wrapper success保留body input/offset并恢复parent depth。focused build、
+  kernel signature examples与blocker review通过。
+- Boundary：其余五个terminator branch proof按需pending；Instruction、Literal/PureCall、完整carrier及
+  formal TASK/TST仍pending。

@@ -375,6 +375,12 @@ instructions→terminator，并保留两个`maxArrayElements` gate与parent dept
 Instruction/Terminator decoder success premise，不宣称其nested branches已闭合；下一步处理canonical
 Term.Return none/some，再处理Instruction与Literal/PureCall。
 
+canonical Term.Return composition现已闭合：Terminator原anonymous sum body机械抽为sole production body，
+Jump/Branch/Switch/Return/Revert/Trap六分支与unknown-tag `.badTag`路径保持；Return theorem严格线程
+真实tag→field count 1→`decodeOption decodeU32le`，因此none/some可分别复用既有marker theorem，wrapper
+恢复parent nesting。其余五个branch proof按需pending。下一步处理Instruction record，再闭合fixture
+所需ValueDef、Op.Literal与Op.PureCall。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。

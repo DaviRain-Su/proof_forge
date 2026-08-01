@@ -1763,7 +1763,8 @@ def encodeTerminatorV1 : TerminatorV1 → Except SemanticWireErrorV1 ByteArray
       let codeB ← encodeSemanticTrapCodeV1 code
       encodeTagged "Term.Trap" #[codeB]
 
-def decodeTerminatorV1 : Decoder TerminatorV1 := withTaggedNesting fun c => do
+/-- Sole production body for the Terminator tagged sum. -/
+def decodeTerminatorBodyV1 : Decoder TerminatorV1 := fun c => do
   let (tag, c) ← decodeTag c
   match tag with
   | "Term.Jump" => do
@@ -1796,6 +1797,28 @@ def decodeTerminatorV1 : Decoder TerminatorV1 := withTaggedNesting fun c => do
       let (code, c) ← decodeSemanticTrapCodeV1 c
       pure (.trap code, c)
   | _ => err .badTag
+
+def decodeTerminatorV1 : Decoder TerminatorV1 :=
+  withTaggedNesting decodeTerminatorBodyV1
+
+/-- Return branch through the actual tag, field-count, and optional ValueId decoders. -/
+theorem decodeTerminatorBodyV1_return (c afterTag afterFields afterValue : Cursor)
+    (value : Option UInt32)
+    (htag : decodeTag c = .ok ("Term.Return", afterTag))
+    (hfields : decodeFieldCount 1 afterTag = .ok ((), afterFields))
+    (hvalue : decodeOption decodeU32le afterFields = .ok (value, afterValue)) :
+    decodeTerminatorBodyV1 c = .ok (.return_ value, afterValue) := by
+  simp only [decodeTerminatorBodyV1, htag, hfields, hvalue, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Compose a successful Terminator body through tagged nesting. -/
+theorem decodeTerminatorV1_eq_of_bodyV1 (c : Cursor) (terminator : TerminatorV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTerminatorBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (terminator, c')) :
+    decodeTerminatorV1 c = .ok (terminator, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeTerminatorV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeBlockV1 (b : BlockV1) : Except SemanticWireErrorV1 ByteArray := do
   let paramsB ← encodeArray encodeBlockParameterV1 b.params
