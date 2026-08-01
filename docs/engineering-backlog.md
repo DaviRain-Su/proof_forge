@@ -192,7 +192,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **N-3** | Commit **disclosure 契约** + Check | Normalize label-only `commit(x)`（N5）+ Disclosure 契约钉测 | **done**（2026-08-02：sole private→commitment declass；commitment↛public；pureFn Commit FC；非 crypto commitment） |
 | **N-4** | aggregate entry/view/fn **返回值** + target ABI struct 返回 | 查询型 API | **done**（2026-08-02：Normalize 允许 named Struct/Enum 作 entry/view/fn result；匿名容器 result 仍 FC；四 target ABI 仍 FAIL-CLOSED 待 B/leaf） |
 | **N-5** | call **返回值** / typed external call（可能要升 semantic schema） | oracle/跨链 ack；大切片 | **done**（2026-08-02：RPT-014 schema 影响；产品仍 void Stmt.Call→ExternalCall FC；实现 follow-on 共享核 cutover） |
-| **N-6** | true mutable locals（非仅 field/index rebind） | 循环携带聚合 | pending |
+| **N-6** | true mutable locals（非仅 field/index rebind） | 循环携带聚合 | **done**（2026-08-02：let/for-binder bare `x:=e` env rebind；param 仍 immutable；SSA 新 ValueId） |
 | **N-7** | match 构造器**嵌套子模式** | 完整 pattern | pending |
 | **N-8** | Int event/error 字段；非 UInt64 call/schedule args 与 for 端点 | 宽度完整性 | pending |
 

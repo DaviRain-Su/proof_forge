@@ -88,9 +88,10 @@
       set as statement match; each arm value lowers in its own block and jumps
       to a join block carrying the result as a single block param;
       catch-all-only matches inline without a switch
-      * statements: immutable `let` bindings lower to environment entries
-      (the RHS evaluates once; reassignment via `assign` fails closed except
-      field/index update of an immutable local which rebinds the name)
+      * statements: `let` bindings lower to environment entries (RHS evaluates
+      once); **N-6** bare `x := e` on a let-local rebinds the name (SSA fresh
+      ValueId, same TypeId); parameters remain immutable; field/index update
+      of a local still rebinds via FieldSet/IndexSet
     * N5/N-2 ContextRead/Commit (init/entry/view only; pureFn fail closed):
       place `context.unixTimeSeconds` → `Op.ContextRead`
       `proof-forge.context.unix-time-seconds.v1` (UInt64);
@@ -128,8 +129,8 @@
       nested assign through Map/Bytes elements (single-step Map/Bytes
       index assign is open; deeper `m[k].…` / `b[i].…` fail closed),
       identical multi-arm same-outer patterns (structural duplicate keys),
-      param-root field/index assign, true mutable locals (field/index
-      rebind of immutable let only), Int event/error fields (stay UInt-only),
+      param-root bare/field/index assign (params immutable; lets mutable N-6),
+      Int event/error fields (stay UInt-only),
       String event/error fields (stay UInt-only this slice),
       ContextRead keys other than `context.unixTimeSeconds` / `context.caller`,
       Commit/ContextRead inside pureFn (fail closed; init/entry/view only)
@@ -834,6 +835,9 @@ structure BodyStateV1 where
   callableParamCount : Nat
   nextEffectId : UInt32
   env : LocalEnvV1
+  /-- Callable parameter names (immutable). Bare assign rebinds only non-param
+      env names (let locals and for binders) — N-6. -/
+  paramNames : Array String := #[]
   interner : TypeInternerV1
   /-- N5: true for init/entry/view; false for pureFn (ContextRead/Commit fail closed). -/
   allowContextCommit : Bool := false
@@ -902,21 +906,84 @@ private def patchSwitch (st : BodyStateV1) (blockIdx : Nat)
     | .switch scrut _ _ => .switch scrut cases defaultTarget
     | t => t
 
-/-- Count the `for` statements in a statement list, recursing through branch
-and loop bodies. Every lowered `for` allocates exactly one loop-header block
-param, so this syntactic count sizes the canonical block-param ValueId range
-(`params.size .. params.size + count`) before instruction results begin. -/
-private partial def countForLoopsStmtsV1 (stmts : Array SrcStmt) : Nat :=
-  stmts.foldl (fun acc stmt => acc + countForLoopsStmtV1 stmt) 0
+/-- Unique-preserving append of strings (O(n²) small-n). -/
+private def uniquePushString (xs : Array String) (x : String) : Array String :=
+  if xs.any (· == x) then xs else xs.push x
+
+private def uniqueStringsV1 (xs : Array String) : Array String :=
+  xs.foldl uniquePushString #[]
+
+/-- Place root raw name (no Except; used for static N-6 carried analysis). -/
+private partial def placeRootRawNameV1 (place : SrcPlace) : String :=
+  match place with
+  | .name n => raw n
+  | .field base _ => placeRootRawNameV1 base
+  | .index base _ => placeRootRawNameV1 base
+
+/-- Collect assign-target root names under a statement tree (N-6 loop-carried). -/
+private partial def collectAssignRootsStmtsV1 (stmts : Array SrcStmt) : Array String :=
+  stmts.foldl (fun acc stmt => acc ++ collectAssignRootsStmtV1 stmt) #[]
 where
-  countForLoopsStmtV1 : SrcStmt → Nat
+  collectAssignRootsStmtV1 : SrcStmt → Array String
+    | .assign target _ => #[placeRootRawNameV1 target]
     | .if_ _ thenBlock elseBlock? =>
-        countForLoopsStmtsV1 thenBlock.statements +
-          (elseBlock?.map (fun b => countForLoopsStmtsV1 b.statements)).getD 0
+        collectAssignRootsStmtsV1 thenBlock.statements ++
+          (elseBlock?.map (fun b => collectAssignRootsStmtsV1 b.statements)).getD #[]
     | .match_ _ arms =>
-        arms.foldl (fun acc arm => acc + countForLoopsStmtsV1 arm.body.statements) 0
-    | .for_ _ _ _ _ body => 1 + countForLoopsStmtsV1 body.statements
-    | _ => 0
+        arms.foldl (fun acc arm => acc ++ collectAssignRootsStmtsV1 arm.body.statements) #[]
+    | .for_ _ _ _ _ body => collectAssignRootsStmtsV1 body.statements
+    | _ => #[]
+
+/-- Names a for-body may rebind from an outer live set (excludes binder + params). -/
+private def loopCarriedNamesV1
+    (body : SrcBlock) (live : Array String) (binder : String)
+    (paramNames : Array String) : Array String :=
+  let roots := collectAssignRootsStmtsV1 body.statements
+  uniqueStringsV1 (roots.filterMap fun n =>
+    if n != binder && live.any (· == n) && !(paramNames.any (· == n)) then
+      some n
+    else none)
+
+/-- Count loop-header block params: each `for` contributes `1 + |carried|`
+    (induction + N-6 loop-carried mutable outer locals) plus nested fors.
+    Thread `live` let/param names so carried detection matches lowering. -/
+private partial def countLoopBlockParamsStmtsV1
+    (stmts : Array SrcStmt) (live : Array String) (paramNames : Array String) :
+    Nat :=
+  (countLoopBlockParamsStmtsGo stmts live paramNames).1
+where
+  countLoopBlockParamsStmtsGo (stmts : Array SrcStmt) (live : Array String)
+      (paramNames : Array String) : Nat × Array String :=
+    stmts.foldl
+      (fun (acc, live) stmt =>
+        let (c, live') := countLoopBlockParamsStmtV1 stmt live paramNames
+        (acc + c, live'))
+      (0, live)
+
+  countLoopBlockParamsStmtV1 (stmt : SrcStmt) (live : Array String)
+      (paramNames : Array String) : Nat × Array String :=
+    match stmt with
+    | .let_ name _ _ =>
+        (0, uniquePushString live (raw name))
+    | .if_ _ thenBlock elseBlock? =>
+        let cT := countLoopBlockParamsStmtsV1 thenBlock.statements live paramNames
+        let cE := match elseBlock? with
+          | some b => countLoopBlockParamsStmtsV1 b.statements live paramNames
+          | none => 0
+        (cT + cE, live)
+    | .match_ _ arms =>
+        let c := arms.foldl
+          (fun acc arm =>
+            acc + countLoopBlockParamsStmtsV1 arm.body.statements live paramNames)
+          0
+        (c, live)
+    | .for_ binder _ _ _ body =>
+        let bname := raw binder
+        let carried := loopCarriedNamesV1 body live bname paramNames
+        let liveBody := uniquePushString live bname
+        let nested := countLoopBlockParamsStmtsV1 body.statements liveBody paramNames
+        (1 + carried.size + nested, live)
+    | _ => (0, live)
 
 /-- Whether an expression match has at least one switch case (integer/Bool
     literal or constructor) and therefore allocates a join block param.
@@ -2520,16 +2587,26 @@ private partial def lowerStmt
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
   match stmt with
   | .assign target value => do
-      -- N3: peel any field/index chain; bare name → whole state store;
-      -- nonempty path → load root → nested FieldSet/IndexSet rebind →
-      -- env rebind (local) or StateStore (state). Param roots fail closed.
+      -- N3/N-6: peel any field/index chain.
+      -- Bare env name: let/for-binder rebind (fresh SSA ValueId); params
+      -- immutable fail closed. Nested path: FieldSet/IndexSet then env rebind
+      -- (local) or StateStore (state). Param roots fail closed even nested.
       let (rootName, steps) ← peelPlaceRootV1 target
       let key := raw rootName
+      let isParam := st.paramNames.any (· == key)
       match envLookup st.env key with
       | some (rootVid, rootTid) =>
-          if steps.isEmpty then
+          if isParam then
             return (← failUnsupported
-              s!"S1 assign target must be a state place, not a param '{key}'")
+              s!"S1 assign target cannot reassign parameter '{key}'")
+          else if steps.isEmpty then
+            -- N-6: true mutable let/for-binder local.
+            let (vid, tid, st1) ← lowerExpr value rootTid st states fns
+            unless tid == rootTid do
+              return ← failUnsupported
+                s!"S1 assign type mismatch for local '{key}'"
+            pure ({ st1 with
+              env := envRebind st1.env key vid rootTid }, .open_)
           else do
             let (newRoot, st1) ←
               applyNestedUpdateV1 rootVid rootTid steps value st states fns
@@ -2539,7 +2616,7 @@ private partial def lowerStmt
           match stateLookup states key with
           | none =>
               return (← failUnsupported
-                s!"S1 assign target '{key}' must be a state place")
+                s!"S1 assign target '{key}' must be a state place or local")
           | some (sid, rootTid) =>
               if steps.isEmpty then
                 let (vid, tid, st1) ←
@@ -2889,10 +2966,10 @@ private partial def lowerStmt
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
           pure ({ stP with env := savedEnv }, .open_)
   | .let_ name typeAnn value => do
-      -- Immutable SSA binding: the RHS evaluates exactly once and the name is
-      -- scoped to the enclosing block (branch/loop bodies save and restore
-      -- the env). Reassignment via `assign` fails closed at the assign arm
-      -- because env-bound names are never state targets.
+      -- SSA binding: RHS evaluates once; name is scoped to the enclosing block
+      -- (branch/loop bodies save and restore the env). N-6: bare reassignment
+      -- rebinds the name to a fresh ValueId (same TypeId) without mutating
+      -- earlier uses. Parameters are tracked separately and stay immutable.
       let (i1, tid) ← match typeAnn with
         | some ann => internSourceType st.interner ann
         | none => synthLetExpectedV1 value st states fns
@@ -2914,30 +2991,53 @@ private partial def lowerStmt
         return ← failUnsupported "S1 for end must be UInt64"
       unless bound ≤ maxWireLoopBoundV1 do
         return ← failUnsupported "S1 for bound exceeds the wire loop maximum"
-      -- Pre-header: enter the loop with the start value. The header id is
-      -- the next block after the sealed pre-header. The induction param
-      -- draws from the canonical block-param range (creation order ==
-      -- BlockId order), keeping instruction results above it.
+      -- N-6: outer lets reassigned in the body are loop-carried header params.
+      let savedEnv := st2.env
+      let liveNames := savedEnv.bindings.foldl
+        (fun acc (n, _, _) => uniquePushString acc n) #[]
+      let bname := raw binder
+      let carriedNames :=
+        loopCarriedNamesV1 body liveNames bname st2.paramNames
+      -- Resolve initial carried ValueIds/TypeIds from the pre-loop env.
+      let mut carriedInit : Array (String × ValueIdV1 × TypeIdV1) := #[]
+      for cn in carriedNames do
+        match envLookup savedEnv cn with
+        | none =>
+            return ← failUnsupported
+              s!"S1 loop-carried local '{cn}' is not in scope"
+        | some (vid, tid) =>
+            carriedInit := carriedInit.push (cn, vid, tid)
+      -- Pre-header: jump to header with induction start + carried initials.
       let headerIdx := st2.blocks.size + 1
       let headerId := UInt32.ofNat headerIdx
       let iVid := UInt32.ofNat (st2.callableParamCount + st2.nextBlockParamOrdinal)
-      let st3 := { st2 with nextBlockParamOrdinal := st2.nextBlockParamOrdinal + 1 }
-      let st4 := sealCurrentBlock st3 (.jump { blockId := headerId, args := #[sVid] })
-      -- Header: the induction variable is the sole block param; the condition
-      -- `i < endExclusive` gates the body. The latch's `i + 1` cannot
-      -- overflow: the body only runs while i < end ≤ UInt64.max.
-      let st5 := { st4 with currentParams := #[{ valueId := iVid, typeId := u64Tid }] }
+      let mut ord := st2.nextBlockParamOrdinal + 1
+      let mut headerParams : Array BlockParameterV1 :=
+        #[{ valueId := iVid, typeId := u64Tid }]
+      let mut carriedHeader : Array (String × ValueIdV1 × TypeIdV1) := #[]
+      let mut preArgs : Array ValueIdV1 := #[sVid]
+      for (cn, initVid, tid) in carriedInit do
+        let cVid := UInt32.ofNat (st2.callableParamCount + ord)
+        ord := ord + 1
+        headerParams := headerParams.push { valueId := cVid, typeId := tid }
+        carriedHeader := carriedHeader.push (cn, cVid, tid)
+        preArgs := preArgs.push initVid
+      let st3 := { st2 with nextBlockParamOrdinal := ord }
+      let st4 := sealCurrentBlock st3 (.jump { blockId := headerId, args := preArgs })
+      -- Header: induction + carried params; cond `i < end` gates the body.
+      let st5 := { st4 with currentParams := headerParams }
       let (st5b, condVid) :=
         emitValue st5 boolTid (.binary BinaryOpV1.lt iVid eVid)
       let bodyId := UInt32.ofNat (st5b.blocks.size + 1)
       let st6 := sealCurrentBlock st5b (.branch condVid
           { blockId := bodyId, args := #[] } { blockId := 0, args := #[] })
-      -- Body: the binder scopes to the induction param; the pre-loop env is
-      -- restored at the exit so body lets never leak past the loop.
-      let savedEnv := st2.env
+      -- Body env: outer names + carried rebound to header params + binder.
+      let mut bodyEnv := savedEnv
+      for (cn, cVid, tid) in carriedHeader do
+        bodyEnv := envRebind bodyEnv cn cVid tid
+      bodyEnv := envInsert bodyEnv bname iVid u64Tid
       let (stB, bodyStatus) ← lowerStmts body.statements resultTid
-        { st6 with env := envInsert savedEnv (raw binder) iVid u64Tid }
-        states events errors fns
+        { st6 with env := bodyEnv } states events errors fns
       let stL ← match bodyStatus with
         | .open_ =>
             let latchIdx := stB.blocks.size
@@ -2945,8 +3045,19 @@ private partial def lowerStmt
               emitValue stB u64Tid (.literal u64Tid (encodeU64le 1))
             let (stB2, incVid) :=
               emitValue stB1 u64Tid (.binary BinaryOpV1.add iVid oneVid)
+            let mut latchArgs : Array ValueIdV1 := #[incVid]
+            for (cn, _, tid) in carriedHeader do
+              match envLookup stB2.env cn with
+              | none =>
+                  return ← failUnsupported
+                    s!"S1 loop-carried local '{cn}' lost in body"
+              | some (vid, tid') =>
+                  unless tid' == tid do
+                    return ← failUnsupported
+                      s!"S1 loop-carried local '{cn}' type changed in body"
+                  latchArgs := latchArgs.push vid
             let stSealed := sealCurrentBlock stB2
-              (.jump { blockId := headerId, args := #[incVid] })
+              (.jump { blockId := headerId, args := latchArgs })
             pure { stSealed with
               loopBounds := stSealed.loopBounds.push {
                 header := headerId
@@ -2956,9 +3067,13 @@ private partial def lowerStmt
         -- Body returns/reverts on every path: no back edge exists, so no
         -- loop-bound entry is recorded (the header degenerates to a one-shot).
         | .closed => pure stB
-      -- Exit: back-patch the header's else target and restore the env.
+      -- Exit: false-branch lands here; carried names refer to header params
+      -- (values when the condition failed). Body-only lets do not leak.
       let exitId := UInt32.ofNat stL.blocks.size
-      pure ({ patchBranchElse stL headerIdx exitId with env := savedEnv }, .open_)
+      let mut exitEnv := savedEnv
+      for (cn, cVid, tid) in carriedHeader do
+        exitEnv := envRebind exitEnv cn cVid tid
+      pure ({ patchBranchElse stL headerIdx exitId with env := exitEnv }, .open_)
   | .revert errorName args => do
       let key := raw errorName
       match errorLookup errors key with
@@ -3011,20 +3126,24 @@ private def lowerBlock
     Except NormalizeErrorV1
       (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1 × Bool × Bool × Bool) := do
   let mut env := emptyEnv
+  let mut paramNames : Array String := #[]
   for p in params do
     env := envInsert env p.name p.valueId p.typeId
+    paramNames := paramNames.push p.name
   let st : BodyStateV1 := {
     blocks := #[]
     instructions := #[]
     currentParams := #[]
     loopBounds := #[]
     nextValueId := UInt32.ofNat
-      (params.size + countForLoopsStmtsV1 body.statements +
+      (params.size +
+        countLoopBlockParamsStmtsV1 body.statements paramNames paramNames +
         countExprMatchJoinsInStmtsV1 body.statements)
     nextBlockParamOrdinal := 0
     callableParamCount := params.size
     nextEffectId := 0
     env := env
+    paramNames := paramNames
     interner := interner
     allowContextCommit := allowContextCommit
     usedContextUnixTime := usedUnix0

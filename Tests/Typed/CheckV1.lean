@@ -2483,8 +2483,9 @@ private unsafe def testUnsupportedParamShadowsStateAssign
     "    return x\n"
   expectUnsupportedAfterCheckOk session "param-shadow-assign" source
     (fun d =>
-      d.contains "param" || d.contains "state place" || d.contains "not a param")
-    "param assign / state place"
+      d.contains "param" || d.contains "reassign parameter" ||
+        d.contains "state place" || d.contains "not a param")
+    "param assign immutable"
 
 /-- Low-level Wire join helper (not source-bound authority). -/
 private def joinHelper
@@ -3143,9 +3144,9 @@ private unsafe def testShiftBitwiseLogical
   expect (!(checkProgramTypedResultV1 badShift).ok)
     "bad-shift: CheckV1 must reject a UInt64 shift count"
 
-/-- Immutable let bindings and bounded for loops: exact multi-block CFG with
-    a single-param loop header, latch back edge, and canonical loopBounds;
-    let single-evaluation; reassignment and oversized bounds fail closed. -/
+/-- Let bindings and bounded for loops: exact multi-block CFG with a
+    single-param loop header, latch back edge, and canonical loopBounds;
+    let single-evaluation; N-6 bare reassignment rebinds; oversized bounds FC. -/
 private unsafe def testLetForLoop
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "LoopSum" <|
@@ -3267,17 +3268,76 @@ private unsafe def testLetForLoop
       expect (l == 3 && rv == 3 && r.valueId == 4)
         "loop-sum: let must evaluate `count + 1` once and reuse the value"
   | _ => throw <| IO.userError "loop-sum: square mul shape mismatch"
-  -- Reassignment of a let-local fails closed at the assign arm.
+  -- N-6: bare reassignment of a let-local rebinds (return uses new ValueId).
   let reassignSource := wrap "ReassignLocal" <|
-    "  entry bad(n : UInt64) : UInt64 do\n" ++
+    "  entry ok(n : UInt64) : UInt64 do\n" ++
     "    let x : UInt64 := n\n" ++
     "    x := 5\n" ++
     "    return x\n"
   let reassign ← loadSource session "reassign-local" reassignSource
   expect (checkProgramTypedResultV1 reassign).ok "reassign-local: CheckV1.ok"
-  match normalizeProgramV1 reassign with
-  | .ok _ => throw <| IO.userError "reassign-local: must fail closed"
-  | .error _ => pure ()
+  let reassignCarrier ← match normalizeProgramV1 reassign with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"reassign-local: normalize: {repr e}"
+  let reassignData ← match validateSemanticProgramV1 reassignCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"reassign-local: validate: {repr e}"
+  let some reEntry := reassignData.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "reassign-local: missing entry"
+  let some reBlk := reEntry.blocks[0]? |
+    throw <| IO.userError "reassign-local: missing block"
+  -- Expect: load/use n (or identity), literal 5, return that literal's vid.
+  let hasLit5 := reBlk.instructions.any fun instr =>
+    match instr.op with
+    | .literal _ bytes =>
+        bytes.size == 8 && bytes.get! 0 == 5 &&
+          (List.range 7).all (fun i => bytes.get! (i + 1) == 0)
+    | _ => false
+  expect hasLit5 "reassign-local: literal 5 present after rebind"
+  match reBlk.terminator with
+  | .return_ (some retVid) =>
+      -- Returned ValueId must be the rebind result (instruction result), not param 0.
+      expect (retVid.toNat ≥ reEntry.params.size)
+        s!"reassign-local: return should be rebind value, got vid {retVid}"
+  | _ => throw <| IO.userError "reassign-local: expected return some"
+  -- N-6: multi-step rebind + use after assign (acc carries loop aggregation).
+  let mutLocalSource := wrap "MutLocalAcc" <|
+    "  entry sum(n : UInt64) : UInt64 do\n" ++
+    "    let zero : UInt64 := 0\n" ++
+    "    let acc : UInt64 := zero\n" ++
+    "    for i in zero ..< n bounded 8 do\n" ++
+    "      acc := acc + i\n" ++
+    "    return acc\n"
+  let mutLocal ← loadSource session "mut-local-acc" mutLocalSource
+  let mutTyped := checkProgramTypedResultV1 mutLocal
+  expect mutTyped.ok
+    s!"mut-local-acc: CheckV1.ok diags={mutTyped.diagnostics.map (·.message)}"
+  let mutCarrier ← match normalizeProgramV1 mutLocal with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"mut-local-acc: normalize: {repr e}"
+  let mutData ← match validateSemanticProgramV1 mutCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"mut-local-acc: validate: {repr e}"
+  let some mutEntry := mutData.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "mut-local-acc: missing entry"
+  expect (mutEntry.loopBounds.size == 1) "mut-local-acc: one loopBounds"
+  let hasAdd := mutEntry.blocks.any fun b =>
+    b.instructions.any fun instr =>
+      match instr.op with | .binary .add _ _ => true | _ => false
+  expect hasAdd "mut-local-acc: acc := acc + i lowers to binary add"
+  -- Param bare assign remains fail closed (shadow state or plain param).
+  let paramMutSource := wrap "ParamMut" <|
+    "  entry bad(x : UInt64) : UInt64 do\n" ++
+    "    x := 1\n" ++
+    "    return x\n"
+  let paramMut ← loadSource session "param-mut" paramMutSource
+  expect (checkProgramTypedResultV1 paramMut).ok "param-mut: CheckV1.ok"
+  match normalizeProgramV1 paramMut with
+  | .ok _ => throw <| IO.userError "param-mut: param reassign must fail closed"
+  | .error (.unsupported detail) =>
+      expect (detail.contains "param" || detail.contains "parameter")
+        s!"param-mut: detail={detail}"
+  | .error e => throw <| IO.userError s!"param-mut: unexpected {repr e}"
   -- The parser caps the bound at the wire maximum (4096): 4097 is rejected
   -- at the loader and never reaches the normalizer; 4096 lowers cleanly.
   let bigBoundSource := wrap "BigBound" <|
@@ -5569,7 +5629,7 @@ private unsafe def testOptionStateAdmitted
   expect entryHasConstruct "opt-state: Construct Option.some in entry"
   expect entryHasStore "opt-state: StateStore in entry"
 
-/-- N3: bare reassignment of immutable let still fails closed. -/
+/-- N-6: bare reassignment of let-local is admitted (was N3 fail-closed). -/
 private unsafe def testImmutableLetReassignFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrap "ImmLet" <|
@@ -5579,17 +5639,20 @@ private unsafe def testImmutableLetReassignFailClosed
     "    return x\n"
   let validated ← loadSource session "imm-let" source
   let typed := checkProgramTypedResultV1 validated
-  if typed.ok then
-    match normalizeProgramV1 validated with
-    | .ok _ => throw <| IO.userError "imm-let: expected unsupported bare let reassign"
-    | .error (.unsupported detail) =>
-        expect (detail.contains "state" || detail.contains "param" ||
-            detail.contains "assign")
-          s!"imm-let: detail={detail}"
-    | .error e =>
-        throw <| IO.userError s!"imm-let: expected unsupported, got {repr e}"
-  else
-    pure ()
+  expect typed.ok s!"imm-let: CheckV1.ok diags={typed.diagnostics.map (·.message)}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"imm-let: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"imm-let: validate: {repr e}"
+  let some entryC := data.callables.find? (fun c => c.kind == .entry) |
+    throw <| IO.userError "imm-let: missing entry"
+  let some blk := entryC.blocks[0]? |
+    throw <| IO.userError "imm-let: missing block"
+  let litCount := blk.instructions.foldl (fun acc instr =>
+    match instr.op with | .literal _ _ => acc + 1 | _ => acc) 0
+  expect (litCount ≥ 2) s!"imm-let: expected ≥2 literals (1 then 2), got {litCount}"
 
 /-- T3: aggregate type interning via struct field types (Array/Map/Option/Bytes/Field/Principal). -/
 private unsafe def testAggregateTypeInterning
