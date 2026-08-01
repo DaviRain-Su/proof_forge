@@ -504,3 +504,17 @@ Enum runtime-tag不一致和Option-none payload access均trap `invalidCore`。Un
 Wire-legal recursive Struct/Option/Enum type graph在该有限maximum-resource subset仍显式unsupported；
 Index与Commit runtime已由后续切片开放；正式`evalInvariantV1`/`InvariantTheoremV1`与formal
 TASK-D2-07/TST-SEM-002/003仍pending。
+
+## D2-07 concrete invariant carrier fixture（2026-08-01）
+
+`Tests.Semantic.InvariantABI`中原先仅在IO测试体内构造的`PublicInvariantABI` fixture现提升为纯
+`CanonicalInvariantFixtureV1.data`：exact `Tests.PublicInvariantABI` QualifiedName、Bool/Principal/Unit
+三类型、单Bool state、entry gate→pure truth leaf→truth/falsehood两个invariant roots的四callable
+source order，以及两个InvariantDecl均由一份data authority承载。新增独立显式1235-byte
+`canonicalBytes` golden；工程suite先经sole production `encodeSemanticProgramDataV1`并检查size与
+byte-for-byte identity，随后仍由既有encode→`decodeSemanticProgramV1`路径构造carrier。
+
+这只闭合了concrete data/byte spine，不是closed kernel carrier theorem。普通`rfl`/`decide`不能归约
+production structure gate，且没有改用`native_decide`、axiom、cast、第二decoder或提高recursion limit。
+下一步继续用现有production decoder composition显式闭合该golden的transport premises，再单独闭合
+structure-gated encoder premise；`InvariantTheoremV1`与formal TASK/TST状态不变。

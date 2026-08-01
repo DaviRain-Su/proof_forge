@@ -298,7 +298,10 @@ result/steps仍由真实production decoder决定。root count=4 callables array�
 Callable decoder；具体kind约束仍不由transport theorem伪造。九字段root body现已提升到public tagged
 decoder；后续full transport composition又闭合exact size→magic→tagged root→finish success及finish
 error（含trailingBytes）原样传播。carrier identity composition现又接通真实transport→structure-gated
-encoder→ByteArray BEq true/false，mismatch exact为nonCanonical；closed concrete carrier仍pending。
+encoder→ByteArray BEq true/false，mismatch exact为nonCanonical。当前`InvariantABI` selected fixture已从
+IO内联构造提升为纯`CanonicalInvariantFixtureV1.data`，并固定独立显式1235-byte golden；工程suite
+检查sole production structure-gated encoder逐字节命中该golden且carrier仍走encode→decode。transport/
+structure-gated encode/carrier的closed kernel theorem仍pending，不把该工程golden冒充formal evidence。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

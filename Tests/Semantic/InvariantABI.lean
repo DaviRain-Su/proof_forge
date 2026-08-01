@@ -522,50 +522,155 @@ private def testDecodeEncodeNegatives : IO Unit := do
 
 /-! ### public evalInvariantV1 ABI -/
 
-private def testEvalInvariantABI : IO Unit := do
-  let types : Array TypeDeclV1 := #[
-    { id := 0, name := none, shape := .bool },
-    -- Deliberately unrelated to either selected invariant. Whole-program
-    -- engineering admission rejects Principal, whereas the public evaluator
-    -- is selected-root/closure scoped.
-    { id := 1, name := none, shape := .principal },
-    { id := 2, name := none, shape := .unit }
-  ]
-  let gate := entryGate 0 2
-  let trueInstruction := boolLiteral 0 true
-  let leafBlock : BlockV1 := {
+namespace CanonicalInvariantFixtureV1
+
+/-- Closed qualified name for the public invariant ABI proof fixture. -/
+def qualifiedName : QualifiedName :=
+  { components := ⟨"Tests", #["PublicInvariantABI"]⟩ }
+
+/-- The exact type table exercised by the selected invariant. The unrelated
+    Principal declaration pins selected-closure rather than whole-program
+    admission. -/
+def types : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .bool },
+  { id := 1, name := none, shape := .principal },
+  { id := 2, name := none, shape := .unit }
+]
+
+def gate : CallableV1 := entryGate 0 2
+
+def leaf : CallableV1 := {
+  id := 1
+  kind := .pureFn
+  name := some "truthLeaf"
+  params := #[]
+  result := { typeId := 0, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[{
     id := 0
     params := #[]
-    instructions := #[trueInstruction]
+    instructions := #[boolLiteral 0 true]
     terminator := .return_ (some 0)
-  }
-  let leaf : CallableV1 := {
-    id := 1, kind := .pureFn, name := some "truthLeaf", params := #[]
-    result := { typeId := 0, visibility := .public_ }
-    entryBlock := 0
-    blocks := #[leafBlock]
-    loopBounds := #[]
-    invariantSteps := some 3
-  }
-  -- root cost 1 + PureCall + return + leaf(3) = 6.
-  let truth := invariantCallable 2 "truth"
+  }]
+  loopBounds := #[]
+  invariantSteps := some 3
+}
+
+/-- Selected invariant root. Its exact cost is
+    root(1 + PureCall + return) + leaf(3) = 6. -/
+def truth : CallableV1 :=
+  invariantCallable 2 "truth"
     #[instruction (some (valueDef 0 0)) (.pureCall 1 #[])]
     (.return_ (some 0)) 6
-  let falsehood := invariantCallable 3 "falsehood" #[boolLiteral 0 false]
+
+def falsehood : CallableV1 :=
+  invariantCallable 3 "falsehood" #[boolLiteral 0 false]
     (.return_ (some 0)) 3
-  let base ← emptyData "PublicInvariantABI"
-  let carrier ← encodeCarrier "public-invariant-abi" {
-    base with
-    types
-    logicalState := #[{ id := 0, name := "flag", typeId := 0, visibility := .public_ }]
-    callables := #[gate, leaf, truth, falsehood]
-    invariants := #[
-      { id := 0, name := "truth", callableId := 2 },
-      { id := 1, name := "falsehood", callableId := 3 }
-    ]
-  }
-  let selectedState : LogicalStateV1 :=
-    { initialized := true, canonicalValues := stateSlot (ByteArray.mk #[0]) }
+
+/-- Closed semantic data used by both the runtime ABI suite and the kernel
+    carrier proof. This is data only; carrier bytes remain under the sole
+    production encoder/decoder authorities. -/
+def data : SemanticProgramDataV1 := {
+  qualifiedName
+  types
+  constants := #[]
+  logicalState := #[
+    { id := 0, name := "flag", typeId := 0, visibility := .public_ }
+  ]
+  events := #[]
+  errors := #[]
+  callables := #[gate, leaf, truth, falsehood]
+  invariants := #[
+    { id := 0, name := "truth", callableId := 2 },
+    { id := 1, name := "falsehood", callableId := 3 }
+  ]
+  requirements := { items := #[] }
+}
+
+def selectedState : LogicalStateV1 := {
+  initialized := true
+  canonicalValues := stateSlot (ByteArray.mk #[0])
+}
+
+/-- Exact 1235-byte production encoding of `data`. This explicit golden is
+    intentionally independent of encoder computation, so later decoder proofs
+    have a closed byte spine rather than a self-derived carrier. -/
+def canonicalBytes : ByteArray := ByteArray.mk #[
+  112, 102, 46, 115, 101, 109, 97, 110, 116, 105, 99, 46, 118, 49, 0, 20, 0, 0, 0,
+  83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103, 114, 97, 109, 46, 68,
+  97, 116, 97, 9, 0, 2, 0, 0, 0, 5, 0, 0, 0, 84, 101, 115, 116, 115, 18, 0, 0,
+  0, 80, 117, 98, 108, 105, 99, 73, 110, 118, 97, 114, 105, 97, 110, 116, 65,
+  66, 73, 3, 0, 0, 0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0,
+  0, 0, 0, 0, 0, 9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0,
+  8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 1, 0, 0, 0, 0, 14,
+  0, 0, 0, 84, 121, 112, 101, 46, 80, 114, 105, 110, 99, 105, 112, 97, 108, 0,
+  0, 8, 0, 0, 0, 84, 121, 112, 101, 68, 101, 99, 108, 3, 0, 2, 0, 0, 0, 0, 9,
+  0, 0, 0, 84, 121, 112, 101, 46, 85, 110, 105, 116, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 9, 0, 0, 0, 83, 116, 97, 116, 101, 68, 101, 99, 108, 4, 0, 0, 0, 0, 0,
+  4, 0, 0, 0, 102, 108, 97, 103, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105,
+  98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 4, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9,
+  0, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 69, 110,
+  116, 114, 121, 0, 0, 1, 10, 0, 0, 0, 101, 110, 116, 114, 121, 95, 103, 97, 116,
+  101, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101,
+  115, 117, 108, 116, 2, 0, 2, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98, 105,
+  108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110, 1, 0,
+  0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 1,
+  0, 0, 0, 15, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 46, 80, 117, 114,
+  101, 70, 110, 0, 0, 1, 9, 0, 0, 0, 116, 114, 117, 116, 104, 76, 101, 97, 102,
+  0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115,
+  117, 108, 116, 2, 0, 0, 0, 0, 0, 17, 0, 0, 0, 86, 105, 115, 105, 98, 105,
+  108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+  0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0,
+  0, 0, 11, 0, 0, 0, 73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110, 2, 0,
+  1, 8, 0, 0, 0, 86, 97, 108, 117, 101, 68, 101, 102, 2, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 10, 0, 0, 0, 79, 112, 46, 76, 105, 116, 101, 114, 97, 108, 2, 0, 0, 0,
+  0, 0, 1, 0, 0, 0, 1, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117,
+  114, 110, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0, 0, 0, 8,
+  0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101, 9, 0, 2, 0, 0, 0, 18, 0, 0, 0,
+  67, 97, 108, 108, 97, 98, 108, 101, 46, 73, 110, 118, 97, 114, 105, 97, 110,
+  116, 0, 0, 1, 5, 0, 0, 0, 116, 114, 117, 116, 104, 0, 0, 0, 0, 14, 0, 0, 0,
+  67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108, 116, 2, 0, 0, 0, 0,
+  0, 17, 0, 0, 0, 86, 105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117,
+  98, 108, 105, 99, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 66, 108, 111,
+  99, 107, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 11, 0, 0, 0, 73, 110,
+  115, 116, 114, 117, 99, 116, 105, 111, 110, 2, 0, 1, 8, 0, 0, 0, 86, 97, 108,
+  117, 101, 68, 101, 102, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11, 0, 0, 0, 79, 112,
+  46, 80, 117, 114, 101, 67, 97, 108, 108, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 11, 0,
+  0, 0, 84, 101, 114, 109, 46, 82, 101, 116, 117, 114, 110, 1, 0, 1, 0, 0, 0, 0, 0,
+  0, 0, 0, 1, 6, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 67, 97, 108, 108, 97, 98,
+  108, 101, 9, 0, 3, 0, 0, 0, 18, 0, 0, 0, 67, 97, 108, 108, 97, 98, 108, 101,
+  46, 73, 110, 118, 97, 114, 105, 97, 110, 116, 0, 0, 1, 9, 0, 0, 0, 102, 97, 108,
+  115, 101, 104, 111, 111, 100, 0, 0, 0, 0, 14, 0, 0, 0, 67, 97, 108, 108, 97,
+  98, 108, 101, 82, 101, 115, 117, 108, 116, 2, 0, 0, 0, 0, 0, 17, 0, 0, 0, 86,
+  105, 115, 105, 98, 105, 108, 105, 116, 121, 46, 80, 117, 98, 108, 105, 99, 0, 0,
+  0, 0, 0, 0, 1, 0, 0, 0, 5, 0, 0, 0, 66, 108, 111, 99, 107, 4, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 1, 0, 0, 0, 11, 0, 0, 0, 73, 110, 115, 116, 114, 117, 99, 116,
+  105, 111, 110, 2, 0, 1, 8, 0, 0, 0, 86, 97, 108, 117, 101, 68, 101, 102, 2, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 79, 112, 46, 76, 105, 116, 101, 114, 97,
+  108, 2, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 11, 0, 0, 0, 84, 101, 114, 109, 46, 82,
+  101, 116, 117, 114, 110, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 0,
+  0, 0, 2, 0, 0, 0, 13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68,
+  101, 99, 108, 3, 0, 0, 0, 0, 0, 5, 0, 0, 0, 116, 114, 117, 116, 104, 2, 0, 0, 0,
+  13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68, 101, 99, 108, 3, 0, 1,
+  0, 0, 0, 9, 0, 0, 0, 102, 97, 108, 115, 101, 104, 111, 111, 100, 3, 0, 0, 0, 19,
+  0, 0, 0, 80, 114, 111, 103, 114, 97, 109, 82, 101, 113, 117, 105, 114, 101, 109,
+  101, 110, 116, 115, 1, 0, 0, 0, 0, 0
+]
+
+end CanonicalInvariantFixtureV1
+
+private def testEvalInvariantABI : IO Unit := do
+  let encoded ← expectOk "public-invariant-abi golden encode"
+    (encodeSemanticProgramDataV1 CanonicalInvariantFixtureV1.data)
+  expect (CanonicalInvariantFixtureV1.canonicalBytes.size == 1235)
+    "public invariant ABI golden must remain exactly 1235 bytes"
+  expect (bytesEqual encoded CanonicalInvariantFixtureV1.canonicalBytes)
+    "public invariant ABI production encoding must match the exact 1235-byte golden"
+  let carrier ← encodeCarrier "public-invariant-abi" CanonicalInvariantFixtureV1.data
+  let selectedState := CanonicalInvariantFixtureV1.selectedState
   expect (evalInvariantV1 carrier 0 selectedState == .returnedTrue)
     "ordinal 0: selected invariant returns true through PureCall closure"
   expect (evalInvariantV1 carrier 1 selectedState == .returnedFalse)

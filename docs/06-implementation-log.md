@@ -11880,3 +11880,19 @@ normative: false
   BuildSelection/RequirementResolver/Finalization/DiskClosure consumers updated.
 - Boundary: engineering product surface; not formal registry root/SupportClaim/
   BuildIdentity/OutputSetV1 completion.
+
+## 2026-08-01 — D2-07 concrete canonical invariant fixture
+
+- Fixture：将`Tests.Semantic.InvariantABI.testEvalInvariantABI`原IO内联
+  `PublicInvariantABI` data提升为纯`CanonicalInvariantFixtureV1`定义；保留exact三类型、单state、
+  四callable source order、PureCall closure、两个InvariantDecl与selected state语义，runtime suite与
+  后续kernel proof从此消费同一data authority。
+- Golden：固定独立显式1235-byte `canonicalBytes`，不由encoder定义自身；工程suite调用sole production
+  structure-gated `encodeSemanticProgramDataV1`并检查exact size/byte equality，再沿既有
+  `encodeCarrier` production encode→`decodeSemanticProgramV1`运行ABI行为。
+- Review/Verification：blocker-only review APPROVE；`lake build Tests.Semantic.InvariantABI`与工程suite
+  通过（`Tests.Semantic.InvariantABI: engineering suite finished`）。
+- Boundary：本切片只固定concrete data/byte spine。production structure gate不能由普通`rfl`/`decide`
+  闭合，因此未伪造encode/decode/carrier theorem，也未使用`native_decide`、axiom、cast、第二decoder或
+  recursion-limit workaround。closed transport→structure-gated encoder→carrier theorem、
+  `InvariantTheoremV1`与formal TASK-D2-07/TST-SEM-002/003/TST-PROOF-001仍pending。
