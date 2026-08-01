@@ -12609,6 +12609,16 @@ normative: false
   ContextRead、invariant closure/fuel均未组合。
 - Boundary：完整CFG/invariant phase、requirements、structure/encoder/carrier/formal状态仍pending。
 
+## 2026-08-01 — D2-07 concrete generic callable CFG closure
+
+- Production：sole `validateCallableCfgShape`原位分为保持a–j顺序的reachability、value-flow与typing
+  coherent phases；reachability、defSites、defTypes仍各构造一次并由后续真实checker共享，不增加第二validator。
+- Kernel：source order余下`truthLeaf→truth→falsehood`均闭合；literal callables的ValueId 0通过
+  use-existence/dominance/Bool op+return typing，`truth`精确连接nullary pureFn callee并验证Bool result。
+- Regression：singleton dominator true/false fixed point均固定；WireV1与InvariantABI engineering suites通过。
+- Boundary：四个generic callable CFG已闭合，但global ContextRead catalog、invariant closure/fuel、
+  requirements、完整structure/encoder/carrier identity与formal TASK/TST仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

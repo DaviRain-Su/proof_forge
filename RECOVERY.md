@@ -628,7 +628,9 @@ InvariantDecl name及四项callable name；重复的`truth`/`falsehood`仍在各
 `validateIdentifierComponent`。ASCII只用于refine pinned Unicode NFC fixed-point，长度、非`_`、
 `Lean.isIdFirst/isIdRest`仍由真实authority检查。下一production gate进入CFG/invariant phases。
 
-CFG/invariant phase第一片已开始：callable source order首项entry `gate`只有一个id=0 reachable block、
-empty params/instructions/loopBounds、`return none`，故sole `validateCallableCfgShape`完整a–j路径已kernel
-闭合。下一项truthLeaf含literal def/type/return use，将首次触及defSites/defTypes与op typing；尚未闭合，
-不得把本片写成generic CFG或完整cfg phase成功。
+CFG generic callable walker现已按source order闭合全部四项：entry `gate`通过empty
+defs/effects/loops与`return none`；`truthLeaf`和`falsehood`各以single Bool literal定义ValueId 0并返回；
+`truth`以nullary PureCall连接`truthLeaf`并返回同一Bool TypeId。sole
+`validateCallableCfgShape`仍按a–j顺序运行；reachability/defSites/defTypes各只由production phase构造一次，
+singleton dominator reachable/unreachable fixed point均由kernel定理固定。global ContextRead catalog尚未组合，
+其后的invariant closure/fuel、requirements、完整structure/encoder/carrier/formal状态仍pending。

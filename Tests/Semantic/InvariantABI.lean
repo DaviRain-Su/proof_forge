@@ -932,6 +932,68 @@ theorem gateCfg_data :
     validateCallableCfgShape gate data.types.size data.types data = .ok () := by
   rfl
 
+/-- The pure leaf's single Bool literal definition dominates its return use and
+    satisfies canonical ValueId, type, op, and terminator contracts. -/
+theorem leafCfg_data :
+    validateCallableCfgShape leaf data.types.size data.types data = .ok () := by
+  refine validateCallableCfgShape_eq_ok_of_phases
+    leaf data.types.size data.types data #[true] ?_ ?_ ?_ ?_ ?_
+  · rfl
+  · rfl
+  · rfl
+  · apply validateCallableCfgValueFlow_eq_ok_of_phases leaf #[true] #[(0, 0)]
+    · rfl
+    · rfl
+    · apply checkValueIdUsesExist_single_local_return_eq_ok
+      · rfl
+      · rfl
+    · apply validateCallableDominanceOfUse_single_local_return_eq_ok
+      · rfl
+      · rfl
+  · rfl
+
+/-- The selected invariant root's operand-free call to the proved pure leaf
+    produces Bool ValueId 0, which dominates and types its return. -/
+theorem truthCfg_data :
+    validateCallableCfgShape truth data.types.size data.types data = .ok () := by
+  refine validateCallableCfgShape_eq_ok_of_phases
+    truth data.types.size data.types data #[true] ?_ ?_ ?_ ?_ ?_
+  · rfl
+  · rfl
+  · rfl
+  · apply validateCallableCfgValueFlow_eq_ok_of_phases truth #[true] #[(0, 0)]
+    · rfl
+    · rfl
+    · apply checkValueIdUsesExist_single_local_return_eq_ok
+      · rfl
+      · rfl
+    · apply validateCallableDominanceOfUse_single_local_return_eq_ok
+      · rfl
+      · rfl
+  · apply validateCallableCfgTypingPhases_single_nullary_pureCall_eq_ok
+      truth leaf data data.types.size 1 0 <;> rfl
+
+/-- The second invariant's single false Bool literal satisfies the same exact
+    production CFG, SSA, dominance, op, and terminator contracts. -/
+theorem falsehoodCfg_data :
+    validateCallableCfgShape falsehood data.types.size data.types data = .ok () := by
+  refine validateCallableCfgShape_eq_ok_of_phases
+    falsehood data.types.size data.types data #[true] ?_ ?_ ?_ ?_ ?_
+  · rfl
+  · rfl
+  · rfl
+  · apply validateCallableCfgValueFlow_eq_ok_of_phases
+      falsehood #[true] #[(0, 0)]
+    · rfl
+    · rfl
+    · apply checkValueIdUsesExist_single_local_return_eq_ok
+      · rfl
+      · rfl
+    · apply validateCallableDominanceOfUse_single_local_return_eq_ok
+      · rfl
+      · rfl
+  · rfl
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])
