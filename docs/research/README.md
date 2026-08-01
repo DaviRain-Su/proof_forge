@@ -3,19 +3,19 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-01
+updated: 2026-08-02
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-01
+更新日期：2026-08-02
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
 **工程执行队列**不在本目录：见 [`../engineering-backlog.md`](../engineering-backlog.md)。
-日常只把 **11 + 12** 的缺口回写 backlog；**01–09** 为早期设计研究（已被 ADR/SPEC 吸收），**10** 为长期北极星（IBC），勿再平行开第四份 gap 清单。
+日常只把 **11 + 12 + 13** 的缺口回写 backlog；**01–09** 为早期设计研究（已被 ADR/SPEC 吸收），**10** 为长期北极星（IBC），勿再平行开第四份 gap 清单。
 
 ## 阅读顺序
 
@@ -33,6 +33,7 @@ normative: false
 12. [`10-ibc-as-proofforge-programs.md`](10-ibc-as-proofforge-programs.md)：IBC-as-programs 可行性与语言前置（**北极星，非近期任务**）。
 13. [`11-feature-coverage-audit.md`](11-feature-coverage-audit.md)：特性覆盖审查——分层缺口与按杠杆排序清单。
 14. [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md)：wire Op × target LOWERED/FAIL-CLOSED/GAP 矩阵（工程覆盖权威格子）。
+15. [`13-spec-normalize-diff.md`](13-spec-normalize-diff.md)：SPEC-LANG/SEM/TYPE × NormalizeV1 机械对账（DOC-SPEC-AUDIT）。
 
 ## 证据等级
 

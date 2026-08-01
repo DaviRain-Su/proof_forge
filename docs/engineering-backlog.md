@@ -139,7 +139,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
-| **N-BYTES** | Bytes（+ 产品 String 若仍需）state/param 路径 | packet/payload；与 N-A3 相关 | pending |
+| **N-BYTES** | Bytes state/param 路径复核（+ 产品 String 若仍需） | Normalize docstring 已 admit Array/Map/Bytes state；需测例/产品路径确认 | pending（见 RPT-013 §5；可能缩 scope） |
 
 ---
 
@@ -174,7 +174,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **DOC-5** | `docs/index.md` / document-status 恢复桥叙述 | 工程路径 + backlog 链接 | **done**（2026-08-01） |
 | **DOC-T9-0** | `MIGRATION_MATRIX` 长表过时 present-tense 扫（UInt64-only / single-block / supervisor 等） | **非** 仅 roadmap 状态；commit **必须**改矩阵 | **done**（2026-08-02：矩阵 commit 含 `MIGRATION_MATRIX.md`；D2/边界/D1-06/D1-08 Engineering/Solana 标签对齐 multi-width + 进程内 Loader） |
 | **SKEPTIC-1** | Goal 内闭合 skeptic 三缺口：DOC-T9-0 真扫 + DONE_IDS 全量（含 B-1d/B-1e/T9e）+ BUILD-5 exit-0 日志 | 入口 `prompt-skeptic-recovery.md` | **done**（2026-08-02：DOC-T9-0 `1657989ca` 含矩阵；`just run-deletion-gates` EXIT=0 无 traceback；DONE_IDS 含 B-1d/B-1e/T9e） |
-| **DOC-SPEC-AUDIT** | SPEC-LANG/SEM/TYPE/CLI × Normalize/CLI **机械对账** | 产生 diff 表再回流本 backlog；**真正全集闭包**所需 | pending（大切片；**SKEPTIC-1 后**） |
+| **DOC-SPEC-AUDIT** | SPEC-LANG/SEM/TYPE × Normalize **机械对账** | `docs/research/13-spec-normalize-diff.md`；回流 backlog 校准 | **done**（2026-08-02：RPT-013 表 + N-2/N-3/N-BYTES 校准注；非 formal 全集 EBNF） |
 | **DOC-DEDUP** | 禁止再开第四份平行 gap 清单 | 新研究只追加 11/12 或本文件；关掉旧 `build/*-audit.md` 心智依赖 | **done**（2026-08-02：research README + goals README + index 已指向 sole live queues） |
 
 ---
@@ -188,8 +188,8 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 解锁 | 状态 |
 |---|---|---|---|
 | **N-1** | Map：非空构造 + Map state/param + index | 余额表、IBC 表 | pending |
-| **N-2** | ContextRead + `callerContext`（CheckV1 + Normalize + Reference） | owner/authority；Plan 各 target 仍可先 FAIL-CLOSED | pending |
-| **N-3** | Commit + `disclosure.commit` | private/commitment 组件闭环 | pending |
+| **N-2** | ContextRead **扩面** + `callerContext`（CheckV1 + Normalize + Reference） | Normalize 已有 sole `unixTimeSeconds`（N5）；缺多 key/callerContext | pending（见 RPT-013 §5） |
+| **N-3** | Commit **disclosure 契约** + Check | Normalize 已有 label-only `commit(x)`（N5）；非 full disclosure | pending（见 RPT-013 §5） |
 | **N-4** | aggregate entry/view/fn **返回值** + target ABI struct 返回 | 查询型 API | pending |
 | **N-5** | call **返回值** / typed external call（可能要升 semantic schema） | oracle/跨链 ack；大切片 | pending |
 | **N-6** | true mutable locals（非仅 field/index rebind） | 循环携带聚合 | pending |
