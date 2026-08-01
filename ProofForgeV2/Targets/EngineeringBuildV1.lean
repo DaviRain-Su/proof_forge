@@ -1,20 +1,23 @@
 /-
-  Private engineering materialize/emit capability leaf (D3/S6).
+  Private engineering materialize/emit capability leaf (D3/S6 + M3b claim bind).
 
-  Cycle-free: BuildSelectionV1, RequirementResolverV1, Pipeline, WireV1,
-  RequirementsV1, DescriptorDataV1 — does not import target Plan modules or
-  Registry.
+  Cycle-free: BuildSelectionV1, RequirementResolverV1, SupportClaimV1,
+  TargetRegistryV1, Pipeline, WireV1, RequirementsV1, DescriptorDataV1 —
+  does not import target Plan modules or Registry.
 
   Sole mint of `ResolvedEngineeringBuildV1`:
   `resolveEngineeringRequirementsV1`. The exact retained
   `SemanticProgramV1.data.requirements` is the only request authority; there is
   no caller override, alpha parity path, or re-inference.
 
-  Not SupportClaim / formal registry root or digest / BuildIdentity /
-  OutputSetV1 / complete SemanticProgramV1 lowering.
+  M3b binds the selected engineering SupportClaim (registry-root anchored) into
+  the capability. Not formal SupportClaim / formal registry root or digest /
+  formal BuildIdentity / OutputSetV1 / complete SemanticProgramV1 lowering.
 -/
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.RequirementResolverV1
+import ProofForgeV2.Targets.SupportClaimV1
+import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Semantic.WireV1
@@ -26,19 +29,23 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.RequirementResolverV1
+open ProofForgeV2.Targets.SupportClaimV1
+open ProofForgeV2.Targets.TargetRegistryV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Semantic.RequirementsV1
 
 /-- Private engineering materialize/emit capability.
     Contains frozen selection, the single retained-semantic compiler result,
-    and the exact embedded ProgramRequirementsV1 freeze. Not SupportClaim /
-    ResolvedSupportDecision / BuildIdentity. -/
+    the exact embedded ProgramRequirementsV1 freeze, and the selected
+    engineering SupportClaim (M3b). Not formal SupportClaim /
+    ResolvedSupportDecision / formal BuildIdentity. -/
 structure ResolvedEngineeringBuildV1 where
   private mk ::
   selection : ResolvedBuildSelectionV1
   compiled : CompiledSemanticV1
   requirements : ProgramRequirementsV1
+  supportClaim : EngineeringSupportClaimV1
 
 namespace ResolvedEngineeringBuildV1
 
@@ -50,6 +57,9 @@ def compiledOf (capability : ResolvedEngineeringBuildV1) : CompiledSemanticV1 :=
 
 def requirementsOf (capability : ResolvedEngineeringBuildV1) : ProgramRequirementsV1 :=
   capability.requirements
+
+def supportClaimOf (capability : ResolvedEngineeringBuildV1) : EngineeringSupportClaimV1 :=
+  capability.supportClaim
 
 def kindOf (capability : ResolvedEngineeringBuildV1) : TargetKind :=
   capability.selection.kind
@@ -73,7 +83,9 @@ end ResolvedEngineeringBuildV1
        requirements (unknown/version/digest/no support → PF-REQ-UNSUPPORTED;
        predicates → PF-REQ-PRECONDITION);
     4. bind descriptor target/profile identity;
-    5. mint the private capability with the unchanged request set.
+    5. mint engineering SupportClaims over the frozen registry + support index
+       and bind the selected claim (target/profile + supported row must match);
+    6. mint the private capability with the unchanged request set + claim.
 
     Arbitrary request matrices remain inspection-only. This is not formal
     SupportClaim resolution or predicate implication. -/
@@ -81,7 +93,8 @@ def resolveEngineeringRequirementsV1
     (selection : ResolvedBuildSelectionV1)
     (compiled : CompiledSemanticV1) :
     CompileResult ResolvedEngineeringBuildV1 := do
-  let inspection ← inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
+  let supportIndex ← initialStaticRequirementSupportIndexV1Result
+  let inspection ← inspectSupportWithSeedV1 (.ok supportIndex)
     selection.targetId selection.codegenProfile
   unless inspection.kind == selection.kind do
     throw <| .registryInvalid
@@ -105,6 +118,26 @@ def resolveEngineeringRequirementsV1
   unless DescriptorDataV1.acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid
       "descriptor codegen profile diverges from resolved selection"
-  pure (ResolvedEngineeringBuildV1.mk selection compiled requested)
+  let registry ← initialTargetRegistryV1Result
+  let claims ← match mintEngineeringSupportClaimsV1 registry supportIndex with
+    | .ok value => pure value
+    | .error e =>
+        throw <| .registryInvalid s!"engineering support claim mint failed: {e}"
+  let supportClaim ← match
+      findEngineeringSupportClaimV1 claims selection.targetId selection.codegenProfile with
+    | some claim => pure claim
+    | none =>
+        throw <| .registryInvalid
+          s!"no engineering support claim for target '{selection.targetId}' profile '{selection.codegenProfile}'"
+  unless EngineeringSupportClaimV1.targetIdOf supportClaim == selection.targetId do
+    throw <| .registryInvalid
+      "engineering support claim target diverges from selection"
+  unless EngineeringSupportClaimV1.codegenProfileOf supportClaim == selection.codegenProfile do
+    throw <| .registryInvalid
+      "engineering support claim profile diverges from selection"
+  unless EngineeringSupportClaimV1.supportedOf supportClaim == inspection.supported do
+    throw <| .registryInvalid
+      "engineering support claim supported row diverges from support index"
+  pure (ResolvedEngineeringBuildV1.mk selection compiled requested supportClaim)
 
 end ProofForgeV2.Targets

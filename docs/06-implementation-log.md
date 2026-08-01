@@ -11607,7 +11607,7 @@ normative: false
   profile id 串 + `String(defaultProfile | "none")`；`String = u32le(utf8Len)||utf8`。
   Digest：`domainSeparatedSha256("pf.registry-root.engineering.v1", rootBytes)`，API 为
   `encodeEngineeringRegistryRootBytesV1` / `engineeringRegistryRootDigestV1`（故意不使用
-  formal/product 名 `registryDigest`，也不写入 formal JCS 域 `proof-forge.target-registry.v1`，
+  formal/product 名，也不写入 formal JCS 域 `proof-forge.target-registry.v1`，
   以保持 `TargetRegistryV1` deletion gate）。不 mint BuildIdentity、不进入 selection/capability/
   artifacts。
 - Tests：`Tests/Materialization/RegistryRootV1.lean` 固定 10-target seed root 字节 golden
@@ -11617,6 +11617,34 @@ normative: false
   registration-count）；encode-only surface 反射。已挂 `Tests/Shards/Targets`。
 - Boundary：**工程** registry root digest 切片；**不是** formal TASK-D3-02 / formal registry
   root / SupportClaim / reachable BuildIdentity / OutputSetV1。formal status 不变。
+
+## 2026-08-01 — M3b engineering SupportClaim + BuildIdentity carriers
+
+- Production：
+  * `Targets/SupportClaimV1.lean`：private-ctor `EngineeringSupportClaimV1`
+    （targetId / codegenProfile / supported S2 requests / engineeringRegistryRootDigest /
+    claimDigest）；sole bulk mint `mintEngineeringSupportClaimsV1(registry, index)` 按
+    support-index 规范序为每个 implemented (target, profile) 行 mint 一 claim；
+    claimDigest = `domainSeparatedSha256("pf.support-claim.engineering.v1", length-framed
+    preimage)`，preimage = targetId + profile + supported ids（wire order）+ root digest wire。
+  * `Targets/EngineeringBuildIdentityV1.lean`：private-ctor `EngineeringBuildIdentityV1`
+    （targetId / profile / artifactName / sourceDigest / semanticDigest /
+    engineeringRegistryRootDigest / supportClaimDigest / identityDigest）；sole mint
+    `mintEngineeringBuildIdentityV1`；identityDigest domain
+    `pf.build-identity.engineering.v1`。
+  * `EngineeringBuildV1.resolveEngineeringRequirementsV1` 在 exact support resolve 后 mint
+    claims 并绑定 selected claim 到 private `ResolvedEngineeringBuildV1.supportClaim`。
+  * `mintMaterializedArtifactsV1` 从 capability claim + compiled digests mint identity 并绑定到
+    `MaterializedArtifactsV1.buildIdentity`（内存 carrier only；**不**改 CLI publisher /
+    on-disk v2alpha1 manifest）。
+  * 命名刻意避开 formal deletion-gate 禁止符（无 formal root-digest product API 名、无
+    `mintBuildIdentityV1`）；formal-layout `BuildIdentityV1` 仍无 mint。
+- Tests：`Tests/Materialization/IdentityChainV1.lean` — claim 7 行序/determinism/support-row
+  与 registry-root tamper；product Counter→resolve→materialize 四 target identity bind +
+  determinism；Solana plan/elf profile 与 Counter/Accumulator source sensitivity；sole-mint /
+  forbidden-name surface。已挂 Fast / full / shard-targets。
+- Boundary：**工程** identity chain 第二环；**不是** formal TASK-D3-02/03、formal SupportClaim、
+  formal BuildIdentity、OutputSetV1 或 manifest wiring（M3c）。formal status 不变。
 ## 2026-08-01 — D2-07 canonical Return terminator composition
 
 - Production：将Terminator原anonymous sum body机械命名为sole `decodeTerminatorBodyV1`，public decoder

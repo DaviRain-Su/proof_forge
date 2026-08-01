@@ -56,6 +56,7 @@ import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
+import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.EngineeringDiskClosureV1
@@ -122,6 +123,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.SolanaPlanV1.run
   Tests.Materialization.TargetRegistryV1.run
   Tests.Materialization.RequirementResolverV1.run
+  Tests.Materialization.IdentityChainV1.run
   Tests.Materialization.OutputEnvelopeV1.run
   Tests.Materialization.EngineeringFinalizationV1.run
   Tests.Materialization.EngineeringDiskClosureV1.run

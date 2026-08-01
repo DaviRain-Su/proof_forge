@@ -207,7 +207,7 @@ s6-plan-cutover-deletion-gate:
     expect_one_match "$gate" 'ResolvedEngineeringBuildV1\.mk' 'EngineeringBuildV1.lean' \
       'ResolvedEngineeringBuildV1.mk'
     set +e
-    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 40 'ResolvedEngineeringBuildV1\.mk' ProofForgeV2/Targets/EngineeringBuildV1.lean 2>&1)"
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 60 'ResolvedEngineeringBuildV1\.mk' ProofForgeV2/Targets/EngineeringBuildV1.lean 2>&1)"
     mk_ec=$?
     set -e
     if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'resolveEngineeringRequirementsV1'; then
@@ -242,7 +242,7 @@ s7-output-envelope-deletion-gate:
       'MaterializedArtifactsV1.mk'
     set +e
     # Wide context: private .mk sits at the end of mintMaterializedArtifactsV1.
-    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 60 'MaterializedArtifactsV1\.mk' ProofForgeV2/Materialization 2>&1)"
+    mk_ctx="$(rg --glob '*.lean' -n --no-heading -C 80 'MaterializedArtifactsV1\.mk' ProofForgeV2/Materialization 2>&1)"
     mk_ec=$?
     set -e
     if [[ $mk_ec -ne 0 ]] || ! printf '%s\n' "$mk_ctx" | grep -q 'mintMaterializedArtifactsV1'; then
