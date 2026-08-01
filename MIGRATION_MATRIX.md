@@ -260,7 +260,11 @@ count等于上限及超限边界。后续iteration切片将该唯一production l
 `decodeArrayElementsV1`，保持顺序、fail-fast与cursor线程，并以header-success composition theorem
 提供稳定kernel unfolding seam；没有proof-side generic decoder。后续QualifiedName切片组合既有
 sized-byte、sole String UTF-8/NFC、array iteration与`parseQualifiedName` authority，两个theorem保持
-全部错误相位且不复制validator。九张root table与完整carrier refinement仍pending。
+全部错误相位且不复制validator。进入root types前的后续切片又为sole `withTaggedNesting`建立
+limit-first/body-error/input-offset/parent-depth restoration unfolding theorem，并为sum `decodeTag`建立
+raw framing→既有UTF-8/ASCII分支composition。后续TypeShape前置切片将sole production sum body命名为
+`decodeTypeShapeBodyV1`并补u16 field-count success/mismatch theorem，全部12分支保持原样；九张root
+table与完整carrier refinement仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

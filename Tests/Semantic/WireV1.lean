@@ -242,6 +242,44 @@ example (c : Cursor) (count offset : Nat)
   decodeQualifiedName_eq_elementsV1 c count offset hcount
 
 example :
+    withTaggedNesting decodeU8
+      ⟨ByteArray.mk [0xaa].toArray, 0, maxNesting⟩ = .error .limitExceeded := by rfl
+
+example :
+    (withTaggedNesting decodeU8 ⟨ByteArray.mk [0xaa].toArray, 0, 7⟩).map
+        (fun (value, c) => (value, c.offset, c.nesting)) = .ok (0xaa, 1, 7) := by rfl
+
+example :
+    withTaggedNesting
+      (fun _ => .ok (0xaa, ⟨ByteArray.mk [0xbb].toArray, 9, 99⟩))
+      ⟨ByteArray.mk [0xcc].toArray, 3, 7⟩ =
+        .ok (0xaa, ⟨ByteArray.mk [0xbb].toArray, 9, 7⟩) := by rfl
+
+example (c : Cursor) (raw : ByteArray) (offset : Nat)
+    (hread : readTagBytesAtV1 c.input c.offset = .ok (raw, offset)) :
+    decodeTag c =
+      match String.fromUTF8? raw with
+      | none => .error .badTag
+      | some tag =>
+          if isAsciiTagV1 tag then
+            .ok (tag, ⟨c.input, offset, c.nesting⟩)
+          else
+            .error .badTag :=
+  decodeTag_eq_of_readBytesV1 c raw offset hread
+
+example (c : Cursor) (expected : Nat) (count : UInt16) (offset : Nat)
+    (hread : readU16leAtV1 c.input c.offset = .ok (count, offset)) :
+    decodeFieldCount expected c =
+      if count.toNat == expected then
+        .ok ((), ⟨c.input, offset, c.nesting⟩)
+      else
+        .error .badFieldCount :=
+  decodeFieldCount_eq_of_readU16leV1 expected c count offset hread
+
+example :
+    decodeTypeShapeV1 ⟨ByteArray.empty, 0, maxNesting⟩ = .error .limitExceeded := by rfl
+
+example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =
       .ok (0x10, 1, 0) := by rfl
