@@ -36,6 +36,7 @@ normative: false
 15. [`13-spec-normalize-diff.md`](13-spec-normalize-diff.md)：SPEC-LANG/SEM/TYPE × NormalizeV1 机械对账（DOC-SPEC-AUDIT）。
 16. [`14-n5-call-return-schema.md`](14-n5-call-return-schema.md)：N-5 external call 返回值 schema 影响（void ExternalCall 直至共享核 cutover）。
 17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo Leo / Psy VM 可用性——**不**升格 compiler/VM 验收门；成熟度保持 source-only。
+18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir nargo/prove 路径——**不**升格 prove/verify 验收门；无 Tool Lock pin；保持 source-only relations。
 
 ## 证据等级
 

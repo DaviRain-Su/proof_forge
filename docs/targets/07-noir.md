@@ -26,8 +26,16 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 - call/schedule 持 capability（status/arg slot）；私有 state/params 走 private-witness 输入；
 - 产物：typed relation IR + Noir source packages（host model / relation tests）。
 
-**明确未闭合**：**无** Nargo/ACIR/witness/proof/VK/prove/verify 验收门（backlog **C-4**）；
+**明确未闭合**：**无** Nargo/ACIR/witness/proof/VK/prove/verify 验收门；
 formal Noir milestone；完整 Semantic 面。不得写成 circuit proof 完成。
+
+### C-4 研究结论（2026-08-02 / RPT-016）
+
+**不**在本波次升格 prove/verify 验收门：`supply-chain` / Tool Lock **无** nargo 或
+proving-backend pin；产物校验为 **source-only** 且拒绝 proof-stage 叶子；本机 PATH
+亦无 `nargo`。成熟度保持 **source-only** relations + Lean relation model。
+未来若产品优先：独立 `NoirProveAcceptance` + Tool Lock pin + CRS/soundness contract，
+再开 profile 超越 `noir-source-u64-relations-v1`。
 
 ## 1. 身份与来源
 
