@@ -458,6 +458,30 @@ example (c c' : Cursor) (callable : CallableV1)
     decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeCallableV1_eq_of_bodyV1 c callable c' hdepth hbody
 
+example (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : Cursor)
+    (id entryBlock : UInt32) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1) (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : decodeArray maxArrayElements decodeParameterV1 cName = .ok (params, cParams))
+    (hresult : decodeCallableResultV1 cParams = .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : decodeArray maxArrayElements decodeBlockV1 cEntry = .ok (blocks, cBlocks))
+    (hloops : decodeArray maxArrayElements decodeLoopBoundV1 cBlocks =
+      .ok (loopBounds, cLoops))
+    (hsteps : decodeOption decodeU64le cLoops = .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_fieldsV1 c cTag cId cKind cName cParams cResult cEntry cBlocks
+    cLoops cSteps id entryBlock kind name params result blocks loopBounds invariantSteps
+    hdepth htag hid hkind hname hparams hresult hentry hblocks hloops hsteps
+
 example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
     (afterCallables : Cursor)
     (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))

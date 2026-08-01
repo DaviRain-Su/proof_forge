@@ -2174,6 +2174,36 @@ theorem decodeCallableV1_eq_of_bodyV1 (c : Cursor) (callable : CallableV1) (c' :
   unfold decodeCallableV1 withTaggedNesting
   simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
+/-- Compose all Callable production fields directly through its nesting wrapper. -/
+theorem decodeCallableV1_eq_of_fieldsV1
+    (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : Cursor)
+    (id entryBlock : UInt32) (kind : CallableKindV1) (name : Option String)
+    (params : Array ParameterV1) (result : CallableResultV1) (blocks : Array BlockV1)
+    (loopBounds : Array LoopBoundV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : decodeArray maxArrayElements decodeParameterV1 cName = .ok (params, cParams))
+    (hresult : decodeCallableResultV1 cParams = .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : decodeArray maxArrayElements decodeBlockV1 cEntry = .ok (blocks, cBlocks))
+    (hloops : decodeArray maxArrayElements decodeLoopBoundV1 cBlocks =
+      .ok (loopBounds, cLoops))
+    (hsteps : decodeOption decodeU64le cLoops = .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_bodyV1 c {
+    id, kind, name, params, result, entryBlock, blocks, loopBounds, invariantSteps
+  } cSteps hdepth
+    (decodeCallableBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩
+      cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps id entryBlock
+      kind name params result blocks loopBounds invariantSteps htag hid hkind hname hparams
+      hresult hentry hblocks hloops hsteps)
+
 /-- Root `callables` field composition through the sole array decoder. -/
 theorem decodeCallableArrayV1_eq_of_elements (c : Cursor) (count offset : Nat)
     (callables : Array CallableV1) (afterCallables : Cursor)

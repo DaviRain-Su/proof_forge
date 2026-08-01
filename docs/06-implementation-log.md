@@ -11686,6 +11686,15 @@ normative: false
 - Boundary：entry/literal/PureCall所需Block shapes已就绪；具体Callable与root carrier、formal TASK/TST
   仍pending。
 
+## 2026-08-01 — D2-07 public Callable composition
+
+- Proof：将既有Callable九字段body theorem穿过sole tagged wrapper，导出public decoder success；字段顺序
+  固定为id→kind→name→params→result→entryBlock→blocks→loopBounds→invariantSteps。
+- Authority：params/blocks/loopBounds继续使用各自production `maxArrayElements` decoder；final steps cursor
+  的input/offset保留并恢复Callable parent depth。focused build、signature example与blocker review通过。
+- Boundary：仍以九个真实field successes为premises；具体entry/pureFn/invariant、root array及formal
+  TASK/TST仍pending。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

@@ -292,7 +292,8 @@ sole sum body并闭合canonical Literal/PureCall及nesting；其余op runtime保
 组合先从sole production iterator导出singleton array success，随后将ValueDef、Literal/PureCall与
 Instruction body theorem提升为public-decoder corollary；后续Return与Block也完成同级提升，供具体
 single-block callables直接消费，不复制nested decoder。canonical Block zero/one-instruction形状现已
-组合真实双array headers、exact element call count及public Terminator。
+组合真实双array headers、exact element call count及public Terminator；Callable九字段也已提升为
+public decoder composition，准备接入singleton Block array。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

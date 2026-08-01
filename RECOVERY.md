@@ -414,6 +414,11 @@ canonical Block array composition现已闭合：`decodeBlockV1_emptyV1`组合emp
 count reader returned offset构造下一cursor，再消费真实public Terminator success。entry gate使用前者，
 literal leaf与PureCall invariant使用后者。下一步将每个Block用singleton array接入具体Callable fields。
 
+Callable public composition现已接通：`decodeCallableV1_eq_of_fieldsV1`将既有九字段body theorem穿过
+sole tagged wrapper，严格保持id→kind→name→params→result→entryBlock→blocks→loopBounds→steps，
+三个array各自继续使用production `maxArrayElements` authority，并保留final steps cursor input/offset、
+恢复Callable parent depth。它仍以真实field successes为premises，不提前声称具体callable已闭合。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
