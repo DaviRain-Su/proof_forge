@@ -124,11 +124,12 @@ Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phas
 - 镜像 M4（13e3a54be）：NEAR/Solana/Noir plan schema digest + `engineering*PlanDigestV1` + BuildIdentity/OutputSet/manifest 字段 + CLI inspect
 - 小-中切片；金样 IdentityChain/OutputSet
 
-### [in_progress] T9e-Solana：Solana UInt128/256（多字算术，软件双字/四字）
-- 从原 T9e 拆出：先 Solana，后 T9e-NEAR
-- 参照 EVM T9b：`isEvmAbiUintWidth`/body/`bigLiteral`/ResultKind/Yul 掩码
-- 64 位寄存器：add/sub/mul/div/比较/移位的软件多字；Plan/IR/SBPF 全链路
-- 负向：body 溢出 fail closed 保持；金样 + 可选 Mollusk
+### [merged] T9e-Solana：Solana UInt128/256（多字算术，软件双字/四字）（2026-08-02, 52f527140）
+- Envelope `isSolanaAbiUintWidth`/`pilotUintWidthPolicySolanaBody` 扩 128/256；
+  cumulative pitch 16/32；`bigLiteral`/`wideCompare`/`ResultKind.u128/u256`
+- SBPF 多肢 LE：add/sub/compare/bit 全软件；mul/div/mod 高肢须 0 的 low64 路径
+- Tests：`testWideUintProduct` + body/result admit；shard-targets 绿
+- 隔离 CI 已 dispatch（ci-verify-t9e-solana）。非 formal。
 
 ### [pending] T9e-NEAR：NEAR UInt128/256（多字算术）
 - 镜像 T9e-Solana；WAT i64 软件多字 + host model
@@ -159,3 +160,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T9c-EVM | merged f523b674f, 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int） |
 | 2026-08-01 | T9c-2 | merged 65bc46956, 隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int） |
 | 2026-08-01 | T9d | merged 4c79e0a59+c3626725f, 隔离 CI 已 dispatch（ci-verify-t9d-plan-digest） |
+| 2026-08-02 | T9e-Solana | merged 52f527140, 隔离 CI 已 dispatch（ci-verify-t9e-solana） |
