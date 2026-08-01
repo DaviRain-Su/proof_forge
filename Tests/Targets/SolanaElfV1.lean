@@ -144,6 +144,13 @@ private unsafe def testEmitProfiles
   expect (planPaths.any (· == "Counter.idl.json")) "plan emit: idl"
   expect (!planPaths.any (fun p => p.endsWith ".s"))
     "plan emit: must not publish .s"
+  let planIdl ← match planFiles.find? (·.path == "Counter.idl.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "plan emit: missing idl"
+  expect (planIdl.contains "\"codegenProfile\": \"solana-sbpf-plan-v1\"")
+    "plan idl: codegen profile is plan"
+  expect (planIdl.contains "\"deployable\": false")
+    "plan idl: non-deployable"
   -- Elf profile
   let elfCap ← liftResult <|
     solanaCapability compiled (some CodegenProfileId.solanaSbpfElfV1)
@@ -155,6 +162,13 @@ private unsafe def testEmitProfiles
   expect (elfPaths.any (· == "Counter.sbpf-plan")) "elf emit: .sbpf-plan"
   expect (elfPaths.any (· == "Counter.idl.json")) "elf emit: idl"
   expect (elfPaths.any (· == "Counter.s")) "elf emit: .s"
+  let elfIdl ← match elfFiles.find? (·.path == "Counter.idl.json") with
+    | some f => pure f.contents
+    | none => throw <| IO.userError "elf emit: missing idl"
+  expect (elfIdl.contains "\"codegenProfile\": \"solana-sbpf-elf-v1\"")
+    "elf idl: codegen profile is elf"
+  expect (elfIdl.contains "\"deployable\": true")
+    "elf idl: deployable"
   let asmFromFiles ← match elfFiles.find? (·.path == "Counter.s") with
     | some f => pure f.contents
     | none => throw <| IO.userError "elf emit: missing .s file"

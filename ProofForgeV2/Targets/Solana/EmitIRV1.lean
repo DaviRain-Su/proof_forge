@@ -1095,8 +1095,12 @@ private def renderFnJson (fn : FnIR) : String :=
     s!"\"result\":\"{result}\"" ++
     "}"
 
-private def renderIdl (ir : IR) : String :=
+private def renderIdl (capability : ResolvedEngineeringBuildV1) (ir : IR) : String :=
   let account := ir.stateAccount
+  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  -- The IDL describes the emitted wire format; deployability follows the
+  -- selected profile (elf profile finalizes a real .so, plan profile does not).
+  let deployable := profile == CodegenProfileId.solanaSbpfElfV1
   let fields := String.intercalate "," (account.fields.toList.map renderFieldJson)
   let handlers := String.intercalate ",\n    " (ir.handlers.toList.map renderHandlerJson)
   let events := String.intercalate "," (ir.sourcePlan.events.toList.map renderInterfaceBindingJson)
@@ -1105,8 +1109,8 @@ private def renderIdl (ir : IR) : String :=
   "{\n" ++
     "  \"version\": \"proof-forge-solana-idl/v1\",\n" ++
     s!"  \"name\": \"{Targets.escapeJson ir.name}\",\n" ++
-    s!"  \"codegenProfile\": \"{ir.sourcePlan.codegenProfile}\",\n" ++
-    "  \"deployable\": false,\n" ++
+    s!"  \"codegenProfile\": \"{profile}\",\n" ++
+    s!"  \"deployable\": {if deployable then "true" else "false"},\n" ++
     "  \"instructionEncoding\": {" ++
     s!"\"discriminator\":\"sha256-prefix-{ir.sourcePlan.instructionDiscriminatorBytes}\"," ++
     s!"\"domain\":\"{ir.sourcePlan.instructionDiscriminatorDomain}\"," ++
@@ -1130,7 +1134,7 @@ private def renderIdl (ir : IR) : String :=
     closed; used by `buildFromCapability` in EmitSbpfAsmV1 without a circular
     import on `emitSbpfAsmV1`. -/
 def emitPlanAndIdlFromIR
-    (_capability : ResolvedEngineeringBuildV1) (ir : IR) :
+    (capability : ResolvedEngineeringBuildV1) (ir : IR) :
     CompileResult (Array OutputFile) := do
   validateIR ir
   pure #[
@@ -1142,7 +1146,7 @@ def emitPlanAndIdlFromIR
     {
       path := s!"{ir.name}.idl.json"
       mediaType := "application/json"
-      contents := renderIdl ir
+      contents := renderIdl capability ir
     }
   ]
 
