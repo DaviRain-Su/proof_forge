@@ -130,6 +130,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.PsySourceV1,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.EvmSolcAcceptance,
+    `Tests.Materialization.NearWasmAcceptance,
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.SolanaPlanV1,

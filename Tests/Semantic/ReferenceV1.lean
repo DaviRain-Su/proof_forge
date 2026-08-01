@@ -2915,28 +2915,30 @@ private def testArrayBytesReferenceSlice : IO Unit := do
     { initialized := true, canonicalValues := ByteArray.empty } == .returnedTrue)
     "map-invariant: returned true"
 
-  let mapWorkTypes (fieldCount : Nat) : Array TypeDeclV1 := Id.run do
-    let mut fields : Array StructFieldV1 := #[]
-    for i in [:fieldCount] do
-      fields := fields.push { name := s!"f{i}", typeId := 2 }
-    pure #[
-      { id := 0, name := some "MapValue", shape := .struct fields },
-      { id := 1, name := none, shape := .uint 32 },
-      { id := 2, name := none, shape := .unit },
-      { id := 3, name := none, shape := .map 1 0 },
-      { id := 4, name := none, shape := .bool }
-    ]
+  -- R-1: Map admission budget is maxMapEntriesReferenceBudgetV1 (4096), not
+  -- wire 1e6. A Map of large Bytes values still fails static byte limits;
+  -- a small Map of Unit still admits (empty-default product path).
+  let mapWorkTypes (valueBytesLen : Nat) : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bytes (UInt32.ofNat valueBytesLen) },
+    { id := 1, name := none, shape := .uint 32 },
+    { id := 2, name := none, shape := .map 1 0 },
+    { id := 3, name := none, shape := .bool },
+    { id := 4, name := none, shape := .unit }
+  ]
   let mapWorkGate := mkEntry 0 "mapWorkGate" #[] 4 #[] (.return_ none)
   let mapWorkBase ← emptyData "MapWork"
   let boundedMapWorkCarrier ← encodeCarrier "bounded-map-work" {
-    mapWorkBase with types := mapWorkTypes 17, callables := #[mapWorkGate]
+    mapWorkBase with types := mapWorkTypes 64, callables := #[mapWorkGate]
   }
   let _ ← admitOk "bounded-map-work" boundedMapWorkCarrier
+  -- value Bytes 4096 × Reference Map budget 4096 entries overflows value-byte cap
   let overMapWorkCarrier ← encodeCarrier "over-map-work" {
-    mapWorkBase with types := mapWorkTypes 18, callables := #[mapWorkGate]
+    mapWorkBase with types := mapWorkTypes 4096, callables := #[mapWorkGate]
   }
   admitUnsupported "over-map-work" overMapWorkCarrier
-    (fun detail => detail.contains "Map canonical update work") "Map update work"
+    (fun detail =>
+      detail.contains "Map" || detail.contains "canonical" || detail.contains "byte")
+    "Map oversize value budget"
 
   let recursiveMapTypes : Array TypeDeclV1 := #[
     { id := 0, name := some "MapLoop", shape := .enum #[
@@ -4300,11 +4302,122 @@ private unsafe def testMapBytesAssignNormalizeReference
     stepReferenceSliceV1 bytesAdmitted sevenBytesState (inv 2 #[]) emptyResponses
   expectReturned "bytes-ref-assign-get0" afterGet sevenBytesState
     (some (refU8 u8Tid 7)) #[]
-  -- Map *state* whole-program Reference admission remains fail-closed under the
-  -- current maxMapEntriesV1=1e6 resource model (logical-state default work).
-  -- Map IndexSet step semantics stay covered by hand-built fixtures in
-  -- `testArrayBytesReferenceSlice`; Map product Normalize structure is pinned
-  -- in Tests.Typed.CheckV1.
+  -- R-1: Map *state* empty-default is admitted (worst-case maxMapEntries budget
+  -- no longer poisons logical-state default accounting). Product IndexSet step:
+  let mapSource := wrap "MapRefAssign" <|
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m[0] := 0\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let mapValidated ← loadSource session "map-ref-assign" mapSource
+  let mapCarrier ← match normalizeProgramV1 mapValidated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"map-ref-assign: normalize: {repr e}"
+  let mapData ← match validateSemanticProgramV1 mapCarrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"map-ref-assign: validate: {repr e}"
+  let mapAdmitted ← admitOk "map-ref-assign" mapCarrier
+  let u64Tid ← match mapData.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "map-ref-assign: missing UInt64"
+  let mapInitial ← match initialLogicalStateV1 mapCarrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"map-ref-assign: initial: {repr e}"
+  let afterMapInit :=
+    stepReferenceSliceV1 mapAdmitted mapInitial (inv 0 #[]) emptyResponses
+  let postInit ← match afterMapInit with
+    | .returned post _ _ => do
+        expect post.initialized "map-ref-assign-init: initialized"
+        pure post
+    | _ => throw <| IO.userError "map-ref-assign-init: expected returned"
+  let afterPut :=
+    stepReferenceSliceV1 mapAdmitted postInit
+      (inv 1 #[refU64 u64Tid 3, refU64 u64Tid 9]) emptyResponses
+  match afterPut with
+  | .returned post val _ =>
+      expect post.initialized "map-ref-assign-put: initialized"
+      expect (optionRefEq val (some (refU64 u64Tid 9)))
+        "map-ref-assign-put: returns written value"
+  | _ => throw <| IO.userError "map-ref-assign-put: expected returned"
+
+/-- R-1: Option state product Normalize → admit → step (none default + some assign). -/
+private unsafe def testOptionStateNormalizeReference
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrap "OptRefState" <|
+    "  state slot : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    slot := Option.none()\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    slot := Option.some(v)\n" ++
+    "    return v\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    match slot with\n" ++
+    "    | Option.some(x) => do\n" ++
+    "      return x\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "opt-ref-state" src
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"opt-ref-state: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError s!"opt-ref-state: validate: {repr e}"
+  let admitted ← admitOk "opt-ref-state" carrier
+  let u64Tid ← match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => pure (UInt32.ofNat i)
+    | none => throw <| IO.userError "opt-ref-state: missing UInt64"
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"opt-ref-state: initial: {repr e}"
+  let afterInit := stepReferenceSliceV1 admitted initial (inv 0 #[]) emptyResponses
+  let postInit ← match afterInit with
+    | .returned post _ _ => pure post
+    | _ => throw <| IO.userError "opt-ref-state-init: expected returned"
+  let afterSet :=
+    stepReferenceSliceV1 admitted postInit (inv 1 #[refU64 u64Tid 11]) emptyResponses
+  match afterSet with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 11)))
+        "opt-ref-state-set: returns written value"
+  | _ => throw <| IO.userError "opt-ref-state-set: expected returned"
+  let postSet ← match afterSet with
+    | .returned p _ _ => pure p
+    | _ => throw <| IO.userError "opt-ref-state-set: missing post"
+  let afterPeek :=
+    stepReferenceSliceV1 admitted postSet (inv 2 #[]) emptyResponses
+  match afterPeek with
+  | .returned _ val _ =>
+      expect (optionRefEq val (some (refU64 u64Tid 11)))
+        "opt-ref-state-peek: Option.some recovered"
+  | _ => throw <| IO.userError "opt-ref-state-peek: expected returned"
+
+/-- R-1: ExternalCall arg admission accepts UInt16 (N-8 multi-width parity). -/
+private def testExternalCallUInt16ArgAdmission : IO Unit := do
+  let u16 : TypeIdV1 := 2
+  let unit : TypeIdV1 := 1
+  let types : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := unit, name := none, shape := .unit },
+    { id := u16, name := none, shape := .uint 16 }
+  ]
+  let qn ← match parseQualifiedName #["Host", "feed"] with
+    | .ok q => pure q
+    | .error e => throw <| IO.userError s!"ext-u16 qn: {repr e}"
+  let params : Array ParameterV1 :=
+    #[{ valueId := 0, name := "x", typeId := u16, visibility := .public_ }]
+  let entryCallable := mkEntry 0 "run" params unit
+    #[instr none (.externalCall 0 qn #[0])]
+    (.return_ none)
+  let base ← emptyData "ExtU16"
+  let carrier ← encodeCarrier "ext-u16-arg" {
+    base with types := types, callables := #[entryCallable]
+  }
+  let _ ← admitOk "ext-u16-arg" carrier
 
 /-- N-2 product path: Normalize `context.caller` → Principal ContextRead +
     Reference step with explicit InvocationV1.context Principal row. -/
@@ -4381,8 +4494,12 @@ unsafe def run : IO Unit := do
   -- N5b/N-2: ContextRead/Commit product step semantics
   testContextCommitNormalizeReference session
   testContextCallerNormalizeReference session
-  -- N-A3: Map/Bytes single-step index assign product path
+  -- N-A3 / R-1: Map/Bytes single-step index assign product path + Map admit
   testMapBytesAssignNormalizeReference session
+  -- R-1: Option state product admit + step
+  testOptionStateNormalizeReference session
+  -- R-1: multi-width external call arg admission (N-8 parity)
+  testExternalCallUInt16ArgAdmission
   IO.println "Tests.Semantic.ReferenceV1: engineering suite finished"
 
 end Tests.Semantic.ReferenceV1

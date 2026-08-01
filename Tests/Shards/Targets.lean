@@ -6,6 +6,7 @@ import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
+import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.OutputSetV1
 
 import Tests.Materialization.OutputEnvelopeV1
@@ -39,6 +40,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmSmoke.run
   IO.eprintln "CP run"
   Tests.Materialization.EvmSolcAcceptance.run
+  IO.eprintln "CP run"
+  Tests.Materialization.NearWasmAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
 

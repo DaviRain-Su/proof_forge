@@ -12737,3 +12737,39 @@ normative: false
 - Matrix: N-A3 GAP→LOWERED (Normalize/Reference); target Plan Map/Bytes remain FAIL-CLOSED.
 - Boundary: nonempty Map construction still fail-closed; nested assign through Map element still closed; no Envelope/Targets/Materialization/CLI changes; not formal D2/D4.
 - Note: Map logical-state Reference admission still fails under maxMapEntriesV1=1e6 default-work budget; Map IndexSet runtime covered by hand-built fixtures; Bytes state product path admitted.
+
+## 2026-08-02 — NearWasmAcceptance: WABT wat2wasm + wasm-interp gate (C-1)
+
+- Engineering only (not formal Stage-0 / hermetic tool lock / NEAR sandbox receipt).
+- Context: NEAR maturity was `wasm-validated-alpha` with product FinalizeV1
+  `wat2wasm` structural validation only; gap C-1 asked for a real Wasm engine
+  acceptance suite analogous to EvmSolc / Solana Mollusk.
+- Host research (this Darwin worktree):
+  * `wasmer` / `wasmtime` / `near-vm` **not** installed
+  * WABT 1.0.41 present: `wat2wasm`, `wasm-validate`, `wasm-interp`
+  * `wasm-interp --dummy-import-func` stubs NEAR `env.*` host imports (zero
+    return) so product modules with unresolved imports can **load/instantiate**
+  * pure `wasm-interp` without dummy fails with `invalid import "env.input"`
+  * true sandbox receipt / host-storage differential remains NearHostModel
+    (Lean) + future near-vm work — not this slice
+- Suite: `Tests/Materialization/NearWasmAcceptance.lean` materializes three
+  representative programs through the product capability path
+  (select → compileValidatedSourceV1 → resolve → materializeResult), writes
+  `.wat` under `build/v2/near-wasm-acceptance/`, runs:
+  `wat2wasm <name>.wat -o <name>.wasm` then
+  `wasm-interp --dummy-import-func <name>.wasm` (fallback: `wasmtime compile`
+  or `wasmer validate`). Asserts non-empty WAT with `(module` and Wasm magic
+  `\0asm`. When wat2wasm + runtime absent, logs
+  `skipped: wat2wasm + wasm runtime … unavailable` and passes.
+- Programs: Counter, DualField (multi-field public UInt64 KV aggregate; named
+  Struct state remains NEAR Plan fail-closed per Targets N3), LoopSum (bounded
+  for).
+- Helper: optional `scripts/near_wasm_acceptance.sh` (skip when tools absent;
+  fail-closed when present) for ad-hoc `.wat` dirs/files.
+- Registration: `Tests.lean` / `Tests/Fast.lean` / `Tests/Shards/Targets.lean`
+  / `lakefile.lean` (targets shard) per EvmSolc/M3b pattern. No justfile change.
+- EmitIRV1: **no emission bugs found**; no EmitIRV1 edits required.
+- Matrix: `docs/research/12-target-coverage-matrix.md` C-1 + §2 验收 row updated
+  (toolchain compile ✅ WABT; runtime ⚠️ dummy-env load, not Reference↔Wasm).
+- Boundary: not NEAR sandbox / near-vm / wasmer host model; dummy stubs do not
+  assert storage/return semantics; formal D6 still pending.

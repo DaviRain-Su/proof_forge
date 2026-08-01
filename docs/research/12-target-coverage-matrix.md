@@ -65,8 +65,8 @@ normative: false
 |---|---|---|---|---|---|---|
 | Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ❌(仅 wat2wasm 结构) | ❌(source-only) | ❌(source-only) | ❌(source-only) |
-| 运行时差分 (Reference↔target) | ❌(Anvil formal 缺) | ✅(S3b Mollusk) | ❌ | ❌ | ❌ | ❌ |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: wat2wasm+wasm-interp) | ❌(source-only) | ❌(source-only) | ❌(source-only) |
+| 运行时差分 (Reference↔target) | ❌(Anvil formal 缺) | ✅(S3b Mollusk) | ⚠️(WABT load+dummy env; 非 sandbox receipt / 非 Reference↔Wasm) | ❌ | ❌ | ❌ |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
@@ -114,7 +114,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **C-1** | NEAR Wasm 运行时差分 | NEAR 成熟度 `wasm-validated-alpha`（wat2wasm 结构验证），无真实 Wasm 运行时差分（类比 EvmSolc/Mollusk） | NearWasmAcceptance |
+| **C-1** | NEAR Wasm 运行时差分 | **已闭合(NearWasmAcceptance 工程切片)**：产品 path 物化 Counter/DualField（多字段 public UInt64 KV；named Struct 仍 NEAR Plan FC）/LoopSum → `.wat` → 主机 `wat2wasm` + `wasm-interp --dummy-import-func`（或 wasmtime compile / wasmer validate）实例化；工具缺席干净 skip；**非** NEAR sandbox receipt / Reference↔Wasm formal 差分 | NearWasmAcceptance ✅ |
 | **C-2** | Aleo/Psy compiler/VM 验收研究 | Aleo/Psy 成熟度 `source-only`，无 compiler/VM 验收（Aleo 有 leo compiler？Psy 有 psy-vm？需研究） | AleoPsyResearch |
 | **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
 
@@ -141,7 +141,7 @@ normative: false
 
 ### Phase F（B-3 + C 组，可并行）
 - **PrincipalAddr**（B-3）：NormalizeV1 + EnvelopeV1 + EVM/Solana Plan（解锁 externalCall/schedule）
-- **NearWasmAcceptance**（C-1）：Near runtime-tests + 脚本
+- **NearWasmAcceptance**（C-1）：**已闭合** — `Tests/Materialization/NearWasmAcceptance.lean` + `scripts/near_wasm_acceptance.sh`；WABT wat2wasm+wasm-interp dummy-import 门
 - **AleoPsyResearch**（C-2）：docs/research 研究文档（Aleo leo compiler / Psy psy-vm 可用性）
 
 ### Phase G（formal 轨道，按既定决定不做，除非改决定）

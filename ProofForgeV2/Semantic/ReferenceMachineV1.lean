@@ -24,7 +24,8 @@ import ProofForgeV2.Semantic.WireV1
       ExternalCall, Schedule, Unit/Array Construct, empty Map Construct,
       Array/Bytes/Map IndexGet/IndexSet, ContextRead, Commit
     * terminators: Jump / Branch / Switch / Return / Revert / Trap
-    * ExternalCall/Schedule args: Bool / UInt8/32/64 / Bytes only (no Unit)
+    * ExternalCall/Schedule args: Bool / legal UInt/Int widths / Bytes (no Unit;
+      R-1 widens beyond UInt8/32/64 to match N-8 Normalize)
     * view: no StateStore / Emit / ExternalCall / Schedule
     * pureFn body: no StateLoad/Store / Emit / ExternalCall / Schedule;
       pureFn-to-pureFn PureCall is admitted
@@ -194,6 +195,13 @@ private def admitFail (detail : String) :
     Except ReferenceAdmissionErrorV1 α :=
   .error (.unsupported detail)
 
+/-- Reference-only Map entry budget for static resource admission.
+    Wire `maxMapEntriesV1` (1e6) makes worst-case UInt64/UInt64 Map width exceed
+    `maxCanonicalValueBytes`, which blocked product empty-Map state entirely.
+    Runtime IndexSet still enforces the wire ceiling via valueBytes validation.
+    R-1: 4096 matches maxTypeLength-scale containers. -/
+private def maxMapEntriesReferenceBudgetV1 : Nat := 4096
+
 private def typeShapeAdmitted (shape : TypeShapeV1) :
     Except ReferenceAdmissionErrorV1 Unit :=
   match shape with
@@ -236,12 +244,17 @@ private def opAdmitted (op : SemanticOpV1) : Except ReferenceAdmissionErrorV1 Un
   | .contextRead _ => pure ()
   | .commit _ => pure ()
 
-/-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit). -/
+/-- ExternalCall/Schedule arg type shapes admitted for this slice (no Unit).
+    R-1 / N-8: all legal UInt/Int widths (not only 8/32/64). -/
 private def externalArgShapeAdmitted (shape : TypeShapeV1) :
     Except ReferenceAdmissionErrorV1 Unit :=
   match shape with
   | .bool => pure ()
-  | .uint 8 | .uint 32 | .uint 64 => pure ()
+  | .uint w | .int w =>
+      if w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256 then
+        pure ()
+      else
+        admitFail "unsupported ExternalCall/Schedule integer width"
   | .bytes _ => pure ()
   | .unit =>
       admitFail "unsupported ExternalCall/Schedule Unit argument"
@@ -379,15 +392,15 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
               let mut totalWork := 0
               match decl.shape with
               | .map _ _ =>
-                  unless maxMapEntriesV1 == 0 ||
-                      8 ≤ maxCanonicalValueBytes / maxMapEntriesV1 do
+                  unless maxMapEntriesReferenceBudgetV1 == 0 ||
+                      8 ≤ maxCanonicalValueBytes / maxMapEntriesReferenceBudgetV1 do
                     return ← admitFail "Map canonical value exceeds byte limit"
               | _ => pure ()
               let headerWidth := match decl.shape with
                 | .struct _ | .array _ _ => 0
                 | .option _ => 1
                 | .map _ _ =>
-                    let count := maxMapEntriesV1
+                    let count := maxMapEntriesReferenceBudgetV1
                     4 + count * 8
                 | _ => 4
               for children in alternatives do
@@ -403,7 +416,7 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                   let width := widths[child]!
                   let count := match decl.shape with
                     | .array _ length => length.toNat
-                    | .map _ _ => maxMapEntriesV1
+                    | .map _ _ => maxMapEntriesReferenceBudgetV1
                     | _ => 1
                   unless count == 0 || width ≤ maxCanonicalValueBytes / count do
                     return ← admitFail "aggregate canonical value exceeds byte limit"
@@ -429,18 +442,18 @@ private def admitTypeResourceBounds (types : Array TypeDeclV1) :
                 altWork := altWork + ownWork
                 -- Map IndexSet validates the new key/value, traverses the old
                 -- map, scans each entry, and writes the complete new map under
-                -- one Wire budget. Prove that worst case here.
+                -- one Wire budget. Prove that worst case here (Reference budget).
                 match decl.shape with
                 | .map _ _ =>
                     unless directChildWork ≤ maxCanonicalProgramBytes - altWork do
                       return ← admitFail "Map canonical update work exceeds limit"
                     altWork := altWork + directChildWork
-                    unless maxMapEntriesV1 ≤ maxCanonicalProgramBytes - altWork do
+                    unless maxMapEntriesReferenceBudgetV1 ≤ maxCanonicalProgramBytes - altWork do
                       return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + maxMapEntriesV1
-                    unless maxMapEntriesV1 ≤ maxCanonicalProgramBytes - altWork do
+                    altWork := altWork + maxMapEntriesReferenceBudgetV1
+                    unless maxMapEntriesReferenceBudgetV1 ≤ maxCanonicalProgramBytes - altWork do
                       return ← admitFail "Map canonical update work exceeds limit"
-                    altWork := altWork + maxMapEntriesV1
+                    altWork := altWork + maxMapEntriesReferenceBudgetV1
                     unless ownWork ≤ maxCanonicalProgramBytes - altWork do
                       return ← admitFail "Map canonical update work exceeds limit"
                     altWork := altWork + ownWork
@@ -553,24 +566,35 @@ def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
   let (typeWidths, typeWorks) ← admitTypeResourceBounds data.types
   -- `initialLogicalStateV1` materializes every default plus its u32 length
   -- prefix. Bound that aggregate before any invocation can allocate it.
+  -- R-1: Map *defaults* are empty (`u32le(0)` = 4 bytes). Worst-case Map
+  -- width/work (maxMapEntriesV1) remains in typeWidths/typeWorks for IndexSet
+  -- budgeting, but must not make empty Map state unadmissible.
   let mut stateBytes := 0
   let mut stateWork := 0
   for state in data.logicalState do
-    match typeWidths[state.typeId.toNat]?, typeWorks[state.typeId.toNat]? with
-    | some width, some typeWork =>
-        let slotWidth := width + 4
+    match typeWidths[state.typeId.toNat]?, typeWorks[state.typeId.toNat]?,
+          data.types[state.typeId.toNat]? with
+    | some width, some typeWork, some decl =>
+        let (defWidth, defWork) :=
+          match decl.shape with
+          | .map _ _ =>
+              -- Empty Map default: 4-byte count header; construction work is
+              -- O(1) relative to the worst-case filled-map budget.
+              (4, 6)
+          | _ => (width, typeWork)
+        let slotWidth := defWidth + 4
         unless slotWidth ≤ maxCanonicalProgramBytes - stateBytes do
           return ← admitFail "logical state defaults exceed aggregate byte limit"
         -- Default construction, recursive canonical validation, slot-prefix
         -- append, and append into the growing aggregate all contribute to
         -- host work.
         let appendWork := stateBytes + slotWidth
-        unless typeWork ≤ maxCanonicalProgramBytes - stateWork do
+        unless defWork ≤ maxCanonicalProgramBytes - stateWork do
           return ← admitFail "logical state defaults exceed aggregate work limit"
-        stateWork := stateWork + typeWork
-        unless typeWork ≤ maxCanonicalProgramBytes - stateWork do
+        stateWork := stateWork + defWork
+        unless defWork ≤ maxCanonicalProgramBytes - stateWork do
           return ← admitFail "logical state defaults exceed aggregate work limit"
-        stateWork := stateWork + typeWork
+        stateWork := stateWork + defWork
         unless slotWidth ≤ maxCanonicalProgramBytes - stateWork do
           return ← admitFail "logical state defaults exceed aggregate work limit"
         stateWork := stateWork + slotWidth
@@ -578,7 +602,8 @@ def admitReferenceProgramSliceV1 (program : SemanticProgramV1) :
           return ← admitFail "logical state defaults exceed aggregate work limit"
         stateWork := stateWork + appendWork
         stateBytes := stateBytes + slotWidth
-    | _, _ => admitFail "state typeId out of range after structure gate"
+    | _, _, _ =>
+        return ← admitFail "logical state type resource bounds missing"
   for c in data.constants do
     match data.types[c.typeId.toNat]? with
     | none => admitFail "constant typeId out of range after structure gate"
