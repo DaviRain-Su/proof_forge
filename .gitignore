@@ -12,3 +12,6 @@ __pycache__/
 
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
+
+# Solana Mollusk runtime-tests cargo target
+/runtime-tests/solana/target/

@@ -907,6 +907,10 @@ output-security: build
 evm-runtime: target-smoke
     bash scripts/smoke_evm.sh
 
+# Solana S3a: Mollusk runtime differential for Counter.so (requires materialised sbpf + Rust).
+solana-runtime:
+    bash scripts/solana_runtime_test.sh
+
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.

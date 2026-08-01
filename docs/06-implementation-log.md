@@ -11398,3 +11398,22 @@ normative: false
   `Counter.so`（ELF eBPF 1392B）+ evidence `sbpf 0.2.2 sha256=1b3d69e5… completed successfully`。
 - Boundary：无运行时执行验证（Mollusk/sbpf-runtime 差分 S3 未接线）；非 formal
   ToolchainIdentity/OutputSetV1/Stage-0；CI linux 供给路径由 self-test 覆盖，未在本机执行。
+
+## 2026-08-01 — Solana Mollusk runtime differential (S3a engineering slice)
+
+- Production：新增独立 Rust crate `runtime-tests/solana`（`proof-forge-solana-runtime-tests`
+  0.1.0，edition 2021）与驱动 `scripts/solana_runtime_test.sh` / `just solana-runtime`。
+  驱动：`lake build proof-forge-next` → `build-counter --target solana --profile
+  solana-sbpf-elf-v1` → 定位 `Counter.so` + `Counter.sbpf-plan` → `cargo test`（env
+  `PROOF_FORGE_SO_DIR` / `PROOF_FORGE_PLAN`，无硬编码制品路径）。
+- Tests：Mollusk 0.13.4 执行产品 ELF——initialize(5) 账号布局（owner=program、
+  exactDataLen=16、header marker + count LE）、increment(3) 返回 8 LE 与 state 写回、
+  get() 返回 8 LE、UInt64 max+1 → `ProgramError::Custom(0x1001)` 且 state 不提交、
+  未知 8B discriminator → Custom(1)、wrong owner → Custom(1)。独立 Rust sha256
+  discriminator（`proof-forge-solana-v1:name(u64…)` 前 16 hex）与 plan `.handler` 行
+  交叉验证防 ABI 漂移；链上用例对齐 `Tests/Semantic/ReferenceV1` Counter trace
+  （init(7)→increment(5)→get→overflow）。
+- CI：`source-core` job 在 `just ci` 后追加 Rust 安装 + `just solana-runtime`（复用本 job
+  已 provision/materialize 的 tool root 与 lake 产物，避免第二份 Lean 全量构建）。
+- Boundary：工程运行时差分，非 formal Stage-0/hermetic EV、非完整 Reference↔Mollusk
+  property corpus、非 multi-program CPI；S2b ELF 供给与 deployable evidence 不变。

@@ -105,6 +105,20 @@ jobs:
       - name: Portable source-core gate
         run: just ci
 
+      # S3a: reuse the already-built CLI and materialised tool root from this job
+      # (avoids a second full Lean build). Requires Rust for the Mollusk crate.
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustc --version
+          cargo --version
+
+      - name: Solana Mollusk runtime differential (S3a)
+        run: just solana-runtime
+
   linux-tool-root:
     name: linux-tool-root (manual audit)
     if: github.event_name == 'workflow_dispatch'
