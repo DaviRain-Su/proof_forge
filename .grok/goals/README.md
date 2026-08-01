@@ -21,19 +21,30 @@ normative: false
 /goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
 ```
 
-**当前主轴（N-1 已 commit，N-2 有 Goal-owned WIP 未提交）——在 Goal 内收口 N-2 再 drain：**
+## 当前主轴（2026-08-02）
+
+Live status authority = [`docs/engineering-backlog.md`](../../docs/engineering-backlog.md)
+（QUEUE seed **不是** 真值）。
+
+| 状态 | 说明 |
+|---|---|
+| **已 commit 过的主轴** | N-1…N-8、N-A*、N-BYTES、R-1…R-3、B-1d/e、B-3、B-ctx、C-1、T-3、SKEPTIC-1、DOC-* 等见 backlog `done` |
+| **NEXT** | **`C-2`** Aleo/Psy compiler/VM research（**勿**升格验收门） |
+| **Goal-owned WIP 可能存在** | `docs/research/15-aleo-psy-compiler-vm.md` untracked — **只许 Goal 收口 commit** |
+
+**在 Goal 内收口 C-2 再 drain：**
 
 ```text
-/goal @.grok/goals/prompt-n-2-finish.md --budget 4000000
+/goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
 ```
 
 或：
 
 ```text
-/goal @.grok/goals/prompt-master-queue.md starting at N-2 --budget 8000000
+/goal @.grok/goals/prompt-master-queue.md starting at C-2 --budget 8000000
 ```
 
-**禁止**在普通聊天回合里把 N-2/后续切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。
+**禁止**在普通聊天回合里把 C-2/后续切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。聊天侧最多留下 Goal-owned WIP，不得宣称切片完成。
 
 **默认模式是 `drain`**：Goal **在内部连续消项**，直到：
 
@@ -42,7 +53,7 @@ normative: false
 
 **不会**因为「做完 3 项 / 进度 10%」就正常结束。
 若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。
-Skeptic / N-2 修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
+Skeptic / 切片修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
 
 ## 与 workflow
 
@@ -58,19 +69,19 @@ Skeptic / N-2 修复也必须在 **Goal 内 commit**，不要在聊天侧手工�
 ```text
 .grok/goals/
   prompt-master-queue.md       ← ★ 主 Goal（drain 全队列）
-  prompt-skeptic-recovery.md   ← skeptic 三缺口优先入口
-  prompt-n-2-finish.md         ← 收口 N-2 WIP → commit → 续 drain
-  QUEUE.md / slices/           ← 顺序与每项契约（含 SKEPTIC-1、N-2、DOC-T9-0）
+  prompt-c-2-finish.md         ← 收口 C-2 WIP → commit → 续 drain
+  prompt-skeptic-recovery.md   ← skeptic 三缺口优先入口（已 closed 可跳过）
+  prompt-n-2-finish.md         ← 历史 N-2 收口（N-2 已 done，勿重做）
+  QUEUE.md / slices/           ← 顺序与每项契约
   prompt-build-1-2.md / prompt-n-a2.md  ← 细案
 ```
 
 ## 单开一项
 
 ```text
-/goal @.grok/goals/slices/N-2.md --budget 2000000
-/goal @.grok/goals/prompt-n-2-finish.md --budget 4000000
-/goal @.grok/goals/slices/DOC-T9-0.md --budget 1500000
-/goal @.grok/goals/slices/SKEPTIC-1.md --budget 2000000
+/goal @.grok/goals/slices/C-2.md --budget 1500000
+/goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
+/goal @.grok/goals/slices/C-4.md --budget 2000000
 ```
 
 ## pilot（可选限流）
@@ -93,3 +104,4 @@ Skeptic / N-2 修复也必须在 **Goal 内 commit**，不要在聊天侧手工�
 ## 禁止
 
 不 push、不 formal 仪式、不并行改 Normalize 共享核。
+不在聊天里 drain backlog 并假 done。
