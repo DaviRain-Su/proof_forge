@@ -231,8 +231,8 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | **B-1a** | NEAR named 聚合 + Array/容器 lower 或显式 FAIL-CLOSED+测 | `Targets/Near/**` | **done**（`4c79e0a59` NearAggregate） |
 | **B-1b** | Noir named 聚合 | Noir/** | **done**（`61b7dff09`） |
 | **B-1c** | Aleo 覆盖核对 + 显式边界 | Aleo/** | **done**（`04fe6e815`） |
-| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | pending |
-| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | pending |
+| **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array-only container pilot；Map/Bytes planInvariant；Targets decline tests） |
+| **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Map/Bytes FAIL-CLOSED；Array EvmIndex LOWERED；Targets decline pins） |
 | **B-3** | Principal → address，解锁 EVM/Solana call/schedule | Envelope + EVM/Solana | pending |
 | **B-ctx** | ContextRead 各 target Plan：保持 fail-closed 并补齐负向测 | 四 target | pending |
 
