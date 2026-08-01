@@ -67,7 +67,7 @@ inductive HandlerMode where
 
 /-- Entry/view return ABI kind. Init handlers ignore this field (IDL `null`).
     Bool is a single-byte 0/1 return-data payload; UInt64/Int64 are 8-byte LE;
-    UInt{8,16,32} are 1/2/4-byte LE (T9a). -/
+    UInt{8,16,32} are 1/2/4-byte LE (T9a); UInt128/256 are 16/32-byte LE multiword (T9e). -/
 inductive ResultKind where
   | u64
   | bool
@@ -79,6 +79,9 @@ inductive ResultKind where
   | i8
   | i16
   | i32
+  /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
+  | u128
+  | u256
   deriving BEq, Inhabited, Repr
 
 structure StateField where
@@ -133,11 +136,14 @@ inductive ComparisonOp where
 
 inductive Expr where
   | literal (value : UInt64)
+  /-- Multi-limb literal for UInt128/256 (T9e). `bitWidth ∈ {128,256}`; Emit
+      lowers to LE u64 limbs (`bitWidth/64` consecutive temps). -/
+  | bigLiteral (bitWidth : Nat) (value : Nat)
   | param (dataOffset : Nat)
-  /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
+  /-- Narrow/wide ABI param load (`bitWidth ∈ {8,16,32,128,256}`); UInt64/Int64 keep `param`. -/
   | narrowParam (bitWidth : Nat) (dataOffset : Nat)
   | stateLoad (accountIndex byteOffset : Nat)
-  /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `stateLoad`. -/
+  /-- Narrow/wide ABI state load (`bitWidth ∈ {8,16,32,128,256}`); UInt64/Int64 keep `stateLoad`. -/
   | narrowStateLoad (bitWidth : Nat) (accountIndex byteOffset : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
@@ -172,6 +178,8 @@ inductive Expr where
   /-- Strict Bool `||` (both operands always evaluated; no failure mode). -/
   | boolOr (lhs rhs : Expr)
   | compare (op : ComparisonOp) (lhs rhs : Expr)
+  /-- Multiword unsigned compare (`bitWidth ∈ {128,256}`); result is Bool. -/
+  | wideCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | callFn (fnIndex : Nat) (args : Array Expr)
   /-- Plan-level loop induction temporary (bound by `Statement.forLoop`). -/
@@ -207,8 +215,8 @@ structure Store where
   accountIndex : Nat
   byteOffset : Nat
   value : Expr
-  /-- Physical store width in bytes (`1/2/4/8`). Default 8 keeps historical
-      UInt64/Int64 Plan literals byte-identical. -/
+  /-- Physical store width in bytes (`1/2/4/8/16/32`). Default 8 keeps historical
+      UInt64/Int64 Plan literals byte-identical. T9e: 16/32 for UInt128/256. -/
   byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
@@ -301,7 +309,7 @@ def validDiscriminator (value : String) : Bool :=
     "0123456789abcdef".contains character)
 
 /-- Layout field type suffix. Unsigned: u*-le. Signed narrow: i8/i16/i32-le;
-    Int64 keeps historical u64-le. -/
+    Int64 keeps historical u64-le. T9e: u128-le / u256-le. -/
 def layoutFieldTypeSuffix (byteWidth : Nat) (isInt : Bool := false) : String :=
   if isInt then
     match byteWidth with
@@ -314,10 +322,12 @@ def layoutFieldTypeSuffix (byteWidth : Nat) (isInt : Bool := false) : String :=
     | 1 => "u8-le"
     | 2 => "u16-le"
     | 4 => "u32-le"
+    | 16 => "u128-le"
+    | 32 => "u256-le"
     | _ => "u64-le"
 
 /-- Instruction-arg type string for discriminator signature and IDL.
-    Int64 keeps historical `"u64"`; narrow Int uses i8/i16/i32. -/
+    Int64 keeps historical `"u64"`; narrow Int uses i8/i16/i32; T9e u128/u256. -/
 def abiParamTypeString (p : Param) : String :=
   if p.isInt then
     match p.byteWidth with
@@ -329,7 +339,15 @@ def abiParamTypeString (p : Param) : String :=
   | 1 => "u8"
   | 2 => "u16"
   | 4 => "u32"
+  | 16 => "u128"
+  | 32 => "u256"
   | _ => "u64"
+
+/-- Account/instruction slot pitch for a physical field/param width.
+    UInt{8,16,32,64} keep 8-byte pitch; UInt128 → 16; UInt256 → 32. -/
+def slotPitchOfByteWidth (byteWidth : Nat) : Nat :=
+  let limbs := (byteWidth + 7) / 8
+  if limbs ≤ 1 then 8 else limbs * 8
 
 private def layoutFieldSignature (field : StateField) : String :=
   s!"{field.sourceId}:{field.name}:{field.accountIndex}:{field.byteOffset}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth field.isInt}"
@@ -384,14 +402,15 @@ private abbrev SolanaTypeClosureV1 := PilotTypeClosureV1
 private def solanaPlanErr (message : String) : CompileError :=
   .planInvariant .solana message
 
-/-- Solana pilot accepts anonymous UInt8/16/32/64/Unit/Bool/Int64 under
-    `pilotUintWidthPolicySolanaBody` + default `pilotIntWidthPolicyI64`. Body
+/-- Solana pilot accepts anonymous UInt8/16/32/64/128/256/Unit/Bool/Int{8,16,32,64}
+    under `pilotUintWidthPolicySolanaBody` + `pilotIntWidthPolicyNarrow`. Body
     multi-width UInt values are allowed; **top-level state and ABI parameters
-    admit UInt8/16/32/64 or Int64** via `requirePublicUintAbiOrInt64*` (T8b)
-    with `allowNonPublic := true` (N1). ArrayState: anonymous **Array** shapes
-    are admitted via `pilotContainerStatePolicyArrayOnly` (element/layout gated
-    at state planning to fixed-length `Array UInt64 N` leaf slots). UInt128/256
-    and non-64 Int fail closed. N2c: Principal remains fail-closed. -/
+    admit UInt8/16/32/64/128/256 or Int{8,16,32,64}** via
+    `requirePublicSolanaUintAbiOrInt64*` (T8b+T9e) with `allowNonPublic := true`
+    (N1). ArrayState: anonymous **Array** shapes are admitted via
+    `pilotContainerStatePolicyArrayOnly` (element/layout gated at state planning
+    to fixed-length `Array UInt64 N` leaf slots). UInt128/256 use multiword
+    software limbs. N2c: Principal remains fail-closed. -/
 private def validateSolanaTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult SolanaTypeClosureV1 :=
   validatePilotTypeClosure solanaPlanErr solanaTypeClosureWording types
@@ -399,7 +418,8 @@ private def validateSolanaTypeClosureV1
     (intPolicy := pilotIntWidthPolicyNarrow)
     (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
-/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
+/-- Resolve admitted scalar state/param TypeId to physical byte width
+    (1/2/4/8/16/32). -/
 private def abiByteWidthOfTypeV1
     (types : SolanaTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
@@ -417,7 +437,7 @@ private def abiByteWidthOfTypeV1
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: ABI type must be UInt8/16/32/64 or Int8/16/32/64"
+            "unsupported Solana semantic shape: ABI type must be UInt8/16/32/64/128/256 or Int8/16/32/64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (dataOffset : Nat) : Expr :=
@@ -464,6 +484,9 @@ private def makeStateAccountV1
     throw <| .planInvariant .solana "state count is outside the profile limits"
   let mut fields : Array StateField := #[]
   let mut stateLeaves : Array (Array Nat) := #[]
+  -- Cumulative payload offset (after header). Narrow UInt keep 8-byte pitch;
+  -- T9e UInt128/256 advance 16/32 so multiword limbs do not overlap.
+  let mut nextOffset : Nat := stateHeaderBytes
   for state in states do
     unless state.id.toNat == stateLeaves.size do
       throw <| .planInvariant .solana "semantic state ids must match declaration order"
@@ -488,15 +511,16 @@ private def makeStateAccountV1
             sourceId := state.id.toNat
             name := leafName
             accountIndex := 0
-            byteOffset := stateHeaderBytes + fields.size * 8
+            byteOffset := nextOffset
             byteWidth := 8
             endianness := .little
           }
+          nextOffset := nextOffset + 8
         stateLeaves := stateLeaves.push leaves
     | none =>
-        -- T8b: scalar state admits UInt8/16/32/64 / Int64 with byteWidth 1/2/4/8.
-        -- 8-byte slot pitch is retained (no packing); exactDataLen/offset unchanged.
-        requirePublicUintAbiOrInt64State solanaPlanErr types state
+        -- T8b+T9e: scalar state admits UInt{8,16,32,64,128,256}/Int{8,16,32,64}
+        -- with byteWidth 1/2/4/8/16/32. Pitch = slotPitchOfByteWidth.
+        requirePublicSolanaUintAbiOrInt64State solanaPlanErr types state
           (allowNonPublic := true)
         let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
         let leafIdx := fields.size
@@ -504,11 +528,12 @@ private def makeStateAccountV1
           sourceId := state.id.toNat
           name := state.name
           accountIndex := 0
-          byteOffset := stateHeaderBytes + fields.size * 8
+          byteOffset := nextOffset
           byteWidth
           endianness := .little
           isInt := (types.intWidthOf state.typeId).isSome
         }
+        nextOffset := nextOffset + slotPitchOfByteWidth byteWidth
         stateLeaves := stateLeaves.push #[leafIdx]
   let marker := layoutMarker fields
   if marker == 0 then
@@ -518,7 +543,7 @@ private def makeStateAccountV1
     index := 0
     name := "state"
     ownerPolicy := .currentProgram
-    exactDataLen := stateHeaderBytes + fields.size * 8
+    exactDataLen := nextOffset
     headerOffset := 0
     headerWidth := stateHeaderBytes
     initializedMarker := marker
@@ -538,7 +563,7 @@ private structure LoweredValueV1 where
   isUInt32 : Bool := false
   /-- True for Int64-typed values (mutually exclusive with isBool/isUInt32). -/
   isInt : Bool := false
-  /-- Bit width of non-Bool values: 8/16/32/64. Bool uses 1. -/
+  /-- Bit width of non-Bool values: 8/16/32/64/128/256. Bool uses 1. -/
   bitWidth : Nat := 64
   /-- ArrayState multi-leaf carrier: `some` = fixed Array UInt64 N; `expr`
       mirrors `leaves[0]!` (or literal 0). Scalar values keep `none`. -/
@@ -573,12 +598,14 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     throw <| .planInvariant .solana s!"parameter count in {owner} exceeds profile limit {maxParams}"
   let mut planned : Array Param := #[]
   let mut values : Array LoweredValueV1 := #[]
+  -- Cumulative instruction-data offset after discriminator (T9e multiword pitch).
+  let mut nextDataOffset : Nat := discriminatorBytes
   for param in params do
     unless param.valueId.toNat == planned.size do
       throw <| .planInvariant .solana
         s!"semantic parameter ValueIds in {owner} must match declaration order"
-    -- T8b: ABI params admit UInt8/16/32/64 / Int64; 8-byte slot pitch retained.
-    requirePublicUintAbiOrInt64Param solanaPlanErr types owner param
+    -- T8b+T9e: ABI params admit UInt{8,16,32,64,128,256}/Int{8,16,32,64}.
+    requirePublicSolanaUintAbiOrInt64Param solanaPlanErr types owner param
       (allowNonPublic := true)
     unless isIdentifier param.name do
       throw <| .planInvariant .solana
@@ -589,11 +616,12 @@ private def makeParamsV1 (owner : String) (types : SolanaTypeClosureV1)
     let binding : Param := {
       sourceId := param.valueId.toNat
       name := param.name
-      dataOffset := discriminatorBytes + planned.size * 8
+      dataOffset := nextDataOffset
       byteWidth
       endianness := .little
       isInt
     }
+    nextDataOffset := nextDataOffset + slotPitchOfByteWidth byteWidth
     planned := planned.push binding
     values := values.push {
       expr := mkParamExpr bitWidth binding.dataOffset
@@ -716,9 +744,9 @@ private def currentValueWithArmsV1
       "unsupported Solana semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-/-- Admitted body UInt widths for Solana sBPF (state/ABI remain 64-only). -/
+/-- Admitted body UInt widths for Solana sBPF (T9e: includes UInt128/256). -/
 private def isSolanaBodyUintWidth (w : Nat) : Bool :=
-  isPilotBodyUintWidth w
+  EnvelopeV1.isSolanaBodyUintWidth w
 
 /-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
     be non-Bool and share `bitWidth` (+ signedness for non-Bool results).
@@ -786,8 +814,9 @@ private def admitIntWidthResultTypeV1
       throw <| .planInvariant .solana
         "unsupported Solana semantic shape: signed arithmetic result must be admitted Int width"
 
-/-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
-    `narrow*` so Emit can attach width overflow/mask guards. -/
+/-- Width-dispatch: UInt64 keeps historical constructors; narrow (8/16/32) and
+    multiword (128/256) widths use `narrow*` so Emit attaches width guards /
+    multi-limb software sequences (T9e). -/
 private def mkCheckedAdd (w : Nat) (l r : Expr) : Expr :=
   if w == 64 then .checkedAdd l r else .narrowCheckedAdd w l r
 private def mkCheckedSub (w : Nat) (l r : Expr) : Expr :=
@@ -978,6 +1007,8 @@ private def makeCompareValueV1
       throw <| .planInvariant .solana
         s!"unsupported Solana semantic shape: Int{lhs.bitWidth} comparison is not admitted"
     makeBinaryTreeValueV1 (mkSignedCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
+  else if lhs.bitWidth > 64 then
+    makeBinaryTreeValueV1 (.wideCompare lhs.bitWidth op) lhsId rhsId lhs rhs true 1
   else
     makeBinaryTreeValueV1 (.compare op) lhsId rhsId lhs rhs true 1
 
@@ -1286,17 +1317,30 @@ private def lowerBlockInstructionsV1
           unless isSolanaBodyUintWidth bitWidth do
             throw <| .planInvariant .solana
               s!"unsupported Solana semantic shape: UInt{bitWidth} literal is not admitted"
-          let value ← decodeUIntWidthLiteralLe solanaPlanErr "Solana" bitWidth bytes
-          values := ← appendResultValueV1 typeId values result {
-            expr := .literal value
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-            isBool := false
-            isUInt32 := bitWidth == 32
-            isInt := false
-            bitWidth
-          }
+          if bitWidth ≤ 64 then
+            let value ← decodeUIntWidthLiteralLe solanaPlanErr "Solana" bitWidth bytes
+            values := ← appendResultValueV1 typeId values result {
+              expr := .literal value
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              isUInt32 := bitWidth == 32
+              isInt := false
+              bitWidth
+            }
+          else
+            let n ← decodeUIntWideLiteralLe solanaPlanErr "Solana" bitWidth bytes
+            values := ← appendResultValueV1 typeId values result {
+              expr := .bigLiteral bitWidth n
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+              isBool := false
+              isUInt32 := false
+              isInt := false
+              bitWidth
+            }
         else
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: literal is not admitted UInt width, Int64, or Bool"
@@ -2347,9 +2391,11 @@ private def makeEntryV1
     | some 16 => pure .u16
     | some 32 => pure .u32
     | some 64 => pure .u64
+    | some 128 => pure .u128
+    | some 256 => pure .u256
     | some _ =>
         throw <| .planInvariant .solana
-          s!"entry '{name}' does not return public UInt8/16/32/64, Int64, or Bool"
+          s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, or Bool"
     | none =>
         match types.intWidthOf callable.result.typeId with
         | some 8 => pure .i8
@@ -2364,7 +2410,7 @@ private def makeEntryV1
             pure .bool
           else
             throw <| .planInvariant .solana
-              s!"entry '{name}' does not return public UInt8/16/32/64, Int8/16/32/64, or Bool"
+              s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, or Bool"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -2377,7 +2423,8 @@ private def makeEntryV1
   let expectsBoolReturn := resultKind == .bool
   let expectedReturnBitWidth : Nat :=
     match resultKind with
-    | .u8 | .i8 => 8 | .u16 | .i16 => 16 | .u32 | .i32 => 32 | .u64 | .i64 => 64 | .bool => 64
+    | .u8 | .i8 => 8 | .u16 | .i16 => 16 | .u32 | .i32 => 32
+    | .u64 | .i64 => 64 | .u128 => 128 | .u256 => 256 | .bool => 64
   let lowered ← lowerCallableV1 s!"entry '{name}'" semanticMode expectsBoolReturn
     expectedReturnBitWidth types typeDecls account pureFns callable
   let handler : Handler := {

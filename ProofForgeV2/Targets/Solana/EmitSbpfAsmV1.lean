@@ -211,6 +211,30 @@ private def emitProgramErrorInline (b : AsmBuf) (code : Nat) : AsmBuf :=
   let b := emit b s!"  lddw r0, {hexImm code}"
   emit b "  exit"
 
+/-- LE u64 limb count for multiword body widths (T9e). -/
+private def limbCountOfBitWidth (bitWidth : Nat) : Nat :=
+  if bitWidth ≤ 64 then 1 else bitWidth / 64
+
+/-- Result limb span for a destination-producing op. -/
+private def opResultLimbCount : Operation → Nat
+  | .narrowLoadParam bitWidth .. | .narrowLoadState bitWidth ..
+  | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
+  | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
+  | .narrowCheckedMod bitWidth ..
+  | .narrowBitAnd bitWidth .. | .narrowBitOr bitWidth ..
+  | .narrowBitXor bitWidth .. | .narrowBitNot bitWidth ..
+  | .narrowCheckedShl bitWidth .. | .narrowCheckedShr bitWidth .. =>
+      limbCountOfBitWidth bitWidth
+  | .literal .. | .loadParam .. | .loadState ..
+  | .checkedAdd .. | .checkedSub .. | .checkedMul .. | .checkedDiv .. | .checkedMod ..
+  | .signedCheckedAdd .. | .signedCheckedSub .. | .signedCheckedMul ..
+  | .signedCheckedDiv .. | .signedCheckedMod .. | .checkedNeg ..
+  | .signedCompare .. | .checkedSar ..
+  | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
+  | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
+  | .compare .. | .wideCompare .. | .callFn .. => 1
+  | _ => 0
+
 /-- Destination temp of a value-producing op, if any. -/
 private def opDestination? : Operation → Option Nat
   | .literal destination .. | .loadParam destination .. |
@@ -233,14 +257,17 @@ private def opDestination? : Operation → Option Nat
       .narrowBitAnd _ destination .. | .narrowBitOr _ destination .. |
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
-      .compare destination .. | .callFn _ destination _ => some destination
+      .compare destination .. | .wideCompare _ destination .. |
+      .callFn _ destination _ => some destination
   | _ => none
 
 /-- Max destination+1 over an op sequence (canonical temp count). -/
 private partial def tempCountOf (ops : Array Operation) : Nat :=
   ops.foldl (init := 0) fun acc op =>
     let acc := match opDestination? op with
-      | some d => Nat.max acc (d + 1)
+      | some d =>
+          let n := opResultLimbCount op
+          Nat.max acc (d + (if n == 0 then 1 else n))
       | none => acc
     match op with
     | .ifRegion _ thenOps elseOps =>
@@ -638,10 +665,233 @@ private def narrowImmStoreMnemonic (bitWidth : Nat) : String :=
   | 32 => "stw"
   | _ => "stdw"
 
+/-- Multiword (T9e) checked add: LE limbs at base temps; final carry → overflow. -/
+private def emitMultiwordCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat) :
+    AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_mwadd"
+    let (b, okLab) := fresh b "ok_mwadd"
+    let b := emit b "  mov64 r5, 0"
+    let mut b := b
+    for i in [:nLimbs] do
+      let (b1, cset) := fresh b "mwadd_cset"
+      let (b2, cdone) := fresh b1 "mwadd_cdone"
+      b := b2
+      b := loadTemp b "r1" tempBase (lhs + i)
+      b := loadTemp b "r2" tempBase (rhs + i)
+      b := emit b "  mov64 r3, r1"
+      b := emit b "  add64 r1, r2"
+      b := emit b "  add64 r1, r5"
+      -- carry out: (sum < a) || (cin == 1 && sum == a)
+      b := emit b "  mov64 r4, 0"
+      b := emit b s!"  jlt r1, r3, {cset}"
+      b := emit b s!"  jeq r5, 0, {cdone}"
+      b := emit b s!"  jeq r1, r3, {cset}"
+      b := emit b s!"  ja {cdone}"
+      b := emit b s!"{cset}:"
+      b := emit b "  mov64 r4, 1"
+      b := emit b s!"{cdone}:"
+      b := storeTemp b tempBase (dest + i) "r1"
+      b := emit b "  mov64 r5, r4"
+    b := emit b s!"  jne r5, 0, {errLab}"
+    b := emit b s!"  ja {okLab}"
+    b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Multiword checked sub: final borrow → overflow. -/
+private def emitMultiwordCheckedSub (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat) :
+    AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b "err_mwsub"
+    let (b, okLab) := fresh b "ok_mwsub"
+    let b := emit b "  mov64 r5, 0"
+    let mut b := b
+    for i in [:nLimbs] do
+      let (b1, bset) := fresh b "mwsub_bset"
+      let (b2, bdone) := fresh b1 "mwsub_bdone"
+      b := b2
+      b := loadTemp b "r1" tempBase (lhs + i)
+      b := loadTemp b "r2" tempBase (rhs + i)
+      b := emit b "  mov64 r3, r1"
+      b := emit b "  sub64 r1, r2"
+      b := emit b "  sub64 r1, r5"
+      -- borrow: (a < b) || (bin == 1 && a == b)
+      b := emit b "  mov64 r4, 0"
+      b := emit b s!"  jlt r3, r2, {bset}"
+      b := emit b s!"  jeq r5, 0, {bdone}"
+      b := emit b s!"  jeq r3, r2, {bset}"
+      b := emit b s!"  ja {bdone}"
+      b := emit b s!"{bset}:"
+      b := emit b "  mov64 r4, 1"
+      b := emit b s!"{bdone}:"
+      b := storeTemp b tempBase (dest + i) "r1"
+      b := emit b "  mov64 r5, r4"
+    b := emit b s!"  jne r5, 0, {errLab}"
+    b := emit b s!"  ja {okLab}"
+    b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
+/-- Multiword bitwise op (and/or/xor) per limb; no failure mode. -/
+private def emitMultiwordBitOp (b : AsmBuf) (tempBase dest lhs rhs nLimbs : Nat)
+    (mnemonic : String) : AsmBuf :=
+  Id.run do
+    let mut b := b
+    for i in [:nLimbs] do
+      b := loadTemp b "r1" tempBase (lhs + i)
+      b := loadTemp b "r2" tempBase (rhs + i)
+      b := emit b s!"  {mnemonic} r1, r2"
+      b := storeTemp b tempBase (dest + i) "r1"
+    pure b
+
+/-- Multiword bitNot: xor each limb with -1. -/
+private def emitMultiwordBitNot (b : AsmBuf) (tempBase dest source nLimbs : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := b
+    for i in [:nLimbs] do
+      b := loadTemp b "r1" tempBase (source + i)
+      b := emit b "  lddw r2, 0xffffffffffffffff"
+      b := emit b "  xor64 r1, r2"
+      b := storeTemp b tempBase (dest + i) "r1"
+    pure b
+
+/-- Multiword load from account/instruction data: consecutive ldxdw. -/
+private def emitMultiwordMemLoad (b : AsmBuf) (tempBase dest nLimbs : Nat)
+    (baseLabel : String) (byteOffset : Nat) (comment : String) : AsmBuf :=
+  Id.run do
+    let mut b := emit b s!"  ; {comment}"
+    for i in [:nLimbs] do
+      b := emit b s!"  ldxdw r1, [r6 + {baseLabel} + {byteOffset + i * 8}]"
+      b := storeTemp b tempBase (dest + i) "r1"
+    pure b
+
+/-- Multiword store to account data. -/
+private def emitMultiwordMemStore (b : AsmBuf) (tempBase value nLimbs byteOffset : Nat)
+    (comment : String) : AsmBuf :=
+  Id.run do
+    let mut b := emit b s!"  ; {comment}"
+    for i in [:nLimbs] do
+      b := loadTemp b "r1" tempBase (value + i)
+      b := emit b s!"  stxdw [r6 + ACC0_DATA + {byteOffset + i * 8}], r1"
+    pure b
+
+/-- Multiword zero of account field limbs. -/
+private def emitMultiwordZeroState (b : AsmBuf) (nLimbs byteOffset : Nat) : AsmBuf :=
+  Id.run do
+    let mut b := emit b s!"  ; zero_u{nLimbs * 64}_le account[0].data + {byteOffset}"
+    b := emit b "  lddw r1, 0"
+    for i in [:nLimbs] do
+      b := emit b s!"  stxdw [r6 + ACC0_DATA + {byteOffset + i * 8}], r1"
+    pure b
+
+/-- Multiword unsigned compare → Bool in dest (hi limb first). -/
+private def emitMultiwordCompare (b : AsmBuf) (tempBase dest lhs rhs nLimbs : Nat)
+    (op : ComparisonOp) : AsmBuf :=
+  Id.run do
+    match op with
+    | .eq | .ne =>
+        let (b, falseLab) := fresh b "mwcmp_ne"
+        let (b, doneLab) := fresh b "mwcmp_done"
+        let mut b := b
+        for i in [:nLimbs] do
+          b := loadTemp b "r1" tempBase (lhs + i)
+          b := loadTemp b "r2" tempBase (rhs + i)
+          b := emit b s!"  jne r1, r2, {falseLab}"
+        if op == ComparisonOp.eq then
+          b := emit b "  lddw r1, 1"
+        else
+          b := emit b "  lddw r1, 0"
+        b := storeTemp b tempBase dest "r1"
+        b := emit b s!"  ja {doneLab}"
+        b := emit b s!"{falseLab}:"
+        if op == ComparisonOp.eq then
+          b := emit b "  lddw r1, 0"
+        else
+          b := emit b "  lddw r1, 1"
+        b := storeTemp b tempBase dest "r1"
+        emit b s!"{doneLab}:"
+    | .lt | .le | .gt | .ge =>
+        let (b, doneLab) := fresh b "mword_done"
+        let mut b := b
+        let eqResult : Nat :=
+          match op with | .le | .ge => 1 | _ => 0
+        b := emit b s!"  lddw r1, {eqResult}"
+        b := storeTemp b tempBase dest "r1"
+        for j in [:nLimbs] do
+          let i := nLimbs - 1 - j
+          let (b2, nextLab) := fresh b "mword_next"
+          b := b2
+          b := loadTemp b "r1" tempBase (lhs + i)
+          b := loadTemp b "r2" tempBase (rhs + i)
+          b := emit b s!"  jeq r1, r2, {nextLab}"
+          let (b3, trueLab) := fresh b "mword_true"
+          let (b4, setDone) := fresh b3 "mword_set"
+          b := b4
+          b := emit b "  mov64 r3, 0"
+          b := match op with
+            | .lt => emit b s!"  jlt r1, r2, {trueLab}"
+            | .le => emit b s!"  jle r1, r2, {trueLab}"
+            | .gt => emit b s!"  jgt r1, r2, {trueLab}"
+            | .ge => emit b s!"  jge r1, r2, {trueLab}"
+            | _ => b
+          b := emit b s!"  ja {setDone}"
+          b := emit b s!"{trueLab}:"
+          b := emit b "  mov64 r3, 1"
+          b := emit b s!"{setDone}:"
+          b := storeTemp b tempBase dest "r3"
+          b := emit b s!"  ja {doneLab}"
+          b := emit b s!"{nextLab}:"
+        emit b s!"{doneLab}:"
+
+/-- Multiword mul/div/mod: require higher limbs zero (value fits UInt64), else overflow.
+    True multiword schoolbook needs 32-bit split mul; low64 path keeps exact
+    semantics for values that fit in one limb. -/
+private def emitMultiwordViaLow64 (b : AsmBuf) (tempBase dest lhs rhs errorCode nLimbs : Nat)
+    (kind : String) : AsmBuf :=
+  Id.run do
+    let (b, errLab) := fresh b s!"err_mw{kind}"
+    let (b, okLab) := fresh b s!"ok_mw{kind}"
+    let mut b := b
+    for i in [1:nLimbs] do
+      b := loadTemp b "r1" tempBase (lhs + i)
+      b := emit b s!"  jne r1, 0, {errLab}"
+      b := loadTemp b "r1" tempBase (rhs + i)
+      b := emit b s!"  jne r1, 0, {errLab}"
+    b := loadTemp b "r1" tempBase lhs
+    b := loadTemp b "r2" tempBase rhs
+    if kind == "mul" then
+      let (b1, skipRev) := fresh b "mwmul_skip"
+      b := b1
+      b := emit b "  mov64 r4, r1"
+      b := emit b "  mul64 r4, r2"
+      b := emit b s!"  jeq r1, 0, {skipRev}"
+      b := emit b "  mov64 r3, r4"
+      b := emit b "  div64 r3, r1"
+      b := emit b s!"  jne r3, r2, {errLab}"
+      b := emit b s!"{skipRev}:"
+      b := storeTemp b tempBase dest "r4"
+    else if kind == "div" then
+      b := emit b s!"  jeq r2, 0, {errLab}"
+      b := emit b "  div64 r1, r2"
+      b := storeTemp b tempBase dest "r1"
+    else if kind == "mod" then
+      b := emit b s!"  jeq r2, 0, {errLab}"
+      b := emit b "  mod64 r1, r2"
+      b := storeTemp b tempBase dest "r1"
+    else
+      pure ()
+    for i in [1:nLimbs] do
+      b := emit b "  lddw r1, 0"
+      b := storeTemp b tempBase (dest + i) "r1"
+    b := emit b s!"  ja {okLab}"
+    b := emitErrorExit b errLab errorCode
+    emit b s!"{okLab}:"
+
 /-- Narrow checked_add: 64-bit add then high bits above `bitWidth` must be zero. -/
 private def emitNarrowCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordCheckedAdd b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth)
+  else Id.run do
     let (b, errLab) := fresh b "err_nadd"
     let (b, okLab) := fresh b "ok_nadd"
     let b := loadTemp b "r1" tempBase lhs
@@ -659,14 +909,18 @@ private def emitNarrowCheckedAdd (b : AsmBuf) (tempBase dest lhs rhs errorCode b
 /-- Narrow checked_sub: same underflow guard as u64; result auto in-range. -/
 private def emitNarrowCheckedSub (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordCheckedSub b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth)
+  else Id.run do
     let _ := bitWidth
     emitCheckedSub b tempBase dest lhs rhs errorCode
 
 /-- Narrow checked_mul: 64-bit mul then high bits above `bitWidth` must be zero. -/
 private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mul"
+  else Id.run do
     let (b, errLab) := fresh b "err_nmul"
     let (b, okLab) := fresh b "ok_nmul"
     let b := loadTemp b "r1" tempBase lhs
@@ -684,14 +938,18 @@ private def emitNarrowCheckedMul (b : AsmBuf) (tempBase dest lhs rhs errorCode b
 /-- Narrow checked_div: zero guard only; quotient auto in-range for UInt. -/
 private def emitNarrowCheckedDiv (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "div"
+  else Id.run do
     let _ := bitWidth
     emitCheckedDiv b tempBase dest lhs rhs errorCode
 
 /-- Narrow checked_mod: zero guard only; remainder auto in-range. -/
 private def emitNarrowCheckedMod (b : AsmBuf) (tempBase dest lhs rhs errorCode bitWidth : Nat) :
     AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordViaLow64 b tempBase dest lhs rhs errorCode (limbCountOfBitWidth bitWidth) "mod"
+  else Id.run do
     let _ := bitWidth
     emitCheckedMod b tempBase dest lhs rhs errorCode
 
@@ -724,7 +982,9 @@ private def emitNarrowCheckedShr (b : AsmBuf) (tempBase dest lhs rhs shiftErr bi
 
 /-- Narrow bitNot: xor -1 then AND width mask. -/
 private def emitNarrowBitNot (b : AsmBuf) (tempBase dest source bitWidth : Nat) : AsmBuf :=
-  Id.run do
+  if bitWidth > 64 then
+    emitMultiwordBitNot b tempBase dest source (limbCountOfBitWidth bitWidth)
+  else Id.run do
     let b := loadTemp b "r1" tempBase source
     let b := emit b "  lddw r2, 0xffffffffffffffff"
     let b := emit b "  xor64 r1, r2"
@@ -737,21 +997,26 @@ private def emitNarrowBitNot (b : AsmBuf) (tempBase dest source bitWidth : Nat) 
     UInt{8,16,32} use stxb/sth/stw so return-data length matches the ABI. -/
 private def emitSetReturnDataBytes (b : AsmBuf) (tempBase valueTemp retTemp byteLen : Nat) :
     AsmBuf :=
-  let b := loadTemp b "r1" tempBase valueTemp
-  let off := tempStackOff retTemp
-  let b :=
-    match byteLen with
-    | 1 => emit b s!"  stxb [r10 - {off}], r1"
-    | 2 => emit b s!"  stxh [r10 - {off}], r1"
-    | 4 => emit b s!"  stxw [r10 - {off}], r1"
-    | _ =>
-        let b := storeTempAbs b retTemp "r1"
-        b
-  let b := emit b "  mov64 r1, r10"
-  let b := emit b s!"  add64 r1, -{off}"
-  let b := emit b s!"  lddw r2, {byteLen}"
-  let b := emit b "  call sol_set_return_data"
-  b
+  Id.run do
+    let off := tempStackOff retTemp
+    let mut b := b
+    if byteLen == 16 || byteLen == 32 then
+      -- Multiword: valueTemp is base of consecutive limbs; pack into retTemp..
+      let nLimbs := byteLen / 8
+      for i in [:nLimbs] do
+        b := loadTemp b "r1" tempBase (valueTemp + i)
+        b := storeTempAbs b (retTemp + i) "r1"
+    else
+      b := loadTemp b "r1" tempBase valueTemp
+      b := match byteLen with
+        | 1 => emit b s!"  stxb [r10 - {off}], r1"
+        | 2 => emit b s!"  stxh [r10 - {off}], r1"
+        | 4 => emit b s!"  stxw [r10 - {off}], r1"
+        | _ => storeTempAbs b retTemp "r1"
+    b := emit b "  mov64 r1, r10"
+    b := emit b s!"  add64 r1, -{off}"
+    b := emit b s!"  lddw r2, {byteLen}"
+    emit b "  call sol_set_return_data"
 
 /-- Stash a u64 at absolute temp `retTemp` and call `sol_set_return_data`. -/
 private def emitSetReturnDataU64 (b : AsmBuf) (tempBase valueTemp retTemp : Nat) :
@@ -817,7 +1082,15 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           let b := emit b s!"  ldxdw r1, [r6 + INSTRUCTION_DATA + {dataOffset}]"
           pure (storeTemp b tempBase destination "r1")
   | .narrowLoadParam bitWidth destination dataOffset =>
-      match inlineCtx with
+      if bitWidth > 64 then
+        let nLimbs := limbCountOfBitWidth bitWidth
+        match inlineCtx with
+        | some _ =>
+            return ← asmError "S1b multiword narrowLoadParam not supported inlined"
+        | none =>
+            pure (emitMultiwordMemLoad b tempBase destination nLimbs "INSTRUCTION_DATA"
+              dataOffset s!"%{destination} = load_u{bitWidth}_le(instruction_data + {dataOffset})")
+      else match inlineCtx with
       | some ctx =>
           -- pureFn params are already width-normalized temps; remap like loadParam.
           let some idx := paramIndexByOffset ctx.fn.params dataOffset |
@@ -842,11 +1115,16 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .narrowLoadState bitWidth destination accountIndex byteOffset =>
       unless accountIndex == 0 do
         return ← asmError "S1b narrowLoadState supports only account[0]"
-      let mnem := narrowLoadMnemonic bitWidth
-      let b := emit b
-        s!"  ; %{destination} = load_u{bitWidth}_le(account[0].data + {byteOffset})"
-      let b := emit b s!"  {mnem} r1, [r6 + ACC0_DATA + {byteOffset}]"
-      pure (storeTemp b tempBase destination "r1")
+      if bitWidth > 64 then
+        let nLimbs := limbCountOfBitWidth bitWidth
+        pure (emitMultiwordMemLoad b tempBase destination nLimbs "ACC0_DATA" byteOffset
+          s!"%{destination} = load_u{bitWidth}_le(account[0].data + {byteOffset})")
+      else
+        let mnem := narrowLoadMnemonic bitWidth
+        let b := emit b
+          s!"  ; %{destination} = load_u{bitWidth}_le(account[0].data + {byteOffset})"
+        let b := emit b s!"  {mnem} r1, [r6 + ACC0_DATA + {byteOffset}]"
+        pure (storeTemp b tempBase destination "r1")
   | .checkedAdd destination lhs rhs errorCode =>
       let b := emit b s!"  ; %{destination} = checked_add_u64 %{lhs}, %{rhs}"
       pure (emitCheckedAdd b tempBase destination lhs rhs errorCode)
@@ -933,22 +1211,34 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       pure (emitNarrowCheckedMod b tempBase destination lhs rhs errorCode bitWidth)
   | .narrowBitAnd bitWidth destination lhs rhs =>
       let b := emit b s!"  ; %{destination} = bitand_u{bitWidth} %{lhs}, %{rhs}"
-      let b := loadTemp b "r1" tempBase lhs
-      let b := loadTemp b "r2" tempBase rhs
-      let b := emit b "  and64 r1, r2"
-      pure (storeTemp b tempBase destination "r1")
+      if bitWidth > 64 then
+        pure (emitMultiwordBitOp b tempBase destination lhs rhs
+          (limbCountOfBitWidth bitWidth) "and64")
+      else
+        let b := loadTemp b "r1" tempBase lhs
+        let b := loadTemp b "r2" tempBase rhs
+        let b := emit b "  and64 r1, r2"
+        pure (storeTemp b tempBase destination "r1")
   | .narrowBitOr bitWidth destination lhs rhs =>
       let b := emit b s!"  ; %{destination} = bitor_u{bitWidth} %{lhs}, %{rhs}"
-      let b := loadTemp b "r1" tempBase lhs
-      let b := loadTemp b "r2" tempBase rhs
-      let b := emit b "  or64 r1, r2"
-      pure (storeTemp b tempBase destination "r1")
+      if bitWidth > 64 then
+        pure (emitMultiwordBitOp b tempBase destination lhs rhs
+          (limbCountOfBitWidth bitWidth) "or64")
+      else
+        let b := loadTemp b "r1" tempBase lhs
+        let b := loadTemp b "r2" tempBase rhs
+        let b := emit b "  or64 r1, r2"
+        pure (storeTemp b tempBase destination "r1")
   | .narrowBitXor bitWidth destination lhs rhs =>
       let b := emit b s!"  ; %{destination} = bitxor_u{bitWidth} %{lhs}, %{rhs}"
-      let b := loadTemp b "r1" tempBase lhs
-      let b := loadTemp b "r2" tempBase rhs
-      let b := emit b "  xor64 r1, r2"
-      pure (storeTemp b tempBase destination "r1")
+      if bitWidth > 64 then
+        pure (emitMultiwordBitOp b tempBase destination lhs rhs
+          (limbCountOfBitWidth bitWidth) "xor64")
+      else
+        let b := loadTemp b "r1" tempBase lhs
+        let b := loadTemp b "r2" tempBase rhs
+        let b := emit b "  xor64 r1, r2"
+        pure (storeTemp b tempBase destination "r1")
   | .narrowBitNot bitWidth destination source =>
       let b := emit b s!"  ; %{destination} = bitnot_u{bitWidth} %{source}"
       pure (emitNarrowBitNot b tempBase destination source bitWidth)
@@ -985,9 +1275,12 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .narrowZeroState bitWidth accountIndex byteOffset =>
       unless accountIndex == 0 do
         return ← asmError "S1b narrowZeroState supports only account[0]"
-      let mnem := narrowImmStoreMnemonic bitWidth
-      let b := emit b s!"  ; zero_u{bitWidth}_le account[0].data + {byteOffset}"
-      pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], 0")
+      if bitWidth > 64 then
+        pure (emitMultiwordZeroState b (limbCountOfBitWidth bitWidth) byteOffset)
+      else
+        let mnem := narrowImmStoreMnemonic bitWidth
+        let b := emit b s!"  ; zero_u{bitWidth}_le account[0].data + {byteOffset}"
+        pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], 0")
   | .storeState accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b storeState supports only account[0]"
@@ -997,11 +1290,15 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .narrowStoreState bitWidth accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b narrowStoreState supports only account[0]"
-      let mnem := narrowStoreMnemonic bitWidth
-      let b := emit b
-        s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
-      let b := loadTemp b "r1" tempBase value
-      pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1")
+      if bitWidth > 64 then
+        pure (emitMultiwordMemStore b tempBase value (limbCountOfBitWidth bitWidth) byteOffset
+          s!"store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}")
+      else
+        let mnem := narrowStoreMnemonic bitWidth
+        let b := emit b
+          s!"  ; store_u{bitWidth}_le account[0].data + {byteOffset}, %{value}"
+        let b := loadTemp b "r1" tempBase value
+        pure (emit b s!"  {mnem} [r6 + ACC0_DATA + {byteOffset}], r1")
   | .setHeader accountIndex byteOffset value =>
       unless accountIndex == 0 do
         return ← asmError "S1b setHeader supports only account[0]"
@@ -1015,7 +1312,8 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
           let b := loadTemp b "r1" tempBase value
           pure (storeTempAbs b ctx.retDestAbs "r1")
       | none =>
-          let (b, retTemp) := allocTemps b 1
+          let nBuf := if byteLen > 8 then byteLen / 8 else 1
+          let (b, retTemp) := allocTemps b nBuf
           let b := emit b s!"  ; set_return_data_u{byteLen*8}_le %{value}"
           pure (emitSetReturnDataBytes b tempBase value retTemp byteLen)
   | .setReturnDataBool value =>
@@ -1031,6 +1329,10 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .compare destination lhs rhs op =>
       let b := emit b s!"  ; %{destination} = cmp %{lhs}, %{rhs}"
       pure (emitCompare b tempBase destination lhs rhs op)
+  | .wideCompare bitWidth destination lhs rhs op =>
+      let b := emit b s!"  ; %{destination} = cmp_u{bitWidth} %{lhs}, %{rhs}"
+      pure (emitMultiwordCompare b tempBase destination lhs rhs
+        (limbCountOfBitWidth bitWidth) op)
   | .assert condition errorCode =>
       let (b, errLab) := fresh b "err_assert"
       let (b, okLab) := fresh b "ok_assert"

@@ -12680,3 +12680,12 @@ normative: false
 - Boundary: not formal exhaustiveness of nested tags; incomplete nested without
   catch-all uses trap; no target Plan/IR changes; AGENTS/MIGRATION_MATRIX/
   Materialization/CLI/Targets off-limits for this wave.
+
+## 2026-08-02 — T9e-Solana：UInt128/256 multiword（软件双字/四字）
+
+- Envelope：`pilotUintWidthPolicySolanaBody`/`isSolanaAbiUintWidth`/`isSolanaBodyUintWidth` 扩 `{8,16,32,64,128,256}`；`requirePublicSolanaUintAbiOrInt64*`；NEAR/Noir `isAbiUintWidth` 仍 fail closed。
+- Plan：`ResultKind.u128/u256`、`bigLiteral bitWidth Nat`、`wideCompare`；state/param cumulative pitch（UInt128→16、UInt256→32）；narrow* bitWidth 128/256。
+- IR/SBPF：多肢 consecutive temps；软件 add/sub/compare/bit；mul/div/mod 经 low64（高肢须 0）；load/store/return multiword ldxdw/stxdw。
+- Tests：`testWideUintProduct` / body+result admit；翻转 UInt128 reject。
+- 非 formal D2/D4；mul/div 真多字 schoolbook 仍可后续加强。
+

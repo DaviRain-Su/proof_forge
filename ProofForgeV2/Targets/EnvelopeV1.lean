@@ -102,12 +102,11 @@ def pilotUintWidthPolicyU64U32 : PilotUintWidthPolicy where
 def pilotUintWidthPolicyEvmBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16, 128, 256]
 
-/-- Solana body multi-width policy: same admitted set as EVM body
-    (`{64, 32, 8, 16}`). Return ABI stays UInt64/Bool/Int64; state/param ABI
-    admits UInt{8,16,32,64}+Int64 via `requirePublicUintAbiOrInt64*` (T8b);
-    UInt128/256 remain fail-closed at the Solana Plan seam. -/
+/-- Solana body+ABI multi-width policy (T9e): UInt{8,16,32,64,128,256}.
+    UInt128/256 use software multiword (2/4 × u64 LE limbs) on SBPF.
+    NEAR/Noir keep their own policies (UInt128/256 fail closed there). -/
 def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 8, 16]
+  admittedWidths := #[64, 32, 8, 16, 128, 256]
 
 /-- NEAR type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
     so top-level state/param types may appear. Superseded for full plan
@@ -391,13 +390,18 @@ def isAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
 /-- EVM **ABI** UInt widths (T9b): `{8,16,32,64,128,256}`. Shared
-    `isAbiUintWidth` stays `{8,16,32,64}` so Solana/NEAR/Noir keep fail-closed
-    on UInt128/256. -/
+    `isAbiUintWidth` stays `{8,16,32,64}` so NEAR/Noir keep fail-closed
+    on UInt128/256 (Solana opens via `isSolanaAbiUintWidth`, T9e). -/
 def isEvmAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
-/-- Solana **ABI** UInt widths — alias of `isAbiUintWidth`. -/
-def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+/-- Solana **ABI/body** UInt widths (T9e): `{8,16,32,64,128,256}`.
+    UInt128/256 are multiword on 64-bit SBPF registers. -/
+def isSolanaAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
+
+/-- Solana body UInt width gate (alias of `isSolanaAbiUintWidth`). -/
+def isSolanaBodyUintWidth (w : Nat) : Bool := isSolanaAbiUintWidth w
 
 /-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth` (`{8,16,32,64}`). -/
 def isNearAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
@@ -460,6 +464,16 @@ def PilotTypeClosureV1.isEvmUintAbiOrInt64
 def PilotTypeClosureV1.isEvmUintAbiOrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isEvmUintAbiOrInt64 typeId || c.isField typeId
+
+/-- Solana ABI UInt{8,16,32,64,128,256} or Int{8,16,32,64} (T9e + T9c-2). -/
+def PilotTypeClosureV1.isSolanaUintAbiOrInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isSolanaAbiUintWidth w
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w
+    | none => false
 
 /-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
@@ -852,6 +866,38 @@ def requirePublicEvmUintAbiOrInt64OrFieldParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isEvmUintAbiOrInt64OrField param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is Solana-admitted UInt{8,16,32,64,128,256} or Int{8,16,32,64}
+    (T9e), and public unless `allowNonPublic`. Message keeps the historical
+    `UInt64` token so existing substring negatives still match. -/
+def requirePublicSolanaUintAbiOrInt64State
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isSolanaUintAbiOrInt64 state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is Solana-admitted UInt{8,16,32,64,128,256} or Int{8,16,32,64}. -/
+def requirePublicSolanaUintAbiOrInt64Param
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isSolanaUintAbiOrInt64 param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

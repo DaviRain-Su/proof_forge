@@ -518,22 +518,23 @@ private unsafe def testNarrowWidthOps
   expect (asmNot.contains "lddw r2, 0xffffffffffffffff") "narrow-not: xor -1"
   expect (asmNot.contains "lddw r2, 0xff") "narrow-not: width mask 0xff"
   expect (asmNot.contains "and64 r1, r2") "narrow-not: apply mask"
-  -- UInt128 body let still fail closed at Solana Plan seam.
-  let src128 := wrapProgram "NarrowU128Reject" <|
+  -- T9e: UInt128 body let admitted (multiword).
+  let src128 := wrapProgram "NarrowU128Body" <|
     "  state count : UInt64\n\n" ++
     "  init(i : UInt64) do\n" ++
     "    count := i\n\n" ++
     "  entry run() : UInt64 do\n" ++
     "    let a : UInt128 := 1\n" ++
-    "    count := count + 1\n" ++
+    "    let b : UInt128 := a + a\n" ++
+    "    if b == 2 then\n" ++
+    "      count := count + 1\n" ++
     "    return count\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let compiled128 ← compileSource session src128 "Examples.NarrowU128Reject"
-    "<solana-asm-u128-reject>"
-  match irSolana compiled128 with
-  | .error _ => pure ()
-  | .ok _ => throw <| IO.userError "narrow: UInt128 body must fail closed on Solana"
+  let asm128 ← emitFromSource session src128 "Examples.NarrowU128Body"
+    "<solana-asm-u128-body>"
+  expect (asm128.contains "checked_add_u128" || asm128.contains "add64")
+    "T9e: UInt128 body add must emit multiword or add64"
   -- Determinism of narrow path.
   let asmAdd2 ← emitFromSource session srcAdd "Examples.NarrowAddU8" "<solana-asm-nu8-add-2>"
   expect (asmAdd == asmAdd2) "narrow-add: deterministic"
@@ -632,28 +633,58 @@ private unsafe def testAbiMultiWidthStateParam
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "abi-mw: deterministic"
 
-/-- T8b: UInt128 state fail closed. -/
-private unsafe def testUInt128StateRejected
+/-- T9e: UInt128/256 state + param + body + result multiword product. -/
+private unsafe def testWideUintProduct
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrapProgram "U128State" <|
-    "  state big : UInt128\n\n" ++
-    "  init() do\n" ++
-    "    return\n\n" ++
-    "  entry run(x : UInt64) : UInt64 do\n" ++
-    "    return x\n"
-  -- May fail at compile (Normalize unsupported) or Plan seam; both fail closed.
-  let validated ← liftResult (← session.selectProgramV1 source
-    "<solana-u128-state>" "Examples.U128State" none)
-  match Compiler.compileValidatedSourceV1 validated with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match irSolana compiled with
-      | .error e =>
-          expect (e.render.contains "UInt" || e.render.contains "width" ||
-              e.render.contains "state" || e.render.contains "supported")
-            s!"abi-mw: UInt128 state must fail at Solana plan, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "abi-mw: UInt128 state must fail closed on Solana"
+  let source := wrapProgram "WideUint" <|
+    "  state a : UInt128\n" ++
+    "  state b : UInt256\n\n" ++
+    "  init(x : UInt128, y : UInt256) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n\n" ++
+    "  entry add128(delta : UInt128) : UInt128 do\n" ++
+    "    a := a + delta\n" ++
+    "    return a\n\n" ++
+    "  view get128() : UInt128 do\n" ++
+    "    return a\n\n" ++
+    "  view get256() : UInt256 do\n" ++
+    "    return b\n"
+  let compiled ← compileSource session source "Examples.WideUint" "<solana-wide-uint>"
+  let ir ← liftResult <| irSolana compiled
+  expect (ir.stateAccount.fields.size == 2) "T9e: two state fields"
+  expect (ir.stateAccount.fields[0]!.byteWidth == 16) "T9e: UInt128 field byteWidth 16"
+  expect (ir.stateAccount.fields[1]!.byteWidth == 32) "T9e: UInt256 field byteWidth 32"
+  expect (ir.stateAccount.fields[0]!.byteOffset + 16 == ir.stateAccount.fields[1]!.byteOffset)
+    "T9e: UInt128 pitch 16 before UInt256"
+  -- header 8 + 16 + 32 = 56
+  expect (ir.stateAccount.exactDataLen == 56)
+    s!"T9e: exactDataLen must be 56, got {ir.stateAccount.exactDataLen}"
+  let add128 ← match ir.handlers.find? (·.name == "add128") with
+    | some h => pure h
+    | none => throw <| IO.userError "T9e: missing add128"
+  expect (add128.resultKind == .u128) "T9e: add128 resultKind u128"
+  expect (add128.params.size == 1 && add128.params[0]!.byteWidth == 16)
+    "T9e: add128 param byteWidth 16"
+  let get128 ← match ir.handlers.find? (·.name == "get128") with
+    | some h => pure h
+    | none => throw <| IO.userError "T9e: missing get128"
+  expect (get128.resultKind == .u128) "T9e: get128 resultKind u128"
+  let get256 ← match ir.handlers.find? (·.name == "get256") with
+    | some h => pure h
+    | none => throw <| IO.userError "T9e: missing get256"
+  expect (get256.resultKind == .u256) "T9e: get256 resultKind u256"
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "ldxdw r1, [r6 + ACC0_DATA +")
+    "T9e: multiword state load uses ldxdw"
+  expect (asm.contains "stxdw [r6 + ACC0_DATA +")
+    "T9e: multiword state store uses stxdw"
+  expect (asm.contains "call sol_set_return_data")
+    "T9e: wide return uses sol_set_return_data"
+  let files ← liftResult <| filesSolana compiled
+  let some idlFile := files.find? (fun f => f.path.endsWith ".idl.json") |
+    throw <| IO.userError "T9e: missing idl"
+  expect (idlFile.contents.contains "u128" && idlFile.contents.contains "u256")
+    "T9e: IDL must mention u128/u256"
 
 /-- T9a: UInt8/16/32 entry results admitted; return-data lengths 1/2/4 in SBPF. -/
 private unsafe def testNarrowResultAdmitted
@@ -690,8 +721,8 @@ private unsafe def testNarrowResultAdmitted
       asm.contains "lddw r2, 4" && asm.contains "call sol_set_return_data")
     "T9a: SBPF asm must set return-data lengths 1/2/4"
 
-/-- T9a: UInt128 entry result remains fail closed on Solana. -/
-private unsafe def testUInt128ResultRejected
+/-- T9e: UInt128 entry result admitted (was fail-closed under T9a). -/
+private unsafe def testUInt128ResultAdmitted
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "U128Ret" <|
     "  state count : UInt64\n\n" ++
@@ -701,18 +732,18 @@ private unsafe def testUInt128ResultRejected
     "    return 0\n\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let validated ← liftResult (← session.selectProgramV1 source
-    "<solana-u128-ret>" "Examples.U128Ret" none)
-  match Compiler.compileValidatedSourceV1 validated with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match irSolana compiled with
-      | .error e =>
-          expect (e.render.contains "return" || e.render.contains "UInt" ||
-              e.render.contains "result" || e.render.contains "supported")
-            s!"T9a: UInt128 result error should mention return width, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "T9a: UInt128 entry result must fail closed"
+  let compiled ← compileSource session source "Examples.U128Ret" "<solana-u128-ret>"
+  let plan ← liftResult (planSolana compiled)
+  expect (plan.entries.any (·.resultKind == .u128))
+    "T9e: UInt128 entry result must be admitted"
+  let ir ← liftResult (irSolana compiled)
+  let run ← match ir.handlers.find? (·.name == "run") with
+    | some h => pure h
+    | none => throw <| IO.userError "T9e: missing run"
+  expect (run.operations.any (fun
+    | .setReturnData 16 _ => true
+    | _ => false))
+    "T9e: UInt128 return must setReturnData 16"
 
 /-- Source-level end-to-end covering mul/if/for/fn/revert/emit together. -/
 private unsafe def testSourceE2E
@@ -770,9 +801,9 @@ unsafe def run : IO Unit := do
   testEmitEvent session
   testNarrowWidthOps session
   testAbiMultiWidthStateParam session
-  testUInt128StateRejected session
+  testWideUintProduct session
   testNarrowResultAdmitted session
-  testUInt128ResultRejected session
+  testUInt128ResultAdmitted session
   testSourceE2E session
   IO.println "Tests.Targets.SolanaAsmV1: ok"
 

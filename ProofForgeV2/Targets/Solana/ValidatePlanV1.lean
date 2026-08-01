@@ -21,7 +21,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     none
   else
     match expr with
-    | .literal .. => some 1
+    | .literal .. | .bigLiteral .. => some 1
     | .temp _ => some 1
     | .param dataOffset | .narrowParam _ dataOffset =>
         if params.any (·.dataOffset == dataOffset) then some 1 else none
@@ -47,7 +47,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
     | .shl lhs rhs | .shr lhs rhs | .sar lhs rhs | .narrowSar _ lhs rhs
     | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs
     | .boolAnd lhs rhs | .boolOr lhs rhs
-    | .compare _ lhs rhs | .signedCompare _ lhs rhs
+    | .compare _ lhs rhs | .wideCompare _ _ lhs rhs | .signedCompare _ lhs rhs
     | .narrowSignedCompare _ _ lhs rhs =>
         let childDepth := depthLeft - 1
         let available := nodeBudget - 1
@@ -84,7 +84,7 @@ private partial def planExprNodes? (account : StateAccount) (params : Array Para
 /-- UInt64-compatible plan expression (comparison/boolNot/boolAnd/boolOr results
     and Bool-returning callFn results are not UInt64). -/
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .signedCompare .. | .narrowSignedCompare ..
+  | .compare .. | .wideCompare .. | .signedCompare .. | .narrowSignedCompare ..
   | .boolNot _ | .boolAnd .. | .boolOr .. => false
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
@@ -101,14 +101,14 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .bitAnd .. | .bitOr .. | .bitXor .. | .shl .. | .shr .. | .sar .. | .narrowSar ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
-  | .checkedAdd .. | .checkedSub .. | .literal _ | .param _ | .narrowParam ..
+  | .checkedAdd .. | .checkedSub .. | .literal _ | .bigLiteral .. | .param _ | .narrowParam ..
   | .stateLoad .. | .narrowStateLoad ..
   | .temp _ => true
 
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
     Bool-returning callFn). -/
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
-  | .compare .. | .signedCompare .. | .narrowSignedCompare ..
+  | .compare .. | .wideCompare .. | .signedCompare .. | .narrowSignedCompare ..
   | .boolNot _ | .boolAnd .. | .boolOr .. => true
   | .callFn fnIndex _ =>
       match fns[fnIndex]? with
@@ -127,7 +127,7 @@ private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
   | .narrowShl .. | .narrowShr ..
   | .checkedAdd .. | .checkedSub .. | .param _ | .narrowParam ..
-  | .stateLoad .. | .narrowStateLoad .. | .temp _ => false
+  | .stateLoad .. | .narrowStateLoad .. | .temp _ | .bigLiteral .. => false
 
 private def addPlanExprNodes (account : StateAccount) (params : Array Param)
     (fns : Array FnBinding) (total : Nat) (expr : Expr) : CompileResult Nat := do
@@ -150,8 +150,6 @@ def validateStateAccount (account : StateAccount) : CompileResult Unit := do
     throw <| .planInvariant .solana "state account header is not canonical"
   if account.fields.isEmpty || account.fields.size > maxStateFields then
     throw <| .planInvariant .solana "state account field count is outside the profile limits"
-  unless account.exactDataLen == stateHeaderBytes + account.fields.size * 8 do
-    throw <| .planInvariant .solana "state account exact data length does not match its fields"
   let names := account.fields.map (·.name)
   let offsets := account.fields.map (·.byteOffset)
   -- ArrayState: multi-leaf fields share one logical `sourceId`; uniqueness is
@@ -159,16 +157,22 @@ def validateStateAccount (account : StateAccount) : CompileResult Unit := do
   -- `stateLeaves` below (when present) or 1:1 sourceId==index (legacy).
   if hasDuplicates names || hasDuplicates offsets then
     throw <| .planInvariant .solana "state field origins, names, and offsets must be unique"
+  -- Cumulative pitch: UInt{8,16,32,64} keep 8-byte slots; UInt128→16; UInt256→32.
+  let mut expectedOffset : Nat := stateHeaderBytes
   for index in [0:account.fields.size] do
     let field := account.fields[index]!
     let admittedWidth :=
       field.byteWidth == 1 || field.byteWidth == 2 ||
-      field.byteWidth == 4 || field.byteWidth == 8
+      field.byteWidth == 4 || field.byteWidth == 8 ||
+      field.byteWidth == 16 || field.byteWidth == 32
     unless field.accountIndex == account.index &&
-        field.byteOffset == stateHeaderBytes + index * 8 && admittedWidth &&
+        field.byteOffset == expectedOffset && admittedWidth &&
         field.endianness == .little && isIdentifier field.name do
       throw <| .planInvariant .solana
         "state field layout is not canonical little-endian with admitted ABI byteWidth"
+    expectedOffset := expectedOffset + slotPitchOfByteWidth field.byteWidth
+  unless account.exactDataLen == expectedOffset do
+    throw <| .planInvariant .solana "state account exact data length does not match its fields"
   if account.stateLeaves.isEmpty then
     -- Legacy 1:1: each field sourceId equals its physical index.
     for index in [0:account.fields.size] do
@@ -210,20 +214,23 @@ def validateParams (owner : String) (params : Array Param) : CompileResult Unit 
   let offsets := params.map (·.dataOffset)
   if hasDuplicates sourceIds || hasDuplicates names || hasDuplicates offsets then
     throw <| .planInvariant .solana s!"parameter bindings in {owner} must be unique"
+  let mut expectedOffset : Nat := discriminatorBytes
   for index in [0:params.size] do
     let param := params[index]!
     let admittedWidth :=
       param.byteWidth == 1 || param.byteWidth == 2 ||
-      param.byteWidth == 4 || param.byteWidth == 8
-    -- Int64 ABI identity remains 8-byte; narrow Int is not admitted.
+      param.byteWidth == 4 || param.byteWidth == 8 ||
+      param.byteWidth == 16 || param.byteWidth == 32
+    -- Int ABI identity: narrow Int 1/2/4/8; no Int128/256.
     unless !param.isInt || param.byteWidth == 1 || param.byteWidth == 2 ||
         param.byteWidth == 4 || param.byteWidth == 8 do
       throw <| .planInvariant .solana
         s!"parameter binding in {owner} marks Int with invalid byte width"
-    unless param.sourceId == index && param.dataOffset == discriminatorBytes + index * 8 &&
+    unless param.sourceId == index && param.dataOffset == expectedOffset &&
         admittedWidth && param.endianness == .little && isIdentifier param.name do
       throw <| .planInvariant .solana
         s!"parameter binding in {owner} is not canonical little-endian with admitted ABI byteWidth"
+    expectedOffset := expectedOffset + slotPitchOfByteWidth param.byteWidth
 
 /-- Recursive statement-tree validator for one handler: view-write ban
     (including inside branches), node accounting, and per-level return
