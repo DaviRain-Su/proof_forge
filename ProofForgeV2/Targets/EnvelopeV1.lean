@@ -114,6 +114,13 @@ def pilotUintWidthPolicySolanaBody : PilotUintWidthPolicy where
 def pilotUintWidthPolicyNearAbi : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16]
 
+/-- Noir type-table policy for T8b ABI multi-width: admits UInt{8,16,32,64}
+    so top-level state/param types may appear alongside Field. Body multi-width
+    arithmetic remains the historical UInt64/UInt32-shift pilot (T8d); narrow
+    body ops stay fail closed. -/
+def pilotUintWidthPolicyNoirAbi : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32, 8, 16]
+
 /-- Admitted body UInt widths for Phase-1 multi-width pilots (EVM/Solana body).
     Distinct from the historical `{64,32}` default used by NEAR/Noir body. -/
 def isPilotBodyUintWidth (w : Nat) : Bool :=
@@ -312,9 +319,9 @@ def PilotTypeClosureV1.isUInt64OrInt64
   typeId == c.uint64TypeId || c.int64TypeId == some typeId
 
 /-- Admitted **ABI** UInt widths for state/param: `{8,16,32,64}`.
-    Shared by EVM, Solana, and NEAR T8b. Distinct from body multi-width only by
-    documentation — same set today; UInt128/256 stay fail closed. Int narrow
-    widths are **not** admitted on the ABI surface. -/
+    Shared by EVM, Solana, NEAR, and Noir T8b. Distinct from body multi-width
+    only by documentation — same set today; UInt128/256 stay fail closed. Int
+    narrow widths are **not** admitted on the ABI surface. -/
 def isAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64
 
@@ -326,6 +333,9 @@ def isSolanaAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 /-- NEAR **ABI** UInt widths — alias of `isAbiUintWidth`. -/
 def isNearAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
+
+/-- Noir **ABI** UInt widths — alias of `isAbiUintWidth`. -/
+def isNoirAbiUintWidth (w : Nat) : Bool := isAbiUintWidth w
 
 /-- Bit width ↔ byte width for admitted ABI UInt widths. -/
 def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
@@ -358,6 +368,12 @@ def PilotTypeClosureV1.isString
 def PilotTypeClosureV1.isUInt64OrInt64OrField
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   c.isUInt64OrInt64 typeId || c.isField typeId
+
+/-- True when `typeId` is admitted ABI UInt{8,16,32,64}, Int64, or Field
+    (Noir T8b state/param surface; narrow UInt coexists with Field). -/
+def PilotTypeClosureV1.isUintAbiOrInt64OrField
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  c.isUintAbiOrInt64 typeId || c.isField typeId
 
 /-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/
 def PilotTypeClosureV1.isUInt64OrInt64OrFieldOrPrincipal
@@ -430,18 +446,18 @@ def nearTypeClosureWording : PilotTypeClosureWording where
   unsupportedShapeDetail :=
     "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, and Bool are supported (no native Field; Principal is binary variable-length identity, not NEAR account-id string)"
 
-/-- Noir type-closure diagnostic wording (UInt64 + optional UInt32 + Int64 + Field).
+/-- Noir type-closure diagnostic wording (ABI multi-width UInt + Int64 + Field).
 
-    Note: `badIntegerWidthDetail` historically reused the one-UInt64 phrase;
-    Wave N2a updates it to name Int64. Wave N2b opens sole catalog Field
-    (bn254 Fr = Noir native Field). `unsupportedShapeDetail` names Field. -/
+    Wave N2a names Int64; Wave N2b opens sole catalog Field (bn254 Fr = Noir
+    native Field). T8b admits UInt{8,16,32,64} on the type table so state/param
+    ABI multi-width may appear; body multi-width remains T8d. -/
 def noirTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Noir"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64 and Int64 integer widths are supported"
+    "only anonymous UInt8/UInt16/UInt32/UInt64 and Int64 integer widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
+    "only UInt8, UInt16, UInt32, UInt64, Int64, Unit, Bool, and Field(bn254-fr) are supported (Principal is variable-length identity, not a Field element)"
 
 /-- Psy type-closure diagnostic wording (UInt64/32 + Int64).
     Field fail-closed: Psy Felt is a field element but there is no pinned
@@ -748,6 +764,40 @@ def requirePublicUInt64OrInt64OrFieldParam
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isUInt64OrInt64OrField param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is ABI UInt{8,16,32,64}, Int64, or admitted Field
+    (Noir T8b), and public unless `allowNonPublic`. Message keeps the historical
+    `UInt64` token so existing "not public UInt64" substring negatives still
+    match. -/
+def requirePublicUintAbiOrInt64OrFieldState
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUintAbiOrInt64OrField state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is ABI UInt{8,16,32,64}, Int64, or admitted Field
+    (Noir T8b), and public unless `allowNonPublic`. -/
+def requirePublicUintAbiOrInt64OrFieldParam
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isUintAbiOrInt64OrField param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

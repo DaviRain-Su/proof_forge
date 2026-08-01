@@ -54,6 +54,11 @@ inductive InputType where
   | bool
   /-- Sole catalog bn254 Fr Field (Noir native Field; exact modulus match). -/
   | field
+  /-- T8b: ABI multi-width public inputs (native Noir u8/u16/u32). Body temps
+      still zero-extend into the UInt64 pilot until T8d. -/
+  | u8
+  | u16
+  | u32
   deriving BEq, Inhabited, Repr
 
 inductive InputRole where
@@ -86,7 +91,8 @@ structure ResourceLimits where
 structure StateField where
   sourceId : Nat
   name : String
-  /-- UInt64 / Int64 share the u64 plan word; Field is native Noir Field. -/
+  /-- UInt64 / Int64 share the u64 plan word; UInt{8,16,32} map to native Noir
+      widths (T8b); Field is native Noir Field. -/
   inputType : InputType := .u64
   deriving BEq, Inhabited, Repr
 
@@ -95,7 +101,7 @@ structure Param where
   name : String
   inputIndex : Nat
   visibility : InputVisibility
-  /-- Plan input type for this parameter (u64 / field; bool params rare). -/
+  /-- Plan input type for this parameter (u64 / u8 / u16 / u32 / field). -/
   inputType : InputType := .u64
   deriving BEq, Inhabited, Repr
 
@@ -330,7 +336,8 @@ def artifactStem (index : Nat) (mode : RelationMode) (name : String) : String :=
 
 /-- Value kinds admitted in the Noir pilot value table. Bool may be intermediate
 (comparison/literal results feeding assert) or an entry/view result binding;
-state and params admit UInt64 / Int64 / Field (bn254). -/
+state and params admit UInt{8,16,32,64} / Int64 / Field (bn254). Narrow UInt
+ABI loads still surface as `.uint64` body kinds until T8d. -/
 private inductive NoirValueKindV1 where
   | uint64
   | bool
@@ -339,21 +346,45 @@ private inductive NoirValueKindV1 where
   deriving BEq, Inhabited, Repr
 
 /-- Noir pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool/UInt32 optional; state/params admit UInt64/Int64/Field. Shift counts
-    decode to plain u64 literals in the Plan. -/
+    Bool optional; state/params admit UInt{8,16,32,64}/Int64/Field (T8b).
+    Shift counts decode to plain u64 literals in the Plan. -/
 private abbrev NoirTypeClosureV1 := PilotTypeClosureV1
 
 private def noirPlanErr (m : String) : CompileError :=
   .planInvariant .noir m
 
-/-- Noir pilot accepts UInt64/Unit/Bool/UInt32/Int64 plus sole catalog Field
-    (bn254 Fr = Noir native Field). Valid but richer SemanticProgramV1 programs
-    fail at the target Plan seam rather than being silently erased.
+/-- Map an admitted scalar TypeId to a Noir public-input type.
+    Field → `.field`; ABI UInt{8,16,32,64} → matching width; Int64 → `.u64`
+    (bit-pattern carrier). Fail closed on anything else. -/
+private def inputTypeOfScalarV1
+    (types : NoirTypeClosureV1) (typeId : TypeIdV1) : CompileResult InputType := do
+  if types.isField typeId then
+    pure .field
+  else if types.int64TypeId == some typeId then
+    pure .u64
+  else
+    match types.uintWidthOf typeId with
+    | some 8 => pure .u8
+    | some 16 => pure .u16
+    | some 32 => pure .u32
+    | some 64 => pure .u64
+    | some w =>
+        throw <| .planInvariant .noir
+          s!"unsupported Noir semantic shape: ABI UInt{w} is not admitted"
+    | none =>
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: scalar type is not UInt{8,16,32,64}, Int64, or Field"
+
+/-- Noir pilot accepts UInt{8,16,32,64}/Unit/Bool/Int64 plus sole catalog Field
+    (bn254 Fr = Noir native Field) under `pilotUintWidthPolicyNoirAbi`. Valid but
+    richer SemanticProgramV1 programs fail at the target Plan seam rather than
+    being silently erased. Body multi-width arithmetic remains T8d.
     N2c: Principal remains fail-closed (variable-length identity is not a
     Field element; default `pilotPrincipalPolicyNone`). -/
 private def validateNoirTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NoirTypeClosureV1 :=
   validatePilotTypeClosure noirPlanErr noirTypeClosureWording types
+    pilotUintWidthPolicyNoirAbi
     (fieldPolicy := pilotFieldPolicyBn254)
 
 private def makeStatesV1
@@ -367,14 +398,14 @@ private def makeStatesV1
       throw <| .planInvariant .noir "semantic state ids must match declaration order"
     -- N1: Noir relation state slots are public inputs — private/commitment
     -- state is not representable without a later witness-input redesign.
-    requirePublicUInt64OrInt64OrFieldState noirPlanErr types state
+    -- T8b: admit public UInt{8,16,32,64}/Int64/Field.
+    requirePublicUintAbiOrInt64OrFieldState noirPlanErr types state
       (allowNonPublic := false)
       (nonPublicMsg := some
         "unsupported Noir semantic shape: private/commitment state is not representable (relation state slots are public inputs)")
     unless isIdentifier state.name do
       throw <| .planInvariant .noir s!"state name '{state.name}' is not a safe identifier"
-    let inputType : InputType :=
-      if types.isField state.typeId then .field else .u64
+    let inputType ← inputTypeOfScalarV1 types state.typeId
     planned := planned.push {
       sourceId := state.id.toNat
       name := state.name
@@ -405,7 +436,8 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
         s!"semantic parameter ValueIds in {owner} must match declaration order"
     -- N1: Noir binds params as public inputs — private/commitment params
     -- would leak into verifier-visible data.
-    requirePublicUInt64OrInt64OrFieldParam noirPlanErr types owner param
+    -- T8b: admit public UInt{8,16,32,64}/Int64/Field.
+    requirePublicUintAbiOrInt64OrFieldParam noirPlanErr types owner param
       (allowNonPublic := false)
       (nonPublicMsg := some
         s!"unsupported Noir semantic shape: private/commitment parameter '{param.name}' in {owner} is not representable (relation parameter slots are public inputs)")
@@ -414,15 +446,17 @@ private def makeParamsV1 (owner : String) (inputOffset : Nat)
         s!"parameter name '{param.name}' in {owner} is not a safe identifier"
     let isField := types.isField param.typeId
     let isInt := types.int64TypeId == some param.typeId
+    let inputType ← inputTypeOfScalarV1 types param.typeId
     let binding : Param := {
       sourceId := param.valueId.toNat
       name := param.name
       inputIndex := inputOffset + planned.size
       visibility := .verifier
-      inputType := if isField then .field else .u64
+      inputType
     }
     planned := planned.push binding
     values := values.push {
+      -- Body multi-width is T8d; zero-extend narrow ABI params into UInt64 temps.
       expr := .param binding.inputIndex
       kind :=
         if isField then .field
@@ -996,36 +1030,11 @@ private def lowerBlockInstructionsV1
   for instruction in block.instructions do
     match instruction.op, instruction.result with
     | .literal typeId bytes, some result =>
-        if typeId == types.uint64TypeId then
-          let value ← decodeUInt64LiteralV1 bytes
-          values := ← appendResultValueV1 types.uint64TypeId values result {
-            expr := .literal value
-            kind := .uint64
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-          }
-        else if types.int64TypeId == some typeId then
+        if types.int64TypeId == some typeId then
           let value ← decodeInt64LiteralLe noirPlanErr "Noir" bytes
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
             kind := .int64
-            depth := 1
-            expandedNodes := 1
-            dependencies := #[]
-          }
-        else if types.uint32TypeId == some typeId then
-          -- Shift counts: 4-byte UInt32 literals surface as plain u64
-          -- literals (lossless); only shift operands consume them.
-          unless bytes.size == 4 do
-            throw <| .planInvariant .noir
-              "unsupported Noir semantic shape: UInt32 literal must contain exactly 4 bytes"
-          let value : UInt64 := UInt64.ofNat
-            ((bytes.get! 0).toNat + (bytes.get! 1).toNat * 256 +
-              (bytes.get! 2).toNat * 65536 + (bytes.get! 3).toNat * 16777216)
-          values := ← appendResultValueV1 typeId values result {
-            expr := .literal value
-            kind := .uint64
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -1040,15 +1049,36 @@ private def lowerBlockInstructionsV1
             dependencies := #[]
           }
         else
-          throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: literal is not UInt64, Int64, or Bool"
+          match types.uintWidthOf typeId with
+          | some w =>
+              -- T8b: ABI UInt{8,16,32,64} literals zero-extend into the u64 Plan
+              -- word (body multi-width arithmetic is T8d). UInt32 still covers
+              -- historical shift-count literals.
+              unless isNoirAbiUintWidth w do
+                throw <| .planInvariant .noir
+                  s!"unsupported Noir semantic shape: UInt{w} literal is not admitted"
+              let value ← decodeUIntWidthLiteralLe noirPlanErr "Noir" w bytes
+              values := ← appendResultValueV1 typeId values result {
+                expr := .literal value
+                kind := .uint64
+                depth := 1
+                expandedNodes := 1
+                dependencies := #[]
+              }
+          | none =>
+              throw <| .planInvariant .noir
+                "unsupported Noir semantic shape: literal is not UInt{8,16,32,64}, Int64, or Bool"
     | .stateLoad stateId, some result =>
         let field ← findStateV1 states stateId
         let isInt := types.int64TypeId == some result.typeId
         let isField := types.isField result.typeId
-        unless result.typeId == types.uint64TypeId || isInt || isField do
+        -- T8b: narrow ABI state loads zero-extend into UInt64 body temps.
+        unless isField || isInt ||
+            (match types.uintWidthOf result.typeId with
+             | some w => isNoirAbiUintWidth w
+             | none => false) do
           throw <| .planInvariant .noir
-            "unsupported Noir semantic shape: state load must be UInt64, Int64, or Field"
+            "unsupported Noir semantic shape: state load must be UInt{8,16,32,64}, Int64, or Field"
         values := ← appendResultValueV1 result.typeId values result {
           expr := .stateLoad field.sourceId
           kind :=
@@ -1194,6 +1224,9 @@ private def lowerBlockInstructionsV1
             "unsupported Noir semantic shape: view callable writes state"
         let field ← findStateV1 states stateId
         let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables valueId
+        -- T8b: body temps are still UInt64/Int64/Field; narrow ABI state is
+        -- written from the zero-extended u64 word (range enforced by native
+        -- Noir public-input type at the post-state equality).
         unless root.kind == .uint64 || root.kind == .int64 || root.kind == .field do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: state store value must be UInt64, Int64, or Field"

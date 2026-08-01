@@ -12090,3 +12090,19 @@ normative: false
   worker); not formal ContextRead requirement-to-result CAP binding; not
   caller/authorizers/randomness; formal TASK/TST status unchanged.
 
+
+## 2026-08-01 — T8b-Noir: Noir state/param UInt8/16/32 ABI multi-width
+
+- EnvelopeV1: `pilotUintWidthPolicyNoirAbi` + `isNoirAbiUintWidth` +
+  `isUintAbiOrInt64OrField` + `requirePublicUintAbiOrInt64OrField*`; Noir type-closure
+  wording names UInt{8,16,32,64} alongside Field.
+- Noir Plan: `InputType` gains `u8`/`u16`/`u32`; state/param admit public
+  UInt{8,16,32,64}/Int64/Field under the new policy; narrow loads zero-extend into
+  UInt64 body temps (body multi-width remains T8d). Entry/view results stay
+  UInt64/Bool/Field (narrow results fail closed). UInt128/Int8 fail closed.
+- Emit: native Noir public-input types; `as u64` when narrow inputs feed u64 body
+  ops; assertEqual casts body temps down to match narrow post-state peers.
+  Interface JSON type strings width-aware.
+- Tests: NoirRelationModel `checkNarrowAbiProduct` + `checkNarrowAbiNegatives`;
+  Counter UInt64 regression. shard-targets green.
+- Boundary: not formal D4; not body multi-width (T8d); not Nargo proof.

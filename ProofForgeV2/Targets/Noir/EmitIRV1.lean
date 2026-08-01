@@ -1254,8 +1254,15 @@ private def lower (plan : Plan) : CompileResult IR := do
   validateIR ir
   return ir
 
+/-- Render a ValueRef. Narrow ABI public inputs (u8/u16/u32, T8b) zero-extend
+    into the UInt64 body pilot via `as u64` so checked arithmetic stays on the
+    historical u64 surface until T8d. Field/bool/u64 inputs keep their names. -/
 private def renderValue (relation : Relation) : ValueRef → String
-  | .input index => relation.inputs[index]!.name
+  | .input index =>
+      let input := relation.inputs[index]!
+      match input.type with
+      | .u8 | .u16 | .u32 => s!"({input.name} as u64)"
+      | .u64 | .bool | .field => input.name
   | .literal value => toString value.toNat
   | .temp index => s!"t{index}"
 
@@ -1286,14 +1293,45 @@ private def assertEqualUsesBool (relation : Relation) (lhs rhs : ValueRef) : Boo
     | _ => false
   isBoolInput lhs || isBoolInput rhs
 
-private def renderEqualOperand (relation : Relation) (asBool : Bool) :
-    ValueRef → String
+/-- Native Noir type string for a narrow ABI input, used when casting a u64
+    body temp down to match a post-state/public equality operand. -/
+private def narrowInputTypeString? : InputType → Option String
+  | .u8 => some "u8"
+  | .u16 => some "u16"
+  | .u32 => some "u32"
+  | .u64 | .bool | .field => none
+
+/-- Equality operands for assertEqual. Narrow post-state/public inputs keep
+    their native Noir type; the paired body u64 word (temp/literal) is cast
+    down so `assert(post_u8 == (t as u8))` type-checks. -/
+private def renderEqualOperand (relation : Relation) (asBool : Bool)
+    (peer : ValueRef) : ValueRef → String
   | .literal value =>
       if asBool then
         if value == 0 then "false" else "true"
       else
-        toString value.toNat
-  | value => renderValue relation value
+        match peer with
+        | .input index =>
+            match relation.inputs[index]? with
+            | some input =>
+                match narrowInputTypeString? input.type with
+                | some ty => s!"({value.toNat} as {ty})"
+                | none => toString value.toNat
+            | none => toString value.toNat
+        | _ => toString value.toNat
+  | .input index =>
+      -- Keep native type on the input side of equality.
+      relation.inputs[index]!.name
+  | .temp index =>
+      match peer with
+      | .input pidx =>
+          match relation.inputs[pidx]? with
+          | some input =>
+              match narrowInputTypeString? input.type with
+              | some ty => s!"(t{index} as {ty})"
+              | none => s!"t{index}"
+          | none => s!"t{index}"
+      | _ => s!"t{index}"
 
 private partial def renderOperation (relation : Relation) (indent : String) :
     Operation → String
@@ -1337,7 +1375,7 @@ private partial def renderOperation (relation : Relation) (indent : String) :
       s!"{indent}let t{destination}: bool = {renderValue relation lhs} | {renderValue relation rhs};\n"
   | .assertEqual lhs rhs =>
       let asBool := assertEqualUsesBool relation lhs rhs
-      s!"{indent}assert({renderEqualOperand relation asBool lhs} == {renderEqualOperand relation asBool rhs});\n"
+      s!"{indent}assert({renderEqualOperand relation asBool rhs lhs} == {renderEqualOperand relation asBool lhs rhs});\n"
   | .assertBool inputIndex expected =>
       s!"{indent}assert({relation.inputs[inputIndex]!.name} == {if expected then "true" else "false"});\n"
   | .compare op destination lhs rhs =>
@@ -1420,6 +1458,9 @@ private def renderInputType : InputType → String
   | .u64 => "u64"
   | .bool => "bool"
   | .field => "Field"
+  | .u8 => "u8"
+  | .u16 => "u16"
+  | .u32 => "u32"
 
 private def renderInput (input : InputBinding) : String :=
   let visibility := if input.visibility == .verifier then "pub " else ""

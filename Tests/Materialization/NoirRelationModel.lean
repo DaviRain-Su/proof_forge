@@ -292,8 +292,10 @@ private def validateInputTypes (relation : Targets.Noir.RelationIR)
     let expected := relation.sourceRelation.inputs[index]!.type
     let actual := inputs[index]!
     match expected, actual with
-    | .u64, .u64 _ | .bool, .bool _ | .field, .u64 _ => pure ()
-    | .u64, .bool _ => return ← modelError s!"input {index} must be UInt64"
+    | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _
+    | .bool, .bool _ | .field, .u64 _ => pure ()
+    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ =>
+        return ← modelError s!"input {index} must be UInt"
     | .bool, .u64 _ => return ← modelError s!"input {index} must be Bool"
     | .field, .bool _ => return ← modelError s!"input {index} must be Field"
 
@@ -429,8 +431,10 @@ private def bindInputs (relation : Targets.Noir.RelationIR)
       | some value => pure value
       | none => modelError s!"no model value for input '{binding.name}'"
     match binding.type, value with
-    | .u64, .u64 _ | .bool, .bool _ | .field, .u64 _ => values := values.push value
-    | .u64, .bool _ => return ← modelError s!"input '{binding.name}' must be UInt64"
+    | .u64, .u64 _ | .u8, .u64 _ | .u16, .u64 _ | .u32, .u64 _
+    | .bool, .bool _ | .field, .u64 _ => values := values.push value
+    | .u64, .bool _ | .u8, .bool _ | .u16, .bool _ | .u32, .bool _ =>
+        return ← modelError s!"input '{binding.name}' must be UInt"
     | .bool, .u64 _ => return ← modelError s!"input '{binding.name}' must be Bool"
     | .field, .bool _ => return ← modelError s!"input '{binding.name}' must be Field"
   return values
@@ -2318,6 +2322,171 @@ private unsafe def checkOmittedTypeLetProduct : IO Unit := do
     statefulInputs2 sum true 0 3 4 0 true 8
   expectReject "OmitLet wrong result rejects" sum wrong
 
+/-- T8b-Noir: public UInt8/16/32 state + params materialize as native Noir
+    input types (u8/u16/u32) alongside Field. Body multi-width is T8d — this
+    program only assigns params into state and returns a UInt64 literal. -/
+private unsafe def checkNarrowAbiProduct : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NarrowAbi where\n" ++
+    "  state a : UInt8\n" ++
+    "  state b : UInt16\n" ++
+    "  state c : UInt32\n\n" ++
+    "  init(x : UInt8, y : UInt16, z : UInt32) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n" ++
+    "    c := z\n\n" ++
+    "  entry set8(x : UInt8) : UInt64 do\n" ++
+    "    a := x\n" ++
+    "    return 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return 0\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let ir ← compileIrFromProgramV1 text "Examples.NarrowAbi" "<noir-narrow-abi>"
+  expect (ir.sourcePlan.states.size == 3)
+    "narrow-abi: expected three state fields"
+  expect (ir.sourcePlan.states[0]!.inputType == .u8 &&
+      ir.sourcePlan.states[1]!.inputType == .u16 &&
+      ir.sourcePlan.states[2]!.inputType == .u32)
+    s!"narrow-abi: state inputTypes must be u8/u16/u32, got {[repr ir.sourcePlan.states[0]!.inputType, repr ir.sourcePlan.states[1]!.inputType, repr ir.sourcePlan.states[2]!.inputType]}"
+  let initializer ← findRelation ir "init"
+  expect (initializer.sourceRelation.params.size == 3 &&
+      initializer.sourceRelation.params[0]!.inputType == .u8 &&
+      initializer.sourceRelation.params[1]!.inputType == .u16 &&
+      initializer.sourceRelation.params[2]!.inputType == .u32)
+    "narrow-abi: init params must be u8/u16/u32"
+  let set8 ← findRelation ir "set8"
+  expect (set8.sourceRelation.params.size == 1 &&
+      set8.sourceRelation.params[0]!.inputType == .u8)
+    "narrow-abi: set8 param must be u8"
+  -- Public-input disclosure must carry narrow types on post/param (init has no
+  -- pre-state) and on mutate pre-state slots.
+  let hasU8Post := initializer.sourceRelation.inputs.any fun i =>
+    i.role == .postState 0 && i.type == .u8
+  let hasU8Param := initializer.sourceRelation.inputs.any fun i =>
+    match i.role with | .parameter _ => i.type == .u8 | _ => false
+  let hasU8Pre := set8.sourceRelation.inputs.any fun i =>
+    i.role == .preState 0 && i.type == .u8
+  expect (hasU8Post && hasU8Param && hasU8Pre)
+    "narrow-abi: inputs must disclose u8 post/param (init) and pre (set8)"
+  -- Host model: assign-only paths accept matching witnesses.
+  let initOk ← liftModel "narrow-abi init inputs" <|
+    bindInputs initializer fun role => match role with
+      | .preInitialized => some (.bool false)
+      | .preState _ => none
+      | .parameter 0 => some (.u64 1)
+      | .parameter 1 => some (.u64 2)
+      | .parameter 2 => some (.u64 3)
+      | .parameter _ => none
+      | .postState 0 => some (.u64 1)
+      | .postState 1 => some (.u64 2)
+      | .postState 2 => some (.u64 3)
+      | .postState _ => none
+      | .postInitialized => some (.bool true)
+      | .result => none
+      | .eventSlot .. | .callStatus _ | .callArgSlot .. | .scheduleArgSlot .. =>
+          some (.u64 0)
+  expectAccept "narrow-abi init(1,2,3)" initializer initOk
+  let setOk ← liftModel "narrow-abi set8 inputs" <|
+    bindInputs set8 fun role => match role with
+      | .preInitialized => some (.bool true)
+      | .preState 0 => some (.u64 1)
+      | .preState 1 => some (.u64 2)
+      | .preState 2 => some (.u64 3)
+      | .preState _ => none
+      | .parameter 0 => some (.u64 9)
+      | .parameter _ => none
+      | .postState 0 => some (.u64 9)
+      | .postState 1 => some (.u64 2)
+      | .postState 2 => some (.u64 3)
+      | .postState _ => none
+      | .postInitialized => some (.bool true)
+      | .result => some (.u64 0)
+      | .eventSlot .. | .callStatus _ | .callArgSlot .. | .scheduleArgSlot .. =>
+          some (.u64 0)
+  expectAccept "narrow-abi set8(9)" set8 setOk
+  -- Emit: native Noir types + cast surfaces in source packages.
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 text
+    "<noir-narrow-abi-emit>" "Examples.NarrowAbi" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Noir.buildFromCapability capability
+  let some iface := files.find? (fun f => f.path.endsWith ".noir-relations.json") |
+    throw <| IO.userError "narrow-abi: missing relations interface json"
+  expect (iface.contents.contains "\"type\":\"u8\"" &&
+      iface.contents.contains "\"type\":\"u16\"" &&
+      iface.contents.contains "\"type\":\"u32\"")
+    "narrow-abi: interface json must list u8/u16/u32 types"
+  let some initNr := files.find? (fun f =>
+      f.path.endsWith "r0-init/src/main.nr") |
+    throw <| IO.userError "narrow-abi: missing init main.nr"
+  expect (initNr.contents.contains "u8" &&
+      initNr.contents.contains "u16" &&
+      initNr.contents.contains "u32")
+    "narrow-abi: init main.nr must declare u8/u16/u32 public inputs"
+  -- Assign-only paths equalize same-width public inputs (post == param), so
+  -- no `as u64` is required; body multi-width that feeds temps is T8d.
+  -- Counter UInt64 path still green via compile of historical fixture.
+  let counterIr ← compileIrFromProgramV1 counterSourceText
+    "Examples.Counter" "<noir-narrow-counter-regression>"
+  expect (counterIr.sourcePlan.states.size == 1 &&
+      counterIr.sourcePlan.states[0]!.inputType == .u64)
+    "narrow-abi: Counter state must remain u64"
+
+/-- T8b-Noir negatives: UInt128 state, Int8 param, narrow entry result fail closed.
+    Field state remains admitted (coexists with narrow UInt). -/
+private unsafe def checkNarrowAbiNegatives : IO Unit := do
+  let cases : Array (String × String × String) := #[
+    ("uint128-state", "Examples.U128State",
+      "program U128State where\n" ++
+      "  state big : UInt128\n\n" ++
+      "  init(x : UInt64) do\n" ++
+      "    big := 0\n\n" ++
+      "  entry ping(x : UInt64) : UInt64 do\n" ++
+      "    return x\n"),
+    ("int8-param", "Examples.Int8Param",
+      "program Int8Param where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry ping(x : Int8) : UInt64 do\n" ++
+      "    return count\n"),
+    ("uint8-result", "Examples.U8Result",
+      "program U8Result where\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry ping(x : UInt64) : UInt8 do\n" ++
+      "    return 0\n")
+  ]
+  let session ← Tests.Language.ParserSession.shared
+  for item in cases do
+    let (label, moduleName, body) := item
+    let sourceText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      body ++ "\nend ProofForgeV2.Examples\n"
+    let source ← liftResult (← session.selectProgramV1
+      sourceText s!"<noir-host-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 source with
+    | .error _ => pure ()
+    | .ok compiled =>
+        let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error _ => pure ()
+        | .ok capability =>
+            match Targets.Noir.planFromCapability capability with
+            | .error _ => pure ()
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: must fail closed for Noir T8b ABI multi-width"
+
 unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
@@ -2358,5 +2527,7 @@ unsafe def run : IO Unit := do
   checkZeroArgRevertProduct
   checkBoolResultPureFnProduct
   checkOmittedTypeLetProduct
+  checkNarrowAbiProduct
+  checkNarrowAbiNegatives
 
 end Tests.Materialization.NoirRelationModel
