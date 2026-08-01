@@ -90,7 +90,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **B-1a** | NEAR named 聚合 + Array/容器 | NEAR 只下降 7 op（stateStore/stateLoad/commit/contextRead/emit/revert/schedule），construct/fieldGet/fieldSet/variantTag/arrayIndexGet/fieldAdd(Field) 全 fail-closed | NearAggregate |
+| **B-1a** | NEAR named 聚合 + Array/容器 | **闭合(NearAggregate)**：named Struct/Enum + Array UInt flatten-to-KV；Map/Bytes FAIL-CLOSED | NearAggregate ✅ |
 | **B-1b** | Noir named 聚合 | **闭合(NoirAggregate)**：named Struct/Enum construct/fieldGet/fieldSet/variantTag/variantPayload + named-aggregate stateLoad/store 经 leaf 扁平化 public inputs（circuit-native 字段约束）；Array/Map/Bytes/Option 容器 state 与 IndexGet/Set 显式 FAIL-CLOSED | NoirAggregate |
 | **B-1c** | Aleo 全功能 | **AleoCoverage 已闭合（2026-08-01）**：核对代码后修正矩阵——LOWERED 为标量 UInt64 envelope（state/arith/compare/bitwise/shift/logical/pureCall/if/match/for/bare assert/bare revert）+ Commit 身份透传；**Field FAIL-CLOSED**（Aleo native field = BLS12-377 Fr ≠ catalog bn254 Fr，PsyFelt 式研究钉）；named 聚合/construct/field*/variant*/Array/Map/Bytes/Option/ContextRead/emit/externalCall/schedule 均显式 FAIL-CLOSED（不再 GAP）；Leo native struct/record 布局切片另排 | AleoCoverage ✅ |
 | **B-1d** | Solana Map/Bytes/Option state | Solana 有 Array(UInt64) 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
