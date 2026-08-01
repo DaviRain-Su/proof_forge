@@ -67,31 +67,92 @@ normative: false
 | 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ❌(仅 wat2wasm 结构) | ❌(source-only) | ❌(source-only) | ❌(source-only) |
 | 运行时差分 (Reference↔target) | ❌(Anvil formal 缺) | ✅(S3b Mollusk) | ❌ | ❌ | ❌ | ❌ |
 
-## 3. 缺口分组（wave 规划依据）
+## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 
-### 组 1：跨 target 聚合/容器覆盖不均（最高优先）
-- NEAR: named 聚合 / Array / 全部容器 GAP
-- Noir: named 聚合 GAP（Field 已有）
-- Aleo: named 聚合 / 全部容器 GAP
-- Solana: Map/Bytes/Option state FAIL-CLOSED（可保持或开放）
-- EVM: Map/Bytes/Option state FAIL-CLOSED（可保持或开放）
+> 与项目全面审查报告对齐。每个缺口带 ID、现状、wave 归属。
+> 闭合 = GAP→LOWERED 或 GAP→FAIL-CLOSED（显式拒绝 + 测试）。
 
-### 组 2：Normalize 语义细化
-- N-A1 EVM String match-switch
-- N-A2 多臂同构造器 match（全 target）
-- N-A3 Map/Bytes 穿透元素赋值
-- N-A4 Option state
+### A 组：Normalize/语义面剩余缺口（跨 target 通用，最高优先）
 
-### 组 3：call/schedule 的 address-bearing 类型
-- Principal→address 映射可解锁 EVM/Solana externalCall/schedule
-- 影响：cross-target call 全链
+这些缺口在 sole Normalize 层，影响所有 target；N 家族共享 NormalizeV1/ReferenceV1/EnvelopeV1，**必须串行**（一个 wave 一个）。
 
-### 组 4：验收门升级
-- NEAR Wasm 运行时差分
-- Aleo/Psy compiler/VM 验收研究
-- EVM Reference↔Anvil formal differential
+| ID | 缺口 | 现状 | 影响范围 | wave 归属 |
+|---|---|---|---|---|
+| **N-A1** | EVM String match-switch | N4 开 String 类型面 + EVM length+8×u64 布局 + eq/ne，但 `match String scrutinee` 在 EVM 仍 fail-closed | EVM | EvmStringMatch |
+| **N-A2** | 多臂同构造器 match 细化 | N4 嵌套 constructor 模式（外构造器唯一时递归 VariantPayload），多 arm 共享同一外构造器仍 fail-closed | 全 target | MultiArmCtor |
+| **N-A3** | Map/Bytes 穿透元素赋值 | ArrayState 开 Array state + index 赋值（EVM/Solana 正例），Map/Bytes state 与穿透元素赋值仍 fail-closed | 全 target | MapBytesAssign |
+| **N-A4** | Option state | ArrayState 明确"Option state: keep fail-closed" | 全 target | OptionState |
 
-## 4. 更新协议
+### B 组：各 target 的 Plan/IR/emitter 覆盖缺口
+
+#### B-1：跨 target 聚合/容器覆盖不均（最高优先，可并行——按 target 文件分隔）
+
+| ID | 缺口 | 现状 | wave 归属 |
+|---|---|---|---|
+| **B-1a** | NEAR named 聚合 + Array/容器 | NEAR 只下降 7 op（stateStore/stateLoad/commit/contextRead/emit/revert/schedule），construct/fieldGet/fieldSet/variantTag/arrayIndexGet/fieldAdd(Field) 全 fail-closed | NearAggregate |
+| **B-1b** | Noir named 聚合 | Noir 下降 Field(原生)+scalar state+commit+emit/revert+schedule+callFn，construct/fieldGet/fieldSet/variantTag（named aggregate）fail-closed | NoirAggregate |
+| **B-1c** | Aleo 全功能 | Aleo 只下降 6 op（最不完整 implemented target），Field/聚合/容器/ContextRead/Commit/construct/variant 全 fail-closed | AleoCoverage |
+| **B-1d** | Solana Map/Bytes/Option state | Solana 有 Array(UInt64) 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
+| **B-1e** | EVM Map/Bytes/Option state | EVM 有 Array+Field+String 正例，Map/Bytes/Option state FAIL-CLOSED（可保持或开放） | 后续 wave |
+
+#### B-2：Normalize 语义细化（= A 组，N 家族串行）
+
+见 A 组 N-A1/N-A2/N-A3/N-A4。
+
+#### B-3：call/schedule 的 address-bearing 类型
+
+| ID | 缺口 | 现状 | wave 归属 |
+|---|---|---|---|
+| **B-3** | Principal→address 映射 | EVM/Solana 拒绝双键因无 address 类型；Principal 全 target Plan fail-closed；开放 Principal→address 可解锁 cross-target call | PrincipalAddr |
+
+#### B-4：验收门升级（= C 组）
+
+见 C 组。
+
+### C 组：工程验证缺口（验收门升级）
+
+| ID | 缺口 | 现状 | wave 归属 |
+|---|---|---|---|
+| **C-1** | NEAR Wasm 运行时差分 | NEAR 成熟度 `wasm-validated-alpha`（wat2wasm 结构验证），无真实 Wasm 运行时差分（类比 EvmSolc/Mollusk） | NearWasmAcceptance |
+| **C-2** | Aleo/Psy compiler/VM 验收研究 | Aleo/Psy 成熟度 `source-only`，无 compiler/VM 验收（Aleo 有 leo compiler？Psy 有 psy-vm？需研究） | AleoPsyResearch |
+| **C-3** | EVM Reference↔Anvil formal differential | EVM 有 solc 验收 + 历史 Anvil Counter，formal Reference↔Anvil closure 仍缺 | EvmAnvilDiff（formal 轨道，按既定决定不做） |
+
+### D 组：文档/checkpoint 同步缺口
+
+| ID | 缺口 | 现状 | wave 归属 |
+|---|---|---|---|
+| **D-1** | Phase 1 targets 表 | AGENTS.md 列 4 个（evm/solana/near/noir），实际 6 个 implemented（漏 aleo/psy） | MatrixSync |
+| **D-2** | 成熟度声明 | 仍写"EVM Anvil Counter 验证"——EvmSolc 已升级到 solc 编译验收，应更新 | MatrixSync |
+
+## 4. Wave 队列（按优先级 + 可并行性）
+
+### Phase D（当前批，4 波并行——B-1 + D，文件零重叠）
+- **NearAggregate**（B-1a）：Near/**
+- **NoirAggregate**（B-1b）：Noir/**
+- **AleoCoverage**（B-1c）：Aleo/**
+- **MatrixSync**（D-1/D-2）：docs only
+
+### Phase E（A 组串行——N 家族共享 NormalizeV1/ReferenceV1/EnvelopeV1，必须一个一个）
+- **EvmStringMatch**（N-A1）：EVM EmitIR + 测试
+- **MultiArmCtor**（N-A2）：NormalizeV1 + TypeCheckV1 + 全 target 测试
+- **MapBytesAssign**（N-A3）：NormalizeV1 + Reference + 每 target
+- **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target
+
+### Phase F（B-3 + C 组，可并行）
+- **PrincipalAddr**（B-3）：NormalizeV1 + EnvelopeV1 + EVM/Solana Plan（解锁 externalCall/schedule）
+- **NearWasmAcceptance**（C-1）：Near runtime-tests + 脚本
+- **AleoPsyResearch**（C-2）：docs/research 研究文档（Aleo leo compiler / Psy psy-vm 可用性）
+
+### Phase G（formal 轨道，按既定决定不做，除非改决定）
+- D2–D4 formal tasks（46 pending）——release qualification 流程
+
+## 5. 更新协议
+
+- 每个 wave worker 须在简报里报告自己 target 行/缺口的真实边界（核对代码后修正本矩阵）
+- wave 集成时由 integrator 把矩阵更新合入提交
+- GAP → LOWERED 或 GAP → FAIL-CLOSED 都算闭合
+- 新发现的 GAP 加到对应组并排队 wave
+
 
 - 每个 wave worker 须在简报里报告自己 target 行的真实边界（核对代码后修正本矩阵）
 - wave 集成时由 integrator 把矩阵更新合入提交
