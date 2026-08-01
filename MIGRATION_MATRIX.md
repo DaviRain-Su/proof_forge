@@ -286,7 +286,8 @@ entry/pureFn/invariant三分支现可由真实tag→zero field-count及nesting�
 reader universal refinement、decoder composition及Option.some invariantSteps。Block、Instruction/Op与
 Terminator原仍待闭合；后续Block scaffold切片已固定header→id→params→instructions→terminator、
 两个bounded arrays及parent nesting。后续Terminator切片机械抽取sole sum body，并闭合canonical
-Return的tag→field-count→Option ValueId与nesting；其余五分支runtime保持、proof按需pending。
+Return的tag→field-count→Option ValueId与nesting；其余五分支runtime保持、proof按需pending。后续
+ValueDef/Instruction切片又闭合各自sole record body、字段顺序及nesting，SemanticOp branch仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

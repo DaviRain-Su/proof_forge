@@ -11608,3 +11608,14 @@ normative: false
   kernel signature examples与blocker review通过。
 - Boundary：其余五个terminator branch proof按需pending；Instruction、Literal/PureCall、完整carrier及
   formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 ValueDef and Instruction proof scaffolds
+
+- Production：将ValueDef与Instruction原anonymous bodies机械命名为各自sole production body；public
+  decoders仍各由一次`withTaggedNesting`包装。ValueDef顺序为header→valueId→typeId，Instruction为
+  header→optional result→SemanticOp，错误优先级不变。
+- Proof：两个field theorem线程真实decoder equalities和exact cursors；两个wrapper theorem保留body
+  input/offset并恢复parent depth。Option marker本身不进入nesting，some ValueDef继续使用真实nested
+  decoder。focused build、kernel signature examples与blocker review通过。
+- Boundary：SemanticOp仍为success premise；Literal/PureCall branches、完整carrier及formal TASK/TST
+  仍pending。

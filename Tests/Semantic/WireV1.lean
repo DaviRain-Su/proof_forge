@@ -562,6 +562,36 @@ example (c c' : Cursor) (terminator : TerminatorV1)
     decodeTerminatorV1 c = .ok (terminator, ⟨c'.input, c'.offset, c.nesting⟩) :=
   decodeTerminatorV1_eq_of_bodyV1 c terminator c' hdepth hbody
 
+example (c afterTag afterValue afterType : Cursor) (valueId typeId : UInt32)
+    (htag : expectTag "ValueDef" 2 c = .ok ((), afterTag))
+    (hvalue : decodeU32le afterTag = .ok (valueId, afterValue))
+    (htype : decodeU32le afterValue = .ok (typeId, afterType)) :
+    decodeValueDefBodyV1 c = .ok ({ valueId, typeId }, afterType) :=
+  decodeValueDefBodyV1_eq_of_fields c afterTag afterValue afterType valueId typeId
+    htag hvalue htype
+
+example (c c' : Cursor) (value : ValueDefV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeValueDefBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (value, c')) :
+    decodeValueDefV1 c = .ok (value, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeValueDefV1_eq_of_bodyV1 c value c' hdepth hbody
+
+example (c afterTag afterResult afterOp : Cursor) (result : Option ValueDefV1)
+    (op : SemanticOpV1)
+    (htag : expectTag "Instruction" 2 c = .ok ((), afterTag))
+    (hresult : decodeOption decodeValueDefV1 afterTag = .ok (result, afterResult))
+    (hop : decodeSemanticOpV1 afterResult = .ok (op, afterOp)) :
+    decodeInstructionBodyV1 c = .ok ({ result, op }, afterOp) :=
+  decodeInstructionBodyV1_eq_of_fields c afterTag afterResult afterOp result op
+    htag hresult hop
+
+example (c c' : Cursor) (instruction : InstructionV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeInstructionBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (instruction, c')) :
+    decodeInstructionV1 c = .ok (instruction, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeInstructionV1_eq_of_bodyV1 c instruction c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

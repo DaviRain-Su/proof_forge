@@ -381,6 +381,12 @@ Jump/Branch/Switch/Return/Revert/Trap六分支与unknown-tag `.badTag`路径保�
 恢复parent nesting。其余五个branch proof按需pending。下一步处理Instruction record，再闭合fixture
 所需ValueDef、Op.Literal与Op.PureCall。
 
+ValueDef与Instruction production scaffold现已闭合：两个原anonymous record body均机械抽为sole body，
+各public decoder仍仅一层tagged wrapper。ValueDef固定header→valueId→typeId；Instruction固定header→
+optional ValueDef→SemanticOp，并正确处理Option marker不占nesting、nested ValueDef恢复Instruction body
+depth、最终Instruction恢复parent depth。SemanticOp仍只是真实decoder success premise。下一步机械抽取
+sole SemanticOp sum body并仅闭合fixture所需Literal与PureCall branches。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
