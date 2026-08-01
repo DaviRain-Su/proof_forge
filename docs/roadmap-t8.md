@@ -116,7 +116,11 @@ SolanaPlanV1 NarrowInt 绿。隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int�
 - 工作面：Envelope Int 策略扩展；signed 语义（符号扩展、signed overflow min/max 检测、toward-zero div/rem、arsh 算术右移）；四 target
 - 注意与 UInt 窄宽的区分（isInt 标志 + 宽度）；金样 + 负向（Int128/256 保持 fail closed）
 
-### [in_progress] T9d：M5 其余 target planDigest 绑 identity（NEAR/Solana/Noir）
+### [merged] T9d：M5 其余 target planDigest 绑 identity（NEAR/Solana/Noir）（2026-08-01, 4c79e0a59+c3626725f）
+Solana/NEAR/Noir `PlanSchemaV1` + `engineering*PlanDigestV1`；Registry 四 Phase-1
+从 capability Plan 重算 planDigest；Aleo/Psy 仍 absent slot。IdentityChain 绿。
+隔离 CI 已 dispatch（ci-verify-t9d-plan-digest）。
+
 - 镜像 M4（13e3a54be）：NEAR/Solana/Noir plan schema digest + `engineering*PlanDigestV1` + BuildIdentity/OutputSet/manifest 字段 + CLI inspect
 - 小-中切片；金样 IdentityChain/OutputSet
 
@@ -147,3 +151,4 @@ T9-0（主代理）→ T9a → T9b → T9c → T9d → T9e（每个之间留 aud
 | 2026-08-01 | T9b | merged 09c07cfc8, 隔离 CI 已 dispatch（ci-verify-t9b-evm-u128-256） |
 | 2026-08-01 | T9c-EVM | merged f523b674f, 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int） |
 | 2026-08-01 | T9c-2 | merged 65bc46956, 隔离 CI 已 dispatch（ci-verify-t9c2-narrow-int） |
+| 2026-08-01 | T9d | merged 4c79e0a59+c3626725f, 隔离 CI 已 dispatch（ci-verify-t9d-plan-digest） |
