@@ -1,0 +1,77 @@
+# T8 路线图（持久执行计划）
+
+> 本文件是 T8 系列切片的**持久执行权威**。任何调度任务/协作 agent 按本文件推进；
+> 状态只允许 `pending / in_progress / merged / blocked`；完成后更新状态与日期。
+> 主代理（Grok Build）持有控制面（AGENTS.md/Agents.md/MIGRATION_MATRIX.md）与共享文档的合并权。
+
+## 执行协议（每个切片必须遵守）
+
+1. **基座**：`git fetch origin` 后从 `origin/main` 建隔离 worktree：`git worktree add ~/.grok/worktrees/projects-proof-forge/<slice> origin/main`
+2. **实现**：派 general-purpose 子代理实现（brief 必须包含：背景事实、设计规格、验证清单、`--run` 提示、fail-closed 边界）；**禁止子代理 commit**、**禁止子代理改 AGENTS.md/Agents.md/MIGRATION_MATRIX.md**（主代理合并时处理）
+3. **审计**（主代理/协调者）：读关键 diff；**Amp 共享文件检查**：`git log <worktree-base>..origin/main -- <文件集>` 非空 → 该文件不能用 worktree 版整文件复制，改用 `git -C $WT diff <base> -- <file> | git apply --3way`；语义性冲突（如 N3×T8b）→ oracle 出方案后手工整合
+4. **合并**：
+   - 非共享代码文件：从 worktree 复制到 main
+   - `docs/06-implementation-log.md`：**永远从 HEAD 版追加**（提取 worktree 的切片条目 → append），禁止整文件覆盖
+   - `supply-chain/lean-package-files.v1.json`：**在 main 里重跑** `just sbom-package-files-refresh`（禁止复制 worktree 的 pin——基座旧哈希会污染）
+   - main 验证：`lake build` + `rm -f .lake/build/bin/proof-forge-next-tests-shard-targets* && lake build proof_forge_next_tests_shard_targets && lake env .lake/build/bin/proof-forge-next-tests-shard-targets`（**必须 `lake env` 前缀**，裸跑缺 LEAN_PATH 报 unknown module prefix）；Solana 相关切片还要 `PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64 bash scripts/solana_runtime_test.sh`
+5. **提交推送**：显式 `git add`（列文件），消息描述事实；推送被拒 → `git rebase --autostash origin/main`；docs 冲突 → 并集
+6. **清理**：合并后**立即** `git worktree remove --force` + `rm -rf`
+7. **CI**：main CI 会被 Amp 推送取消；用隔离验证：`git branch ci-verify-<slice> <commit> && git push origin ci-verify-<slice> && curl -X POST .../actions/workflows/304626303/dispatches -d '{"ref":"ci-verify-<slice>"}'`，完成后删分支。**不要循环等待**；结果顺手查一次
+8. **控制面**：AGENTS.md/Agents.md 状态行由主代理在切片合并时更新（用精确文本替换，先确认锚点在 HEAD 只出现一次）
+
+## 已踩的坑（必读）
+
+- `lake env lean <file>` 不执行 main——必须 `--run`
+- stale olean/残次 exe：`python3 -I -S scripts/ci/prune_stale_oleans.py` + 删除 `proof-forge-next-tests-shard-targets*` 后重建
+- SBOM 提交时 pin 必须与提交树一致（CI `sbom-package-files-check` 按 checkout 树比对）——先 refresh 再 commit；若 refresh 后文件又改（如 EnvelopeV1 合并），必须重刷
+- 共享工作区：Amp 的 agent 在同一 checkout 提交/暂存——commit 前查 `git status`，防止扫走他人暂存文件（如 docs/research/* 事故）
+- Lean doc comment 后**不能空行再接 doc comment**（parse error）
+- ProgramV1 源里 `/- -/` doc comment 会 PF-SRC-INVALID；用 `--` 行注释
+- Solana 运行时 fixture 的 discriminator/layout marker 由 Rust 独立计算并与 plan 交叉验证——签名宽度化后 Rust 侧必须同步
+
+## 切片清单
+
+### [merged] T8b-EVM：EVM state/param UInt8/16/32 ABI（2026-08-01, dd8a00280）
+模板实现。EnvelopeV1 `isAbiUintWidth`/`requirePublicUintAbiOrInt64*`/`byteWidthOfBitWidth`；
+StorageBinding/Param/Store.byteWidth；selector `uint8/16/32`；Yul `and` 掩码。与 N3 aggregate 并存
+（aggregate 叶子保持 64 位）。CI 隔离验证绿。
+
+### [merged] T8b-Solana：Solana state/param UInt8/16/32 ABI（2026-08-01, acc7eb514）
+模板实现。byteWidth 1/2/4/8、8B 槽位；SBPF ldxb/h/w + stxb/h/w + imm stb/h/w；
+discriminator 签名 `u8/16/32`（64 位含 Int64 保持 `u64`）；layout marker `u8-le` 等；IDL 同步；
+NarrowAbi 运行时 fixture（34 测试）。CI 隔离验证中。
+
+### [pending] T8b-NEAR：NEAR state/param UInt8/16/32 ABI
+- 参照 T8b-Solana 模式；NEAR 是 host key-value state + 方法参数编码（u64-LE args）
+- 工作面：`Near/LowerSemanticV1.lean` 准入（`requirePublicUInt64OrInt64*` → UInt8/16/32）、
+  state key 布局/值编码 byteWidth、方法 args 编码宽度、signature/ABI 标识、Wasm 发射
+  （i32/i64 装载、掩码）、IDL 同步；负向 UInt128/窄结果 fail closed
+- 测试：NearHostModel goldens + 产品正/负；无运行时 harness（NEAR 无本地执行）——金样为准
+
+### [pending] T8b-Noir：Noir state/param UInt8/16/32 ABI
+- 参照 T8b-Solana 模式；Noir 已开 Field state/param——窄 UInt 与 Field 并存
+- 工作面：`Noir/LowerSemanticV1.lean` 准入（现有 `requirePublicUInt64OrInt64OrField*` → 加窄 UInt）、
+  Noir 类型映射（u8/u16/u32）、relation IR 约束宽度、IDL 同步；负向 UInt128/窄结果 fail closed
+- 测试：NoirRelationModel goldens + 产品正/负
+
+### [pending] T8c：NEAR body 多宽 UInt8/16/32
+- 镜像 T8a（Solana body 多宽）：EnvelopeV1 `pilotUintWidthPolicyNearBody` + narrow* Plan/IR ops + Wasm 发射守卫
+- 注意与既有 UInt32 shift-count 路径并存
+
+### [pending] T8d：Noir body 多宽 UInt8/16/32
+- 镜像 T8a；与 Field 算术路径交叉要小心（narrow* 只作用于 UInt）
+
+### [pending] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet
+- `engineeringEvmPlanDigestV1` 已有 schema+测试（PlanSchemaV1），未进 product identity 链
+- 工作面：materialize/identity 链加 plan digest 字段 + manifest + 金样（看 M3c OutputSet 结构）
+
+## 执行顺序
+
+T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI 窗口；若 Amp 合入相关模块改动，先按协议 3 处理）
+
+## 状态记录
+
+| 日期 | 切片 | 结果 |
+|---|---|---|
+| 2026-08-01 | T8b-EVM | merged dd8a00280, CI 绿 |
+| 2026-08-01 | T8b-Solana | merged acc7eb514, 隔离 CI 验证中 |
