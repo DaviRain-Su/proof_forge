@@ -1,3 +1,12 @@
+---
+id: ROADMAP-T8
+title: T8 路线图（持久执行计划）
+status: draft
+owner: engineering
+updated: 2026-08-02
+normative: false
+---
+
 # T8 路线图（持久执行计划）
 
 > 本文件是 T8 系列切片的**持久执行权威**。任何调度任务/协作 agent 按本文件推进；
