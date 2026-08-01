@@ -103,7 +103,7 @@ EVM-only：`pilotIntWidthPolicyNarrow`；ResultKind int8/16/32；ABI int*；
 Solana/NEAR/Noir 仍 Int64-only → 见 pending **T9c-2**。
 隔离 CI 已 dispatch（ci-verify-t9c-evm-narrow-int）。
 
-### [pending] T9c-2：窄 Int 其余三 target（Solana/NEAR/Noir body + ABI）
+### [in_progress] T9c-2：窄 Int 其余三 target（Solana/NEAR/Noir body + ABI）
 - 镜像 T9c-EVM：`pilotIntWidthPolicyNarrow` + signed narrow Plan/IR/emit + results
 - Solana layout `i*-le` + SBPF 宽度守卫；NEAR WAT；Noir i8/i16/i32
 - 金样 + 可选 Mollusk NarrowInt fixture
