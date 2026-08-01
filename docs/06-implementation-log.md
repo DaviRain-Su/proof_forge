@@ -12601,6 +12601,14 @@ normative: false
   component grammar仍由Core parse/render路径经同一`validateIdentifierComponent`拥有。CFG/invariant
   closure、requirements、完整structure/encoder/carrier identity与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete entry-gate CFG
+
+- Kernel：canonical callable source order首项`gate`直接通过sole `validateCallableCfgShape`完整a–j检查：
+  entry/block id、single-block reachability、empty loop/effect/value tables、`return none`及empty op walk。
+- Scope：这是generic CFG的首个callable leaf，不是整个`.cfg` phase；truthLeaf/truth/falsehood及global
+  ContextRead、invariant closure/fuel均未组合。
+- Boundary：完整CFG/invariant phase、requirements、structure/encoder/carrier/formal状态仍pending。
+
 ## 2026-08-01 — docs: target coverage matrix + Phase 1 targets sync
 
 - AGENTS.md：Phase 1 targets 修正为 6 implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`）；

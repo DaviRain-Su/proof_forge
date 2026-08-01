@@ -350,7 +350,9 @@ signature/metadata gates均通过；>4 names仍保留原qsort+adjacent authority
 filtered callable source order闭合`truth→2`、`falsehood→3`。随后identifier grammar也已逐项经sole shared
 `validateIdentifierComponent`闭合：`flag`、`entry_gate`、`truthLeaf`、`truth`、`falsehood`均由ASCII
 NFC refinement加真实长度/首尾字符检查通过；QualifiedName不属于本gate。CFG/requirements及完整
-structure/encoder/carrier/formal状态仍pending。
+structure/encoder/carrier/formal状态仍pending。CFG现按callable source order开始：首项`gate`已通过sole
+`validateCallableCfgShape`，闭合single reachable return block、empty defs/effects/loops及generic typing。
+truthLeaf/truth/falsehood与global closure/fuel仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 

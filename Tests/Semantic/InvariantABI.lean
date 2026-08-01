@@ -926,6 +926,12 @@ theorem declarationIdentifierNames_data :
     invariants, truthDecl, falsehoodDecl, hflag, hentry, hleaf, htruth,
     hfalsehood, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- The externally invokable gate has one reachable canonical return block,
+    no definitions/effects/loops, and satisfies the sole generic CFG checker. -/
+theorem gateCfg_data :
+    validateCallableCfgShape gate data.types.size data.types data = .ok () := by
+  rfl
+
 def selectedState : LogicalStateV1 := {
   initialized := true
   canonicalValues := stateSlot (ByteArray.mk #[0])

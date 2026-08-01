@@ -632,3 +632,8 @@ declaration identifier grammar也已闭合：production source-order walker检�
 InvariantDecl name及四项callable name；重复的`truth`/`falsehood`仍在各自site经过sole shared
 `validateIdentifierComponent`。ASCII只用于refine pinned Unicode NFC fixed-point，长度、非`_`、
 `Lean.isIdFirst/isIdRest`仍由真实authority检查。下一production gate进入CFG/invariant phases。
+
+CFG/invariant phase第一片已开始：callable source order首项entry `gate`只有一个id=0 reachable block、
+empty params/instructions/loopBounds、`return none`，故sole `validateCallableCfgShape`完整a–j路径已kernel
+闭合。下一项truthLeaf含literal def/type/return use，将首次触及defSites/defTypes与op typing；尚未闭合，
+不得把本片写成generic CFG或完整cfg phase成功。
