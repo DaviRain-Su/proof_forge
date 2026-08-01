@@ -18,8 +18,23 @@ no legacy `ProofForge.*` imports, and no v1 fallbacks.
 ## Local gates
 
 ```bash
-just dev-check          # fast daily product loop
+just dev-check          # fast daily product loop (docs + build + test-fast + gates)
+just test-fast          # core product tests only (daily feedback)
+just test               # all memory-bounded shards (bounded parallel)
 just ci                 # full product tests on an ordinary host
+
+# Focused (after `just build` deps via the recipe):
+just test-shard core    # one shard: core|typed|language-b|…|targets
+just test-targets       # targets materialization suite only
+
+# Parallelism for `just test` shard *execution* (not lake build):
+# PROOF_FORGE_TEST_JOBS=1   # serial (low-memory CI)
+# PROOF_FORGE_TEST_JOBS=4   # default
+PROOF_FORGE_TEST_JOBS=2 just test
+
+# Frontend worker exe is not part of default `just build` (in-process Loader).
+# Fast tests that need it still build via:
+just build-frontend-worker
 
 # Explicit, non-default control planes:
 just governance-check   # historical task/freeze/evidence consistency

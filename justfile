@@ -66,9 +66,34 @@ test: build
     printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
 # Fast suite includes WorkerV1 subprocess tests; build the worker exe explicitly.
+# Daily feedback path: prefer `just test-fast` over full `just test`.
 test-fast: build build-frontend-worker
     lake build proof_forge_next_fast_tests
     lake env .lake/build/bin/proof-forge-next-fast-tests
+
+# Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.
+# Names: core typed language-b language-c aggregate language-heavy source source-b targets
+# No recipe dependency on `build`: validate the name before any lake work.
+test-shard name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{name}}" in
+      core|typed|language-b|language-c|aggregate|language-heavy|source|source-b|targets) ;;
+      *)
+        echo "test-shard: unknown name '{{name}}' (want core|typed|language-b|language-c|aggregate|language-heavy|source|source-b|targets)" >&2
+        exit 2
+        ;;
+    esac
+    # lake targets use underscores (language_b); bin names keep hyphens (language-b).
+    lake_target="$(echo "proof_forge_next_tests_shard_{{name}}" | tr '-' '_')"
+    bin_name="proof-forge-next-tests-shard-{{name}}"
+    lake build ProofForgeV2 proof_forge_next "${lake_target}"
+    lake env ".lake/build/bin/${bin_name}"
+
+# Targets materialization / host-model suite only (faster than full `just test`).
+test-targets: build
+    lake build proof_forge_next_tests_shard_targets
+    lake env .lake/build/bin/proof-forge-next-tests-shard-targets
 
 # Wave 2 single-semantic-carrier cutover gate.
 # Product compilation, resolver, materialization, finalization, CLI, and target
