@@ -609,14 +609,18 @@ def encodeCanonicalVariantValueV1 (types : Array TypeDeclV1)
   let _ ← spendCanonicalValueWorkV1 budget (max 1 out.size)
   pure out
 
-private def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1)
+-- Internal production operation traversal step exposed for refinement. The
+-- complete callable valueBytes phase remains `validateCallablesValueBytesV1`.
+def validateOpValueBytesV1 (types : Array TypeDeclV1) (op : SemanticOpV1)
     (budget : Nat) : Except SemanticWireErrorV1 Nat := do
   match op with
   | .literal typeId valueBytes =>
       validateValueBytesWithFuelV1 types typeId valueBytes maxNesting budget
   | _ => pure budget
 
-private def validateTerminatorValueBytesV1 (types : Array TypeDeclV1)
+-- Internal production terminator traversal step exposed for refinement. The
+-- complete callable valueBytes phase remains `validateCallablesValueBytesV1`.
+def validateTerminatorValueBytesV1 (types : Array TypeDeclV1)
     (term : TerminatorV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do
   match term with
   | .switch _scrutinee cases _default =>
@@ -626,6 +630,58 @@ private def validateTerminatorValueBytesV1 (types : Array TypeDeclV1)
           maxNesting budget
       pure budget
   | _ => pure budget
+
+/-- A canonical one-byte Bool literal consumes exactly one entry-work unit and
+    one output-byte work unit through the sole production valueBytes decoder. -/
+theorem validateOpValueBytesV1_literal_bool_eq_ok
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bit : UInt8) (budget : Nat)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .bool)
+    (hbit : bit = 0 ∨ bit = 1)
+    (hbudget : 2 ≤ budget) :
+    validateOpValueBytesV1 types (.literal typeId (ByteArray.mk #[bit])) budget =
+      .ok (budget - 2) := by
+  have hentry : 1 ≤ budget := by omega
+  have houtput : 1 ≤ budget - 1 := by omega
+  have hsize : (ByteArray.mk #[bit]).size = 1 := by rfl
+  have hlimit : (ByteArray.mk #[bit]).size ≤ maxCanonicalValueBytes := by
+    rw [hsize]
+    decide
+  have hspendEntry : spendCanonicalValueWorkV1 budget 1 = .ok (budget - 1) := by
+    simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+  have htake : takeByteNC (start (ByteArray.mk #[bit])) =
+      .ok (bit, ⟨ByteArray.mk #[bit], 1, 0⟩) := by
+    rfl
+  have hspendOutput : spendCanonicalValueWorkV1 (budget - 1) 1 =
+      .ok (budget - 1 - 1) := by
+    simp [spendCanonicalValueWorkV1, houtput, Pure.pure, Except.pure]
+  have hremaining : remaining ⟨ByteArray.mk #[bit], 1, 0⟩ = 0 := by
+    rfl
+  have hremainingBeq :
+      (remaining ⟨ByteArray.mk #[bit], 1, 0⟩ == 0) = true := by
+    rw [hremaining]
+    decide
+  have hencoded : encodeU8 bit = ByteArray.mk #[bit] := by rfl
+  have hbeq : (ByteArray.mk #[bit] == ByteArray.mk #[bit]) = true := by
+    rcases hbit with hzero | hone
+    · subst bit
+      decide
+    · subst bit
+      decide
+  unfold validateOpValueBytesV1 validateValueBytesWithFuelV1
+  simp only [Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rw [if_pos hlimit, show maxNesting = 255 + 1 by rfl,
+    decodeAndReencodeValueBytesV1.eq_2, hspendEntry, hlookup]
+  dsimp only
+  rw [hshape, htake]
+  dsimp only
+  simp only [Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rw [if_pos (by simpa using hbit), hencoded, hsize,
+    show max 1 1 = 1 by rfl, hspendOutput]
+  dsimp only
+  rw [if_pos hremainingBeq, if_pos hbeq]
+  congr 1
 
 /-- Internal WireV1-family phase entry (not a public contract; see `validateSemanticProgramStructureV1`). -/
 def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
