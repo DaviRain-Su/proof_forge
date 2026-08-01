@@ -12076,6 +12076,18 @@ normative: false
 - Boundary：`truth`/`falsehood`两个invariant callables、InvariantDecl/requirements、root finish、
   closed carrier theorem与formal TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 concrete truth invariant callable
+
+- Golden segmentation：精确拆出234-byte `truth`（654→888）与347-byte remainder，1235-byte explicit
+  golden及production encoder identity保持不变。
+- Kernel：production Invariant Callable闭合ASCII/NFC name、public Bool result与singleton Block；唯一
+  Instruction经Option.some ValueDef及真实`Op.PureCall` decoder确认callee id=1、args empty，再闭合
+  `Return (some 0)`、empty loopBounds及`invariantSteps=some 6`。
+- Review/Verification：blocker-only APPROVE；focused Semantic builds、WireV1/InvariantABI suites与
+  docs-check通过；无第二decoder、validation bypass或forbidden proof shortcut。
+- Boundary：最后的`falsehood` callable、InvariantDecl/requirements、root finish、closed carrier theorem
+  与formal TASK/TST仍pending。
+
 ## 2026-08-01 — N5 ContextRead/Commit engineering slice
 
 - Engineering slice only (not formal TASK-D2-07/D4 / SupportClaim / OutputSetV1).

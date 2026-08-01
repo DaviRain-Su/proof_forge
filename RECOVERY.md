@@ -560,3 +560,9 @@ singleton Block外，production路径进一步闭合singleton Instruction：Opti
 `invariantSteps=some 3`。Instruction/ValueDef/SemanticOp最高进入nesting 5并逐层恢复。显式golden
 重分段及production encoder byte identity仍为1235 bytes；下一片从offset 654的`truth` invariant
 callable开始，剩余root/carrier与formal状态不变。
+
+第三个`truth` invariant callable现已闭合654→888。production路径确认Invariant kind、ASCII/NFC name、
+public Bool result与singleton Block；唯一Instruction包含ValueDef `(0, Bool)`及真实`Op.PureCall 1 #[]`，
+随后消费`Return (some 0)`、empty loopBounds与`invariantSteps=some 6`。最高nesting仍为5并正确恢复，
+234-byte truth segment与347-byte remainder保持1235-byte encoder golden identity。下一片从offset 888的
+`falsehood`开始；尚未闭合root fields、carrier theorem或formal evidence。

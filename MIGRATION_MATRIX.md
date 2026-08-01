@@ -315,8 +315,9 @@ empty events/errors再由production zero-array authority闭合249→253→257。
 callables count=4现已闭合257→261，首个source-order entry gate经真实Callable/Kind/Option String/NFC/
 CallableResult/Visibility/Block/Return decoder完整闭合261→419。第二个pure `truthLeaf`又经singleton
 Instruction/ValueDef/Bool Literal payload/Return some ValueId与Option.some UInt64 steps闭合419→654。
-其余两个invariant callables、root finish、structure-gated encoder/carrier closed theorem与formal
-TASK/TST仍pending。
+第三个`truth` invariant再经真实PureCall callableId=1/empty args、Return some ValueId及steps=6闭合
+654→888。最后一个`falsehood` callable、root finish、structure-gated encoder/carrier closed theorem与
+formal TASK/TST仍pending。
 
 ## D3：Registry、resolver、materializer与OutputSet
 
