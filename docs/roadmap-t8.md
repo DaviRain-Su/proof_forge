@@ -74,9 +74,11 @@ body temps + narrow* Plan ops（Field 仍 field*）；EmitIR `assert((t >> w) ==
 NoirRelationModel host + `checkNarrowBodyProduct`。shard-targets 绿。
 隔离 CI 已 dispatch（ci-verify-t8d-noir-body）。
 
-### [in_progress] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet
-- `engineeringEvmPlanDigestV1` 已有 schema+测试（PlanSchemaV1），未进 product identity 链
-- 工作面：materialize/identity 链加 plan digest 字段 + manifest + 金样（看 M3c OutputSet 结构）
+### [merged] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet（2026-08-01, 13e3a54be）
+`EngineeringBuildIdentityV1`/`EngineeringOutputSetV1` 增 `planDigest`；EVM 用
+`engineeringEvmPlanDigestV1`，其他 target `engineeringAbsentPlanDigestV1`；
+manifest/CLI/validate_artifacts 发布字段。shard-targets 绿。
+隔离 CI 已 dispatch（ci-verify-m4-plan-digest）。
 
 ## 执行顺序
 
@@ -92,3 +94,4 @@ T8b-NEAR → T8b-Noir → T8c → T8d → M4 闭合（每个之间留 audit+CI �
 | 2026-08-01 | T8b-Noir | merged be812b0d4, 隔离 CI 已 dispatch（ci-verify-t8b-noir） |
 | 2026-08-01 | T8c | merged 451a452b3, 隔离 CI 已 dispatch（ci-verify-t8c-near-body） |
 | 2026-08-01 | T8d | merged 91bd079ff, 隔离 CI 已 dispatch（ci-verify-t8d-noir-body） |
+| 2026-08-01 | M4 | merged 13e3a54be, 隔离 CI 已 dispatch（ci-verify-m4-plan-digest） |
