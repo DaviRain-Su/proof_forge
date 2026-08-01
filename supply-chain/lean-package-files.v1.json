@@ -666,9 +666,9 @@
       "sha256": "89e2044fa42ec221b43f9861fae5cd91764cf0b484566562ebc647041c4932af"
     },
     {
-      "bytes": 19904,
+      "bytes": 37683,
       "path": "ProofForgeV2/Targets/Solana/EmitSbpfAsmV1.lean",
-      "sha256": "b8cfd83a000690d9abbdf521b0ed7eb2b04e75e11838e0eed8ce1abca5148fa6"
+      "sha256": "d9a981c0ed9153f04c23c490436cd524b4854c7d2aa5038c63af943f2d0a7c3f"
     },
     {
       "bytes": 970,
