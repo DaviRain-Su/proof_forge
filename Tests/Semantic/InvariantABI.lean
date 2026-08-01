@@ -2904,6 +2904,22 @@ private def testEvalInvariantABI : IO Unit := do
     expect (evalInvariantV1 carrier 0 selectedState == first)
       "public invariant evaluator deterministic repeat"
 
+  -- R-2: engineering entry stays total on zero-invariant carriers (ordinal OOR).
+  let emptyInvBase ← emptyData "EmptyInvariants"
+  let emptyInvCarrier ← encodeCarrier "empty-invariants" {
+    emptyInvBase with
+      types := #[{ id := 0, name := none, shape := .bool },
+                 { id := 1, name := none, shape := .unit }]
+      callables := #[entryGate 0 1]
+      invariants := #[]
+  }
+  expect (evalInvariantV1 emptyInvCarrier 0 evalState == .trapped)
+    "R-2: empty invariants table → ordinal 0 traps"
+  -- InvariantTheoremV1 is a Prop; the definitional shape is pinned by the
+  -- module-level `example` (Iff.rfl). This binds the public names as live ABI.
+  let _ : Prop := InvariantTheoremV1 emptyInvCarrier 0
+  pure ()
+
 /-! ### deterministic repeat -/
 
 private def testDeterministicRepeat : IO Unit := do
