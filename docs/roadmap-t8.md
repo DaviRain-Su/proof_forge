@@ -74,7 +74,7 @@ body temps + narrow* Plan ops（Field 仍 field*）；EmitIR `assert((t >> w) ==
 NoirRelationModel host + `checkNarrowBodyProduct`。shard-targets 绿。
 隔离 CI 已 dispatch（ci-verify-t8d-noir-body）。
 
-### [pending] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet
+### [in_progress] M4 闭合：EVM planDigest 绑进 BuildIdentity/OutputSet
 - `engineeringEvmPlanDigestV1` 已有 schema+测试（PlanSchemaV1），未进 product identity 链
 - 工作面：materialize/identity 链加 plan digest 字段 + manifest + 金样（看 M3c OutputSet 结构）
 
