@@ -56,7 +56,7 @@ normative: false
 | externalCall（sync call） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | FAIL-CLOSED | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | FAIL-CLOSED(需address) | FAIL-CLOSED(需address) | LOWERED(promise) | LOWERED | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
 | **match String scrutinee** | GAP(N-A1) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| **match 多臂同构造器** | GAP(N-A2) | GAP | GAP | GAP | GAP | GAP |
+| **match 多臂同构造器** | LOWERED(N-A2) | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | **Principal state/params** | FAIL-CLOSED(全) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 
 ## 2. 验收/差分覆盖矩阵
@@ -80,7 +80,7 @@ normative: false
 | ID | 缺口 | 现状 | 影响范围 | wave 归属 |
 |---|---|---|---|---|
 | **N-A1** | EVM String match-switch | N4 开 String 类型面 + EVM length+8×u64 布局 + eq/ne，但 `match String scrutinee` 在 EVM 仍 fail-closed | EVM | EvmStringMatch |
-| **N-A2** | 多臂同构造器 match 细化 | N4 嵌套 constructor 模式（外构造器唯一时递归 VariantPayload），多 arm 共享同一外构造器仍 fail-closed | 全 target | MultiArmCtor |
+| **N-A2** | 多臂同构造器 match 细化 | **已闭合(MultiArmCtor)**：Normalize 允许同外构造器多臂，子模式可区分时 first-match 嵌套 guard（nested ctor→VariantTag eq，nested lit→value eq；fallthrough→outer catch-all 或 trap.unreachable）；结构 pattern key 重复（bind≡wildcard、ctor by vIdx、lit by valueBytes）仍 fail-closed；TypeCheck 同源 duplicate pattern 诊断；四 target 经 sole Normalize 继承 | 全 target | MultiArmCtor ✅ |
 | **N-A3** | Map/Bytes 穿透元素赋值 | ArrayState 开 Array state + index 赋值（EVM/Solana 正例），Map/Bytes state 与穿透元素赋值仍 fail-closed | 全 target | MapBytesAssign |
 | **N-A4** | Option state | ArrayState 明确"Option state: keep fail-closed" | 全 target | OptionState |
 
@@ -135,7 +135,7 @@ normative: false
 
 ### Phase E（A 组串行——N 家族共享 NormalizeV1/ReferenceV1/EnvelopeV1，必须一个一个）
 - **EvmStringMatch**（N-A1）：EVM EmitIR + 测试
-- **MultiArmCtor**（N-A2）：NormalizeV1 + TypeCheckV1 + 全 target 测试
+- **MultiArmCtor**（N-A2）：**已闭合** — NormalizeV1 + TypeCheckV1 multi-arm same-outer + 测试
 - **MapBytesAssign**（N-A3）：NormalizeV1 + Reference + 每 target
 - **OptionState**（N-A4）：NormalizeV1 + Reference + 每 target
 

@@ -2127,6 +2127,9 @@ private unsafe def testUnsupportedStatementAfterTerminalIf
 
 private unsafe def testUnsupportedMatchDuplicateLiteral
     (session : Language.Loader.ParserSession) : IO Unit := do
+  -- N-A2: structural duplicate patterns are rejected at TypeCheck
+  -- (`match arm N: duplicate pattern`); Normalize never sees them on the
+  -- product path. Historical pin was Normalize-boundary after CheckV1 ok.
   let source := wrap "DupLit" <|
     "  entry f(x : UInt64) : UInt64 do\n" ++
     "    match x with\n" ++
@@ -2136,9 +2139,12 @@ private unsafe def testUnsupportedMatchDuplicateLiteral
     "      return 2\n" ++
     "    | _ => do\n" ++
     "      return 0\n"
-  expectUnsupportedAfterCheckOk session "dup-lit" source
-    (fun d => d.contains "duplicate")
-    "duplicate literal"
+  let validated ← loadSource session "dup-lit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "dup-lit: CheckV1 must reject duplicate pattern"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (contains msgs "duplicate pattern")
+    s!"dup-lit: expected duplicate pattern diag, got {msgs}"
 
 private unsafe def testMatchConstructorPatternOnEnumParam
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -6032,6 +6038,147 @@ private unsafe def testNestedConstructorPattern
       | .error e => throw <| IO.userError s!"nest-ctor: structure {repr e}"
   | .error e => throw <| IO.userError s!"nest-ctor: normalize {repr e}"
 
+/-- N-A2: multi-arm same outer ctor with nested constructor discrimination. -/
+private unsafe def testMultiArmSameOuterNestedCtor
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MultiArmCtor" <|
+    "  enum Inner where\n" ++
+    "    | A\n" ++
+    "    | B\n" ++
+    "  enum Outer where\n" ++
+    "    | Wrap(Inner)\n" ++
+    "    | Empty\n" ++
+    "  entry run(x : Outer) : UInt64 do\n" ++
+    "    match x with\n" ++
+    "    | Outer.Wrap(Inner.A()) => do\n" ++
+    "      return 1\n" ++
+    "    | Outer.Wrap(Inner.B()) => do\n" ++
+    "      return 2\n" ++
+    "    | Outer.Empty() => do\n" ++
+    "      return 0\n"
+  let validated ← loadSource session "multi-arm-ctor" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"multi-arm-ctor: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"multi-arm-ctor: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"multi-arm-ctor: structure {repr e}"
+      | .ok data => do
+          let some entryC := data.callables[0]? |
+            throw <| IO.userError "multi-arm-ctor: missing entry"
+          let hasTag := entryC.blocks.any fun blk =>
+            blk.instructions.any fun instr =>
+              match instr.op with | .variantTag _ => true | _ => false
+          expect hasTag "multi-arm-ctor: VariantTag present"
+          -- Nested discrimination uses eq on tag (not a second outer switch case).
+          let hasEq := entryC.blocks.any fun blk =>
+            blk.instructions.any fun instr =>
+              match instr.op with
+              | .binary Semantic.WireV1.BinaryOpV1.eq _ _ => true
+              | _ => false
+          expect hasEq "multi-arm-ctor: nested tag eq guard present"
+          -- Exactly one switch case per unique outer variant (Wrap, Empty).
+          let switchCaseCount :=
+            entryC.blocks.foldl (fun acc blk =>
+              match blk.terminator with
+              | .switch _ cases _ => acc + cases.size
+              | _ => acc) 0
+          expect (switchCaseCount == 2)
+            s!"multi-arm-ctor: expected 2 outer switch cases, got {switchCaseCount}"
+
+/-- N-A2: multi-arm same outer with nested integer literal guards. -/
+private unsafe def testMultiArmSameOuterNestedLit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "MultiArmLit" <|
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  entry run(m : Maybe) : UInt64 do\n" ++
+    "    match m with\n" ++
+    "    | Maybe.Some(1) => do\n" ++
+    "      return 10\n" ++
+    "    | Maybe.Some(2) => do\n" ++
+    "      return 20\n" ++
+    "    | Maybe.None() => do\n" ++
+    "      return 0\n" ++
+    "    | _ => do\n" ++
+    "      return 99\n"
+  let validated ← loadSource session "multi-arm-lit" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"multi-arm-lit: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"multi-arm-lit: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"multi-arm-lit: structure {repr e}"
+      | .ok data => do
+          let some entryC := data.callables[0]? |
+            throw <| IO.userError "multi-arm-lit: missing entry"
+          let hasEq := entryC.blocks.any fun blk =>
+            blk.instructions.any fun instr =>
+              match instr.op with
+              | .binary Semantic.WireV1.BinaryOpV1.eq _ _ => true
+              | _ => false
+          expect hasEq "multi-arm-lit: nested literal eq guard present"
+
+/-- N-A2: expression-level multi-arm same outer + join. -/
+private unsafe def testExprMultiArmSameOuter
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ExprMultiArm" <|
+    "  enum Inner where\n" ++
+    "    | A\n" ++
+    "    | B\n" ++
+    "  enum Outer where\n" ++
+    "    | Wrap(Inner)\n" ++
+    "  entry run(x : Outer) : UInt64 do\n" ++
+    "    return\n" ++
+    "      match x with\n" ++
+    "      | Outer.Wrap(Inner.A()) => 1\n" ++
+    "      | Outer.Wrap(Inner.B()) => 2\n" ++
+    "      | _ => 0\n"
+  let validated ← loadSource session "expr-multi-arm" source
+  let typed := checkProgramTypedResultV1 validated
+  expect typed.ok s!"expr-multi-arm: CheckV1 {typed.diagnostics.map (·.message)}"
+  match normalizeProgramV1 validated with
+  | .error e => throw <| IO.userError s!"expr-multi-arm: normalize {repr e}"
+  | .ok sem => do
+      match validateSemanticProgramV1 sem with
+      | .error e => throw <| IO.userError s!"expr-multi-arm: structure {repr e}"
+      | .ok data => do
+          let some entryC := data.callables[0]? |
+            throw <| IO.userError "expr-multi-arm: missing entry"
+          let hasJoinParam := entryC.blocks.any fun blk =>
+            blk.params.any fun p =>
+              match data.types[p.typeId.toNat]? with
+              | some t => match t.shape with | .uint 64 => true | _ => false
+              | none => false
+          expect hasJoinParam "expr-multi-arm: join block param UInt64"
+
+/-- N-A2: structural duplicate constructor patterns fail closed at Normalize. -/
+private unsafe def testMultiArmDuplicateCtorFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "DupCtor" <|
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n" ++
+    "  entry run(c : Color) : UInt64 do\n" ++
+    "    match c with\n" ++
+    "    | Color.Red() => do\n" ++
+    "      return 1\n" ++
+    "    | Color.Red() => do\n" ++
+    "      return 2\n" ++
+    "    | Color.Blue() => do\n" ++
+    "      return 3\n"
+  let validated ← loadSource session "dup-ctor" source
+  -- TypeCheck rejects first; product path never reaches Normalize. Still pin
+  -- that CheckV1 fails closed on structural duplicates (source-order).
+  let typed := checkProgramTypedResultV1 validated
+  expect (!typed.ok) "dup-ctor: CheckV1 must reject duplicate pattern"
+  let msgs := typed.diagnostics.map (·.message)
+  expect (msgs.any (fun m => m.contains "duplicate pattern"))
+    s!"dup-ctor: expected duplicate pattern diag, got {msgs}"
+
 /-- N5: ContextRead sole key `context.unixTimeSeconds` in entry + wire requirement.
     N5b step traces (explicit InvocationV1.context → returned UInt64) live in
     `Tests.Semantic.ReferenceV1.testContextCommitNormalizeReference`. -/
@@ -6313,6 +6460,11 @@ unsafe def run : IO Unit := do
   testStmtMatchOptionLikeEnum session
   testNestedCtorPatternFailClosed session
   testStringStateLiteralEqMatch session
+  -- N-A2 multi-arm same outer constructor
+  testMultiArmSameOuterNestedCtor session
+  testMultiArmSameOuterNestedLit session
+  testExprMultiArmSameOuter session
+  testMultiArmDuplicateCtorFailClosed session
   IO.println "Tests.Semantic.NormalizeV1: ok"
 
 end Tests.Semantic.NormalizeV1

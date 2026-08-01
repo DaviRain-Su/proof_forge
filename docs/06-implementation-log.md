@@ -12648,3 +12648,28 @@ normative: false
   Aleo/Psy 仍 `engineeringAbsentPlanDigestV1`
 - IdentityChain 金样：evm/solana/near/noir 分别对照 engineering*PlanDigestV1
 - 非 formal OutputSetV1/BuildIdentity；不改 AGENTS.md/MIGRATION_MATRIX.md
+
+## 2026-08-01 — MultiArmCtor (N-A2) multi-arm same-outer constructor match
+
+- Engineering slice only (not formal TASK-D2/D4 / SupportClaim / OutputSetV1).
+- Normalize (`ProofForgeV2/Semantic/NormalizeV1.lean`):
+  * Allow multiple match arms sharing the same outer Enum/Option constructor
+    when sub-patterns are structurally distinguishable.
+  * Outer dispatch remains one `VariantTag` switch case per unique outer
+    variant (switch case-value uniqueness); same-outer arms share that case.
+  * First-match sequential nested guards: nested ctor → `VariantTag` + eq
+    branch; nested literal → payload eq branch; fail fallthrough → next arm,
+    then outer catch-all or `trap.unreachable`.
+  * Structural pattern-key duplicate rejection (bind≡wildcard, ctor by
+    resolved variant index, literal by canonical valueBytes).
+  * Single-arm unique-outer path unchanged (N4 bindCtorArgPatterns).
+- TypeCheck (`ProofForgeV2/Typed/TypeCheckV1.lean`):
+  * `checkDuplicatePatternsDrafts` on expr/stmt match; message
+    `match arm N: duplicate pattern` (`PF-SRC-INVALID`).
+- Tests: TypeCheckMatchV1 multi-arm nested ctor/lit positives + duplicate
+  negatives + source-order pin; NormalizeV1 multi-arm stmt/expr structure
+  pins (outer case count, nested eq, join param) + CheckV1 duplicate pin.
+- Matrix: N-A2 GAP→LOWERED (all six Phase-1 targets inherit via sole Normalize).
+- Boundary: not formal exhaustiveness of nested tags; incomplete nested without
+  catch-all uses trap; no target Plan/IR changes; AGENTS/MIGRATION_MATRIX/
+  Materialization/CLI/Targets off-limits for this wave.

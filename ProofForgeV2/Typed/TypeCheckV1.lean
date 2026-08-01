@@ -271,6 +271,56 @@ def nonExhaustiveDiagnosticDraft (missing : List String) : TypedDiagnosticDraftV
 def nonExhaustiveDiagnostic (missing : List String) : DiagnosticV1 :=
   erase (nonExhaustiveDiagnosticDraft missing)
 
+def duplicatePatternDiagnosticDraft (armIndex : Nat) : TypedDiagnosticDraftV1 :=
+  make .sourceInvalid
+    s!"match arm {armIndex}: duplicate pattern"
+
+def duplicatePatternDiagnostic (armIndex : Nat) : DiagnosticV1 :=
+  erase (duplicatePatternDiagnosticDraft armIndex)
+
+/-- Structural pattern equality for multi-arm duplicate detection: bind and
+    wildcard are equivalent catch-alls; literals compare by value; constructors
+    compare by qualified-name components and recursive args. Bind names are
+    erased so `Some(x)` and `Some(y)` collide. -/
+private partial def patternShapeEqualV1 : PatternV1 → PatternV1 → Bool
+  | .wildcard, .wildcard => true
+  | .wildcard, .bind _ => true
+  | .bind _, .wildcard => true
+  | .bind _, .bind _ => true
+  | .literal a, .literal b => a == b
+  | .constructor c1 a1, .constructor c2 a2 =>
+      let comps1 := c1.components.toArray.map (·.raw)
+      let comps2 := c2.components.toArray.map (·.raw)
+      comps1 == comps2 && a1.size == a2.size &&
+        (List.range a1.size).all fun i =>
+          match a1[i]?, a2[i]? with
+          | some pa, some pb => patternShapeEqualV1 pa pb
+          | _, _ => false
+  | _, _ => false
+
+/-- Report later arms whose structural pattern key equals an earlier arm
+    (source-order; first arm keeps the identity). -/
+def checkDuplicatePatternsDrafts (patterns : Array PatternV1)
+    (matchPath? : Option NormalizedSyntacticPathV1) :
+    Array TypedDiagnosticDraftV1 := Id.run do
+  let mut drafts : Array TypedDiagnosticDraftV1 := #[]
+  let mut i : Nat := 0
+  for p in patterns do
+    let mut j : Nat := 0
+    let mut dup := false
+    for q in patterns do
+      if j < i && patternShapeEqualV1 p q then
+        dup := true
+      j := j + 1
+    if dup then
+      drafts := drafts.push
+        (locateDraft (duplicatePatternDiagnosticDraft i) matchPath? #[])
+    i := i + 1
+  pure drafts
+
+def checkDuplicatePatterns (patterns : Array PatternV1) : Array DiagnosticV1 :=
+  eraseArray (checkDuplicatePatternsDrafts patterns none)
+
 structure PatternCheckResultDraftV1 where
   bindings : List (SourceNameComponentV1 × TypeV1)
   drafts : Array TypedDiagnosticDraftV1
@@ -1183,10 +1233,12 @@ mutual
             let exhaustDrafts :=
               checkExhaustivenessDrafts tables scrutineeType (arms.map (·.pattern))
                 exprPath?
+            let dupDrafts :=
+              checkDuplicatePatternsDrafts (arms.map (·.pattern)) exprPath?
             let (type_, drafts) :=
               checkExpectedDraft firstArmType expected? exprPath? expectedRelated
                 armDrafts
-            resultDraft type_ (drafts ++ exhaustDrafts)
+            resultDraft type_ (drafts ++ exhaustDrafts ++ dupDrafts)
 end
 
 def typeCheckPlace (scope : TypeCheckScopeV1)
@@ -1466,8 +1518,10 @@ mutual
         let exhaustDrafts :=
           checkExhaustivenessDrafts tables scrutineeType (arms.map (·.pattern))
             stmtPath?
+        let dupDrafts :=
+          checkDuplicatePatternsDrafts (arms.map (·.pattern)) stmtPath?
         (scope, pathDs0 ++ scrutineeRes.drafts ++ pathDsArms ++ armDrafts ++
-          exhaustDrafts)
+          exhaustDrafts ++ dupDrafts)
 
   partial def typeCheckBlockDrafts (scope : TypeCheckScopeV1)
       (tables : TypedDeclTablesV1) (result : TypeV1)

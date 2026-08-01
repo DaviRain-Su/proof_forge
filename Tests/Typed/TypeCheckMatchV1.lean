@@ -660,6 +660,94 @@ private unsafe def testStatementMatchUnreachableBodyTypeError
   expectProgramDiag res "stmt-unreachable-body-error" "Bool"
   expectProgramDiag res "stmt-unreachable-body-error" "Unit"
 
+/-- N-A2: multi-arm same outer constructor with distinguishable nested ctors. -/
+private unsafe def testMultiArmSameOuterNestedCtor
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude :=
+    "  enum Inner where\n" ++
+    "    | A\n" ++
+    "    | B\n" ++
+    "  enum Outer where\n" ++
+    "    | Wrap(Inner)\n" ++
+    "    | Empty\n"
+  let body :=
+    "    let o : Outer := Outer.Wrap(Inner.A())\n" ++
+    "    return\n" ++
+    "      match o with\n" ++
+    "      | Outer.Wrap(Inner.A()) => 1\n" ++
+    "      | Outer.Wrap(Inner.B()) => 2\n" ++
+    "      | Outer.Empty() => 0\n"
+  expectProgramOk session "multi-arm-nested-ctor" prelude body "UInt64"
+
+/-- N-A2: multi-arm same outer with nested integer literals. -/
+private unsafe def testMultiArmSameOuterNestedLit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude :=
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n"
+  let body :=
+    "    let m : Maybe := Maybe.Some(1)\n" ++
+    "    return\n" ++
+    "      match m with\n" ++
+    "      | Maybe.Some(1) => 10\n" ++
+    "      | Maybe.Some(2) => 20\n" ++
+    "      | Maybe.None() => 0\n" ++
+    "      | _ => 99\n"
+  expectProgramOk session "multi-arm-nested-lit" prelude body "UInt64"
+
+/-- N-A2: identical nested patterns on same outer ctor → duplicate. -/
+private unsafe def testMultiArmSameOuterDuplicateRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude :=
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n"
+  let body :=
+    "    let m : Maybe := Maybe.Some(1)\n" ++
+    "    return\n" ++
+    "      match m with\n" ++
+    "      | Maybe.Some(x) => x\n" ++
+    "      | Maybe.Some(y) => y\n" ++
+    "      | Maybe.None() => 0\n"
+  let res ← typeCheckResult session "multi-arm-dup" prelude body "UInt64"
+  expectProgramDiag res "multi-arm-dup" "duplicate pattern"
+
+/-- N-A2: identical nested literal patterns → duplicate. -/
+private unsafe def testMultiArmSameOuterDuplicateLitRejected
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude :=
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n"
+  let body :=
+    "    let m : Maybe := Maybe.Some(1)\n" ++
+    "    return\n" ++
+    "      match m with\n" ++
+    "      | Maybe.Some(1) => 10\n" ++
+    "      | Maybe.Some(1) => 11\n" ++
+    "      | _ => 0\n"
+  let res ← typeCheckResult session "multi-arm-dup-lit" prelude body "UInt64"
+  expectProgramDiag res "multi-arm-dup-lit" "duplicate pattern"
+
+/-- N-A2: source-order — later duplicate arm is reported by index. -/
+private unsafe def testMultiArmDuplicateSourceOrder
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let prelude :=
+    "  enum Color where\n" ++
+    "    | Red\n" ++
+    "    | Blue\n"
+  let body :=
+    "    let c : Color := Color.Red()\n" ++
+    "    return\n" ++
+    "      match c with\n" ++
+    "      | Color.Red() => 1\n" ++
+    "      | Color.Red() => 2\n" ++
+    "      | Color.Blue() => 3\n"
+  let res ← typeCheckResult session "multi-arm-dup-order" prelude body "UInt64"
+  expectProgramDiag res "multi-arm-dup-order" "duplicate pattern"
+  expectProgramDiag res "multi-arm-dup-order" "match arm 1"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testWildcardBool session
@@ -699,6 +787,11 @@ unsafe def run : IO Unit := do
   testStatementMatchEnumMissingVariant session
   testEmptyMatchExpression session
   testStatementMatchUnreachableBodyTypeError session
+  testMultiArmSameOuterNestedCtor session
+  testMultiArmSameOuterNestedLit session
+  testMultiArmSameOuterDuplicateRejected session
+  testMultiArmSameOuterDuplicateLitRejected session
+  testMultiArmDuplicateSourceOrder session
   IO.println "Tests.Typed.TypeCheckMatchV1: ok"
 
 end Tests.Typed.TypeCheckMatchV1

@@ -27,11 +27,15 @@
       `Op.VariantPayload` binds); exactly one wildcard/bind catch-all when
       required by TypeCheck; string literal patterns on String scrutinee
       (N4; exact valueBytes identity); nested constructor/literal
-      sub-patterns open when each outer constructor is unique (recursive
-      bind/wildcard/constructor; nested literal falls through to catch-all
-      on mismatch and therefore requires a catch-all); a catch-all-only
-      match materializes inline; expression-level match shares the same
-      pattern set (see expressions)
+      sub-patterns open (recursive bind/wildcard/constructor/literal);
+      multi-arm same outer constructor is allowed when sub-patterns are
+      structurally distinguishable (first-match sequential nested guards:
+      VariantTag eq for nested ctors, value eq for nested literals;
+      fallthrough to outer catch-all or trap.unreachable); identical
+      structural pattern keys (bind≡wildcard, ctor by variant index,
+      literal by valueBytes) still fail closed as duplicates; a
+      catch-all-only match materializes inline; expression-level match
+      shares the same pattern set (see expressions)
     * expressions: bare place (param or state name), expected-type integer
       literals (legal UInt/Int widths, LE valueBytes of width/8; Int negatives
       enter as `unary neg (integer literal)` folded to two's-complement LE
@@ -108,8 +112,7 @@
       state admitted; Option still fail closed — no clean state default
       surface beyond wire none-tag without product constructors),
       aggregate entry/view/fn results, nonempty Map construction,
-      multi-arm same outer constructor with competing nested patterns
-      (still fail closed as duplicate constructor cases),
+      identical multi-arm same-outer patterns (structural duplicate keys),
       param-root field/index assign, true mutable locals (field/index
       rebind of immutable let only), Int event/error fields (stay UInt-only),
       String event/error fields (stay UInt-only this slice),
@@ -1237,16 +1240,14 @@ private def isCtorMatchScrutineeV1 (types : Array TypeDeclV1) (tid : TypeIdV1) :
 
 /-- Bind constructor-arm payload sub-patterns into the local env (N4).
 
-    Supported:
+    Supported (single outer-ctor arm, no competing same-outer refinement):
     * `wildcard` — skip
     * `bind` — `Op.VariantPayload` into env
     * nested `constructor` — recursive on the extracted payload when the
-      payload TypeId is Enum/Option; only bind/wildcard/constructor leaves
-      (no competing multi-arm same-outer-ctor refinement — still fail closed
-      as duplicate constructor cases at the arm partitioner)
-    * nested `literal` — ignored at bind time; statement/expression match
-      lowerers desugar nested literals to eq-branch fallthrough when a
-      catch-all is present
+      payload TypeId is Enum/Option (no runtime tag guard here; multi-arm
+      same-outer refinement uses `lowerCtorArgGuardsCollectFailsV1`)
+    * nested `literal` — ignored at bind time for the single-arm path;
+      multi-arm same-outer uses eq guards via the guard collector
 
     Nested constructor assumes a single outer-ctor arm owns this payload path;
     it does not re-switch on the outer tag. -/
@@ -1269,8 +1270,7 @@ private partial def bindCtorArgPatternsV1
           (.variantPayload scrutVid variantIndex (UInt32.ofNat i))
         st := { st1 with env := envInsert st1.env (raw name) vid pTid }
     | .literal _ =>
-        -- Nested literal guards are applied by the match lowerer after binds
-        -- (needs catch-all fallthrough target). Skip bind here.
+        -- Nested literal guards are applied by multi-arm same-outer refinement.
         pure ()
     | .constructor nestedCtor nestedArgs => do
         unless isCtorMatchScrutineeV1 st.interner.types pTid do
@@ -1323,6 +1323,178 @@ private def encodeLiteralValueBytesV1
             return ← failUnsupported "S1 String literal exceeds maxTypeLengthV1"
           pure bytes
       | _ => failUnsupported "S1 String literal requires String type"
+
+/-- Structural pattern key for multi-arm same-outer duplicate detection.
+    Bind and wildcard are equivalent catch-alls; constructors key by resolved
+    variant index; literals by canonical valueBytes under the expected type. -/
+private inductive PatternShapeKeyV1 where
+  | catchAll
+  | lit (bytes : ByteArray)
+  | ctor (vIdx : UInt32) (args : Array PatternShapeKeyV1)
+
+private partial def patternShapeKeyEqV1 :
+    PatternShapeKeyV1 → PatternShapeKeyV1 → Bool
+  | .catchAll, .catchAll => true
+  | .lit a, .lit b => a == b
+  | .ctor i as, .ctor j bs =>
+      i == j && as.size == bs.size &&
+        (List.range as.size).all fun k =>
+          match as[k]?, bs[k]? with
+          | some a, some b => patternShapeKeyEqV1 a b
+          | _, _ => false
+  | _, _ => false
+
+private partial def patternShapeKeyV1
+    (interner : TypeInternerV1) (expectedTid : TypeIdV1) (pat : SrcPattern) :
+    Except NormalizeErrorV1 PatternShapeKeyV1 := do
+  match pat with
+  | .wildcard | .bind _ => pure .catchAll
+  | .literal lit => do
+      let bytes ← encodeLiteralValueBytesV1 interner.types expectedTid lit
+      pure (.lit bytes)
+  | .constructor ctor args => do
+      let (vIdx, payloads) ← resolveCtorPatternV1 interner ctor expectedTid
+      unless args.size == payloads.size do
+        return ← failUnsupported
+          s!"S1 constructor pattern expects {payloads.size} arguments, got {args.size}"
+      let mut ks : Array PatternShapeKeyV1 := #[]
+      let mut i : Nat := 0
+      for arg in args do
+        let some pTid := payloads[i]? |
+          return ← failUnsupported "S1 constructor pattern payload index out of range"
+        let k ← patternShapeKeyV1 interner pTid arg
+        ks := ks.push k
+        i := i + 1
+      pure (.ctor vIdx ks)
+
+/-- Shape key for a resolved outer constructor arm (variant index + arg shapes). -/
+private partial def ctorArmShapeKeyV1
+    (interner : TypeInternerV1) (vIdx : UInt32)
+    (payloads : Array TypeIdV1) (args : Array SrcPattern) :
+    Except NormalizeErrorV1 PatternShapeKeyV1 := do
+  unless args.size == payloads.size do
+    return ← failUnsupported
+      s!"S1 constructor pattern expects {payloads.size} arguments, got {args.size}"
+  let mut ks : Array PatternShapeKeyV1 := #[]
+  let mut i : Nat := 0
+  for arg in args do
+    let some pTid := payloads[i]? |
+      return ← failUnsupported "S1 constructor pattern payload index out of range"
+    let k ← patternShapeKeyV1 interner pTid arg
+    ks := ks.push k
+    i := i + 1
+  pure (.ctor vIdx ks)
+
+/-- True when `shape` matches any prior arm key (structural duplicate). -/
+private def ctorArmShapeIsDuplicateV1
+    (shape : PatternShapeKeyV1) (prior : Array PatternShapeKeyV1) : Bool :=
+  prior.any (fun k => patternShapeKeyEqV1 shape k)
+
+/-- True when every arg pattern is wildcard/bind only (arm always matches the
+    outer constructor without nested discrimination). -/
+private def ctorArgPatternsUnconditionalV1 (argPatterns : Array SrcPattern) : Bool :=
+  argPatterns.all fun p =>
+    match p with
+    | .wildcard | .bind _ => true
+    | .literal _ | .constructor _ _ => false
+
+/-- Group constructor arms by outer variant index (first-seen order of the
+    variant; source order preserved within each group). -/
+private def groupCtorArmsByVariantV1
+    (ctorArms : Array (UInt32 × Array TypeIdV1 × Array SrcPattern × α)) :
+    Array (UInt32 × Array (Array TypeIdV1 × Array SrcPattern × α)) := Id.run do
+  let mut order : Array UInt32 := #[]
+  let mut groups : Array (Array (Array TypeIdV1 × Array SrcPattern × α)) := #[]
+  for (vIdx, payloads, args, body) in ctorArms do
+    let mut found : Option Nat := none
+    let mut j : Nat := 0
+    for ov in order do
+      if ov == vIdx then found := some j
+      j := j + 1
+    match found with
+    | some gi =>
+        groups := groups.set! gi (groups[gi]!.push (payloads, args, body))
+    | none =>
+        order := order.push vIdx
+        groups := groups.push #[(payloads, args, body)]
+  let mut out :
+      Array (UInt32 × Array (Array TypeIdV1 × Array SrcPattern × α)) := #[]
+  let mut i : Nat := 0
+  for vIdx in order do
+    out := out.push (vIdx, groups[i]!)
+    i := i + 1
+  pure out
+
+/-- Lower nested constructor/literal guards for one arm. Else-branches of
+    discriminating tests use placeholder block id 0; the caller patches them
+    to the next arm or outer fallthrough. Success leaves an open block with
+    binds applied. -/
+private partial def lowerCtorArgGuardsCollectFailsV1
+    (baseVid : ValueIdV1) (variantIndex : UInt32)
+    (payloadTids : Array TypeIdV1) (argPatterns : Array SrcPattern)
+    (st : BodyStateV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × Array Nat) := do
+  unless argPatterns.size == payloadTids.size do
+    return ← failUnsupported
+      s!"S1 constructor pattern expects {payloadTids.size} arguments, got {argPatterns.size}"
+  go 0 st #[]
+where
+  go (i : Nat) (st : BodyStateV1) (fails : Array Nat) :
+      Except NormalizeErrorV1 (BodyStateV1 × Array Nat) := do
+    if i ≥ argPatterns.size then
+      pure (st, fails)
+    else
+      let some pat := argPatterns[i]? |
+        return ← failUnsupported "S1 constructor pattern arg index out of range"
+      let some pTid := payloadTids[i]? |
+        return ← failUnsupported "S1 constructor pattern payload index out of range"
+      match pat with
+      | .wildcard => go (i + 1) st fails
+      | .bind name =>
+          let (st1, vid) := emitValue st pTid
+            (.variantPayload baseVid variantIndex (UInt32.ofNat i))
+          go (i + 1)
+            { st1 with env := envInsert st1.env (raw name) vid pTid } fails
+      | .literal lit => do
+          let (st1, pVid) := emitValue st pTid
+            (.variantPayload baseVid variantIndex (UInt32.ofNat i))
+          let bytes ← encodeLiteralValueBytesV1 st1.interner.types pTid lit
+          let (st2, litVid) := emitValue st1 pTid (.literal pTid bytes)
+          let (iB, boolTid) := internShape st2.interner .bool
+          let st2b := { st2 with interner := iB }
+          let (st3, eqVid) :=
+            emitValue st2b boolTid (.binary BinaryOpV1.eq pVid litVid)
+          let condIdx := st3.blocks.size
+          let thenId := UInt32.ofNat (condIdx + 1)
+          let st4 := sealCurrentBlock st3 (.branch eqVid
+            { blockId := thenId, args := #[] }
+            { blockId := 0, args := #[] })
+          go (i + 1) st4 (fails.push condIdx)
+      | .constructor nestedCtor nestedArgs => do
+          unless isCtorMatchScrutineeV1 st.interner.types pTid do
+            return ← failUnsupported
+              "S1 nested constructor pattern requires Enum or Option payload"
+          let (nIdx, nPayloads) ←
+            resolveCtorPatternV1 st.interner nestedCtor pTid
+          let (st1, pVid) := emitValue st pTid
+            (.variantPayload baseVid variantIndex (UInt32.ofNat i))
+          let (iU32, u32Tid) := internShape st1.interner (.uint 32)
+          let st1b := { st1 with interner := iU32 }
+          let (st2, tagVid) := emitValue st1b u32Tid (.variantTag pVid)
+          let (st3, expVid) :=
+            emitValue st2 u32Tid (.literal u32Tid (encodeU32le nIdx))
+          let (iB, boolTid) := internShape st3.interner .bool
+          let st3b := { st3 with interner := iB }
+          let (st4, eqVid) :=
+            emitValue st3b boolTid (.binary BinaryOpV1.eq tagVid expVid)
+          let condIdx := st4.blocks.size
+          let thenId := UInt32.ofNat (condIdx + 1)
+          let st5 := sealCurrentBlock st4 (.branch eqVid
+            { blockId := thenId, args := #[] }
+            { blockId := 0, args := #[] })
+          let (stN, failsN) ←
+            lowerCtorArgGuardsCollectFailsV1 pVid nIdx nPayloads nestedArgs st5
+          go (i + 1) stN (fails.push condIdx ++ failsN)
 
 /-- One step along an assign place chain after the root name (N3). -/
 private inductive PlaceStepV1 where
@@ -1979,7 +2151,14 @@ private partial def lowerExpr
                 "S1 match expression constructor pattern requires Enum or Option scrutinee"
             let (vIdx, payloads) ←
               resolveCtorPatternV1 st1.interner ctor scrutTid
-            if ctorArms.any (fun (i, _, _, _) => i == vIdx) then
+            -- Multi-arm same outer ctor is legal when sub-patterns differ;
+            -- reject only structural pattern-key duplicates (bind≡wildcard).
+            let shape ← ctorArmShapeKeyV1 st1.interner vIdx payloads args
+            let mut priorKeys : Array PatternShapeKeyV1 := #[]
+            for (pv, pp, pa, _) in ctorArms do
+              let pk ← ctorArmShapeKeyV1 st1.interner pv pp pa
+              priorKeys := priorKeys.push pk
+            if ctorArmShapeIsDuplicateV1 shape priorKeys then
               return ← failUnsupported
                 "S1 match expression has duplicate constructor cases"
             ctorArms := ctorArms.push (vIdx, payloads, args, arm.value)
@@ -2058,31 +2237,74 @@ private partial def lowerExpr
         }
         pure (joinVid, expectedTid, stJoin)
       else
-        -- Constructor path: VariantTag → switch on UInt32 variant index.
+        -- Constructor path: VariantTag → switch on unique outer variant index.
+        -- Multi-arm same outer: first-match sequential nested guards inside
+        -- the single switch case (switch case-value uniqueness forbids
+        -- duplicate outer tags).
         let (iU32, u32Tid) := internShape st1.interner (.uint 32)
         let stTag0 := { st1 with interner := iU32 }
         let (stTag, tagVid) := emitValue stTag0 u32Tid (.variantTag scrutVid)
         let scrutIdx := stTag.blocks.size
         let st2 := sealCurrentBlock stTag (.switch tagVid #[] none)
         let savedEnv := st1.env
+        let groups := groupCtorArmsByVariantV1 ctorArms
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
-        for (vIdx, payloads, argPats, armValue) in ctorArms do
+        let mut groupFallthroughFails : Array Nat := #[]
+        for (vIdx, group) in groups do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
-            { stA with env := savedEnv }
-          let (vid, vtid, stB) ←
-            lowerExpr armValue expectedTid stBound states fns
-          unless vtid == expectedTid do
-            return ← failUnsupported
-              "S1 match expression arm type does not match expected type"
-          jumpSlots := jumpSlots.push stB.blocks.size
-          stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
+          match group.toList with
+          | [(payloads, argPats, armValue)] => do
+              let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
+                { stA with env := savedEnv }
+              let (vid, vtid, stB) ←
+                lowerExpr armValue expectedTid stBound states fns
+              unless vtid == expectedTid do
+                return ← failUnsupported
+                  "S1 match expression arm type does not match expected type"
+              jumpSlots := jumpSlots.push stB.blocks.size
+              stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
+          | [] =>
+              return ← failUnsupported
+                "S1 match expression constructor group must be nonempty"
+          | _ => do
+            -- Multi-arm same outer: sequential first-match guards.
+            let mut gi : Nat := 0
+            for (payloads, argPats, armValue) in group do
+              let (stG, failSites) ←
+                lowerCtorArgGuardsCollectFailsV1 scrutVid vIdx payloads argPats
+                  { stA with env := savedEnv }
+              let (vid, vtid, stB) ←
+                lowerExpr armValue expectedTid stG states fns
+              unless vtid == expectedTid do
+                return ← failUnsupported
+                  "S1 match expression arm type does not match expected type"
+              jumpSlots := jumpSlots.push stB.blocks.size
+              stA := sealCurrentBlock stB (.jump { blockId := 0, args := #[vid] })
+              let nextId := UInt32.ofNat stA.blocks.size
+              if gi + 1 < group.size then
+                for p in failSites do
+                  stA := patchBranchElse stA p nextId
+              else
+                groupFallthroughFails := groupFallthroughFails ++ failSites
+              gi := gi + 1
         let defaultTarget? : Option JumpTargetV1 ← match defaultArm? with
-          | none => pure none
+          | none =>
+              if groupFallthroughFails.isEmpty then
+                pure none
+              else do
+                -- Nested refinement may miss; seal trap as fallthrough.
+                let trapId := UInt32.ofNat stA.blocks.size
+                stA := sealCurrentBlock stA
+                  (.trap SemanticTrapCodeV1.unreachable)
+                for p in groupFallthroughFails do
+                  stA := patchBranchElse stA p trapId
+                pure none
           | some (defaultBinder?, defaultValue) => do
               let defaultId := UInt32.ofNat stA.blocks.size
+              for p in groupFallthroughFails do
+                stA := patchBranchElse stA p defaultId
               let stD0 := match defaultBinder? with
                 | none => { stA with env := savedEnv }
                 | some name =>
@@ -2096,7 +2318,7 @@ private partial def lowerExpr
               stA := sealCurrentBlock stD (.jump { blockId := 0, args := #[dVid] })
               pure (some { blockId := defaultId, args := #[] })
         let switchCases : Array SwitchCaseV1 :=
-          ctorArms.mapIdx fun i (vIdx, _, _, _) =>
+          groups.mapIdx fun i (vIdx, _) =>
             {
               typeId := u32Tid
               valueBytes := encodeU32le vIdx
@@ -2373,7 +2595,14 @@ private partial def lowerStmt
                 "S1 match constructor pattern requires Enum or Option scrutinee"
             let (vIdx, payloads) ←
               resolveCtorPatternV1 st1.interner ctor scrutTid
-            if ctorArms.any (fun (i, _, _, _) => i == vIdx) then
+            -- Multi-arm same outer ctor is legal when sub-patterns differ;
+            -- reject only structural pattern-key duplicates (bind≡wildcard).
+            let shape ← ctorArmShapeKeyV1 st1.interner vIdx payloads args
+            let mut priorKeys : Array PatternShapeKeyV1 := #[]
+            for (pv, pp, pa, _) in ctorArms do
+              let pk ← ctorArmShapeKeyV1 st1.interner pv pp pa
+              priorKeys := priorKeys.push pk
+            if ctorArmShapeIsDuplicateV1 shape priorKeys then
               return ← failUnsupported "S1 match has duplicate constructor cases"
             ctorArms := ctorArms.push (vIdx, payloads, args, arm.body)
       if !litArms.isEmpty && !ctorArms.isEmpty then
@@ -2447,34 +2676,75 @@ private partial def lowerStmt
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
           pure ({ stP with env := savedEnv }, .open_)
       else
-        -- Constructor path: Op.VariantTag → switch on UInt32 tag; arm bodies
-        -- bind payloads via Op.VariantPayload (bind/wildcard sub-patterns).
+        -- Constructor path: Op.VariantTag → switch on unique outer tag;
+        -- multi-arm same outer uses sequential nested guards (N-A2).
         let (iU32, u32Tid) := internShape st1.interner (.uint 32)
         let stTag0 := { st1 with interner := iU32 }
         let (stTag, tagVid) := emitValue stTag0 u32Tid (.variantTag scrutVid)
         let scrutIdx := stTag.blocks.size
         let st2 := sealCurrentBlock stTag (.switch tagVid #[] none)
         let savedEnv := st1.env
+        let groups := groupCtorArmsByVariantV1 ctorArms
         let mut stA := st2
         let mut caseTargets : Array BlockIdV1 := #[]
         let mut jumpSlots : Array Nat := #[]
         let mut closedCount : Nat := 0
-        for (vIdx, payloads, argPats, body) in ctorArms do
+        let mut groupFallthroughFails : Array Nat := #[]
+        let mut terminalClosedExtra : Nat := 0
+        for (vIdx, group) in groups do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
-            { stA with env := savedEnv }
-          let (stB, status) ← lowerStmts body.statements resultTid stBound
-            states events errors fns
-          stA := stB
-          match status with
-          | .closed => closedCount := closedCount + 1
-          | .open_ =>
-              jumpSlots := jumpSlots.push stA.blocks.size
-              stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+          match group.toList with
+          | [(payloads, argPats, body)] => do
+              let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
+                { stA with env := savedEnv }
+              let (stB, status) ← lowerStmts body.statements resultTid stBound
+                states events errors fns
+              stA := stB
+              match status with
+              | .closed => closedCount := closedCount + 1
+              | .open_ =>
+                  jumpSlots := jumpSlots.push stA.blocks.size
+                  stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+          | [] =>
+              return ← failUnsupported
+                "S1 match constructor group must be nonempty"
+          | _ => do
+            let mut gi : Nat := 0
+            for (payloads, argPats, body) in group do
+              let (stG, failSites) ←
+                lowerCtorArgGuardsCollectFailsV1 scrutVid vIdx payloads argPats
+                  { stA with env := savedEnv }
+              let (stB, status) ← lowerStmts body.statements resultTid stG
+                states events errors fns
+              stA := stB
+              match status with
+              | .closed => closedCount := closedCount + 1
+              | .open_ =>
+                  jumpSlots := jumpSlots.push stA.blocks.size
+                  stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
+              let nextId := UInt32.ofNat stA.blocks.size
+              if gi + 1 < group.size then
+                for p in failSites do
+                  stA := patchBranchElse stA p nextId
+              else
+                groupFallthroughFails := groupFallthroughFails ++ failSites
+              gi := gi + 1
         let defaultTarget? : Option JumpTargetV1 ← match defaultArm? with
-          | none => pure none
+          | none =>
+              if groupFallthroughFails.isEmpty then
+                pure none
+              else do
+                let trapId := UInt32.ofNat stA.blocks.size
+                stA := sealCurrentBlock stA
+                  (.trap SemanticTrapCodeV1.unreachable)
+                for p in groupFallthroughFails do
+                  stA := patchBranchElse stA p trapId
+                terminalClosedExtra := terminalClosedExtra + 1
+                pure none
           | some (defaultBinder?, defaultBody) => do
               let defaultId := UInt32.ofNat stA.blocks.size
+              for p in groupFallthroughFails do
+                stA := patchBranchElse stA p defaultId
               let stD0 := match defaultBinder? with
                 | none => { stA with env := savedEnv }
                 | some name =>
@@ -2489,14 +2759,19 @@ private partial def lowerStmt
                   stA := sealCurrentBlock stA (.jump { blockId := 0, args := #[] })
               pure (some { blockId := defaultId, args := #[] })
         let switchCases : Array SwitchCaseV1 :=
-          ctorArms.mapIdx fun i (vIdx, _, _, _) =>
+          groups.mapIdx fun i (vIdx, _) =>
             {
               typeId := u32Tid
               valueBytes := encodeU32le vIdx
               target := { blockId := caseTargets[i]!, args := #[] }
             }
-        let armTotal := ctorArms.size + (if defaultTarget?.isSome then 1 else 0)
-        if closedCount == armTotal then
+        -- Count terminal paths: each multi-arm body + default/trap.
+        let bodyArmCount :=
+          groups.foldl (fun acc (_, g) => acc + g.size) 0
+        let armTotal :=
+          bodyArmCount + (if defaultTarget?.isSome then 1 else 0) +
+            terminalClosedExtra
+        if closedCount + terminalClosedExtra == armTotal && jumpSlots.isEmpty then
           let stP := patchSwitch stA scrutIdx switchCases defaultTarget?
           pure (stP, .closed)
         else
