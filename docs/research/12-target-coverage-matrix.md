@@ -29,19 +29,19 @@ normative: false
 | wire Op / feature | EVM | Solana | NEAR | Noir | Psy | Aleo |
 |---|---|---|---|---|---|---|
 | stateLoad/stateStore（标量） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
-| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| stateLoad/stateStore（Option） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（named 聚合） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | FAIL-CLOSED | FAIL-CLOSED(scalar mapping) |
+| stateLoad/stateStore（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Map） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Bytes） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED(NearAggregate) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| stateLoad/stateStore（Option） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（String） | LOWERED(N4) | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | stateLoad/stateStore（Field bn254） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED(Goldilocks证伪) | FAIL-CLOSED(BLS12-377≠bn254) |
-| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED(struct deferred) |
-| fieldGet/fieldSet | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
-| variantTag/variantPayload | LOWERED(N3) | LOWERED | GAP | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
-| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | GAP | FAIL-CLOSED | LOWERED | FAIL-CLOSED |
-| indexGet/indexSet（Map） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
-| indexGet/indexSet（Bytes） | FAIL-CLOSED | FAIL-CLOSED | GAP | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| construct（named Struct/Enum） | LOWERED(N3) | FAIL-CLOSED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED(struct deferred) |
+| fieldGet/fieldSet | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
+| variantTag/variantPayload | LOWERED(N3) | LOWERED | LOWERED(NearAggregate) | LOWERED(NoirAggregate) | LOWERED | FAIL-CLOSED |
+| indexGet/indexSet（Array） | LOWERED(EvmIndex) | LOWERED(ArrayState) | LOWERED(NearAggregate) | FAIL-CLOSED | LOWERED | FAIL-CLOSED |
+| indexGet/indexSet（Map） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
+| indexGet/indexSet（Bytes） | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED | FAIL-CLOSED |
 | fieldAdd/Sub/Mul/Div/Neg（Field） | LOWERED(N2b-EVM) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(原生) | FAIL-CLOSED | FAIL-CLOSED(BLS12-377) |
 | eq/ne（所有支持类型） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
 | ordering 比较 | LOWERED(UInt/Int) | LOWERED(UInt/Int) | LOWERED | LOWERED(UInt/Field) | LOWERED | LOWERED |

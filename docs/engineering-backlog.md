@@ -168,7 +168,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 说明 | 状态 |
 |---|---|---|---|
 | **DOC-1** | RECOVERY / AGENTS / MIGRATION_MATRIX 与代码对齐 | 前端监督层移除、产品 CLI 进程内 Loader；AGENTS 已正确并链 backlog | **done**（2026-08-01 主代理文档同步；Matrix 行内历史 B12 叙述保留在 D1-08 superseded 段） |
-| **DOC-2** | `12-target-coverage-matrix` 按代码复扫 + 登记 research README | README 已列 11/12；**NEAR 格子逐 op 复扫仍待** | pending（README 部分 done） |
+| **DOC-2** | `12-target-coverage-matrix` 按代码复扫 + 登记 research README | README 已列 11/12；**NEAR 格子逐 op 复扫仍待** | **done**（2026-08-02：NEAR NearAggregate 列 GAP→LOWERED/FAIL-CLOSED；README 已登记） |
 | **DOC-3** | `11-feature-coverage-audit` L4/L6 刷新 | Solana 多宽句已修；Reference admitted 全表仍待 | pending（部分） |
 | **DOC-4** | 四 target dossier「工程迁移状态」刷新 | EVM/Solana/NEAR/Noir + targets/README | **done**（2026-08-01） |
 | **DOC-5** | `docs/index.md` / document-status 恢复桥叙述 | 工程路径 + backlog 链接 | **done**（2026-08-01） |
@@ -199,7 +199,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 | ID | 项 | 状态 |
 |---|---|---|
 | **N-A1** | EVM String `match` switch（N4 类型面已开） | **done**（2026-08-02：`a25365213` EvmStringMatch；matrix LOWERED） |
-| **N-A2** | 多臂同外构造器 match 细化 | pending |
+| **N-A2** | 多臂同外构造器 match 细化 | **done**（2026-08-02：`2a6c2bc9c` MultiArmCtor；matrix LOWERED 四 target） |
 | **N-A3** | Map/Bytes 穿透元素赋值 | pending |
 | **N-A4** | Option state | pending |
 
@@ -219,7 +219,7 @@ target 真制品验收仍远未闭合**；formal D1–D4 = 0/27 done。
 |---|---|---|
 | **T9a–T9c-2** | 窄结果 / EVM UInt128·256 / 窄 Int 四 target | **done**（roadmap merged） |
 | **T9d** | NEAR/Solana/Noir `planDigest` 绑 BuildIdentity/OutputSet（镜像 M4） | **done**（`c3626725f` / roadmap 2026-08-01） |
-| **T9e** | Solana/NEAR UInt128/256 多字算术（先设计后实现，可拆） | pending |
+| **T9e** | Solana/NEAR UInt128/256 多字算术（先设计后实现，可拆） | **done**（2026-08-02：T9e-Solana `52f527140` + T9e-NEAR claimed on main） |
 | **T9-0** | 控制面/文档对齐 | **partial**（DOC-1/4/5 done；Matrix 长表扫除仍待） |
 
 ---
