@@ -455,7 +455,9 @@ def computeStructuralTypeClassIdsV1 (types : Array TypeDeclV1) :
     wire error while the phase seam makes precedence observable. Runs after
     leaf primitive interning and
     before named-name/canonical-value/signature/requirement phases. -/
-private def validateRecursiveAnonymousTypeKeyUniquenessV1
+-- Internal production recursive-anonymous TypeKey subphase exposed for
+-- refinement. The complete TypeKey gate remains `validateTypeKeyPhasesV1`.
+def validateRecursiveAnonymousTypeKeyUniquenessV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
   -- Without an anonymous container there is no recursive class to compare or
   -- anonymous-only cycle to detect. Avoid constructing the runtime HashMap on
@@ -567,7 +569,9 @@ private def isOptionDecl (types : Array TypeDeclV1) (id : TypeIdV1) : Bool :=
     explicit-stack white/gray/black DFS is `.nonCanonical`. Runs as the
     `namedBodyCycle` subphase of `validateTypeKeyPhasesV1`, ordered after
     `recursiveAnonymous`. -/
-private def validateNamedBodyOptionCycleLegalityV1
+-- Internal production named-body Option-cycle TypeKey subphase exposed for
+-- refinement. The complete TypeKey gate remains `validateTypeKeyPhasesV1`.
+def validateNamedBodyOptionCycleLegalityV1
     (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
   -- Primitive/Option-only tables cannot contain an edge in the induced graph.
   -- Struct/Enum remain explicit edge sources so named-body cycles still reach
@@ -681,5 +685,17 @@ def validateTypeKeyPhasesV1 (types : Array TypeDeclV1) :
     (validateRecursiveAnonymousTypeKeyUniquenessV1 types)
   liftTypeKeyValidationPhaseV1 .namedBodyCycle
     (validateNamedBodyOptionCycleLegalityV1 types)
+
+/-- Compose the sole production TypeKey seam from success of its four exact
+    subphases. Each premise is a result of the production implementation, not
+    a parallel TypeKey-validity predicate. -/
+theorem validateTypeKeyPhasesV1_eq_ok_of_phases (types : Array TypeDeclV1)
+    (hNamedPrefix : validateNamedPrefixRankV1 types = .ok ())
+    (hPrimitive : validatePrimitiveAnonymousTypeKeyUniquenessV1 types = .ok ())
+    (hRecursive : validateRecursiveAnonymousTypeKeyUniquenessV1 types = .ok ())
+    (hNamedBody : validateNamedBodyOptionCycleLegalityV1 types = .ok ()) :
+    validateTypeKeyPhasesV1 types = .ok () := by
+  simp only [validateTypeKeyPhasesV1, hNamedPrefix, hPrimitive, hRecursive,
+    hNamedBody, liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
 
 end ProofForgeV2.Semantic.WireV1

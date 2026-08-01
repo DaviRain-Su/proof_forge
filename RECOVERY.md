@@ -600,3 +600,8 @@ production lex comparator的原local recursion被机械命名并提供equal-step
 >3 keys原qsort+adjacent路径不变；3-key non-adjacent duplicate及4-key qsort boundary均有回归。
 fixture的Bool/Principal/Unit exact encoded bytes及三组distinct比较已kernel闭合。下一片为
 `recursiveAnonymous`，完整TypeKey仍pending。
+
+剩余TypeKey已按序闭合：fixture无Array/Map/Option，production `recursiveAnonymous`在构造HashMap前走
+empty-domain success；primitive-only table无Struct/Enum/Array/Map edge source，production
+`namedBodyCycle`在DFS前success。四个真实subphase经`validateTypeKeyPhasesV1_eq_ok_of_phases`组合为
+完整TypeKey seam成功。下一production gate为named TypeDecl name uniqueness；完整structure仍pending。

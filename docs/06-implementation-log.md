@@ -12483,3 +12483,14 @@ normative: false
 - Regression：三keyfixtures分别固定small path的`(0,2)`与最终`(1,2)` pair；四keyduplicate固定保留
   qsort boundary。
 - Boundary：recursiveAnonymous/namedBody、完整TypeKey/structure/encoder/carrier/formal状态仍pending。
+
+## 2026-08-01 — D2-07 complete concrete TypeKey phase seam
+
+- Kernel：fixture无anonymous Array/Map/Option，真实`recursiveAnonymous`在structural-class HashMap前闭合；
+  primitive-only declarations不产生Option-removed graph edge source，真实`namedBodyCycle`在DFS前闭合。
+- Composition：新增只接受四个production subphase结果的TypeKey success refinement；namedPrefix、
+  primitiveLeaf、recursiveAnonymous、namedBodyCycle组合得到
+  `validateTypeKeyPhasesV1 data.types = .ok ()`，不新增TypeKey-validity predicate。
+- Verification：focused TypeKeyV1/InvariantABI build通过。
+- Boundary：named TypeDecl name uniqueness及其后value/signature/CFG/requirements、完整structure、
+  encoder/carrier/formal状态仍pending。
