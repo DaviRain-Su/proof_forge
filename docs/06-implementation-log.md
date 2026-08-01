@@ -11723,6 +11723,15 @@ normative: false
 - Boundary：仍以九个真实field successes为premises；具体entry/pureFn/invariant、root array及formal
   TASK/TST仍pending。
 
+## 2026-08-01 — D2-07 canonical single-Block Callable composition
+
+- Proof：`decodeCallableV1_singleBlockV1`组合production empty params、singleton Block与empty loopBounds
+  headers；result/steps分别从真实前置header returned offset开始，Block decoder只执行一次。
+- Reuse：kind/name/result/invariantSteps仍由actual production decoder success约束，同一theorem覆盖
+  canonical entry、pureFn与invariant外形。focused build、signature example与blocker review通过。
+- Boundary：具体各callable bytes及root multi-element iterator/full carrier仍pending；formal TASK/TST
+  状态不变。
+
 ## 2026-08-01 — T8a Solana body multi-width UInt8/16/32
 
 - Envelope：新增 `pilotUintWidthPolicySolanaBody`（admitted `{64,32,8,16}`，与 EVM body 同集合）

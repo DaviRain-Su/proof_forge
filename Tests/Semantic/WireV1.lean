@@ -482,6 +482,37 @@ example (c cTag cId cKind cName cParams cResult cEntry cBlocks cLoops cSteps : C
     cLoops cSteps id entryBlock kind name params result blocks loopBounds invariantSteps
     hdepth htag hid hkind hname hparams hresult hentry hblocks hloops hsteps
 
+example (c cTag cId cKind cName cResult cEntry cBlock cSteps : Cursor)
+    (paramsOffset blocksOffset loopsOffset : Nat) (id entryBlock : UInt32)
+    (kind : CallableKindV1) (name : Option String) (result : CallableResultV1)
+    (block : BlockV1) (invariantSteps : Option UInt64)
+    (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "Callable" 9 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), cTag))
+    (hid : decodeU32le cTag = .ok (id, cId))
+    (hkind : decodeCallableKindV1 cId = .ok (kind, cKind))
+    (hname : decodeOption decodeString cKind = .ok (name, cName))
+    (hparams : readArrayCountAtV1 cName.input cName.offset maxArrayElements =
+      .ok (0, paramsOffset))
+    (hresult : decodeCallableResultV1 ⟨cName.input, paramsOffset, cName.nesting⟩ =
+      .ok (result, cResult))
+    (hentry : decodeU32le cResult = .ok (entryBlock, cEntry))
+    (hblocks : readArrayCountAtV1 cEntry.input cEntry.offset maxArrayElements =
+      .ok (1, blocksOffset))
+    (hblock : decodeBlockV1 ⟨cEntry.input, blocksOffset, cEntry.nesting⟩ =
+      .ok (block, cBlock))
+    (hloops : readArrayCountAtV1 cBlock.input cBlock.offset maxArrayElements =
+      .ok (0, loopsOffset))
+    (hsteps : decodeOption decodeU64le ⟨cBlock.input, loopsOffset, cBlock.nesting⟩ =
+      .ok (invariantSteps, cSteps)) :
+    decodeCallableV1 c = .ok ({
+      id, kind, name, params := #[], result, entryBlock, blocks := #[block],
+      loopBounds := #[], invariantSteps
+    }, ⟨cSteps.input, cSteps.offset, c.nesting⟩) :=
+  decodeCallableV1_singleBlockV1 c cTag cId cKind cName cResult cEntry cBlock cSteps
+    paramsOffset blocksOffset loopsOffset id entryBlock kind name result block invariantSteps
+    hdepth htag hid hkind hname hparams hresult hentry hblocks hblock hloops hsteps
+
 example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
     (afterCallables : Cursor)
     (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
