@@ -279,6 +279,57 @@ example (c : Cursor) (expected : Nat) (count : UInt16) (offset : Nat)
 example :
     decodeTypeShapeV1 ⟨ByteArray.empty, 0, maxNesting⟩ = .error .limitExceeded := by rfl
 
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Bool", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.bool, afterFields) :=
+  decodeTypeShapeBodyV1_bool c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Principal", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.principal, afterFields) :=
+  decodeTypeShapeBodyV1_principal c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Type.Unit", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeTypeShapeBodyV1 c = .ok (.unit, afterFields) :=
+  decodeTypeShapeBodyV1_unit c afterTag afterFields htag hfields
+
+example (c c' : Cursor) (shape : TypeShapeV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTypeShapeBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (shape, c')) :
+    decodeTypeShapeV1 c = .ok (shape, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeTypeShapeV1_eq_of_bodyV1 c shape c' hdepth hbody
+
+example (c afterMarker : Cursor) (decode : Decoder UInt32)
+    (hmarker : decodeU8 c = .ok (0, afterMarker)) :
+    decodeOption decode c = .ok (none, afterMarker) :=
+  decodeOption_noneV1 decode c afterMarker hmarker
+
+example (want : String) (fieldCount offset : Nat) (c : Cursor)
+    (hread : expectTaggedHeaderBytesAtV1 c.input c.offset want.toUTF8 fieldCount =
+      .ok offset) :
+    expectTag want fieldCount c = .ok ((), ⟨c.input, offset, c.nesting⟩) :=
+  expectTag_eq_of_headerV1 want fieldCount c offset hread
+
+example (c afterTag afterId afterName afterShape : Cursor)
+    (id : UInt32) (name : Option String) (shape : TypeShapeV1)
+    (htag : expectTag "TypeDecl" 3 c = .ok ((), afterTag))
+    (hid : decodeU32le afterTag = .ok (id, afterId))
+    (hname : decodeOption decodeString afterId = .ok (name, afterName))
+    (hshape : decodeTypeShapeV1 afterName = .ok (shape, afterShape)) :
+    decodeTypeDeclBodyV1 c = .ok ({ id, name, shape }, afterShape) :=
+  decodeTypeDeclBodyV1_eq_of_fields c afterTag afterId afterName afterShape
+    id name shape htag hid hname hshape
+
+example (c c' : Cursor) (decl : TypeDeclV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeTypeDeclBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (decl, c')) :
+    decodeTypeDeclV1 c = .ok (decl, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeTypeDeclV1_eq_of_bodyV1 c decl c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

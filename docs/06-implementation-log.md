@@ -11438,3 +11438,22 @@ normative: false
   review批准。
 - Boundary：本切片只提供root types组合前置层；nullary shape/TypeDecl/root types array与完整carrier
   尚未组合，formal TASK/TST状态不变。
+
+## 2026-08-01 — D2-07 nullary TypeShape composition
+
+- Proof：为sole production TypeShape body建立Bool/Principal/Unit三条nullary success theorem；premise
+  必须来自真实`decodeTag`与zero `decodeFieldCount`。再以`decodeTypeShapeV1_eq_of_bodyV1`穿过真实
+  nesting gate，保留body input/offset并恢复parent depth。
+- Tests：kernel signature examples固定三条branch theorem与body→wrapper theorem；focused build及
+  blocker review通过。错误路径继续由通用`withTaggedNesting_eqV1`完整表达，不复制专用decoder。
+- Boundary：其余九个TypeShape分支、TypeDecl、root types array、完整carrier及formal TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 TypeDecl production composition
+
+- Production：将TypeDecl原anonymous body机械抽为sole `decodeTypeDeclBodyV1`，public decoder仍由一次
+  `withTaggedNesting`包装，field顺序保持tag→id→name→shape。
+- Proof：新增expected tagged-header→cursor、canonical Option marker 0→none、TypeDecl四字段success及
+  body→parent nesting composition；所有premise均来自真实production decoder equality，不绕过tag/count/
+  scalar/shape validation。kernel signature examples、focused suite与blocker review通过。
+- Boundary：canonical unnamed Bool/Principal/Unit TypeDecl现可逐项证明；root types array、其余shape、
+  完整carrier及formal TASK/TST仍pending。
