@@ -11544,3 +11544,36 @@ normative: false
   corollary复用真实`maxTableElements` count与sole iterator。focused build与signature examples通过。
 - Boundary：callableId引用合法性仍属于structure gate；CallableV1、完整root/carrier与formal TASK/TST
   仍pending。
+
+## 2026-08-01 — D2-07 Callable root proof scaffold
+
+- Production：将Callable原anonymous decoder机械抽为sole `decodeCallableBodyV1`，public decoder仍由一次
+  `withTaggedNesting`包装；九字段顺序固定为id/kind/name/params/result/entryBlock/blocks/loopBounds/
+  invariantSteps，各原有限额不变。
+- Proof：body theorem线程九个真实production field equality，wrapper恢复parent nesting，root callables
+  corollary复用真实`maxTableElements` count与sole iterator。focused build、signature examples与blocker
+  review通过。
+- Boundary：这是scaffold；Block/Instruction/Op、callable kind/result等nested proof、完整carrier与formal
+  TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 CallableKind and present-option composition
+
+- Production：将CallableKind原anonymous body机械命名为sole `decodeCallableKindBodyV1`，public decoder仍
+  只由一次`withTaggedNesting`包装；initializer/entry/view/pureFn/invariant五个runtime分支及
+  tag→field-count→branch错误顺序不变。
+- Proof：通用`decodeOption_someV1`组合真实marker 1与真实payload decoder，payload只从post-marker cursor
+  执行并返回其完整cursor；CallableKind为canonical fixture所需entry/pureFn/invariant建立真实tag与
+  zero-field-count branch theorem，再组合nesting并恢复parent depth。kernel examples、focused build与
+  blocker review通过。
+- Boundary：initializer/view仍由production runtime支持，但branch proof按需pending；CallableResult、
+  Block、Terminator、Instruction/Op、完整carrier与formal `InvariantTheoremV1`/TASK/TST仍pending。
+
+## 2026-08-01 — D2-07 CallableResult production composition
+
+- Production：将CallableResult原anonymous body机械命名为sole `decodeCallableResultBodyV1`，public decoder
+  仍由一次`withTaggedNesting`包装；expected tag/field count→TypeId→Visibility顺序与错误语义不变。
+- Proof：field theorem只组合真实production decoder equality并线程exact cursors；wrapper theorem在body
+  success后保留input/offset、恢复parent depth。canonical public result的所有TypeId均可复用；focused
+  build、kernel signature examples与blocker review通过。
+- Boundary：这是transport composition，不提前证明TypeId引用或callable signature结构合法；optional
+  name/steps、Block、Terminator、Instruction/Op、完整carrier与formal TASK/TST仍pending。

@@ -445,6 +445,67 @@ example (c : Cursor) (count offset : Nat) (invariants : Array InvariantDeclV1)
   decodeInvariantDeclArrayV1_eq_of_elements c count offset invariants afterInvariants
     hcount helements
 
+example (c c' : Cursor) (callable : CallableV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (callable, c')) :
+    decodeCallableV1 c = .ok (callable, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeCallableV1_eq_of_bodyV1 c callable c' hdepth hbody
+
+example (c : Cursor) (count offset : Nat) (callables : Array CallableV1)
+    (afterCallables : Cursor)
+    (hcount : readArrayCountAtV1 c.input c.offset maxTableElements = .ok (count, offset))
+    (helements : decodeArrayElementsV1 decodeCallableV1 count #[]
+      ⟨c.input, offset, c.nesting⟩ = .ok (callables, afterCallables)) :
+    decodeArray maxTableElements decodeCallableV1 c = .ok (callables, afterCallables) :=
+  decodeCallableArrayV1_eq_of_elements c count offset callables afterCallables hcount helements
+
+example (c afterMarker afterValue : Cursor) (decode : Decoder UInt32) (value : UInt32)
+    (hmarker : decodeU8 c = .ok (1, afterMarker))
+    (hvalue : decode afterMarker = .ok (value, afterValue)) :
+    decodeOption decode c = .ok (some value, afterValue) :=
+  decodeOption_someV1 decode c afterMarker afterValue value hmarker hvalue
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.Entry", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.entry, afterFields) :=
+  decodeCallableKindBodyV1_entry c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.PureFn", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.pureFn, afterFields) :=
+  decodeCallableKindBodyV1_pureFn c afterTag afterFields htag hfields
+
+example (c afterTag afterFields : Cursor)
+    (htag : decodeTag c = .ok ("Callable.Invariant", afterTag))
+    (hfields : decodeFieldCount 0 afterTag = .ok ((), afterFields)) :
+    decodeCallableKindBodyV1 c = .ok (.invariant, afterFields) :=
+  decodeCallableKindBodyV1_invariant c afterTag afterFields htag hfields
+
+example (c c' : Cursor) (kind : CallableKindV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableKindBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (kind, c')) :
+    decodeCallableKindV1 c = .ok (kind, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeCallableKindV1_eq_of_bodyV1 c kind c' hdepth hbody
+
+example (c afterTag afterType afterVisibility : Cursor) (typeId : UInt32)
+    (visibility : VisibilityV1)
+    (htag : expectTag "CallableResult" 2 c = .ok ((), afterTag))
+    (htype : decodeU32le afterTag = .ok (typeId, afterType))
+    (hvisibility : decodeVisibilityV1 afterType = .ok (visibility, afterVisibility)) :
+    decodeCallableResultBodyV1 c = .ok ({ typeId, visibility }, afterVisibility) :=
+  decodeCallableResultBodyV1_eq_of_fields c afterTag afterType afterVisibility typeId
+    visibility htag htype hvisibility
+
+example (c c' : Cursor) (result : CallableResultV1)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeCallableResultBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (result, c')) :
+    decodeCallableResultV1 c = .ok (result, ⟨c'.input, c'.offset, c.nesting⟩) :=
+  decodeCallableResultV1_eq_of_bodyV1 c result c' hdepth hbody
+
 example :
     (decodeU8 (start (ByteArray.mk [0x10, 0x20].toArray))).map
         (fun (byte, cursor) => (byte, remaining cursor, cursorNesting cursor)) =

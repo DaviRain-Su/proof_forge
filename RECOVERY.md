@@ -345,6 +345,24 @@ theorem固定tag→id→name→callableId，wrapper恢复parent nesting；root a
 `maxTableElements` header与sole iterator。callableId的structure join仍由后续structure gate负责，transport
 proof不提前验证引用。
 
+root callables scaffold现已闭合：Callable anonymous body机械抽为sole production body，九字段顺序固定为
+id→kind→name→params→result→entryBlock→blocks→loopBounds→invariantSteps，public decoder仍仅一层
+tagged nesting；root array corollary锁定`maxTableElements`。本切片只接受nested production decoder
+success premise，不宣称Block/Instruction/Op已完成proof。
+
+CallableKind canonical composition现已闭合：通用`decodeOption_someV1`要求真实marker reader解出1，
+再从exact post-marker cursor执行真实payload decoder并保留其结果cursor；CallableKind原anonymous body
+机械抽为sole production body，tag→zero field-count顺序及initializer/entry/view/pureFn/invariant五个runtime
+分支均不变。当前branch theorem只覆盖fixture所需entry/pureFn/invariant，再经唯一tagged-nesting wrapper
+恢复parent depth；initializer/view proof按需pending。下一步依次闭合empty params/loopBounds、
+CallableResult、optional name/steps，再进入Block、Terminator与fixture所需Instruction/Op。
+
+CallableResult composition现已闭合：原anonymous decoder body机械抽为sole production body，public decoder
+仍由一次tagged nesting包装；field theorem严格线程expected CallableResult/2 header→u32 TypeId→真实
+Visibility decoder，wrapper保留body input/offset并恢复parent depth。该transport theorem覆盖canonical
+public result，但TypeId引用合法性仍由structure gate负责。empty params/loopBounds可直接复用zero-array；
+下一步组合optional name/steps，再进入Block与fixture所需terminator/instruction/op。
+
 PureCall frame保持root invocation的initializer身份，Unit pureFn的`return none`在caller所需result
 slot中绑定canonical empty Unit；Unit/non-Unit错误return shape继续trap `invalidCore`。因此initializer
 经过任意PureCall frame成功返回后仍发布`initialized=true`。
